@@ -2,6 +2,7 @@ import AppKit
 import Bonsplit
 import CmuxAuthRuntime
 import Testing
+import SwiftUI
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -17,6 +18,43 @@ import Testing
 /// appears behind the current one and Cmd+T looks like it did nothing.
 @MainActor
 @Suite(.serialized) struct SurfacePaneFactoryFocusTests {
+    @Test(arguments: ["right", "down"])
+    func routedCloudSplitIsAcceptedBeforeItsPanelExists(directionName: String) async throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let panelID = try #require(workspace.focusedPanelId)
+        let manager = try #require(harness.appDelegate.tabManagerFor(windowId: harness.windowId))
+        let window = try #require(NSApp.windows.first { $0.identifier?.rawValue == "cmux.main.\(harness.windowId.uuidString)" })
+        let machine = SurfaceMachineID.cloud("split-action-\(UUID().uuidString)")
+        let provider = CloudCreationProvider(machine: machine, workingDirectory: nil, creationError: CloudDiagnosticFailure.network)
+        let catalog = SurfaceCatalog.shared
+        catalog.register(provider)
+        defer { catalog.unregister(machine: machine) }
+        let remote = SurfaceRemoteWorkspace(id: "ws-source", name: "source", index: 0, focused: true)
+        let resource = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term-source"),
+            title: "shell", detail: nil, lifecycle: .running, agent: nil,
+            remoteWorkspace: remote, remoteViews: [SurfaceRemoteView(tabID: "tab-source", workspace: remote)],
+            port: nil, url: nil
+        )
+        catalog.upsert(resource, from: provider)
+        catalog.record(SurfaceProjection(
+            resource: resource.id, workspaceID: workspace.id, panelID: panelID,
+            remoteWorkspaceID: remote.id, remoteTabID: "tab-source"
+        ))
+        let direction: SplitDirection = directionName == "right" ? .right : .down
+
+        let accepted = harness.appDelegate.performSplitShortcut(direction: direction, preferredWindow: window)
+        // Menu and palette callers use this fallback when the shared action says it failed.
+        if !accepted { _ = manager.createSplit(direction: direction) }
+        await provider.creationAttemptSignal.wait()
+        await waitForFailure(workspace.cloudPaneCreationFailureStore)
+
+        #expect(accepted)
+        #expect(provider.creationRequestCount == 1)
+    }
+
     @Test func focusedTabIsSelectedOutsideASocketCommand() throws {
         let harness = try Harness()
         defer { harness.tearDown() }
@@ -137,18 +175,25 @@ import Testing
         }
 
         #expect(NSApp.modalWindow == nil)
-        let failure = try #require(workspace.cloudPaneCreationFailureStore.failure)
-        #expect(failure.machine == machine)
-        #expect(failure.errorText == error.errorDescription)
+        #expect(workspace.cloudPaneCreationFailureStore.failure == nil, "A reserved terminal owns its error; no duplicate source-pane card")
+        let panelID = try #require(workspace.cloudMaterializationFailures.keys.first)
+        #expect(panelID != sourcePanelID)
+        #expect(workspace.cloudMaterializationFailures.count == 1)
+        let failure = try #require(workspace.cloudMaterializationFailures[panelID])
+        #expect(failure.detail == error.errorDescription)
         let operation = try #require(recorder.operations.first)
         #expect(operation.operation == .terminal)
         #expect(operation.failure == .notFound)
-        #expect(failure.copyableText.contains(operation.traceID))
+        #expect(failure.reference?.contains(operation.traceID) == true)
         let spans = await diagnostics.spans
         #expect(spans.contains { $0.parentSpanId == nil && $0.failure == .notFound && $0.traceId == operation.traceID })
-
-        workspace.cloudPaneCreationFailureStore.dismiss(id: failure.id)
-        #expect(workspace.cloudPaneCreationFailureStore.failure == nil)
+        var requestIterator = provider.creationRequests.stream.makeAsyncIterator()
+        let firstRequest = await requestIterator.next()
+        #expect(workspace.retryReservedCloudTerminalPane(surfaceId: panelID))
+        let retryRequest = await requestIterator.next()
+        #expect(firstRequest != nil)
+        #expect(retryRequest == firstRequest)
+        workspace.cloudPaneCreationFailureStore.cancelAll()
     }
 
     @Test("Provider and placement failures retain safe error categories")
@@ -231,6 +276,16 @@ import Testing
         #expect(card() == nil)
     }
 
+    @Test("Failure text uses the full width in narrow terminals", arguments: [CGFloat(166), 260, 360])
+    func narrowFailureCardRemainsReadable(width: CGFloat) {
+        let failure = CloudPaneCreationFailure(machine: .cloud("narrow-pane"), error: CmuxTuiSurfaceProvider.ProviderError.stateUnavailable("narrow-pane"))
+        let host = NSHostingView(rootView: CloudPaneCreationFailureView(failure: failure, onRetry: {}, onDismiss: {})
+            .frame(width: width).fixedSize(horizontal: false, vertical: true))
+        let size = host.fittingSize
+        #expect(abs(size.width - width) < 1)
+        #expect(size.height < 210, "The detail must not be squeezed into a side column")
+    }
+
     /// Ensures a suspended older request cannot replace a newer request's failure.
     @Test("Superseded cloud pane failures are ignored")
     func supersededCloudPaneFailureDoesNotReplaceCurrentRequest() throws {
@@ -243,6 +298,23 @@ import Testing
         #expect(store.failure == nil)
         store.present(machine: .cloud("new"), error: error, requestID: second)
         #expect(store.failure?.machine == .cloud("new"))
+    }
+
+    @Test("Cloud placement failures remain inline and dismissible")
+    func cloudPlacementFailureDoesNotOpenAModal() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let machine = SurfaceMachineID.cloud("placement-fixture")
+
+        workspace.presentCloudPlacementFailure(CloudDiagnosticFailure.network, machine: machine)
+
+        #expect(NSApp.modalWindow == nil)
+        let failure = try #require(workspace.cloudPaneCreationFailureStore.failure)
+        #expect(failure.machine == machine)
+        #expect(failure.title == String(localized: "cloudPane.layoutSyncFailed.title", defaultValue: "Couldn’t update the machine workspace"))
+        workspace.cloudPaneCreationFailureStore.dismiss(id: failure.id)
+        #expect(workspace.cloudPaneCreationFailureStore.failure == nil)
     }
 
     @Test("Cloud process cwd parsing ignores the recorded spawn directory")
@@ -270,6 +342,8 @@ import Testing
 
         let creationError: Error?
         let creationAttemptSignal = CreationAttemptSignal()
+        let creationRequests = AsyncStream<UUID>.makeStream()
+        private(set) var creationRequestCount = 0
 
         /// Creates a provider fixture with optional deterministic creation failure.
         init(machine: SurfaceMachineID, workingDirectory: String?, creationError: Error? = nil) {
@@ -309,6 +383,12 @@ import Testing
                 port: nil,
                 url: nil
             )
+        }
+
+        func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, request: CloudTerminalCreationRequest) async throws -> SurfaceResource {
+            creationRequestCount += 1
+            creationRequests.continuation.yield(request.id)
+            return try await createTerminal(command: command, cwd: cwd, name: name, remoteWorkspaceID: remoteWorkspaceID)
         }
 
         @MainActor
@@ -432,6 +512,11 @@ import Testing
         #expect(workspace.focusedPanelId == before)
         let selectedSurface = try #require(workspace.bonsplitController.selectedTab(inPane: paneID)?.id)
         #expect(workspace.panelIdFromSurfaceId(selectedSurface) == before)
+    }
+
+    private func waitForFailure(_ store: CloudPaneCreationFailureStore) async {
+        let deadline = ContinuousClock.now + .seconds(2)
+        while store.failure == nil, ContinuousClock.now < deadline { await Task.yield() }
     }
 
     @MainActor

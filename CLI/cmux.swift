@@ -4995,9 +4995,8 @@ struct CMUXCLI {
 
         let command = args[index]
         let rawCommandArgs = Array(args[(index + 1)...])
-        if command == "__codex-teams-app-server-supervisor" {
-            let status = try CodexTeamsAppServerSupervisor(arguments: rawCommandArgs).run()
-            exit(status)
+        if let supervisor = try OwnedProcessSupervisor(command: command, arguments: rawCommandArgs) {
+            exit(try supervisor.run())
         }
         // `cmux cr ...` is always the CodeRouter CLI, bootstrapped on first use
         // when this machine has none (CMUXCLI+CoderouterPassthrough.swift).
@@ -5540,6 +5539,29 @@ struct CMUXCLI {
         case "vpn":
             try runVPNCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
 
+        case "billing":
+            let (planOption, rest) = parseOption(Array(commandArgs.dropFirst()), name: "--plan")
+            guard let plan = planOption, commandArgs.first == "checkout", ["go", "pro", "max"].contains(plan), rest.allSatisfy({ $0 == "--no-open" }) else {
+                throw CLIError(message: "Usage: cmux billing checkout --plan <go|pro|max> [--no-open]")
+            }
+            let response = try client.sendV2(method: "vm.billing_checkout", params: ["plan": plan])
+            guard let url = response["url"] as? String else {
+                throw CLIError(message: "Checkout URL is missing. Open https://cmux.com/pricing.")
+            }
+            if !rest.contains("--no-open") && !jsonOutput {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: openToolPath())
+                process.arguments = [url]
+                try process.run()
+                process.waitUntilExit()
+            }
+            if jsonOutput {
+                print(jsonString(response))
+            } else {
+                print(url)
+                print("Review the plan and price in your browser. After payment, retry your VM command.")
+            }
+
         case "auth", "login", "logout":
             let authArgs = command == "auth" ? commandArgs : [command] + commandArgs
             let sub = authArgs.first?.lowercased() ?? "status"
@@ -5926,7 +5948,7 @@ struct CMUXCLI {
                             vm new: unknown size '\(sizeOpt)'.
 
                             Sizes: 4g, 8g, 16g, 24g, 32g, 64g (or memory in MB).
-                            Plans cap the largest size; `cmux vm ls` shows your plan.
+                            Pro starts 4g to 24g; 32g and 64g need cmux Max. `cmux vm ls` shows your plan.
                             """)
                     }
                     memoryMb = parsed
@@ -5942,7 +5964,7 @@ struct CMUXCLI {
                         vm new: unknown flag '\(unknown)'.
 
                         Known flags:
-                          --size <4g|8g|16g|24g|32g|64g>
+                          --size <4g|8g|16g|24g|32g|64g>  4g to 24g on Pro; 32g and 64g need cmux Max
                           --desktop, --base  \(String(localized: "cli.vm.help.legacyKindFlags", defaultValue: "accepted for older scripts; every machine has a screen"))
                           --name <label>    display label (the id stays the address)
                           --image <image-id>  explicit image override (normally omit)
@@ -12746,6 +12768,17 @@ struct CMUXCLI {
 
     private func effectiveSSHOptions(_ options: [String], remoteRelayPort: Int? = nil) -> [String] {
         var merged = sshOptionsWithControlSocketDefaults(options, remoteRelayPort: remoteRelayPort)
+        if remoteRelayPort != nil {
+            // Relay-controlled input is delivered to the local OpenSSH PTY.
+            // Disable OpenSSH escape commands so a remote caller cannot turn
+            // `surface.send_text`/`send_key` into `~!` local command execution,
+            // suspend the SSH client, or enter its local command line.
+            let resolver = SSHAgentSocketResolver()
+            merged = resolver.removingOptions(named: "EscapeChar", from: merged)
+            merged = resolver.removingOptions(named: "EnableEscapeCommandline", from: merged)
+            merged.append("EscapeChar=none")
+            merged.append("EnableEscapeCommandline=no")
+        }
         if !hasSSHOptionKey(merged, key: "StrictHostKeyChecking") {
             merged.append("StrictHostKeyChecking=accept-new")
         }
@@ -14170,6 +14203,7 @@ struct CMUXCLI {
         var attempt = 0
         let maxAttempts = 8
         while true {
+            try ensureCloudFeatureEnabledForPty()
             let bridge = VMPtyWebSocketBridge(config: config, debugEvent: debugEvent)
             let startedAt = Date()
             var bridgeError: Error?
@@ -14250,7 +14284,6 @@ struct CMUXCLI {
             attachmentId: endpoint.attachmentId
         )
     }
-
     private func runVMPtyConnect(commandArgs: [String]) throws {
         // `DisableCloud` (MDM): this verb dials the Cloud PTY directly from a
         // pre-minted config, before any socket gate could refuse it, so it
@@ -14261,6 +14294,7 @@ struct CMUXCLI {
                 defaultValue: "Cloud Machines are disabled by your administrator."
             ))
         }
+        try ensureCloudFeatureEnabledForPty()
         let (configPath, rem0) = parseOption(commandArgs, name: "--config")
         let (vmIDOpt, remaining) = parseOption(rem0, name: "--id")
         if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
@@ -14283,7 +14317,6 @@ struct CMUXCLI {
         }()
         try runVMPtyBridgeWithReconnect(initialConfig: config, vmID: vmID, debugEvent: debugEvent)
     }
-
     private func runVMPtyAttach(commandArgs: [String], client: SocketClient) throws {
         let (vmIDOpt, rem0) = parseOption(commandArgs, name: "--id")
         let (sessionIDOpt, rem1) = parseOption(rem0, name: "--session")
@@ -18350,6 +18383,8 @@ struct CMUXCLI {
             never leave this Mac. Signed builds fail closed if the Network
             Extension is absent. There is no privileged fallback.
             """
+        case "billing":
+            return "Usage: cmux billing checkout --plan <go|pro|max> [--no-open]\n\nCreate checkout for the signed-in cmux account. Max is $200/month. Payment requires browser confirmation. --no-open or --json returns the URL without opening a browser."
         case "auth":
             return """
             Usage: cmux auth <status|login|logout>

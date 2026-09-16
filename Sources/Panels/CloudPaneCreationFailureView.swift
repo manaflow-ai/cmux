@@ -21,9 +21,13 @@ struct CloudPaneCreationFailurePresentation: ViewModifier {
     /// Adds the failure card above the workspace content when a failure exists.
     func body(content: Content) -> some View {
         content.background {
-            NativeOverlay(failure: isWorkspaceVisible ? failureStore.failure : nil, sourceView: sourceView, style: style) { id in
-                failureStore.dismiss(id: id)
-            }
+            NativeOverlay(
+                failure: isWorkspaceVisible ? failureStore.failure : nil,
+                sourceView: sourceView,
+                style: style,
+                onRetry: failureStore.canRetry ? { id in failureStore.retry(id: id) } : nil,
+                onDismiss: { id in failureStore.dismiss(id: id) }
+            )
         }
     }
 
@@ -33,6 +37,7 @@ struct CloudPaneCreationFailurePresentation: ViewModifier {
         let failure: CloudPaneCreationFailure?
         let sourceView: NSView?
         let style: CloudPaneCreationFailureView.Style
+        let onRetry: ((UUID) -> Void)?
         let onDismiss: (UUID) -> Void
 
         func makeCoordinator() -> Coordinator { Coordinator() }
@@ -51,6 +56,7 @@ struct CloudPaneCreationFailurePresentation: ViewModifier {
                 colorScheme: context.environment.colorScheme,
                 sourceView: sourceView,
                 style: style,
+                onRetry: onRetry,
                 onDismiss: onDismiss
             )
         }
@@ -95,6 +101,7 @@ struct CloudPaneCreationFailurePresentation: ViewModifier {
             weak var anchor: AnchorView?
             private var failure: CloudPaneCreationFailure?
             private var onDismiss: ((UUID) -> Void)?
+            private var onRetry: ((UUID) -> Void)?
             private var layoutDirection: LayoutDirection = .leftToRight
             private var colorScheme: ColorScheme = .light
             private var card: NSHostingView<AnyView>?
@@ -112,6 +119,7 @@ struct CloudPaneCreationFailurePresentation: ViewModifier {
                 colorScheme: ColorScheme,
                 sourceView: NSView?,
                 style: CloudPaneCreationFailureView.Style,
+                onRetry: ((UUID) -> Void)?,
                 onDismiss: @escaping (UUID) -> Void
             ) {
                 self.failure = failure
@@ -119,6 +127,7 @@ struct CloudPaneCreationFailurePresentation: ViewModifier {
                 self.colorScheme = colorScheme
                 self.sourceView = sourceView
                 self.style = style
+                self.onRetry = onRetry
                 self.onDismiss = onDismiss
                 synchronize()
             }
@@ -180,12 +189,14 @@ struct CloudPaneCreationFailurePresentation: ViewModifier {
                     removeCard()
                     return
                 }
-                let width = min(style == .dialog ? 320 : 360, bounds.width - 32)
+                let width = min(style == .dialog ? 320 : 360, bounds.width - 24)
                 let nextRender = RenderState(failure: failure, width: width, layoutDirection: layoutDirection, colorScheme: colorScheme, style: style)
                 let root = AnyView(
-                    CloudPaneCreationFailureView(failure: failure, style: style) { [weak self] in
-                        self?.onDismiss?(failure.id)
-                    }
+                    CloudPaneCreationFailureView(
+                        failure: failure, style: style,
+                        onRetry: onRetry == nil ? nil : { [weak self] in self?.onRetry?(failure.id) },
+                        onDismiss: { [weak self] in self?.onDismiss?(failure.id) }
+                    )
                     .environment(\.layoutDirection, layoutDirection)
                     .environment(\.colorScheme, colorScheme)
                     .frame(width: width)
@@ -224,135 +235,112 @@ struct CloudPaneCreationFailurePresentation: ViewModifier {
     }
 }
 
-/// Centered terminal failure designs. DEBUG can compare the alternatives;
-/// the compact card is the release default until the design is selected.
+/// A workspace failure and a reserved terminal use the same responsive content.
 struct CloudPaneCreationFailureView: View {
-    enum Style: String, Equatable { case compact, dialog, inline }
-
+    typealias Style = CloudFailureCard.Style
     let failure: CloudPaneCreationFailure
     var style: Style = .compact
+    var onRetry: (() -> Void)? = nil
     let onDismiss: () -> Void
 
     var body: some View {
-        Group {
-            switch style {
-            case .compact:
-                CompactCard(failure: failure, onDismiss: onDismiss)
-            case .dialog:
-                DialogCard(failure: failure, onDismiss: onDismiss)
-            case .inline:
-                InlineCard(failure: failure, onDismiss: onDismiss)
-            }
-        }
-        .accessibilityIdentifier("CloudPaneCreationFailure")
-        .cloudErrorCopyMenu(failure.copyableText)
+        CloudFailureCard(
+            title: failure.displayTitle, detail: failure.errorText,
+            copyableText: failure.copyableText, style: style,
+            onRetry: onRetry, onDismiss: onDismiss
+        )
     }
+}
 
-    private struct Heading: View {
-        var body: some View {
-            Text(String(localized: "cloudPane.newTerminalFailed.shortTitle", defaultValue: "Couldn’t open terminal"))
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.primary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
+/// Text takes the entire card width. The close control cannot compress the body
+/// into a narrow column, and copying remains a contextual troubleshooting action.
+struct CloudFailureCard: View {
+    enum Style: String, Equatable { case compact, dialog, inline }
+    let title: String
+    let detail: String
+    let copyableText: String
+    var style: Style = .compact
+    var onRetry: (() -> Void)? = nil
+    let onDismiss: () -> Void
 
-    private struct Detail: View {
-        let text: String
-        var body: some View {
-            Text(text)
+    var body: some View {
+        VStack(alignment: style == .dialog ? .center : .leading, spacing: 10) {
+            Header(title: title, style: style, onDismiss: onDismiss)
+            Text(detail)
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
+                .multilineTextAlignment(style == .dialog ? .center : .leading)
+                .frame(maxWidth: .infinity, alignment: style == .dialog ? .center : .leading)
                 .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
+            if let onRetry {
+                Button(String(localized: "common.retry", defaultValue: "Retry"), action: onRetry)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .fixedSize()
+                    .accessibilityIdentifier("CloudPaneCreationFailureRetry")
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: style == .dialog ? .center : .leading)
+        .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: style == .inline ? 3 : 9))
+        .overlay {
+            if style != .inline {
+                RoundedRectangle(cornerRadius: 9).strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
+            }
+        }
+        .overlay(alignment: .leading) {
+            if style == .inline { Rectangle().fill(Color.secondary.opacity(0.35)).frame(width: 2) }
+        }
+        .shadow(color: .black.opacity(style == .inline ? 0 : 0.09), radius: 8, y: 3)
+        .accessibilityIdentifier("CloudPaneCreationFailure")
+        .cloudErrorCopyMenu(copyableText)
+    }
+
+    private struct Header: View {
+        let title: String
+        let style: Style
+        let onDismiss: () -> Void
+        var body: some View {
+            VStack(spacing: 8) {
+                if style == .dialog {
+                    HStack {
+                        Image(systemName: "terminal")
+                            .font(.system(size: 20, weight: .regular))
+                            .foregroundStyle(.secondary)
+                            .accessibilityHidden(true)
+                        Spacer(minLength: 8)
+                        DismissButton(onDismiss: onDismiss)
+                    }
+                }
+                HStack(alignment: .top, spacing: 8) {
+                    Text(title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .multilineTextAlignment(style == .dialog ? .center : .leading)
+                        .frame(maxWidth: .infinity, alignment: style == .dialog ? .center : .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .layoutPriority(1)
+                    if style != .dialog { DismissButton(onDismiss: onDismiss) }
+                }
+            }
         }
     }
 
-    private struct Actions: View {
+    private struct DismissButton: View {
         let onDismiss: () -> Void
         var body: some View {
             Button(action: onDismiss) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: 10, weight: .medium))
                     .frame(width: 20, height: 20)
-                    .contentShape(Circle())
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
-            .background(.quaternary, in: Circle())
+            .fixedSize()
             .keyboardShortcut(.cancelAction)
+            .help(String(localized: "machines.pending.dismiss", defaultValue: "Dismiss"))
             .accessibilityLabel(String(localized: "machines.pending.dismiss", defaultValue: "Dismiss"))
             .accessibilityIdentifier("CloudPaneCreationFailureDismiss")
-        }
-    }
-
-    private struct CompactCard: View {
-        let failure: CloudPaneCreationFailure
-        let onDismiss: () -> Void
-        var body: some View {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: "exclamationmark.circle")
-                        .font(.system(size: 17))
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 1)
-                        .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 5) {
-                        Heading()
-                        Detail(text: failure.errorText)
-                    }
-                    Spacer(minLength: 4)
-                    Actions(onDismiss: onDismiss)
-                }
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 9))
-            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5))
-            .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
-        }
-    }
-
-    private struct DialogCard: View {
-        let failure: CloudPaneCreationFailure
-        let onDismiss: () -> Void
-        var body: some View {
-            VStack(spacing: 12) {
-                Image(systemName: "terminal")
-                    .font(.system(size: 28, weight: .light))
-                    .foregroundStyle(.secondary)
-                    .padding(.bottom, 2)
-                    .accessibilityHidden(true)
-                Heading()
-                Detail(text: failure.errorText)
-                    .multilineTextAlignment(.center)
-                Divider().padding(.vertical, 2)
-                Actions(onDismiss: onDismiss)
-            }
-            .padding(22)
-            .frame(maxWidth: .infinity)
-            .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5))
-            .shadow(color: .black.opacity(0.16), radius: 20, y: 6)
-        }
-    }
-
-    private struct InlineCard: View {
-        let failure: CloudPaneCreationFailure
-        let onDismiss: () -> Void
-        var body: some View {
-            VStack(alignment: .leading, spacing: 10) {
-                Heading()
-                Detail(text: failure.errorText)
-                Divider().padding(.vertical, 2)
-                Actions(onDismiss: onDismiss)
-            }
-            .padding(20)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(nsColor: .textBackgroundColor))
-            .overlay(alignment: .leading) {
-                Rectangle().fill(Color.secondary.opacity(0.5)).frame(width: 2)
-            }
         }
     }
 }

@@ -53,7 +53,7 @@ The iOS composition root also sends important fixed-enum events through a
 dedicated `AnalyticsEmitter` to `/api/observability/mobile-network`. This is
 separate from the PostHog product emitter. The authenticated route rejects
 unknown properties, stamps the authoritative Stack user ID, and emits one
-always-sampled `cmux.mobile.network.outcome` OpenTelemetry span per accepted
+always-sampled `cmux.mobile.connectivity.latency` OpenTelemetry span per accepted
 event. The existing server exporter writes those spans to Axiom. No Axiom
 credential ships in the app.
 

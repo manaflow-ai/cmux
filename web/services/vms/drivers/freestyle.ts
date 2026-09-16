@@ -11,6 +11,7 @@ import {
 } from "freestyle";
 
 import { createHash, randomBytes } from "node:crypto";
+import { isIP } from "node:net";
 import { Effect } from "effect";
 import { announceFreestyleNetwork } from "./freestyleNetworkAnnouncement";
 import { guestResourceReporterInstallCommand } from "../guestResourceReporter";
@@ -46,6 +47,7 @@ import {
   devboxDesktopOpenUrl,
 } from "../images/desktop";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
+import { parseSshPublicKey, scpPrepareCommand, SCP_KEY_TTL_SECONDS } from "./scp";
 import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH } from "../guestCli";
 import { guestPromptInstallCommand, type GuestPromptIdentity } from "../guestPrompt";
 import {
@@ -143,7 +145,6 @@ export const PORT_OPEN_LEASE_TTL_SECONDS = 7 * 24 * 60 * 60;
 /** Bounds the blocking `systemctl start` of the desktop unit (its own TimeoutStartSec is 120 s). */
 const DESKTOP_HEAL_TIMEOUT_MS = 90_000;
 export const FREESTYLE_ATTACH_TRANSPORT: AttachTransport = "cmux-remote";
-
 /**
  * Every guest command the driver runs is administrative — systemd, sudoers, the
  * daemon install — so it runs as root. The 0.2 API's `linuxUser` default is
@@ -197,8 +198,8 @@ export function preconnectFreestyle(): void {
 
 /** Exported for the publication provider, which shares this account-wide client. */
 export function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
-  const longFetch: typeof fetch = (input, init) =>
-    fetch(input as Request, { ...(init ?? {}), signal: AbortSignal.timeout(timeoutMs) });
+  const longFetch = ((input: URL | RequestInfo, init?: RequestInit) =>
+    fetch(input as Request, { ...(init ?? {}), signal: AbortSignal.timeout(timeoutMs) })) as typeof fetch;
   const baseUrl = process.env.FREESTYLE_API_URL?.trim() || undefined;
   const apiKey = process.env.FREESTYLE_API_KEY?.trim();
   if (apiKey) return new Freestyle({ apiKey, baseUrl, fetch: longFetch });
@@ -407,8 +408,8 @@ export function freestyleNetworkAddressMetadata(
   const ipv4 = network?.ipv4?.trim();
   const ipv6 = network?.ipv6?.trim();
   return {
-    ...(ipv4 ? { networkIpv4: ipv4 } : {}),
-    ...(ipv6 ? { networkIpv6: ipv6 } : {}),
+    ...(ipv4 && isIP(ipv4) === 4 ? { networkIpv4: ipv4 } : {}),
+    ...(ipv6 && isIP(ipv6) === 6 ? { networkIpv6: ipv6 } : {}),
   };
 }
 
@@ -891,7 +892,7 @@ export function freestyleSnapshotRef(snapshot: SnapshotData): SnapshotRef {
 export class FreestyleProvider implements VMProvider {
   readonly id = "freestyle" as const;
 
-  /** The only session transport: the cmux-tui remote daemon (`openCmuxRemote`). */
+  /** The normal terminal transport. SSH is an explicit legacy attach verb, not the default. */
   readonly attachTransports: readonly AttachTransport[] = ["cmux-remote"];
 
   /** ``create`` honors requested memory through the grow-only size ladder. */
@@ -907,6 +908,24 @@ export class FreestyleProvider implements VMProvider {
     },
   ) {
     this.privateNetworking = new FreestylePrivateNetworking(this.deps.client);
+  }
+
+  async prepareSCP(vmId: string, publicKey: string): Promise<import("./types").SCPEndpoint> {
+    return withVmSpan("cmux.vm.provider.prepare_scp", "provider", spanAttributes(vmId, "prepare_scp"), async () => {
+      const key = parseSshPublicKey(publicKey);
+      const vm = this.deps.client().vms.ref(vmId);
+      const data = await vm.data();
+      const host = freestylePortAddress(data, vmId);
+      const expires = new Date(Date.now() + SCP_KEY_TTL_SECONDS * 1000);
+      const result = await this.execResult(vm, scpPrepareCommand(key, expires));
+      if (!result || result.exitCode !== 0) {
+        throw new ProviderError("freestyle", `SCP preparation failed in ${vmId}: ${(result?.stderr || "SSH server unavailable").slice(0, 500)}`);
+      }
+      let hostPublicKey: string;
+      try { hostPublicKey = parseSshPublicKey(result.stdout); }
+      catch { throw new ProviderError("freestyle", "SCP preparation returned an invalid guest host key."); }
+      return { host, port: 22, username: "cmux", hostPublicKey, expiresAtUnix: Math.floor(expires.getTime() / 1000) };
+    });
   }
 
   async create(options: CreateOptions): Promise<VMHandle> {
@@ -935,6 +954,9 @@ export class FreestyleProvider implements VMProvider {
             // Do not let an account/provider idle default turn a persistent
             // machine into a one-shot box. Explicit pause/stop still works.
             idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
+            ...(options.runtimeBudgetSeconds !== undefined ? {
+              maxRunTotalSeconds: Math.max(0, Math.floor(options.runtimeBudgetSeconds)), automaticRestart: false,
+            } : {}),
             metadata: { cmux: "cloud" },
             firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId }) },
             ...(networkId ? { vpcs: [{ vpcId: networkId, ipv4: true, ipv6: true }] } : {}),
@@ -945,6 +967,11 @@ export class FreestyleProvider implements VMProvider {
             "cmux.vm.network.private": !!networkId,
           });
           try {
+            // Validate the provider-assigned VPC address without issuing the
+            // guest-side announcement exec. The baked supervisor announces on
+            // clone boot; attach performs the strict announcement before
+            // handing out the private daemon route.
+            if (networkId) await this.announcePrivateAddresses(vm, data, { validateOnly: true });
             if (options.imageSize) {
               // One snapshot per size: the machine already boots at the shape
               // that was sold, so nothing is read back and nothing is grown.
@@ -967,7 +994,12 @@ export class FreestyleProvider implements VMProvider {
             // The in-VM shim is a separate convenience layer over the baked
             // daemon and is installed idempotently for agents and peer links.
             await this.installGuestCli(vm, vmId, options.promptIdentity);
-            await this.announcePrivateAddresses(vm, data);
+            // The baked supervisor announces the VPC interface on clone boot
+            // and every 30 seconds. Waiting for a second guest-side `ip` probe
+            // here made create pay a redundant network round trip and turned
+            // a transient netlink timeout into a destructive rollback. The
+            // attach path performs the strict announcement/readiness check
+            // before handing out the private daemon route.
           } catch (err) {
             // A VM that failed to size or configure must not survive as an
             // orphan, and an undersized machine must not ship as if it were
@@ -1079,6 +1111,20 @@ export class FreestyleProvider implements VMProvider {
         }
       },
     );
+  }
+
+  async setRuntimeBudget(vmId: string, remainingSeconds: number | null): Promise<void> {
+    const vm = this.deps.client(CREATE_TIMEOUT_MS).vms.ref(vmId);
+    if (remainingSeconds === null) {
+      await vm.update({ maxRunTotalSeconds: -1, automaticRestart: true });
+      return;
+    }
+    const data = await vm.data();
+    const used = data.totalRunSeconds;
+    if (typeof used !== "number" || !Number.isFinite(used) || used < 0 || !Number.isFinite(remainingSeconds) || remainingSeconds < 0) {
+      throw new ProviderError("freestyle", "setRuntimeBudget", new Error("Provider runtime counter is unavailable"));
+    }
+    await vm.update({ maxRunTotalSeconds: Math.floor(used + remainingSeconds), automaticRestart: false });
   }
 
   async resume(vmId: string): Promise<VMHandle> {
@@ -1470,12 +1516,16 @@ export class FreestyleProvider implements VMProvider {
     );
   }
 
-  private async announcePrivateAddresses(vm: Vm, data: FreestyleRouteAddresses): Promise<void> {
+  private async announcePrivateAddresses(
+    vm: Vm,
+    data: FreestyleRouteAddresses,
+    options: { readonly validateOnly?: boolean } = {},
+  ): Promise<void> {
     const addresses = (data.vpcs ?? data.networks ?? [])
       .flatMap((network) => [network.ipv4, network.ipv6])
       .filter((address): address is string => typeof address === "string" && address.trim() !== "")
       .map((address) => address.trim());
-    await Effect.runPromise(announceFreestyleNetwork(vm, addresses));
+    await Effect.runPromise(announceFreestyleNetwork(vm, addresses, options));
   }
 
 

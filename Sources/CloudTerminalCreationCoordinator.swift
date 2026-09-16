@@ -3,7 +3,7 @@ import os
 
 nonisolated private let cloudTerminalCreationLogger = Logger(subsystem: "com.cmuxterm.app", category: "CloudTerminalCreation")
 
-/// Coordinates one asynchronous Cloud terminal creation without leaving an empty pane.
+/// Coordinates one asynchronous Cloud terminal creation behind a reserved pane.
 ///
 /// The coordinator retains a creation result after the remote terminal is born. If the
 /// first local projection fails while `cmux-tui` is restarting, Retry reuses that terminal
@@ -12,33 +12,37 @@ nonisolated private let cloudTerminalCreationLogger = Logger(subsystem: "com.cmu
 final class CloudTerminalCreationCoordinator {
     typealias Create = @MainActor () async throws -> SurfaceResource
     typealias Project = @MainActor (SurfaceResource) async throws -> (projection: SurfaceProjection, reused: Bool)
-    typealias DiscardProjection = @MainActor (SurfaceProjection) -> Void
     typealias Failure = @MainActor (Error, CloudOperationContext?) -> Void
+    typealias DiscardProjection = @MainActor (SurfaceProjection) -> Void
 
-    private weak var panel: CloudTerminalPendingPanel?
     private let create: Create
     private let project: Project
     private let discardProjection: DiscardProjection
+    private let onStart: @MainActor () -> Void
+    private let onFailure: @MainActor (Error) -> Void
+    private let onCancel: @MainActor () -> Void
     private let onSuccess: @MainActor () -> Void
-    private let onFailure: Failure
     private var task: Task<Void, Never>?
     private var generation: UInt64 = 0
     private var createdResource: SurfaceResource?
 
+    /// Runs the same create/project lifecycle for every optimistic pane.
     init(
-        panel: CloudTerminalPendingPanel,
         create: @escaping Create,
         project: @escaping Project,
+        onStart: @escaping @MainActor () -> Void = {},
+        onFailure: @escaping @MainActor (Error) -> Void,
+        onCancel: @escaping @MainActor () -> Void = {},
         onSuccess: @escaping @MainActor () -> Void,
-        discardProjection: @escaping DiscardProjection = { _ in },
-        onFailure: @escaping Failure = { _, _ in }
+        discardProjection: @escaping DiscardProjection = { _ in }
     ) {
-        self.panel = panel
         self.create = create
         self.project = project
+        self.onStart = onStart
+        self.onFailure = onFailure
+        self.onCancel = onCancel
         self.onSuccess = onSuccess
         self.discardProjection = discardProjection
-        self.onFailure = onFailure
     }
 
     /// All Cloud terminal gestures establish a root before reaching the link.
@@ -69,16 +73,21 @@ final class CloudTerminalCreationCoordinator {
 
     /// Begins creation or retries the last remote resource's local projection.
     func start() {
+        // A repeated retry is still the same intent. Cancelling a create can
+        // discard its receipt after the remote mutation has already committed.
+        guard task == nil else { return }
         generation &+= 1
         let operationGeneration = generation
-        task?.cancel()
-        panel?.resetForRetry()
+        onStart()
         task = Task { @MainActor [weak self] in
-            guard let self, let panel = self.panel else { return }
+            guard let self else { return }
+            defer {
+                if self.generation == operationGeneration { self.task = nil }
+            }
             do {
-                try await Self.perform(recorder: AppDelegate.shared?.cloudOperations, onFailure: { error, context in
-                    guard self.generation == operationGeneration, !Task.isCancelled, self.panel === panel else { return }
-                    self.onFailure(error, context)
+                try await Self.perform(recorder: AppDelegate.shared?.cloudOperations, onFailure: { error, _ in
+                    guard self.generation == operationGeneration, !Task.isCancelled else { return }
+                    self.onFailure(error)
                 }) {
                     let resource: SurfaceResource
                     if let createdResource = self.createdResource {
@@ -89,12 +98,9 @@ final class CloudTerminalCreationCoordinator {
                         self.createdResource = resource
                     }
                     try Task.checkCancellation()
-                    let projectionResult = try await CloudOperationContext.phase(.materialize) {
-                        try await self.project(resource)
-                    }
+                    let projectionResult = try await CloudOperationContext.phase(.materialize) { try await self.project(resource) }
                     guard self.generation == operationGeneration,
-                          !Task.isCancelled,
-                          self.panel === panel else {
+                          !Task.isCancelled else {
                         if !projectionResult.reused {
                             self.discardProjection(projectionResult.projection)
                         }
@@ -103,12 +109,10 @@ final class CloudTerminalCreationCoordinator {
                     self.onSuccess()
                 }
             } catch is CancellationError {
+                if self.generation == operationGeneration { self.onCancel() }
                 return
             } catch {
-                guard self.generation == operationGeneration,
-                      !Task.isCancelled,
-                      self.panel === panel else { return }
-                panel.showFailure()
+                // perform already delivered the failure inside its diagnostic context.
             }
         }
     }
@@ -123,6 +127,7 @@ final class CloudTerminalCreationCoordinator {
         generation &+= 1
         task?.cancel()
         task = nil
+        onCancel()
     }
 
     deinit {

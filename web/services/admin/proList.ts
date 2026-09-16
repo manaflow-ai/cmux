@@ -15,6 +15,7 @@ import { getStackServerApp } from "../../app/lib/stack";
 import { withStackAuthSpan } from "../auth/stackTelemetry";
 import {
   ACTIVE_STRIPE_PRO_STATUSES,
+  PERSONAL_PLAN_IDS,
   PRO_PLAN_ID,
   TEAM_PLAN_ID,
   isPaidPlanId,
@@ -169,7 +170,7 @@ export async function listStripeProSubscribers(
       and(
         isNull(stripeSubscriptions.stackTeamId),
         eq(stripeSubscriptions.scope, "user"),
-        eq(stripeSubscriptions.plan, PRO_PLAN_ID),
+        inArray(stripeSubscriptions.plan, PERSONAL_PLAN_IDS),
         inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
       ),
     )

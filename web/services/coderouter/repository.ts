@@ -39,11 +39,18 @@ export function routeTokenHash(token: string): string {
 const ROUTE_TOKEN_PATTERN = /^crt_[A-Za-z0-9_-]{40,}$/;
 const API_KEY_PATTERN = /^crk_[A-Za-z0-9_-]{40,}$/;
 const API_KEY_LIFETIME_LABEL = "api key";
+// `last_used_at` is display metadata. Keep it fresh enough for the control
+// plane without turning every authenticated request into a Postgres write.
+// The usage ledger remains per-request and is the source of truth for billing.
+const API_KEY_USAGE_WRITE_INTERVAL_MS = 60_000;
+const API_KEY_USAGE_STATE_CLEANUP_THRESHOLD = 2_048;
 
 const pendingApiKeyUsageWrites = new Map<string, {
   readonly teamId: string;
   readonly promise: Promise<void>;
 }>();
+const lastApiKeyUsageWriteAt = new Map<string, number>();
+let lastApiKeyUsageFailureReportedAt = 0;
 
 export type RouteTokenPrincipal = {
   readonly teamId: string;
@@ -289,24 +296,73 @@ export async function authenticateApiKey(
 
 function scheduleApiKeyUsageWrite(id: string, teamId: string, now: Date): void {
   if (pendingApiKeyUsageWrites.has(id)) return;
+  const nowMs = now.getTime();
+  const lastWriteMs = lastApiKeyUsageWriteAt.get(id);
+  if (lastWriteMs !== undefined && nowMs - lastWriteMs < API_KEY_USAGE_WRITE_INTERVAL_MS) return;
+
+  // API keys can be created and used by short-lived clients. Remove old
+  // entries opportunistically so this process does not retain every key ever
+  // seen. The insertion order is the write order, so stale entries are first.
+  if (lastApiKeyUsageWriteAt.size >= API_KEY_USAGE_STATE_CLEANUP_THRESHOLD) {
+    for (const [trackedId, trackedAt] of lastApiKeyUsageWriteAt) {
+      if (nowMs - trackedAt < API_KEY_USAGE_WRITE_INTERVAL_MS) break;
+      lastApiKeyUsageWriteAt.delete(trackedId);
+    }
+  }
+  // Refresh insertion order so cleanup treats this as the newest entry.
+  lastApiKeyUsageWriteAt.delete(id);
+  lastApiKeyUsageWriteAt.set(id, nowMs);
   let resolve!: () => void;
   const promise = new Promise<void>((done) => { resolve = done; });
   pendingApiKeyUsageWrites.set(id, { teamId, promise });
+  const nowIso = now.toISOString();
   queueMicrotask(() => {
-    void cloudDb()
-      .update(coderouterApiKeys)
-      .set({ lastUsedAt: now })
-      .where(and(
-        eq(coderouterApiKeys.id, id),
-        isNull(coderouterApiKeys.revokedAt),
-      ))
+    void Promise.resolve()
+      .then(() => cloudDb()
+        .update(coderouterApiKeys)
+        // Multiple web instances can write this row. Never move the display
+        // timestamp backwards when their deferred jobs finish out of order.
+        .set({
+          lastUsedAt: sql`GREATEST(COALESCE(${coderouterApiKeys.lastUsedAt}, ${nowIso}::timestamptz), ${nowIso}::timestamptz)`,
+        })
+        .where(and(
+          eq(coderouterApiKeys.id, id),
+          isNull(coderouterApiKeys.revokedAt),
+          or(
+            isNull(coderouterApiKeys.lastUsedAt),
+            lte(coderouterApiKeys.lastUsedAt, new Date(nowMs - API_KEY_USAGE_WRITE_INTERVAL_MS)),
+          ),
+        )))
       .then(() => undefined)
-      .catch(() => undefined)
-      .then(() => {
+      .catch(() => {
+        // A failed best-effort write must not suppress the next retry for a
+        // full interval.
+        lastApiKeyUsageWriteAt.delete(id);
+        reportApiKeyUsageWriteFailure();
+      })
+      .finally(() => {
         resolve();
         pendingApiKeyUsageWrites.delete(id);
       });
   });
+}
+
+function reportApiKeyUsageWriteFailure(): void {
+  const now = Date.now();
+  if (now - lastApiKeyUsageFailureReportedAt < API_KEY_USAGE_WRITE_INTERVAL_MS) return;
+  lastApiKeyUsageFailureReportedAt = now;
+  // Keep repository authentication independent from the telemetry module's
+  // analytics dependency. Failure reporting is best-effort and never joins
+  // the request's critical path.
+  void import("./observability")
+    .then(({ reportCoderouterFailure }) => {
+      reportCoderouterFailure(
+        "api_key_usage",
+        new Error("coderouter API key usage metadata write failed"),
+        { operation: "api_key_last_used" },
+      );
+    })
+    .catch(() => undefined);
 }
 
 export async function revokeApiKey(
@@ -462,17 +518,44 @@ export async function transferEncryptedAccount(input: {
   credential: EncryptedCredential;
 }): Promise<boolean> {
   if (input.sourceTeamId === input.destinationTeamId) return false;
+  if (input.credential.accountId !== input.accountId || input.credential.teamId !== input.destinationTeamId) {
+    throw new CodeRouterCredentialRace("transfer envelope scope mismatch");
+  }
+  const expectedRevision = input.credential.credentialRevision - 1;
   return await cloudDb().transaction(async (tx) => {
-    await lockCoderouterAccountMutation(tx, input.sourceTeamId, input.stackUserId);
-    await lockHandoffTeam(tx, input.destinationTeamId);
+    // Coordinate with account deletion using its existing team lock. Sorting
+    // both teams prevents opposite-direction transfers from deadlocking.
+    for (const teamId of [input.sourceTeamId, input.destinationTeamId].sort()) {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${"coderouter:accounts:" + teamId}, 0))`);
+    }
+    // Match refresh/replacement lock order: credential first, then account.
+    // Encryption happens before this transaction, so compare the source
+    // revision instead of overwriting a refresh that completed in the meantime.
+    const [updatedCredential] = await tx.update(coderouterCredentials)
+      .set({ ...encryptedValues(input.credential), updatedAt: new Date() })
+      .where(and(
+        eq(coderouterCredentials.accountId, input.accountId),
+        eq(coderouterCredentials.teamId, input.sourceTeamId),
+        eq(coderouterCredentials.provider, input.credential.provider),
+        eq(coderouterCredentials.credentialRevision, expectedRevision),
+      ))
+      .returning({ accountId: coderouterCredentials.accountId });
+    if (!updatedCredential) throw new CodeRouterCredentialRace("transfer credential revision changed");
     const [updated] = await tx.update(coderouterAccounts)
-      .set({ teamId: input.destinationTeamId, updatedAt: new Date() })
-      .where(and(eq(coderouterAccounts.id, input.accountId), eq(coderouterAccounts.teamId, input.sourceTeamId)))
+      .set({ teamId: input.destinationTeamId, vaultRevision: input.credential.credentialRevision, updatedAt: new Date() })
+      .where(and(
+        eq(coderouterAccounts.id, input.accountId),
+        eq(coderouterAccounts.teamId, input.sourceTeamId),
+        eq(coderouterAccounts.provider, input.credential.provider),
+        eq(coderouterAccounts.vaultRevision, expectedRevision),
+        isNull(coderouterAccounts.refreshLeaseId),
+      ))
       .returning({ id: coderouterAccounts.id });
-    if (!updated) return false;
-    await tx.update(coderouterCredentials)
-      .set({ teamId: input.destinationTeamId, ciphertext: input.credential.ciphertext, nonce: input.credential.nonce, authTag: input.credential.authTag, encryptedDataKey: input.credential.encryptedDataKey, kmsKeyId: input.credential.kmsKeyId, updatedAt: new Date() })
-      .where(eq(coderouterCredentials.accountId, input.accountId));
+    if (!updated) throw new CodeRouterCredentialRace("transfer account changed or refresh is in progress");
+    await tx.delete(coderouterSessionAccounts).where(and(
+      eq(coderouterSessionAccounts.accountId, input.accountId),
+      eq(coderouterSessionAccounts.teamId, input.sourceTeamId),
+    ));
     return true;
   });
 }
@@ -538,6 +621,11 @@ export async function insertAccountWithCredential(input: {
 }): Promise<boolean> {
   const db = cloudDb();
   return await db.transaction(async (tx) => {
+    // Pair with deleteAccount's lock. This is a control-plane fence only, so
+    // model requests never wait on it.
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${"coderouter:accounts:" + input.encrypted.teamId}, 0))`,
+    );
     const label = credentialLabel(input.credential);
     const [inserted] = await tx
       .insert(coderouterAccounts)

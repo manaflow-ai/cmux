@@ -6,19 +6,21 @@ struct CloudPaneCreationFailure: Identifiable, Equatable {
     let machine: SurfaceMachineID
     let sourcePanelID: UUID?
     let title: String
+    let displayTitle: String
     let errorText: String
     let recoveryText: String
     let diagnosticReference: String?
 
     /// Builds a privacy-safe, localized snapshot from a provider error.
-    init(machine: SurfaceMachineID, error: Error, context: CloudOperationContext? = nil, sourcePanelID: UUID? = nil) {
+    init(machine: SurfaceMachineID, error: Error, title: String? = nil, recoveryText: String? = nil, context: CloudOperationContext? = nil, sourcePanelID: UUID? = nil) {
         id = UUID()
         self.machine = machine
         self.sourcePanelID = sourcePanelID
-        title = String(
+        displayTitle = title ?? String(localized: "cloudPane.newTerminalFailed.shortTitle", defaultValue: "Couldn’t open terminal")
+        self.title = title ?? String(
             format: String(
                 localized: "cloudPane.newTerminalFailed.title",
-                defaultValue: "Couldn’t start a terminal on %@"
+                defaultValue: "Couldn’t open a terminal on %@"
             ),
             machine.rawValue
         )
@@ -26,9 +28,9 @@ struct CloudPaneCreationFailure: Identifiable, Equatable {
         diagnosticReference = context.map {
             "operation=\($0.operationID.uuidString.lowercased()) trace=\($0.traceID)"
         }
-        recoveryText = String(
+        self.recoveryText = recoveryText ?? String(
             localized: "cloudPane.newTerminalFailed.recovery",
-            defaultValue: "Check that the machine is connected, then try Cmd+D or Cmd+T again."
+            defaultValue: "Check that the machine is connected, then retry this request."
         )
     }
 
