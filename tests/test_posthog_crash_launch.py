@@ -13,6 +13,8 @@ import os
 from pathlib import Path
 import plistlib
 import queue
+import re
+import signal
 import subprocess
 import tempfile
 import threading
@@ -117,11 +119,22 @@ def main():
         def stop():
             nonlocal process, log
             if process is not None:
-                process.terminate()
+                matches = subprocess.run(["pgrep", "-f", f"^{re.escape(str(executable))}$"],
+                                         capture_output=True, text=True)
+                for pid in matches.stdout.split():
+                    try:
+                        os.kill(int(pid), signal.SIGTERM)
+                    except ProcessLookupError:
+                        pass
                 try:
                     process.wait(timeout=15)
                 except subprocess.TimeoutExpired:
-                    process.kill()
+                    for pid in matches.stdout.split():
+                        try:
+                            os.kill(int(pid), signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                    process.terminate()
                     process.wait(timeout=5)
                 process = None
             if log is not None:
@@ -134,8 +147,17 @@ def main():
             nonlocal process, log
             subprocess.run(["defaults", "write", bundle_id, "sendAnonymousTelemetry", "-bool",
                             "true" if enabled else "false"], check=True)
-            log = (args.output / f"{label}.log").open("wb")
-            process = subprocess.Popen([str(executable)], cwd=root, env=env, stdout=log, stderr=log)
+            log_path = args.output.resolve() / f"{label}.log"
+            log = log_path.open("wb")
+            # LaunchServices places the app in the logged-in desktop session;
+            # direct execution from SSH can land outside that GUI session.
+            command = ["open", "-n", "-W", "-g", "-a", str(app),
+                       "--stdout", str(log_path), "--stderr", str(log_path)]
+            for key in ["CMUX_POSTHOG_ENABLE", "CMUX_POSTHOG_TEST_HOST", "CMUX_POSTHOG_DEBUG",
+                        "CMUX_SOCKET_PATH", "CMUX_BUNDLE_ID", "XDG_STATE_HOME", "XDG_CONFIG_HOME",
+                        "CMUXTERM_REPO_ROOT"]:
+                command.extend(["--env", f"{key}={env[key]}"])
+            process = subprocess.Popen(command, cwd=root, env=env, stdout=log, stderr=log)
 
         def receive(version, native=False):
             event = events.get(timeout=60)
@@ -146,7 +168,7 @@ def main():
             assert properties["app_version"] == info["CFBundleShortVersionString"], properties
             assert properties["$app_namespace"] == bundle_id, properties
             assert properties["$app_version"] == info["CFBundleShortVersionString"], properties
-            assert properties["$app_build"] == info["CFBundleVersion"], properties
+            assert str(properties["$app_build"]) == str(info["CFBundleVersion"]), properties
             expected_type = "UnknownCrash" if native else "EXC_BAD_ACCESS"
             assert properties["$exception_fingerprint"] == f"cmux-mac-crash:{expected_type}"
             assert properties["$exception_list"][0]["value"] == "Previous launch crashed"
@@ -172,6 +194,10 @@ def main():
             launch("collector-preflight")
             assert collector_contacted.wait(timeout=45), "App did not contact the loopback collector"
             stop()
+            # Ignore persisted SDK retries from a prior failed harness run.
+            # Their UUIDs remain recorded so they cannot satisfy a later phase.
+            while not events.empty():
+                events.get_nowait()
             fixture("first", "0.64.22")
             launch("first")
             captured = [receive("0.64.22")]
