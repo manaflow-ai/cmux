@@ -5,8 +5,8 @@ struct ProcessDetectedResumeIndexes: Sendable {
     let surfaceResumeBindingIndex: SurfaceResumeBindingIndex
 
     static func load(
-        homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default,
+        homeDirectory: String? = nil,
+        fileManager: FileManager? = nil,
         ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
     ) async -> ProcessDetectedResumeIndexes {
         await Task.detached(priority: .utility) {
@@ -21,8 +21,8 @@ struct ProcessDetectedResumeIndexes: Sendable {
 
     /// Loads current hook stores and captures an uncached process snapshot off-main.
     static func loadFresh(
-        homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default,
+        homeDirectory: String? = nil,
+        fileManager: FileManager? = nil,
         ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
     ) async -> ProcessDetectedResumeIndexes {
         await Task.detached(priority: .utility) {
@@ -37,8 +37,8 @@ struct ProcessDetectedResumeIndexes: Sendable {
     /// Loads fresh process state with a bounded lifecycle deadline.
     @MainActor
     static func loadFreshWithDeadline(
-        homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default,
+        homeDirectory: String? = nil,
+        fileManager: FileManager? = nil,
         ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:],
         deadline: Duration = .seconds(5),
         onWorkerCreated: @escaping @MainActor @Sendable (
@@ -96,8 +96,8 @@ struct ProcessDetectedResumeIndexes: Sendable {
     /// Synchronous implementation for detached loading and focused tests.
     /// Main-actor lifecycle paths must call ``loadFresh(homeDirectory:fileManager:)``.
     static func loadFreshSynchronously(
-        homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default,
+        homeDirectory: String? = nil,
+        fileManager: FileManager? = nil,
         ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
     ) -> ProcessDetectedResumeIndexes {
         loadSynchronously(
@@ -121,12 +121,16 @@ struct ProcessDetectedResumeIndexes: Sendable {
     }
 
     static func loadSynchronously(
-        homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default,
+        homeDirectory: String? = nil,
+        fileManager: FileManager? = nil,
         maximumSnapshotAge: TimeInterval? = nil,
         cachedRestorableAgentIndex: RestorableAgentSessionIndex? = nil,
         ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
     ) -> ProcessDetectedResumeIndexes {
+        // Async callers resolve Foundation defaults here, inside their worker.
+        // Default arguments are otherwise evaluated before leaving the main actor.
+        let homeDirectory = homeDirectory ?? NSHomeDirectory()
+        let fileManager = fileManager ?? .default
         let capturedAt = Date().timeIntervalSince1970
         let processSnapshot = if let maximumSnapshotAge {
             CmuxTopProcessSnapshot.captureCached(includeProcessDetails: true, maximumAge: maximumSnapshotAge)

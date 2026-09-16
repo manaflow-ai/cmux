@@ -5324,18 +5324,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         restorableAgentIndex suppliedRestorableAgentIndex: RestorableAgentSessionIndex? = nil,
         surfaceResumeBindingIndex suppliedSurfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> (snapshot: AppSessionSnapshot?, didRemoveCrashDiagnosticData: Bool) {
-        let preflightRoutes = orderedSessionRouteSnapshots(
-            restorableAgentIndex: suppliedRestorableAgentIndex,
+        // Snapshot capture must not perform a cold hook-store/process scan on main.
+        // Nil keeps cold windowless owners live until their asynchronous freeze resolves.
+        let restorableAgentIndex = suppliedRestorableAgentIndex ?? SharedLiveAgentIndex.shared.index
+        let routes = orderedSessionRouteSnapshots(
+            restorableAgentIndex: restorableAgentIndex,
             surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
         )
-        guard !preflightRoutes.isEmpty else { return (nil, false) }
-        let restorableAgentIndex = suppliedRestorableAgentIndex ?? RestorableAgentSessionIndex.load()
-        let routes = suppliedRestorableAgentIndex == nil
-            ? orderedSessionRouteSnapshots(
-                restorableAgentIndex: restorableAgentIndex,
-                surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
-            )
-            : preflightRoutes
+        guard !routes.isEmpty else { return (nil, false) }
         var windows: [SessionWindowSnapshot] = []
         var didRemoveCrashDiagnosticData = false
         let createdAt = Date().timeIntervalSince1970
@@ -5346,7 +5342,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 windowSnapshot = sessionWindowSnapshot(
                     for: liveRoute,
                     includeScrollback: includeScrollback,
-                    restorableAgentIndex: restorableAgentIndex,
+                    restorableAgentIndex: restorableAgentIndex ?? .empty,
                     surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
                 )
             case .frozen(_, let frozenWindowSnapshot):
