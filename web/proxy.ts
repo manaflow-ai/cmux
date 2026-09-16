@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
-import createMiddleware from "next-intl/middleware";
+import { localeMiddleware } from "./i18n/middleware";
 import { preferredLocaleFromAcceptLanguage } from "./i18n/accept-language";
 import { routing } from "./i18n/routing";
 import { isAgentPageVariantPath } from "./app/lib/agent-page-paths";
@@ -24,7 +24,6 @@ import {
   VM_REFLECTION_ALIAS_VALUE,
 } from "./services/coderouter/vmGuestEnv";
 
-const intlMiddleware = createMiddleware(routing);
 const localeSet = new Set<string>(routing.locales);
 
 export default function middleware(incomingRequest: NextRequest) {
@@ -74,7 +73,7 @@ function routeRequest(incomingRequest: NextRequest) {
   response = handleLegalAndDocsRoutes(request, pathname);
   if (response) return response;
 
-  response = intlMiddleware(request);
+  response = localeMiddleware(request);
   if (featureWorkflowDocRequest) {
     setFeatureWorkflowDocLinkHeader(
       response,
