@@ -19,7 +19,6 @@ private final class PortalBindLayoutCountingView: NSView {
         layoutCount = 0
     }
 }
-
 @MainActor
 @Suite(.serialized)
 struct GhosttyTerminalViewVisibilityPolicyTests {
