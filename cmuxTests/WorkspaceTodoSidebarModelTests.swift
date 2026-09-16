@@ -344,6 +344,22 @@ struct WorkspaceTodoSidebarModelTests {
         #expect(compactField.contains("textView.insertText(\"\\n\""))
     }
 
+    @Test
+    func appKitChecklistRowsReconcileHoverWhenCreatedUnderPointer() throws {
+        let source = try Self.sourceText(
+            "Sources/Sidebar/AppKitList/Cells/SidebarRowChecklistItemLine.swift"
+        )
+
+        // Rows are pooled and can be laid out underneath a stationary pointer.
+        // Enter/exit-only tracking then leaves the remove affordance hidden
+        // forever until the pointer moves. The row must seed its visibility
+        // from the current pointer and keep receiving movement updates.
+        #expect(source.contains("override func viewDidMoveToWindow()"))
+        #expect(source.contains("override func mouseMoved(with event: NSEvent)"))
+        #expect(source.contains(".mouseMoved"))
+        #expect(source.contains(".activeAlways"))
+    }
+
     // MARK: - Checklist display policy
 
     private func item(_ text: String, _ state: WorkspaceChecklistItem.State) -> WorkspaceChecklistItem {
