@@ -947,6 +947,7 @@ final class MobileHostIrxRuntime {
                             acceptor: acceptor,
                             trust: trust,
                             brokerClient: brokerClient,
+                            listCurrent: deviceListBox,
                             isCurrent: { [weak self] in
                                 let runtime = self
                                 return await MainActor.run {
