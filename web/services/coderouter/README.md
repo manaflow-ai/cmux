@@ -20,7 +20,8 @@ Revocation updates one key row by primary key and does not take a process-wide
 lock. PostgreSQL row locks are held only for the affected update. Account
 deletion uses one short, team-scoped transaction advisory lock to serialize the
 last-account check with concurrent account creation or deletion; it is never
-taken by model requests. The auth span records `route_token` or `api_key`, and
+taken by model requests. The auth span records `route_token`, `api_key`, or
+`control_plane`, and
 the route and usage ledger rows carry the opaque API-key UUID for joins. No key
 secret is logged or sent to telemetry.
 

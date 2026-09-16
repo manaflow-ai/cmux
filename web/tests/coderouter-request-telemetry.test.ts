@@ -447,4 +447,14 @@ describe("route token auth spans", () => {
     expect(JSON.stringify(events)).not.toContain(key);
     expect(JSON.stringify(events)).not.toContain("key-opaque-id");
   });
+
+  test("does not label browser control-plane auth as a route token", () => {
+    const request = new Request("https://coderouter.dev/api/coderouter/accounts");
+    const context = newCoderouterRequestContext({ request, surface: "accounts", route: "/api/coderouter/accounts" });
+    runWithCoderouterRequest(context, () => {
+      recordCoderouterIdentity({ teamId: "team-1", stackUserId: "user-1", vmId: null }, "control_plane");
+    });
+    expect(traceEvents(context, { status: 200, durationMs: 1 })[0]!.properties.coderouter_auth_mode)
+      .toBe("control_plane");
+  });
 });

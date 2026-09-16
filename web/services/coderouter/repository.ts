@@ -330,7 +330,7 @@ function scheduleApiKeyUsageWrite(id: string, teamId: string, now: Date): void {
           isNull(coderouterApiKeys.revokedAt),
           or(
             isNull(coderouterApiKeys.lastUsedAt),
-            lt(coderouterApiKeys.lastUsedAt, new Date(nowMs - API_KEY_USAGE_WRITE_INTERVAL_MS)),
+            lte(coderouterApiKeys.lastUsedAt, new Date(nowMs - API_KEY_USAGE_WRITE_INTERVAL_MS)),
           ),
         )))
       .then(() => undefined)

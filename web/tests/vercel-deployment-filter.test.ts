@@ -14,16 +14,18 @@ function deploymentEnabled(
   return matchingRules.length === 0 || matchingRules.includes(true);
 }
 
-test("automatically deploys main but skips ephemeral branches", () => {
-  for (const config of [vercelConfig, docsVercelConfig]) {
-    expect(config.git.deploymentEnabled).toEqual({
-      main: true,
-      "**": false,
-    });
+test("automatically deploys configured branches but skips ephemeral branches", () => {
+  for (const [config, expectedRules] of [
+    [vercelConfig, { main: true, "feat-coderouter-api-key-observability": true, "**": false }],
+    [docsVercelConfig, { main: true, "**": false }],
+  ] as const) {
+    expect(config.git.deploymentEnabled).toEqual(expectedRules);
 
     const deploymentRules: Record<string, boolean> =
       config.git.deploymentEnabled;
     expect(deploymentEnabled("main", deploymentRules)).toBe(true);
+    expect(deploymentEnabled("feat-coderouter-api-key-observability", deploymentRules))
+      .toBe(config === vercelConfig);
 
     for (const branch of [
       "codex/refresh-generated-assets",
