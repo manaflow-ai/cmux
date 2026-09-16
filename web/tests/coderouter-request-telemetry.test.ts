@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { trace, type Span } from "@opentelemetry/api";
 
 import * as analytics from "../services/coderouter/analytics";
 import {
@@ -456,5 +457,23 @@ describe("route token auth spans", () => {
     });
     expect(traceEvents(context, { status: 200, durationMs: 1 })[0]!.properties.coderouter_auth_mode)
       .toBe("control_plane");
+  });
+
+  test("exports control-plane auth consistently to the active trace and events", () => {
+    const request = new Request("https://coderouter.dev/api/coderouter/accounts");
+    const context = newCoderouterRequestContext({ request, surface: "accounts", route: "/api/coderouter/accounts" });
+    const attributes: Record<string, unknown> = {};
+    const span = { setAttributes: (values: Record<string, unknown>) => Object.assign(attributes, values) } as unknown as Span;
+    const activeSpan = spyOn(trace, "getActiveSpan").mockReturnValue(span);
+    try {
+      runWithCoderouterRequest(context, () => {
+        recordCoderouterIdentity({ teamId: "team-1", stackUserId: "user-1", vmId: null }, "control_plane");
+      });
+      expect(attributes["cmux.coderouter.auth_mode"]).toBe("control_plane");
+      expect(traceEvents(context, { status: 200, durationMs: 1 })[0]!.properties.coderouter_auth_mode)
+        .toBe(attributes["cmux.coderouter.auth_mode"]);
+    } finally {
+      activeSpan.mockRestore();
+    }
   });
 });
