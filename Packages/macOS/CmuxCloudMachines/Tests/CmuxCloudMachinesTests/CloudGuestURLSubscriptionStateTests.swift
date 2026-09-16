@@ -4,24 +4,33 @@ import Testing
 struct CloudGuestURLSubscriptionStateTests {
     @Test func metadataCannotRestartAnActiveOrUnsupportedStream() {
         var state = CloudGuestURLSubscriptionState()
-        #expect(!state.recoverOnLinkProgress())
+        let active = state.recoverOnLinkProgress()
+        #expect(!active)
         state.ended(exitCode: 1)
-        for _ in 0..<100 { #expect(!state.recoverOnLinkProgress()) }
+        for _ in 0..<100 {
+            let rejected = state.recoverOnLinkProgress()
+            #expect(!rejected)
+        }
         state.ended(exitCode: 2)
-        #expect(!state.recoverOnLinkProgress())
+        let unsupported = state.recoverOnLinkProgress()
+        #expect(!unsupported)
     }
 
     @Test func recoversTransportLossWithinABoundedConnectionScope() {
         var state = CloudGuestURLSubscriptionState()
         for _ in 0..<2 {
             state.ended(exitCode: 3)
-            #expect(state.recoverOnLinkProgress())
-            #expect(!state.recoverOnLinkProgress())
+            let resumed = state.recoverOnLinkProgress()
+            let duplicate = state.recoverOnLinkProgress()
+            #expect(resumed)
+            #expect(!duplicate)
         }
         state.ended(exitCode: 3)
-        #expect(!state.recoverOnLinkProgress())
+        let exhausted = state.recoverOnLinkProgress()
+        #expect(!exhausted)
         state = CloudGuestURLSubscriptionState()
         state.ended(exitCode: 3)
-        #expect(state.recoverOnLinkProgress())
+        let reconnected = state.recoverOnLinkProgress()
+        #expect(reconnected)
     }
 }

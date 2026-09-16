@@ -2345,6 +2345,12 @@ struct MessageWriter {
 }
 
 impl MessageWriter {
+    fn send_url_open(&self, request_id: &str, terminal_id: &str, url: &str) -> std::io::Result<()> {
+        self.send_control(&json!({
+            "event": "url-open", "request_id": request_id, "terminal_id": terminal_id, "url": url,
+        }))
+    }
+
     #[cfg(test)]
     fn new(sink: impl MessageSink + 'static) -> Self {
         Self::new_with_render_service(sink, Arc::new(RenderService::new()))

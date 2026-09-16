@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d9db9b34a8e4f367ce1aae230fcd188796903d6adf169f9675872a48d9fd1f25. */
+/* cmux-tui mux protocol 12, IR 2e289a5acd91480ba96137965e22bb6774c92835f2e15d6bd7a626f2a5bb31b7. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "d9db9b34a8e4f367ce1aae230fcd188796903d6adf169f9675872a48d9fd1f25" as const;
+export const SDK_IR_SHA256 = "2e289a5acd91480ba96137965e22bb6774c92835f2e15d6bd7a626f2a5bb31b7" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1269,6 +1269,53 @@ export const COMMAND_METADATA = {
       "Only the calling connection's provider lease is removed."
     ]
   },
+  "url-open": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": null,
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Private frontend URL delivery; no resource or journal mutation. HTTP(S) only, exact projected terminal identity, 16 pending requests maximum, five-second expiry. A request ID is an ephemeral acknowledgement capability."
+    ]
+  },
+  "url-open-claim": {
+    "authority": "frontend",
+    "since": 12,
+    "capability": null,
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Private frontend URL delivery; no resource or journal mutation. HTTP(S) only, exact projected terminal identity, 16 pending requests maximum, five-second expiry. A request ID is an ephemeral acknowledgement capability."
+    ]
+  },
+  "url-open-result": {
+    "authority": "frontend",
+    "since": 12,
+    "capability": null,
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Private frontend URL delivery; no resource or journal mutation. HTTP(S) only, exact projected terminal identity, 16 pending requests maximum, five-second expiry. A request ID is an ephemeral acknowledgement capability."
+    ]
+  },
+  "url-open-subscribe": {
+    "authority": "frontend",
+    "since": 12,
+    "capability": null,
+    "fields": {},
+    "stream": {
+      "event_names": [
+        "url-open"
+      ],
+      "kind": "subscribe",
+      "ordering": "Registration response followed by targeted requests; no replay. Closing the connection rejects its pending requests.",
+      "terminal_event": null
+    },
+    "constraints": [
+      "Private frontend URL delivery; no resource or journal mutation. HTTP(S) only, exact projected terminal identity, 16 pending requests maximum, five-second expiry. A request ID is an ephemeral acknowledgement capability."
+    ]
+  },
   "vt-state": {
     "authority": "control",
     "since": 5,
@@ -1642,6 +1689,14 @@ export const EVENT_METADATA = {
     "capability": null,
     "streams": [
       "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "url-open": {
+    "since": 12,
+    "capability": null,
+    "streams": [
+      "control"
     ],
     "emission": "emitted"
   },
@@ -2904,6 +2959,62 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint16"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "GuestURLAcknowledgeResult": {
+    "additional_properties": false,
+    "fields": {
+      "accepted": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "GuestURLClaimResult": {
+    "additional_properties": false,
+    "fields": {
+      "claimed": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "GuestURLOpenResult": {
+    "additional_properties": false,
+    "fields": {
+      "opened": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "GuestURLSubscribeResult": {
+    "additional_properties": false,
+    "fields": {
+      "url_open_ready": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
         }
       }
     },
@@ -11250,6 +11361,105 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "BrowserProviderUnregisterResult"
     }
   },
+  "url-open": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "terminal_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "url": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "GuestURLOpenResult"
+    }
+  },
+  "url-open-claim": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "request_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "GuestURLClaimResult"
+    }
+  },
+  "url-open-result": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "opened": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "request_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "GuestURLAcknowledgeResult"
+    }
+  },
+  "url-open-subscribe": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "terminal_ids": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "GuestURLSubscribeResult"
+    }
+  },
   "vt-state": {
     "request": {
       "additional_properties": false,
@@ -13246,6 +13456,44 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "literal",
           "value": "tree-changed"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "url-open": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "url-open"
+        }
+      },
+      "request_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "terminal_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "url": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },

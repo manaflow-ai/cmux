@@ -82,12 +82,7 @@ impl URLRequests {
             );
             (id, writer, receiver)
         };
-        if writer
-            .send_control(&json!({
-                "event": "url-open", "request_id": id, "terminal_id": terminal, "url": url,
-            }))
-            .is_err()
-        {
+        if writer.send_url_open(&id, terminal, url).is_err() {
             self.cancel(&id);
             return None;
         }
