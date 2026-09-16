@@ -295,7 +295,8 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "огляд",
       "team": "команда",
-      "irohDevices": "IROH devices"
+      "irohDevices": "Пристрої віддаленого керування",
+      "remoteAccessGroup": "віддалений доступ"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -341,11 +342,10 @@
       }
     },
     "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
+      "title": "Пристрої віддаленого керування",
+      "description": "Керуйте віддаленим доступом до пристроїв поточної команди.",
       "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
+      "empty": "Для цієї команди не зареєстровано пристроїв віддаленого керування.",
       "unavailable": "Dashboard authorization is unavailable.",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
@@ -356,7 +356,8 @@
       "revoked": "Revoked",
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+      "saveRelaySettings": "Save relay settings",
+      "connectionError": "Не вдалося підключитися до пристроїв. Повторне підключення…"
     }
   },
   "community": {

@@ -295,7 +295,8 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "pregled",
       "team": "tim",
-      "irohDevices": "IROH devices"
+      "irohDevices": "Uređaji za daljinsko upravljanje",
+      "remoteAccessGroup": "udaljeni pristup"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -341,11 +342,10 @@
       }
     },
     "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
+      "title": "Uređaji za daljinsko upravljanje",
+      "description": "Upravljajte udaljenim pristupom uređajima trenutnog tima.",
       "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
+      "empty": "Za ovaj tim nisu registrovani uređaji za daljinsko upravljanje.",
       "unavailable": "Dashboard authorization is unavailable.",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
@@ -356,7 +356,8 @@
       "revoked": "Revoked",
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+      "saveRelaySettings": "Save relay settings",
+      "connectionError": "Povezivanje s uređajima nije uspjelo. Ponovno povezivanje…"
     }
   },
   "community": {

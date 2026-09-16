@@ -295,7 +295,8 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "Übersicht",
       "team": "Team",
-      "irohDevices": "IROH devices"
+      "irohDevices": "Geräte zur Fernsteuerung",
+      "remoteAccessGroup": "Fernzugriff"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -341,11 +342,10 @@
       }
     },
     "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
+      "title": "Geräte zur Fernsteuerung",
+      "description": "Verwalte den Fernzugriff auf Geräte in deinem aktuellen Team.",
       "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
+      "empty": "Für dieses Team sind keine Geräte zur Fernsteuerung registriert.",
       "unavailable": "Dashboard authorization is unavailable.",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
@@ -356,7 +356,8 @@
       "revoked": "Revoked",
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+      "saveRelaySettings": "Save relay settings",
+      "connectionError": "Verbindung zu deinen Geräten fehlgeschlagen. Verbindung wird erneut hergestellt…"
     }
   },
   "community": {
