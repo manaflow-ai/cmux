@@ -7,12 +7,8 @@ import Testing
 @testable import cmux
 #endif
 
-/// A Cloud browser pane can be built before ``AppDelegate`` installs the app's
-/// shared tunnel coordinator. When the store hands that coordinator over later,
-/// the pane must start observing tunnel state and its setup card must stop
-/// claiming this build has no VPN extension. Otherwise the pane sits on the
-/// setup card forever, which is what
-/// https://github.com/manaflow-ai/cmux/pull/12583 set out to fix.
+/// Direct HTTPS panes can be restored before the shared tunnel coordinator is
+/// installed. Late attachment observes it without activating NetworkExtension.
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct CloudPortAccessLateCoordinatorTests {
@@ -34,7 +30,6 @@ struct CloudPortAccessLateCoordinatorTests {
         let target = CloudPortForwardTarget(host: "10.40.0.10", port: port)
         return store.model(machineID: use.machineID, target: target) {
             CloudPortAccessModel(
-                machineID: use.machineID,
                 target: target,
                 coordinator: store.coordinator,
                 wake: {},
@@ -74,17 +69,7 @@ struct CloudPortAccessLateCoordinatorTests {
         #expect(await Self.holds { model.phase == .direct })
         #expect(model.tunnelState == .up)
         await coordinator.requestDown()
-    }
-
-    @Test("the setup card on a late-attached pane can act on the tunnel")
-    func lateCoordinatorReachesTheSetupModel() {
-        let store = CloudPortAccessStore()
-        let model = Self.makeModel(store: store, port: 5173)
-        #expect(model.vpn.unavailableMessage != nil)
-
-        store.coordinator = Self.makeCoordinator()
-
-        #expect(model.vpn.unavailableMessage == nil)
+        await model.retire()
     }
 
     @Test("a pane keeps the coordinator it was built with")
@@ -105,5 +90,32 @@ struct CloudPortAccessLateCoordinatorTests {
         await connected.prepareForPrivateNetworkUse(Self.use)
         #expect(await Self.holds { model.phase == .direct })
         await connected.requestDown()
+        await model.retire()
+    }
+
+    @Test("a direct pane follows explicit CLI approval without starting a tunnel itself")
+    func browserVPNStateStaysLive() async {
+        let controller = FakeTunnelController()
+        controller.holdInstallForApproval = true
+        let coordinator = CloudTunnelCoordinator(
+            backend: .networkExtension(extensionBundleIdentifier: "com.cmuxterm.app.tests.browser"),
+            controller: controller,
+            enroller: FakeTunnelEnroller(),
+            consumers: FakeTunnelConsumers()
+        )
+        let model = CloudPortAccessModel(
+            target: CloudPortForwardTarget(host: "10.40.0.10", port: 3000),
+            coordinator: coordinator,
+            wake: {},
+            startForward: { _ in 10_001 },
+            stopForward: {}
+        )
+        model.observe()
+        await coordinator.beginUp(pin: true)
+        #expect(await Self.holds { model.tunnelState == CloudTunnelState.awaitingApproval })
+        #expect(model.phase == .needsVPN)
+        await coordinator.requestDown()
+        controller.approve(with: CancellationError())
+        await model.retire()
     }
 }

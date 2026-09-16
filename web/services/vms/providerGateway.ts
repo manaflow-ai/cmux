@@ -17,6 +17,7 @@ import {
   type RestoreOptions,
   type SnapshotRef,
   type SSHEndpoint,
+  type SCPEndpoint,
   type VMHandle,
   type VMVolumeInventory,
   type VMVolumeListOptions,
@@ -48,6 +49,7 @@ export type VmProviderGatewayShape = {
   readonly getStatus?: (provider: ProviderId, vmId: string) => Effect.Effect<VMStatus, VmProviderOperationError>;
   readonly resume?: (provider: ProviderId, vmId: string) => Effect.Effect<VMHandle, VmProviderOperationError>;
   readonly pause?: (provider: ProviderId, vmId: string) => Effect.Effect<void, VmProviderOperationError>;
+  readonly setRuntimeBudget?: (provider: ProviderId, vmId: string, remainingSeconds: number | null) => Effect.Effect<void, VmProviderOperationError>;
   readonly snapshot?: (
     provider: ProviderId,
     vmId: string,
@@ -110,6 +112,7 @@ export type VmProviderGatewayShape = {
     invitationId: string,
     options?: CmuxRemoteApprovalOptions,
   ) => Effect.Effect<CmuxRemoteApprovalResult, VmProviderOperationError>;
+  readonly prepareSCP?: (provider: ProviderId, vmId: string, publicKey: string) => Effect.Effect<SCPEndpoint, VmProviderOperationError>;
   readonly openSSH: (provider: ProviderId, vmId: string) => Effect.Effect<SSHEndpoint, VmProviderOperationError>;
   readonly revokeSSHIdentity: (
     provider: ProviderId,
@@ -218,6 +221,11 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     providerEffect(provider, "resume", () => getProvider(provider).resume(vmId)),
   pause: (provider, vmId) =>
     providerEffect(provider, "pause", () => getProvider(provider).pause(vmId)),
+  setRuntimeBudget: (provider, vmId, remainingSeconds) => providerEffect(provider, "setRuntimeBudget", async () => {
+    const driver = getProvider(provider);
+    if (!driver.setRuntimeBudget) throw new Error("Provider runtime caps are unavailable");
+    await driver.setRuntimeBudget(vmId, remainingSeconds);
+  }),
   snapshot: (provider, vmId, name) =>
     providerEffect(provider, "snapshot", () => getProvider(provider).snapshot(vmId, name)),
   restore: (provider, snapshotId, options) =>
@@ -297,6 +305,12 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
         throw new VmOperationUnsupportedError({ provider, operation: "approveCmuxRemoteEnrollment" });
       }
       return impl.approveCmuxRemoteEnrollment(vmId, invitationId, options);
+    }),
+  prepareSCP: (provider, vmId, publicKey) =>
+    providerEffect(provider, "prepareSCP", async () => {
+      const impl = getProvider(provider);
+      if (!impl.prepareSCP) throw new VmOperationUnsupportedError({ provider, operation: "prepareSCP" });
+      return impl.prepareSCP(vmId, publicKey);
     }),
   openSSH: (provider, vmId) =>
     providerEffect(provider, "openSSH", async () => {
