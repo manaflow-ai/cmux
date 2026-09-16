@@ -123,5 +123,9 @@ describe("route token request authentication", () => {
       async () => ({ teamId: "team-1", stackUserId: "user-1" }),
     );
     expect(result).toMatchObject({ ok: true, identity: { vmId: null } });
+    expect(await authenticateRequestRouteToken(
+      request({ authorization: "Bearer crt_legacy", [VM_ID_HEADER]: "vm-1" }),
+      async () => ({ teamId: "team-1", stackUserId: "user-1" }),
+    )).toEqual({ ok: false, reason: "vm_mismatch" });
   });
 });

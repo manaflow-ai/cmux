@@ -4,11 +4,9 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { StackServerApp } from "@stackframe/stack";
+import { vmScopeVerificationEnvironment, cleanupVmScopeVerification } from "./vmScopeVerification";
 
-const origin = required("CMUX_SCOPE_E2E_ORIGIN");
-const sqlHost = required("CMUX_SCOPE_E2E_SQL_HOST");
-const sqlContainer = required("CMUX_SCOPE_E2E_SQL_CONTAINER");
-if (!/^cmux-dev-[a-z0-9-]+$/.test(sqlContainer) || !/^[a-z0-9._-]+@[a-z0-9.-]+$/i.test(sqlHost)) throw new Error("E2E requires an isolated cmux-dev database");
+const { origin, sqlHost, sqlContainer } = vmScopeVerificationEnvironment(process.env);
 const app = new StackServerApp({ tokenStore: "memory", projectId: required("NEXT_PUBLIC_STACK_PROJECT_ID"),
   publishableClientKey: required("NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY"), secretServerKey: required("STACK_SECRET_SERVER_KEY") });
 const q = (value: string) => "'" + value.replaceAll("'", "''") + "'";
@@ -103,17 +101,23 @@ try {
   passed('model routing fails closed after revocation without using private or foreign accounts');
   console.log(JSON.stringify({ kind: 'passed', vmId, checks }, null, 2));
 } finally {
-  if (vmId) {
-    try { await api(`/api/vm/${vmId}`, undefined, 'DELETE'); console.log('Deleted disposable VM'); }
-    catch (error) { console.error('VM cleanup failed:', error instanceof Error ? error.message : 'unknown'); process.exitCode = 1; }
+  const failures = await cleanupVmScopeVerification([
+    { name: "VM", run: async () => {
+      if (vmId) { await api(`/api/vm/${vmId}`, undefined, 'DELETE'); console.log('Deleted disposable VM'); }
+    } },
+    { name: "account metadata", run: () => {
+      if (teamA && teamB) sql(`delete from coderouter_accounts where team_id in (${q(teamA.id)},${q(teamB.id)});
+        delete from coderouter_claude_accounts where team_id in (${q(teamA.id)},${q(teamB.id)});`);
+    } },
+    { name: "team A", run: () => teamA?.delete() },
+    { name: "team B", run: () => teamB?.delete() },
+    { name: "member", run: () => member?.delete() },
+    { name: "creator", run: () => user?.delete() },
+  ]);
+  for (const failure of failures) {
+    console.error(`${failure.name} cleanup failed (${failure.error instanceof Error ? failure.error.name : "unknown"})`);
   }
-  if (teamA && teamB) {
-    sql(`delete from coderouter_accounts where team_id in (${q(teamA.id)},${q(teamB.id)});
-      delete from coderouter_claude_accounts where team_id in (${q(teamA.id)},${q(teamB.id)});`);
-  }
-  await teamA?.delete();
-  await teamB?.delete();
-  await member?.delete();
-  await user?.delete();
+  if (failures.length) process.exitCode = 1;
 }
+
 function required(name: string) { const value = process.env[name]?.trim(); if (!value) throw new Error(`${name} is required`); return value; }

@@ -30,6 +30,9 @@ export function accountAccessPredicate(
     return sql`(${account.visibility} = 'team' or ${account.createdBy} = ${access.userId})`;
   }
   if (access.poolId === null) return sql`false`;
+  // Personal scopes use the user id as their team id. Their owner’s private
+  // accounts are intentionally usable by personal VMs, still behind the same
+  // pool and VM-team checks. An organization VM never inherits this access.
   const membershipId = family === "native" ? sql`grant_row.account_id` : sql`grant_row.claude_account_id`;
   return sql`(
     (${account.visibility} = 'team' or ${account.createdBy} = ${account.teamId})

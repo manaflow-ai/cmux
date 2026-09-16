@@ -1,3 +1,23 @@
+-- This atomic cutover is deliberately limited to small catalogs. Refuse it on
+-- larger installations; those need an online index/backfill migration plan.
+-- Drizzle owns the transaction, so timeout errors roll back the whole cutover.
+SET LOCAL lock_timeout = '2s';
+SET LOCAL statement_timeout = '15s';
+DO $$
+DECLARE target text; row_count bigint;
+BEGIN
+  FOREACH target IN ARRAY ARRAY['cloud_vms', 'coderouter_accounts', 'coderouter_claude_accounts'] LOOP
+    IF pg_total_relation_size(target::regclass) > 33554432 THEN
+      RAISE EXCEPTION 'VM scope migration requires online phases: % exceeds 32 MiB', target;
+    END IF;
+    EXECUTE format('SELECT count(*) FROM (SELECT 1 FROM %I LIMIT 10001) bounded', target) INTO row_count;
+    IF row_count > 10000 THEN
+      RAISE EXCEPTION 'VM scope migration requires online phases: % exceeds 10000 rows', target;
+    END IF;
+    RAISE NOTICE 'VM scope migration: % has % rows', target, row_count;
+  END LOOP;
+END $$;
+
 CREATE TABLE "coderouter_pools" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "team_id" text NOT NULL,

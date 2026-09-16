@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 let grant = false;
 let available = true;
 const hasPermission = mock(async (_team: unknown, permission: string) => {
@@ -13,6 +13,8 @@ mock.module("../app/lib/stack", () => ({
   }),
 }));
 const { canManageCoderouterAccounts } = await import("../services/coderouter/permissions");
+beforeEach(() => { grant = false; available = true; hasPermission.mockClear(); });
+
 describe("CodeRouter account management", () => {
   test("personal scope belongs to the signed-in user", async () => {
     expect(await canManageCoderouterAccounts("user-1", "user-1")).toBe(true);

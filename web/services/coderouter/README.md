@@ -138,6 +138,16 @@ The database tests in `tests/coderouter-vm-scope-db-behavior.test.ts` cover
 cross-team grants, spoofed headers, private visibility, pool revocation, and
 VM deletion. `scripts/coderouter/verify-vm-scope.ts` exercises the real Freestyle
 edge and guest CLI against an isolated development backend using disposable
-Stack identities and account metadata. It verifies account listing and routing
+Stack identities and account metadata. The runner requires
+`CMUX_SCOPE_E2E_ENVIRONMENT=isolated-development`, the approved development
+Stack project, and matching API/SQL instances on the shared backend host. It verifies account listing and routing
 denial after revocation, without importing customer credentials or invoking a
 paid upstream model. Route traces include `cmux.coderouter.pool_id`.
+
+The ownership migration is an atomic cutover for small catalogs, with an
+explicit precondition of at most 10,000 rows and 32 MiB per existing table.
+It aborts before schema changes above either limit. A two-second lock timeout
+and fifteen-second statement timeout bound interference with live requests;
+a failure rolls back and must be retried. Installations above these limits
+require separate online index/backfill phases rather than disabling the guard.
+The schema and compatibility triggers must land before deploying new readers.

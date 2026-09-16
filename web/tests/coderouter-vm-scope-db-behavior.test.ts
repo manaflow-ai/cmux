@@ -34,11 +34,11 @@ beforeAll(() => {
 afterAll(async () => { await closeCloudDbForTests(); if (db) await db.end(); });
 beforeEach(async () => {
   if (!enabled) return;
-  await db`delete from coderouter_route_tokens where team_id in (${TEAM_A}, ${TEAM_B})`;
+  await db`delete from coderouter_route_tokens where team_id in (${TEAM_A}, ${TEAM_B}, ${USER})`;
   await db`delete from cloud_vms where user_id = ${USER}`;
-  await db`delete from coderouter_accounts where team_id in (${TEAM_A}, ${TEAM_B})`;
-  await db`delete from coderouter_claude_accounts where team_id in (${TEAM_A}, ${TEAM_B})`;
-  await db`delete from coderouter_pools where team_id in (${TEAM_A}, ${TEAM_B})`;
+  await db`delete from coderouter_accounts where team_id in (${TEAM_A}, ${TEAM_B}, ${USER})`;
+  await db`delete from coderouter_claude_accounts where team_id in (${TEAM_A}, ${TEAM_B}, ${USER})`;
+  await db`delete from coderouter_pools where team_id in (${TEAM_A}, ${TEAM_B}, ${USER})`;
   const vms = await db`insert into cloud_vms (user_id, billing_team_id, provider, provider_vm_id, image_id, status)
     values (${USER}, ${TEAM_A}, 'freestyle', ${randomUUID()}, 'test', 'running'),
            (${USER}, ${TEAM_B}, 'freestyle', ${randomUUID()}, 'test', 'running') returning id, owner_team_id, coderouter_pool_id`;
@@ -152,4 +152,18 @@ dbTest("older account writers preserve shared access during deployment", async (
     values (${TEAM_A}, 'openai-apikey', 'legacy-writer', 'Legacy import') returning id, visibility`;
   expect(old.visibility).toBe('team');
   expect((await listAccounts(TEAM_A, access())).map(a => a.id)).toContain(old.id);
+});
+
+
+dbTest("personal VMs can use their owner's private pool without granting organization access", async () => {
+  const [personalVm] = await db`insert into cloud_vms (user_id, billing_team_id, provider, image_id, status)
+    values (${USER}, ${USER}, 'freestyle', 'test', 'running') returning id, coderouter_pool_id`;
+  const [personalAccount] = await db`insert into coderouter_accounts (team_id, provider, provider_account_id, label, visibility, created_by)
+    values (${USER}, 'openai-apikey', 'personal', 'Personal', 'private', ${USER}) returning id`;
+  const personal = { kind: 'vm' as const, vmId: personalVm.id as string, poolId: personalVm.coderouter_pool_id as string };
+  expect((await listAccounts(USER, personal)).map(a => a.id)).toEqual([personalAccount.id]);
+  expect((await selectAccountForRequest(USER, 'openai-apikey', [], undefined, personal))?.id).toBe(personalAccount.id);
+  expect(await listAccounts(USER, access())).toEqual([]);
+  expect(await listAccounts(USER, { ...personal, vmId: vmA })).toEqual([]);
+  expect(await listAccounts(USER, { kind: 'user', userId: 'other-person' })).toEqual([]);
 });
