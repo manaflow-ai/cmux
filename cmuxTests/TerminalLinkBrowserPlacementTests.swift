@@ -182,4 +182,43 @@ struct TerminalLinkBrowserPlacementTests {
         }
     }
 
+
+    @Test("Socket links resolve a Dock tab alias to its owning pane")
+    func dockSocketUsesSourceAlias() throws {
+        let defaults = UserDefaults.standard
+        let key = "browserTerminalLinkBrowserPlacement"
+        let original = defaults.object(forKey: key)
+        defaults.set("samePane", forKey: key)
+        defer {
+            if let original { defaults.set(original, forKey: key) }
+            else { defaults.removeObject(forKey: key) }
+        }
+        let fixture = DockSocketLifecycleTests()
+        try fixture.withSocketAppContext { _, workspace, _ in
+            let dock = DockSplitStore(
+                workspaceId: workspace.id,
+                baseDirectoryProvider: { FileManager.default.temporaryDirectory.path },
+                browserAvailabilityProvider: { true }
+            )
+            defer { dock.closeAllPanels() }
+            let pane = try #require(dock.bonsplitController.allPaneIds.first)
+            let source = try #require(dock.newSurface(kind: .terminal, inPane: pane, focus: true))
+            let alias = try #require(dock.surfaceId(forPanelId: source))
+            #expect(alias.uuid != source)
+            let result = try fixture.v2Result(method: "browser.open_split", params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": alias.uuid.uuidString,
+                "url": "about:blank",
+                "terminal_link": true,
+                "focus": false,
+            ])
+            #expect(result["source_surface_id"] as? String == source.uuidString)
+            #expect(result["pane_id"] as? String == pane.id.uuidString)
+            #expect(result["placement_strategy"] as? String == "same_pane")
+            #expect(dock.bonsplitController.allPaneIds.count == 1)
+            #expect(dock.panels.values.contains { $0 is BrowserPanel })
+            #expect(!workspace.panels.values.contains { $0 is BrowserPanel })
+        }
+    }
+
 }

@@ -43,9 +43,12 @@ enum BrowserSplitContainer {
         requestedPaneID: UUID?
     ) -> UUID? {
         if let requestedSurfaceID {
-            return containsPanel(requestedSurfaceID)
-                ? requestedSurfaceID
-                : nil
+            switch self {
+            case .workspace(let workspace):
+                return workspace.surfaceOwnershipTarget(for: requestedSurfaceID)?.containerPanelID
+            case .dock(let dock):
+                return dock.panelID(forTerminalLinkSourceID: requestedSurfaceID)
+            }
         }
         if let requestedPaneID {
             return selectedPanelID(inPane: requestedPaneID)
