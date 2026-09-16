@@ -1649,6 +1649,35 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
+    fn file_marker_survives_until_async_final_scan_releases_ownership() {
+        let mut scope = UnixProcessScope::prepare().unwrap();
+        let (reached, resume) = scope.final_scan_gate_for_test();
+        let marker_fd = scope._marker_fd.as_raw_fd();
+        let marker = scope.file_marker;
+        let mut command = UnixProcessScope::suspended_command("/bin/sleep");
+        command.arg("30");
+        scope.configure(&mut command);
+        let mut child = command.spawn().unwrap();
+        scope.bind(child.id()).unwrap();
+
+        // An expired deadline leaves finalization with the tracker. Reap the
+        // root so no child-held descriptor can keep the marker inode alive.
+        scope.terminate_until(Instant::now());
+        drop(scope);
+        child.wait().unwrap();
+        reached.recv_timeout(Duration::from_secs(10)).unwrap();
+        let retained_marker = file_marker_for_fd(marker_fd).ok();
+        // Always release the tracker before reporting the regression failure.
+        resume.send(()).unwrap();
+        assert_eq!(
+            retained_marker,
+            Some(marker),
+            "async finalization released its marker before ownership scanning ended"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
     fn linux_file_marker_requires_complete_identity_and_inheritance_flags() {
         let marker = FileMarker { mount_id: 12, inode: 345 };
         assert_eq!(
