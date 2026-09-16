@@ -54,6 +54,23 @@ final class MobilePairingModel {
         /// iPhones can discover it automatically without any QR.
         let reachableViaIroh: Bool
 
+        /// Whether the status uses authenticated discovery without a QR code.
+        let v2Only: Bool
+
+        init(
+            attachURL: String,
+            tailscaleLines: [String],
+            manualEntry: CmxManualPairingEntry?,
+            reachableViaIroh: Bool,
+            v2Only: Bool = false
+        ) {
+            self.attachURL = attachURL
+            self.tailscaleLines = tailscaleLines
+            self.manualEntry = manualEntry
+            self.reachableViaIroh = reachableViaIroh
+            self.v2Only = v2Only
+        }
+
         /// Whether at least one Tailscale route resolved.
         var reachableViaTailscale: Bool { !tailscaleLines.isEmpty }
 
@@ -66,7 +83,8 @@ final class MobilePairingModel {
                 attachURL: attachURL,
                 tailscaleLines: MobilePairingModel.tailscaleLines(routes),
                 manualEntry: CmxManualPairingEntry.best(in: routes),
-                reachableViaIroh: MobilePairingModel.hasIrohRoute(routes)
+                reachableViaIroh: MobilePairingModel.hasIrohRoute(routes),
+                v2Only: v2Only
             )
         }
     }
