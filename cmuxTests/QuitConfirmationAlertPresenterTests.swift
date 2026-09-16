@@ -265,7 +265,7 @@ private final class QuitConfirmationAlertSpy: NSAlert {
     }
 
     override func layout() {
-        if !(window?.isVisible ?? false) {
+        if !window.isVisible {
             didLayoutWhileHidden = true
         }
         super.layout()
