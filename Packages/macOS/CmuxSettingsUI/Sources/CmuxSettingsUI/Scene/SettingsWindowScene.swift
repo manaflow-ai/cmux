@@ -152,9 +152,8 @@ public struct SettingsWindowRoot: View {
         }
     }
 
-    /// The embedded sidebar: a compact search field over plain category rows,
-    /// tinted a step darker than the page so the two columns read as one
-    /// surface with a hairline seam, the way Xcode and Linear embed settings.
+    /// The embedded sidebar: a compact search field over plain category rows on
+    /// the same background as the page, separated only by a hairline seam.
     private var paneSidebar: some View {
         VStack(spacing: 0) {
             SettingsPaneSearchField(text: $searchText)
@@ -185,7 +184,6 @@ public struct SettingsWindowRoot: View {
                 .padding(.bottom, 10)
             }
         }
-        .background(Color.primary.opacity(0.04))
     }
 
     public static let navigationRequestName = Notification.Name("cmux.settings.navigate")
