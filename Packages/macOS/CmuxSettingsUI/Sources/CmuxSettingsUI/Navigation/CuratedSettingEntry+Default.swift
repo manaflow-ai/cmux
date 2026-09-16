@@ -17,7 +17,7 @@ extension Array where Element == CuratedSettingEntry {
     /// a different set of entries pass their own array via
     /// ``SettingsSearchIndex/init(catalog:curatedEntries:)``.
     public static var cmuxDefault: [CuratedSettingEntry] {
-        [
+        var entries: [CuratedSettingEntry] = [
             // Account / integrations
             .init(section: .account, id: "account", title: String(localized: "settings.section.account", defaultValue: "Account"), synonyms: "Account auth authentication login logout signin sign-in signout sign-out email user profile stack team"),
             .init(section: .automation, id: "claude-code", title: String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"), synonyms: "Claude Code Integration automation.claudeCodeIntegration claude code hooks agent integration status notifications"),
@@ -417,7 +417,9 @@ extension Array where Element == CuratedSettingEntry {
                 paths: ["computerUse.showInMenuBar"],
                 synonyms: String(localized: "settings.search.alias.setting.computerUse.showInMenuBar", defaultValue: "computerUse.showInMenuBar menu bar menubar status item cursor agents")
             ),
-        ] + browserEntries + [
+        ]
+        entries += CuratedSettingEntry.browserEntries
+        entries += [
             // Browser import
             .init(section: .browserImport, id: "import-data", title: String(localized: "settings.browser.import", defaultValue: "Import Browser Data"), synonyms: "Import Browser Data chrome safari firefox brave edge arc bookmarks history cookies profiles migration"),
             .init(section: .browserImport, id: "import-hint", title: String(localized: "settings.browser.import.hint.show", defaultValue: "Show import hint on blank browser tabs"), synonyms: "Show import hint on blank browser tabs browser.showImportHintOnBlankTabs blank tab onboarding hint import prompt dismiss"),
@@ -461,6 +463,7 @@ extension Array where Element == CuratedSettingEntry {
             // Reset
             .init(section: .reset, id: "reset-all", title: String(localized: "settings.reset.resetAll", defaultValue: "Reset All Settings"), synonyms: "Reset All Settings factory reset restore defaults clear preferences"),
         ]
+        return entries
     }
 
     private static var keyboardShortcutActionSynonyms: String {
