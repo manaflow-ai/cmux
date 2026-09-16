@@ -1204,6 +1204,7 @@ final class ShortcutHintModifierPolicyTests: XCTestCase {
 }
 
 
+@MainActor
 final class RightSidebarModeShortcutHintTests: XCTestCase {
     private let touchedShortcutActions: [KeyboardShortcutSettings.Action] = [
         .focusRightSidebar,
@@ -1297,6 +1298,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
     }
 
     func testModeShortcutsUsePrivateControlDigitDefaults() {
+        CmuxFeatureFlags.shared.setOverride(true, for: CmuxFeatureFlags.cloudMachinesFlag)
         XCTAssertEqual(
             RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "1", modifiers: [.control], keyCode: 18)),
             .files
@@ -1327,6 +1329,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
     /// tab, so ctrl+4 must select it (the old static table pinned Cloud to
     /// ctrl+6 while ctrl+4 fell on the invisible Feed and did nothing).
     func testModeShortcutDigitsFollowVisibleTabPositions() {
+        CmuxFeatureFlags.shared.setOverride(true, for: CmuxFeatureFlags.cloudMachinesFlag)
         UserDefaults.standard.set(false, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
         UserDefaults.standard.set(false, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
 

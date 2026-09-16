@@ -341,7 +341,7 @@ struct CLISSHPTYAttachReplayBoundaryTests {
 
     private func makeSocketPath() -> String {
         URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("cmux-ssh-replay-\(UUID().uuidString).sock")
+            .appendingPathComponent("cmux-ssh-r-\(UUID().uuidString.prefix(8)).sock")
             .path
     }
 

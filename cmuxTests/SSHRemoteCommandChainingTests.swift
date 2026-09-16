@@ -67,7 +67,8 @@ struct SSHRemoteCommandChainingTests {
         let script = RemoteInteractiveShellBootstrapBuilder.script(
             remoteRelayPort: 64_123,
             shellFeatures: "ssh-env,ssh-terminfo",
-            configuredRemoteCommand: configuredRemoteCommand
+            configuredRemoteCommand: configuredRemoteCommand,
+            protectsFromHangup: true
         )
         let result = processSupport.runProcess(
             executablePath: "/usr/bin/env",

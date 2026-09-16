@@ -41,6 +41,8 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             }
 
             let workspace = try #require(manager.selectedWorkspace, "Expected initial workspace")
+            manager.selectWorkspace(workspace)
+            workspace.setPortalRenderingEnabled(true, reason: "focus-recovery-test")
             let panelId = try #require(workspace.focusedPanelId, "Expected initial focused panel")
             let panel = try #require(workspace.terminalPanel(for: panelId), "Expected initial terminal panel")
             let contentView = try #require(window.contentView, "Expected content view")
@@ -122,6 +124,8 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             }
 
             let workspace = try #require(manager.selectedWorkspace, "Expected initial workspace")
+            manager.selectWorkspace(workspace)
+            workspace.setPortalRenderingEnabled(true, reason: "focus-recovery-test")
             let panelId = try #require(workspace.focusedPanelId, "Expected initial focused panel")
             let panel = try #require(workspace.terminalPanel(for: panelId), "Expected initial terminal panel")
             let contentView = try #require(window.contentView, "Expected content view")
@@ -203,6 +207,8 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             }
 
             let workspace = try #require(manager.selectedWorkspace, "Expected initial workspace")
+            manager.selectWorkspace(workspace)
+            workspace.setPortalRenderingEnabled(true, reason: "focus-recovery-test")
             let panelId = try #require(workspace.focusedPanelId, "Expected initial focused panel")
             let panel = try #require(workspace.terminalPanel(for: panelId), "Expected initial terminal panel")
             let contentView = try #require(window.contentView, "Expected content view")
@@ -279,6 +285,8 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             }
 
             let workspace = try #require(manager.selectedWorkspace, "Expected initial workspace")
+            manager.selectWorkspace(workspace)
+            workspace.setPortalRenderingEnabled(true, reason: "focus-recovery-test")
             let panelId = try #require(workspace.focusedPanelId, "Expected initial focused panel")
             let panel = try #require(workspace.terminalPanel(for: panelId), "Expected initial terminal panel")
             let contentView = try #require(window.contentView, "Expected content view")

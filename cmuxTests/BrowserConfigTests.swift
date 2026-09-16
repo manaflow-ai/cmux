@@ -21,6 +21,7 @@ import Bonsplit
 import UserNotifications
 import Network
 import CmuxBrowser
+import CmuxAppKitSupportUI
 import CmuxSettings
 import CmuxSidebar
 
@@ -1945,8 +1946,8 @@ final class BrowserDeveloperToolsShortcutDefaultsTests: XCTestCase {
 @MainActor
 final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
     /// The terminal background the browser paints under a page is opaque: the
-    /// terminal color is composited over the window background at the Ghostty
-    /// opacity so blank/loading regions never show window gray through the page.
+    /// terminal color is composited over Ghostty's resolved dark chrome base at
+    /// the configured opacity so blank/loading regions stay readable.
     /// Blend it here rather than asking the product for the answer, so a panel
     /// that ignores the notification (or drops the opacity) still fails.
     private func expectedUnderPageBackgroundColor(
@@ -1954,7 +1955,14 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
         opacity: CGFloat
     ) throws -> NSColor {
         let terminal = try XCTUnwrap(terminalColor.usingColorSpace(.sRGB))
-        let base = try XCTUnwrap(NSColor.windowBackgroundColor.usingColorSpace(.sRGB))
+        // Match `GhosttyBackgroundTheme.resolvedColor`, which resolves semantic
+        // window colors against Ghostty's terminal appearance. Reading the
+        // ambient AppKit color would make this assertion host-appearance dependent.
+        let base = try XCTUnwrap(
+            WindowAppearanceSnapshot
+                .resolvedColor(.windowBackgroundColor, for: .dark)
+                .usingColorSpace(.sRGB)
+        )
         return NSColor(
             srgbRed: terminal.redComponent * opacity + base.redComponent * (1 - opacity),
             green: terminal.greenComponent * opacity + base.greenComponent * (1 - opacity),

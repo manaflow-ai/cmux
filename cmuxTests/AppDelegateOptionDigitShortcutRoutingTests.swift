@@ -486,6 +486,9 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
             defer { closeWindow(withId: windowId) }
 
             let testWindow = try #require(self.window(withId: windowId))
+            // Cmd+Shift+Y is now a Cloud default; this test isolates modifier
+            // matching for focus history rather than shortcut conflict priority.
+            KeyboardShortcutSettings.clearShortcut(for: .newCloudMachine)
             let candidates: [(KeyboardShortcutSettings.Action, StoredShortcut, NSEvent.ModifierFlags, String, String, UInt16)] = [
                 (
                     .focusHistoryBack,

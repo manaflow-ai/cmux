@@ -88,7 +88,7 @@ struct ForkParentFallbackResidualTests {
             registration: nil
         )
         let claudeTeamsProcess = CmuxTopProcessArguments(
-            arguments: ["/usr/local/bin/claude", "--resume", claudeTeamsSnapshot.sessionId, "--fork-session"],
+            arguments: ["/usr/local/bin/claude", "--resume", claudeTeamsSnapshot.sessionId],
             environment: [
                 "CMUX_AGENT_LAUNCH_KIND": "claudeTeams",
                 "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/cmux",

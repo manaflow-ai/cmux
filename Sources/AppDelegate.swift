@@ -7119,6 +7119,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    @discardableResult
+    private func pruneWindowlessActiveMainWindowContext() -> Bool {
+        guard let activeManager = tabManager,
+              let activeContext = mainWindowContext(for: activeManager),
+              resolvedWindow(for: activeContext) == nil else { return false }
+        discardOrphanedMainWindowContext(activeContext)
+        return true
+    }
+
     private func mainWindowId(for window: NSWindow) -> UUID? {
         if let context = mainWindowContexts[ObjectIdentifier(window)] {
             return context.windowId
@@ -9945,10 +9954,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         event: NSEvent? = nil,
         debugSource: String = "unspecified"
     ) -> MainWindowContext? {
-        if let activeManager = tabManager,
-           let activeContext = mainWindowContext(for: activeManager),
-           resolvedWindow(for: activeContext) == nil {
-            discardOrphanedMainWindowContext(activeContext)
+        if pruneWindowlessActiveMainWindowContext() {
 #if DEBUG
             logWorkspaceCreationRouting(
                 phase: "choose",
@@ -10167,6 +10173,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     private func synchronizeShortcutRoutingContext(event: NSEvent) -> Bool {
+        // Retire the stale active route before selecting a live event/key window.
+        // Otherwise synchronization hides it from workspace creation's cleanup.
+        pruneWindowlessActiveMainWindowContext()
         guard let context = preferredMainWindowContextForShortcutRouting(event: event) else {
 #if DEBUG
             focusLog.append(
@@ -15001,7 +15010,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let hasEventWindowContext = shortcutEventHasAddressableWindow(event)
         let didSynchronizeShortcutContext = synchronizeShortcutRoutingContext(event: event)
-        if hasEventWindowContext && !didSynchronizeShortcutContext {
+        let eventWindowMayRouteAuxiliaryShortcut = cmuxWindowShouldOwnCloseShortcut(
+            resolvedShortcutEventWindow(event)
+        )
+        if hasEventWindowContext && !didSynchronizeShortcutContext && !eventWindowMayRouteAuxiliaryShortcut {
             if handleDetachedInspectorCloseShortcutOutsideMainContext(event: event) {
                 return true
             }

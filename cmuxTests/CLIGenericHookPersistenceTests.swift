@@ -2095,11 +2095,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(calls.count, 2, "expected the ambient attempt and then the pinned fallback, saw \(calls)")
         XCTAssertEqual(
             calls.first,
-            "ambient-cmux --socket \(staleSocketPath) hooks antigravity session-start"
+            "ambient-cmux --socket \(staleSocketPath) hooks enqueue antigravity session-start"
         )
         XCTAssertEqual(
             calls.last,
-            "pinned-cmux --socket \(pinnedSocketPath) hooks antigravity session-start"
+            "pinned-cmux --socket \(pinnedSocketPath) hooks enqueue antigravity session-start"
         )
     }
 
@@ -2182,18 +2182,30 @@ extension CLINotifyProcessIntegrationRegressionTests {
             guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
                 return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
             }
-            XCTAssertEqual(method, "feed.push")
-            return self.v2Response(
-                id: id,
-                ok: true,
-                result: [
-                    "status": "resolved",
-                    "decision": [
-                        "kind": "permission",
-                        "mode": "deny",
-                    ],
-                ]
-            )
+            switch method {
+            case "agent.resolve_delivery_target":
+                return self.v2Response(id: id, ok: true, result: [
+                    "source": "surface",
+                    "workspace_id": workspaceId,
+                    "surface_id": surfaceId,
+                ])
+            case "agent.hook.barrier":
+                return self.v2Response(id: id, ok: true, result: [:])
+            case "feed.push":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "status": "resolved",
+                        "decision": [
+                            "kind": "permission",
+                            "mode": "deny",
+                        ],
+                    ]
+                )
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected_method", "message": method])
+            }
         }
 
         let result = runProcess(
@@ -2218,6 +2230,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 2, result.stderr)
         XCTAssertTrue(result.stderr.contains("User denied permission via cmux Feed."), result.stderr)
+        XCTAssertTrue(
+            waitForConditionBlocking(timeout: 5) {
+                state.commands.contains { self.jsonObject($0)?["method"] as? String == "feed.push" }
+            },
+            state.commands.joined(separator: "\n")
+        )
 
         let feedEvents = state.commands.compactMap { command -> [String: Any]? in
             guard let payload = self.jsonObject(command),

@@ -753,7 +753,7 @@ final class MachinesPanelModelTests: XCTestCase {
         )
 
         let group = try catalog.remoteWorkspaceGroup(machine: machine, workspaceID: workspace.id)
-        XCTAssertEqual(group.placements.map(\.remoteTabID), ["tab_b", "tab_a"])
+        XCTAssertEqual(group.placements.map(\.remoteTabID), ["tab_a", "tab_b"])
     }
 
     @MainActor

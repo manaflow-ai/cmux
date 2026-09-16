@@ -176,11 +176,19 @@ private final class CodexTerminalErrorSocketServer: @unchecked Sendable {
               let id = payload["id"] as? String else {
             return "OK"
         }
-        let response: [String: Any] = [
-            "id": id,
-            "ok": true,
-            "result": ["surfaces": [["id": surfaceID, "ref": surfaceID, "focused": true]]],
-        ]
+        let method = payload["method"] as? String
+        let result: [String: Any]
+        switch method {
+        case "agent.resolve_delivery_target":
+            result = ["source": "surface", "workspace_id": "11111111-1111-1111-1111-111111111111", "surface_id": surfaceID]
+        case "agent.hook.barrier":
+            result = [:]
+        case "surface.list":
+            result = ["surfaces": [["id": surfaceID, "ref": surfaceID, "focused": true]]]
+        default:
+            result = [:]
+        }
+        let response: [String: Any] = ["id": id, "ok": true, "result": result]
         let responseData = try? JSONSerialization.data(withJSONObject: response)
         return String(data: responseData ?? Data("{}".utf8), encoding: .utf8) ?? "{}"
     }

@@ -295,10 +295,11 @@ final class GhosttyConfigTests: XCTestCase {
         try fileManager.createDirectory(at: firstThemeDir, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: secondThemeDir, withIntermediateDirectories: true)
 
-        let firstTheme = firstThemeDir.appendingPathComponent("Catppuccin Latte", isDirectory: false)
+        let managedThemeName = GhosttyConfig.cmuxDefaultLightThemeName
+        let firstTheme = firstThemeDir.appendingPathComponent(managedThemeName, isDirectory: false)
         try Data([0xff, 0xfe]).write(to: firstTheme)
 
-        let secondTheme = secondThemeDir.appendingPathComponent("Catppuccin Latte", isDirectory: false)
+        let secondTheme = secondThemeDir.appendingPathComponent(managedThemeName, isDirectory: false)
         let expected = "foreground = #123456\n"
         try expected.write(to: secondTheme, atomically: true, encoding: .utf8)
 
@@ -4683,7 +4684,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
         let config = GhosttyConfig.load(preferredColorScheme: .light, useCache: false)
         XCTAssertNil(config.theme)
-        XCTAssertEqual(config.backgroundColor.hexString(), "#EFF1F5")
+        XCTAssertEqual(config.backgroundColor.hexString(), "#FEFFFF")
         #endif
     }
 }

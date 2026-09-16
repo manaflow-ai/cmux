@@ -321,6 +321,7 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
     }
 }
 
+@MainActor
 final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
     func testRenameTabShortcutDefaultsAndMetadata() {
         XCTAssertEqual(KeyboardShortcutSettings.Action.renameTab.label, "Rename Tab")
@@ -514,6 +515,10 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         defaults.set(false, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
         defaults.set(false, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
         defaults.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+        let flag = CmuxFeatureFlags.cloudMachinesFlag
+        let previousRemoteOverride = CmuxFeatureFlags.shared.overrideValue(for: flag)
+        CmuxFeatureFlags.shared.setOverride(true, for: flag)
+        defer { CmuxFeatureFlags.shared.setOverride(previousRemoteOverride, for: flag) }
 
         XCTAssertEqual(
             RightSidebarMode.availableModes(defaults: defaults),
@@ -4884,7 +4889,9 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
     }
 
     func testTerminalFirstResponderConvergesSplitActiveStateWhenSelectionAlreadyMatches() {
-        let workspace = Workspace()
+        let fixture = TerminalPortalTestWorkspace()
+        defer { fixture.tearDown() }
+        let workspace = fixture.workspace
         guard let leftPanelId = workspace.focusedPanelId,
               let leftPanel = workspace.terminalPanel(for: leftPanelId),
               let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
@@ -5061,7 +5068,9 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
     }
 
     func testTerminalClickRecoversSplitActiveStateWhenFocusCallbackIsSuppressed() {
-        let workspace = Workspace()
+        let fixture = TerminalPortalTestWorkspace()
+        defer { fixture.tearDown() }
+        let workspace = fixture.workspace
         guard let leftPanelId = workspace.focusedPanelId,
               let leftPanel = workspace.terminalPanel(for: leftPanelId),
               let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
@@ -5069,6 +5078,7 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             return
         }
         let window = makeWindow()
+        fixture.bind(to: window)
         defer { window.orderOut(nil) }
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
@@ -5144,7 +5154,9 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
 
     func testClearSuppressReparentFocusReassertsGhosttyFocusForCurrentFirstResponder() throws {
 #if DEBUG
-        let workspace = Workspace()
+        let fixture = TerminalPortalTestWorkspace()
+        defer { fixture.tearDown() }
+        let workspace = fixture.workspace
         guard let leftPanelId = workspace.focusedPanelId,
               let leftPanel = workspace.terminalPanel(for: leftPanelId),
               let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
@@ -5155,6 +5167,7 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, leftPanel.id)
 
         let window = makeWindow()
+        fixture.bind(to: window)
         defer { window.orderOut(nil) }
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")

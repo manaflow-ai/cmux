@@ -1544,27 +1544,8 @@ final class TerminalOffscreenStartupTests: XCTestCase {
                 TerminalController.shared.setActiveTabManager(previousManager)
             }
 
-            // The route-only XCTest startup seam requires no persisted listener
-            // override; unrelated listener-policy tests may explicitly disable it.
-            let defaults = UserDefaults.standard
-            let listeningKeys = [MobileHostService.listeningEnabledDefaultsKey, "cmuxMobilePairingHostEnabled"]
-            let savedListeningValues = listeningKeys.map { defaults.object(forKey: $0) }
-            for key in listeningKeys { defaults.removeObject(forKey: key) }
-            defaults.set(true, forKey: MobileHostService.listeningEnabledDefaultsKey)
-            defer {
-                for (key, value) in zip(listeningKeys, savedListeningValues) {
-                    if let value { defaults.set(value, forKey: key) }
-                    else { defaults.removeObject(forKey: key) }
-                }
-            }
-            MobileHostService.shared.start()
-            defer {
-                MobileHostService.shared.stop()
-            }
-            guard await waitForMobileHostRoutesForTesting() else {
-                XCTFail("Expected mobile host to publish routes before creating attach ticket")
-                return
-            }
+            let restoreRoutes = try installMobileHostRoutesForTesting()
+            defer { restoreRoutes() }
             let workspace = try XCTUnwrap(manager.selectedWorkspace)
 
             let response = await TerminalController.shared.mobileHostHandleRPC(
@@ -1595,27 +1576,8 @@ final class TerminalOffscreenStartupTests: XCTestCase {
                 TerminalController.shared.setActiveTabManager(previousManager)
             }
 
-            // The route-only XCTest startup seam requires no persisted listener
-            // override; unrelated listener-policy tests may explicitly disable it.
-            let defaults = UserDefaults.standard
-            let listeningKeys = [MobileHostService.listeningEnabledDefaultsKey, "cmuxMobilePairingHostEnabled"]
-            let savedListeningValues = listeningKeys.map { defaults.object(forKey: $0) }
-            for key in listeningKeys { defaults.removeObject(forKey: key) }
-            defaults.set(true, forKey: MobileHostService.listeningEnabledDefaultsKey)
-            defer {
-                for (key, value) in zip(listeningKeys, savedListeningValues) {
-                    if let value { defaults.set(value, forKey: key) }
-                    else { defaults.removeObject(forKey: key) }
-                }
-            }
-            MobileHostService.shared.start()
-            defer {
-                MobileHostService.shared.stop()
-            }
-            guard await waitForMobileHostRoutesForTesting() else {
-                XCTFail("Expected mobile host to publish routes before creating attach ticket")
-                return
-            }
+            let restoreRoutes = try installMobileHostRoutesForTesting()
+            defer { restoreRoutes() }
 
             let selectedWorkspace = try XCTUnwrap(manager.selectedWorkspace)
             let backgroundWorkspace = manager.addWorkspace(
@@ -1656,27 +1618,8 @@ final class TerminalOffscreenStartupTests: XCTestCase {
                 TerminalController.shared.setActiveTabManager(previousManager)
             }
 
-            // The route-only XCTest startup seam requires no persisted listener
-            // override; unrelated listener-policy tests may explicitly disable it.
-            let defaults = UserDefaults.standard
-            let listeningKeys = [MobileHostService.listeningEnabledDefaultsKey, "cmuxMobilePairingHostEnabled"]
-            let savedListeningValues = listeningKeys.map { defaults.object(forKey: $0) }
-            for key in listeningKeys { defaults.removeObject(forKey: key) }
-            defaults.set(true, forKey: MobileHostService.listeningEnabledDefaultsKey)
-            defer {
-                for (key, value) in zip(listeningKeys, savedListeningValues) {
-                    if let value { defaults.set(value, forKey: key) }
-                    else { defaults.removeObject(forKey: key) }
-                }
-            }
-            MobileHostService.shared.start()
-            defer {
-                MobileHostService.shared.stop()
-            }
-            guard await waitForMobileHostRoutesForTesting() else {
-                XCTFail("Expected mobile host to publish routes before creating attach ticket")
-                return
-            }
+            let restoreRoutes = try installMobileHostRoutesForTesting()
+            defer { restoreRoutes() }
             let workspace = try XCTUnwrap(manager.selectedWorkspace)
 
             let response = await TerminalController.shared.mobileHostHandleRPC(
@@ -1875,26 +1818,25 @@ final class TerminalOffscreenStartupTests: XCTestCase {
     }
 #endif
 
-    private func waitForMobileHostRoutesForTesting() async -> Bool {
-        for _ in 0..<200 {
-            let response = await TerminalController.shared.mobileHostHandleRPC(
-                MobileHostRPCRequest(
-                    id: "status",
-                    method: "mobile.host.status",
-                    params: [:],
-                    auth: nil
-                )
-            )
-            if case let .ok(rawPayload) = response,
-               let payload = rawPayload as? [String: Any],
-               let routes = payload["routes"] as? [[String: Any]],
-               !routes.isEmpty {
-                return true
+    private func installMobileHostRoutesForTesting() throws -> () -> Void {
+        let previous = MobileHostPublicStatusCache.snapshot()
+        let previousDeviceID = MobileHostPublicStatusCache.currentV2DeviceID()
+        MobileHostPublicStatusCache.removeAll()
+        MobileHostPublicStatusCache.update(routes: [try CmxAttachRoute(
+            id: "debug_loopback", kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 58465)
+        )])
+        return {
+            MobileHostPublicStatusCache.removeAll()
+            MobileHostPublicStatusCache.updateV2DeviceID(previousDeviceID)
+            MobileHostPublicStatusCache.update(routes: previous.filter { $0.kind != .iroh })
+            if let route = previous.first(where: { $0.kind == .iroh }),
+               case let .peer(identity, pathHints) = route.endpoint {
+                MobileHostPublicStatusCache.update(irohIdentity: identity, pathHints: pathHints)
             }
-            try? await Task.sleep(nanoseconds: 10_000_000)
         }
-        return false
     }
+
 }
 
 final class TerminalKeyboardCopyModeActionTests: XCTestCase {
@@ -7171,7 +7113,9 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             )
         }
 
-        guard Darwin.listen(fd, 1) == 0 else {
+        // Startup performs several liveness probes. Keep this fixture's
+        // accept queue open for all of them even though no server drains it.
+        guard Darwin.listen(fd, SOMAXCONN) == 0 else {
             let code = Int(errno)
             Darwin.close(fd)
             throw NSError(

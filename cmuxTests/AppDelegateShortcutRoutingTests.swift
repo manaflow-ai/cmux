@@ -8363,6 +8363,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     func testTextBoxSubmitSerializesRunsPerSurface() throws {
 #if DEBUG
         try withPreservedGeneralPasteboard {
+            TextBoxSubmit.debugResetForTesting()
+            defer { TextBoxSubmit.debugResetForTesting() }
             let surface = FakeTextBoxSubmitSurface()
             TextBoxSubmit.debugWaitTimeoutSecondsOverride = 10
             defer { TextBoxSubmit.debugWaitTimeoutSecondsOverride = nil }
@@ -8409,6 +8411,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #if DEBUG
         try await AppContextSerialGate.withExclusiveAppContext {
         try await withPreservedGeneralPasteboard {
+            TextBoxSubmit.debugResetForTesting()
+            defer { TextBoxSubmit.debugResetForTesting() }
             let firstSurface = FakeTextBoxSubmitSurface()
             let secondSurface = FakeTextBoxSubmitSurface()
             let pasteboard = NSPasteboard.general

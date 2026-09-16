@@ -1,6 +1,7 @@
 import CmuxWorkspaces
 import Darwin
 import CmuxCore
+import CmuxRemoteWorkspace
 import XCTest
 import CmuxTerminal
 
@@ -2886,8 +2887,18 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(params["session_id"] as? String, sessionID)
 
         let environment = try XCTUnwrap(params["environment"] as? [String: String])
-        XCTAssertEqual(environment["CMUX_WORKSPACE_ID"], restoredWorkspace.id.uuidString)
-        XCTAssertEqual(environment["CMUX_SURFACE_ID"], restoredPanelId.uuidString)
+        // Shell environment entries are opaque payload, not scoped relay
+        // selectors. A TTY report cannot forward an environment dictionary.
+        XCTAssertEqual(environment["CMUX_WORKSPACE_ID"], originalWorkspaceId.uuidString)
+        XCTAssertEqual(environment["CMUX_SURFACE_ID"], originalPanelId.uuidString)
+        XCTAssertEqual(
+            RemoteRelayCommandPolicy().evaluate(
+                commandLine: rewrittenData,
+                workspaceAliases: [:],
+                surfaceAliases: [:]
+            ),
+            .deny(reason: "parameter 'environment' is not permitted through a remote relay")
+        )
 
         let caller = try XCTUnwrap(params["caller"] as? [String: Any])
         XCTAssertEqual(caller["workspace_id"] as? String, restoredWorkspace.id.uuidString)
@@ -3003,7 +3014,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(params["tab_ids"] as? [String], [restoredWorkspaceID.uuidString])
     }
 
-    func testRemoteRelayForcesQueuedHookProvenanceWithoutIDAliases() throws {
+    func testRemoteRelayRejectsQueuedHookMethodsWithoutIDAliases() throws {
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)
         for method in ["agent.hook.enqueue", "agent.hook.barrier"] {
@@ -3017,17 +3028,36 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
                 ],
             ]
             let requestData = try JSONSerialization.data(withJSONObject: request, options: [])
+            XCTAssertEqual(
+                RemoteRelayCommandPolicy().evaluate(
+                    commandLine: requestData,
+                    workspaceAliases: [:],
+                    surfaceAliases: [:]
+                ),
+                .deny(reason: "method '\(method)' is not permitted through a remote relay")
+            )
 
+            // Provenance stamping does not authorize a method. The app-side
+            // gate must also reject queue replay even if it reaches ingress.
             let rewrittenData = remoteWorkspace.rewriteRemoteRelayCommandLine(requestData)
             let rewritten = try XCTUnwrap(
                 JSONSerialization.jsonObject(with: rewrittenData) as? [String: Any]
             )
             let params = try XCTUnwrap(rewritten["params"] as? [String: Any])
 
-            XCTAssertEqual(params["relay_backed"] as? Bool, true, method)
             XCTAssertEqual(
                 params["_cmux_remote_workspace_id"] as? String,
                 remoteWorkspace.id.uuidString,
+                method
+            )
+            XCTAssertEqual(
+                RemoteRelayAuthorizationPolicy().validate(
+                    method: method,
+                    parameters: params,
+                    ownerWorkspaceID: remoteWorkspace.id,
+                    surfaceIDs: Set(remoteWorkspace.panels.keys)
+                ),
+                .denied(code: "remote_relay_method_denied", message: "Relay method is not permitted"),
                 method
             )
         }

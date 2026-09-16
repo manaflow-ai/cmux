@@ -764,7 +764,7 @@ struct RecoverableWindowlessMainWindowRoutingTests {
     }
 
     @Test("Browser-only dead route is pruned on ledger access")
-    func browserOnlyDeadRouteIsPrunedOnLedgerAccess() throws {
+    func browserOnlyDeadRouteIsPrunedOnLedgerAccess() async throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -813,6 +813,9 @@ struct RecoverableWindowlessMainWindowRoutingTests {
         // No terminal existed when the manager died, so no terminal-registry
         // topology event can retire this route. Ledger access owns the sweep.
         #expect(app.recoverableMainWindowRoute(windowId: windowId) == nil)
+        // The manager's owner registration also enqueues exact-route cleanup
+        // from deinit. Let that MainActor callback release its temporary owner.
+        await Task { @MainActor in }.value
         #expect(retainedRoute == nil)
     }
 
