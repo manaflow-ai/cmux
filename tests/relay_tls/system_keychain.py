@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -74,7 +75,7 @@ commonName = supplied
     return subject
 
 
-def build_client(directory, output):
+def build_client(directory, output, diagnostics):
     pins = json.loads((ROOT / "Packages/Shared/CmuxIrohTransport/Package.resolved").read_text())["pins"]
     pin = next(pin for pin in pins if pin["identity"] == "iroh-ffi")
     (directory / "Package.swift").write_text(f'''// swift-tools-version: 6.0
@@ -89,36 +90,45 @@ let package = Package(name: "RelayTLSClient", platforms: [.macOS(.v14)],
     shutil.copyfile(Path(__file__).with_name("RelayTLSClient.swift"), sources / "RelayTLSClient.swift")
     print(f"Building pinned Iroh {pin['state']['version']}", flush=True)
     with (output / "build.log").open("w") as log:
-        build = subprocess.run(["swift", "build", "--package-path", str(directory)],
+        flags = ["-Xswiftc", "-DRELAY_TLS_DIAGNOSTICS"] if diagnostics else []
+        build = subprocess.run(["swift", "build", "--package-path", str(directory), *flags],
                                stdout=log, stderr=subprocess.STDOUT, timeout=300)
     if build.returncode:
         raise RuntimeError((output / "build.log").read_text())
     return directory / ".build/debug/RelayTLSClient", pin
 
 
-def handshake(client, directory, name, label, output):
+def handshake(client, directory, name, label, output, diagnostics=True):
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(directory / f"{name}.pem", directory / f"{name}.key")
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))
     listener.listen()
-    listener.settimeout(15)
+    listener.settimeout(0.2)
     observed = {}
+    handshake_observed = threading.Event()
+    stop = threading.Event()
 
     def serve():
-        try:
-            stream, _ = listener.accept()
-            stream.settimeout(10)
-            with context.wrap_socket(stream, server_side=True) as tls:
-                # TLS 1.3's server-side handshake can return before the client's
-                # certificate alert. Application data proves client validation.
-                data = tls.recv(4096)
-                observed["accepted"] = data.startswith(b"GET ")
-                tls.sendall(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n")
-        except (ssl.SSLError, OSError) as error:
-            observed.update(accepted=False, server_error=type(error).__name__)
-        finally:
-            listener.close()
+        while not stop.is_set():
+            try:
+                stream, _ = listener.accept()
+            except socket.timeout:
+                continue
+            stream.settimeout(3)
+            try:
+                with context.wrap_socket(stream, server_side=True) as tls:
+                    # A TLS 1.3 server handshake can finish before the client's
+                    # certificate alert. Application data proves validation.
+                    data = tls.recv(4096)
+                    observed["accepted"] = observed.get("accepted", False) or data.startswith(b"GET ")
+                    tls.sendall(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n")
+            except (ssl.SSLError, OSError) as error:
+                observed.setdefault("accepted", False)
+                observed["server_error"] = type(error).__name__
+                stream.close()
+            finally:
+                handshake_observed.set()
 
     server = threading.Thread(target=serve)
     server.start()
@@ -127,7 +137,14 @@ def handshake(client, directory, name, label, output):
         process = subprocess.Popen([str(client), f"https://localhost:{listener.getsockname()[1]}/"],
                                    stdin=subprocess.PIPE, stdout=log_file, stderr=log_file)
         try:
-            server.join(timeout=20)
+            handshake_observed.wait(timeout=20)
+            # Observe the native error callback before closing the endpoint.
+            # The TLS server's alert can arrive before Iroh updates its state.
+            deadline = time.monotonic() + 30
+            while diagnostics and time.monotonic() < deadline and process.poll() is None:
+                if "DIAGNOSTIC " in log.read_text():
+                    break
+                time.sleep(0.05)
         finally:
             process.stdin.close()
             try:
@@ -135,11 +152,15 @@ def handshake(client, directory, name, label, output):
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait()
+            stop.set()
+            server.join(timeout=5)
             listener.close()
-            server.join(timeout=1)
     if server.is_alive() or not observed:
         raise RuntimeError(f"{label}: no TLS result; inspect {log}")
     observed["case"] = label
+    diagnostics = [json.loads(line.removeprefix("DIAGNOSTIC "))
+                   for line in log.read_text().splitlines() if line.startswith("DIAGNOSTIC ")]
+    observed["diagnostics"] = diagnostics
     print(json.dumps(observed), flush=True)
     return observed
 
@@ -148,6 +169,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--allow-system-keychain", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--diagnostics", action="store_true", help="also verify native failure categories (requires the fixed framework)")
     args = parser.parse_args()
     if sys.platform != "darwin" or not args.allow_system_keychain:
         parser.error("use an isolated macOS runner with --allow-system-keychain")
@@ -156,34 +178,47 @@ def main():
         directory = Path(temp)
         os.chmod(directory, 0o700)
         subject = certificates(directory)
-        client, pin = build_client(directory, args.output)
+        client, pin = build_client(directory, args.output, args.diagnostics)
         root = directory / "root.pem"
         der = subprocess.check_output(["openssl", "x509", "-in", str(root), "-outform", "DER"])
         fingerprint = hashlib.sha1(der).hexdigest().upper()
         results = []
         try:
-            results.append(handshake(client, directory, "valid", "untrusted-issuer", args.output))
+            results.append(handshake(client, directory, "valid", "untrusted-issuer", args.output, args.diagnostics))
             run("sudo", "-n", "security", "add-trusted-cert", "-d", "-r", "trustRoot",
                 "-p", "ssl", "-k", KEYCHAIN, str(root))
             run("security", "verify-cert", "-c", str(directory / "valid.pem"),
                 "-p", "ssl", "-s", "localhost")
-            results.append(handshake(client, directory, "valid", "system-trusted-enterprise-root", args.output))
-            results.append(handshake(client, directory, "wrong-host", "hostname-mismatch", args.output))
-            results.append(handshake(client, directory, "expired", "expired-certificate", args.output))
+            results.append(handshake(client, directory, "valid", "system-trusted-enterprise-root", args.output, args.diagnostics))
+            results.append(handshake(client, directory, "wrong-host", "hostname-mismatch", args.output, args.diagnostics))
+            results.append(handshake(client, directory, "expired", "expired-certificate", args.output, args.diagnostics))
         finally:
-            subprocess.run(["sudo", "-n", "security", "remove-trusted-cert", "-d", str(root)],
-                           capture_output=True, check=False)
-            subprocess.run(["sudo", "-n", "security", "delete-certificate", "-Z", fingerprint, KEYCHAIN],
-                           capture_output=True, check=False)
-        results.append(handshake(client, directory, "valid", "removed-root", args.output))
+            (args.output / "handshakes.json").write_text(json.dumps(results, indent=2) + "\n")
+            for command in [
+                ["sudo", "-n", "security", "remove-trusted-cert", "-d", str(root)],
+                ["sudo", "-n", "security", "delete-certificate", "-Z", fingerprint, KEYCHAIN],
+            ]:
+                print(f"Cleanup: {command[3]}", flush=True)
+                try:
+                    subprocess.run(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                   stderr=subprocess.DEVNULL, check=False, timeout=15)
+                except subprocess.TimeoutExpired:
+                    print(f"Cleanup command timed out: {command[3]}", flush=True)
+        results.append(handshake(client, directory, "valid", "removed-root", args.output, args.diagnostics))
         cleanup = subprocess.run(["security", "find-certificate", "-c", subject, KEYCHAIN],
-                                 capture_output=True, check=False).returncode != 0
+                                 capture_output=True, check=False, timeout=15).returncode != 0
         report = {"framework": pin, "macos": run("sw_vers", "-productVersion").strip(),
                   "results": results, "root_removed": cleanup}
         (args.output / "results.json").write_text(json.dumps(report, indent=2) + "\n")
         expected = [False, True, False, False, False]
         if [result["accepted"] for result in results] != expected or not cleanup:
             raise SystemExit("FAIL: system trust or certificate validation did not match the contract")
+        for result, cause in zip(results, ["unknownIssuer", None, "hostnameMismatch",
+                                           "certificateExpired", "unknownIssuer"]):
+            if args.diagnostics and cause and not any(item["cause"] == cause for item in result["diagnostics"]):
+                raise SystemExit(f"FAIL: {result['case']} lost the native {cause} diagnostic")
+            if any(item["host"] != "localhost" for item in result["diagnostics"]):
+                raise SystemExit("FAIL: diagnostic did not identify the TLS host")
         print("PASS: System-keychain root honored; untrusted issuer, wrong host, expired and removed root rejected")
 
 
