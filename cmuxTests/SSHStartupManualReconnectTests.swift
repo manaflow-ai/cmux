@@ -596,11 +596,22 @@ struct SSHStartupManualReconnectTests {
         let fakeCLI = root.appendingPathComponent("cmux")
         let fakeSSH = root.appendingPathComponent("ssh")
         let attemptFile = root.appendingPathComponent("ssh-attempts.txt")
+        let attachFile = root.appendingPathComponent("attach-attempts.txt")
 
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
-        try Self.writeFakeSSHCLI(at: fakeCLI)
+        // Observe the PTY handoff separately from SSH authentication so a
+        // successful attach cannot consume another authentication attempt.
+        try Self.writeShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "for arg in \"$@\"; do",
+            "  if [ \"$arg\" = \"ssh-pty-attach\" ]; then",
+            "    printf '%s\\n' attached >> \"${CMUX_TEST_ATTACH_FILE:?}\"",
+            "  fi",
+            "done",
+            "exit 0",
+        ])
         try Self.writeShellFile(at: fakeSSH, lines: [
             "#!/bin/sh",
             "count=$(cat \"${CMUX_TEST_ATTEMPT_FILE}\" 2>/dev/null || printf 0)",
@@ -626,6 +637,7 @@ struct SSHStartupManualReconnectTests {
         environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
         environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
+        environment["CMUX_TEST_ATTACH_FILE"] = attachFile.path
         environment["CMUX_SSH_PENDING_SIGNAL"] = "130"
         environment["CMUX_SSH_PENDING_SIGNAL_NAME"] = "INT"
         environment["cmux_ssh_attach_pending_signal"] = "130"
@@ -642,6 +654,7 @@ struct SSHStartupManualReconnectTests {
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         let authenticationAttempts = try String(contentsOf: attemptFile, encoding: .utf8)
         #expect(authenticationAttempts == "1")
+        #expect(try String(contentsOf: attachFile, encoding: .utf8) == "attached\n")
     }
 
     @MainActor
@@ -699,11 +712,14 @@ struct SSHStartupManualReconnectTests {
 
         #expect(!workspace.isRemoteTerminalSurface(panel.id))
         #expect(workspace.remoteConnectionState == .connected)
+        let lifecycleID = panel.surface.terminalLifecycleId
 
-        #expect(!workspace.reconnectRemoteConnection(surfaceId: panel.id))
+        #expect(workspace.reconnectRemoteConnection(surfaceId: panel.id))
 
-        #expect(!workspace.isRemoteTerminalSurface(panel.id))
-        #expect(workspace.pendingRemoteTerminalChildExitSurfaceIds.contains(panel.id))
+        let replacement = try #require(workspace.terminalPanel(for: panel.id))
+        #expect(replacement.surface.terminalLifecycleId != lifecycleID)
+        #expect(workspace.isRemoteTerminalSurface(panel.id))
+        #expect(!workspace.pendingRemoteTerminalChildExitSurfaceIds.contains(panel.id))
         #expect(workspace.remoteConnectionState == .connected)
     }
 
@@ -790,16 +806,13 @@ struct SSHStartupManualReconnectTests {
             detail: "Reconnecting to cmux-macmini via shared local proxy 127.0.0.1:64007",
             target: "cmux-macmini"
         )
-        // Preserve the controller-ready fact while the published connection
-        // state presents an in-flight reconnect.
-        workspace.remoteControllerConnectionState = .connected
-
         let panel = try #require(workspace.newTerminalSurfaceInFocusedPane(focus: false))
         workspace.untrackRemoteTerminalSurface(panel.id)
         workspace.pendingRemoteTerminalChildExitSurfaceIds.insert(panel.id)
 
         #expect(!workspace.isRemoteTerminalSurface(panel.id))
         #expect(workspace.remoteConnectionState == .reconnecting)
+        #expect(workspace.remoteControllerConnectionState == .reconnecting)
 
         #expect(workspace.remoteSessionController == nil)
         #expect(workspace.remoteSessionTransitionTask == nil)
