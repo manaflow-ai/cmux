@@ -414,6 +414,7 @@ try {
     // marker pre-accepts Chrome's first-run/ToS dialog (cmux-desktop-boot
     // re-asserts it on every boot).
     const desktopEnvLine = `'[ -f /etc/cmux/desktop-env.sh ] && . /etc/cmux/desktop-env.sh'`;
+    const guestOpenURLLine = `'[ -x /usr/local/bin/cmux-open-url ] && { [ -n "\${BROWSER-}" ] || BROWSER=/usr/local/bin/cmux-open-url; export BROWSER; [ -n "\${GH_BROWSER-}" ] || GH_BROWSER=/usr/local/bin/cmux-open-url; export GH_BROWSER; }'`;
     /** One login shell as `user` (its own HOME, a clean PATH) running `command`. */
     const loginAs = (user: string, home: string, command: string): string =>
       `sudo -n -u ${user} env -i HOME=${home} USER=${user} TERM=xterm PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -lc '${command}'`;
@@ -426,6 +427,8 @@ try {
         `grep -q '^Type=notify$' /etc/systemd/system/${DEVBOX_DESKTOP_UNIT}.service && grep -q '^NotifyAccess=all$' /etc/systemd/system/${DEVBOX_DESKTOP_UNIT}.service`,
         `echo ${desktopEnvLine} > /etc/profile.d/cmux-desktop.sh`,
         ...rcFiles.map((rc) => `echo ${desktopEnvLine} >> ${rc}`),
+        `echo ${guestOpenURLLine} > /etc/profile.d/cmux-open-url.sh`,
+        ...rcFiles.map((rc) => `echo ${guestOpenURLLine} >> ${rc}`),
         `mkdir -p ${WORK_HOME}/.config/google-chrome && touch '${WORK_HOME}/.config/google-chrome/First Run' && chown -R ${WORK_USER}:${WORK_USER} ${WORK_HOME}/.config`,
         `systemctl daemon-reload && systemctl enable --now ${DEVBOX_DESKTOP_UNIT} && systemctl is-active ${DEVBOX_DESKTOP_UNIT}`,
         `[ "$(systemctl show ${DEVBOX_DESKTOP_UNIT} -p Type --value)" = notify ] && [ "$(systemctl show ${DEVBOX_DESKTOP_UNIT} -p NotifyAccess --value)" = all ]`,

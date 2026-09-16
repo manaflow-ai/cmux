@@ -1,19 +1,12 @@
 import Combine
 import Foundation
 
-// Cloud notifications: the VM's cmux-tui daemon is the source of truth.
-//
-// A machine's notifications arrive as rows of the `notifications` collection
-// on the same cursor-resumable state feed the Cloud tree already consumes, so
-// a notification posted while the link was down reaches this Mac through the
-// feed's ordinary catch-up. Read state is per client: each row carries
-// `read_by`, and this Mac acknowledges with `notification.ack` under its own
-// durable client id. Nothing here runs a listener, a timer, or a second
-// stream; every step is driven by an accepted snapshot or delta, a link
-// reconnect, or a local read.
-
 /// One row of the daemon's `notifications` collection.
 struct CloudVMNotificationRow: Hashable, Sendable {
+    /// Reserved guest-to-host browser request. It is intentionally kept in the
+    /// existing durable notification feed so reconnects and cursor recovery do
+    /// not need a second transport.
+    static let openURLTitle = "cmux.open-url"
     var id: String
     var title: String
     /// `cmux notify --subtitle` inside the machine; nil when the producer gave none.
@@ -23,6 +16,13 @@ struct CloudVMNotificationRow: Hashable, Sendable {
     var createdAtMs: UInt64
     var terminalID: String?
     var readBy: [String]
+
+    var openURL: URL? {
+        guard title == Self.openURLTitle,
+              let url = URL(string: body),
+              ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return nil }
+        return url
+    }
 
     func isRead(by clientID: String) -> Bool {
         readBy.contains(clientID)

@@ -1,6 +1,31 @@
+import AppKit
 import Foundation
 
 extension CmuxTuiSurfaceProvider {
+    /// Delivers a guest OS-opener request in the workspace that owns its
+    /// terminal. This path deliberately creates a local browser surface with
+    /// `focus: false`; the guest never gets to select or activate a Mac pane.
+    @MainActor
+    func openGuestURL(_ url: URL, target: CloudNotificationDeliveryTarget) -> Bool {
+        guard BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser() else {
+            return NSWorkspace.shared.open(url)
+        }
+        guard let workspace = target.panelID.flatMap({ AppDelegate.shared?.workspace(containingSurfaceID: $0) })
+                ?? AppDelegate.shared?.workspace(forCloudVMID: machineID),
+              let panelID = target.panelID ?? workspace.focusedPanelId else {
+            return false
+        }
+        if let rightPane = workspace.preferredRightSideTargetPane(fromPanelId: panelID) {
+            return workspace.newBrowserSurface(inPane: rightPane, url: url, focus: false) != nil
+        }
+        return workspace.newBrowserSplit(
+            from: panelID,
+            orientation: .horizontal,
+            url: url,
+            focus: false
+        ) != nil
+    }
+
     /// Rebind active browser panes when the VM private address changes.
     func refreshCloudBrowserRoutes() {
         for resource in catalog.snapshot.resources(on: machine) where resource.kind != .terminal {
