@@ -1,4 +1,5 @@
 import AppKit
+import struct CmuxCore.WorkspaceRemoteConfiguration
 import Bonsplit
 import Testing
 
