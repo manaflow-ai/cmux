@@ -223,6 +223,7 @@ final class CmuxWebViewWebContentUndoTests {
         )
         window.contentView = agentWebView
         window.makeKeyAndOrderFront(nil)
+        try #require(window.makeFirstResponder(agentWebView))
         defer {
             agentWebView.removeFromSuperview()
             window.orderOut(nil)

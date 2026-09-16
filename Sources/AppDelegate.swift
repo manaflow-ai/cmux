@@ -10173,9 +10173,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     private func synchronizeShortcutRoutingContext(event: NSEvent) -> Bool {
-        // Retire the stale active route before selecting a live event/key window.
-        // Otherwise synchronization hides it from workspace creation's cleanup.
-        pruneWindowlessActiveMainWindowContext()
         guard let context = preferredMainWindowContextForShortcutRouting(event: event) else {
 #if DEBUG
             focusLog.append(
@@ -10191,6 +10188,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             && sidebarSelectionState === context.sidebarSelectionState
         if alreadyActive { return true }
 
+        // Retire a stale active route before replacing it with the selected
+        // context, or workspace creation can no longer find it for cleanup.
+        pruneWindowlessActiveMainWindowContext()
         if let window = context.window ?? windowForMainWindowId(context.windowId) {
             setActiveMainWindow(window)
         } else {

@@ -3302,6 +3302,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
     @MainActor
     func testDefaultCloudProxyOnlyErrorsDoNotPolluteConnectedSidebar() {
+        let flag = CmuxFeatureFlags.cloudMachinesFlag
+        let previousRemoteOverride = CmuxFeatureFlags.shared.overrideValue(for: flag)
+        CmuxFeatureFlags.shared.setOverride(true, for: flag)
+        defer { CmuxFeatureFlags.shared.setOverride(previousRemoteOverride, for: flag) }
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
             destination: "cloud VM",

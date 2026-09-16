@@ -517,6 +517,15 @@ final class TabManagerChildExitCloseTests: XCTestCase {
     }
 
     func testDefaultFreestyleCloudReconnectRepairsRawSSHStartupCommand() throws {
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        let reservedSocket = TerminalController.shared.reserveStartupSocketPath(
+            "/tmp/cmux-cloud-reconnect-\(UUID().uuidString).sock"
+        )
+        defer {
+            TerminalController.shared.stop(cleanupDiscoveryState: true)
+            try? FileManager.default.removeItem(atPath: reservedSocket)
+            try? FileManager.default.removeItem(atPath: reservedSocket + ".lock")
+        }
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let remotePanelId = workspace.focusedPanelId else {

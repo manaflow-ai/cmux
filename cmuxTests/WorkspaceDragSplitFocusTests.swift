@@ -115,7 +115,10 @@ struct WorkspaceDragSplitFocusSwiftTests {
         AppDelegate.shared = nil
         defer { AppDelegate.shared = originalAppDelegate }
 
-        let fixture = try makeFixture()
+        let owner = TerminalPortalTestWorkspace()
+        defer { owner.tearDown() }
+        let fixture = try makeFixture(workspace: owner.workspace)
+        owner.bind(to: fixture.window)
         // Visibility auto-resume is covered separately. Suspend that policy so
         // this transaction exercises only the explicit preserve-current intent.
         fixture.workspace.setAgentHibernationAutoResumePresentationVisible(false)

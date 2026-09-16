@@ -361,6 +361,10 @@ private final class RendererRealizationSchedulerHarness {
     let surfaces: [RendererRealizationTestSurface]
     var now: TimeInterval = 1_000
     var snapshotCount = 0
+    // Surface timestamps and the controller must sample the same Date clock.
+    // Keeping raw doubles on one side can make the exact idle boundary differ
+    // after Foundation converts between the Unix and reference-date epochs.
+    var sampledNow: TimeInterval { Date(timeIntervalSince1970: now).timeIntervalSince1970 }
 
     lazy var controller = RendererRealizationController(
         notificationCenter: notificationCenter,
@@ -390,13 +394,13 @@ private final class RendererRealizationSchedulerHarness {
             RendererRealizationTestSurface(now: { 1_000 })
         }
         for surface in surfaces {
-            surface.now = { [weak self] in self?.now ?? 1_000 }
+            surface.now = { [weak self] in self?.sampledNow ?? 1_000 }
         }
     }
 
     func hide(_ surface: RendererRealizationTestSurface) {
         surface.isRendererPortalVisible = false
-        surface.rendererLastVisibleAt = now
+        surface.rendererLastVisibleAt = sampledNow
     }
 
     func reveal(_ surface: RendererRealizationTestSurface) {
