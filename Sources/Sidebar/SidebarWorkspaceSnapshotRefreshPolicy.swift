@@ -20,6 +20,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
         let checklistFirstUncheckedText: String?
         let activeCodingAgentCount: Int
         let taskStatusInput: SidebarWorkspaceTaskStatusSnapshot
+        let hostTitleSuffix: String?
     }
 
     var contextMenuImmediateFields: ContextMenuImmediateFields {
@@ -41,7 +42,8 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             checklistTotalCount: checklistTotalCount,
             checklistFirstUncheckedText: checklistFirstUncheckedText,
             activeCodingAgentCount: activeCodingAgentCount,
-            taskStatusInput: taskStatusInput
+            taskStatusInput: taskStatusInput,
+            hostTitleSuffix: hostTitleSuffix
         )
     }
 
@@ -90,7 +92,9 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             checklistCompletedCount: snapshot.checklistCompletedCount,
             checklistTotalCount: snapshot.checklistTotalCount,
             checklistFirstUncheckedText: snapshot.checklistFirstUncheckedText,
-            taskStatusInput: snapshot.taskStatusInput
+            taskStatusInput: snapshot.taskStatusInput,
+            // The host after a colliding title is part of the title the row shows, so it updates with it.
+            hostTitleSuffix: snapshot.hostTitleSuffix
         )
     }
 }

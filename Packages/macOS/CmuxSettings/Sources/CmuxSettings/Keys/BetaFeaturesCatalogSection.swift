@@ -108,5 +108,14 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "remoteTmux.originColors.beta.enabled"
     )
 
+    /// Remote host names on duplicate titles: when sidebar workspaces share a title and come from
+    /// different places, show each remote one's host after its title, leaving off the domain the
+    /// hosts share. Defaults off; while off, titles show as they are.
+    public let remoteTmuxOriginHostTitles = DefaultsKey<Bool>(
+        id: "remoteTmux.originHostTitles.beta.enabled",
+        defaultValue: false,
+        userDefaultsKey: "remoteTmux.originHostTitles.beta.enabled"
+    )
+
     public init() {}
 }

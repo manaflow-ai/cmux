@@ -19,6 +19,9 @@ struct SidebarWorkspaceSnapshotFactory {
     /// the workspace has no host. Resolved by the caller above the row boundary
     /// and passed in as a plain value; a manual `workspace.customColor` still wins.
     var originColorHex: String? = nil
+    /// Remote host to name after the title because another workspace shares it (beta), else nil.
+    /// Resolved by the caller over the whole workspace list, since it depends on the other titles.
+    var hostTitleSuffix: String? = nil
 
     /// Creates the current immutable presentation snapshot for the workspace row.
     func makeSnapshot() -> SidebarWorkspaceSnapshotBuilder.Snapshot {
@@ -124,7 +127,8 @@ struct SidebarWorkspaceSnapshotFactory {
             checklistCompletedCount: checklistProgress.completedCount,
             checklistTotalCount: checklistProgress.totalCount,
             checklistFirstUncheckedText: checklistProgress.firstUncheckedText,
-            taskStatusInput: taskStatusInput
+            taskStatusInput: taskStatusInput,
+            hostTitleSuffix: hostTitleSuffix
         )
     }
 
@@ -132,14 +136,16 @@ struct SidebarWorkspaceSnapshotFactory {
         Self.presentationKey(
             settings: settings,
             showsAgentActivity: showsAgentActivity,
-            customColorHex: workspace.customColor ?? originColorHex
+            customColorHex: workspace.customColor ?? originColorHex,
+            hostTitleSuffix: hostTitleSuffix
         )
     }
 
     static func presentationKey(
         settings: SidebarTabItemSettingsSnapshot,
         showsAgentActivity: Bool,
-        customColorHex: String?
+        customColorHex: String?,
+        hostTitleSuffix: String? = nil
     ) -> SidebarWorkspaceSnapshotBuilder.PresentationKey {
         SidebarWorkspaceSnapshotBuilder.PresentationKey(
             showsWorkspaceDescription: settings.showsWorkspaceDescription,
@@ -148,7 +154,8 @@ struct SidebarWorkspaceSnapshotFactory {
             usesViewportAwarePath: settings.usesLastSegmentPath,
             showsAgentActivity: showsAgentActivity,
             visibleAuxiliaryDetails: settings.visibleAuxiliaryDetails,
-            customColorHex: customColorHex
+            customColorHex: customColorHex,
+            hostTitleSuffix: hostTitleSuffix
         )
     }
 
