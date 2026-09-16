@@ -82,6 +82,7 @@ final class NewMachineSheetPresenter: NewMachineSheetPresenting {
             mode: .newMachine,
             plan: plan,
             memoryOptionsMb: memoryOptionsMb,
+            selectionWindowID: preferredWindow.flatMap { AppDelegate.shared?.mainWindowId(from: $0) },
             submit: { request in
                 coordinator.start(request, cancellableLaunch: { arguments, progress, completion in
                     var cancellation: CloudVMActionLauncher.CancellationHandle?
@@ -134,6 +135,7 @@ final class NewMachineSheetPresenter: NewMachineSheetPresenting {
                     mode: .newMachine,
                     plan: plan,
                     memoryOptionsMb: page?.limits?.memoryOptionsMb ?? [],
+                    selectionWindowID: preferredWindow.flatMap { AppDelegate.shared?.mainWindowId(from: $0) },
                     submit: { [weak self] request in
                         guard let self, self.pendingSelectionID == selectionID else { return false }
                         self.finishSelection(selectionID, request: request)
