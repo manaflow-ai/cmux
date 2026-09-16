@@ -17163,6 +17163,7 @@ struct CMUXCLI {
             return
         }
 
+
         if subcommand == "find" {
             let sid = try requireSurface()
             guard let locator = subArgs.first?.lowercased() else {
@@ -40759,6 +40760,7 @@ export default CMUXSessionRestore;
             return false
         }
     }
+
 
     private func versionSummary() -> String {
         let info = resolvedVersionInfo()
