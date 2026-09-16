@@ -67,3 +67,28 @@ test("a gateway fork method cannot override the provider capability", async () =
   expect(forks).toBe(0);
   expect(creates).toBe(0);
 });
+
+
+test("Pro cannot bypass the memory gate with unknown snapshot or fork dimensions", async () => {
+  const repo = {
+    findUserVm: () => Effect.succeed({ id: "row", userId: "u", billingTeamId: "u", status: "running", provider: "freestyle", providerVmId: "vm", providerMetadata: {} }),
+    hasOwnedSnapshot: () => Effect.succeed(true),
+    ownedSnapshotResourceReservation: () => Effect.succeed(null),
+  } as unknown as VmRepositoryShape;
+  const layer = Layer.mergeAll(Layer.succeed(VmRepository, repo),
+    Layer.succeed(VmProviderGateway, {} as VmProviderGatewayShape), Layer.succeed(VmBillingGateway, noOpVmBillingGateway()));
+  const caller = { userId: "u", billingCustomerType: "user" as const, billingTeamId: "u", billingPlanId: "pro", maxActiveVms: 50 };
+  for (const program of [
+    forkVm({ ...caller, providerVmId: "vm" }).pipe(Effect.asVoid),
+    restoreVm({ ...caller, provider: "freestyle", snapshotId: "snapshot" }).pipe(Effect.asVoid),
+    createVm({ ...caller, provider: "freestyle", image: "snapshot", memoryMb: 16384,
+      imageSize: { name: "xl", cpu: 8, memoryMb: 32768, storageMb: 131072 } }).pipe(Effect.asVoid),
+  ]) {
+    try {
+      await Effect.runPromise(program.pipe(Effect.provide(layer)));
+      throw new Error("expected plan rejection");
+    } catch (error) {
+      expect(vmWorkflowErrorCause(error)?._tag).toBe("VmMemoryPlanError");
+    }
+  }
+});

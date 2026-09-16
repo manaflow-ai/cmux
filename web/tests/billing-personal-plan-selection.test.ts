@@ -7,7 +7,7 @@ mock.module("../db/client", () => ({ ...realDb, cloudDb: () => ({ select: () => 
 const { activePersonalPlanForUser } = await import("../services/billing/pro");
 
 test("Max wins even after more matching subscriptions than plan types", async () => {
-  rows = [...Array.from({ length: 8 }, () => ({ plan: "pro" })), { plan: "max" }];
+  rows = [...Array.from({ length: 12 }, () => ({ plan: "pro" })), { plan: "max" }];
   expect(await activePersonalPlanForUser("u")).toBe("max");
 });
 test("missing plan data grants no exact subscription", async () => {
