@@ -9,7 +9,11 @@ extension CloudTreeOutlineView.Coordinator {
 
     func publishSelectedMachineSelection() {
         guard let nodeID = selection.nodeID else { onSelectionChange(.empty); return }
-        guard let node = CloudTreeNodeBuilder.flattened(nodes).first(where: { $0.id == nodeID }) else { return }
+        guard let node = CloudTreeNodeBuilder.flattened(nodes).first(where: { $0.id == nodeID }) else {
+            selection = .empty
+            onSelectionChange(.empty)
+            return
+        }
         let next = CloudTreeSelection(nodeID: node.id, machine: machineSelection(for: node))
         selection = next
         onSelectionChange(next)
