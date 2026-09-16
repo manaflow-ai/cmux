@@ -1666,11 +1666,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let afterEntries = try XCTUnwrap(hooks["afterShellExecution"] as? [[String: Any]])
         let afterCommands = afterEntries.compactMap { $0["command"] as? String }
         XCTAssertEqual(afterCommands.filter { $0 == userAfterCommand }.count, 1)
-        XCTAssertEqual(afterCommands.filter { $0.contains("hooks cursor shell-done") }.count, 1)
+        XCTAssertEqual(afterCommands.filter { $0.contains("hooks enqueue cursor shell-done") }.count, 1)
 
         let failureEntries = try XCTUnwrap(hooks["postToolUseFailure"] as? [[String: Any]])
         let failureCommands = failureEntries.compactMap { $0["command"] as? String }
-        XCTAssertEqual(failureCommands.filter { $0.contains("hooks cursor shell-failed") }.count, 1)
+        XCTAssertEqual(failureCommands.filter { $0.contains("hooks enqueue cursor shell-failed") }.count, 1)
         XCTAssertEqual(failureEntries.first?["matcher"] as? String, "Shell")
 
         let customEntries = try XCTUnwrap(hooks["userCustomEvent"] as? [[String: Any]])
@@ -4223,10 +4223,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let pinnedCLI = root.appendingPathComponent("cmux pinned dev cli", isDirectory: false)
-        let captureURL = root.appendingPathComponent("timeout.txt", isDirectory: false)
+        let captureURL = root.appendingPathComponent("arguments.txt", isDirectory: false)
         try makeCodexHookExecutableShellFile(at: pinnedCLI, lines: [
             "#!/bin/sh",
-            "printf '%s' \"${CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC:-missing}\" > \"$CMUX_TEST_CAPTURE\"",
+            "printf '%s\\n' \"${CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC:-missing}\" \"$@\" > \"$CMUX_TEST_CAPTURE\"",
         ])
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: pinnedCLI.path)
 
@@ -4293,7 +4293,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
         XCTAssertFalse(ambientResult.timedOut, ambientResult.stderr)
         XCTAssertEqual(ambientResult.status, 0, ambientResult.stderr)
-        XCTAssertEqual(try String(contentsOf: captureURL, encoding: .utf8), "0.5")
+        XCTAssertEqual(
+            try String(contentsOf: captureURL, encoding: .utf8),
+            "0.5\n--socket\n\(socketPath)\nhooks\nenqueue\ngrok\nnotification\n"
+        )
     }
 
     func testGrokHookInstallPreservesUserWrappedLegacyCommands() throws {
@@ -4509,7 +4512,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Codex setup should replace bundled-CLI hooks that did not pin CMUX_SOCKET_PATH, saw \(commandBodies)"
         )
         XCTAssertEqual(
-            allCommands.filter { $0.contains("hooks enqueue codex prompt-submit") }.count,
+            commandBodies.filter { $0.contains("hooks enqueue codex prompt-submit") }.count,
             1,
             "Codex setup should collapse duplicate cmux-owned prompt hooks to one entry, saw \(allCommands)"
         )

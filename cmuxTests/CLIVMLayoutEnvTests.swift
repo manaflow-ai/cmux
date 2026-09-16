@@ -1031,16 +1031,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(namelessLog.methods.isEmpty, namelessLog.methods.description)
     }
 
-    func testVMResizeIsNoLongerAVerb() throws {
+    func testVMResizeRequiresResourcesBeforeContactingTheApp() throws {
         let (result, log) = try runVMCommandAgainstMock(
-            "vm-resize-gone",
-            arguments: ["vm", "resize", "brave-otter", "--disk", "40"]
+            "vm-resize-no-resources",
+            arguments: ["vm", "resize", "brave-otter"]
         ) { _, _ in nil }
         XCTAssertNotEqual(result.status, 0, result.stdout)
-        XCTAssertTrue(result.stderr.contains("Usage: cmux vm <"), result.stderr)
-        XCTAssertFalse(result.stderr.contains("resize"), "resize must not be advertised: \(result.stderr)")
-        XCTAssertTrue(result.stderr.contains("pause|resume"), result.stderr)
-        XCTAssertTrue(log.methods.isEmpty, "an unknown verb must not reach the app: \(log.methods)")
+        XCTAssertTrue(result.stderr.contains("cmux vm resize <id>"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("Specify at least one resource"), result.stderr)
+        XCTAssertTrue(log.methods.isEmpty, "invalid resize arguments must not reach the app: \(log.methods)")
     }
 
     func testVMVerbHelpPrintsThatVerbsUsageWithoutASocket() throws {
@@ -1054,8 +1053,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             (["vm", "workspace", "--help"], ["cmux vm workspace", "[--reuse]"], []),
             (["vm", "layout", "--help"], ["cmux vm layout"], ["cmux vm new"]),
             // The family text stays for the family itself and for verbs without their own usage.
-            (["vm", "--help"], ["pause|resume", "terminal wait-exit", "exec [--timeout <s>]", "workspace new <machine> [--name <name>] [--reuse]"], ["resize"]),
-            (["vm", "ls", "--help"], ["Usage: cmux vm <"], ["resize"]),
+            (["vm", "--help"], ["pause|resume", "terminal wait-exit", "exec [--timeout <s>]", "workspace new <machine> [--name <name>] [--reuse]", "resize <id>"], []),
+            (["vm", "ls", "--help"], ["Usage: cmux vm <", "resize <id>"], []),
         ]
         for testCase in cases {
             let result = runProcess(executablePath: cliPath, arguments: testCase.arguments, environment: environment, timeout: 30)
