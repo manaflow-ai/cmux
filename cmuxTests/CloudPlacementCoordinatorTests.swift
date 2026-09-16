@@ -483,17 +483,9 @@ struct CloudPlacementCoordinatorTests {
 
     @Test func replacementPrefersTheNewBackingTabReceiptOverSavedCoordinates() {
         let bound = UUID(), newPanel = UUID()
-        let (catalog, provider) = Self.harness(bound: bound)
+        let (catalog, _) = Self.harness(bound: bound)
         let term = Self.terminal("term_1", views: [])
-        let stateSnapshot: [String: Any] = [
-            "cursor": ["generation": "g", "revision": "20"],
-            "workspaces": [["id": "ws_api"]],
-            "screens": [["id": "screen", "workspace_id": "ws_api"]],
-            "panes": [["id": "pane", "screen_id": "screen"]],
-            "tabs": [["id": "tab_live", "pane_id": "pane", "content_kind": "terminal", "content_id": "term_1"]],
-            "terminals": [["id": "term_1", "tab_ids": ["tab_live"]]], "browsers": [], "agents": [],
-        ]
-        _ = try Self.install(catalog, provider: provider, snapshot: stateSnapshot)
+        catalog.replaceResources([term], on: Self.machine)
         let previous = SurfaceProjection(resource: term.id, workspaceID: bound, panelID: UUID(), remoteWorkspaceID: "ws_main", remoteTabID: "gone")
         catalog.record(previous)
         catalog.replaceProjection(previous, withPanel: newPanel, in: bound, remotePlacement: SurfaceRemotePlacement(workspaceID: "ws_api", tabID: "tab_new"))
