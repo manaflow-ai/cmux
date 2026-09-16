@@ -41,6 +41,7 @@ private func rendererReleaseWasOccluded() -> Bool
         surface.surfaceView.frame = .zero
         window.contentView?.addSubview(surface.paneHost)
         surface.attachedView = surface.surfaceView
+        window.orderFront(nil)
 
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
@@ -194,6 +195,7 @@ private func rendererReleaseWasOccluded() -> Bool
         surface.surfaceView.frame = surface.paneHost.bounds
         window.contentView?.addSubview(surface.paneHost)
         surface.attachedView = surface.surfaceView
+        window.orderFront(nil)
 
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
