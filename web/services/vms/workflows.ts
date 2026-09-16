@@ -2918,7 +2918,7 @@ export function getVmStats(input: {
         // so their baked guest reporter cannot authenticate its callback. Keep
         // this explicit dev-only fallback behind an operator-set flag; release
         // and staging continue to use the normal reporter metadata path.
-        if (process.env.CMUX_DEV_RESOURCE_STATS_DIRECT !== "1") {
+        if (process.env.CMUX_DEV_RESOURCE_STATS_DIRECT !== "1" || stats.state !== "awake") {
           return Effect.succeed(reported);
         }
         const command = `python3 - <<'PY'\n${GUEST_RESOURCE_SAMPLE_SCRIPT}\nimport json\nprint(json.dumps(sample()))\nPY`;
