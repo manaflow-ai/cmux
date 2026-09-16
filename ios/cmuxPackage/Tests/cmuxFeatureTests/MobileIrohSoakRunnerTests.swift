@@ -1,11 +1,13 @@
 #if os(iOS) && DEBUG
 import CmuxMobileShellReleaseGateSupport
+import CMUXMobileCore
 import Foundation
 import Testing
 @testable import CmuxIrohReleaseGateSupport
 
 @MainActor
 struct MobileIrohSoakRunnerTests {
+    private let relay = CmxTransportConnectionObservation(continuityID: 1, pathKind: .relay)
     private let probe = MobileIrohReleaseGateProbeResult(
         hostStatusVerified: true, rpcMethodInventoryVerified: true, terminalRoundTripVerified: true,
         workspaceMutationVerified: true, independentEventsVerified: true,
@@ -15,7 +17,7 @@ struct MobileIrohSoakRunnerTests {
     @Test func completionRequiresFinalTransaction() async throws {
         let runner = MobileIrohSoakRunner(profile: .basic, durationSeconds: 0, minimumCycles: 1)
         var markers: [String] = []
-        _ = try await runner.run(marker: "test", connection: { 1 }, probe: { marker in
+        _ = try await runner.run(marker: "test", connection: { relay }, probe: { marker in
             markers.append(marker)
             return probe
         }, stress: { _, _ in Issue.record("basic must not reconnect"); return [] })
@@ -29,7 +31,9 @@ struct MobileIrohSoakRunnerTests {
         let runner = MobileIrohSoakRunner(profile: .basic, durationSeconds: 0, minimumCycles: 1)
         var connectionID: UInt64 = 1
         await #expect(throws: MobileIrohSoakRunner.Failure.connectionChanged) {
-            try await runner.run(marker: "test", connection: { connectionID }, probe: { _ in
+            try await runner.run(marker: "test", connection: {
+                .init(continuityID: connectionID, pathKind: .relay)
+            }, probe: { _ in
                 connectionID = 2
                 return probe
             }, stress: { _, _ in [] })
@@ -40,7 +44,7 @@ struct MobileIrohSoakRunnerTests {
     @Test func insufficientWorkCannotPass() async {
         let runner = MobileIrohSoakRunner(profile: .basic, durationSeconds: 0, minimumCycles: 2)
         await #expect(throws: MobileIrohSoakRunner.Failure.insufficientCoverage) {
-            try await runner.run(marker: "test", connection: { 1 }, probe: { _ in probe }, stress: { _, _ in [] })
+            try await runner.run(marker: "test", connection: { relay }, probe: { _ in probe }, stress: { _, _ in [] })
         }
         #expect(runner.evidence.currentOperation != "complete")
     }
@@ -48,7 +52,7 @@ struct MobileIrohSoakRunnerTests {
     @Test func failedTerminalIsNotCounted() async {
         let runner = MobileIrohSoakRunner(profile: .stress, durationSeconds: 0, minimumCycles: 1)
         await #expect(throws: MobileIrohReleaseGateProbeFailure.terminalRoundTripFailed) {
-            try await runner.run(marker: "test", connection: { 1 }, probe: { _ in
+            try await runner.run(marker: "test", connection: { relay }, probe: { _ in
                 throw MobileIrohReleaseGateProbeFailure.terminalRoundTripFailed
             }, stress: { _, _ in Issue.record("usage continued after failure"); return [] })
         }
@@ -63,7 +67,7 @@ struct MobileIrohSoakRunnerTests {
         )
         var suspended: CheckedContinuation<MobileIrohReleaseGateProbeResult, Never>?
         await #expect(throws: MobileIrohSoakRunner.Failure.cycleTooSlow) {
-            try await runner.run(marker: "test", connection: { 1 }, probe: { _ in
+            try await runner.run(marker: "test", connection: { relay }, probe: { _ in
                 await withCheckedContinuation { suspended = $0 }
             }, stress: { _, _ in [] })
         }
@@ -80,7 +84,7 @@ struct MobileIrohSoakRunnerTests {
         )
         var suspended: CheckedContinuation<MobileIrohReleaseGateProbeResult, Never>?
         await #expect(throws: MobileIrohSoakRunner.Failure.cycleTooSlow) {
-            try await runner.run(marker: "test", connection: { 1 }, probe: { marker in
+            try await runner.run(marker: "test", connection: { relay }, probe: { marker in
                 if marker.hasSuffix("FINAL") {
                     return await withCheckedContinuation { suspended = $0 }
                 }
@@ -90,6 +94,28 @@ struct MobileIrohSoakRunnerTests {
         #expect(runner.evidence.completedCycles == 1)
         #expect(runner.evidence.currentOperation == "final_terminal_round_trip")
         suspended?.resume(returning: probe)
+    }
+
+    @Test(arguments: [DiagnosticPathKind.unknown, .direct])
+    func relayCheckRejectsMissingOrDirectNativePath(path: DiagnosticPathKind) async {
+        let runner = MobileIrohSoakRunner(profile: .basic, durationSeconds: 0, minimumCycles: 1)
+        await #expect(throws: MobileIrohSoakRunner.Failure.pathPolicyMismatch) {
+            try await runner.run(marker: "test", connection: {
+                .init(continuityID: 1, pathKind: path)
+            }, probe: { _ in Issue.record("probe ran without relay evidence"); return probe }, stress: { _, _ in [] })
+        }
+        #expect(runner.evidence.completedCycles == 0)
+    }
+
+    @Test func relayPathMustRemainSelectedAfterTransaction() async {
+        let runner = MobileIrohSoakRunner(profile: .basic, durationSeconds: 0, minimumCycles: 1)
+        var path = DiagnosticPathKind.relay
+        await #expect(throws: MobileIrohSoakRunner.Failure.pathPolicyMismatch) {
+            try await runner.run(marker: "test", connection: {
+                .init(continuityID: 1, pathKind: path)
+            }, probe: { _ in path = .direct; return probe }, stress: { _, _ in [] })
+        }
+        #expect(runner.evidence.completedCycles == 0)
     }
 }
 #endif
