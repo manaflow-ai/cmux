@@ -1529,9 +1529,7 @@ final class WindowTerminalPortal: NSObject, TerminalSurfaceResizeAuthority {
         }
     }
 
-    /// Retires a workspace's native presentation while retaining its binding.
-    /// Hidden terminals keep their PTY; their view trees must leave the window
-    /// so inactive workspaces do not accumulate compositor-owned layers.
+    /// Removes an inactive terminal's view tree from the window while retaining its binding and PTY.
     func hideEntry(forHostedId hostedId: ObjectIdentifier) {
         guard var entry = entriesByHostedId[hostedId] else {
             clearPresentationNotificationState(for: hostedId)
@@ -1544,7 +1542,7 @@ final class WindowTerminalPortal: NSObject, TerminalSurfaceResizeAuthority {
         entry.transientRecoveryRetriesRemaining = 0
         entriesByHostedId[hostedId] = entry
         clearPresentationNotificationState(for: hostedId)
-        entry.hostedView?.setVisibleInUI(false)
+        entry.hostedView?.isHidden = true
         if let hostedView = entry.hostedView, hostedView.superview === hostView {
             hostedView.removeFromSuperview()
         }

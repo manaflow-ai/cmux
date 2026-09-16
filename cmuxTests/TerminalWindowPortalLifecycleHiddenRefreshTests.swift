@@ -10,8 +10,6 @@ import CmuxTerminal
 
 extension TerminalWindowPortalLifecycleTests {
 
-    // The parking regression stays in the app-host suite so it exercises the
-    // same window-owned portal hierarchy used by workspace mounting.
     @MainActor
     func testWorkspaceUnmountDetachesTerminalAndRebindsOnReveal() throws {
         let window = makeTestWindow(
@@ -21,7 +19,7 @@ extension TerminalWindowPortalLifecycleTests {
             NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
             window.orderOut(nil)
         }
-        realizeWindowLayout(window)
+        layoutResizeTestWindow(window)
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
             return
@@ -33,12 +31,10 @@ extension TerminalWindowPortalLifecycleTests {
         let surface = makeTrackedTerminalSurface()
         portal.bind(hostedView: surface.hostedView, to: anchor, visibleInUI: true)
         portal.synchronizeHostedViewForAnchor(anchor)
-        drainMainQueue()
-        realizeWindowLayout(window)
+        XCTAssertTrue(waitForResizeTestGeometry(surface, anchor: anchor))
 
         XCTAssertTrue(surface.hostedView.superview != nil)
-        let originalRuntime = surface.surface
-        XCTAssertNotNil(originalRuntime)
+        let originalRuntime = try XCTUnwrap(surface.surface)
         surface.hostedView.setVisibleInUI(false)
         portal.hideEntry(forHostedId: ObjectIdentifier(surface.hostedView))
 
@@ -60,10 +56,10 @@ extension TerminalWindowPortalLifecycleTests {
             ),
             "A parked entry must request a reattach when its workspace becomes visible"
         )
+        surface.hostedView.setVisibleInUI(true)
         portal.bind(hostedView: surface.hostedView, to: anchor, visibleInUI: true)
         portal.synchronizeHostedViewForAnchor(anchor)
-        drainMainQueue()
-        realizeWindowLayout(window)
+        XCTAssertTrue(waitForResizeTestGeometry(surface, anchor: anchor))
         XCTAssertTrue(surface.hostedView.superview === portal.hostView)
         XCTAssertTrue(surface.hostedView.window === window)
         XCTAssertFalse(surface.hostedView.isHidden)
