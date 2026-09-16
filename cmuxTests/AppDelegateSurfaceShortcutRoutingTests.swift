@@ -148,6 +148,7 @@ struct AppDelegateSurfaceShortcutRoutingTests {
     }
 
     @Test func keyboardCopyModeKeyClearsTerminalUnread() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
         try await withIsolatedShortcutSettings {
             let appDelegate = try #require(AppDelegate.shared)
             let previousNotificationStore = appDelegate.notificationStore
@@ -194,9 +195,11 @@ struct AppDelegateSurfaceShortcutRoutingTests {
 
             #expect(!workspace.manualUnreadPanelIds.contains(panelId))
         }
+        }
     }
 
     @Test func workspaceFontSizeShortcutPreservesBackgroundTerminalUnread() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
         try await withIsolatedShortcutSettings {
             let appDelegate = try #require(AppDelegate.shared)
             let previousNotificationStore = appDelegate.notificationStore
@@ -259,6 +262,7 @@ struct AppDelegateSurfaceShortcutRoutingTests {
                 workspace.manualUnreadPanelIds.contains(backgroundPanel.id),
                 "Changing terminal configuration is not accepted terminal input"
             )
+        }
         }
     }
 

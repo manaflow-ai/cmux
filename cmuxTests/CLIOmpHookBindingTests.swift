@@ -350,6 +350,8 @@ struct CLIOmpHookBindingTests {
         // non-agent PID so nested-session ancestry detection cannot classify
         // this foreground routing test as a Codex subagent.
         environment["CMUX_CODEX_HOOK_PID"] = "2"
+        environment["CMUX_CODEX_PID"] = "2"
+        environment["CMUX_CODEX_INVOCATION_ID"] = "foreground-ambient-tty-boundary"
 
         let result = Harness.runHookProcess(
             context: context,
