@@ -139,7 +139,7 @@ enum MobileHostIdentity {
     }
 
     private static func persistDeviceIDIfNeeded(_ id: String, defaults: UserDefaults) {
-        let stored = normalizedID(defaults.string(forKey: deviceIDKey))
+        let stored = defaults.string(forKey: deviceIDKey)
         guard stored != id else { return }
         defaults.set(id, forKey: deviceIDKey)
     }
