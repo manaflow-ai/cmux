@@ -313,6 +313,7 @@ final class MobileHostService {
     /// the connection, and which app instance owns its routes.
     nonisolated static func identityStatusPayload(
         routes: [CmxAttachRoute],
+        deviceID: String,
         additionalCapabilities: Set<String> = [],
         phonePushDefaults: UserDefaults = .standard,
         phonePushAdmission: PhonePushAdmission = .unknown,
@@ -334,7 +335,7 @@ final class MobileHostService {
                     .sorted()
         )
         payload["terminal_theme_revision_epoch"] = terminalThemeRevisionEpoch
-        payload["mac_device_id"] = MobileHostIdentity.deviceID()
+        payload["mac_device_id"] = deviceID
         payload["mac_instance_tag"] = MobileHostIdentity.instanceTag()
         if let clientNamespace = CmxIrohMacBundleNamespace(
             bundleIdentifier: Bundle.main.bundleIdentifier
