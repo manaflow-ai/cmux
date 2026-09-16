@@ -10,8 +10,12 @@ struct SurfaceOwnershipPolicy: Equatable, Sendable {
     }
 
     func rejection(for resources: [SurfaceResourceID]) -> SurfaceTransferRejection? {
+        rejection(for: resources.map(\.machine))
+    }
+
+    func rejection(for machines: [SurfaceMachineID]) -> SurfaceTransferRejection? {
         guard cloudMachine != nil else { return nil }
-        return resources.isEmpty || resources.contains(where: { rejection(for: $0.machine) != nil })
+        return machines.isEmpty || machines.contains(where: { rejection(for: $0) != nil })
             ? .cloudMachineMismatch : nil
     }
 }

@@ -17,7 +17,7 @@ extension Workspace {
            let machine = remoteConfiguration?.managedCloudVMID {
             return .cloud(machine)
         }
-        return .local
+        return panels[panelID]?.transferredSurfaceMachine ?? .local
     }
 
     func surfaceDropRejection(
@@ -27,7 +27,7 @@ extension Workspace {
         guard surfaceOwnershipPolicy.cloudMachine != nil else { return nil }
         switch source {
         case .surfaceResources(let group):
-            return surfaceOwnershipPolicy.rejection(for: group.resources)
+            return SurfaceCatalog.shared.ownershipRejection(for: group.resources, policy: surfaceOwnershipPolicy)
         case .surface:
             let machine: SurfaceMachineID?
             if transfer.isFromCurrentProcess {

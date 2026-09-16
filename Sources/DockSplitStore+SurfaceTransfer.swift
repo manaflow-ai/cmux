@@ -380,6 +380,7 @@ extension DockSplitStore {
         guard !isRetired else { return nil }
         guard containsPane(paneId.id), panels[detached.panelId] == nil else { return nil }
         let panel = detached.panel
+        panel.retainTransferredSurfaceMachine(detached.surfaceMachine)
         prepareDetachedPanelForDockAttachment(panel)
 
         panels[detached.panelId] = panel

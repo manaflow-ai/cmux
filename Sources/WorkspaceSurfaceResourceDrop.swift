@@ -42,9 +42,9 @@ extension Workspace {
         destination: BonsplitController.ExternalTabDropRequest.Destination,
         catalog: SurfaceCatalog? = nil
     ) -> Bool {
-        guard !isRetiredFromOwningTabManager, !group.isEmpty,
-              surfaceOwnershipPolicy.rejection(for: group.resources) == nil else { return false }
         let catalog = catalog ?? SurfaceCatalog.shared
+        guard !isRetiredFromOwningTabManager, !group.isEmpty,
+              catalog.ownershipRejection(for: group.resources, policy: surfaceOwnershipPolicy) == nil else { return false }
         let target = SurfaceDestination.dropDestination(workspaceID: self.id, destination: destination)
 #if DEBUG
         cmuxDebugLog("surfaces.drop workspace=\(self.id.uuidString.prefix(5)) group=\(group.title) count=\(group.resources.count) target=\(target)")
