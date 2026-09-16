@@ -103,7 +103,7 @@ extension WorkspaceListView {
                 for: displayPairedMacsForPicker
             ) { _, _ in nil }
         }
-        return WorkspaceMachineSnapshots.BuildLabelResolver().labels(
+        return WorkspaceMacBuildLabelResolver().labels(
             workspaces: workspaces,
             existing: labels
         )
