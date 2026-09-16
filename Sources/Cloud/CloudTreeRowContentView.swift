@@ -476,12 +476,15 @@ struct CloudTreeLocalMachineRowContent: View {
 struct CloudTreeMachineBand<Content: View>: View {
     let style: CloudTreeStyle
     @ViewBuilder var content: () -> Content
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var magnification
 
     var body: some View {
         if style.machineBand {
             content()
                 .padding(.leading, 6)
-                .padding(.vertical, 4)
+                .padding(.vertical, GlobalFontMagnification.scaledSize(
+                    style.machineBandVerticalPadding, percent: magnification
+                ))
                 .background(
                     RoundedRectangle(cornerRadius: 6, style: .continuous)
                         .fill(Color.primary.opacity(0.06))

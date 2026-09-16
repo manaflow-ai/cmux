@@ -325,7 +325,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
             // so it reads with the name and the status dot. NSTableView is flipped.
             let rowFrame = rect(ofRow: row)
             let nameLineCenter = rowFrame.minY
-                + GlobalFontMagnification.scaledSize(treeStyle.machineVerticalPadding + (treeStyle.machineBand ? 4 : 0))
+                + GlobalFontMagnification.scaledSize(treeStyle.machineVerticalPadding + treeStyle.machineBandVerticalPadding)
                 + GlobalFontMagnification.scaledSize(treeStyle.machineNameLineHeight) / 2
             frame.origin.y = (nameLineCenter - frame.height / 2).rounded()
         } else {
