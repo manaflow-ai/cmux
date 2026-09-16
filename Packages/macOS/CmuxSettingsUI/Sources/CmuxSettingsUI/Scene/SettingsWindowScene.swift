@@ -45,6 +45,7 @@ public struct SettingsWindowRoot: View {
     private var cloudMachinesBetaEnabled = BetaFeaturesCatalogSection().cloudMachines.defaultValue
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var navigationGeneration = 0
+    @State private var pageRevision = 0
     @State private var scrollAnchorID: String?
     @State private var searchHighlight = SettingsSearchHighlightState(anchorID: nil, token: 0, startedAt: nil)
 
@@ -195,11 +196,16 @@ public struct SettingsWindowRoot: View {
         if !isSearching || entry.map({ parentSection(for: $0) }) != target {
             selectedSidebarEntryID = anchorID(for: target)
         }
-        selectedSectionRaw = target.rawValue
-        initialNavigationPending = false
         let anchor = target == requestedSection
             ? (notification.userInfo?["anchor"] as? String) ?? anchorID(for: target)
             : anchorID(for: target)
+        // Re-selecting a category resets its native scroll view to its
+        // natural top. Row navigation alone uses ScrollViewReader.
+        if !initialNavigationPending, target == selectedSection, anchor == anchorID(for: target) {
+            pageRevision &+= 1
+        }
+        selectedSectionRaw = target.rawValue
+        initialNavigationPending = false
         scrollAnchorID = anchor
         navigationGeneration &+= 1
         let shouldHighlight = (notification.userInfo?["highlight"] as? Bool) ?? false
@@ -234,12 +240,13 @@ public struct SettingsWindowRoot: View {
         }
         // A category owns its scroll view and controls. Replacing it resets
         // scroll position and cancels the previous page's observation tasks.
-        .id(section)
+        .id("\(section.rawValue):\(pageRevision)")
     }
 
     private func scrollToDestination(on section: SettingsSectionID, proxy: ScrollViewProxy) {
         guard section == selectedSection else { return }
         let anchor = scrollAnchorID ?? anchorID(for: section)
-        proxy.scrollTo(anchor, anchor: anchor == anchorID(for: section) ? .top : .center)
+        guard anchor != anchorID(for: section) else { return }
+        proxy.scrollTo(anchor, anchor: .center)
     }
 }
