@@ -131,6 +131,7 @@ export const agentReadablePages = [
   { path: "/", title: "Home" },
   { path: "/ios", title: "cmux iOS" },
   { path: "/browser", title: "cmux Browser" },
+  { path: "/cua", title: "Computer use for coding agents", locales: englishFallbackContentLocales },
   ...agentReadableDownloadPages,
   {
     path: "/jobs",
