@@ -1,6 +1,8 @@
 import AppKit
 import CmuxTerminalCore
 import GhosttyKit
+import GhosttyRuntimeTestStubs
+import Testing
 @testable import CmuxTerminal
 
 @_silgen_name("cmux_test_ghostty_renderer_realized_begin")
@@ -18,7 +20,7 @@ struct PresentedSurfaceFixture {
     let window: NSWindow
     let runtimeSurface: UnsafeMutableRawPointer
 
-    init(windowVisibleAtCreation: Bool = true) {
+    init(windowVisibleAtCreation: Bool = true, installRendererCallbacks: Bool = true) {
         registry = TerminalSurfaceRegistry()
         let nativeView = FakeTerminalSurfaceNativeView(
             frame: NSRect(x: 0, y: 0, width: 800, height: 600)
@@ -73,10 +75,13 @@ struct PresentedSurfaceFixture {
         if !windowVisibleAtCreation {
             surface.setRendererWindowVisible(false)
         }
+        if installRendererCallbacks {
+            surface.installRendererCallbacksForTesting(on: runtimeSurface)
+        }
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate()
-        if let token = surface.rendererPresentationState.inFlightToken {
-            surface.rendererFrameDidPresent(token: token)
+        if installRendererCallbacks, windowVisibleAtCreation {
+            acknowledgePendingPresentation()
         }
     }
 
@@ -89,8 +94,6 @@ struct PresentedSurfaceFixture {
     }
 
     func acknowledgePendingPresentation() {
-        if let token = surface.rendererPresentationState.inFlightToken {
-            surface.rendererFrameDidPresent(token: token)
-        }
+        #expect(cmux_test_ghostty_renderer_present(runtimeSurface))
     }
 }

@@ -1560,7 +1560,7 @@ import Testing
                 ) else {
                     return
                 }
-                // Keep the bound TCP endpoint unavailable through the waiter's
+                // Keep the TCP endpoint unavailable through the waiter's
                 // first connection attempt. Without relay error classification,
                 // that attempt fails permanently instead of reaching a retry.
                 usleep(100_000)
@@ -4617,6 +4617,7 @@ final class RelaySocketResponder {
     private var stopped = false
     private var requests: [String] = []
     private var listenerFD: Int32 = -1
+    private var deferredBindAddress: sockaddr_in?
 
     init(
         relayID: String,
@@ -4671,6 +4672,13 @@ final class RelaySocketResponder {
         endpoint = "127.0.0.1:\(UInt16(bigEndian: boundAddress.sin_port))"
         if startListening {
             self.startListening()
+        } else {
+            // A bound, non-listening TCP socket can leave macOS connects in
+            // SYN_SENT. Close the reservation so startup observes refusal and
+            // enters its retry path before this fixture begins listening.
+            close(fd)
+            listenerFD = -1
+            deferredBindAddress = boundAddress
         }
     }
 
@@ -4686,7 +4694,32 @@ final class RelaySocketResponder {
 
     func startListening() {
         lock.lock()
-        guard !stopped, listenerFD >= 0 else {
+        guard !stopped else {
+            lock.unlock()
+            return
+        }
+        if listenerFD < 0, var address = deferredBindAddress {
+            let fd = socket(AF_INET, SOCK_STREAM, 0)
+            guard fd >= 0 else {
+                lock.unlock()
+                return
+            }
+            var reuse: Int32 = 1
+            setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
+            let bindResult = withUnsafePointer(to: &address) { pointer in
+                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketPointer in
+                    Darwin.bind(fd, socketPointer, socklen_t(MemoryLayout<sockaddr_in>.size))
+                }
+            }
+            guard bindResult == 0 else {
+                close(fd)
+                lock.unlock()
+                return
+            }
+            listenerFD = fd
+            deferredBindAddress = nil
+        }
+        guard listenerFD >= 0 else {
             lock.unlock()
             return
         }

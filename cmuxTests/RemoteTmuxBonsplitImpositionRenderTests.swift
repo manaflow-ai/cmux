@@ -635,7 +635,9 @@ import Testing
             host: RemoteTmuxHost(destination: "parity-\(UUID().uuidString)@host"),
             sessionName: "work"
         )
-        let workspaceId = UUID()
+        let workspace = TerminalPortalTestWorkspace()
+        defer { workspace.tearDown() }
+        let workspaceId = workspace.id
         // Real panels: the parity judgment reads the panes' hosted terminal
         // views, so the fixture needs them mounted through the app's real
         // render chain. The spawn stays paced (no shells launch in a unit
@@ -715,6 +717,10 @@ import Testing
         try #require(
             planViewMismatch(mirror) == nil,
             "fixture never converged to its own plan: \(planViewMismatch(mirror) ?? "")"
+        )
+        try #require(
+            mirror.isEffectivelyVisibleForSizing,
+            "The output-parity judge must observe visible authorized terminal portals"
         )
         mirror.setNeedsSizingPass()
         try await pump(6)

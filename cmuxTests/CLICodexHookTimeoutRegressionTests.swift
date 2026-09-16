@@ -700,9 +700,14 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(currentPrompt.status == 0, Comment(rawValue: currentPrompt.stderr))
         #expect(currentPrompt.stdout == "{}\n")
         #expect(waitForConditionBlocking(timeout: 2) {
-            AgentJournalAppendCapture.captures(in: commands.snapshot()).contains {
-                $0.kind == "agent.turn.started"
-                    && ($0.draft["attention"] as? [String: Any])?["turnIdentity"] as? String == "current-turn"
+            commands.snapshot().compactMap(codexHookJSONObject).contains { request in
+                guard request["method"] as? String == "agent.hook.enqueue",
+                      let params = request["params"] as? [String: Any],
+                      params["subcommand"] as? String == "prompt-submit",
+                      let payload = params["payload"] as? String else {
+                    return false
+                }
+                return codexHookJSONObject(payload)?["turn_id"] as? String == "current-turn"
             }
         })
 

@@ -186,7 +186,7 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
         }
     }
 
-    private func withDefaultPlusMenu<T>(_ body: (NSMenu) throws -> T) throws -> T {
+    private func withDefaultPlusMenu<T>(isAuthenticated: Bool = true, _ body: (NSMenu) throws -> T) throws -> T {
         let (store, root) = try loadStore(globalJSON: "{}")
         defer { try? FileManager.default.removeItem(at: root) }
         XCTAssertFalse(store.newWorkspaceContextMenuIsConfigured)
@@ -198,7 +198,11 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
         )
         defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
         let context = try XCTUnwrap(appDelegate.mainWindowContexts.values.first { $0.windowId == windowId })
-        let menu = try XCTUnwrap(appDelegate.makeNewWorkspaceContextMenu(context: context, cmuxConfigStore: store))
+        let menu = try XCTUnwrap(appDelegate.makeNewWorkspaceContextMenu(
+            context: context,
+            cmuxConfigStore: store,
+            isAuthenticated: isAuthenticated
+        ))
         return try body(menu)
     }
 
@@ -247,11 +251,20 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
         }
     }
 
-    func testPlusMenuHidesCloudRowWhenFeatureIsOff() throws {
+    func testPlusMenuHidesCloudRowsUnlessFeatureAndAuthenticationAreAvailable() throws {
         setCloudMachinesEnabled(false)
         try withDefaultPlusMenu { menu in
             let actions = builtInMenuRows(menu).map(\.action)
             XCTAssertFalse(actions.contains(.newCloudWorkspace))
+            XCTAssertFalse(actions.contains(.newCloudMachine))
+            XCTAssertEqual(actions.prefix(3).map { $0 }, [.newWorkspace, .newTerminal, .newBrowser])
+        }
+
+        setCloudMachinesEnabled(true)
+        try withDefaultPlusMenu(isAuthenticated: false) { menu in
+            let actions = builtInMenuRows(menu).map(\.action)
+            XCTAssertFalse(actions.contains(.newCloudWorkspace))
+            XCTAssertFalse(actions.contains(.newCloudMachine))
             XCTAssertEqual(actions.prefix(3).map { $0 }, [.newWorkspace, .newTerminal, .newBrowser])
         }
     }
@@ -280,10 +293,15 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: tabManager, cmuxConfigStore: store)
         defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
         let context = try XCTUnwrap(appDelegate.mainWindowContexts.values.first { $0.windowId == windowId })
-        let menu = try XCTUnwrap(appDelegate.makeNewWorkspaceContextMenu(context: context, cmuxConfigStore: store))
+        let menu = try XCTUnwrap(appDelegate.makeNewWorkspaceContextMenu(
+            context: context,
+            cmuxConfigStore: store,
+            isAuthenticated: true
+        ))
         let rows = builtInMenuRows(menu)
         XCTAssertEqual(rows.prefix(2).map(\.action), [.newTerminal, .newCloudWorkspace])
-        XCTAssertEqual(rows[1].item.keyEquivalent, "y")
+        let cloudItem = try XCTUnwrap(rows.first { $0.action == .newCloudWorkspace }?.item)
+        XCTAssertEqual(cloudItem.keyEquivalent, "y")
     }
 
     // MARK: Shared action path
@@ -327,6 +345,11 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
     func testCommandYRoutesThroughSharedAction() async throws {
 #if DEBUG
         let appDelegate = AppDelegate()
+        let window = registerShortcutWindow(on: appDelegate)
+        defer {
+            appDelegate.unregisterMainWindow(window)
+            window.close()
+        }
         setCloudMachinesEnabled(true)
         let presenter = RecordingSheetPresenter()
         installDependencies(on: appDelegate, presenter: presenter)
@@ -338,7 +361,7 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
             location: .zero,
             modifierFlags: [.command],
             timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: NSApp.keyWindow?.windowNumber ?? 0,
+            windowNumber: window.windowNumber,
             context: nil,
             characters: "y",
             charactersIgnoringModifiers: "y",
@@ -402,6 +425,11 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
     func testReboundKeyRoutesAndOldKeyDoesNot() async throws {
 #if DEBUG
         let appDelegate = AppDelegate()
+        let window = registerShortcutWindow(on: appDelegate)
+        defer {
+            appDelegate.unregisterMainWindow(window)
+            window.close()
+        }
         setCloudMachinesEnabled(true)
         let presenter = RecordingSheetPresenter()
         installDependencies(on: appDelegate, presenter: presenter)
@@ -417,7 +445,7 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
                 location: .zero,
                 modifierFlags: modifiers,
                 timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: NSApp.keyWindow?.windowNumber ?? 0,
+                windowNumber: window.windowNumber,
                 context: nil,
                 characters: characters,
                 charactersIgnoringModifiers: characters,
@@ -442,6 +470,26 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
             ContentView.commandPaletteShortcutAction(forCommandID: ContentView.commandPaletteCloudNewMachineCommandId),
             .newCloudMachine
         )
+    }
+
+    private func registerShortcutWindow(on appDelegate: AppDelegate) -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        let windowID = UUID()
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowID.uuidString)")
+        appDelegate.registerMainWindow(
+            window,
+            windowId: windowID,
+            tabManager: TabManager(),
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+        return window
     }
 
 }

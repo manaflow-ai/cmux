@@ -336,7 +336,10 @@ struct CLIOmpHookBindingTests {
             surfaceTargets: [Self.liveSurfaceId: Self.liveWorkspaceId],
             ttyRows: [
                 (tty: staleTTY, workspaceId: Self.leakedWorkspaceId, surfaceId: Self.leakedSurfaceId)
-            ]
+            ],
+            // Exercise the older-server TTY fallback. An authoritative PID
+            // refusal must fail closed before any ambient fallback is used.
+            resolverMethodAvailable: false
         )
         var environment = Harness.hookEnvironment(context: context)
         environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
@@ -357,6 +360,9 @@ struct CLIOmpHookBindingTests {
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(context.state.snapshot().compactMap(Self.jsonObject).contains {
+            $0["method"] as? String == "debug.terminals"
+        })
         let resumeBindings = Harness.resumeBindingParams(in: context)
         #expect(resumeBindings.count == 1)
         let resume = try #require(resumeBindings.first)

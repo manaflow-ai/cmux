@@ -1,6 +1,7 @@
 import AppKit
 import CmuxTerminalCore
 import GhosttyKit
+import GhosttyRuntimeTestStubs
 import Testing
 @testable import CmuxTerminal
 
@@ -46,6 +47,7 @@ private func rendererReleaseWasOccluded() -> Bool
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(true)
+        surface.installRendererCallbacksForTesting(on: runtimeSurface)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate()
         defer {
@@ -77,6 +79,7 @@ private func rendererReleaseWasOccluded() -> Bool
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(false, presentationReady: true)
+        surface.installRendererCallbacksForTesting(on: runtimeSurface)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: false)
         defer {
@@ -110,6 +113,7 @@ private func rendererReleaseWasOccluded() -> Bool
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(false, presentationReady: true)
+        surface.installRendererCallbacksForTesting(on: runtimeSurface)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
@@ -142,6 +146,7 @@ private func rendererReleaseWasOccluded() -> Bool
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(false, presentationReady: true)
+        surface.installRendererCallbacksForTesting(on: runtimeSurface)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
@@ -161,6 +166,7 @@ private func rendererReleaseWasOccluded() -> Bool
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(true, presentationReady: true)
+        surface.installRendererCallbacksForTesting(on: runtimeSurface)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         acknowledgePresentation(on: surface)
@@ -199,6 +205,7 @@ private func rendererReleaseWasOccluded() -> Bool
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(true, presentationReady: true)
+        surface.installRendererCallbacksForTesting(on: runtimeSurface)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
@@ -217,10 +224,14 @@ private func rendererReleaseWasOccluded() -> Bool
 
         surface.setRendererPortalVisible(false, presentationReady: true)
         surface.setRendererPortalVisible(true, presentationReady: true)
-        let firstFailedToken = surface.rendererPresentationState.inFlightToken!
-        surface.rendererFrameDidFail(token: firstFailedToken, status: GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED)
-        let recoveryToken = surface.rendererPresentationState.inFlightToken!
-        surface.rendererFrameDidFail(token: recoveryToken, status: GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED)
+        #expect(cmux_test_ghostty_renderer_fail(
+            runtimeSurface,
+            Int32(GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED.rawValue)
+        ))
+        #expect(cmux_test_ghostty_renderer_fail(
+            runtimeSurface,
+            Int32(GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED.rawValue)
+        ))
         #expect(surface.renderHealth == .notRendering)
     }
 
@@ -231,8 +242,10 @@ private func rendererReleaseWasOccluded() -> Bool
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(true, presentationReady: true)
+        surface.installRendererCallbacksForTesting(on: runtimeSurface)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
+        acknowledgePresentation(on: surface)
         defer {
             surface.releaseSurfaceForTesting()
             runtimeSurface.deallocate()
@@ -258,12 +271,15 @@ private func rendererReleaseWasOccluded() -> Bool
         let registry = TerminalSurfaceRegistry()
         let scheduler = FakeRendererRealizationScheduler()
         let surface = makeSurface(registry: registry, rendererRealization: scheduler)
-        let callbackContext = installRendererCallbackContext(on: surface, scheduler: scheduler)
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
         setRendererRealizedResult(false)
         surface.setRendererPortalVisible(false, presentationReady: true)
+        let callbackContext = surface.installRendererCallbacksForTesting(
+            on: runtimeSurface,
+            scheduler: scheduler
+        )
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
@@ -311,11 +327,14 @@ private func rendererReleaseWasOccluded() -> Bool
         let registry = TerminalSurfaceRegistry()
         let scheduler = FakeRendererRealizationScheduler()
         let surface = makeSurface(registry: registry, rendererRealization: scheduler)
-        let callbackContext = installRendererCallbackContext(on: surface, scheduler: scheduler)
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(false, presentationReady: true)
+        let callbackContext = surface.installRendererCallbacksForTesting(
+            on: runtimeSurface,
+            scheduler: scheduler
+        )
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
@@ -358,11 +377,14 @@ private func rendererReleaseWasOccluded() -> Bool
         let registry = TerminalSurfaceRegistry()
         let scheduler = FakeRendererRealizationScheduler()
         let surface = makeSurface(registry: registry, rendererRealization: scheduler)
-        let callbackContext = installRendererCallbackContext(on: surface, scheduler: scheduler)
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(false, presentationReady: true)
+        let callbackContext = surface.installRendererCallbacksForTesting(
+            on: runtimeSurface,
+            scheduler: scheduler
+        )
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
@@ -388,11 +410,14 @@ private func rendererReleaseWasOccluded() -> Bool
         let registry = TerminalSurfaceRegistry()
         let scheduler = FakeRendererRealizationScheduler()
         let surface = makeSurface(registry: registry, rendererRealization: scheduler)
-        let callbackContext = installRendererCallbackContext(on: surface, scheduler: scheduler)
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(false, presentationReady: true)
+        let callbackContext = surface.installRendererCallbacksForTesting(
+            on: runtimeSurface,
+            scheduler: scheduler
+        )
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
@@ -433,26 +458,7 @@ private func rendererReleaseWasOccluded() -> Bool
     }
 
     private func acknowledgePresentation(on surface: TerminalSurface) {
-        guard let token = surface.rendererPresentationState.inFlightToken else { return }
-        surface.rendererFrameDidPresent(token: token)
-    }
-
-    private func installRendererCallbackContext(
-        on surface: TerminalSurface,
-        scheduler: FakeRendererRealizationScheduler
-    ) -> Unmanaged<GhosttySurfaceCallbackContext> {
-        let callbackContext = Unmanaged.passRetained(GhosttySurfaceCallbackContext(
-            surfaceHost: surface.surfaceView,
-            surfaceController: surface,
-            terminalLifecycleID: surface.terminalLifecycleId,
-            rendererMailboxDidDrain: { surfaceID in
-                MainActor.assumeIsolated {
-                    scheduler.scheduleRendererPresentationRepair(surfaceID: surfaceID)
-                }
-            }
-        ))
-        surface.surfaceCallbackContext = callbackContext
-        return callbackContext
+        #expect(cmux_test_ghostty_renderer_present(surface.surface))
     }
 
     private func makeSurface(

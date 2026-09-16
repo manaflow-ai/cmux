@@ -419,7 +419,7 @@ struct TerminalStartupRestoreFailureTests {
 
     private func decodedRemoteCommand(from startupCommand: String) throws -> String {
         let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(startupCommand).map(\.value)
-        let script = try #require(words.dropFirst(2).first)
+        let script = try #require(words.first(where: { $0.contains("--command-b64") }))
         let range = try #require(
             script.range(of: #"--command-b64 [A-Za-z0-9+/=]+"#, options: .regularExpression)
         )

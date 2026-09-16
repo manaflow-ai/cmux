@@ -881,16 +881,21 @@ final class CommandPaletteAuthCommandTests: XCTestCase {
 }
 
 final class CommandPaletteCloudCommandTests: XCTestCase {
+    @MainActor
     func testCloudCommandPaletteIncludesCloudWorkspaceActions() {
         let key = BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey
         let defaults = UserDefaults.standard
         let original = defaults.object(forKey: key)
+        let flag = CmuxFeatureFlags.cloudMachinesFlag
+        let originalOverride = CmuxFeatureFlags.shared.overrideValue(for: flag)
         defaults.set(true, forKey: key)
+        CmuxFeatureFlags.shared.setOverride(true, for: flag)
         defer {
             if let original { defaults.set(original, forKey: key) }
             else { defaults.removeObject(forKey: key) }
+            CmuxFeatureFlags.shared.setOverride(originalOverride, for: flag)
         }
-        let commandIds = Set(ContentView.commandPaletteCloudCommandContributions().map(\.commandId))
+        let commandIds = Set(ContentView.commandPaletteCloudCommandContributions(isAuthenticated: true).map(\.commandId))
 
         XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudForkCommandId))
         XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudSnapshotCommandId))
@@ -900,6 +905,13 @@ final class CommandPaletteCloudCommandTests: XCTestCase {
         XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudPortsCommandId))
         XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudToolsCommandId))
         XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudHandoffCommandId))
+
+        XCTAssertTrue(ContentView.commandPaletteCloudCommandContributions(isAuthenticated: false).isEmpty)
+        CmuxFeatureFlags.shared.setOverride(false, for: flag)
+        XCTAssertTrue(ContentView.commandPaletteCloudCommandContributions(isAuthenticated: true).isEmpty)
+        CmuxFeatureFlags.shared.setOverride(true, for: flag)
+        defaults.set(false, forKey: key)
+        XCTAssertTrue(ContentView.commandPaletteCloudCommandContributions(isAuthenticated: true).isEmpty)
     }
 
     func testCloudVMIdentityIsExplicitMetadata() {

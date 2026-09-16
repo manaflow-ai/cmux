@@ -197,16 +197,6 @@ func codexHookMockSocketResponse(
           let id = payload["id"] as? String else {
         return "OK"
     }
-    if payload["method"] as? String == "agent.resolve_delivery_target" {
-        // This fixture models surface inventory, not a process-to-pane index.
-        // An empty successful resolution is authoritative absence, so expose
-        // the unsupported method and let the CLI validate the supplied pane.
-        let response: [String: Any] = [
-            "id": id, "ok": false,
-            "error": ["code": "unrecognized_method", "message": "process resolution unavailable in fixture"],
-        ]
-        return String(decoding: try! JSONSerialization.data(withJSONObject: response), as: UTF8.self)
-    }
     if payload["method"] as? String == "surface.list" {
         return codexHookV2Response(
             id: id,
@@ -240,6 +230,16 @@ func codexHookMockSocketResponse(
             )
         }
         return codexHookV2Response(id: id, ok: false)
+    }
+    if payload["method"] as? String == "agent.resolve_delivery_target" {
+        // This fixture models surface inventory, not a process-to-pane index.
+        // An empty successful resolution is authoritative absence, so expose
+        // the unsupported method and let the CLI validate the supplied pane.
+        let response: [String: Any] = [
+            "id": id, "ok": false,
+            "error": ["code": "unrecognized_method", "message": "process resolution unavailable in fixture"],
+        ]
+        return String(decoding: try! JSONSerialization.data(withJSONObject: response), as: UTF8.self)
     }
     return codexHookV2Response(id: id, ok: true, result: [:])
 }

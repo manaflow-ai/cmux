@@ -1975,8 +1975,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .flatMap { entries in entries.compactMap { $0["command"] as? String } }
         XCTAssertFalse(commands.isEmpty)
 
-        let ambientInvocation = #""$CMUX_BUNDLED_CLI_PATH" --socket "$CMUX_SOCKET_PATH" hooks antigravity"#
-        let pinnedInvocation = "--socket '\(pinnedSocketPath)' hooks antigravity"
+        let ambientInvocation = #""$CMUX_BUNDLED_CLI_PATH" --socket "$CMUX_SOCKET_PATH" hooks enqueue antigravity"#
+        let pinnedInvocation = "--socket '\(pinnedSocketPath)' hooks enqueue antigravity"
         for command in commands {
             let ambientRange = command.range(of: ambientInvocation)
             let pinnedRange = command.range(of: pinnedInvocation)
@@ -3242,6 +3242,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
             try? FileManager.default.removeItem(at: root)
         }
 
+        var agentProcesses: [Process] = []
+        defer {
+            for process in agentProcesses {
+                if process.isRunning { process.terminate() }
+                process.waitUntilExit()
+            }
+        }
+        for _ in surfaceIds {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+            process.arguments = ["300"]
+            try process.run()
+            agentProcesses.append(process)
+        }
+
         let baseEnvironment: [String: String] = [
             "HOME": root.path,
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
@@ -3295,6 +3310,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             }
             var environment = baseEnvironment
             environment["CMUX_SURFACE_ID"] = surfaceId
+            let surfaceIndex = surfaceIds.firstIndex(of: surfaceId)!
+            environment["CMUX_GROK_PID"] = String(agentProcesses[surfaceIndex].processIdentifier)
             let result = runProcess(
                 executablePath: cliPath,
                 arguments: ["hooks", "grok", subcommand],
