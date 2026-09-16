@@ -2465,9 +2465,7 @@ struct BrowserPanelView: View {
         }
 
         tasks.replaceOnMainActor(.emptyStateImportBrowserRefresh) {
-            let browsers = await Task.detached(priority: .utility) {
-                BrowserInstalledBrowserDetector().detectInstalledBrowsers()
-            }.value
+            let browsers = await BrowserDataImportCoordinator.shared.detectInstalledBrowsers()
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 guard emptyStateImportBrowserRefreshGeneration == generation,

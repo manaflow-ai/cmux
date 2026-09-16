@@ -6,7 +6,7 @@ import Foundation
 /// for its domain) and consume ``events`` to react to changes:
 ///
 /// ```swift
-/// guard let watcher = RecursivePathWatcher(paths: paths) else { return }
+/// guard let watcher = await RecursivePathWatcher(paths: paths) else { return }
 /// let task = Task { @MainActor in
 ///     for await _ in watcher.events { reload() }
 /// }
@@ -22,14 +22,14 @@ import Foundation
 /// wait for changes to stop, which keeps reactions responsive without per-event
 /// churn.
 ///
-/// **Construction.** The `FSEventStream` is created synchronously in ``init``,
-/// so the watcher is already listening when it returns (nothing is missed in the
-/// gap a deferred start would open) and ``init`` fails (`nil`) if the stream
-/// cannot be created. The stream's `@Sendable` sink forwards into a private
-/// raw-event `AsyncStream` rather than capturing the actor, which is what lets
-/// creation happen in-`init`; a single actor-isolated pump drains that raw stream
-/// and applies the throttle. The pump's lifetime is the raw stream's: ``stop()``
-/// and `deinit` finish it.
+/// **Construction.** The initializer awaits native registration on a dedicated
+/// I/O queue, so the watcher is already listening when it returns. A failed
+/// registration returns `nil`. Neither the caller's actor nor Swift's
+/// cooperative executor performs the blocking daemon registration. The stream's
+/// `@Sendable` sink forwards into a private raw-event
+/// `AsyncStream` rather than capturing the actor; a single actor-isolated pump
+/// drains that raw stream and applies the throttle. The pump's lifetime is the
+/// raw stream's: ``stop()`` and `deinit` finish it.
 public struct RecursivePathChange: Equatable, Sendable {
     /// Absolute paths reported during one bounded coalescing window.
     public let paths: [String]
@@ -73,7 +73,7 @@ public actor RecursivePathWatcher {
     private let eventFilter: @Sendable (RecursivePathChange) -> Bool
     // nil only for the injected coalescer initializer, whose event source
     // drives ``receive(_:)`` without a real FSEventStream.
-    private let eventStream: FileSystemEventStream?
+    private var eventStream: FileSystemEventStream?
     // Finishing this ends the pump task (see init); raw FS events flow through it.
     private let rawContinuation: AsyncStream<FileSystemEventBatch>.Continuation
     private var pendingPaths: Set<String> = []
@@ -86,7 +86,7 @@ public actor RecursivePathWatcher {
     /// Bounds path accumulation across multiple callbacks in one window.
     private static let maximumPendingPathCount = 4_096
 
-    /// Creates and starts a watcher for `paths`.
+    /// Creates and starts a watcher for `paths` without blocking the caller's executor.
     ///
     /// - Parameters:
     ///   - paths: The files and directories to watch. Must be non-empty.
@@ -105,7 +105,7 @@ public actor RecursivePathWatcher {
         clock: any FileWatchClock = SystemFileWatchClock(),
         throttleInterval: Duration = .milliseconds(250),
         eventFilter: @escaping @Sendable (RecursivePathChange) -> Bool = { _ in true }
-    ) {
+    ) async {
         guard !paths.isEmpty else { return nil }
         self.watchedPaths = paths
         self.clock = clock
@@ -127,9 +127,9 @@ public actor RecursivePathWatcher {
         self.rawContinuation = rawContinuation
 
         // The sink captures `rawContinuation` (a Sendable value), not `self`, so
-        // the stream can be created synchronously here without escaping the
-        // actor mid-init.
-        guard let eventStream = FileSystemEventStream(
+        // native stream can be registered off-actor without escaping this
+        // watcher before its initialization completes.
+        guard let eventStream = await FileSystemEventStream.start(
             paths: paths,
             latency: Self.streamLatency,
             onEvent: { batch in
@@ -189,21 +189,21 @@ public actor RecursivePathWatcher {
     }
 
     /// Stops the watcher, tears down the underlying stream, and finishes
-    /// ``events``. Idempotent.
+    /// ``events``. Idempotent; native teardown is queued on its I/O lane.
     public func stop() {
         isStopped = true
         throttleTask?.cancel()
         throttleTask = nil
-        eventStream?.stop()
+        eventStream = nil
         rawContinuation.finish()
         continuation.finish()
         pathContinuation.finish()
     }
 
     deinit {
-        // FSEventStream teardown is synchronous and thread-safe; finishing the
-        // continuations ends the pump and any consumer.
-        eventStream?.stop()
+        // Native cleanup is queued by the stream owner; no caller waits for
+        // FSEvents. Finishing the continuations ends the pump and consumers.
+        eventStream = nil
         throttleTask?.cancel()
         rawContinuation.finish()
         continuation.finish()
