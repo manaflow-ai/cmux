@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Xcode and detached fleet jobs may start with only the system search path.
+# Match build-diff-sidecar.sh's explicit Rust tool discovery.
+export PATH="${CARGO_HOME:-${HOME}/.cargo}/bin:/opt/homebrew/bin:/usr/local/bin:${PATH}"
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CRATE_DIR="${ROOT}/Native/CommandPaletteNucleoFFI"
 LIB_NAME="libcmux_command_palette_nucleo_ffi.dylib"
