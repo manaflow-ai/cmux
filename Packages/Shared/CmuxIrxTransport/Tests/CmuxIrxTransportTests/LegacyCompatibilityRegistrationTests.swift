@@ -36,6 +36,35 @@ struct LegacyCompatibilityRegistrationTests {
         #expect(backend.revokedDeviceIDs == (alreadyDuplicated ? [backend.v2.deviceID] : []))
     }
 
+    @Test func lostRevocationReplyRecoversOnTheNextStartup() async throws {
+        let backend = CompatibilityRegistrationFixture(alreadyDuplicated: true, loseRevocationReply: true)
+        let server = try await IrxStaleKeepAliveHTTPServer.start(requestHandler: { backend.handle($0) })
+        defer { server.stop() }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        func service() throws -> LegacyCompatibilityService {
+            try LegacyCompatibilityService(configuration: .init(
+                brokerBaseURL: URL(string: "http://127.0.0.1:\(server.port)")!,
+                clientNamespace: backend.namespace, tag: "nightly", platform: .mac,
+                displayName: "Same Mac", cacheDirectory: directory, accountID: "test-account"),
+                identity: LegacyCompatibilityService.compatibilityIdentity(from: backend.v2, deviceID: backend.physicalID),
+                previousDeviceID: backend.v2.deviceID, accessTokenPair: { ("test-access", "test-refresh") },
+                journal: IrxJournal(subsystem: "dev.cmux.tests", category: "migration-interrupted"))
+        }
+        let interrupted = try service()
+        await #expect(throws: (any Error).self) { try await interrupted.start() }
+        #expect(backend.physicalNightlyEndpoint == backend.old.endpointIDHex)
+        #expect(backend.revokedDeviceIDs == [backend.v2.deviceID])
+        await interrupted.stop()
+        let restarted = try service()
+        try await restarted.start()
+        let discovery = try #require(await restarted.snapshot().discovery)
+        #expect(discovery.bindings.filter { $0.tag == "nightly" }.map(\.deviceID) == [backend.physicalID])
+        #expect(backend.physicalNightlyEndpoint == backend.v2.endpointIDHex)
+        #expect(backend.revokedDeviceIDs == [backend.v2.deviceID])
+        await restarted.stop()
+    }
+
     @Test func failedRevocationDoesNotPublishOrEraseTheOriginalComputer() async throws {
         let backend = CompatibilityRegistrationFixture(alreadyDuplicated: true, rejectRevocation: true)
         let server = try await IrxStaleKeepAliveHTTPServer.start(requestHandler: { backend.handle($0) })
@@ -64,7 +93,7 @@ struct LegacyCompatibilityRegistrationTests {
 /// follow the account directory's device + namespace + tag uniqueness rule.
 private final class CompatibilityRegistrationFixture: @unchecked Sendable {
     let physicalID = "11111111-1111-4111-8111-111111111111"
-    let namespace = "com.cmuxterm.app.nightly"
+    let namespace = "mac:com.cmuxterm.app.nightly"
     let v2 = IrxIdentity(privateKeyData: Data(repeating: 2, count: 32),
         deviceID: "22222222-2222-4222-8222-222222222222", appInstanceID: "v2-tuple")
     let old = IrxIdentity(privateKeyData: Data(repeating: 3, count: 32), deviceID: "old", appInstanceID: "old")
@@ -73,9 +102,11 @@ private final class CompatibilityRegistrationFixture: @unchecked Sendable {
     private var bindings: [[String: Any]] = []
     private var revoked: [String] = []
     private let rejectRevocation: Bool
+    private var loseRevocationReply: Bool
 
-    init(alreadyDuplicated: Bool, rejectRevocation: Bool = false) {
+    init(alreadyDuplicated: Bool, rejectRevocation: Bool = false, loseRevocationReply: Bool = false) {
         self.rejectRevocation = rejectRevocation
+        self.loseRevocationReply = loseRevocationReply
         bindings = [binding(deviceID: physicalID, endpoint: old.endpointIDHex, tag: "nightly"),
                     binding(deviceID: physicalID, endpoint: stable.endpointIDHex, tag: "default")]
         if alreadyDuplicated {
@@ -137,6 +168,10 @@ private final class CompatibilityRegistrationFixture: @unchecked Sendable {
                 #expect(fields["bindingId"] as? String == callerID)
                 revoked.append(try #require(caller["device_id"] as? String))
                 bindings.removeAll { $0["binding_id"] as? String == callerID }
+                if loseRevocationReply {
+                    loseRevocationReply = false
+                    return .resetConnection
+                }
                 return reply(["revoked": true, "lan_rendezvous_rotated": true])
             }
             return reply(["route_contract_version": 1, "bindings": bindings, "relay_fleet": ["https://relay.example.com/"],
