@@ -40,6 +40,12 @@ extension CloudTreeOutlineView.Coordinator {
 
     func outlineView(_ outlineView: NSOutlineView, validateDrop info: any NSDraggingInfo,
                      proposedItem item: Any?, proposedChildIndex index: Int) -> NSDragOperation {
+        let rejection = ownershipRejection(info: info, item: item)
+        (outlineView as? CloudTreeNSOutlineView)?.ownershipFeedback.update(rejection, over: outlineView)
+        guard rejection == nil else {
+            (outlineView as? CloudTreeNSOutlineView)?.reorderPresentation.clear(sequence: info.draggingSequenceNumber)
+            return []
+        }
         guard let drop = organizationDrop(outlineView, info: info, item: item, index: index) else {
             (outlineView as? CloudTreeNSOutlineView)?.reorderPresentation.clear(sequence: info.draggingSequenceNumber)
             return []
@@ -51,9 +57,30 @@ extension CloudTreeOutlineView.Coordinator {
 
     func outlineView(_ outlineView: NSOutlineView, acceptDrop info: any NSDraggingInfo,
                      item: Any?, childIndex index: Int) -> Bool {
+        defer { (outlineView as? CloudTreeNSOutlineView)?.ownershipFeedback.clear() }
+        guard ownershipRejection(info: info, item: item) == nil else { return false }
         defer { (outlineView as? CloudTreeNSOutlineView)?.reorderPresentation.clear(sequence: info.draggingSequenceNumber) }
         guard let drop = organizationDrop(outlineView, info: info, item: item, index: index) else { return false }
         return organize(drop.action, nodeID: drop.sourceID)
+    }
+
+    /// Tree reordering stays sibling-only, but hovering a foreign workspace
+    /// still explains its ownership boundary rather than silently rejecting it.
+    private func ownershipRejection(info: any NSDraggingInfo, item: Any?) -> SurfaceTransferRejection? {
+        guard let node = item as? CloudTreeNode, !node.machine.isLocal,
+              DragOverlayRoutingPolicy.hasBonsplitTabTransfer(info.draggingPasteboard.types) else { return nil }
+        let resolver = PaneTransferSourceResolver()
+        let policy = SurfaceOwnershipPolicy(cloudMachine: node.machine)
+        guard let transfer = resolver.transfer(from: info.draggingPasteboard),
+              let source = resolver.source(for: transfer) else { return policy.rejection(for: nil) }
+        switch source {
+        case .surfaceResources(let group):
+            return SurfaceCatalog.shared.ownershipRejection(for: group.resources, policy: policy)
+        case .surface:
+            return policy.rejection(for: AppDelegate.shared?.machineOwningBonsplitTab(transfer.tabId))
+        case .vaultSession, .filePreview, .rightSidebarTool:
+            return policy.rejection(for: .local)
+        }
     }
 
     /// Internal moves never cross a parent or pin partition. In particular, a

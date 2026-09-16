@@ -691,8 +691,12 @@ final class MobileHostService {
         buildFlavor: BuildFlavor
     ) -> Bool {
         guard !ManagedDevicePolicy(defaults: defaults).isIncomingDeviceAccessDisabled else { return false }
-        return (defaults.object(forKey: listeningEnabledDefaultsKey) as? Bool ?? false)
-            || MobileRemoteControlPolicy.allowsIncomingAccess(defaults: defaults)
+        // The current iOS choice takes precedence over the historical key;
+        // incoming Mac access remains an independent opt-in.
+        let iOSPairingEnabled = defaults.object(forKey: listeningEnabledDefaultsKey) as? Bool
+            ?? defaults.object(forKey: "cmuxMobilePairingHostEnabled") as? Bool
+            ?? false
+        return iOSPairingEnabled || MobileRemoteControlPolicy.allowsIncomingAccess(defaults: defaults)
     }
 
     /// User-default key for the preferred iOS pairing listener port.
@@ -840,6 +844,7 @@ final class MobileHostService {
     nonisolated static func acceptTransport(
         _ transport: any CmxByteTransport,
         authorization: MobileHostConnectionAuthorizationContext,
+        hostDeviceID: String? = nil,
         artifactTransfers: MobileHostIrohArtifactTransferRegistry? = nil,
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
         firstFrameTimeoutNanoseconds: UInt64? = nil,
@@ -918,6 +923,7 @@ final class MobileHostService {
                     return await Self.connectionStatusResult(
                         for: request,
                         authorization: authorization,
+                        hostDeviceID: hostDeviceID,
                         supportsArtifactLane: artifactTransfers != nil,
                         stackStatus: { request in
                             await MobileHostService.networkStatusResult(for: request)
@@ -989,6 +995,7 @@ final class MobileHostService {
     nonisolated static func connectionStatusResult(
         for request: MobileHostRPCRequest,
         authorization: MobileHostConnectionAuthorizationContext,
+        hostDeviceID: String? = nil,
         supportsArtifactLane: Bool = false,
         stackStatus: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
     ) async -> MobileHostRPCResult {
@@ -1004,6 +1011,7 @@ final class MobileHostService {
             }
             return MobileHostPublicStatusCache.result(
                 includeIdentity: true,
+                deviceID: hostDeviceID,
                 additionalCapabilities: supportsArtifactLane
                     ? Set([irohArtifactLaneCapability])
                     : Set(),
