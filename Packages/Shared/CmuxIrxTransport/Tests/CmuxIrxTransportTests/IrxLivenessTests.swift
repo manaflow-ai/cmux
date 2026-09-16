@@ -56,10 +56,11 @@ struct IrxLivenessTests {
             await host.recordDeath()
         }
         try await waitUntil { await host.probeCount == 1 }
+        let keepalive = try #require(await session.connection.keepaliveTask)
         await session.connection.setApplicationActive(false)
-        // Deliberately outlast the cancelled probe deadline. This represents time
-        // during which iOS is backgrounded and cannot perform application work.
-        try await Task.sleep(for: .milliseconds(250))
+        // Join the cancelled loop, including its in-flight probe, before
+        // checking that suspension produced neither a miss nor peer death.
+        await keepalive.value
         #expect(host.journal.counterSnapshot()["miss", default: 0] == 0)
         #expect(await host.deathCount == 0)
         #expect(await host.probeCount == 1)

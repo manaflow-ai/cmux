@@ -11,7 +11,7 @@ actor IrxRelayCredentialInstaller {
     private var desired: [String: IrxRelayCredential] = [:]
     private var ownership: IrxRelayCredentialInstallOwnership?
     private var installed: [String: IrxRelayCredential]
-    private var task: Task<Void, Never>?
+    private(set) var task: Task<Void, Never>?
     private var taskID = UUID()
     private var revision: UInt64 = 0
     private var sleeping = false

@@ -680,13 +680,12 @@ struct IrxLiveQUICTests {
         }
         #expect(recovered != nil, "engine did not auto-redial after host close")
 
-        // Supersession: a second dial from the same device replaces the first
-        // session on the server registry.
         #expect(await registry.activeSessionCount == 1)
 
         let retired = try #require(recovered)
-        let dialStartsBeforeRetirement =
-            journal.counterSnapshot()["dial-started"] ?? 0
+        let terminationWatcher = try #require(await engine.terminationWatcher)
+        let dialStartsBeforeRetirement = journal.counterSnapshot()["dial-started"] ?? 0
+        let autoRedialsBeforeRetirement = journal.counterSnapshot()["auto-redial"] ?? 0
         #expect(
             await engine.retire(
                 connection: retired.connection,
@@ -694,12 +693,10 @@ struct IrxLiveQUICTests {
             )
         )
         await retired.connection.close(code: .explicitRedial, origin: .local)
-        try await Task.sleep(for: .milliseconds(150))
+        await terminationWatcher.value
         #expect(await engine.currentSession() == nil)
-        #expect(
-            journal.counterSnapshot()["dial-started"] ?? 0
-                == dialStartsBeforeRetirement
-        )
+        #expect(journal.counterSnapshot()["auto-redial"] ?? 0 == autoRedialsBeforeRetirement)
+        #expect(journal.counterSnapshot()["dial-started"] ?? 0 == dialStartsBeforeRetirement)
 
         await engine.stop()
         serverLoop.cancel()

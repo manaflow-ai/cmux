@@ -18,7 +18,7 @@ enum MobileHostConnectionAuthorizationContext: Equatable, Sendable {
 }
 
 extension MobileHostConnectionAuthorizationContext {
-    /// Private-network listeners still require bearer authentication on every RPC.
+    /// Private-network listeners retain the existing per-method bearer policy.
     static let legacyPrivateNetworkListener: Self = .stackBearer
 }
 
