@@ -20,28 +20,35 @@ final class TerminalPaneMetricsFixture {
     let surface: TerminalSurface
     var hosted: GhosttySurfaceScrollView { surface.hostedView }
 
-    init() throws {
-        window = NSWindow(
+    init(backingScale: CGFloat = 1) throws {
+        let metricsWindow = TerminalPaneMetricsWindow(
             contentRect: NSRect(x: 0, y: 0, width: 960, height: 640),
             styleMask: [.titled, .closable], backing: .buffered, defer: false
         )
+        metricsWindow.testBackingScale = backingScale
+        window = metricsWindow
         window.isReleasedWhenClosed = false
         window.animationBehavior = .none
         surface = TerminalSurface(
             tabId: workspace.id, context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil, initialCommand: "/bin/cat"
         )
-        try waitUntil { self.surface.surface != nil }
-        let content = try #require(window.contentView)
-        split.frame = content.bounds
-        split.isVertical = true
-        split.dividerStyle = .thin
-        content.addSubview(split)
-        split.addArrangedSubview(anchor)
-        split.addArrangedSubview(sibling)
-        split.adjustSubviews()
-        window.orderFront(nil)
-        window.displayIfNeeded()
+        do {
+            try waitUntil { self.surface.surface != nil }
+            let content = try #require(window.contentView)
+            split.frame = content.bounds
+            split.isVertical = true
+            split.dividerStyle = .thin
+            content.addSubview(split)
+            split.addArrangedSubview(anchor)
+            split.addArrangedSubview(sibling)
+            split.adjustSubviews()
+            window.orderFront(nil)
+            window.displayIfNeeded()
+        } catch {
+            tearDown()
+            throw error
+        }
     }
 
     func bind() throws {

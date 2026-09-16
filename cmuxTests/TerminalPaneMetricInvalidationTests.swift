@@ -12,6 +12,21 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct TerminalPaneMetricInvalidationTests {
+    @Test(arguments: [CGFloat(1), CGFloat(2)])
+    func fontCallbacksUseCurrentLogicalCellSize(backingScale: CGFloat) throws {
+        let fixture = try TerminalPaneMetricsFixture(backingScale: backingScale)
+        defer { fixture.tearDown() }
+        try fixture.bind()
+        #expect(fixture.surface.performInternalBindingAction("set_font_size:24"))
+        #expect(fixture.surface.performInternalBindingAction("set_font_size:13"))
+        try fixture.waitUntil {
+            fixture.hosted.surfaceView.cellSize == fixture.surface.cellSizePoints()
+        }
+        let sample = try #require(fixture.surface.rawSizingSample())
+        #expect(fixture.hosted.surfaceView.cellSize.width == CGFloat(sample.cellWidthPx) / backingScale)
+        #expect(fixture.hosted.surfaceView.cellSize.height == CGFloat(sample.cellHeightPx) / backingScale)
+    }
+
     @Test func hiddenOutputReflowsThroughDividerDragAndSplitClose() throws {
         let fixture = try TerminalPaneMetricsFixture()
         defer { fixture.tearDown() }
@@ -54,6 +69,20 @@ struct TerminalPaneMetricInvalidationTests {
         _ = fixture.hosted.reconcileGeometryNow()
         #expect(fixture.hosted.frame == frame)
         #expect(fixture.hosted.surfaceView.cellSize == expected)
+    }
+
+    @Test func splitCloseRecoversAfterNativeResizeEndCallbackWasLost() throws {
+        let fixture = try TerminalPaneMetricsFixture()
+        defer { fixture.tearDown() }
+        try fixture.bind()
+        let portal = try #require(TerminalWindowPortalRegistry.portalsByWindowId[ObjectIdentifier(fixture.window)])
+        portal.isWindowLiveResizeActiveOverrideForTesting = true
+        TerminalWindowPortalRegistry.synchronizeForAnchor(fixture.anchor, syncLayout: false)
+        #expect(portal.isRendererResizeDeferred)
+        portal.isWindowLiveResizeActiveOverrideForTesting = false
+        // No window notification: only the surviving pane's layout changes.
+        try fixture.closeSibling()
+        #expect(!portal.isRendererResizeDeferred)
     }
 
     private func assertGridAndText(_ fixture: TerminalPaneMetricsFixture, cell: CGSize, font: Float) throws {
