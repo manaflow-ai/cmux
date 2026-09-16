@@ -533,8 +533,7 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
             (.switchRightSidebarToFiles, "1"),
             (.switchRightSidebarToFind, "2"),
             (.switchRightSidebarToSessions, "3"),
-            (.switchRightSidebarToFeed, "4"),
-            (.switchRightSidebarToDock, "5"),
+            (.switchRightSidebarToMachines, "4"),
         ]
 
         for (action, key) in modeSwitchActions {
