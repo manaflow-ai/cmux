@@ -1332,6 +1332,7 @@
 		C85390090000000000000001 /* CmuxTerminalCore in Frameworks */ = {isa = PBXBuildFile; productRef = C750200000000000000000A2 /* CmuxTerminalCore */; };
 		CFF12E0000000000000000A3 /* CmuxTestSupport in Frameworks */ = {isa = PBXBuildFile; productRef = CFF12E0000000000000000A2 /* CmuxTestSupport */; };
 		A2977C204AD69CF268D38EE3 /* CmuxTestWindowReleaseGuard.m in Sources */ = {isa = PBXBuildFile; fileRef = EA9B442F20273D64D2BA1FC5 /* CmuxTestWindowReleaseGuard.m */; };
+		AB345537D89B486FFC800BD9 /* CmuxTopBSDProcessListing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AA58CFB4FB105FD844232B2 /* CmuxTopBSDProcessListing.swift */; };
 		906900000000000000000002 /* CmuxTopMemoryAttributionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 906900000000000000000001 /* CmuxTopMemoryAttributionTests.swift */; };
 		906901000000000000000008 /* CmuxTopMemoryDiagnosticGroupAccumulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 906901000000000000000007 /* CmuxTopMemoryDiagnosticGroupAccumulator.swift */; };
 		C7A510000000000000000002 /* CmuxTopMemoryDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A510000000000000000001 /* CmuxTopMemoryDiagnostics.swift */; };
@@ -1535,6 +1536,8 @@
 		C57B00080000000000000001 /* CustomSidebarPaneDataContextCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00080000000000000002 /* CustomSidebarPaneDataContextCache.swift */; };
 		C57B00010000000000000001 /* CustomSidebarPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00010000000000000002 /* CustomSidebarPanel.swift */; };
 		C57B00090000000000000001 /* CustomSidebarPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00090000000000000002 /* CustomSidebarPanelView.swift */; };
+		6884CE6DFBCC2144DA6E8189 /* DarwinFileDescriptorSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B5A43AAA40E12698E8D2B42 /* DarwinFileDescriptorSnapshot.swift */; };
+		5D5388051D022D4BFE27E026 /* DarwinSystemMemorySnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8070A63A6E1907B5A30224A0 /* DarwinSystemMemorySnapshot.swift */; };
 		DEBDADADADADADADAD000001 /* DebugDogfoodCredentialResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEBDADADADADADADAD000002 /* DebugDogfoodCredentialResolver.swift */; };
 		DEBDADADADADADADAD000003 /* DebugDogfoodCredentialResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEBDADADADADADADAD000004 /* DebugDogfoodCredentialResolverTests.swift */; };
 		C0DE31410000000000000103 /* DebugEventLogSerializedAppendTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31410000000000000104 /* DebugEventLogSerializedAppendTests.swift */; };
@@ -2075,6 +2078,8 @@
 		7490C00A7490C00A7490C00A /* MemoryPressureSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D00A7490D00A7490D00A /* MemoryPressureSnapshot.swift */; };
 		7490C00B7490C00B7490C00B /* MemoryPressureStateEvaluation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D00B7490D00B7490D00B /* MemoryPressureStateEvaluation.swift */; };
 		7490C00C7490C00C7490C00C /* MemoryPressureStateTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D00C7490D00C7490D00C /* MemoryPressureStateTracker.swift */; };
+		245D4C3B2B2DBD1C392C9CAE /* MemoryResourceDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECCF94F25DD71ABC835B6CF4 /* MemoryResourceDiagnostics.swift */; };
+		57A7A46D4F2C181AC80D3BBB /* MemoryResourceViewCounts.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFA37C16A6EFB561E0FB59EB /* MemoryResourceViewCounts.swift */; };
 		1A8BEE693C9E4C3190CB7F20 /* MenuBarExtraController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7934BB35B66491B1BCA8064 /* MenuBarExtraController.swift */; };
 		606500010000000000000001 /* MenuBarOnlyActivationPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 606500010000000000000002 /* MenuBarOnlyActivationPolicyTests.swift */; };
 		C0DE70510000000000000002 /* MenuBarProfilingLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE70510000000000000001 /* MenuBarProfilingLauncher.swift */; };
@@ -5114,6 +5119,7 @@
 		90690100000000000000000B /* CmuxTaskManagerMemoryGroupAttribution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTaskManagerMemoryGroupAttribution.swift; sourceTree = "<group>"; };
 		F1000002A1B2C3D4E5F60718 /* cmuxTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = cmuxTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		EA9B442F20273D64D2BA1FC5 /* CmuxTestWindowReleaseGuard.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = CmuxTestWindowReleaseGuard.m; sourceTree = "<group>"; };
+		6AA58CFB4FB105FD844232B2 /* CmuxTopBSDProcessListing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopBSDProcessListing.swift; sourceTree = "<group>"; };
 		906900000000000000000001 /* CmuxTopMemoryAttributionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopMemoryAttributionTests.swift; sourceTree = "<group>"; };
 		906901000000000000000007 /* CmuxTopMemoryDiagnosticGroupAccumulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopMemoryDiagnosticGroupAccumulator.swift; sourceTree = "<group>"; };
 		C7A510000000000000000001 /* CmuxTopMemoryDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopMemoryDiagnostics.swift; sourceTree = "<group>"; };
@@ -5311,6 +5317,8 @@
 		C57B00080000000000000002 /* CustomSidebarPaneDataContextCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CustomSidebarPaneDataContextCache.swift; sourceTree = "<group>"; };
 		C57B00010000000000000002 /* CustomSidebarPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CustomSidebarPanel.swift; sourceTree = "<group>"; };
 		C57B00090000000000000002 /* CustomSidebarPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CustomSidebarPanelView.swift; sourceTree = "<group>"; };
+		3B5A43AAA40E12698E8D2B42 /* DarwinFileDescriptorSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DarwinFileDescriptorSnapshot.swift; sourceTree = "<group>"; };
+		8070A63A6E1907B5A30224A0 /* DarwinSystemMemorySnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/DarwinSystemMemorySnapshot.swift; sourceTree = "<group>"; };
 		DEBDADADADADADADAD000002 /* DebugDogfoodCredentialResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DebugDogfoodCredentialResolver.swift; sourceTree = "<group>"; };
 		DEBDADADADADADADAD000004 /* DebugDogfoodCredentialResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugDogfoodCredentialResolverTests.swift; sourceTree = "<group>"; };
 		C0DE31410000000000000104 /* DebugEventLogSerializedAppendTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugEventLogSerializedAppendTests.swift; sourceTree = "<group>"; };
@@ -5842,6 +5850,8 @@
 		7490D00A7490D00A7490D00A /* MemoryPressureSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MemoryPressureSnapshot.swift; sourceTree = "<group>"; };
 		7490D00B7490D00B7490D00B /* MemoryPressureStateEvaluation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MemoryPressureStateEvaluation.swift; sourceTree = "<group>"; };
 		7490D00C7490D00C7490D00C /* MemoryPressureStateTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MemoryPressureStateTracker.swift; sourceTree = "<group>"; };
+		ECCF94F25DD71ABC835B6CF4 /* MemoryResourceDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryResourceDiagnostics.swift; sourceTree = "<group>"; };
+		CFA37C16A6EFB561E0FB59EB /* MemoryResourceViewCounts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryResourceViewCounts.swift; sourceTree = "<group>"; };
 		C7934BB35B66491B1BCA8064 /* MenuBarExtraController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MenuBarExtraController.swift; sourceTree = "<group>"; };
 		606500010000000000000002 /* MenuBarOnlyActivationPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarOnlyActivationPolicyTests.swift; sourceTree = "<group>"; };
 		C0DE70510000000000000001 /* MenuBarProfilingLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MenuBarProfilingLauncher.swift; sourceTree = "<group>"; };
@@ -8489,6 +8499,11 @@
 				7490D0017490D0017490D001 /* BrowserHiddenWebViewMemoryPressureResponder.swift */,
 				A42100010000000000000004 /* MemoryPressureAggregatePolicy.swift */,
 				A42100010000000000000006 /* MemoryPressureAggregateSampler.swift */,
+				CFA37C16A6EFB561E0FB59EB /* MemoryResourceViewCounts.swift */,
+				ECCF94F25DD71ABC835B6CF4 /* MemoryResourceDiagnostics.swift */,
+				3B5A43AAA40E12698E8D2B42 /* DarwinFileDescriptorSnapshot.swift */,
+				6AA58CFB4FB105FD844232B2 /* CmuxTopBSDProcessListing.swift */,
+				8070A63A6E1907B5A30224A0 /* DarwinSystemMemorySnapshot.swift */,
 				7490D0027490D0027490D002 /* MemoryPressureFootprintSampling.swift */,
 				7490D0037490D0037490D003 /* MemoryPressureFootprintThresholds.swift */,
 				7490D0047490D0047490D004 /* MemoryPressureMonitor.swift */,
@@ -12799,6 +12814,7 @@
 				906901000000000000000004 /* CmuxTaskManagerMemoryAttribution.swift in Sources */,
 				906901000000000000000006 /* CmuxTaskManagerMemoryGroup.swift in Sources */,
 				90690100000000000000000C /* CmuxTaskManagerMemoryGroupAttribution.swift in Sources */,
+				AB345537D89B486FFC800BD9 /* CmuxTopBSDProcessListing.swift in Sources */,
 				906901000000000000000008 /* CmuxTopMemoryDiagnosticGroupAccumulator.swift in Sources */,
 				C7A510000000000000000002 /* CmuxTopMemoryDiagnostics.swift in Sources */,
 				B35750000000000000000004 /* CmuxTopProcessArguments.swift in Sources */,
@@ -12930,6 +12946,8 @@
 				C57B00080000000000000001 /* CustomSidebarPaneDataContextCache.swift in Sources */,
 				C57B00010000000000000001 /* CustomSidebarPanel.swift in Sources */,
 				C57B00090000000000000001 /* CustomSidebarPanelView.swift in Sources */,
+				6884CE6DFBCC2144DA6E8189 /* DarwinFileDescriptorSnapshot.swift in Sources */,
+				5D5388051D022D4BFE27E026 /* DarwinSystemMemorySnapshot.swift in Sources */,
 				DEBDADADADADADADAD000001 /* DebugDogfoodCredentialResolver.swift in Sources */,
 				A500D010A1B2C3D4E5F60718 /* DebugLogging.swift in Sources */,
 				D1F0A0070000000000000001 /* DefaultPhonePushIdentityProvider.swift in Sources */,
@@ -13284,6 +13302,8 @@
 				7490C00A7490C00A7490C00A /* MemoryPressureSnapshot.swift in Sources */,
 				7490C00B7490C00B7490C00B /* MemoryPressureStateEvaluation.swift in Sources */,
 				7490C00C7490C00C7490C00C /* MemoryPressureStateTracker.swift in Sources */,
+				245D4C3B2B2DBD1C392C9CAE /* MemoryResourceDiagnostics.swift in Sources */,
+				57A7A46D4F2C181AC80D3BBB /* MemoryResourceViewCounts.swift in Sources */,
 					1A8BEE693C9E4C3190CB7F20 /* MenuBarExtraController.swift in Sources */,
 					C0DE70510000000000000002 /* MenuBarProfilingLauncher.swift in Sources */,
 					C0DE70550000000000000002 /* MenuBarProfilingMenuItem.swift in Sources */,

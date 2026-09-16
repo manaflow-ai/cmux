@@ -1,0 +1,67 @@
+import Darwin
+import Foundation
+
+/// Separates allocated FD-table slots from the live descriptors enumerated by libproc.
+struct DarwinFileDescriptorSnapshot: Sendable {
+    let tableCapacity: Int?
+    let typeCounts: [String: Int]
+    let isComplete: Bool
+
+    static func capture(processID: pid_t = getpid()) -> Self {
+        var info = proc_bsdinfo()
+        let infoSize = MemoryLayout<proc_bsdinfo>.stride
+        let tableCapacity = proc_pidinfo(
+            processID, PROC_PIDTBSDINFO, 0, &info, Int32(infoSize)
+        ) == infoSize ? Int(info.pbi_nfiles) : nil
+        let stride = MemoryLayout<proc_fdinfo>.stride
+        let initialBytes = proc_pidinfo(processID, PROC_PIDLISTFDS, 0, nil, 0)
+        guard tableCapacity != nil, initialBytes > 0 else {
+            return Self(tableCapacity: tableCapacity, typeCounts: [:], isComplete: false)
+        }
+        var capacity = max(32, Int(initialBytes) / stride + 32)
+        var typeCounts: [String: Int] = [:]
+        for _ in 0..<3 {
+            guard capacity <= Int(Int32.max) / stride else { break }
+            var records = [proc_fdinfo](repeating: proc_fdinfo(), count: capacity)
+            let bytes = records.withUnsafeMutableBytes {
+                proc_pidinfo(processID, PROC_PIDLISTFDS, 0, $0.baseAddress, Int32($0.count))
+            }
+            guard bytes > 0, Int(bytes) % stride == 0 else { break }
+            typeCounts = [:]
+            for record in records.prefix(min(capacity, Int(bytes) / stride)) {
+                typeCounts[typeName(record.proc_fdtype), default: 0] += 1
+            }
+            if Int(bytes) < capacity * stride {
+                return Self(tableCapacity: tableCapacity, typeCounts: typeCounts, isComplete: true)
+            }
+            capacity *= 2
+        }
+        return Self(tableCapacity: tableCapacity, typeCounts: typeCounts, isComplete: false)
+    }
+
+    func payload() -> [String: Any] {
+        let sampledCount = typeCounts.values.reduce(0, +)
+        return [
+            "table_capacity": tableCapacity as Any? ?? NSNull(),
+            "table_capacity_source": "proc_pidinfo.PROC_PIDTBSDINFO.pbi_nfiles",
+            "open_count": isComplete ? sampledCount as Any : NSNull(),
+            "sampled_count": sampledCount,
+            "type_counts": typeCounts,
+            "complete": isComplete,
+            "source": "proc_pidinfo.PROC_PIDLISTFDS"
+        ]
+    }
+
+    private static func typeName(_ type: UInt32) -> String {
+        switch type {
+        case UInt32(PROX_FDTYPE_VNODE): return "vnode"
+        case UInt32(PROX_FDTYPE_SOCKET): return "socket"
+        case UInt32(PROX_FDTYPE_PIPE): return "pipe"
+        case UInt32(PROX_FDTYPE_KQUEUE): return "kqueue"
+        case UInt32(PROX_FDTYPE_PSHM): return "shared_memory"
+        case UInt32(PROX_FDTYPE_PSEM): return "semaphore"
+        case UInt32(PROX_FDTYPE_FSEVENTS): return "fsevents"
+        default: return "other"
+        }
+    }
+}

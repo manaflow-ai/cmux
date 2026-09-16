@@ -131,6 +131,8 @@ struct CmuxTopProcessScope: Sendable, Equatable {
 
 final class CmuxTopProcessSnapshot: @unchecked Sendable {
     let sampledAt: Date
+    let enumerationIsComplete: Bool
+    let enumerationMissingProcessCount: Int
     private let includesProcessDetails: Bool
     private let includesCMUXScope: Bool
     let processesByPID: [Int: CmuxTopProcessInfo]
@@ -140,27 +142,16 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
     private let pidsByProcessGroupID: [Int: [Int]]
     private let residentMemorySources: [CmuxTopProcessMemorySource]
 
-    static func capture(
-        includeProcessDetails: Bool = false,
-        includeCMUXScope: Bool = true
-    ) -> CmuxTopProcessSnapshot {
-        CmuxTopProcessSnapshot(
-            processes: allProcesses(
-                includeProcessDetails: includeProcessDetails,
-                includeCMUXScope: includeCMUXScope
-            ),
-            sampledAt: Date(),
-            includesProcessDetails: includeProcessDetails,
-            includesCMUXScope: includeCMUXScope
-        )
-    }
-
     init(
         processes: [CmuxTopProcessInfo],
         sampledAt: Date,
         includesProcessDetails: Bool,
-        includesCMUXScope: Bool = true
+        includesCMUXScope: Bool = true,
+        enumerationIsComplete: Bool = true,
+        enumerationMissingProcessCount: Int = 0
     ) {
+        self.enumerationIsComplete = enumerationIsComplete
+        self.enumerationMissingProcessCount = max(0, enumerationMissingProcessCount)
         self.sampledAt = sampledAt
         self.includesProcessDetails = includesProcessDetails
         self.includesCMUXScope = includesCMUXScope
@@ -210,7 +201,9 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
             "resident_memory_sources": residentMemorySourceNames,
             "resident_memory_fallback_source": CmuxTopProcessMemorySource.rusageResidentSize.rawValue,
             "process_details": includesProcessDetails,
-            "cmux_scope": includesCMUXScope
+            "cmux_scope": includesCMUXScope,
+            "enumeration_complete": enumerationIsComplete,
+            "enumeration_missing_process_count": enumerationMissingProcessCount
         ]
     }
 

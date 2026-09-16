@@ -108,9 +108,18 @@ func sentryRefreshMemoryContext(reason: String) async {
     let memorySource = appProcess?.memorySource.rawValue ?? CmuxTopProcessMemorySource.unavailable.rawValue
     let residentMemorySource = appProcess?.residentMemorySource.rawValue ?? CmuxTopProcessMemorySource.unavailable.rawValue
     let surfaceSnapshot = GhosttyApp.terminalSurfaceRegistry.diagnosticSnapshot()
+    let systemMemory = DarwinSystemMemorySnapshot.capture()
+    let aggregate = DarwinMemoryPressureAggregateSampler(
+        snapshotProvider: { processSnapshot },
+        availableMemoryProvider: { systemMemory?.availableBytes }
+    ).sample(at: processSnapshot.sampledAt)
+    let descendants = MemoryResourceDiagnostics(snapshot: processSnapshot, appPID: pid)
+    let descriptors = DarwinFileDescriptorSnapshot.capture()
     guard !Task.isCancelled else { return }
 
     await MainActor.run {
+        guard !Task.isCancelled else { return }
+        let viewCounts = MemoryResourceViewCounts.capture()
         SentrySDK.configureScope { scope in
             scope.setContext(value: [
                 "reason": reason,
@@ -124,7 +133,12 @@ func sentryRefreshMemoryContext(reason: String) async {
                     "memory_source": memorySource,
                     "resident_memory_source": residentMemorySource
                 ],
-                "terminal_surfaces": surfaceSnapshot.payload()
+                "terminal_surfaces": surfaceSnapshot.payload(),
+                "aggregate": aggregate.privacySafeDiagnosticPayload(),
+                "descendants": descendants.payload(),
+                "system_memory": systemMemory?.payload() as Any? ?? NSNull(),
+                "file_descriptors": descriptors.payload(),
+                "views": viewCounts.payload()
             ], key: "cmux.memory")
         }
     }
