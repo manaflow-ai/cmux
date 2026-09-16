@@ -36,31 +36,30 @@ import Foundation
 /// an injected `slotCount` to exercise the probing deterministically.
 @MainActor
 final class RemoteHostColorRegistry {
-    /// Sixteen colors picked for telling hosts apart, rather than borrowed from the
-    /// workspace tab palette, whose dark reds and magentas collapse into each other
-    /// once the sidebar rail brightens them (two pairs there differ by under 5).
-    /// Measured as the rail draws them, every pair differs by at least 14 in OKLab
-    /// (x100), and colors that are neighbors in this order differ by at least 29, so
-    /// a host bumped to the next slot by a collision lands on a clearly different
-    /// color. Each also differs from the selected row's blue by at least 12.
-    /// `RemoteHostColorRegistryTests` checks those floors.
+    /// Sixteen soft colors picked for telling hosts apart, rather than borrowed from the
+    /// workspace tab palette, whose dark reds and magentas collapse into each other once the
+    /// sidebar rail brightens them (two pairs there differ by under 5). As the rail draws them,
+    /// every pair differs by at least 11 in OKLab (x100), colors that are neighbors in this order
+    /// differ by at least 26, so a host bumped to the next slot by a collision lands on a clearly
+    /// different color, each differs from the grey sidebar (#A9A9A9) by at least 15, and from the
+    /// selected row's blue by at least 12. `RemoteHostColorRegistryTests` checks those floors.
     static let hostPalette: [String] = [
-        "#EF0133", // red
-        "#8C59FF", // violet
-        "#FFB100", // amber
-        "#9A5475", // mauve
-        "#17BEF9", // sky
-        "#FF59FF", // magenta
-        "#9D4C00", // brown
-        "#009E05", // green
-        "#FF8CBA", // pink
-        "#EFFD12", // yellow
-        "#9E7E07", // ochre
-        "#F9009D", // hot pink
-        "#04C7A3", // teal
-        "#FF7839", // orange
-        "#B324C2", // purple
-        "#99BC00", // lime
+        "#B1A2FA", // violet
+        "#E7BB4E", // gold
+        "#9B577B", // mauve
+        "#75D1A3", // mint
+        "#77779E", // slate
+        "#FF945A", // tangerine
+        "#A8EAF6", // sky
+        "#F06C7F", // coral
+        "#DDE2BB", // butter
+        "#E18DCD", // pink
+        "#8A9E2D", // olive
+        "#A963C7", // purple
+        "#9B6F0D", // ochre
+        "#FFDAFF", // lilac
+        "#259E6A", // green
+        "#9E5131", // rust
     ]
 
     /// Number of palette slots to assign over. Defaults to ``hostPalette``'s count;
