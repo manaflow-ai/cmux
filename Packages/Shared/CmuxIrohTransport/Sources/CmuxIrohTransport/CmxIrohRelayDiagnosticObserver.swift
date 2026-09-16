@@ -2,7 +2,7 @@ import Foundation
 public import IrohLib
 import OSLog
 
-private let relayLogger = Logger(subsystem: "com.cmux", category: "RelayTLS")
+nonisolated private let relayLogger = Logger(subsystem: "com.cmux", category: "RelayTLS")
 
 /// Observes native relay failures without probing or retaining raw error text.
 ///

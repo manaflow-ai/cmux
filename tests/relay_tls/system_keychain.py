@@ -76,7 +76,9 @@ commonName = supplied
 
 
 def build_client(directory, output, diagnostics):
-    pins = json.loads((ROOT / "Packages/Shared/CmuxIrohTransport/Package.resolved").read_text())["pins"]
+    """Build the probe with the app's locked revision and reject resolver drift."""
+    lockfile = ROOT / "Packages/Shared/CmuxIrohTransport/Package.resolved"
+    pins = json.loads(lockfile.read_text())["pins"]
     pin = next(pin for pin in pins if pin["identity"] == "iroh-ffi")
     (directory / "Package.swift").write_text(f'''// swift-tools-version: 6.0
 import PackageDescription
@@ -87,6 +89,7 @@ let package = Package(name: "RelayTLSClient", platforms: [.macOS(.v14)],
 ''')
     sources = directory / "Sources"
     sources.mkdir()
+    shutil.copyfile(lockfile, directory / "Package.resolved")
     shutil.copyfile(Path(__file__).with_name("RelayTLSClient.swift"), sources / "RelayTLSClient.swift")
     print(f"Building pinned Iroh {pin['state']['version']}", flush=True)
     with (output / "build.log").open("w") as log:
@@ -95,6 +98,10 @@ let package = Package(name: "RelayTLSClient", platforms: [.macOS(.v14)],
                                stdout=log, stderr=subprocess.STDOUT, timeout=300)
     if build.returncode:
         raise RuntimeError((output / "build.log").read_text())
+    resolved = json.loads((directory / "Package.resolved").read_text())["pins"]
+    actual = next(value for value in resolved if value["identity"] == "iroh-ffi")
+    if actual["state"] != pin["state"] or actual["location"] != pin["location"]:
+        raise RuntimeError("Test framework resolution drifted from the app's lockfile")
     return directory / ".build/debug/RelayTLSClient", pin
 
 
