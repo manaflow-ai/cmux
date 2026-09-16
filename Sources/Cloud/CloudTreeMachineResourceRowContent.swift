@@ -8,17 +8,10 @@ struct CloudTreeMachineResourceRowContent: View {
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var magnification
 
     var body: some View {
-        HStack(spacing: scaled(style.iconGap)) {
-            // Use the same icon column as Desktop, terminal, and port rows.
-            // This keeps the resource labels at the standard nested depth
-            // instead of introducing a second, text-only indentation rule.
-            CloudTreeRowIcon(
-                style: style,
-                systemName: row.metric.icon,
-                tint: CloudTreeIconPalette.machine,
-                weight: .medium,
-                size: max(style.iconSize, 12)
-            )
+        HStack(spacing: scaled(CloudTreeRowGrid.detailGap)) {
+            // Resource values are text-only. Starting directly in the shared
+            // leading column lines them up with the icons of nested terminal,
+            // Desktop, and port rows without adding a second indentation.
             Text(row.title)
                 .cmuxFont(size: style.titleSize, design: style.fontDesign)
                 .foregroundStyle(.primary)
