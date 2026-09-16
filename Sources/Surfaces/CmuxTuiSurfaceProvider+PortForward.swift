@@ -10,8 +10,10 @@ extension CmuxTuiSurfaceProvider {
         guard BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser() else {
             return NSWorkspace.shared.open(url)
         }
-        guard let workspace = target.panelID.flatMap({ AppDelegate.shared?.workspace(containingSurfaceID: $0) })
-                ?? AppDelegate.shared?.workspace(forCloudVMID: machineID),
+        guard let app = AppDelegate.shared,
+              let workspace = target.panelID.flatMap({ app.workspace(containingSurfaceID: $0) })
+                ?? app.workspaceFor(tabId: target.workspaceID)
+                ?? app.workspace(forCloudVMID: machineID),
               let panelID = target.panelID ?? workspace.focusedPanelId else {
             return false
         }
