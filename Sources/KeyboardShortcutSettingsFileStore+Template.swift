@@ -133,6 +133,7 @@ extension CmuxSettingsFileStore {
             ],
             [
                 "sidebar": [
+                    "showCloudButton": SettingCatalog().sidebar.showCloudButton.defaultValue,
                     "hideAllDetails": SettingCatalog().sidebar.hideAllDetails.defaultValue,
                     "wrapWorkspaceTitles": SidebarWorkspaceTitleWrapSettings.defaultWrap,
                     "showWorkspaceDescription": SettingCatalog().sidebar.showWorkspaceDescription.defaultValue,

@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -80,6 +81,19 @@ struct SidebarCloudWorkspacesSwitcherTests {
             return
         }
         #expect(row.id == "vm-1")
+    }
+
+    @Test("Hiding the Cloud button is a real setting: on by default, in cmux.json, and reversible")
+    func hideCloudButtonIsASetting() throws {
+        let key = SettingCatalog().sidebar.showCloudButton
+        let defaults = try #require(UserDefaults(suiteName: "SidebarCloudWorkspacesSwitcherTests.\(UUID().uuidString)"))
+        #expect(key.value(in: defaults) == true)
+        key.set(false, in: defaults)
+        #expect(key.value(in: defaults) == false)
+        key.removeValue(in: defaults)
+        #expect(key.value(in: defaults) == true)
+        let mapping = try #require(SidebarSettingsFileMapping.booleanSettings.first { $0.jsonKey == "showCloudButton" })
+        #expect(mapping.defaultsKey == key.userDefaultsKey)
     }
 
     @Test("The footer hides the Cloud button in minimal presentation until the footer is hovered")

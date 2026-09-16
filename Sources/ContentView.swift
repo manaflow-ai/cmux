@@ -11250,6 +11250,7 @@ struct VerticalTabsSidebar: View, Equatable {
     @AppStorage(CmuxExtensionSidebarSelection.defaultsKey)
     private var selectedExtensionSidebarProviderId = CmuxExtensionSidebarSelection.defaultProviderId
     @LiveSetting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
+    @LiveSetting(\.sidebar.showCloudButton) private var showCloudButton
     @LiveSetting(\.betaFeatures.customSidebars) private var customSidebarsExperimentalEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
@@ -15301,8 +15302,7 @@ struct SidebarFooterButtons: View {
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     /// Owns the discovery popover so it persists after ⌘ is released.
     @State private var isShortcutPopoverPresented = false
-    /// Minimal mode hides most controls; hovering the footer row reveals them.
-    @State private var isFooterHovered = false
+    @State private var isFooterHovered = false // minimal mode hides most controls; hovering the footer row reveals them
 
     private var presentationMode: WorkspacePresentationModeSettings.Mode {
         WorkspacePresentationModeSettings.mode(for: workspacePresentationMode)
@@ -15322,7 +15322,7 @@ struct SidebarFooterButtons: View {
                     if shows(.mobileConnect), CmuxFeatureFlags.shared.isMobileConnectButtonEnabled {
                         SidebarMobileConnectButton()
                     }
-                    if shows(.cloud), CloudMachinesFeature.isEnabled { SidebarCloudButton(fileExplorerState: fileExplorerState) }
+                    if shows(.cloud), showCloudButton, CloudMachinesFeature.isEnabled { SidebarCloudButton(fileExplorerState: fileExplorerState) }
                     if shows(.help) {
                         SidebarHelpMenuButton(onSendFeedback: onSendFeedback)
                     }

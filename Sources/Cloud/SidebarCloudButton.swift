@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import SwiftUI
 
 /// The sidebar footer's Cloud button, left of Help: opens the right sidebar's
@@ -25,6 +26,12 @@ struct SidebarCloudButton: View {
         .buttonStyle(SidebarFooterIconButtonStyle())
         .frame(width: buttonSize, height: buttonSize)
         .background(TitlebarControlAnchorView { anchorView = $0 })
+        .contextMenu {
+            Button(String(localized: "sidebar.cloud.hideButton", defaultValue: "Hide Cloud Button")) {
+                // Settings > Sidebar > Show Cloud Button in Sidebar turns it back on.
+                SettingCatalog().sidebar.showCloudButton.set(false, in: .standard)
+            }
+        }
         .safeHelp(title)
         .accessibilityLabel(title)
         .accessibilityIdentifier("SidebarCloudButton")

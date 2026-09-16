@@ -217,6 +217,7 @@ extension Array where Element == CuratedSettingEntry {
             // Sidebar appearance + sidebar workspace row details
             .init(section: .sidebarAppearance, id: "match-terminal", title: "Match Terminal Background", synonyms: "sidebarAppearance.matchTerminalBackground transparent background material terminal background sync"),
             .init(section: .sidebarAppearance, id: "hide-sidebar-details", title: "Hide All Sidebar Details", synonyms: "sidebar.hideAllDetails compact sidebar hide details only title minimal left rail"),
+            .init(section: .sidebarAppearance, id: "show-cloud-button", title: "Show Cloud Button in Sidebar", synonyms: "sidebar.showCloudButton cloud button footer machines hide show"),
             .init(section: .sidebarAppearance, id: "wrap-workspace-titles", title: "Wrap Workspace Titles in Sidebar", synonyms: "sidebar.wrapWorkspaceTitles workspace title wrap multiline pr pull request"),
             .init(section: .sidebarAppearance, id: "show-workspace-description", title: "Show Workspace Description in Sidebar", synonyms: "sidebar.showWorkspaceDescription workspace description notes markdown sidebar"),
             .init(section: .sidebarAppearance, id: "sidebar-branch-layout", title: "Sidebar Branch Layout", synonyms: "sidebar.branchLayout sidebar.branchVerticalLayout git branch layout vertical inline cwd directory"),
