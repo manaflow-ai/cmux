@@ -3189,6 +3189,7 @@ class TerminalController {
             "auth.sign_out",
             "vm.list",
             "vm.diagnostics",
+            "vm.file_transfer_failure",
             "vm.publication_list",
             "vm.publication_create",
             "vm.publication_verify",

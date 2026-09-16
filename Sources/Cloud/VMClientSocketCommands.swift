@@ -35,6 +35,27 @@ extension TerminalController {
             )
         }
         switch method {
+        case "vm.file_transfer_failure":
+            guard let phaseValue = params["phase"] as? String,
+                  let phase = CloudOperationPhase(rawValue: phaseValue),
+                  [.snapshot, .request, .connect, .file, .process, .cleanup].contains(phase),
+                  let failureValue = params["failure"] as? String,
+                  let failure = CloudDiagnosticFailure(rawValue: failureValue),
+                  [.network, .process, .timeout, .storage, .response, .unknown].contains(failure),
+                  Set(params.keys).isSubset(of: ["phase", "failure", "error_number", "cloud_operation_id", "cloud_trace_id", "cloud_parent_span_id"]) else {
+                return v2Error(id: id, code: "invalid_params", message: "Expected a structured file transfer failure.")
+            }
+            let errorNumber = Self.socketWorkerInt(params["error_number"])
+            guard errorNumber.map({ (-65_535...65_535).contains($0) }) ?? true else {
+                return v2Error(id: id, code: "invalid_params", message: "Invalid file transfer error number.")
+            }
+            return v2VmCall(id: id, timeoutSeconds: 5) {
+                let recorder = await MainActor.run { AppDelegate.shared?.cloudOperations }
+                guard let reference = await recorder?.recordFileTransferFailure(phase: phase, failure: failure, errorNumber: errorNumber) else {
+                    return ["recorded": false]
+                }
+                return ["recorded": true, "reference": reference]
+            }
         case "vm.list":
             return v2CloudCall(id: id, method: method, params: params) {
                 let page = try await VMClient.shared.listPage()

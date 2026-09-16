@@ -305,6 +305,24 @@ extension CMUXCLI {
         excludes: [String],
         client: SocketClient
     ) throws -> VMPushOutcome {
+        var phase = "snapshot"
+        do {
+            return try performVMPushTransfer(vmID: vmID, localURL: localURL, localPath: localPath, isDirectory: isDirectory,
+                                            remotePath: remotePath, excludes: excludes, client: client, phase: &phase)
+        } catch {
+            // Structured API errors are already recorded by the app. Transport
+            // and local subprocess failures need their own authenticated report.
+            if (error as? CLIError)?.isStructuredProtocolResponse != true {
+                reportVMPushFailure(error, phase: phase, client: client)
+            }
+            throw error
+        }
+    }
+
+    private func performVMPushTransfer(
+        vmID: String, localURL: URL, localPath: String, isDirectory: Bool,
+        remotePath: String, excludes: [String], client: SocketClient, phase: inout String
+    ) throws -> VMPushOutcome {
         let destination = remotePath.hasPrefix("/") ? remotePath : "./" + remotePath
         guard !destination.utf8.contains(0), !destination.contains("\n"), !destination.contains("\r") else {
             throw CLIError(message: "Cloud file destination contains an unsupported control character.")
@@ -344,6 +362,7 @@ extension CMUXCLI {
         let generated = CLIProcessRunner.runProcess(executablePath: "/usr/bin/ssh-keygen", arguments: ["-q", "-t", "ed25519", "-N", "", "-C", "cmux-scp", "-f", identity.path], stdinText: "", timeout: 15)
         guard generated.status == 0 else { throw CLIError(message: "Cloud file transfer could not create its SSH key.") }
         let publicKey = try String(contentsOf: identity.appendingPathExtension("pub"), encoding: .utf8)
+        phase = "request"
         var endpoint = try vmSCPTransferEndpoint(vmID: vmID, publicKey: publicKey, client: client)
         func refreshGrantIfNeeded() throws {
             guard endpoint.expiresAtUnix - Date().timeIntervalSince1970 < 60 else { return }
@@ -358,6 +377,7 @@ extension CMUXCLI {
         let parent = (destination as NSString).deletingLastPathComponent
         let template = (parent.isEmpty ? "." : parent) + "/.cmux-push.XXXXXXXXXX"
         let prepare = "umask 077; mkdir -p -- \(shellQuote(parent.isEmpty ? "." : parent)) && mktemp -d -- \(shellQuote(template))"
+        phase = "connect"
         let remoteDirectory = try runSCPProcess(
             "/usr/bin/ssh", arguments: ["-p", String(endpoint.port), "--", endpoint.destination, prepare],
             endpoint: endpoint, directory: transferDirectory
@@ -372,8 +392,12 @@ extension CMUXCLI {
             do {
                 try refreshGrantIfNeeded()
                 _ = try runSCPProcess("/usr/bin/ssh", arguments: ["-p", String(endpoint.port), "--", endpoint.destination, cleanup], endpoint: endpoint, directory: transferDirectory)
-            } catch { cliWriteStderr("Cloud transfer staging cleanup failed.\n") }
+            } catch {
+                cliWriteStderr("Cloud transfer staging cleanup failed.\n")
+                reportVMPushFailure(error, phase: "cleanup", client: client)
+            }
         }
+        phase = "file"
         let remoteStaging = remoteDirectory + "/payload"
         _ = try runSCPProcess(
             "/usr/bin/scp", arguments: ["-q", "-P", String(endpoint.port), "--", localFile.path, endpoint.destination + ":" + remoteStaging],
@@ -381,7 +405,9 @@ extension CMUXCLI {
         )
         // An established SFTP session can outlive its grant. Refresh before
         // opening the next SSH connection, without replaying the uploaded data.
+        phase = "request"
         try refreshGrantIfNeeded()
+        phase = "process"
         let verify = "set -eu; actual=$(sha256sum < \(shellQuote(remoteStaging))); test \"${actual%% *}\" = \(shellQuote(localDigest)); "
         let finalize: String
         if isDirectory {
@@ -406,6 +432,32 @@ extension CMUXCLI {
         )
     }
 
+    private struct VMSCPProcessFailure: Error, CustomStringConvertible {
+        let status: Int32
+        let timedOut: Bool
+        let detail: String
+        var description: String { "Cloud SSH file transfer failed (exit \(status)): \(detail)" }
+    }
+
+    private func reportVMPushFailure(_ error: Error, phase: String, client: SocketClient) {
+        let processError = error as? VMSCPProcessFailure
+        let failure = processError.map { $0.timedOut ? "timeout" : "process" }
+            ?? (phase == "request" ? "network" : phase == "snapshot" ? "storage" : "response")
+        var params: [String: Any] = ["phase": phase, "failure": failure]
+        if let processError { params["error_number"] = Int(processError.status) }
+        // Error reporting never replays the failed command and cannot hide it.
+        client.close()
+        defer { client.close() }
+        do {
+            let response = try client.sendV2(method: "vm.file_transfer_failure", params: params, responseTimeout: 5)
+            if let reference = response["reference"] as? String {
+                cliWriteStderr("Cloud diagnostic reference: \(reference)\n")
+            }
+        } catch {
+            cliWriteStderr("Cloud diagnostics could not be sent.\n")
+        }
+    }
+
     private struct VMSCPTransferEndpoint {
         let host: String
         let port: Int
@@ -416,6 +468,11 @@ extension CMUXCLI {
     }
 
     private func vmSCPTransferEndpoint(vmID: String, publicKey: String, client: SocketClient) throws -> VMSCPTransferEndpoint {
+        // The app closes idle control sockets after 30 seconds. Each grant
+        // request owns a fresh authenticated connection; the SFTP transfer and
+        // watcher hold none. Never retry a request with an uncertain outcome.
+        client.close()
+        defer { client.close() }
         let response = try client.sendV2(method: "vm.scp_info", params: ["id": vmID, "public_key": publicKey], responseTimeout: 100)
         guard let host = response["host"] as? String, host == "127.0.0.1",
               let port = response["port"] as? Int, (1...65535).contains(port),
@@ -446,7 +503,7 @@ extension CMUXCLI {
         let result = CLIProcessRunner.runProcess(executablePath: executable, arguments: options + arguments, stdinText: "", timeout: 10 * 60)
         guard result.status == 0 else {
             let detail = String(result.stderr.suffix(2000))
-            throw CLIError(message: "Cloud SSH file transfer failed (exit \(result.status)): \(detail)")
+            throw VMSCPProcessFailure(status: result.status, timedOut: result.timedOut, detail: detail)
         }
         return result.stdout
     }
