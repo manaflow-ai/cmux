@@ -360,6 +360,8 @@ struct RightSidebarModeBarItem: Identifiable, Equatable, Sendable {
 
 enum RightSidebarFocusStyle: String {
     case outline
+    case topAccent
+    case sidebarRail
     case underline
     case tint
     case solid
@@ -384,7 +386,7 @@ struct ModeBarButton: View {
     private var focusForegroundColor: Color? {
         guard showsFocusIndicator else { return nil }
         switch focusStyle {
-        case .outline, .underline:
+        case .outline, .topAccent, .sidebarRail, .underline:
             return nil
         case .tint:
             return cmuxAccentColor()
@@ -396,7 +398,7 @@ struct ModeBarButton: View {
     private var focusBackgroundColor: Color? {
         guard showsFocusIndicator else { return nil }
         switch focusStyle {
-        case .outline, .underline:
+        case .outline, .topAccent, .sidebarRail, .underline:
             return nil
         case .tint:
             return cmuxAccentColor().opacity(0.18)
@@ -450,6 +452,15 @@ struct ModeBarButton: View {
                     .frame(height: 2)
                     .padding(.horizontal, 4)
                     .opacity(showsFocusIndicator && focusStyle == .underline ? 1 : 0)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(cmuxAccentColor())
+                    .frame(height: 2)
+                    .padding(.horizontal, 4)
+                    .opacity(showsFocusIndicator && focusStyle == .topAccent ? 1 : 0)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
             }

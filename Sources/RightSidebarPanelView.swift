@@ -162,7 +162,7 @@ struct RightSidebarPanelView: View {
 
 #if DEBUG
     // Development-only styling comparison; focus remains owned by the window coordinator.
-    @AppStorage("debugRightSidebarFocusStyle") private var debugFocusStyle = RightSidebarFocusStyle.outline.rawValue
+    @AppStorage("debugRightSidebarFocusStyle") private var debugFocusStyle = RightSidebarFocusStyle.topAccent.rawValue
 #endif
 
     private var focusStyle: RightSidebarFocusStyle {
@@ -243,6 +243,15 @@ struct RightSidebarPanelView: View {
                 )
             contentForMode
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .overlay(alignment: .trailing) {
+            Rectangle()
+                .fill(cmuxAccentColor())
+                .frame(width: 2)
+                .padding(.vertical, 4)
+                .opacity(fileExplorerState.rightSidebarOwnsInputFocus && focusStyle == .sidebarRail ? 1 : 0)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
         }
         .shortcutHintVisibilityAnimation(value: focusShortcutHintAnimationValue)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
