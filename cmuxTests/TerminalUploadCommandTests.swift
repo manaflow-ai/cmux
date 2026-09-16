@@ -268,6 +268,46 @@ import Testing
         TerminalCustomUploadRunner(runProcess: fake)
     }
 
+    /// ssh is given the broker alias, but the rule names the host the broker reaches. The
+    /// runner has to pass the session's ssh options into matching, or every brokered drop
+    /// falls through to the built-in transport.
+    @MainActor
+    @Test func brokeredSessionMatchesRuleByHostName() async {
+        let session = DetectedSSHSession(
+            destination: "broker-alias", port: nil, identityFile: nil,
+            configFile: nil, jumpHost: nil, controlPath: nil,
+            useIPv4: false, useIPv6: false, forwardAgent: false,
+            compressionEnabled: false, sshOptions: ["HostName=real-host.example.com"]
+        )
+        let runner = TerminalCustomUploadRunner(
+            runProcess: { _, env, _, _ in (0, "matched:\(env["CMUX_UPLOAD_DESTINATION"] ?? "")", "") },
+            isFileTransferDisabled: { false },
+            uploadRules: {
+                [TerminalUploadCommandRule(hostPattern: "real-host.example.com", command: "upload-tool put")]
+            }
+        )
+
+        var handled = false
+        let result: Result<String, Error> = await withCheckedContinuation { finished in
+            handled = runner.handleIfMatched(
+                plan: .uploadFiles([URL(fileURLWithPath: "/tmp/cmux-brokered-drop.png")], .detectedSSH(session)),
+                operation: TerminalImageTransferOperation(),
+                cleanup: { _ in },
+                completion: { finished.resume(returning: $0) }
+            )
+            if !handled {
+                finished.resume(returning: .failure(CancellationError()))
+            }
+        }
+
+        #expect(handled, "a rule naming the broker's HostName must take the drop")
+        guard case .success(let text) = result else {
+            Issue.record("expected the matched command to run, got \(result)")
+            return
+        }
+        #expect(text == "matched:broker-alias")
+    }
+
     @Test func perFileStdoutJoinedWithSpaces() {
         let result = runner { _, env, _, _ in
             (0, "OUT:\(env["CMUX_UPLOAD_LOCAL_PATH"] ?? "")", "")
