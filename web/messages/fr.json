@@ -979,7 +979,11 @@
       "blockedBody": "Rouvrez Réglages → Computer Use et terminez les deux étapes d’autorisation, y compris toute confirmation de capture supplémentaire. Réessayez ensuite. Si l’assistant doit redémarrer, vos sessions de terminal peuvent rester ouvertes.",
       "targetTitle": "Mauvaise fenêtre ciblée ou clic bloqué",
       "targetBody": "Inspectez à nouveau l’app et choisissez un élément de son état actuel. Si une autre fenêtre masque la cible, affichez la fenêtre voulue et inspectez-la avant de réessayer. Ne réutilisez pas d’anciens index ou coordonnées.",
-      "productLink": "Présentation de cmux Computer Use"
+      "productLink": "Présentation de cmux Computer Use",
+    "copyTitle": "Copier un prompt Computer Use",
+    "copyPrompt": "Copier le prompt",
+    "copiedPrompt": "Copié",
+    "installPrompt": "Utilise la compétence $cmux-cua. Si elle manque, installe-la avec ton installateur habituel. Si les autorisations manquent, demande-moi d’ouvrir Réglages cmux → Computer Use. Inspecte avant d’agir et vérifie chaque changement.\n\nTâche : [décris la tâche ici]"
     },
     "remoteTmux": {
       "moshContrast": "Pour passer d’un réseau à l’autre, utilisez cmux mosh-tmux. Il ouvre un terminal Mosh pleinement intégré attaché à une session tmux nommée ; il ne remplace pas le miroir natif des espaces, onglets et divisions fourni par le mode de contrôle tmux via SSH."

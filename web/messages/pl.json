@@ -979,7 +979,11 @@
       "blockedBody": "Otwórz ponownie Ustawienia → Computer Use i zakończ oba kroki uprawnień wraz z dodatkowymi potwierdzeniami przechwytywania. Spróbuj ponownie. Terminale mogą pozostać otwarte, jeśli pomocnik wymaga restartu.",
       "targetTitle": "Niewłaściwe okno lub zablokowane kliknięcie",
       "targetBody": "Sprawdź aplikację ponownie i wybierz aktualny element. Jeśli inne okno zasłania cel, odsłoń właściwe okno i sprawdź je przed kolejną próbą. Nie używaj starych współrzędnych ani indeksów.",
-      "productLink": "Przegląd cmux Computer Use"
+      "productLink": "Przegląd cmux Computer Use",
+    "copyTitle": "Kopiuj prompt Computer Use",
+    "copyPrompt": "Kopiuj prompt",
+    "copiedPrompt": "Skopiowano",
+    "installPrompt": "Użyj umiejętności $cmux-cua. Jeśli jej brakuje, zainstaluj ją zwykłym instalatorem. Przy braku uprawnień poproś mnie o otwarcie Ustawienia cmux → Computer Use. Sprawdź przed działaniem i zweryfikuj każdą zmianę.\n\nZadanie: [opisz zadanie tutaj]"
     },
     "remoteTmux": {
       "moshContrast": "Do przełączania się między sieciami użyj cmux mosh-tmux. Otwiera on w pełni zintegrowany terminal Mosh dołączony do nazwanej sesji tmux; nie zastępuje natywnego odwzorowania workspace’ów, kart i podziałów udostępnianego przez tryb sterowania tmux przez SSH."

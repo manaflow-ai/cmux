@@ -6,6 +6,7 @@ import { SiteHeader } from "@/app/[locale]/components/site-header";
 import { BrandLogoLink } from "@/app/[locale]/components/brand-logo-link";
 import { DownloadButton } from "@/app/[locale]/components/download-button";
 import { GitHubButton } from "@/app/[locale]/components/github-button";
+import { CopyPrompt } from "@/app/[locale]/components/copy-prompt";
 import { JsonLd, breadcrumbList } from "@/app/[locale]/components/json-ld";
 import { buildAlternates, openGraphDefaults, twitterSummary } from "@/i18n/seo";
 import { codingAgents } from "@/i18n/coding-agents";
@@ -83,7 +84,17 @@ export default function ComputerUsePage() {
             <li>{t("step1")}</li><li>{t("step2")}</li><li>{t("step3")}</li>
           </ol>
         </section>
+        <section className="mb-10 text-[15px] leading-normal">
+          <h2 className="text-xs font-medium text-muted tracking-tight mb-3">{t("copyTitle")}</h2>
+          <CopyPrompt
+            prompt={t("installPrompt")}
+            copyLabel={t("copyPrompt")}
+            copiedLabel={t("copiedPrompt")}
+          />
+        </section>
         <div className="flex flex-wrap items-center gap-6 border-t border-border pt-6" data-dev="cua-footer-links">
+          <DownloadButton location="landing-footer" />
+          <GitHubButton location="landing-footer" />
           <Link href="/docs/computer-use" className={linkClass}>{common("readTheDocs")}</Link>
           <Link href="/docs/changelog" className={linkClass}>{common("viewChangelog")}</Link>
         </div>

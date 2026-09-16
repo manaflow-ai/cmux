@@ -5,6 +5,7 @@ import { buildAlternates, openGraphDefaults, twitterSummary } from "@/i18n/seo";
 import { DocsSchema } from "../docs-schema";
 import { DocsHeading } from "@/app/[locale]/components/docs-heading";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
+import { CopyPrompt } from "@/app/[locale]/components/copy-prompt";
 
 export async function generateMetadata() {
   const locale = await getLocale();
@@ -30,6 +31,8 @@ export default function ComputerUseDocs() {
       <p>{t("supportBody")}</p>
       <DocsHeading level={2} id="setup">{t("setupTitle")}</DocsHeading>
       <ol><li>{t("step1")}</li><li>{t("step2")}</li><li>{t("step3")}</li></ol>
+      <DocsHeading level={2} id="copy-prompt">{t("copyTitle")}</DocsHeading>
+      <CopyPrompt prompt={t("installPrompt")} copyLabel={t("copyPrompt")} copiedLabel={t("copiedPrompt")} />
       <DocsHeading level={2} id="permissions">{t("permissionsTitle")}</DocsHeading>
       <p>{t("permissionsBody")}</p>
       <p>{t("caption")}</p>

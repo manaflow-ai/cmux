@@ -1846,7 +1846,11 @@
       "blockedBody": "「設定」→「Computer Use」を開き直し、追加のキャプチャ確認を含めて両方の権限設定を完了します。完了後に再試行してください。ヘルパーの再起動が必要でもターミナルセッションは開いたままにできます。",
       "targetTitle": "別のウィンドウが選ばれる、またはクリックがブロックされる",
       "targetBody": "アプリを再確認し、現在の状態から要素を選び直します。他のウィンドウに隠れている場合は対象を表示してから再確認してください。古い座標や要素インデックスを再利用しないでください。",
-      "productLink": "cmux Computer Useの概要"
+      "productLink": "cmux Computer Useの概要",
+    "copyTitle": "Computer Useのプロンプトをコピー",
+    "copyPrompt": "プロンプトをコピー",
+    "copiedPrompt": "コピーしました",
+    "installPrompt": "この作業では $cmux-cua スキルを使ってください。利用できなければ通常のスキルインストーラーで導入してください。権限がなければcmuxの設定 → Computer Useを開くよう伝えてください。操作前に確認し、変更のたびに検証してください。\n\nタスク：[ここにタスクを記入]"
     },
     "managedPolicies": {
       "title": "管理デバイスポリシー（MDM）",

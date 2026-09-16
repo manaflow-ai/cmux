@@ -1880,7 +1880,11 @@
       "blockedBody": "Reopen Settings → Computer Use and finish both permission steps, including any extra capture confirmation. Retry after setup completes. If the helper needs to restart, your terminal sessions can remain open.",
       "targetTitle": "The wrong window is targeted or a click is blocked",
       "targetBody": "Inspect the app again and select a fresh element from its current state. If another window covers the target, reveal the intended window and inspect again before retrying. Do not reuse stale coordinates or element indexes.",
-      "productLink": "cmux Computer Use overview"
+      "productLink": "cmux Computer Use overview",
+    "copyTitle": "Copy a Computer Use prompt",
+    "copyPrompt": "Copy prompt",
+    "copiedPrompt": "Copied",
+    "installPrompt": "Use the $cmux-cua skill for this task. If it is unavailable, install it with your normal skill installer. If permissions are missing, ask me to open cmux Settings → Computer Use. Inspect before acting and verify after each change.\n\nTask: [describe the task here]"
     },
     "base": {
       "title": "Base",

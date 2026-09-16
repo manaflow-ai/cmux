@@ -979,7 +979,11 @@
       "blockedBody": "설정 → Computer Use를 다시 열어 추가 캡처 확인을 포함한 두 권한 단계를 완료하세요. 완료 후 재시도하세요. 도우미를 재시작해야 해도 터미널 세션은 열어 둘 수 있습니다.",
       "targetTitle": "잘못된 창이 선택되거나 클릭이 차단됨",
       "targetBody": "앱을 다시 확인하고 현재 상태에서 새 요소를 선택하세요. 다른 창이 대상을 가리면 원하는 창을 드러낸 뒤 다시 확인하세요. 오래된 좌표나 요소 인덱스를 재사용하지 마세요.",
-      "productLink": "cmux Computer Use 개요"
+      "productLink": "cmux Computer Use 개요",
+    "copyTitle": "Computer Use 프롬프트 복사",
+    "copyPrompt": "프롬프트 복사",
+    "copiedPrompt": "복사됨",
+    "installPrompt": "이 작업에는 $cmux-cua 스킬을 사용하세요. 없으면 평소 스킬 설치 도구로 설치하세요. 권한이 없으면 cmux 설정 → Computer Use를 열라고 알려 주세요. 먼저 확인하고 변경 후마다 검증하세요.\n\n작업: [여기에 작업 설명]"
     },
     "remoteTmux": {
       "moshContrast": "네트워크 간 로밍에는 cmux mosh-tmux를 사용하세요. 이름 있는 tmux 세션에 연결된 완전한 Mosh 터미널을 열며, SSH tmux 제어 모드가 제공하는 네이티브 워크스페이스·탭·분할 미러를 대체하지는 않습니다."

@@ -979,7 +979,11 @@
       "blockedBody": "Åpne Innstillinger → Computer Use på nytt og fullfør begge tillatelsene og eventuelle ekstra opptaksbekreftelser. Prøv deretter igjen. Terminalene kan stå åpne om hjelperen må starte på nytt.",
       "targetTitle": "Feil vindu eller blokkert klikk",
       "targetBody": "Undersøk appen igjen og velg et gjeldende element. Hvis et annet vindu dekker målet, vis ønsket vindu og undersøk det før du prøver igjen. Ikke gjenbruk gamle koordinater eller indekser.",
-      "productLink": "Oversikt over cmux Computer Use"
+      "productLink": "Oversikt over cmux Computer Use",
+    "copyTitle": "Kopier en Computer Use-ledetekst",
+    "copyPrompt": "Kopier ledetekst",
+    "copiedPrompt": "Kopiert",
+    "installPrompt": "Bruk ferdigheten $cmux-cua. Hvis den mangler, installer den med den vanlige installatøren. Ved manglende tillatelser ber du meg åpne cmux Innstillinger → Computer Use. Undersøk før handling og bekreft hver endring.\n\nOppgave: [beskriv oppgaven her]"
     },
     "remoteTmux": {
       "moshContrast": "Bruk cmux mosh-tmux for roaming mellom nettverk. Den åpner en fullt integrert Mosh-terminal koblet til en navngitt tmux-økt; den erstatter ikke den innebygde speilingen av arbeidsområder, faner og delinger fra SSH tmux-kontrollmodus."

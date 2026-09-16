@@ -979,7 +979,11 @@
       "blockedBody": "重新開啟「設定」→「Computer Use」，完成兩項權限步驟及額外的擷取確認。設定完成後重試。即使輔助程式需要重新啟動，終端機工作階段也可以保持開啟。",
       "targetTitle": "選錯視窗或點擊被阻擋",
       "targetBody": "重新查看應用程式，從目前狀態中選擇新的元素。如果其他視窗遮住目標，請先顯示目標視窗再重新查看。不要重複使用過期座標或元素索引。",
-      "productLink": "cmux Computer Use 概覽"
+      "productLink": "cmux Computer Use 概覽",
+    "copyTitle": "複製 Computer Use 提示詞",
+    "copyPrompt": "複製提示詞",
+    "copiedPrompt": "已複製",
+    "installPrompt": "這項工作使用 $cmux-cua 技能。若無法使用，請用一般技能安裝程式安裝。若缺少權限，請告訴我開啟 cmux 設定 → Computer Use。操作前檢查，每次變更後驗證。\n\n工作：[在此描述工作]"
     },
     "remoteTmux": {
       "moshContrast": "如需在網路之間漫遊，請使用 cmux mosh-tmux。它會開啟一個連接到具名 tmux 工作階段的完整 Mosh 終端；不會取代 SSH tmux 控制模式提供的原生工作區、分頁與分割鏡像。"

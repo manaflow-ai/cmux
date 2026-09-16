@@ -979,7 +979,11 @@
       "blockedBody": "Riapri Impostazioni → Computer Use e completa entrambi i permessi, comprese eventuali conferme aggiuntive di acquisizione. Poi riprova. Se l’assistente deve riavviarsi, i terminali possono restare aperti.",
       "targetTitle": "Finestra errata o clic bloccato",
       "targetBody": "Esamina nuovamente l’app e scegli un elemento aggiornato. Se un’altra finestra copre il bersaglio, rendilo visibile ed esaminalo prima di riprovare. Non riutilizzare coordinate o indici obsoleti.",
-      "productLink": "Panoramica di cmux Computer Use"
+      "productLink": "Panoramica di cmux Computer Use",
+    "copyTitle": "Copia un prompt Computer Use",
+    "copyPrompt": "Copia prompt",
+    "copiedPrompt": "Copiato",
+    "installPrompt": "Usa la competenza $cmux-cua. Se manca, installala con il normale installatore. Se mancano permessi, chiedimi di aprire Impostazioni cmux → Computer Use. Esamina prima di agire e verifica ogni modifica.\n\nAttività: [descrivi qui l’attività]"
     },
     "remoteTmux": {
       "moshContrast": "Per passare da una rete all’altra usa cmux mosh-tmux. Apre un terminale Mosh pienamente integrato collegato a una sessione tmux denominata; non sostituisce il mirror nativo di workspace, schede e suddivisioni offerto dalla modalità di controllo tmux via SSH."
