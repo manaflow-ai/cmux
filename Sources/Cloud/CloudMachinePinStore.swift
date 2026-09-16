@@ -22,7 +22,7 @@ final class CloudMachinePinStore {
         self.defaults = defaults
         self.scopeProvider = scopeProvider
         scopes = defaults.data(forKey: Self.defaultsKey).flatMap {
-            try? JSONDecoder().decode([String: PersistedScope].self, from: $0)
+            try? JSONDecoder().decode([String: CloudMachinePinStoreState].self, from: $0)
         } ?? [:]
         // A former default machine must never reappear as a designation after migration.
         defaults.removeObject(forKey: Self.removedDefaultMachineKey)
