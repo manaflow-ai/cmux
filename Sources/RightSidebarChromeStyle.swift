@@ -389,7 +389,7 @@ struct ModeBarButton: View {
         case .tint:
             return cmuxAccentColor()
         case .solid:
-            return Color(nsColor: cmuxReadableForegroundNSColor(on: cmuxAccentNSColor(), opacity: 1))
+            return Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(on: cmuxAccentNSColor(), opacity: 1))
         }
     }
 
