@@ -26,7 +26,7 @@ printf '{"opened":%s}' "$MODE"
     // cases. A real Linux daemon test covers the bounded wait separately.
     writeFileSync(join(directory, "timeout"), '#!/bin/sh\nshift\nexec "$@"\n');
     chmodSync(join(directory, "timeout"), 0o755);
-    body(directory, { PATH: `${directory}:${process.env.PATH}`, HOME: directory, CMUX_TUI_BIN: join(directory, "daemon"), CMUX_TUI_TERMINAL_ID: terminal, LANG: "en_US.UTF-8", MODE: "true", DISPLAY: ":1" });
+    body(directory, { NODE_ENV: "test", PATH: `${directory}:${process.env.PATH}`, HOME: directory, CMUX_TUI_BIN: join(directory, "daemon"), CMUX_TUI_TERMINAL_ID: terminal, LANG: "en_US.UTF-8", MODE: "true", DISPLAY: ":1" });
   } finally { rmSync(directory, { recursive: true, force: true }); }
 }
 
