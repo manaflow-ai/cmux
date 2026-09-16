@@ -24,6 +24,33 @@ extension CloudWorkspaceRenameService {
         return .rebind(machine: target.machine, remoteWorkspaceID: target.remoteWorkspaceID)
     }
 
+    /// Applies one accepted workspace name without scanning other bindings.
+    @MainActor
+    func reconcileRemoteWorkspaceName(
+        workspace: Workspace,
+        machine: SurfaceMachineID,
+        state: CloudVMState,
+        catalog: SurfaceCatalog,
+        observation: CloudVMStateObservation
+    ) {
+        guard catalog.cloudStates[machine] == state,
+              observation.freshness == .current,
+              let binding = workspace.cloudVMBinding,
+              binding.vmID == machine.cloudMachineID,
+              let id = binding.remoteWorkspaceID,
+              let remote = state.lookupIndex.workspace(id: id) else { return }
+        let key = CloudRenameCoordinator.Key.workspace(machine: machine, id: id)
+        if let pending = catalog.pendingCloudRenameName(for: key), pending != remote.name { return }
+        // Equal confirmations preserve user provenance across refresh.
+        // A user title without a pending write is also authoritative: it may
+        // have been entered while creation/discovery was in flight.
+        if workspace.effectiveCustomTitleSource == .user { return }
+        guard workspace.customTitle != remote.name || workspace.effectiveCustomTitleSource != .remote else { return }
+        let manager = workspace.owningTabManager ?? environment.tabManager(workspace.id)
+        _ = manager?.setCustomTitle(tabId: workspace.id, title: remote.name, source: .remote,
+                                    propagateToRemoteTmux: false, propagateToCloud: false)
+    }
+
     /// Reconciles only the identities touched by an accepted event. Full snapshots
     /// also repair workspace names; process-title events never rewrite other rows.
     @MainActor
@@ -68,21 +95,8 @@ extension CloudWorkspaceRenameService {
                         remoteWorkspaceID: targetWorkspaceID
                     )
                 }
-                guard let currentBinding = workspace.cloudVMBinding,
-                      let id = currentBinding.remoteWorkspaceID,
-                      let remote = state.lookupIndex.workspace(id: id) else { continue }
-                let key = CloudRenameCoordinator.Key.workspace(machine: machine, id: id)
-                if let pending = catalog.pendingCloudRenameName(for: key), pending != remote.name { continue }
-                // Equal confirmations preserve user/agent provenance across refresh.
-                // A different accepted explicit rename belongs to the daemon.
-                if workspace.customTitle == remote.name, workspace.effectiveCustomTitleSource == .user { continue }
-                // Submission returns before local title setters run. Pending names
-                // are request metadata, not accepted UI values; both projections
-                // keep rendering this graph until the daemon acknowledges a write.
-                guard workspace.customTitle != remote.name || workspace.effectiveCustomTitleSource != .remote else { continue }
-                let manager = workspace.owningTabManager ?? environment.tabManager(workspace.id)
-                _ = manager?.setCustomTitle(tabId: workspace.id, title: remote.name, source: .remote,
-                                           propagateToRemoteTmux: false, propagateToCloud: false)
+                reconcileRemoteWorkspaceName(workspace: workspace, machine: machine, state: state,
+                                             catalog: catalog, observation: observation)
             }
         }
         for projection in catalog.projections where projection.resource.machine == machine {
