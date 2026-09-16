@@ -75,6 +75,10 @@ struct MobileSettingsView: View {
 
     var body: some View {
         @Bindable var displaySettings = displaySettings
+        #if DEBUG
+        let whatsNewPages = whatsNewCenter?.archivePages ?? MobileWhatsNewCatalog.channelVisibleEntries()
+        let whatsNewHosts = whatsNewCenter?.allowedWebHosts ?? []
+        #endif
         return NavigationStack {
             Form {
                 MobileSettingsAccountSection(signOut: signOut)
@@ -273,6 +277,15 @@ struct MobileSettingsView: View {
 
                 #if DEBUG
                 Section(L10n.string("mobile.settings.developer", defaultValue: "Developer")) {
+                    NavigationLink {
+                        MobileWhatsNewDebugView(pages: whatsNewPages, allowedWebHosts: whatsNewHosts)
+                    } label: {
+                        Label(
+                            L10n.string("mobile.whatsNew.debug.title", defaultValue: "Replay What's New"),
+                            systemImage: "rectangle.stack"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsReplayWhatsNew")
                     Button {
                         showingToastGallery = true
                     } label: {
