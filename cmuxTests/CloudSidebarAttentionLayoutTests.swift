@@ -45,8 +45,7 @@ struct CloudSidebarAttentionLayoutTests {
         }
         let right = try #require(changedX.max(), "The unread indicator must actually render")
         let scale = Double(unread.pixelsWide) / width
-        let contentLeading = CloudTreeRowGrid.disclosureGap - CloudTreeNSOutlineView.cellShift
-        #expect(Double(right) / scale < Double(contentLeading) + 8,
+        #expect(Double(right) / scale < 8,
                 "The dot must be before the icon; pin, title and trailing controls cannot shift")
         let cleared = try render(cell, node: readNode, fixture: fixture)
         #expect(cleared.tiffRepresentation == read.tiffRepresentation)

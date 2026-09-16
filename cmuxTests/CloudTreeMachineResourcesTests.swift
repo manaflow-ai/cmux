@@ -55,6 +55,32 @@ struct CloudTreeMachineResourcesTests {
         #expect(asleep[0].detail == "Asleep")
     }
 
+    @Test("Cloud sections and resource values fit narrow and wide sidebars", arguments: [280.0, 420.0])
+    @MainActor func resourceTreeLayout(width: Double) throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let snapshot = machine()
+        let template = try #require(fixture.nodes().first)
+        let resources = CloudTreeMachineResourceNodeBuilder().groupNode(
+            machine: fixture.machine, snapshot: snapshot, now: Self.sampleTime
+        )
+        let root = CloudTreeNode(
+            id: template.id, kind: .machine(snapshot, nil),
+            children: template.children.filter { $0.structureTag != "resourcesPool" } + [resources]
+        )
+        fixture.window.setContentSize(NSSize(width: width, height: 520))
+        fixture.container.appearance = NSAppearance(named: .darkAqua)
+        fixture.coordinator.apply(nodes: [root])
+        let outline = try #require(fixture.coordinator.outlineView)
+        outline.expandItem(nil, expandChildren: true)
+        fixture.container.layoutSubtreeIfNeeded()
+        for row in 0..<outline.numberOfRows {
+            #expect(outline.frameOfCell(atColumn: 0, row: row).width > 0)
+            #expect(outline.frameOfCell(atColumn: 0, row: row).maxX <= outline.bounds.maxX + 1)
+        }
+        try fixture.attachScreenshot(named: "cloud-resources-spacing-\(Int(width))")
+    }
+
     @Test(arguments: [VMStats.State.asleep, .unknown])
     func inactiveSamplesNeverPresentOldValuesAsLive(state: VMStats.State) {
         let resources = CloudMachineResourcePresentation(machine: machine(state: state), now: Self.sampleTime)

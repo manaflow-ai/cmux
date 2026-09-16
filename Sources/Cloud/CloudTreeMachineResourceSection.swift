@@ -13,14 +13,14 @@ struct CloudTreeMachineResourceSection: Equatable {
 
     var rows: [CloudTreeMachineResourceRow] {
         [
-            row(metric: .cpu, title: metrics.cpu.label, detail: metrics.cpu.detail, icon: "cpu"),
-            row(metric: .memory, title: metrics.memory.label, detail: metrics.memory.detail, icon: "memorychip"),
-            row(metric: .disk, title: metrics.disk.label, detail: metrics.disk.detail, icon: "internaldrive"),
+            row(metric: .cpu, title: metrics.cpu.label, detail: metrics.cpu.inlineDetail, icon: "cpu"),
+            row(metric: .memory, title: metrics.memory.label, detail: metrics.memory.inlineDetail, icon: "memorychip.fill"),
+            row(metric: .disk, title: metrics.disk.label, detail: metrics.disk.inlineDetail, icon: "internaldrive.fill"),
             row(
                 metric: .usage,
                 title: String(localized: "cloudTree.resources.usage", defaultValue: "Usage"),
                 detail: usageSummary,
-                icon: "chart.bar"
+                icon: "chart.bar.fill"
             ),
         ]
     }

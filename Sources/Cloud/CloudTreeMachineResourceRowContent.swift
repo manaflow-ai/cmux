@@ -1,19 +1,37 @@
+import CmuxFoundation
 import SwiftUI
 
 /// A single resource or cost row inside a machine's Resources section.
 struct CloudTreeMachineResourceRowContent: View {
     let row: CloudTreeMachineResourceRow
     var style: CloudTreeStyle = CloudTreeStyleStore.current
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var magnification
 
     var body: some View {
-        CloudTreeLeafRow(
-            style: style,
-            icon: row.icon,
-            tint: CloudTreeIconPalette.machine,
-            title: row.title,
-            detail: row.detail
-        )
+        HStack(spacing: scaled(style.iconGap)) {
+            CloudTreeRowIcon(
+                style: style, systemName: row.icon, tint: CloudTreeIconPalette.machine,
+                weight: .medium, size: max(style.iconSize, 12)
+            )
+            Text(row.title)
+                .cmuxFont(size: style.titleSize, design: style.fontDesign)
+                .foregroundStyle(.primary)
+                .frame(minWidth: scaled(40), alignment: .leading)
+                .layoutPriority(1)
+            Text(row.detail)
+                .cmuxFont(size: style.detailSize, design: style.fontDesign, monospacedDigit: true)
+                .foregroundStyle(.secondary)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
+        }
+        .lineLimit(1)
+        .padding(.trailing, CloudTreeRowGrid.trailingPadding)
+        .help(row.accessibilityLabel)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(row.accessibilityLabel)
+    }
+
+    private func scaled(_ value: CGFloat) -> CGFloat {
+        GlobalFontMagnification.scaledSize(value, percent: magnification)
     }
 }
