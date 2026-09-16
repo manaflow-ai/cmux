@@ -132,6 +132,27 @@ final class MobileHostIrxRuntime {
         _ = scheduleManagedNetworking(.stop)
     }
 
+    /// Fence admission before auth is cleared, then drain through the same
+    /// serialized lifecycle used by policy changes. Capture the old store so
+    /// a preceding stop cannot discard the lease that sign-out must erase.
+    func beginSignOutPreparation() {
+        authObservationTask?.cancel()
+        authObservationTask = nil
+        auth = nil
+        generationToken = UUID()
+        deviceListBox?.clear()
+        activationTask?.cancel()
+        let retiringStore = deviceListStore
+        let previous = managedNetworkingTask
+        managedNetworkingTask = Task { @MainActor [weak self] in
+            await previous?.value
+            await retiringStore?.clear()
+            guard let self else { return }
+            await self.transition(to: nil)
+            await self.performStopHost()
+        }
+    }
+
     /// Reconciles the IRX host with the composition-root pairing decision.
     /// The IRX runtime derives its active state from pairing and managed policy,
     /// so it does not need a second mutable desired-state flag.
