@@ -15316,7 +15316,7 @@ struct SidebarFooterButtons: View {
                     if shows(.mobileConnect), CmuxFeatureFlags.shared.isMobileConnectButtonEnabled {
                         SidebarMobileConnectButton()
                     }
-                    if shows(.cloud), showCloudButton, CloudMachinesFeature.isEnabled { SidebarCloudButton(fileExplorerState: fileExplorerState) }
+                    if shows(.cloud), showCloudButton, CmuxFeatureFlags.shared.isSidebarCloudButtonEnabled, CloudMachinesFeature.isEnabled { SidebarCloudButton(fileExplorerState: fileExplorerState) }
                     if shows(.help) {
                         SidebarHelpMenuButton(onSendFeedback: onSendFeedback)
                     }

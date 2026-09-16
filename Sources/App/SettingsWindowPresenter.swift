@@ -159,19 +159,17 @@ final class SettingsWindowPresenter: NSObject {
         navigationTarget: SettingsNavigationTarget?,
         activateApp: Bool
     ) -> SettingsWindowShowResult {
-        // Only a targeted show may replace the pending target. An untargeted
-        // show expresses no pane preference and must not erase a still-
-        // undelivered targeted request (e.g. CLI `settings open account`
-        // followed by a menu open before the content appeared).
+        // Only a targeted show may replace the pending target; an untargeted show must not erase a
+        // still-undelivered targeted request (CLI `settings open account`, then a menu open before content appeared).
         if let navigationTarget {
             pendingNavigationTarget = navigationTarget
         }
+        if let paneResult = presentInWorkspacePane(activateApp: activateApp) {
+            return paneResult
+        }
 
-        // `demolish` closes windows synchronously, and a foreign willClose
-        // observer may re-enter show() from inside that close (a supported
-        // pattern). The depth bound is the safety valve that keeps a
-        // pathological reopen-on-close observer combined with persistent
-        // presentation failure from recursing without limit.
+        // `demolish` closes windows synchronously, and a foreign willClose observer may re-enter show() from that
+        // close (supported). The depth bound keeps a reopen-on-close observer plus persistent failure from recursing forever.
         activeShowDepth += 1
         defer { activeShowDepth -= 1 }
         if activeShowDepth > Self.maxReentrantShowDepth {
@@ -279,11 +277,8 @@ final class SettingsWindowPresenter: NSObject {
         Self.log.fault(
             "settings.window.show FAILED after \(Self.maxPresentAttempts, privacy: .public) attempts: \(failureReason, privacy: .public)"
         )
-        // A failed request must not leak its target into a later open: an
-        // untargeted show deliberately preserves pending targets, so without
-        // this a later recovered open would navigate to a pane whose request
-        // already received `.failed`. Only this request's own target is
-        // cleared — a re-entrant show that set a different target supersedes.
+        // A failed request must not leak its target into a later open (untargeted shows preserve pending targets).
+        // Only this request's own target is cleared; a re-entrant show that set a different target supersedes.
         if pendingNavigationTarget == navigationTarget {
             pendingNavigationTarget = nil
         }

@@ -172,12 +172,7 @@ struct MachinesPanelView: View {
 
     @ViewBuilder
     private var content: some View {
-        // Show the empty state exactly when the outline would render zero
-        // rows. The builder owns that decision (the tree is cloud-only while
-        // `includesLocalMachine` is off); deciding it here from the raw
-        // catalog previously left a blank panel for a signed-in account with
-        // no machines, because the catalog's This Mac entry counted as a row
-        // the tree never drew.
+        // Show the empty state exactly when the outline would render zero rows (same local-machine setting as the outline).
         if CloudTreeNodeBuilder.isEmpty(machines: viewModel.machines, pendingCreates: viewModel.pendingCreates, snapshot: viewModel.catalog, includeLocalMachine: true) {
             emptyState
         } else {

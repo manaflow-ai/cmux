@@ -1638,6 +1638,7 @@
 		C0A717000000000000000002 /* ExternalWindowSample.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A717000000000000000001 /* ExternalWindowSample.swift */; };
 		C0A716910000000000000002 /* ExternalWindowSamplingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A716910000000000000001 /* ExternalWindowSamplingService.swift */; };
 		C0A717100000000000000002 /* ExternalWindowSamplingServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A717100000000000000001 /* ExternalWindowSamplingServiceTests.swift */; };
+		DCEA9DD5AC31FB438E68AFC3 /* FeatureFlags+SidebarCloudButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4186392B554927E19A0AC6D1 /* FeatureFlags+SidebarCloudButton.swift */; };
 		C0DEA7710000000000000007 /* FeatureFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA7710000000000000008 /* FeatureFlags.swift */; };
 		FEED0A00000000000000F007 /* feed-tui in Resources */ = {isa = PBXBuildFile; fileRef = FEED0A00000000000000F006 /* feed-tui */; };
 		9466A07A0000000000000001 /* FeedAttentionTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9466A07A0000000000000002 /* FeedAttentionTarget.swift */; };
@@ -2702,6 +2703,7 @@
 		D5671401D5671401D5671401 /* SettingsNavigation+TerminalScrollSpeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5671402D5671402D5671402 /* SettingsNavigation+TerminalScrollSpeed.swift */; };
 		A50019A0 /* SettingsNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50019A1 /* SettingsNavigation.swift */; };
 		D10000000000000000A00022 /* SettingsNetworkingBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A00023 /* SettingsNetworkingBehaviorUITests.swift */; };
+		639925B8FA452F438090640A /* SettingsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8A2F3188391E630EA815D64 /* SettingsPanel.swift */; };
 		A50019B0 /* SettingsSearchAliases.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50019B1 /* SettingsSearchAliases.swift */; };
 		1559C88C4BE54850A7185058 /* SettingsSearchIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DD89A398F134C93ACED1A9A /* SettingsSearchIndex.swift */; };
 		A50019B2 /* SettingsSearchIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50019B3 /* SettingsSearchIndexTests.swift */; };
@@ -2716,6 +2718,7 @@
 		D37777020000000000000001 /* SettingsWindowNavigationRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D37777020000000000000002 /* SettingsWindowNavigationRoutingTests.swift */; };
 		D37777010000000000000001 /* SettingsWindowOpenRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D37777010000000000000002 /* SettingsWindowOpenRegressionTests.swift */; };
 		D37777060000000000000001 /* SettingsWindowPresentationContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D37777060000000000000002 /* SettingsWindowPresentationContractTests.swift */; };
+		D781A6F0A416C62A021C8E80 /* SettingsWindowPresenter+Pane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92846B376C11B2B9267EDC5D /* SettingsWindowPresenter+Pane.swift */; };
 		D36090010000000000000001 /* SettingsWindowPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36090010000000000000002 /* SettingsWindowPresenter.swift */; };
 		D36090010000000000000003 /* SettingsWindowPresenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36090010000000000000004 /* SettingsWindowPresenterTests.swift */; };
 		D10000000000000000A0001E /* SettingsWorkspaceColorsBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A0001F /* SettingsWorkspaceColorsBehaviorUITests.swift */; };
@@ -5416,6 +5419,7 @@
 		C0A717000000000000000001 /* ExternalWindowSample.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ExternalWindowSample.swift; sourceTree = "<group>"; };
 		C0A716910000000000000001 /* ExternalWindowSamplingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/ExternalWindowSamplingService.swift"; sourceTree = "<group>"; };
 		C0A717100000000000000001 /* ExternalWindowSamplingServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalWindowSamplingServiceTests.swift; sourceTree = "<group>"; };
+		4186392B554927E19A0AC6D1 /* FeatureFlags+SidebarCloudButton.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "FeatureFlags+SidebarCloudButton.swift"; sourceTree = "<group>"; };
 		C0DEA7710000000000000008 /* FeatureFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureFlags.swift; sourceTree = "<group>"; };
 		FEED0A00000000000000F006 /* feed-tui */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; path = "feed-tui"; sourceTree = "<group>"; };
 		9466A07A0000000000000002 /* FeedAttentionTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedAttentionTarget.swift; sourceTree = "<group>"; };
@@ -6465,6 +6469,7 @@
 		D5671402D5671402D5671402 /* SettingsNavigation+TerminalScrollSpeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SettingsNavigation+TerminalScrollSpeed.swift"; sourceTree = "<group>"; };
 		A50019A1 /* SettingsNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsNavigation.swift; sourceTree = "<group>"; };
 		D10000000000000000A00023 /* SettingsNetworkingBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsNetworkingBehaviorUITests.swift; sourceTree = "<group>"; };
+		E8A2F3188391E630EA815D64 /* SettingsPanel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = App/SettingsPanel.swift; sourceTree = "<group>"; };
 		A50019B1 /* SettingsSearchAliases.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSearchAliases.swift; sourceTree = "<group>"; };
 		6DD89A398F134C93ACED1A9A /* SettingsSearchIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SettingsSearchIndex.swift"; sourceTree = "<group>"; };
 		A50019B3 /* SettingsSearchIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSearchIndexTests.swift; sourceTree = "<group>"; };
@@ -6479,6 +6484,7 @@
 		D37777020000000000000002 /* SettingsWindowNavigationRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowNavigationRoutingTests.swift; sourceTree = "<group>"; };
 		D37777010000000000000002 /* SettingsWindowOpenRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowOpenRegressionTests.swift; sourceTree = "<group>"; };
 		D37777060000000000000002 /* SettingsWindowPresentationContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowPresentationContractTests.swift; sourceTree = "<group>"; };
+		92846B376C11B2B9267EDC5D /* SettingsWindowPresenter+Pane.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "App/SettingsWindowPresenter+Pane.swift"; sourceTree = "<group>"; };
 		D36090010000000000000002 /* SettingsWindowPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/SettingsWindowPresenter.swift; sourceTree = "<group>"; };
 		D36090010000000000000004 /* SettingsWindowPresenterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowPresenterTests.swift; sourceTree = "<group>"; };
 		D10000000000000000A0001F /* SettingsWorkspaceColorsBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWorkspaceColorsBehaviorUITests.swift; sourceTree = "<group>"; };
@@ -8341,6 +8347,8 @@
 				A50019B1 /* SettingsSearchAliases.swift */,
 				D3610C010000000000000002 /* CmuxSettingsJSONPathSupport.swift */,
 				D36090030000000000000002 /* SettingsWindowFactory.swift */,
+				92846B376C11B2B9267EDC5D /* SettingsWindowPresenter+Pane.swift */,
+				E8A2F3188391E630EA815D64 /* SettingsPanel.swift */,
 				D37777030000000000000002 /* SettingsWindowGeometry.swift */,
 				D37777070000000000000002 /* SettingsWindowNavigationDelivery.swift */,
 				D37777040000000000000002 /* AppDelegateSettingsPresentation.swift */,
@@ -8427,6 +8435,7 @@
 				A16B58D58F664C2CBB6671BD /* CmuxFeatureFlagDefinition.swift */,
 				A117FF000000000000000004 /* CmuxFeatureFlagSource.swift */,
 				C0DEA7710000000000000008 /* FeatureFlags.swift */,
+				4186392B554927E19A0AC6D1 /* FeatureFlags+SidebarCloudButton.swift */,
 				4D3D4A32871442459D94B6B8 /* CmuxFeatureFlags+Cloud.swift */,
 				C0DEA7720000000000000002 /* InternalFlagsWindow.swift */,
 				DC1C82D1669046C7A23B6056 /* InternalFlagOverrideChoice.swift */,
@@ -13010,6 +13019,7 @@
 					C0A712510000000000000002 /* ExternalWindowCompanionPresenter.swift in Sources */,
 				C0A717000000000000000002 /* ExternalWindowSample.swift in Sources */,
 				C0A716910000000000000002 /* ExternalWindowSamplingService.swift in Sources */,
+				DCEA9DD5AC31FB438E68AFC3 /* FeatureFlags+SidebarCloudButton.swift in Sources */,
 				C0DEA7710000000000000007 /* FeatureFlags.swift in Sources */,
 				9466A07A0000000000000001 /* FeedAttentionTarget.swift in Sources */,
 				FEED0000000000000000F00D /* FeedButtonStyleDebugWindowController.swift in Sources */,
@@ -13718,11 +13728,13 @@
 				D9CCF002D9CCF002D9CCF002 /* SettingsLazyLoadHelpers.swift in Sources */,
 				D5671401D5671401D5671401 /* SettingsNavigation+TerminalScrollSpeed.swift in Sources */,
 				A50019A0 /* SettingsNavigation.swift in Sources */,
+				639925B8FA452F438090640A /* SettingsPanel.swift in Sources */,
 				A50019B0 /* SettingsSearchAliases.swift in Sources */,
 				1559C88C4BE54850A7185058 /* SettingsSearchIndex.swift in Sources */,
 				D36090030000000000000001 /* SettingsWindowFactory.swift in Sources */,
 				D37777030000000000000001 /* SettingsWindowGeometry.swift in Sources */,
 				D37777070000000000000001 /* SettingsWindowNavigationDelivery.swift in Sources */,
+				D781A6F0A416C62A021C8E80 /* SettingsWindowPresenter+Pane.swift in Sources */,
 				D36090010000000000000001 /* SettingsWindowPresenter.swift in Sources */,
 				F0ACC0DE0000000000000011 /* SharedLiveAgentIndex.swift in Sources */,
 				F0ACC0DE0000000000000007 /* SharedLiveAgentIndexLoader.swift in Sources */,

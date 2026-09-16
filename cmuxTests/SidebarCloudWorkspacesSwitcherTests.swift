@@ -83,6 +83,19 @@ struct SidebarCloudWorkspacesSwitcherTests {
         #expect(row.id == "vm-1")
     }
 
+    @Test("Settings opens as one pane per workspace and refocuses instead of duplicating")
+    @MainActor
+    func settingsOpensAsOnePane() throws {
+        let workspace = Workspace()
+        let first = try #require(workspace.openOrFocusSettingsSurface(initialSection: nil))
+        #expect(first.panelType == .settings)
+        #expect(workspace.settingsPanel?.id == first.id)
+        let second = try #require(workspace.openOrFocusSettingsSurface(initialSection: nil))
+        #expect(second.id == first.id)
+        #expect(workspace.panels.values.filter { $0 is SettingsPanel }.count == 1)
+        #expect(workspace.focusedPanelId == first.id)
+    }
+
     @Test("Hiding the Cloud button is a real setting: on by default, in cmux.json, and reversible")
     func hideCloudButtonIsASetting() throws {
         let key = SettingCatalog().sidebar.showCloudButton

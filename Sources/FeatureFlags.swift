@@ -279,10 +279,10 @@ final class CmuxFeatureFlags {
             CmuxFeatureFlags.appKitSidebarListFlag,
 
             CmuxFeatureFlags.mobileWorkspaceChangesFlag,
-
             CmuxFeatureFlags.mobileTerminalFilesChipFlag,
             CmuxFeatureFlags.mobileTaskComposerFlag,
             CmuxFeatureFlags.cloudMachinesFlag,
+            CmuxFeatureFlags.sidebarCloudButtonFlag,
         ]
     }()
 
