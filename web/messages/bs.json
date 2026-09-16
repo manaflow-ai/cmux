@@ -22,8 +22,31 @@
       "title": "Potreban je cmux Pro",
       "message": "Cloud VM-ovi zahtijevaju cmux Pro plan.",
       "action": "Nadogradite na cmux Pro na {upgradeUrl} da biste kreirali Cloud VM-ove."
+    },
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "Mašine sa {memory} GiB zahtijevaju cmux {plan}. Vaš paket podržava do {max} GiB.",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "Nije moguće provjeriti veličinu RAM-a izvorne mašine.",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "Ova veličina mašine nije dostupna. Odaberite do {max} GiB.",
+      "action": "cmux vm new --size {max}g"
     }
-  },
+  ,
+    "goLimit": {
+      "savedMessage": "Go uključuje dvije sačuvane VM, uključujući pokrenutu VM.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "activeMessage": "Go omogućava jednu pokrenutu VM istovremeno.",
+      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "hoursMessage": "Go je potrošio 40 VM-sati za ovaj mjesec. Sačuvane VM bit će dostupne u sljedećem obračunskom periodu.",
+      "hoursAction": "cmux billing checkout --plan pro",
+      "shapeMessage": "Go podržava 2 vCPU, 4 GiB RAM-a i 16 GiB diska.",
+      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    }},
   "billingRecovery": {
     "message": "Ako smo pronašli nalog, provjerite e-poštu za sljedeće korake"
   },

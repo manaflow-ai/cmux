@@ -22,8 +22,31 @@
       "title": "ត្រូវការ cmux Pro",
       "message": "Cloud VM តម្រូវឱ្យមានគម្រោង cmux Pro។",
       "action": "ដំឡើងកំណែទៅ cmux Pro នៅ {upgradeUrl} ដើម្បីបង្កើត Cloud VM។"
+    },
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "ម៉ាស៊ីន {memory} GiB ត្រូវការ cmux {plan}។ គម្រោងរបស់អ្នកគាំទ្ររហូតដល់ {max} GiB។",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "មិនអាចផ្ទៀងផ្ទាត់ទំហំ RAM របស់ម៉ាស៊ីនប្រភពបានទេ។",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "ទំហំម៉ាស៊ីននេះមិនអាចប្រើបានទេ។ សូមជ្រើសរើសរហូតដល់ {max} GiB។",
+      "action": "cmux vm new --size {max}g"
     }
-  },
+  ,
+    "goLimit": {
+      "savedMessage": "Go រួមបញ្ចូល VM ដែលបានរក្សាទុកពីរ រួមទាំង VM ដែលកំពុងដំណើរការ។",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "activeMessage": "Go អនុញ្ញាតឱ្យដំណើរការ VM មួយក្នុងពេលតែមួយ។",
+      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "hoursMessage": "Go បានប្រើអស់ 40 ម៉ោង VM សម្រាប់ខែនេះ។ VM ដែលបានរក្សាទុកអាចប្រើវិញនៅរយៈពេលចេញវិក្កយបត្របន្ទាប់។",
+      "hoursAction": "cmux billing checkout --plan pro",
+      "shapeMessage": "Go គាំទ្រ 2 vCPU, RAM 4 GiB និងថាស 16 GiB។",
+      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    }},
   "billingRecovery": {
     "message": "ប្រសិនបើយើងរកឃើញគណនី សូមពិនិត្យអ៊ីមែលរបស់អ្នកសម្រាប់ជំហានបន្ទាប់"
   },

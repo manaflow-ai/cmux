@@ -35,7 +35,7 @@ describe("forkVm provider capability", () => {
       imageId: "sh-source",
       imageVersion: null,
       status: "running" as const,
-      providerMetadata: {},
+      providerMetadata: { cmuxResourceReservation: { vcpus: 2, memoryMb: 8192, diskMb: 32768 } },
     };
     const repo = {
       findUserVm: () => Effect.succeed(source),
