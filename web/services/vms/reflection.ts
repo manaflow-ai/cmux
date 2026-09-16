@@ -118,6 +118,7 @@ export function reflectionIsLive(row: Pick<ReflectionRow, "status">): boolean {
 
 /** Same owner as `self`: the billing team when there is one, else the creating user. */
 export function reflectionSharesOwner(self: ReflectionRow, other: ReflectionRow): boolean {
+  if (self.ownerTeamId) return other.ownerTeamId === self.ownerTeamId;
   if (self.billingTeamId) return other.billingTeamId === self.billingTeamId;
   return other.billingTeamId === null && other.userId === self.userId;
 }

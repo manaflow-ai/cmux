@@ -11,6 +11,8 @@ export type VmPrincipalLiveStatus = (typeof VM_PRINCIPAL_LIVE_STATUSES)[number];
 export type VmPrincipalRow = {
   readonly id: string;
   readonly userId: string;
+  readonly ownerTeamId?: string;
+  readonly coderouterPoolId?: string | null;
   readonly billingTeamId: string | null;
   readonly billingPlanId: string | null;
   readonly provider: string;

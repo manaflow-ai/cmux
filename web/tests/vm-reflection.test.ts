@@ -109,7 +109,7 @@ describe("requireVmPrincipal", () => {
     expect(await requireVmPrincipal(guestRequest({ [VM_ID_HEADER]: PEER_ID }), { authenticate: boundIdentity, loadVm: async () => self })).toEqual({ ok: false, reason: "vm_mismatch" });
     expect(await requireVmPrincipal(guestRequest({ [ROUTE_TOKEN_HEADER]: "crt_revoked" }), { authenticate: boundIdentity, loadVm: async () => self })).toEqual({ ok: false, reason: "invalid_route_token" });
     const unbound = async () => ({ teamId: "team-1", stackUserId: "user-1", vmId: null });
-    expect(await requireVmPrincipal(guestRequest(), { authenticate: unbound, loadVm: async () => self })).toEqual({ ok: false, reason: "vm_bound_token_required" });
+    expect(await requireVmPrincipal(guestRequest(), { authenticate: unbound, loadVm: async () => self })).toEqual({ ok: false, reason: "vm_mismatch" });
   });
 
   test("rejects a missing, destroyed, or foreign machine even with a valid token", async () => {

@@ -138,8 +138,8 @@ mock.module("../services/vms/auth", () => ({
     error instanceof TestSubrouterAuthorizationUnavailableError,
 }));
 
-mock.module("../services/subrouter/routeHelpers", () => ({
-  authorizedSubrouterTeams: async () => authorizedTeams,
+mock.module("../services/coderouter/permissions", () => ({
+  authorizedCoderouterTeams: async () => authorizedTeams,
 }));
 
 mock.module("../services/subrouter/hostedClient", () => ({
