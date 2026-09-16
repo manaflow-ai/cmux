@@ -1431,8 +1431,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         return nil
     }
     private func deliverNotification(_ row: CloudVMNotificationRow, to target: CloudNotificationDeliveryTarget) -> Bool {
+        if row.openURL != nil { return CloudNotificationSyncHub.shared.deliverGuestURL(row, machineID: machineID) { [self] in row.openURL.map { openGuestURL($0, target: target) } ?? false } }
         guard CloudNotificationSyncHub.shared.admit(row, machineID: machineID) else { return true }
-        if let url = row.openURL { return openGuestURL(url, target: target) }
         guard let store = AppDelegate.shared?.notificationStore else { return false }
         let terminalTitle = row.terminalID.flatMap { cloudState?.lookupIndex.terminal(id: $0)?.title } ?? ""
         let machineName = summary.preferredName
@@ -1673,7 +1673,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                       let paneID = SurfacePaneFactory.paneID(ofPanel: projection.panelID, in: projection.workspaceID) else {
                     continue
                 }
-                // Claimed before any async hop so a burst of refreshes cannot re-project twice.
                 materializedPanels.insert(projection.panelID)
                 guard let reservation = workspace.reserveCloudTerminalPane(
                     machine: machine,

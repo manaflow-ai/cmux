@@ -433,11 +433,17 @@ final class CloudNotificationSyncHub {
     private var notificationGate = CloudMachineNotificationGate()
 
     /// One admission budget across all live machine providers. Dropped rows remain
-    /// consumed by the sync so subsequent catalog folds cannot replay a flood.
     func admit(_ row: CloudVMNotificationRow, machineID: String) -> Bool {
         notificationGate.admit(machineID: machineID, event: CloudMachineNotificationEvent(
             id: row.id, terminalID: row.terminalID, title: row.title, body: row.body
         )) == .allowed
+    }
+    func deliverGuestURL(_ row: CloudVMNotificationRow, machineID: String, delivery: () -> Bool) -> Bool {
+        var next = notificationGate
+        guard next.admit(machineID: machineID, event: CloudMachineNotificationEvent(id: row.id, terminalID: row.terminalID, title: row.title, body: row.body)) == .allowed else { return true }
+        guard delivery() else { return false }
+        notificationGate = next
+        return true
     }
     private(set) var unreadTerminalIDs: [String: Set<String>] = [:]
     private var storeSubscription: AnyCancellable?
@@ -472,9 +478,6 @@ final class CloudNotificationSyncHub {
         NotificationCenter.default.post(name: .cmuxCloudNotificationUnreadDidChange, object: nil)
     }
 
-    /// Correlation keys of cloud notifications that were unread in `previous`
-    /// and are read or gone in `current`. A dismissal counts as a read: the
-    /// person chose not to see it again, on this Mac and on the machine.
     static func newlyReadKeys(previous: Set<String>, current: [TerminalNotification]) -> (read: Set<String>, unread: Set<String>) {
         var unread = Set<String>()
         for notification in current where !notification.isRead {
@@ -498,9 +501,6 @@ final class CloudNotificationSyncHub {
 
     func storeDidChange(_ notifications: [TerminalNotification]) {
         guard let previous = unreadCloudKeys else {
-            // First observation seeds the baseline. Rows restored from the
-            // durable feed history as already-read never become acks here;
-            // the daemon already has them or they were read elsewhere.
             unreadCloudKeys = Self.newlyReadKeys(previous: [], current: notifications).unread
             return
         }
