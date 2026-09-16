@@ -121273,55 +121273,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale Pairing is unavailable"
+            "value": "Mobile Pairing is unavailable"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscaleペアリングは利用できません"
+            "value": "モバイルペアリングは利用できません"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale 配对不可用"
+            "value": "移动设备配对不可用"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale-Kopplung ist nicht verfügbar"
+            "value": "Die Kopplung von Mobilgeräten ist nicht verfügbar"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le jumelage Tailscale est indisponible"
+            "value": "Le jumelage mobile est indisponible"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اقتران Tailscale غير متاح"
+            "value": "اقتران الأجهزة المحمولة غير متاح"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El emparejamiento de Tailscale no está disponible"
+            "value": "La vinculación móvil no está disponible"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale 配對無法使用"
+            "value": "無法使用行動裝置配對"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale 페어링을 사용할 수 없습니다"
+            "value": "모바일 페어링을 사용할 수 없습니다"
           }
         }
       }
@@ -141659,7 +141659,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale"
+            "value": "Mobile"
           }
         },
         "es": {
@@ -141671,7 +141671,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mobile"
+            "value": "Appareils mobiles"
           }
         },
         "it": {
@@ -141683,7 +141683,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale"
+            "value": "モバイル"
           }
         },
         "km": {
@@ -141760,7 +141760,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "توصيل iPhone/iPad"
+            "value": "فتح اقتران الأجهزة المحمولة"
           }
         },
         "bs": {
@@ -141778,25 +141778,25 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone/iPad verbinden"
+            "value": "Mobilgeräte koppeln öffnen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open Tailscale Pairing"
+            "value": "Open Mobile Pairing"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conectar iPhone/iPad"
+            "value": "Abrir vinculación móvil"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connecter l’iPhone/iPad"
+            "value": "Ouvrir le jumelage mobile"
           }
         },
         "it": {
@@ -141808,7 +141808,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscaleペアリングを開く"
+            "value": "モバイルペアリングを開く"
           }
         },
         "km": {
@@ -141820,7 +141820,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone/iPad 연결"
+            "value": "모바일 페어링 열기"
           }
         },
         "nb": {
@@ -141868,13 +141868,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "连接 iPhone/iPad"
+            "value": "打开移动设备配对"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "連接 iPhone/iPad"
+            "value": "開啟行動裝置配對"
           }
         }
       }
@@ -209652,55 +209652,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows the Tailscale Pairing button in the sidebar footer."
+            "value": "Shows the Mobile Pairing button in the sidebar footer."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーのフッターにTailscaleペアリングボタンを表示します。"
+            "value": "サイドバーのフッターにモバイルペアリングボタンを表示します。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在侧边栏底部显示 Tailscale 配对按钮。"
+            "value": "在侧边栏底部显示移动设备配对按钮。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zeigt die Tailscale-Kopplungstaste in der Fußzeile der Seitenleiste an."
+            "value": "Zeigt die Schaltfläche „Mobilgeräte koppeln“ in der Fußzeile der Seitenleiste an."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Affiche le bouton d’association Tailscale dans le pied de page de la barre latérale."
+            "value": "Affiche le bouton de jumelage mobile dans le pied de page de la barre latérale."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يعرض زر اقتران Tailscale في تذييل الشريط الجانبي."
+            "value": "يعرض زر اقتران الأجهزة المحمولة في تذييل الشريط الجانبي."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Muestra el botón de emparejamiento de Tailscale en el pie de página de la barra lateral."
+            "value": "Muestra el botón de vinculación móvil en el pie de la barra lateral."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在側邊欄頁尾中顯示 Tailscale 配對按鈕。"
+            "value": "在側邊欄頁尾顯示行動裝置配對按鈕。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사이드바 하단에 Tailscale 페어링 버튼을 표시합니다."
+            "value": "사이드바 하단에 모바일 페어링 버튼을 표시합니다."
           }
         }
       }
@@ -209711,55 +209711,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale Pairing button"
+            "value": "Mobile Pairing button"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscaleペアリングボタン"
+            "value": "モバイルペアリングボタン"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale 配对按钮"
+            "value": "移动设备配对按钮"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale-Kopplungstaste"
+            "value": "Schaltfläche „Mobilgeräte koppeln“"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bouton d’association Tailscale"
+            "value": "Bouton de jumelage mobile"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "زر اقتران Tailscale"
+            "value": "زر اقتران الأجهزة المحمولة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Botón de emparejamiento de Tailscale"
+            "value": "Botón de vinculación móvil"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale 配對按鈕"
+            "value": "行動裝置配對按鈕"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale 페어링 버튼"
+            "value": "모바일 페어링 버튼"
           }
         }
       }
@@ -262725,55 +262725,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale Pairing"
+            "value": "Mobile Pairing"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscaleペアリング"
+            "value": "モバイルペアリング"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale 配对"
+            "value": "移动设备配对"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale-Kopplung"
+            "value": "Mobilgeräte koppeln"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jumelage Tailscale"
+            "value": "Jumelage mobile"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اقتران Tailscale"
+            "value": "اقتران الأجهزة المحمولة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vinculación de Tailscale"
+            "value": "Vinculación móvil"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale 配對"
+            "value": "行動裝置配對"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale 페어링"
+            "value": "모바일 페어링"
           }
         }
       }
@@ -330080,55 +330080,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale Pairing"
+            "value": "Mobile Pairing"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscaleペアリング"
+            "value": "モバイルペアリング"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale 配对"
+            "value": "移动设备配对"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale-Kopplung"
+            "value": "Mobilgeräte koppeln"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jumelage Tailscale"
+            "value": "Jumelage mobile"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اقتران Tailscale"
+            "value": "اقتران الأجهزة المحمولة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vinculación de Tailscale"
+            "value": "Vinculación móvil"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale 配對"
+            "value": "行動裝置配對"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale 페어링"
+            "value": "모바일 페어링"
           }
         }
       }

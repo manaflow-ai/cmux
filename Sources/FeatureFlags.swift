@@ -202,10 +202,10 @@ final class CmuxFeatureFlags {
             // local debug override enables it.
             CmuxFeatureFlagDefinition(
                 key: "mobile-connect-button-enabled-release",
-                title: String(localized: "featureFlags.mobileConnect.title", defaultValue: "Tailscale Pairing button"),
+                title: String(localized: "featureFlags.mobileConnect.title", defaultValue: "Mobile Pairing button"),
                 flagDescription: String(
                     localized: "featureFlags.mobileConnect.description",
-                    defaultValue: "Shows the Tailscale Pairing button in the sidebar footer."
+                    defaultValue: "Shows the Mobile Pairing button in the sidebar footer."
                 ),
                 defaultWhenUnavailable: CmuxFeatureFlags.mobileConnectButtonDefault
             ),
