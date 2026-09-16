@@ -193,7 +193,7 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
         let residentMemorySourceNames = residentMemorySources.map(\.rawValue)
         return [
             "sampled_at": ISO8601DateFormatter().string(from: sampledAt),
-            "source": "proc_listallpids+proc_pidinfo",
+            "source": "proc_listallpids+proc_pidinfo+sysctl(KERN_PROC_PID)",
             "cpu_source": "proc_pidinfo.PROC_PIDTASKINFO.pti_total_user+pti_total_system",
             "memory_source": CmuxTopProcessMemorySource.physicalFootprint.rawValue,
             "memory_fallback_source": CmuxTopProcessMemorySource.residentSize.rawValue,

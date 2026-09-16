@@ -1332,6 +1332,7 @@
 		C85390090000000000000001 /* CmuxTerminalCore in Frameworks */ = {isa = PBXBuildFile; productRef = C750200000000000000000A2 /* CmuxTerminalCore */; };
 		CFF12E0000000000000000A3 /* CmuxTestSupport in Frameworks */ = {isa = PBXBuildFile; productRef = CFF12E0000000000000000A2 /* CmuxTestSupport */; };
 		A2977C204AD69CF268D38EE3 /* CmuxTestWindowReleaseGuard.m in Sources */ = {isa = PBXBuildFile; fileRef = EA9B442F20273D64D2BA1FC5 /* CmuxTestWindowReleaseGuard.m */; };
+		59EAD0F6648FC4410E18A7EC /* CmuxTopBSDProcessListing+Fallback.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00289128D28BAE4A7BFAAEA6 /* CmuxTopBSDProcessListing+Fallback.swift */; };
 		AB345537D89B486FFC800BD9 /* CmuxTopBSDProcessListing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AA58CFB4FB105FD844232B2 /* CmuxTopBSDProcessListing.swift */; };
 		906900000000000000000002 /* CmuxTopMemoryAttributionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 906900000000000000000001 /* CmuxTopMemoryAttributionTests.swift */; };
 		906901000000000000000008 /* CmuxTopMemoryDiagnosticGroupAccumulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 906901000000000000000007 /* CmuxTopMemoryDiagnosticGroupAccumulator.swift */; };
@@ -5119,6 +5120,7 @@
 		90690100000000000000000B /* CmuxTaskManagerMemoryGroupAttribution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTaskManagerMemoryGroupAttribution.swift; sourceTree = "<group>"; };
 		F1000002A1B2C3D4E5F60718 /* cmuxTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = cmuxTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		EA9B442F20273D64D2BA1FC5 /* CmuxTestWindowReleaseGuard.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = CmuxTestWindowReleaseGuard.m; sourceTree = "<group>"; };
+		00289128D28BAE4A7BFAAEA6 /* CmuxTopBSDProcessListing+Fallback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTopBSDProcessListing+Fallback.swift"; sourceTree = "<group>"; };
 		6AA58CFB4FB105FD844232B2 /* CmuxTopBSDProcessListing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopBSDProcessListing.swift; sourceTree = "<group>"; };
 		906900000000000000000001 /* CmuxTopMemoryAttributionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopMemoryAttributionTests.swift; sourceTree = "<group>"; };
 		906901000000000000000007 /* CmuxTopMemoryDiagnosticGroupAccumulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopMemoryDiagnosticGroupAccumulator.swift; sourceTree = "<group>"; };
@@ -8499,6 +8501,7 @@
 				7490D0017490D0017490D001 /* BrowserHiddenWebViewMemoryPressureResponder.swift */,
 				A42100010000000000000004 /* MemoryPressureAggregatePolicy.swift */,
 				A42100010000000000000006 /* MemoryPressureAggregateSampler.swift */,
+				00289128D28BAE4A7BFAAEA6 /* CmuxTopBSDProcessListing+Fallback.swift */,
 				CFA37C16A6EFB561E0FB59EB /* MemoryResourceViewCounts.swift */,
 				ECCF94F25DD71ABC835B6CF4 /* MemoryResourceDiagnostics.swift */,
 				3B5A43AAA40E12698E8D2B42 /* DarwinFileDescriptorSnapshot.swift */,
@@ -12814,6 +12817,7 @@
 				906901000000000000000004 /* CmuxTaskManagerMemoryAttribution.swift in Sources */,
 				906901000000000000000006 /* CmuxTaskManagerMemoryGroup.swift in Sources */,
 				90690100000000000000000C /* CmuxTaskManagerMemoryGroupAttribution.swift in Sources */,
+				59EAD0F6648FC4410E18A7EC /* CmuxTopBSDProcessListing+Fallback.swift in Sources */,
 				AB345537D89B486FFC800BD9 /* CmuxTopBSDProcessListing.swift in Sources */,
 				906901000000000000000008 /* CmuxTopMemoryDiagnosticGroupAccumulator.swift in Sources */,
 				C7A510000000000000000002 /* CmuxTopMemoryDiagnostics.swift in Sources */,

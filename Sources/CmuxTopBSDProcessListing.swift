@@ -59,6 +59,11 @@ struct CmuxTopBSDProcessListing {
     private static func readBSDInfo(_ pid: pid_t) -> proc_bsdinfo? {
         var info = proc_bsdinfo()
         let size = MemoryLayout<proc_bsdinfo>.stride
-        return proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(size)) == size ? info : nil
+        if proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(size)) == size { return info }
+        // libproc denies detailed records for other users, even though the
+        // public process topology is readable. Keep those parent edges so an
+        // unrelated protected process does not disable descendant accounting.
+        // Its memory remains unavailable unless the resource APIs can read it.
+        return fallbackBSDInfo(pid)
     }
 }

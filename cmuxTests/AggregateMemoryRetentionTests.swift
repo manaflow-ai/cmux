@@ -107,6 +107,15 @@ struct AggregateMemoryRetentionTests {
         #expect(!listing.processes.isEmpty)
     }
 
+    @Test("Topology fallback preserves kernel parent and process generation")
+    func publicTopologyFallbackRetainsIdentity() throws {
+        let info = try #require(CmuxTopBSDProcessListing.fallbackBSDInfo(getpid()))
+        #expect(info.pbi_pid == UInt32(getpid()))
+        #expect(info.pbi_ppid == UInt32(getppid()))
+        #expect(info.pbi_pgid == UInt32(getpgrp()))
+        #expect(info.pbi_start_tvsec > 0)
+    }
+
     @Test("Resource telemetry excludes process names, paths and workspace IDs")
     func resourceTelemetryIsBoundedAndPrivate() throws {
         let privateWorkspace = UUID()
