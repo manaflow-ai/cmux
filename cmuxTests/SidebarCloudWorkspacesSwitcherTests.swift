@@ -22,8 +22,8 @@ struct SidebarCloudWorkspacesSwitcherTests {
 
     private func snapshot() -> SurfaceCatalogSnapshot {
         let terminal = SurfaceResource(
-            id: LocalSurfaceProvider.resourceID(forTerminalPanel: UUID()),
-            kind: .terminal, title: "zsh", lifecycle: .running
+            id: LocalSurfaceProvider.resourceID(forTerminalPanel: UUID()), title: "zsh", detail: "~",
+            lifecycle: .running, agent: nil, remoteWorkspace: nil, port: nil, url: nil
         )
         let projection = SurfaceProjection(resource: terminal.id, workspaceID: terminalWorkspace, panelID: UUID())
         return SurfaceCatalogSnapshot(machines: [localInfo], resources: [terminal], projections: [projection])
