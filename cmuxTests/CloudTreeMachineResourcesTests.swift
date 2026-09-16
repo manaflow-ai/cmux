@@ -165,7 +165,7 @@ struct CloudTreeMachineResourcesTests {
         #expect(row.toolTip.contains(usage))
         #expect(
             CloudTreeStyle.aero.machineRowHeight(hasStats: true, hasUsage: true)
-                > CloudTreeStyle.aero.machineRowHeight(hasStats: true, hasUsage: false)
+                == CloudTreeStyle.aero.machineRowHeight(hasStats: true, hasUsage: false)
         )
     }
 
@@ -189,30 +189,29 @@ struct CloudTreeMachineResourcesTests {
         #expect(line.contains("30d"))
     }
 
-    @Test @MainActor func compactPresetsKeepResourcesAndUsageOnTheHeaderBaseline() throws {
+    @Test @MainActor func machineHeaderLeavesResourceAndUsageDetailsToTheResourcesSection() throws {
         var snapshot = machine()
         snapshot.usage = MachineUsageSnapshot(
             vmID: snapshot.id, providerVmID: nil, displayName: nil, periodDays: 30, asOf: Self.sampleTime,
             totals: MachineUsageTotals(inputTokens: 31000, cachedInputTokens: 0, outputTokens: 10000,
                                        totalTokens: 41000, apiEquivalentUsd: 1.23)
         )
-        for style in CloudTreeStyle.presets where style.machineRowLayout == .singleLine {
+        for style in CloudTreeStyle.presets {
             let row = CloudTreeMachineRowContent(machine: snapshot, style: style, now: Self.sampleTime)
-            let fact = try #require(row.inlineFact)
-            #expect(fact.contains("CPU"))
-            #expect(fact.contains("50%"))
-            #expect(fact.contains("75%"))
-            #expect(fact.contains("41K"))
-            #expect(fact.contains("30d"))
-            #expect(style.machineRowHeight(hasStats: true, hasUsage: true)
-                == style.machineRowHeight(hasStats: false, hasUsage: false))
+            #expect(row.inlineFact == nil)
+            let section = CloudTreeMachineResourceSection(machine: snapshot, now: Self.sampleTime)
+            #expect(section.rows.map(\.metric) == [.cpu, .memory, .disk, .usage])
+            #expect(section.rows[0].detail.contains("9%"))
+            #expect(section.rows[1].detail.contains("2/4"))
+            #expect(section.rows[2].detail.contains("3/4"))
+            #expect(section.rows[3].detail.contains("41K"))
             for width in [CGFloat(240), 800] {
                 for scale in [100, 150] {
                     let host = NSHostingView(rootView: row
                         .environment(\.cmuxGlobalFontMagnificationPercent, scale).frame(width: width))
                     #expect(host.fittingSize.width <= width + 1)
                     #expect(host.fittingSize.height <= GlobalFontMagnification.scaledSize(
-                        style.machineRowHeight(hasStats: true, hasUsage: true), percent: scale
+                        style.machineRowHeight(hasStats: false, hasUsage: false), percent: scale
                     ) + 1)
                 }
             }
@@ -248,11 +247,92 @@ struct CloudTreeMachineResourcesTests {
                     #expect(host.fittingSize.height <= view.height(width: width, magnification: scale) + 1)
                 }
             }
-            if style.machineRowLayout == .twoLine {
-                #expect(style.machineRowHeight(hasStats: true) > style.machineRowHeight(hasStats: false))
-            } else {
-                #expect(style.machineRowHeight(hasStats: true) == style.machineRowHeight(hasStats: false))
-            }
+            #expect(style.machineRowHeight(hasStats: true) == style.machineRowHeight(hasStats: false))
         }
+    }
+
+    @Test @MainActor func everyCloudMachineGetsResourcesAfterSurfaceSections() throws {
+        let first = machine()
+        var second = machine()
+        second = MachineSnapshotBuilder.snapshot(from: VMSummary(
+            id: "empty-machine", provider: "freestyle", status: "running", image: "test", createdAt: 0, base: nil
+        ))
+        let info = SurfaceMachineInfo(
+            id: .cloud(first.id), name: first.displayName, status: "running", image: first.image,
+            hasDesktop: first.isDesktop, memoryMb: nil, diskMb: nil, linkState: .connected,
+            linkError: nil, cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil
+        )
+        let emptyInfo = SurfaceMachineInfo(
+            id: .cloud(second.id), name: second.displayName, status: "running", image: second.image,
+            hasDesktop: second.isDesktop, memoryMb: nil, diskMb: nil, linkState: .connected,
+            linkError: nil, cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil
+        )
+        let snapshot = SurfaceCatalogSnapshot(machines: [info, emptyInfo], resources: [], projections: [])
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [first, second], snapshot: snapshot, localWorkspaces: [], includeLocalMachine: false, now: Self.sampleTime
+        )
+        #expect(nodes.count == 2)
+        for node in nodes {
+            let children = node.children
+            #expect(children.last?.structureTag == "resourcesPool")
+            #expect(children.dropLast().map(\.structureTag) == ["workspacesGroup", "portsGroup", "displaysPool", "terminalsPool"])
+            #expect(children.last?.children.count == 4)
+        }
+    }
+
+    @Test @MainActor func resourcesRemainVisibleWhenCatalogEntryIsMissing() throws {
+        let snapshot = machine()
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [snapshot], snapshot: .empty, localWorkspaces: [], includeLocalMachine: false, now: Self.sampleTime
+        )
+        let children = try #require(nodes.first?.children)
+        #expect(children.map(\.structureTag) == ["placeholder", "resourcesPool"])
+    }
+
+    @Test @MainActor func terminalAndResourceDefaultsAreCollapsedButExplicitChoicesWin() throws {
+        let snapshot = machine()
+        let info = SurfaceMachineInfo(
+            id: .cloud(snapshot.id), name: snapshot.displayName, status: "running", image: snapshot.image,
+            hasDesktop: snapshot.isDesktop, memoryMb: nil, diskMb: nil, linkState: .connected,
+            linkError: nil, cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil
+        )
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [snapshot], snapshot: SurfaceCatalogSnapshot(machines: [info], resources: [], projections: []),
+            localWorkspaces: [], includeLocalMachine: false, now: Self.sampleTime
+        )
+        let machineNode = try #require(nodes.first)
+        let workspaces = try #require(machineNode.children.first)
+        let terminals = try #require(machineNode.children.dropFirst(3).first)
+        let resources = try #require(machineNode.children.last)
+        let store = CloudTreeExpansionStore(defaults: UserDefaults(suiteName: "CloudTreeResources-\(UUID().uuidString)")!)
+        #expect(store.isExpanded(workspaces))
+        #expect(store.isExpanded(machineNode.children[1]))
+        #expect(!store.isExpanded(terminals))
+        #expect(!store.isExpanded(resources))
+        store.setExpanded(true, node: resources)
+        store.setExpanded(false, node: workspaces)
+        #expect(store.isExpanded(resources))
+        #expect(!store.isExpanded(workspaces))
+    }
+
+    @Test func resourceRowsKeepTelemetryStatesDistinctAndPreserveZero() {
+        var loading = machine()
+        loading.stats = nil
+        let loadingRows = CloudTreeMachineResourceSection(machine: loading, now: Self.sampleTime).rows
+        #expect(loadingRows[0].detail.contains("Loading"))
+
+        let stale = CloudTreeMachineResourceSection(
+            machine: machine(resourceSampledAt: Self.sampleTime),
+            now: Self.sampleTime.addingTimeInterval(CloudMachineResourcePresentation.staleSampleAge + 1)
+        )
+        #expect(stale.rows[0].detail.contains("Stale"))
+
+        let zero = CloudTreeMachineResourceSection(
+            machine: machine(cpu: 0, memoryUsed: 0, memoryTotal: 4096, diskUsed: 0, diskTotal: 4096),
+            now: Self.sampleTime
+        )
+        #expect(zero.rows[0].detail.contains("0%"))
+        #expect(zero.rows[1].detail.contains("0/4"))
+        #expect(zero.rows[2].detail.contains("0/4"))
     }
 }

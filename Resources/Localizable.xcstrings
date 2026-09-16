@@ -123092,6 +123092,34 @@
         }
       }
     },
+    "cloudTree.group.resources": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Resources" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Ressourcen" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Ressources" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "الموارد" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Recursos" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "資源" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "资源" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "리소스" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リソース" } }
+      }
+    },
+    "cloudTree.resources.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Nutzung" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Utilisation" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "الاستخدام" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Uso" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "用量" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "用量" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "사용량" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用状況" } }
+      }
+    },
     "cloudTree.group.terminals": {
       "extractionState": "manual",
       "localizations": {

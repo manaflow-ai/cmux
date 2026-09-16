@@ -27,16 +27,6 @@ struct CloudTreeMachineRowContent: View {
                             .truncationMode(.tail)
                             .frame(height: scaled(style.machineSubtitleLineHeight))
                     }
-                    if style.machineRowLayout == .twoLine && style.showsMachineStats {
-                        CloudTreeMachineResourceView(
-                            metrics: CloudMachineResourcePresentation(machine: machine, now: now),
-                            style: style
-                        )
-                        .frame(minHeight: scaled(style.machineResourceHeight))
-                    }
-                    if style.machineRowLayout == .twoLine {
-                        CloudTreeMachineDetailView(line: usageSummary, style: style)
-                    }
                 }
             }
             .padding(.vertical, scaled(style.machineVerticalPadding))
@@ -156,25 +146,13 @@ struct CloudTreeMachineRowContent: View {
         return parts.joined(separator: " · ")
     }
 
-    /// The original compact summary follows the name; full details remain on hover.
+    /// The compact header reserves its detail slot for identity only. Resource
+    /// and cost telemetry lives in the collapsed Resources section.
     var inlineFact: String? {
         if machine.freeAccess == .expired {
             return String(localized: "machines.row.locked", defaultValue: "Locked")
         }
-        var parts: [String] = []
-        if style.showsMachineStats {
-            parts.append(resourceLine)
-        }
-        parts.append(usageSummary)
-        return parts.joined(separator: " · ")
-    }
-
-    /// Compact labels and percentages match the original machine header line.
-    private var resourceLine: String {
-        let metrics = CloudMachineResourcePresentation(machine: machine, now: now)
-        return [metrics.cpu, metrics.memory, metrics.disk]
-            .map { "\($0.label)\u{00A0}\($0.value)" }
-            .joined(separator: " · ")
+        return nil
     }
 
     private func scaled(_ size: CGFloat) -> CGFloat {

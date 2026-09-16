@@ -75,8 +75,6 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
     let showsGroupCounts: Bool
     /// The daemon-tab count badge on pool terminal rows.
     let showsViewBadges: Bool
-    /// One CPU/RAM/Disk line beneath the machine identity and usage.
-    let showsMachineStats: Bool
     let machineVerticalPadding: CGFloat
 
     var fontDesign: Font.Design { monospacedText ? .monospaced : .default }
@@ -84,16 +82,15 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
     var machineSubtitleLineHeight: CGFloat { detailSize + 3.5 }
     var machineResourceHeight: CGFloat { detailSize + 3.5 }
 
-    /// Compact rows remain one line; the card style reserves its additional details.
-    func machineRowHeight(hasStats: Bool, hasUsage: Bool = false) -> CGFloat {
+    /// Machine rows contain identity only; resource and usage details are in
+    /// the collapsed Resources section below the surface groups.
+    func machineRowHeight(hasStats _: Bool, hasUsage _: Bool = false) -> CGFloat {
         switch machineRowLayout {
         case .singleLine:
             return rowHeight + (machineBand ? 7 : 2)
         case .twoLine:
-            let statsHeight = hasStats && showsMachineStats ? 1 + machineResourceHeight : 0
-            let usageHeight = hasUsage ? 1 + machineResourceHeight : 0
             return machineVerticalPadding * 2 + machineNameLineHeight + 1 + machineSubtitleLineHeight
-                + statsHeight + usageHeight + (machineBand ? 8 : 0)
+                + (machineBand ? 8 : 0)
         }
     }
 
@@ -110,7 +107,7 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
         indentPerLevel: 12,
         machineNameSize: 13, titleSize: 13, detailSize: 11, groupLabelSize: 11.5,
         iconSize: 11, iconSlot: 16, iconGap: 7,
-        showsGroupCounts: true, showsViewBadges: true, showsMachineStats: true,
+        showsGroupCounts: true, showsViewBadges: true,
         machineVerticalPadding: 3
     )
 
@@ -124,7 +121,7 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
         indentPerLevel: 13,
         machineNameSize: 12.5, titleSize: 12, detailSize: 10.5, groupLabelSize: 11,
         iconSize: 10.5, iconSlot: 22, iconGap: 7,
-        showsGroupCounts: true, showsViewBadges: true, showsMachineStats: true,
+        showsGroupCounts: true, showsViewBadges: true,
         machineVerticalPadding: 3
     )
 
@@ -138,7 +135,7 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
         indentPerLevel: 12,
         machineNameSize: 12, titleSize: 11.5, detailSize: 10, groupLabelSize: 9,
         iconSize: 10, iconSlot: 15, iconGap: 6,
-        showsGroupCounts: true, showsViewBadges: true, showsMachineStats: true,
+        showsGroupCounts: true, showsViewBadges: true,
         machineVerticalPadding: 3
     )
 
@@ -152,7 +149,7 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
         indentPerLevel: 9,
         machineNameSize: 11, titleSize: 10.5, detailSize: 9.5, groupLabelSize: 8.5,
         iconSize: 8.5, iconSlot: 11, iconGap: 5,
-        showsGroupCounts: true, showsViewBadges: true, showsMachineStats: true,
+        showsGroupCounts: true, showsViewBadges: true,
         machineVerticalPadding: 2
     )
 
@@ -166,7 +163,7 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
         indentPerLevel: 15,
         machineNameSize: 13, titleSize: 12.5, detailSize: 10.5, groupLabelSize: 11,
         iconSize: 14, iconSlot: 22, iconGap: 8,
-        showsGroupCounts: true, showsViewBadges: true, showsMachineStats: true,
+        showsGroupCounts: true, showsViewBadges: true,
         machineVerticalPadding: 4
     )
 

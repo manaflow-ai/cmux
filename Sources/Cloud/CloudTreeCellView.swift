@@ -103,6 +103,8 @@ final class CloudTreeCellView: NSTableCellView {
         }
         if case .machine(let machine, _) = node.kind {
             setAccessibilityLabel(CloudTreeMachineRowContent(machine: machine).accessibilityLabel)
+        } else if case .resource(_, let row) = node.kind {
+            setAccessibilityLabel(row.accessibilityLabel)
         } else {
             setAccessibilityLabel(node.searchableTitle)
         }

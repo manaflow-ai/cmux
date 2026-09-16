@@ -33,7 +33,7 @@ private func gb(_ mb: Int) -> String {
 }
 
 /// Pure presentation of the latest stats snapshot, shared by the row and its tooltip.
-public struct CloudMachineResourcePresentation: Sendable {
+public struct CloudMachineResourcePresentation: Equatable, Sendable {
     /// Whether the latest sample can be presented as live usage.
     public enum Availability: Equatable, Sendable {
         /// The machine snapshot has not received its first stats response yet.
@@ -49,7 +49,7 @@ public struct CloudMachineResourcePresentation: Sendable {
     }
 
     /// One localized resource label, optional percentage, and accessible detail.
-    public struct Reading: Sendable {
+    public struct Reading: Equatable, Sendable {
         /// The localized name of this resource.
         public let label: String
         /// A validated utilization percentage, or nil for an unavailable reading.

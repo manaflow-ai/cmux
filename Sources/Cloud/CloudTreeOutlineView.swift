@@ -276,7 +276,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 restoreSelection(in: outlineView)
             }
         }
-
         /// Ends a native drag and drains the latest deferred snapshot exactly once.
         private func setDragging(_ dragging: Bool) {
             guard isDragging != dragging else { return }
@@ -344,7 +343,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         }
 
         // MARK: NSOutlineViewDelegate
-
         /// Creates or reuses a cell for one immutable Cloud tree node.
         func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
             guard let node = item as? CloudTreeNode else { return nil }
@@ -425,7 +423,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 } else {
                     toggle(node)
                 }
-            case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .browsersGroup:
+            case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .resourcesPool, .browsersGroup:
                 toggle(node)
             case .pendingMachine(let operation):
                 // Nothing to open yet. A failed create's click shows why (the
@@ -701,6 +699,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 )
             case .browsersGroup, .portsGroup:
                 return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() }]
+            case .resourcesPool, .resource:
+                return []
             case .placeholder(let machineID, _):
                 guard let machine = machine(id: machineID) else { return [] }
                 return machineMenuItems(machine)

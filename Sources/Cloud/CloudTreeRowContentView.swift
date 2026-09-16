@@ -1,6 +1,5 @@
 import CmuxFoundation
 import SwiftUI
-
 enum CloudTreeRowGrid {
     /// Width of the outline's disclosure slot; content starts `disclosureGap` after it.
     static let disclosureSlot: CGFloat = 16
@@ -24,7 +23,6 @@ enum CloudTreeIconPalette {
     static let browser = Color.orange
     static let machine = Color.accentColor
 }
-
 struct CloudTreeRowContentView: View {
     let kind: CloudTreeNode.Kind
     var style: CloudTreeStyle = CloudTreeStyleStore.current
@@ -34,7 +32,6 @@ struct CloudTreeRowContentView: View {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
-
     var body: some View {
         row
             .overlay(alignment: .bottom) {
@@ -53,7 +50,6 @@ struct CloudTreeRowContentView: View {
         default: return true
         }
     }
-
     @MainActor @ViewBuilder
     private var row: some View {
         switch kind {
@@ -110,6 +106,10 @@ struct CloudTreeRowContentView: View {
             )
         case .portsGroup:
             CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"), count: nil, style: style)
+        case .resourcesPool:
+            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.resources", defaultValue: "Resources"), count: nil, style: style)
+        case .resource(_, let row):
+            CloudTreeMachineResourceRowContent(row: row, style: style)
         case .port(let resource, let url, _):
             CloudTreeLeafRow(
                 style: style,

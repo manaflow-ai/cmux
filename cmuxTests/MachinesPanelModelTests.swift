@@ -978,7 +978,7 @@ final class MachinesPanelModelTests: XCTestCase {
         let reloaded = CloudTreeExpansionStore(defaults: defaults)
         XCTAssertFalse(reloaded.isExpanded(machineNode), "machine collapse persists")
         XCTAssertFalse(reloaded.isExpanded(localNode), "This Mac's collapse persists too")
-        XCTAssertTrue(reloaded.isExpanded(group), "nested collapses are panel-lifetime only")
+        XCTAssertFalse(reloaded.isExpanded(group), "nested collapse persists across panel reloads")
     }
 
     func testMachineSubtitleNeverShowsTheFreeAccessCountdown() {
@@ -987,7 +987,7 @@ final class MachinesPanelModelTests: XCTestCase {
             activity: .ready, createdAt: nil, label: nil, freeAccess: .active(daysLeft: 3)
         )
         XCTAssertFalse(CloudTreeMachineRowContent(machine: active).subtitle.contains("3"), "expiry is plan chrome, not a machine fact")
-        XCTAssertNotNil(CloudTreeMachineRowContent(machine: active, style: .compact).inlineFact)
+        XCTAssertNil(CloudTreeMachineRowContent(machine: active, style: .compact).inlineFact)
 
         let expired = MachineSnapshot(
             id: "warm-owl", provider: "freestyle", image: "cmux-xfce-vnc:latest", isDesktop: true,
@@ -1011,8 +1011,8 @@ final class MachinesPanelModelTests: XCTestCase {
         XCTAssertNil(CloudTreeStyle.preset(id: "bogus"))
         // The presets are different shapes, not one look at five sizes.
         XCTAssertEqual(Set(presets.map { "\($0.leafLayout)|\($0.iconTreatment)|\($0.groupLabelStyle)|\($0.metaPlacement)|\($0.machineBand)|\($0.monospacedText)" }).count, presets.count, "every preset differs structurally")
-        // Every cloud style reserves a dedicated resource strip.
-        XCTAssertGreaterThan(CloudTreeStyle.aero.machineRowHeight(hasStats: true), CloudTreeStyle.aero.machineRowHeight(hasStats: false))
+        // Resource rows have their own section, so machine headers share one height.
+        XCTAssertEqual(CloudTreeStyle.aero.machineRowHeight(hasStats: true), CloudTreeStyle.aero.machineRowHeight(hasStats: false))
         XCTAssertEqual(CloudTreeStyle.compact.machineRowHeight(hasStats: true), CloudTreeStyle.compact.machineRowHeight(hasStats: false))
     }
 
@@ -1151,9 +1151,8 @@ final class CloudTreeScopeAndSignatureTests: XCTestCase {
         )
     }
 }
-
-/// Compact rows retain the original inline resources and token summary.
-@Suite("Cloud tree machine inline fact")
+/// Resource and cost details live below the machine's surface sections.
+@Suite("Cloud tree machine resource section")
 struct CloudTreeMachineInlineFactTests {
     private func snapshot(stats: VMStats?) -> MachineSnapshot {
         var machine = MachineSnapshotBuilder.snapshot(from: VMSummary(
@@ -1163,21 +1162,21 @@ struct CloudTreeMachineInlineFactTests {
         return machine
     }
 
-    @Test("Resource readings share the compact machine header")
-    func awakeReadingHasDedicatedSpace() {
+    @Test("Resource readings are absent from the compact machine header")
+    func awakeReadingHasDedicatedSection() {
         let stats = VMStats(
             state: .awake, sampledAt: Date(timeIntervalSince1970: 0), cpus: 2, cpuPercent: 9.4,
             loadAverage1m: nil, memoryTotalMb: 3891, memoryUsedMb: 3481, diskTotalMb: 3174, diskUsedMb: 2867
         )
         let fact = CloudTreeMachineRowContent(machine: snapshot(stats: stats), style: .compact,
                                              now: stats.sampledAt).inlineFact
-        #expect(fact?.contains("CPU") == true)
+        #expect(fact == nil)
         #expect(CloudTreeStyle.compact.machineRowHeight(hasStats: true) == CloudTreeStyle.compact.machineRowHeight(hasStats: false))
     }
 
-    @Test("No reading yet keeps missing-data state inline")
+    @Test("No reading yet keeps the machine header compact")
     func missingStatsShowsNothing() {
-        #expect(CloudTreeMachineRowContent(machine: snapshot(stats: nil), style: .compact).inlineFact?.contains("Token usage unavailable") == true)
+        #expect(CloudTreeMachineRowContent(machine: snapshot(stats: nil), style: .compact).inlineFact == nil)
     }
 }
 
@@ -1397,7 +1396,8 @@ struct MachineUsageReadoutTests {
         #expect(CloudTreeMachineRowContent(machine: idle).usageLine?.contains("0 tokens") == true)
 
         let fact = CloudTreeMachineRowContent(machine: withUsage, style: .compact).inlineFact
-        #expect(fact?.contains(line) == true, "compact usage follows the name on the same line")
+        #expect(fact == nil, "compact usage is rendered by the Resources section")
+        #expect(CloudTreeMachineResourceSection(machine: withUsage).rows.last?.detail == line)
         #expect(CloudTreeMachineRowContent(machine: withUsage).toolTip.contains(line), "spend stays available on hover")
     }
 
