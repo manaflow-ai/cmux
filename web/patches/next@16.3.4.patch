@@ -1,0 +1,174 @@
+diff --git a/dist/client/dev/hot-reloader/app/web-socket.js b/dist/client/dev/hot-reloader/app/web-socket.js
+index 0fa25c7023bf11325367e499e6558214f3d7f4e9..dfb8fb1b7bff7b2ae2da124f18caa3d16c698ff2 100644
+--- a/dist/client/dev/hot-reloader/app/web-socket.js
++++ b/dist/client/dev/hot-reloader/app/web-socket.js
+@@ -47,26 +47,37 @@ function createWebSocket(assetPrefix, staticIndicatorState) {
+     }
+     let webSocket;
+     let timer;
++    let pageHidden = false;
+     const sendMessage = (data)=>{
+         if (webSocket && webSocket.readyState === webSocket.OPEN) {
+             webSocket.send(data);
+         }
+     };
+     const processTurbopackMessage = createProcessTurbopackMessage(sendMessage);
+-    function init() {
++    function closeSocket() {
+         if (webSocket) {
++            webSocket.onopen = null;
++            webSocket.onerror = null;
++            webSocket.onclose = null;
++            webSocket.onmessage = null;
+             webSocket.close();
+         }
++    }
++    function init() {
++        if (pageHidden || reloading) return webSocket;
++        clearTimeout(timer);
++        closeSocket();
+         const newWebSocket = new window.WebSocket(`${(0, _getsocketurl.getSocketUrl)(assetPrefix)}/_next/hmr?id=${self.__next_r}`);
+         newWebSocket.binaryType = 'arraybuffer';
+         function handleOnline() {
++            if (pageHidden || newWebSocket !== webSocket) return;
+             _forwardlogs.logQueue.onSocketReady(newWebSocket);
+             reconnections = 0;
+             window.console.log('[HMR] connected');
+         }
+         function handleMessage(event) {
+             // While the page is reloading, don't respond to any more messages.
+-            if (reloading) {
++            if (reloading || pageHidden || newWebSocket !== webSocket) {
+                 return;
+             }
+             try {
+@@ -98,6 +109,7 @@ function createWebSocket(assetPrefix, staticIndicatorState) {
+             }
+         }
+         function handleDisconnect() {
++            if (pageHidden || newWebSocket !== webSocket) return;
+             newWebSocket.onerror = null;
+             newWebSocket.onclose = null;
+             newWebSocket.close();
+@@ -120,19 +132,32 @@ function createWebSocket(assetPrefix, staticIndicatorState) {
+         return newWebSocket;
+     }
+     function handleVisibilityChange() {
+-        if (document.visibilityState === 'visible' && webSocket.readyState !== WebSocket.OPEN) {
++        if (!pageHidden && document.visibilityState === 'visible' && webSocket.readyState > WebSocket.OPEN) {
+             reconnections = 0;
+             clearTimeout(timer);
+             init();
+         }
+     }
+     function handleOnlineEvent() {
+-        if (webSocket.readyState !== WebSocket.OPEN) {
++        if (!pageHidden && webSocket.readyState > WebSocket.OPEN) {
+             reconnections = 0;
+             clearTimeout(timer);
+             init();
+         }
+     }
++    // Retire HMR before the browser freezes the document. A cached page keeps
++    // its JS heap, so reconnect from pageshow using the same request identity.
++    window.addEventListener('pagehide', ()=>{
++        pageHidden = true;
++        clearTimeout(timer);
++        closeSocket();
++    });
++    window.addEventListener('pageshow', ()=>{
++        if (!pageHidden) return;
++        pageHidden = false;
++        reconnections = 0;
++        init();
++    });
+     document.addEventListener('visibilitychange', handleVisibilityChange);
+     window.addEventListener('online', handleOnlineEvent);
+     return init();
+diff --git a/dist/esm/client/dev/hot-reloader/app/web-socket.js b/dist/esm/client/dev/hot-reloader/app/web-socket.js
+index 5ad1a8ab4eb075341177c1de62db770e875a4104..7bc594aa4097ceac2a21488a3a4e4c4153bbb2fd 100644
+--- a/dist/esm/client/dev/hot-reloader/app/web-socket.js
++++ b/dist/esm/client/dev/hot-reloader/app/web-socket.js
+@@ -21,26 +21,37 @@ export function createWebSocket(assetPrefix, staticIndicatorState) {
+     }
+     let webSocket;
+     let timer;
++    let pageHidden = false;
+     const sendMessage = (data)=>{
+         if (webSocket && webSocket.readyState === webSocket.OPEN) {
+             webSocket.send(data);
+         }
+     };
+     const processTurbopackMessage = createProcessTurbopackMessage(sendMessage);
+-    function init() {
++    function closeSocket() {
+         if (webSocket) {
++            webSocket.onopen = null;
++            webSocket.onerror = null;
++            webSocket.onclose = null;
++            webSocket.onmessage = null;
+             webSocket.close();
+         }
++    }
++    function init() {
++        if (pageHidden || reloading) return webSocket;
++        clearTimeout(timer);
++        closeSocket();
+         const newWebSocket = new window.WebSocket(`${getSocketUrl(assetPrefix)}/_next/hmr?id=${self.__next_r}`);
+         newWebSocket.binaryType = 'arraybuffer';
+         function handleOnline() {
++            if (pageHidden || newWebSocket !== webSocket) return;
+             logQueue.onSocketReady(newWebSocket);
+             reconnections = 0;
+             window.console.log('[HMR] connected');
+         }
+         function handleMessage(event) {
+             // While the page is reloading, don't respond to any more messages.
+-            if (reloading) {
++            if (reloading || pageHidden || newWebSocket !== webSocket) {
+                 return;
+             }
+             try {
+@@ -72,6 +83,7 @@ export function createWebSocket(assetPrefix, staticIndicatorState) {
+             }
+         }
+         function handleDisconnect() {
++            if (pageHidden || newWebSocket !== webSocket) return;
+             newWebSocket.onerror = null;
+             newWebSocket.onclose = null;
+             newWebSocket.close();
+@@ -94,19 +106,32 @@ export function createWebSocket(assetPrefix, staticIndicatorState) {
+         return newWebSocket;
+     }
+     function handleVisibilityChange() {
+-        if (document.visibilityState === 'visible' && webSocket.readyState !== WebSocket.OPEN) {
++        if (!pageHidden && document.visibilityState === 'visible' && webSocket.readyState > WebSocket.OPEN) {
+             reconnections = 0;
+             clearTimeout(timer);
+             init();
+         }
+     }
+     function handleOnlineEvent() {
+-        if (webSocket.readyState !== WebSocket.OPEN) {
++        if (!pageHidden && webSocket.readyState > WebSocket.OPEN) {
+             reconnections = 0;
+             clearTimeout(timer);
+             init();
+         }
+     }
++    // Retire HMR before the browser freezes the document. A cached page keeps
++    // its JS heap, so reconnect from pageshow using the same request identity.
++    window.addEventListener('pagehide', ()=>{
++        pageHidden = true;
++        clearTimeout(timer);
++        closeSocket();
++    });
++    window.addEventListener('pageshow', ()=>{
++        if (!pageHidden) return;
++        pageHidden = false;
++        reconnections = 0;
++        init();
++    });
+     document.addEventListener('visibilitychange', handleVisibilityChange);
+     window.addEventListener('online', handleOnlineEvent);
+     return init();

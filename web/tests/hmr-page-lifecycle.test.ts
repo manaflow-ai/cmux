@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import vm from "node:vm";
+import ts from "typescript";
 
 const require = createRequire(import.meta.url);
 
@@ -53,9 +54,10 @@ async function harness(esm: boolean) {
   const entrypoint = require.resolve(`next/dist/${esm ? "esm/" : ""}client/dev/hot-reloader/app/web-socket.js`);
   // Execute the installed dependency, not a copy of its algorithm. The ESM
   // distribution is the browser's entrypoint; CJS is exercised as well.
-  const result = await Bun.build({ entrypoints: [entrypoint], target: "node", format: "cjs", external: ["*"], write: false });
-  if (!result.success) throw new Error(String(result.logs));
-  const source = esm ? await result.outputs[0]!.text() : await readFile(entrypoint, "utf8");
+  const installedSource = await readFile(entrypoint, "utf8");
+  const source = esm ? ts.transpileModule(installedSource, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText : installedSource;
   vm.runInNewContext(source, {
     module, exports: module.exports, require: dependencies,
     window: Object.assign(page, { WebSocket: Socket, console: { log() {} }, location: { reload() { reloads++; } } }),
