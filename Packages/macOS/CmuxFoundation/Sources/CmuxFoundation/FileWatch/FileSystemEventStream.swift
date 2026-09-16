@@ -108,15 +108,18 @@ final class FileSystemEventStream: @unchecked Sendable {
         let receiver = FileSystemEventReceiver(onEvent: onEvent)
         var context = receiver.makeContext()
         let flags = FSEventStreamCreateFlags(kFSEventStreamCreateFlagFileEvents)
-        guard let stream = FSEventStreamCreate(
-            nil,
-            Self.callback,
-            &context,
-            paths as CFArray,
-            FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
-            latency,
-            flags
-        ) else { return nil }
+        let createdStream = withExtendedLifetime(receiver) {
+            FSEventStreamCreate(
+                nil,
+                Self.callback,
+                &context,
+                paths as CFArray,
+                FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
+                latency,
+                flags
+            )
+        }
+        guard let stream = createdStream else { return nil }
         FSEventStreamSetDispatchQueue(stream, queue)
         guard FSEventStreamStart(stream) else {
             FSEventStreamInvalidate(stream)
