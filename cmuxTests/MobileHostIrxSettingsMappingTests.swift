@@ -150,36 +150,30 @@ struct MobileHostIrxSettingsMappingTests {
         #expect(snapshot.failureDescription != nil)
     }
 
-    @Test func relayFailureReachesSettingsAndClearsWhenReady() {
+    @MainActor @Test func relayFailureReachesSettingsAndClearsWhenReady() async {
         let message = "Relay connection to relay.example.test failed: UnknownIssuer."
-        var listener = MobileHostListenerState()
-        listener.relayFailed(IrxEndpointError.bindFailed(message))
-        let snapshot = MobileHostIrxRuntime.settingsSnapshot(
-            phase: .activating,
-            forceRelayOnly: false,
-            endpointOnline: false,
-            homeRelayURL: nil,
-            relayFleet: fleet,
-            hasTrustSnapshot: true,
-            hadLiveDiscovery: true,
-            credentialExpiry: nil,
-            failureDescription: listener.failureDescription
-        )
+        let runtime = MobileHostIrxRuntime()
+        runtime.setSettingsPhase(.failed, error: IrxEndpointError.bindFailed(message))
+        let snapshot = await runtime.irohSettingsSnapshot()
         #expect(snapshot.failureDescription == message)
-        #expect(listener.phase == .retrying)
-        listener.updateReadiness(healthy: false, port: nil, addresses: [])
-        #expect(listener.failureDescription == message)
-        listener.updateReadiness(healthy: true, port: 1234, addresses: [])
-        #expect(listener.failureDescription == nil)
-        #expect(listener.isRunning)
+        #expect(runtime.settingsPhase == .failed)
+        let updated = "Relay connection to relay.example.test failed: HostnameMismatch."
+        runtime.setSettingsPhase(.failed, error: IrxEndpointError.bindFailed(updated))
+        #expect(await runtime.irohSettingsSnapshot().failureDescription == updated)
+        runtime.setSettingsPhase(.active)
+        #expect(await runtime.irohSettingsSnapshot().failureDescription == nil)
     }
 
-    @Test func unrelatedErrorsCannotExposeRawCredentialsInSettings() {
-        var listener = MobileHostListenerState()
-        listener.relayFailed(NSError(domain: "example", code: 1, userInfo: [
+    @MainActor @Test func unrelatedErrorsCannotExposeRawCredentialsInSettings() async {
+        let runtime = MobileHostIrxRuntime()
+        runtime.setSettingsPhase(.failed, error: IrxEndpointError.bindFailed("UnknownIssuer"))
+        runtime.setSettingsPhase(.failed, error: NSError(domain: "example", code: 1, userInfo: [
             NSLocalizedDescriptionKey: "https://user:secret@relay.example/path?token=secret",
         ]))
-        #expect(listener.failureDescription == nil)
+        #expect(runtime.relayFailureDescription == nil)
+        let snapshot = await runtime.irohSettingsSnapshot()
+        #expect(snapshot.failureDescription?.contains("secret") == false)
+        #expect(snapshot.failureDescription?.contains("UnknownIssuer") == false)
     }
 
     @Test func unsupportedMutationsThrowExplicitly() async {
