@@ -7,12 +7,14 @@
         "snapshot": "Ovaj Cloud VM ne podržava sačuvano stanje VM-a.",
         "restore": "Ova vrsta Cloud VM-a ne podržava vraćanje sačuvanog stanja VM-a.",
         "fork": "Ovaj Cloud VM ne podržava kopiranje u novi VM.",
+        "openPort": "Provajder ovog Cloud VM-a ne može izložiti portove mašine kao URL-ove za pregled.",
         "default": "Ovaj Cloud VM ne podržava traženu operaciju."
       },
       "action": {
         "snapshot": "Ne pokušavajte ponovo. Rad na ovoj vrsti mašine čuva se na njenom trajnom kućnom volumenu.",
         "restore": "Ne pokušavajte ponovo. Rad na ovoj vrsti mašine čuva se na njenom trajnom kućnom volumenu.",
         "fork": "Ne pokušavajte ponovo. Kreirajte novi VM pomoću `cmux vm new`.",
+        "openPort": "Ne pokušavajte ponovo. Pristupite usluzi iz mašine pomoću `cmux vm exec` ili koristite tip mašine koji može otvoriti portove.",
         "default": "Ne pokušavajte ponovo. Pokrenite `cmux vm ls` ili kontaktirajte podršku ako mislite da je ovo greška."
       }
     },
@@ -20,8 +22,31 @@
       "title": "Potreban je cmux Pro",
       "message": "Cloud VM-ovi zahtijevaju cmux Pro plan.",
       "action": "Nadogradite na cmux Pro na {upgradeUrl} da biste kreirali Cloud VM-ove."
+    },
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "Mašine sa {memory} GiB zahtijevaju cmux {plan}. Vaš paket podržava do {max} GiB.",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "Nije moguće provjeriti veličinu RAM-a izvorne mašine.",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "Ova veličina mašine nije dostupna. Odaberite do {max} GiB.",
+      "action": "cmux vm new --size {max}g"
     }
-  },
+  ,
+    "goLimit": {
+      "savedMessage": "Go uključuje dvije sačuvane VM, uključujući pokrenutu VM.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "activeMessage": "Go omogućava jednu pokrenutu VM istovremeno.",
+      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "hoursMessage": "Go je potrošio 40 VM-sati za ovaj mjesec. Sačuvane VM bit će dostupne u sljedećem obračunskom periodu.",
+      "hoursAction": "cmux billing checkout --plan pro",
+      "shapeMessage": "Go podržava 2 vCPU, 4 GiB RAM-a i 16 GiB diska.",
+      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    }},
   "billingRecovery": {
     "message": "Ako smo pronašli nalog, provjerite e-poštu za sljedeće korake"
   },
@@ -59,6 +84,15 @@
     "genericTitle": "Prijava nije dovršena",
     "genericBody": "Pokušajte ponovo. Ako problem potraje, kontaktirajte podršku.",
     "backToSignIn": "Nazad na prijavu"
+  },
+  "cloudPublicationAccess": {
+    "title": "Nemate pristup",
+    "signIn": "Prijavite se na cmux",
+    "signedInAs": "Prijavljeni ste kao {identity}",
+    "switchAccount": "Promijeni nalog",
+    "invalidTitle": "Ovaj link za pristup nije važeći",
+    "invalidBody": "Vratite se na stranicu i pokušajte ponovo.",
+    "footer": "Pristupom upravlja cmux."
   },
   "common": {
     "downloadForMac": "Preuzmi za Mac",
@@ -141,6 +175,42 @@
     "applyAriaLabel": "Prijavite se e-mailom za Founding Engineer poziciju",
     "applyEmailSubject": "Prijava za Founding Engineer u cmuxu",
     "applyCta": "Pošalji e-mail",
+    "foundingChromiumEngineer": {
+      "metaTitle": "Founding Chromium Engineer u cmuxu",
+      "metaDescription": "Pridružite se cmuxu kao founding Chromium inženjer: preuzmite naš Chromium fork i donesite cmux na Windows i Linux s C++ i Rust.",
+      "section": "Poslovi",
+      "eyebrow": "O ulozi",
+      "title": "Founding Chromium Engineer",
+      "tagline": "Donesite cmux na Windows i Linux.",
+      "intro": "cmux je nativni macOS terminal izgrađen na Ghosttyju, dizajniran za paralelno pokretanje više AI coding agenata. Stotine hiljada programera koristi cmux za svoje agentske coding tokove.",
+      "hiring": "Zapošljavamo founding inženjera koji će preuzeti cmux na Windowsu (i Linuxu), izgrađen na našem vlastitom forku Chromiuma.",
+      "whatYoullDo": "Šta ćete raditi",
+      "whatYoullDoItems": [
+        "Preuzmite naš Chromium fork: pratite upstream, čisto rebaseajte i nosite cmux patcheve (integracija prozora/unosa/renderiranja, terminalska površina, UI agenata).",
+        "Preuzmite cmux na Windowsu i Linuxu od početka do kraja: C++, instalater, automatska ažuriranja, izvještavanje o padovima.",
+        "Portirajte terminalsko jezgro bazirano na Ghosttyju i funkcije orkestracije agenata (vertikalni tabovi, prstenovi notifikacija, podjele, CLI) na Windows.",
+        "Učinite da performanse budu kao nativne: vrijeme pokretanja, GPU renderiranje, latencija unosa.",
+        "Stalno koristite, testirajte i verificirajte proizvod."
+      ],
+      "excitedLead": "Posebno nas raduje ako:",
+      "excitedItems": [
+        "Duboko poznavanje C++-a i stvarno iskustvo s Chromiumom - idealno je da ste održavali fork: nošenje patcheva, rebase na upstream milestone, debugovanje u content/ ili blink.",
+        "Rust je veliki plus (naš TUI i mrežni daemon su pisani u Rustu).",
+        "Isporučili ste ili održavali pravu Windows desktop aplikaciju.",
+        "Bonus: doprinosi upstream Chromiumu, zanimanje za Swift/AppKit, open-source održavatelj, bivši osnivač."
+      ],
+      "details": "Detalji",
+      "roleTitle": "Founding Chromium Engineer",
+      "compensationLabel": "Naknada",
+      "compensation": "$130k–$170k + 0,5%–1,5% udjela",
+      "benefitsLabel": "Pogodnosti",
+      "benefits": "Zdravstveno, stomatološko i osiguranje vida",
+      "locationLabel": "Lokacija",
+      "location": "San Francisco",
+      "applyAriaLabel": "Prijavite se e-mailom za Founding Chromium Engineer poziciju",
+      "applyEmailSubject": "Prijava za Founding Chromium Engineer u cmuxu",
+      "applyCta": "Pošalji e-mail"
+    },
     "foundingDesigner": {
       "metaTitle": "Founding Designer u cmuxu",
       "metaDescription": "Pridružite se cmuxu kao Founding Designer i dizajnirajte budućnost programiranja uz AI na macOS-u, TUI-ju, Windowsu, Linuxu, iOS-u, Cloudu, cmux.comu i chatmuxu.",
@@ -247,7 +317,8 @@
     "nav": {
       "coderouterGroup": "coderouter",
       "coderouterOverview": "pregled",
-      "team": "tim"
+      "team": "tim",
+      "irohDevices": "IROH devices"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -284,64 +355,6 @@
       "organizationSwitchError": "Nije moguće promijeniti organizaciju. Pokušajte ponovo.",
       "signIn": "Prijavi se"
     },
-    "aiAccounts": {
-      "metaTitle": "AI nalozi — cmux",
-      "metaDescription": "Upravljaj timskim nalozima AI provajdera za cmux.",
-      "section": "Kontrolna tabla",
-      "title": "AI nalozi",
-      "description": "Upravljaj nalozima provajdera koje ovaj tim može koristiti za cmux AI.",
-      "personalTeam": "Lično",
-      "teamSwitcherLabel": "Tim",
-      "notConfiguredTitle": "Upravljanje AI nalozima još nije dostupno",
-      "notConfiguredBody": "Timski AI nalozi nisu omogućeni za ovu instalaciju. Pokušaj kasnije ili kontaktiraj podršku.",
-      "loadErrorTitle": "Nalozi se nisu mogli učitati",
-      "loadErrorBody": "Servis naloga nije dostupan. Pokušaj ponovo za koji trenutak.",
-      "accountsTitle": "Povezani nalozi",
-      "accountsCount": "{count, plural, one {# nalog} few {# naloga} other {# naloga}}",
-      "emptyTitle": "Još nema naloga",
-      "emptyBody": "Dodaj nalog provajdera da bi bio dostupan ovom timu.",
-      "providerColumn": "Provajder",
-      "labelColumn": "Oznaka",
-      "createdColumn": "Kreiran",
-      "actionsColumn": "Radnje",
-      "unlabeledAccount": "Bez oznake",
-      "unknownCreatedAt": "Nepoznato",
-      "addAccountsTitle": "Dodaj nalog",
-      "providerClaude": "Claude OAuth",
-      "providerAnthropicApiKey": "Anthropic API ključ",
-      "providerCodex": "Codex OAuth",
-      "providerOpenAiApiKey": "OpenAI API ključ",
-      "providerUnknown": "Nepoznat provajder",
-      "labelField": "Oznaka",
-      "labelPlaceholder": "Zadano za tim",
-      "oauthJsonField": "OAuth JSON",
-      "apiKeyField": "API ključ",
-      "addClaude": "Dodaj Claude",
-      "addAnthropic": "Dodaj Anthropic",
-      "addCodex": "Dodaj Codex",
-      "addOpenAi": "Dodaj OpenAI",
-      "addSuccess": "Nalog je dodan.",
-      "addError": "Nalog se nije mogao sačuvati.",
-      "deleteError": "Nalog se nije mogao obrisati.",
-      "jsonError": "Zalijepi važeći JSON objekat.",
-      "validationError": "Provjeri podatke naloga i pokušaj ponovo.",
-      "teamAccessError": "Nemaš pristup ovom timu.",
-      "deletingAction": "Brisanje",
-      "deleteAction": "Obriši",
-      "deleteConfirmTitle": "Obrisati ovaj nalog?",
-      "deleteConfirmBody": "Nalog provajdera bit će uklonjen za cijeli tim. Za ponovno dodavanje trebat će ti originalni podaci za prijavu.",
-      "cancelAction": "Otkaži",
-      "claudeJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"expiresAt\":1770000000000}",
-      "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
-      "anthropicKeyPlaceholder": "sk-ant-...",
-      "openAiKeyPlaceholder": "sk-...",
-      "cliAddBody": "Add provider accounts securely from your terminal. Sign in with your team, then run one of these commands:",
-      "codexTool": "Codex",
-      "codexCommand": "Copy codex command",
-      "opencodeTool": "OpenCode",
-      "opencodeCommand": "Copy opencode command",
-      "copied": "Copied"
-    },
     "billing": {
       "plan": {
         "heading": "Vaš lični plan",
@@ -349,6 +362,24 @@
         "pro": "Pro",
         "loading": "Učitavanje…"
       }
+    },
+    "iroh": {
+      "title": "IROH devices",
+      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
+      "team": "Team",
+      "loading": "Loading devices…",
+      "empty": "No IROH devices are registered for this team.",
+      "unavailable": "Dashboard authorization is unavailable.",
+      "mutationError": "The device change could not be completed.",
+      "revoke": "Revoke access",
+      "deviceId": "Device",
+      "revision": "Revision",
+      "status": "Status",
+      "active": "Active",
+      "revoked": "Revoked",
+      "relaySettings": "Relay settings",
+      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
+      "saveRelaySettings": "Save relay settings"
     }
   },
   "community": {
@@ -923,6 +954,60 @@
     }
   },
   "docs": {
+    "computerUse": {
+      "title": "cmux Computer Use",
+      "metaTitle": "cmux Computer Use: automatizacija Maca uz AI agente",
+      "metaDescription": "Neka Claude Code i Codex upravljaju vašim Macom uz cmux Computer Use. Automatizujte aplikacije snimcima ekrana, pristupačnošću, klikovima i tastaturom.",
+      "docsMetaTitle": "Postavljanje i alati za Computer Use",
+      "docsMetaDescription": "Postavite cmux Computer Use na macOS-u: dozvole, alati za Claude Code i Codex, izbor aplikacija, sesije, vještine i rješavanje problema.",
+      "tagline": "Neka Claude Code i Codex upravljaju vašim Macom.",
+      "intro": "Omogućite AI agentima za kodiranje pristup izvornim Mac aplikacijama. Uz cmux Computer Use mogu čitati interfejse, snimati ekran, klikati kontrole i unositi tekst.",
+      "imageAlt": "Postavljanje cmux Computer Use dozvola za pristupačnost i snimke ekrana",
+      "caption": "Dozvolama za Computer Use upravlja zaseban pomoćni program, pa terminalske sesije ostaju otvorene tokom početnog postavljanja.",
+      "featuresTitle": "Upravljajte izvornim Mac aplikacijama",
+      "featureInspect": "Pregledajte interfejse pomoću stabala pristupačnosti i snimaka ekrana.",
+      "featureAct": "Klikajte, pišite, skrolujte, prevlačite i koristite prečice u macOS aplikacijama.",
+      "featureReview": "Pratite vidljivi kursor agenta, provjerite rezultat i vratite se u terminal koji je pokrenuo radnju.",
+      "agentsTitle": "Vaši agenti za kodiranje u cmux-u",
+      "agentsBody": "Pokrenite {agents} i druge agente komandne linije u cmux-u.",
+      "supportTitle": "Podržani agenti",
+      "supportBody": "Izvorni Computer Use alati automatski se povezuju s Claude Code i Codex sesijama pokrenutim unutar cmux-a. Drugi agenti rade u terminalu, ali još ne dobijaju ovu automatsku integraciju za upravljanje Macom.",
+      "setupTitle": "Prvi koraci",
+      "step1": "Instalirajte i otvorite cmux za Mac. Uključite Computer Use u Postavke → Computer Use.",
+      "step2": "Kroz kontrole dozvola u sistemskim postavkama dodijelite cmux Computer Use pristupačnost i snimanje ekrana. Ako pomoćni program nije na listi, dodajte ili prevucite njegovu ikonu aplikacije u panel dozvola.",
+      "step3": "Pokrenite novu Claude Code ili Codex sesiju u cmux-u. Zatražite Computer Use i navedite aplikaciju i zadatak. Alati se povezuju automatski, bez ručnog MCP podešavanja.",
+      "permissionsTitle": "Dozvole i postavljanje",
+      "permissionsBody": "Pristupačnost omogućava čitanje i korištenje interfejsa, a snimanje ekrana omogućava snimke. Dodijelite obje dozvole programu cmux Computer Use. Otvaranje cmux-a ili pokretanje agenta ne daje pristup niti automatski otvara postavljanje.",
+      "tahoeBody": "Na macOS Tahoe odobrite i dodatnu potvrdu snimanja ekrana tokom postavljanja. Ponovite zadatak kada cmux prikaže da su obje dozvole dodijeljene.",
+      "promptTitle": "Isprobajte s Kalkulatorom",
+      "prompt": "Koristi cmux Computer Use da otvoriš Kalkulator, klikneš 100 + 105 i pokažeš mi rezultat.",
+      "workflowBody": "Prvo pregledajte cilj, djelujte na kontrole iz tog snimka stanja, pa ponovo provjerite rezultat. Indeksi elemenata važe samo za trenutno stanje; osvježite ih nakon navigacije ili promjene rasporeda. Potvrda klika sama ne dokazuje završetak zadatka.",
+      "toolsTitle": "Alati za agente",
+      "toolsBody": "cmux-cua je ugrađeni MCP server sa strukturiranim alatima za izvorne aplikacije. Ovo su nazivi alata, ne shell komande. Argumenti zavise od profila agenta; koristite šeme povezane sa sesijom.",
+      "codexBody": "Codex poziva get_app_state s nazivom aplikacije ili identifikatorom paketa i dobija snimak ekrana i stablo pristupačnosti. Koristite trenutni element_index ili koordinate snimka, pa ponovo pozovite get_app_state. Alati:",
+      "claudeBody": "Claude Code nalazi ciljeve preko list_apps i list_windows, pa koristi get_window_state s pid i window_id. Dajte prednost tokenima elemenata ili svježim indeksima. Izvorni profil nudi i perform_actions za grupe radnji koje ne poništavaju kasnije ciljeve.",
+      "controlTitle": "Pratite i zaustavite Computer Use",
+      "controlBody": "Computer Use na traci menija prikazuje aktivnog agenta. Focus Computer Use prati kontrolisanu aplikaciju; Focus Calling Terminal vraća izvorni terminal bez zaustavljanja automatizacije. Za prekid sesije upravljanja koristite radnju zaustavljanja u meniju.",
+      "disableBody": "Isključite Computer Use u postavkama. Za izostavljanje alata iz nove sesije agenta, postavite CMUX_COMPUTER_USE_MCP_DISABLED=1 prije pokretanja.",
+      "skillTitle": "Vještine",
+      "skillBody": "Vještina cmux-cua objašnjava tok pregleda i radnji. Opcionalna je i ne dodjeljuje macOS dozvole. Za trajnu instalaciju koristite agentov instalater vještina; cmux podrazumijevano ne instalira globalne vještine.",
+      "skillLink": "Pročitajte vještinu cmux-cua",
+      "browserTitle": "Izvorne aplikacije i automatizacija preglednika",
+      "browserBody": "Computer Use upravlja izvornim Mac prozorima putem snimaka ekrana i pristupačnosti. Za cmux panele preglednika koristite cmux browser za DOM snimke, selektore, obrasce i JavaScript. Reference površina preglednika razlikuju se od indeksa elemenata izvornih aplikacija.",
+      "browserLink": "Referenca automatizacije preglednika",
+      "troubleTitle": "Rješavanje problema",
+      "missingTitle": "Agent nema Computer Use alate",
+      "missingBody": "Uključite Computer Use i pokrenite novu Claude Code ili Codex sesiju unutar cmux-a. Postojeće sesije mogu zadržati stare alate. Provjerite da funkciju ne isključuju varijable okruženja ili upravljana pravila.",
+      "blockedTitle": "Nepotpuno postavljanje, neuspješni klikovi ili prazni snimci",
+      "blockedBody": "Ponovo otvorite Postavke → Computer Use i dovršite obje dozvole, uključujući dodatne potvrde snimanja. Zatim pokušajte ponovo. Terminali mogu ostati otvoreni ako se pomoćni program mora ponovo pokrenuti.",
+      "targetTitle": "Pogrešan prozor ili blokiran klik",
+      "targetBody": "Ponovo pregledajte aplikaciju i izaberite element iz trenutnog stanja. Ako drugi prozor prekriva cilj, otkrijte željeni prozor i pregledajte ga prije ponavljanja. Ne koristite zastarjele koordinate ili indekse.",
+      "productLink": "Pregled cmux Computer Use",
+    "copyTitle": "Kopiraj Computer Use prompt",
+    "copyPrompt": "Kopiraj prompt",
+    "copiedPrompt": "Kopirano",
+    "installPrompt": "Koristi vještinu $cmux-cua. Ako nedostaje, instaliraj je uobičajenim instalaterom. Ako nema dozvola, reci mi da otvorim cmux Postavke → Computer Use. Pregledaj prije rada i provjeri svaku promjenu.\n\nZadatak: [opišite zadatak ovdje]"
+    },
     "remoteTmux": {
       "moshContrast": "Za roaming između mreža koristite cmux mosh-tmux. Otvara punopravni Mosh terminal spojen na imenovanu tmux sesiju; ne zamjenjuje izvorno preslikavanje radnih prostora, kartica i podjela koje pruža SSH tmux kontrolni režim."
     },
@@ -1172,6 +1257,14 @@
         "shortcuts": {
           "when": "Opcionalni kontekstni predikati po radnji (VS Code stil `when` klauzula), indeksirani cmux ID-jem radnje. Svaka vrijednost je Booleov izraz nad ključevima konteksta, kombinovan sa !, &&, || i zagradama. Booleovi ključevi: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Tipizirani ključevi podržavaju poređenja: string sidebarMode (files, find, sessions, feed ili dock) i cijeli brojevi paneCount i workspaceCount. Operatori poređenja su ==, !=, =~ (regularni izraz), <, <=, >, >= i `in [a, b]`; nepoznat ili odsutan ključ čita se kao false. Prihvataju se i Booleovi literali true i false; `key == false` je isto što i `!key`. Prečica radnje se pokreće (i sukobljava s drugim prečicama) samo kada je klauzula tačna. Primjeri: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } bira radne prostore pomoću Ctrl+1–9 svuda osim kada je fokusiran desni bočni panel; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } ograničava vezivanje na bočni panel za pretragu kada radni prostor ima više okana.",
           "showModifierHoldHints": "Prikaži oznake s prečicama dok držite Cmd ili Control."
+        },
+        "fileEditor": {
+          "wordWrap": "Prelamaj duge redove na desnoj ivici uređivača umjesto vodoravnog pomicanja.",
+          "syntaxHighlighting": "Oboji tokene izvornog koda u ugrađenom uređivaču datoteka.",
+          "lineNumbers": "Prikaži žlijeb s brojevima redova u ugrađenom uređivaču datoteka.",
+          "indentGuides": "Crtaj okomite vodiče uvlačenja u ugrađenom uređivaču datoteka.",
+          "currentLineHighlight": "Istakni red s karetom kada ništa nije odabrano.",
+          "tabWidth": "Širina tabulatora u stupcima za uvlačenje i vodiče uvlačenja."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -1234,7 +1327,7 @@
       "plusButtonScreenshotAlt": "Meni plus dugmeta na desni klik prikazuje Worktree Agents, New Terminal i New Browser",
       "plusButtonScreenshotCaption": "Meni desnog klika prati redoslijed iz ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Prilagođene akcije plus dugmeta",
-      "newWorkspaceButtonDesc": "Koristi <action>ui.newWorkspace.action</action> da zamijeniš ono što plus dugme radi. Koristi <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (ili alias <rightClick>rightClick</rightClick>) da definiraš uređeni meni desnog klika. Stavke menija mogu biti ID-jevi akcija, objekti akcija ili <separator>{ \"type\": \"separator\" }</separator>.",
+      "newWorkspaceButtonDesc": "Koristi <action>ui.newWorkspace.action</action> da zamijeniš ono što plus dugme radi. Koristi <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (ili alias <rightClick>rightClick</rightClick>) da definiraš uređeni meni desnog klika. Stavke menija mogu biti ID-jevi akcija, objekti akcija ili <separator>{ \"type\": \"separator\" }</separator>. Kada nije postavljeno, meni prikazuje cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), sa trenutnim prečicama. Stavke oblaka prikazuju se samo kada je Cloud Machines uključen.",
       "newWorkspaceWorktreeNote": "Ovaj primjer čini da običan klik na plus pokrene akciju <action>worktree-agents</action>. Komanda radnog prostora iz <commands>commands</commands> koristi vidljiv terminal za pripremu da prvo napravi Git <worktree>worktree</worktree>. Codex i Claude se pokreću istovremeno, čekaju datoteku stanja specifičnu za radni prostor, zatim prelaze u kreirani direktorij prije exec.",
       "simpleCommands": "Jednostavne komande",
       "simpleCommandsDesc": "Jednostavna komanda pokreće shell komandu u trenutno fokusiranom terminalu:",
@@ -1595,6 +1688,7 @@
       }
     },
     "navItems": {
+      "computerUse": "Upravljanje računarom",
       "gettingStarted": "Početak rada",
       "concepts": "Koncepti",
       "workspaceGroups": "Grupe radnih prostora",
@@ -1865,8 +1959,6 @@
     "metaDescription": "Preuzmite cmux NIGHTLY, zasebnu aplikaciju koja se automatski kompajlira iz posljednjeg commita na main. Radi uporedo sa stabilnom verzijom s vlastitim automatskim ažuriranjima.",
     "description": "cmux NIGHTLY se automatski kompajlira iz posljednjeg commita na main. Ima vlastiti bundle ID, pa radi uporedo sa stabilnom verzijom bez konflikata. Koristite ga za testiranje novih funkcija prije objavljivanja.",
     "download": "Preuzmi NIGHTLY za Mac",
-    "appleSilicon": "Apple silicon",
-    "intel": "Intel",
     "warning": "Nightly verzije mogu sadržavati greške ili nepotpune funkcije. Ako nešto ne radi, prijavite to na <githubLink>GitHubu</githubLink> ili u <discordLink>#nightly-bugs na Discordu</discordLink> i prebacite se na stabilnu verziju."
   },
   "languageSwitcher": {
@@ -3873,5 +3965,12 @@
         "action": "Upravljaj planom"
       }
     }
+  },
+  "cliAuthIdentity": {
+    "email": "E-mail",
+    "emailUnavailable": "e-mail nije dostupan",
+    "organization": "Organizacija",
+    "personalAccount": "lični račun",
+    "switchAccountButton": "Koristi drugi račun"
   }
 }

@@ -149,6 +149,7 @@ impl TerminalExit {
 ///
 /// cmux-pty's Unix backend returns `std::process::Child`, so failure to downcast
 /// is an alternate backend and becomes an explicit unknown outcome.
+#[cfg(test)]
 pub(crate) fn wait_for_native_child_status(
     child: &mut (dyn cmux_pty::Child + Send + Sync),
 ) -> TerminalExit {
@@ -405,6 +406,8 @@ pub enum MessageKind {
     /// host. Every live frame admitted before this receipt is queued before it,
     /// and this client is removed from live publication before the receipt.
     DetachAck = 22,
+    /// Targeted confirmation that `Input` reached the authoritative PTY writer.
+    InputAck = 23,
     Input = 100,
     Paste = 101,
     ViewerSize = 102,
@@ -461,6 +464,7 @@ impl TryFrom<u16> for MessageKind {
             20 => Ok(Self::LaunchFailed),
             21 => Ok(Self::TerminateAck),
             22 => Ok(Self::DetachAck),
+            23 => Ok(Self::InputAck),
             100 => Ok(Self::Input),
             101 => Ok(Self::Paste),
             102 => Ok(Self::ViewerSize),
@@ -944,6 +948,8 @@ mod tests {
         assert_eq!(MessageKind::try_from(21).unwrap(), MessageKind::TerminateAck);
         assert_eq!(MessageKind::DetachAck as u16, 22);
         assert_eq!(MessageKind::try_from(22).unwrap(), MessageKind::DetachAck);
+        assert_eq!(MessageKind::InputAck as u16, 23);
+        assert_eq!(MessageKind::try_from(23).unwrap(), MessageKind::InputAck);
         assert_eq!(MessageKind::Terminate as u16, 104);
         assert_eq!(MessageKind::try_from(104).unwrap(), MessageKind::Terminate);
     }

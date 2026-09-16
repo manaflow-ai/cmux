@@ -4459,6 +4459,36 @@
    },
    "additional_properties": false
   },
+  "TerminalColorOverrides": {
+   "kind": "object",
+   "fields": {
+    "fg": {
+     "type": {
+      "kind": "ref",
+      "name": "ColorHex"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "bg": {
+     "type": {
+      "kind": "ref",
+      "name": "ColorHex"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "cursor": {
+     "type": {
+      "kind": "ref",
+      "name": "ColorHex"
+     },
+     "presence": "required",
+     "nullable": true
+    }
+   },
+   "additional_properties": false
+  },
   "TerminalColors": {
    "kind": "object",
    "fields": {
@@ -4486,6 +4516,15 @@
      "presence": "optional",
      "nullable": true,
      "since": 6
+    },
+    "overrides": {
+     "type": {
+      "kind": "ref",
+      "name": "TerminalColorOverrides"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12
     },
     "selection_bg": {
      "type": {
@@ -4739,6 +4778,24 @@
     "api_equivalent_usd is the list-price equivalent of the machine's model traffic in that window."
    ]
   },
+  "MachineListeningTcpResult": {
+   "kind": "object",
+   "fields": {
+    "stdout": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "The daemon runs only a fixed socket-listing command; callers cannot supply command text.",
+    "The output is limited to 524288 bytes."
+   ]
+  },
   "MachineUsageResult": {
    "kind": "object",
    "fields": {
@@ -4754,6 +4811,452 @@
    "additional_properties": false,
    "constraints": [
     "usage is null when the daemon has no readout (not a Cloud VM, endpoint unavailable, or usage not ready)."
+   ]
+  },
+  "ServerStatsHistogram": {
+   "kind": "object",
+   "fields": {
+    "count": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "mean": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "max": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "p50": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "p90": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "p99": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "Percentiles are log-linear bucket upper bounds and overestimate the true sample by at most 25%.",
+    "Latency histograms are in microseconds; batch_size counts events."
+   ]
+  },
+  "ServerStatsLockHolder": {
+   "kind": "object",
+   "fields": {
+    "site": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "held_for_us": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "site is the file:line that acquired the registry lock."
+   ]
+  },
+  "ServerStatsLockStall": {
+   "kind": "object",
+   "fields": {
+    "waiter": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "blocker": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "waited_us": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "blocker is the site holding the lock when the waiter's wait began, or null when it was free."
+   ]
+  },
+  "ServerStatsLockSite": {
+   "kind": "object",
+   "fields": {
+    "site": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "acquisitions": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "hold_total_us": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "hold_max_us": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": []
+  },
+  "ServerStatsRegistryLock": {
+   "kind": "object",
+   "fields": {
+    "wait_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "hold_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "contended_acquisitions": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "stalls": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "holder": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsLockHolder"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "last_stall": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsLockStall"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "top_sites": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ServerStatsLockSite"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "contended_acquisitions counts waits of at least 1 ms; stalls counts waits of at least 100 ms.",
+    "top_sites is ordered by hold_total_us descending and holds at most eight entries."
+   ]
+  },
+  "ServerStatsWriterPhase": {
+   "kind": "enum",
+   "values": [
+    "idle",
+    "waiting_lock",
+    "committing"
+   ]
+  },
+  "ServerStatsJournalWriter": {
+   "kind": "object",
+   "fields": {
+    "batches": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "terminal_events": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "durable_events": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "batch_size": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "commit_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "commit_lock_wait_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "receipt_wait_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "commit_failures": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "deadline_expiries": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "terminal_queued": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "durable_queued": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "phase": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsWriterPhase"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "phase_for_us": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "commit_us excludes lock wait; commit_lock_wait_us is the writer waiting for the registry lock.",
+    "terminal_queued and durable_queued are live lane depths."
+   ]
+  },
+  "ServerStatsConnections": {
+   "kind": "object",
+   "fields": {
+    "active": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "peak": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "limit": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "accepted": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "refused": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "refused counts sockets dropped at limit; for hook producers each one is a lost event."
+   ]
+  },
+  "ServerStatsResult": {
+   "kind": "object",
+   "fields": {
+    "schema": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "uptime_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "registry_lock": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsRegistryLock"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "journal_writer": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsJournalWriter"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "connections": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsConnections"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "schema is 1.",
+    "journal_writer is null for ephemeral sessions without a durable journal.",
+    "Counters accumulate since daemon start; reading them never touches SQLite or the journal."
    ]
   }
  },
@@ -6158,8 +6661,8 @@
       "nullable": false,
       "constraints": [
        {
-        "pattern": "^[0-9a-f]{32}$",
-        "format": "UUIDv4 hex without dashes"
+        "pattern": "^(term_)?[0-9a-f]{32}$",
+        "format": "terminal host id (UUIDv4 hex without dashes) or public term_ resource id"
        }
       ]
      }
@@ -9804,6 +10307,24 @@
     "Call only after the external provider durably accepts the rename."
    ]
   },
+  "machine-listening-tcp": {
+   "authority": "control",
+   "since": 12,
+   "capability": "machine-listening-tcp-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "MachineListeningTcpResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Routine Cloud port inventory uses this command over the authenticated private cmux-tui link."
+   ]
+  },
   "machine-usage": {
    "authority": "control",
    "since": 12,
@@ -9819,6 +10340,129 @@
    },
    "stream": null,
    "constraints": []
+  },
+  "server-stats": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "server-stats-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "ServerStatsResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Owner-only diagnostics; never journaled and safe to poll."
+   ]
+  },
+  "paste-image": {
+   "authority": "control",
+   "since": 12,
+   "capability": "terminal-image-paste-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "lease": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "upload_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "op": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "mime": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "data": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "size": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "offset": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "accepted": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Requires terminal-image-paste-v1 and a current connection-owned attachment lease for the exact public terminal. Begin(mime,size), chunk(offset,data), commit, cancel. No caller-supplied paths. 20 MiB per image; 48 KiB chunks; generated temporary files expire after 600 seconds."
+   ]
   }
  },
  "events": {
@@ -10219,6 +10863,15 @@
       "presence": "optional",
       "nullable": true
      },
+     "overrides": {
+      "type": {
+       "kind": "ref",
+       "name": "TerminalColorOverrides"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12
+     },
      "selection_bg": {
       "type": {
        "kind": "ref",
@@ -10281,6 +10934,28 @@
       "type": {
        "kind": "literal",
        "value": "config-reload-requested"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "daemon-shutdown": {
+   "since": 12,
+   "capability": null,
+   "streams": [
+    "control"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "daemon-shutdown"
       },
       "presence": "required",
       "nullable": false

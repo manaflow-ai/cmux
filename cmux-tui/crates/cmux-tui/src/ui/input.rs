@@ -535,7 +535,7 @@ mod tests {
 
     #[test]
     fn visible_cursor_uses_terminal_cell_width() {
-        let mut input = text_input("界a");
+        let input = text_input("界a");
 
         let (shown, cursor) = input.visible_text_and_cursor(4);
 
@@ -567,7 +567,7 @@ mod tests {
 
     #[test]
     fn visible_cursor_counts_halfwidth_sound_marks_as_terminal_cells() {
-        let mut input = text_input("ｶﾞa");
+        let input = text_input("ｶﾞa");
 
         let (shown, cursor) = input.visible_text_and_cursor(4);
 

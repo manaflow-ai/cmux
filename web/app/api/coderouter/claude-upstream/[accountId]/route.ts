@@ -1,3 +1,4 @@
+import { coderouterControlRoute } from "@/services/coderouter/requestTelemetry";
 // One Claude upstream account: rename or enable/disable (PATCH), remove
 // (DELETE). Both need `manageAccounts` on the team.
 import {
@@ -96,5 +97,5 @@ function notFound(): Response {
 }
 
 const handlers = makeClaudeAccountHandlers();
-export const PATCH = handlers.PATCH;
-export const DELETE = handlers.DELETE;
+export const PATCH = coderouterControlRoute("claude_upstream", "/api/coderouter/claude-upstream/[accountId]", handlers.PATCH);
+export const DELETE = coderouterControlRoute("claude_upstream", "/api/coderouter/claude-upstream/[accountId]", handlers.DELETE);

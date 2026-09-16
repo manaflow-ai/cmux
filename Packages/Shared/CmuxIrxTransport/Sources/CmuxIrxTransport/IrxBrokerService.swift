@@ -81,6 +81,15 @@ public struct IrxGrantSnapshot: Codable, Equatable, Sendable {
 /// plumbing) under irx's temporal rules: every result is cached to disk, the
 /// dial path never waits on the backend, and every call is journaled.
 public actor IrxBrokerService {
+    static func registrationCapabilities(for platform: CmxIrohPlatform) -> [String] {
+        switch platform {
+        case .mac:
+            ["cmux.irx.v1", "iroh.private_paths.v1"]
+        case .ios:
+            ["cmux.irx.v1"]
+        }
+    }
+
     public struct Configuration: Sendable {
         public var baseURL: URL
         public var clientNamespace: String
@@ -101,6 +110,10 @@ public actor IrxBrokerService {
         public var accountID: String?
         /// The app's Keychain access group (iOS); nil on macOS.
         public var keychainAccessGroup: String?
+        /// Additional signed capabilities supplied by the owning runtime.
+        public var additionalCapabilities: [String]
+        /// Separates compatibility caches for independently enrolled v2 tuples.
+        public var cacheIdentity: String?
 
         public init(
             baseURL: URL,
@@ -111,7 +124,9 @@ public actor IrxBrokerService {
             cacheDirectory: URL,
             identityGeneration: Int = 1,
             accountID: String? = nil,
-            keychainAccessGroup: String? = nil
+            keychainAccessGroup: String? = nil,
+            additionalCapabilities: [String] = [],
+            cacheIdentity: String? = nil
         ) {
             self.baseURL = baseURL
             self.clientNamespace = clientNamespace
@@ -122,12 +137,14 @@ public actor IrxBrokerService {
             self.identityGeneration = identityGeneration
             self.accountID = accountID
             self.keychainAccessGroup = keychainAccessGroup
+            self.additionalCapabilities = additionalCapabilities
+            self.cacheIdentity = cacheIdentity
         }
 
         var cacheScope: IrxBrokerCacheScope? {
             guard let accountID, let backendHost = baseURL.host else { return nil }
             return IrxBrokerCacheScope(
-                accountID: accountID,
+                accountID: cacheIdentity.map { "\(accountID)|\($0)" } ?? accountID,
                 backendHost: backendHost,
                 keychainAccessGroup: keychainAccessGroup
             )
@@ -143,7 +160,12 @@ public actor IrxBrokerService {
     private let credentialCache: any IrxJSONCache<IrxRelayCredentialSnapshot>
     private let grantCache: any IrxJSONCache<[String: IrxGrantSnapshot]>
     private var registrationInFlight: Task<IrxBindingSnapshot, any Error>?
-    private var lastHintRegistered: (url: String?, at: Date)?
+    private var lastHintRegistered: (
+        url: String?,
+        directAddresses: [String],
+        directPorts: CmxIrohDirectPorts?,
+        at: Date
+    )?
     private var lastDiscovery: CmxIrohDiscoveryResponse?
     private var lastDiscoveryAt: Date?
     /// Monotonic lifecycle fence. URLSession work can outlive task
@@ -240,15 +262,25 @@ public actor IrxBrokerService {
     /// burned half its window. Same never-lapses guarantee, ~5x fewer writes.
     public func registerHintIfNeeded(
         pairingEnabled: Bool,
-        relayURLHint: String?
+        relayURLHint: String?,
+        directAddresses: [String] = [],
+        directPorts: CmxIrohDirectPorts? = nil
     ) async throws {
+        let publicDirectAddresses = Self.publicDirectAddressValues(directAddresses)
         if let last = lastHintRegistered,
             last.url == relayURLHint,
+            last.directAddresses == publicDirectAddresses,
+            last.directPorts == directPorts,
             Date().timeIntervalSince(last.at) < 15 * 60
         {
             return
         }
-        _ = try await register(pairingEnabled: pairingEnabled, relayURLHint: relayURLHint)
+        _ = try await register(
+            pairingEnabled: pairingEnabled,
+            relayURLHint: relayURLHint,
+            directAddresses: publicDirectAddresses,
+            directPorts: directPorts
+        )
     }
 
     /// Registers (or refreshes) this endpoint's binding. Single-flight;
@@ -256,6 +288,7 @@ public actor IrxBrokerService {
     public func register(
         pairingEnabled: Bool,
         relayURLHint: String?,
+        directAddresses: [String] = [],
         directPorts: CmxIrohDirectPorts? = nil
     ) async throws -> IrxBindingSnapshot {
         let epoch = try beginOperation()
@@ -266,6 +299,7 @@ public actor IrxBrokerService {
             try await self.registerOnce(
                 pairingEnabled: pairingEnabled,
                 relayURLHint: relayURLHint,
+                directAddresses: directAddresses,
                 directPorts: directPorts,
                 epoch: epoch
             )
@@ -278,6 +312,7 @@ public actor IrxBrokerService {
     private func registerOnce(
         pairingEnabled: Bool,
         relayURLHint: String?,
+        directAddresses: [String],
         directPorts: CmxIrohDirectPorts?,
         epoch: UInt64
     ) async throws -> IrxBindingSnapshot {
@@ -297,6 +332,20 @@ public actor IrxBrokerService {
                 hints.append(hint)
             }
         }
+        let publicDirectAddresses = Self.publicDirectAddressValues(directAddresses)
+        let expiresAt = now.addingTimeInterval(30 * 60)
+        for address in publicDirectAddresses {
+            guard hints.count < 16,
+                  let hint = try? CmxIrohPathHint(
+                      kind: .directAddress,
+                      value: address,
+                      source: .native,
+                      privacyScope: .publicInternet,
+                      observedAt: now,
+                      expiresAt: expiresAt
+                  ) else { continue }
+            hints.append(hint)
+        }
         let secretKey = try CmxIrohSecretKey(bytes: identity.privateKeyData)
         let material = try CmxIrohIdentityMaterial(
             secretKey: secretKey, generation: configuration.identityGeneration)
@@ -310,7 +359,8 @@ public actor IrxBrokerService {
             endpointID: identity.endpointIDHex,
             identityGeneration: configuration.identityGeneration,
             pairingEnabled: pairingEnabled,
-            capabilities: ["cmux.irx.v1"],
+            capabilities: Array(Set(Self.registrationCapabilities(for: configuration.platform)
+                + configuration.additionalCapabilities)).sorted(),
             pathHints: hints,
             directPorts: directPorts
         )
@@ -331,7 +381,12 @@ public actor IrxBrokerService {
         )
         try requireCurrent(epoch)
         bindingCache.save(snapshot)
-        lastHintRegistered = (relayURLHint, Date())
+        lastHintRegistered = (
+            relayURLHint,
+            publicDirectAddresses,
+            directPorts,
+            Date()
+        )
         let elapsedMs =
             (DispatchTime.now().uptimeNanoseconds - startedAt.uptimeNanoseconds) / 1_000_000
         journal.record(
@@ -703,6 +758,23 @@ public actor IrxBrokerService {
     private func requireCurrent(_ epoch: UInt64) throws {
         guard !deactivated, lifecycleEpoch == epoch else {
             throw IrxBrokerServiceError.deactivated
+        }
+    }
+
+    private static func publicDirectAddressValues(_ addresses: [String]) -> [String] {
+        let now = Date()
+        let expiresAt = now.addingTimeInterval(30 * 60)
+        var seen = Set<String>()
+        return addresses.compactMap { address in
+            guard let hint = try? CmxIrohPathHint(
+                kind: .directAddress,
+                value: address,
+                source: .native,
+                privacyScope: .publicInternet,
+                observedAt: now,
+                expiresAt: expiresAt
+            ), seen.insert(hint.value).inserted else { return nil }
+            return hint.value
         }
     }
 }

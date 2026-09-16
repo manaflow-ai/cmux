@@ -1,3 +1,4 @@
+import { coderouterControlRoute } from "@/services/coderouter/requestTelemetry";
 import { removeAccount } from "../../../../../services/coderouter/accounts";
 import { resolveCodeRouterRequestContext } from "../../../../../services/coderouter/requestContext";
 import { captureCoderouterEvent } from "../../../../../services/coderouter/analytics";
@@ -79,8 +80,8 @@ export function createDeleteAccountHandler(dependencies: {
   };
 }
 
-export const DELETE = createDeleteAccountHandler({
+export const DELETE = coderouterControlRoute("accounts", "/api/coderouter/accounts/[accountId]", createDeleteAccountHandler({
   resolve: resolveCodeRouterRequestContext,
   remove: async ({ teamId, accountId }) =>
     await removeAccount(teamId, accountId),
-});
+}));

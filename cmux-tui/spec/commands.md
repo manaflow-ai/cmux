@@ -311,6 +311,62 @@ Example:
 {"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":12}}
 ```
 
+### server-stats
+
+| Field | Value |
+| --- | --- |
+| name | `server-stats` |
+| status | implemented |
+| since | protocol 12, capability `server-stats-v1` |
+
+Reports where the daemon spends its time so an operator or agent can locate a
+bottleneck without sampling the process: registry mutex contention with the
+source site that holds it, journal writer batch shape and commit latency, and
+control-socket admission. Counters accumulate since daemon start. The command
+reads atomics and never touches SQLite or the journal, so it is safe to poll.
+
+Params: none.
+
+Result:
+
+```text
+object{
+  schema:uint32,
+  uptime_ms:uint64,
+  registry_lock:object{
+    wait_us:histogram, hold_us:histogram,
+    contended_acquisitions:uint64, stalls:uint64,
+    holder:object{site:string,held_for_us:uint64}|null,
+    last_stall:object{waiter:string,blocker:string|null,waited_us:uint64}|null,
+    top_sites:array<object{site:string,acquisitions:uint64,hold_total_us:uint64,hold_max_us:uint64}>
+  },
+  journal_writer:object{
+    batches:uint64, terminal_events:uint64, durable_events:uint64,
+    batch_size:histogram, commit_us:histogram, commit_lock_wait_us:histogram,
+    receipt_wait_us:histogram, commit_failures:uint64, deadline_expiries:uint64,
+    terminal_queued:uint64, durable_queued:uint64,
+    phase:"idle"|"waiting_lock"|"committing", phase_for_us:uint64
+  }|null,
+  connections:object{active:uint64,peak:uint64,limit:uint64,accepted:uint64,refused:uint64}
+}
+histogram = object{count:uint64,mean:uint64,max:uint64,p50:uint64,p90:uint64,p99:uint64}
+```
+
+`schema` is `1`. Latency histograms are in microseconds; `batch_size` counts
+events. Percentiles are log-linear bucket upper bounds and overestimate by at
+most 25%. `site` values are `file:line` of the code that acquired the registry
+lock. `contended_acquisitions` counts waits of at least 1 ms and `stalls`
+counts waits of at least 100 ms. `journal_writer` is `null` for ephemeral
+sessions. `connections.refused` counts sockets dropped at `limit`; for hook
+producers each one is a lost event.
+
+Errors: `bad request: ...`.
+
+CLI mapping: `cmux server stats [--session <name>] [--socket <path>]`; plain
+stdout renders the object as nested `key: value` lines; `--json` prints the
+exact result object. Against a server without `server-stats-v1` the CLI exits
+1 with `server.stats_unsupported`.
+
 ### set-client-info
 
 | Field | Value |
@@ -399,6 +455,31 @@ Example:
 ```json
 {"id":4,"cmd":"list-clients"}
 {"id":4,"ok":true,"data":[{"client":1,"transport":"unix","name":"host","kind":"tui","connected_seconds":12,"attached":[7],"sizes":[{"surface":7,"cols":120,"rows":36,"size_participating":true}],"self":true}]}
+```
+
+### machine-listening-tcp
+
+| Field | Value |
+| --- | --- |
+| name | `machine-listening-tcp` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `machine-listening-tcp-v1` |
+
+Returns the host's listening TCP socket table. The daemon runs a fixed `ss -H -ltn` command, with fixed `netstat -ltn` compatibility when `ss` is absent. The request accepts no command text. A Cloud client uses this command through its authenticated private cmux-tui link. Routine port discovery does not call the web control plane or the VM provider.
+
+Params: none.
+
+Result:
+
+```text
+object{stdout:string}
+```
+
+Example:
+
+```json
+{"id":8,"cmd":"machine-listening-tcp"}
+{"id":8,"ok":true,"data":{"stdout":"LISTEN 0 128 0.0.0.0:3000 0.0.0.0:*\\n"}}
 ```
 
 ### machine-usage
@@ -3757,3 +3838,33 @@ Protocol v9 adds `new-pane`; its implemented result is `{surface}`. A future res
 `viewport-column-resize-v1` is additive within protocol v9. Clients must require the capability before sending `set-viewport-pane-width` or interpreting `Screen.viewport_base_width`.
 
 `layout-undo-v1` is additive within protocol v9. Clients must require the capability before sending `undo-layout`. A binding must preserve both result variants and must not set `confirm_close` without the exact revision returned by the confirmation preview.
+
+## Temporary terminal image paste
+
+`paste-image` is an authenticated, lease-bound control operation gated by
+`terminal-image-paste-v1` on protocol 12. A protocol-12 daemon without that
+capability must not receive image data. Each request contains `surface`, the
+exact public `terminal_id`, the current attachment `lease`, a 32-hex-character
+`upload_id`, and one operation:
+
+| `op` | Additional fields | Effect |
+| --- | --- | --- |
+| `begin` | `mime`, `size` | Reserve bounded capacity and create a private daemon-owned file. |
+| `chunk` | `offset`, `data` | Append one sequential, standard-base64 chunk (at most 48 KiB decoded). |
+| `commit` | none | Verify byte count and MIME, then invoke the authoritative terminal paste operation once. |
+| `cancel` | none | Remove an unpublished upload; idempotent when already absent. |
+
+Success is `{ "accepted": true }`. Request IDs use the normal control envelope.
+Await each acknowledgement before sending the next operation. The connection,
+lease, surface, terminal, and authoritative workspace must still match. No
+destination path is accepted and no image path or content is returned in an
+acknowledgement. Stable error codes begin with `image-`; clients must treat a
+lost commit acknowledgement as uncertain delivery and must not retry it blindly.
+
+The policy is 20 MiB per PNG/JPEG/GIF/WebP image, eight images per connection,
+32 retained uploads and 128 MiB reserved per daemon. Pending uploads expire in
+two minutes; committed uploads expire in ten minutes. Ownership receipts permit
+restart cleanup with a twelve-minute expiry from creation and recurring bounded
+recovery sweeps. Receipts match a persistent random file ownership marker as well
+as inode identity; the filesystem must support extended attributes. See
+[Cloud image paste](../../docs/cloud-image-paste.md) for cleanup and compatibility.

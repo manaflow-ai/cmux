@@ -23,12 +23,16 @@ CMUX_DEV_PORT_RANGE=""
 CMUX_DEV_ORIGIN=""
 CMUX_DEV_API_BASE_URL_VALUE=""
 CMUX_IROH_BROKER_BASE_URL_VALUE=""
+CMUX_IROH_V2_ENVIRONMENT_VALUE=""
+CMUX_IROH_V2_BASE_URL_VALUE=""
+CMUX_IROH_V2_FORCE_RELAY_VALUE="0"
 CMUX_AUTH_WWW_ORIGIN_VALUE=""
 CMUX_WWW_ORIGIN_VALUE=""
 PROD_AUTH=0
 AUTH_CREDENTIALS_FILE=""
 AUTH_PROFILE=""
 AUTH_EXPECTED_ACCOUNT=""
+CMUX_TUI_CLIENT_MANIFEST_URL_VALUE=""
 CLI_PATH=""
 NO_GLOBAL_CLI_LINKS="${CMUX_RELOAD_NO_GLOBAL_CLI_LINKS:-0}"
 # Matches CmuxStateDirectory (non-TCC ~/.local/state/cmux) where the app/CLI now
@@ -888,6 +892,8 @@ Options:
   --expected-account <email>
                          Fail before building unless the selected profile/file
                          resolves to this normalized account.
+  --cmux-tui-manifest-url <url>
+                         Install the cmux-tui client from this immutable manifest.
   --name <app name>      Override app display/bundle name.
   --bundle-id <id>       Override bundle identifier.
   --derived-data <path>  Override derived data path.
@@ -1143,6 +1149,14 @@ while [[ $# -gt 0 ]]; do
       [[ -n "$AUTH_EXPECTED_ACCOUNT" ]] || { echo "error: --expected-account requires an email" >&2; exit 1; }
       shift 2
       ;;
+    --cmux-tui-manifest-url)
+      CMUX_TUI_CLIENT_MANIFEST_URL_VALUE="${2:-}"
+      [[ -n "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE" ]] \
+        || { echo "error: --cmux-tui-manifest-url requires a URL" >&2; exit 1; }
+      [[ "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE" == https://* ]] \
+        || { echo "error: --cmux-tui-manifest-url requires HTTPS" >&2; exit 1; }
+      shift 2
+      ;;
     --derived-data)
       DERIVED_DATA="${2:-}"
       if [[ -z "$DERIVED_DATA" ]]; then
@@ -1180,6 +1194,26 @@ if [[ -z "$TAG" ]]; then
   echo "error: --tag is required (example: ./scripts/reload.sh --tag fix-sidebar-theme)" >&2
   usage
   exit 1
+fi
+
+# A tagged launch is a dogfood surface, so it must have an explicit identity
+# before the app is started.  Keeping this gate here covers agents that call
+# reload.sh directly instead of the higher-level dev-setup wrapper.
+if [[ "$LAUNCH" -eq 1 && -n "$TAG" && -z "$AUTH_PROFILE" ]]; then
+  AUTH_PROFILE="personal"
+  if [[ -z "$AUTH_CREDENTIALS_FILE" ]]; then
+    for candidate in "${HOME:-}/.secrets/cmuxterm-dev.env" "${HOME:-}/.secrets/cmux.env"; do
+      if [[ -f "$candidate" ]]; then
+        AUTH_CREDENTIALS_FILE="$candidate"
+        break
+      fi
+    done
+  fi
+  if [[ -z "$AUTH_CREDENTIALS_FILE" || ! -f "$AUTH_CREDENTIALS_FILE" ]]; then
+    echo "error: tagged launches require authenticated dev credentials" >&2
+    echo "error: configure ~/.secrets/cmuxterm-dev.env with scripts/setup-team-dev.sh" >&2
+    exit 2
+  fi
 fi
 
 if [[ -n "$AUTH_CREDENTIALS_FILE" ]]; then
@@ -1229,6 +1263,9 @@ CMUX_DEV_PORT_END="$(choose_cmux_dev_port_end "$CMUX_DEV_PORT" "$CMUX_DEV_PORT_R
 CMUX_DEV_ORIGIN="http://localhost:${CMUX_DEV_PORT}"
 CMUX_DEV_API_BASE_URL_VALUE="$(cmux_attach_resolve_dev_api_base_url "$CMUX_DEV_ORIGIN")"
 CMUX_IROH_BROKER_BASE_URL_VALUE="${CMUX_IROH_BROKER_BASE_URL:-https://cmux-staging.vercel.app}"
+CMUX_IROH_V2_ENVIRONMENT_VALUE="${CMUX_IROH_V2_ENVIRONMENT:-development}"
+CMUX_IROH_V2_BASE_URL_VALUE="${CMUX_IROH_V2_BASE_URL:-https://cmux-iroh-v2-development.debussy.workers.dev}"
+CMUX_IROH_V2_FORCE_RELAY_VALUE="${CMUX_IROH_V2_FORCE_RELAY:-0}"
 CMUX_AUTH_WWW_ORIGIN_VALUE="$CMUX_DEV_ORIGIN"
 CMUX_WWW_ORIGIN_VALUE="$CMUX_DEV_ORIGIN"
 if [[ "$PROD_AUTH" -eq 1 ]]; then
@@ -1681,6 +1718,9 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       set_plist_env "$INFO_PLIST" CMUX_API_BASE_URL "$CMUX_DEV_API_BASE_URL_VALUE"
       set_plist_env "$INFO_PLIST" CMUX_VM_API_BASE_URL "$CMUX_DEV_API_BASE_URL_VALUE"
       set_plist_env "$INFO_PLIST" CMUX_IROH_BROKER_BASE_URL "$CMUX_IROH_BROKER_BASE_URL_VALUE"
+      set_plist_env "$INFO_PLIST" CMUX_IROH_V2_ENVIRONMENT "$CMUX_IROH_V2_ENVIRONMENT_VALUE"
+      set_plist_env "$INFO_PLIST" CMUX_IROH_V2_BASE_URL "$CMUX_IROH_V2_BASE_URL_VALUE"
+      set_plist_env "$INFO_PLIST" CMUX_IROH_V2_FORCE_RELAY "$CMUX_IROH_V2_FORCE_RELAY_VALUE"
       if [[ "$PROD_AUTH" -eq 1 ]]; then
         set_plist_env "$INFO_PLIST" CMUX_AUTH_ENVIRONMENT production
       fi
@@ -1742,7 +1782,16 @@ fi
 if [[ "${CMUX_SKIP_CMUX_TUI_CLIENT:-}" == "1" && -x "$APP_PATH/Contents/Resources/bin/cmux-tui" ]]; then
   echo "Preserving bundled cmux-tui client (CMUX_SKIP_CMUX_TUI_CLIENT=1)"
 else
-  "$PWD/scripts/install-cmux-tui-client.sh" "$APP_PATH"
+  cmux_tui_install_args=(
+    "$APP_PATH"
+    --require-capability wireguard-hub
+  )
+  if [[ -n "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE" ]]; then
+    cmux_tui_install_args+=(
+      --manifest-url "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE"
+    )
+  fi
+  "$PWD/scripts/install-cmux-tui-client.sh" "${cmux_tui_install_args[@]}"
 fi
 if command -v xattr >/dev/null 2>&1; then
   xattr -cr "$APP_PATH" || true
@@ -1901,6 +1950,9 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     CMUX_API_BASE_URL="$CMUX_DEV_API_BASE_URL_VALUE"
     CMUX_VM_API_BASE_URL="$CMUX_DEV_API_BASE_URL_VALUE"
     CMUX_IROH_BROKER_BASE_URL="$CMUX_IROH_BROKER_BASE_URL_VALUE"
+    CMUX_IROH_V2_ENVIRONMENT="$CMUX_IROH_V2_ENVIRONMENT_VALUE"
+    CMUX_IROH_V2_BASE_URL="$CMUX_IROH_V2_BASE_URL_VALUE"
+    CMUX_IROH_V2_FORCE_RELAY="$CMUX_IROH_V2_FORCE_RELAY_VALUE"
   )
   if [[ "$PROD_AUTH" -eq 1 ]]; then
     TAG_LAUNCH_ENV+=(CMUX_AUTH_ENVIRONMENT=production)

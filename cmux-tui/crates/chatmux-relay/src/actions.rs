@@ -1442,17 +1442,6 @@ async fn run_spec(
     RunOutcome::Done { exit_code: exited.unwrap_or(0), output: text.into_owned() }
 }
 
-#[cfg(unix)]
-fn signal_process_group_id<F>(pid: Option<u32>, kill: bool, send: F) -> bool
-where
-    F: FnOnce(libc::pid_t, libc::c_int) -> libc::c_int,
-{
-    let Some(pid) = pid else { return false };
-    let signal = if kill { libc::SIGKILL } else { libc::SIGTERM };
-    let group = -(pid as i32);
-    send(group, signal) == 0
-}
-
 #[cfg(windows)]
 struct WindowsJob {
     handle: std::os::windows::io::OwnedHandle,
@@ -2124,19 +2113,6 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         // realpath so canonical checks match (macOS /tmp -> /private/tmp).
         std::fs::canonicalize(&dir).unwrap()
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn process_group_failure_does_not_fallback_to_numeric_pid() {
-        let mut targets = Vec::new();
-        let signalled = signal_process_group_id(Some(4_321), false, |target, _| {
-            targets.push(target);
-            -1
-        });
-
-        assert!(!signalled);
-        assert_eq!(targets, vec![-4_321]);
     }
 
     #[cfg(windows)]

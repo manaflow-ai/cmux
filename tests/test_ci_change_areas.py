@@ -1,3 +1,4 @@
+# Keep CI change-area routing exercised when guard policy files change.
 #!/usr/bin/env python3
 """Behavioral tests for the CI path filter."""
 
@@ -6,6 +7,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -225,6 +227,10 @@ def run_app_host_unit_test_step(
         runner_temp.mkdir()
         fake_bin.mkdir()
         ci_scripts.mkdir(parents=True)
+        shutil.copy2(
+            ROOT / "scripts/ci/classify-app-host-test-output.py",
+            ci_scripts / "classify-app-host-test-output.py",
+        )
 
         shard_helper = ci_scripts / "cmux_unit_test_shard.py"
         shard_helper.write_text(
@@ -259,7 +265,7 @@ iteration=$((iteration + 1))
 printf '%s\n' "$iteration" > "$counter"
 if [ "$iteration" -eq 1 ]; then
   echo "Executed 2 tests, with 2 failures (0 unexpected)"
-  exit 1
+  exit 65
 fi
 echo "simulated app-host crash before test summary" >&2
 exit 9
@@ -840,6 +846,137 @@ def test_app_host_multi_batch_failure_cannot_reuse_prior_expected_summary() -> N
     assert runner_invoked
     assert result.returncode != 0, result.stdout
     assert "simulated app-host crash before test summary" in result.stdout
+
+
+def run_focused_app_host_step(
+    outcomes: list[str],
+    step_name: str = "Run remote tmux mirror detach and placement regressions",
+) -> tuple[subprocess.CompletedProcess[str], int]:
+    """Run a focused app-host gate against a fake console runner.
+
+    ``outcomes`` lists what each xcodebuild invocation reports, in order:
+    ``pass``; ``crash`` (xcodebuild restarted the app host, exit 65); or
+    ``fail`` (an assertion failure with the host alive, exit 65). Returns the
+    step result and how many times the runner was invoked.
+    """
+    script = workflow_job_step_script(
+        "app-host-unit-tests", step_name
+    )
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        runner_temp = root / "runner"
+        ci_scripts = root / "scripts" / "ci"
+        runner_temp.mkdir()
+        ci_scripts.mkdir(parents=True)
+        shutil.copy2(
+            ROOT / "scripts/ci/require_selected_test_execution.sh",
+            ci_scripts / "require_selected_test_execution.sh",
+        )
+        outcomes_file = root / "outcomes"
+        outcomes_file.write_text("\n".join(outcomes) + "\n", encoding="utf-8")
+        counter = root / "invocations"
+
+        console_runner = ci_scripts / "run-in-console-session.sh"
+        console_runner.write_text(
+            """
+#!/bin/bash
+set -euo pipefail
+counter="${CMUX_TEST_INVOCATION_COUNTER:?}"
+iteration=0
+if [ -f "$counter" ]; then
+  iteration="$(cat "$counter")"
+fi
+iteration=$((iteration + 1))
+printf '%s\\n' "$iteration" > "$counter"
+outcome="$(sed -n "${iteration}p" "${CMUX_TEST_OUTCOMES:?}")"
+printf 'invocation %s: %s\\n' "$iteration" "$*"
+case "$outcome" in
+  empty)
+    echo "Executed 0 tests, with 0 failures (0 unexpected)"
+    exit 0
+    ;;
+  pass)
+    echo "Executed 7 tests, with 0 failures (0 unexpected)"
+    exit 0
+    ;;
+  crash)
+    echo "Restarting after unexpected exit, crash, or test timeout; summary will include totals from previous launches."
+    echo "Executed 7 tests, with 1 failure (1 unexpected)"
+    exit 65
+    ;;
+  fail)
+    echo "Executed 7 tests, with 1 failure (0 unexpected)"
+    exit 65
+    ;;
+  *)
+    echo "unexpected extra invocation ${iteration}" >&2
+    exit 97
+    ;;
+esac
+""".lstrip(),
+            encoding="utf-8",
+        )
+        console_runner.chmod(0o755)
+
+        result = subprocess.run(
+            ["bash", "-c", script],
+            cwd=root,
+            env={
+                **os.environ,
+                "RUNNER_TEMP": str(runner_temp),
+                "CMUX_DERIVED_DATA_PATH": str(root / "derived-data"),
+                "CMUX_TEST_INVOCATION_COUNTER": str(counter),
+                "CMUX_TEST_OUTCOMES": str(outcomes_file),
+            },
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        invocations = int(counter.read_text(encoding="utf-8").strip()) if counter.exists() else 0
+        return result, invocations
+
+
+def test_remote_tmux_mirror_gate_reruns_a_suite_once_after_an_app_host_crash() -> None:
+    # The close suite crashes once and passes on its rerun; the isolated focus
+    # and placement suites then pass, for four invocations in total.
+    result, invocations = run_focused_app_host_step(["crash", "pass", "pass", "pass"])
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert invocations == 4, result.stdout
+    assert "rerunning the suite once" in result.stdout
+    assert result.stdout.count("-only-testing:cmuxTests/RemoteTmuxMirrorCloseDetachTests") == 2
+    assert result.stdout.count("-only-testing:cmuxTests/RemoteTmuxMirrorFocusPolicyTests") == 1
+    assert "cmuxTests/RemoteTmuxMirrorDedicatedPlacementTests" in result.stdout
+
+
+def test_remote_tmux_mirror_gate_never_reruns_an_assertion_failure() -> None:
+    result, invocations = run_focused_app_host_step(["fail", "pass", "pass"])
+
+    assert result.returncode == 65, result.stdout + result.stderr
+    assert invocations == 1, result.stdout
+    assert "rerunning the suite once" not in result.stdout
+
+
+def test_remote_tmux_mirror_gate_fails_after_a_second_crash() -> None:
+    result, invocations = run_focused_app_host_step(["crash", "crash", "pass"])
+
+    assert result.returncode == 65, result.stdout + result.stderr
+    assert invocations == 2, result.stdout
+
+
+def test_global_search_gate_requires_nonempty_successful_execution() -> None:
+    for outcome, expected_status in (("pass", 0), ("fail", 65), ("empty", 1)):
+        result, invocations = run_focused_app_host_step(
+            [outcome], step_name="Run global search shortcut regressions"
+        )
+        assert result.returncode == expected_status, result.stdout + result.stderr
+        assert invocations == 1, result.stdout
+        assert "-only-testing:cmuxTests/GlobalSearchShortcutBehaviorTests" in result.stdout
+        # A plain `xcodebuild test` gate, like the other focused gates: the
+        # build-for-testing + test-without-building pair ahead of the batches
+        # left the following sharded xcodebuild silent until the job cap.
+        assert "test-without-building" not in result.stdout
 
 
 def test_app_host_rejects_failed_or_empty_shard_generation() -> None:
