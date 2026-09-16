@@ -72,7 +72,7 @@ struct GhosttyDrawableSizeRetryTests {
         #expect(expectedDrawableSize.height > 0)
         #expect(expectedDrawableSize != initialDrawableSize)
 
-        _ = surfaceView.debugUpdateSurfaceSizeForTesting(targetSize)
+        _ = surfaceView.commitPaneGeometry(size: targetSize, phase: .settled)
 
         #expect(surfaceView.debugLastDrawableSizeForTesting() == initialDrawableSize)
         #expect(surfaceView.debugDeferredSurfaceSizeRetryQueuedForTesting())

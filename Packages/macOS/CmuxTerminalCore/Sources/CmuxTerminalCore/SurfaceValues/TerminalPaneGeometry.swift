@@ -9,14 +9,6 @@ public import CoreGraphics
 /// cannot reach the PTY. The surface stores the last committed value and
 /// re-applies it on demand instead of reading view bounds.
 public struct TerminalPaneGeometry: Equatable, Sendable {
-    /// Why the host considers this size publishable.
-    public enum Phase: Equatable, Sendable {
-        /// A window-edge or divider drag is in progress; every tick is visible.
-        case interactive
-        /// Layout has stopped changing; this is the pane's resting size.
-        case settled
-    }
-
     /// The pane size in points.
     public var size: CGSize
     /// The window backing scale the pixel grid derives from.

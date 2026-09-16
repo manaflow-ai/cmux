@@ -4,6 +4,20 @@ import CmuxTerminalCore
 // MARK: - Pane geometry publication
 
 extension WindowTerminalPortal {
+    /// Inner viewport changes (scrollbars or a content-width setting) use the
+    /// same portal publication path even when the pane's outer frame is fixed.
+    func requestPaneGeometryCommit(for hostedView: GhosttySurfaceScrollView) {
+        let hostedId = ObjectIdentifier(hostedView)
+        guard let entry = entriesByHostedId[hostedId], entry.visibleInUI,
+              !entry.needsSettledCommit, !hostedView.isHidden,
+              hostedView.window === window else { return }
+        let size = hostedView.surfaceView.frame.size
+        let committed = hostedView.surfaceView.terminalSurface?.committedPaneGeometry
+        guard committed?.size != size || committed?.backingScale != window?.backingScaleFactor else { return }
+        markNeedsSettledCommit(for: hostedId)
+        scheduleExternalGeometrySynchronize(forceImmediate: false)
+    }
+
     /// Marks a visible entry for the next settled geometry commit.
     ///
     /// A new settlement episode gets the full convergence budget. Repeated
@@ -24,6 +38,7 @@ extension WindowTerminalPortal {
     /// `synchronizeHostedView` are the only two paths that give a terminal a
     /// size, so a hidden, detached, or still-moving frame cannot reach it.
     func commitSettledPaneGeometries() {
+        guard !isInteractiveGeometryActive else { return }
         for hostedId in entriesByHostedId.keys {
             guard let entry = entriesByHostedId[hostedId], entry.visibleInUI,
                   entry.needsSettledCommit, let hostedView = entry.hostedView,

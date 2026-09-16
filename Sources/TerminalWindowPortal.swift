@@ -941,7 +941,7 @@ final class WindowTerminalPortal: NSObject {
     private static var currentlySynchronizingPortalId: ObjectIdentifier?
     private var resyncRequestedDuringPass = false
 
-    fileprivate func scheduleExternalGeometrySynchronize(forceImmediate: Bool) {
+    func scheduleExternalGeometrySynchronize(forceImmediate: Bool) {
 #if DEBUG
         externalGeometrySyncRequestCountForTesting += 1
 #endif
@@ -1050,7 +1050,7 @@ final class WindowTerminalPortal: NSObject {
     }
 
     private var lastHierarchySyncSignature: ExternalGeometrySignature?
-    private var geometrySettlementPassesRemaining = 4
+    var geometrySettlementPassesRemaining = 4
 
     @discardableResult
     private func synchronizeHostFrameToReference() -> Bool {
@@ -1113,21 +1113,11 @@ final class WindowTerminalPortal: NSObject {
                 }
             }
         }
-        // Content-based echo cut. A sync pass lays out hosted split views
-        // and writes hostView.frame, and the notifications those emit can
-        // be DELIVERED AFTER the pass ends (block observers on .main), so
-        // no in-pass flag can catch them all — the sync then re-runs
-        // forever on identical geometry, pinning the main thread. An echo
-        // carries the exact geometry the last pass left behind, so it dies
-        // here in one cheap comparison; any real change differs somewhere
-        // and syncs fully.
-        // Installation must not consume this pass's layout change before the
-        // settlement check. Otherwise its second hierarchy sync immediately
-        // sees the signature the first one just wrote and publishes a transient
-        // terminal size during workspace reveal.
+        // Lay out once before checking settlement. Repeated hierarchy reads
+        // in one pass would mistake an intermediate frame for settled geometry.
         guard ensureInstalled(syncLayout: false) else { return }
         let hierarchyWasAlreadySettled = synchronizeLayoutHierarchy()
-        synchronizeAllHostedViews(excluding: nil)
+        synchronizeAllHostedViews(excluding: nil, syncLayout: false, portalIsPrepared: true)
         reconcileVisibleHostedViewsAfterGeometrySync(reason: "portal.externalGeometrySync")
         if hierarchyWasAlreadySettled {
             commitSettledPaneGeometries()
@@ -1491,7 +1481,7 @@ final class WindowTerminalPortal: NSObject {
         )
 #endif
         if let hostedView = entry.hostedView {
-            hostedView.setPaneGeometryPortalOwned(false)
+            hostedView.setPaneGeometryPortal(nil)
             if let restoredMask = preAdoptionAutoresizingMaskByHostedId.removeValue(forKey: hostedId) {
                 hostedView.autoresizingMask = restoredMask
             }
@@ -1513,7 +1503,7 @@ final class WindowTerminalPortal: NSObject {
         entry.hostedView?.clearPortalGeometry()
         entry.needsSettledCommit = false
         entry.transientRecoveryRetriesRemaining = 0
-        entriesByHostedId[hostedId] = entry
+        entriesByHostedId[hostedId]?.transientRecoveryRetriesRemaining = 0
         clearPresentationNotificationState(for: hostedId)
         entry.hostedView?.isHidden = true
 #if DEBUG
@@ -1628,7 +1618,7 @@ final class WindowTerminalPortal: NSObject {
         // From here on the portal owns the pane geometry: the view stops
         // publishing its own bounds and waits for a commit from a settled
         // pass or a drag tick.
-        hostedView.setPaneGeometryPortalOwned(true)
+        hostedView.setPaneGeometryPortal(self)
 
         if let previousHostedId = hostedByAnchorId[anchorId], previousHostedId != hostedId {
 #if DEBUG
@@ -1655,7 +1645,7 @@ final class WindowTerminalPortal: NSObject {
             anchorView: anchorView,
             workspaceID: hostedView.isRightSidebarDockSurface ? nil : hostedView.surfaceView.terminalSurface?.tabId,
             visibleInUI: visibleInUI && (hostedView.isRightSidebarDockSurface || Workspace.portalRenderingEnabled(for: hostedView.surfaceView.terminalSurface?.tabId)),
-            needsSettledCommit: visibleInUI && (hostedView.isRightSidebarDockSurface || Workspace.portalRenderingEnabled(for: hostedView.surfaceView.terminalSurface?.tabId)),
+            needsSettledCommit: previousEntry?.needsSettledCommit ?? false,
             zPriority: zPriority,
             transientRecoveryRetriesRemaining: 0
         )
@@ -1744,25 +1734,9 @@ final class WindowTerminalPortal: NSObject {
     }
 
     func synchronizeHostedViewForAnchor(_ anchorView: NSView, syncLayout: Bool = true) {
-        // Anchor geometry callbacks fire for every layout pass — including
-        // the passes our own syncs run — and treating each one as a
-        // synchronous full-portal sync (hierarchy layout + every hosted
-        // view + a deferred follow-up) kept the display cycle busy
-        // indefinitely under churn. Outside a split-divider drag they
-        // coalesce into the scheduled pass like every other trigger; during
-        // a divider drag the immediate path below keeps the dragged split
-        // visually glued.
-        //
-        // A live WINDOW resize takes the coalesced path too, on purpose.
-        // Unlike a divider drag (one or two anchors move), a window resize
-        // fires this callback for EVERY visible pane in the same layout
-        // pass, so the full-portal fan-out below did panes × callbacks
-        // work per display frame. Syncing just this anchor's hosted view
-        // keeps the pane glued to the geometry the layout pass produced;
-        // the per-tick scheduled pass (windowDidResize) catches panes whose
-        // window-relative position changed without their own frame
-        // changing, and the end-of-resize sync (windowDidEndLiveResize →
-        // scheduleExternalGeometrySynchronize) stays unconditional.
+        // Anchor callbacks run inside AppKit layout. Sync only the changed
+        // pane inline; the queued window pass reconciles siblings. Divider
+        // drags retain the existing failsafe path below.
         guard TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window) else {
             if !isWindowLiveResizeActive {
                 pruneDeadEntries()
@@ -1852,7 +1826,7 @@ final class WindowTerminalPortal: NSObject {
             // unstable first pass cannot flush an intermediate PTY size.
             guard self.ensureInstalled(syncLayout: false) else { return }
             let hierarchyWasAlreadySettled = self.synchronizeLayoutHierarchy()
-            self.synchronizeAllHostedViews(excluding: nil, syncLayout: false)
+            self.synchronizeAllHostedViews(excluding: nil, syncLayout: false, portalIsPrepared: true)
             if reconcileVisible {
                 // syncLayout false: this runs off a layout callback during
                 // divider/sidebar drags, where a synchronous display wedges
@@ -1900,8 +1874,13 @@ final class WindowTerminalPortal: NSObject {
         }
     }
 
-    private func synchronizeAllHostedViews(excluding hostedIdToSkip: ObjectIdentifier?, syncLayout: Bool = true) {
-        guard ensureInstalled(syncLayout: syncLayout) else { return }
+    /// Reconciles a batch against one prepared portal hierarchy.
+    private func synchronizeAllHostedViews(
+        excluding hostedIdToSkip: ObjectIdentifier?,
+        syncLayout: Bool = true,
+        portalIsPrepared: Bool = false
+    ) {
+        guard portalIsPrepared || ensureInstalled(syncLayout: false) else { return }
         if syncLayout {
             synchronizeLayoutHierarchy()
         } else {
@@ -1911,21 +1890,19 @@ final class WindowTerminalPortal: NSObject {
         let hostedIds = Array(entriesByHostedId.keys)
         for hostedId in hostedIds {
             if hostedId == hostedIdToSkip { continue }
-            // An already-hidden entry for a hidden tab is a no-op here by
-            // design: its frame is deliberately left alone while hidden, and
-            // becoming visible schedules its own sync (updateEntryVisibility).
-            // Skipping it matters — a session of mirrored tmux windows keeps
-            // dozens of hidden surfaces, and computing every one's
-            // ancestor-clipped frame on every geometry tick made live window
-            // resizes visibly sluggish.
+            // Hidden entries retain their last frame until they become visible.
             if let entry = entriesByHostedId[hostedId],
                !entry.visibleInUI, entry.hostedView?.isHidden == true {
                 continue
             }
-            // The outer pass has already installed and laid out the portal.
-            // Avoid repeating hierarchy synchronization for every hosted pane.
-            synchronizeHostedView(withId: hostedId, syncLayout: false)
+            synchronizeHostedView(
+                withId: hostedId,
+                syncLayout: syncLayout,
+                portalIsPrepared: true,
+                deferDividerOverlay: true
+            )
         }
+        ensureDividerOverlayOnTop()
     }
 
     private func resetTransientRecoveryRetryIfNeeded(forHostedId hostedId: ObjectIdentifier, entry: inout Entry) {
@@ -1970,8 +1947,13 @@ final class WindowTerminalPortal: NSObject {
         return true
     }
 
-    private func synchronizeHostedView(withId hostedId: ObjectIdentifier, syncLayout: Bool = true) {
-        guard ensureInstalled(syncLayout: syncLayout) else { return }
+    private func synchronizeHostedView(
+        withId hostedId: ObjectIdentifier,
+        syncLayout: Bool = true,
+        portalIsPrepared: Bool = false,
+        deferDividerOverlay: Bool = false
+    ) {
+        guard portalIsPrepared || ensureInstalled(syncLayout: syncLayout) else { return }
         guard var entry = entriesByHostedId[hostedId] else { return }
         guard let hostedView = entry.hostedView else {
             entriesByHostedId.removeValue(forKey: hostedId)
@@ -2259,15 +2241,8 @@ final class WindowTerminalPortal: NSObject {
             }
             if geometryChanged {
                 _ = hostedView.reconcileGeometryNow()
-                // Hidden surfaces keep geometry bookkeeping and redraw on reveal.
-                // Mid window live-resize, skip the synchronous redraw for visible
-                // ones too: reconcileGeometryNow already pushed the new size into
-                // the runtime (a ghostty size change schedules its own repaint),
-                // and forcing displayIfNeeded plus an extra surface refresh for
-                // every visible pane on every resize tick — sometimes before the
-                // pane's Metal layer was even realized — is what made resizing a
-                // window full of mirrored panes drag. The end-of-resize sync runs
-                // after live resize is over and takes this branch normally.
+                // Size changes schedule Ghostty's own repaint. Avoid blocking
+                // on Metal inside a live-resize transaction.
                 if entry.visibleInUI, !shouldHide, !hostedView.isHidden, !isWindowLiveResizeActive {
                     if syncLayout {
                         hostedView.refreshSurfaceNow(reason: "portal.frameChange")
@@ -2279,9 +2254,6 @@ final class WindowTerminalPortal: NSObject {
                 // any other visible frame change waits for the settled pass.
                 // Hidden or tiny frames never publish.
                 if entry.visibleInUI, !shouldHide, !hostedView.isHidden {
-                    if isInteractiveGeometryActive {
-                        _ = hostedView.commitPortalGeometry(phase: .interactive)
-                    }
                     markNeedsSettledCommit(for: hostedId)
                 }
             }
@@ -2315,9 +2287,6 @@ final class WindowTerminalPortal: NSObject {
             hostedView.reconcileGeometryNow()
             // The revealed frame is now user-visible; publish it on the next
             // settled pass (or immediately inside a drag).
-            if isInteractiveGeometryActive {
-                _ = hostedView.commitPortalGeometry(phase: .interactive)
-            }
             markNeedsSettledCommit(for: hostedId)
             // Mid window live-resize the pass runs synchronously inside the
             // resize tick's still-open transaction (see the didResize
@@ -2331,6 +2300,11 @@ final class WindowTerminalPortal: NSObject {
             } else {
                 deferSurfaceRefresh(forHostedId: hostedId, reason: "portal.reveal.deferred")
             }
+        }
+
+        if isInteractiveGeometryActive, entry.visibleInUI, !shouldHide,
+           !hostedView.isHidden, entriesByHostedId[hostedId]?.needsSettledCommit == true {
+            _ = hostedView.commitPortalGeometry(phase: .interactive)
         }
 
         if transientRecoveryReason == nil {
@@ -2355,7 +2329,7 @@ final class WindowTerminalPortal: NSObject {
         }
 #endif
 
-        ensureDividerOverlayOnTop()
+        if !deferDividerOverlay { ensureDividerOverlayOnTop() }
     }
 
     private func updatePresentationState(

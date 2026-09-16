@@ -5216,9 +5216,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     fileprivate func debugPendingSurfaceSize() -> CGSize? { pendingSurfaceSize }
     func debugLastDrawableSizeForTesting() -> CGSize { lastDrawableSize }
     func debugDeferredSurfaceSizeRetryQueuedForTesting() -> Bool { deferredSurfaceSizeRetryQueued }
-    @discardableResult func debugUpdateSurfaceSizeForTesting(_ size: CGSize) -> Bool {
-        commitPaneGeometry(size: size, phase: .settled)
-    }
 #endif
 
     /// Re-applies the current pane size and drawable for refresh paths.
@@ -9607,6 +9604,7 @@ final class GhosttySurfaceScrollView: NSView {
     private var activeDropZone: DropZone?
     private var pendingDropZone: DropZone?
     private var sessionContentWidthPresentation = SessionContentWidthPresentation.disabled
+    weak var paneGeometryPortal: WindowTerminalPortal?
     private var dropZoneOverlayAnimationGeneration: UInt64 = 0
     private var pendingAutomaticFirstResponderApply = false
     private var pendingAutomaticFirstResponderFocusTransactionId: UUID?
@@ -11340,9 +11338,11 @@ final class GhosttySurfaceScrollView: NSView {
     /// Hands pane-geometry ownership to the portal, or back to AppKit layout.
     /// Leaving the portal forgets the committed size; the next presenting
     /// host commits the next one.
-    func setPaneGeometryPortalOwned(_ owned: Bool) {
-        surfaceView.paneGeometryIsPortalOwned = owned
-        if !owned { surfaceView.terminalSurface?.clearPaneGeometry() }
+    func setPaneGeometryPortal(_ portal: WindowTerminalPortal?) {
+        guard paneGeometryPortal !== portal else { return }
+        paneGeometryPortal = portal
+        surfaceView.paneGeometryIsPortalOwned = portal != nil
+        surfaceView.terminalSurface?.clearPaneGeometry()
     }
 
     /// Publishes the portal-written frame as the pane geometry.
@@ -12894,7 +12894,10 @@ final class GhosttySurfaceScrollView: NSView {
         // Inside a portal the pane geometry is committed by the portal's
         // settled pass or drag tick; only a view AppKit lays out directly
         // publishes its inner frame here.
-        guard !surfaceView.paneGeometryIsPortalOwned else { return false }
+        if surfaceView.paneGeometryIsPortalOwned {
+            paneGeometryPortal?.requestPaneGeometryCommit(for: self)
+            return false
+        }
         return surfaceView.commitPaneGeometry(
             size: CGSize(width: width, height: height),
             phase: (inLiveResize || window?.inLiveResize == true) ? .interactive : .settled
