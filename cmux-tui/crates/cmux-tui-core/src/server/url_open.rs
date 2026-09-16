@@ -63,9 +63,15 @@ impl URLRequests {
             if state.pending.len() >= CAPACITY {
                 return None;
             }
-            let (&client, subscriber) = state.subscribers.iter().find(|(_, subscriber)| {
+            let mut candidates = state.subscribers.iter().filter(|(_, subscriber)| {
                 subscriber.terminals.contains(terminal) && subscriber.writer.is_open()
-            })?;
+            });
+            let (&client, subscriber) = candidates.next()?;
+            // A shared terminal has no reliable physical-Mac origin. Never
+            // send its authentication URL to an arbitrary other frontend.
+            if candidates.next().is_some() {
+                return None;
+            }
             let writer = subscriber.writer.clone();
             // An unguessable capability lets a frontend acknowledge on another
             // connection through the same authenticated mux tunnel.
@@ -208,6 +214,18 @@ mod tests {
         assert!(broker.complete(&id, true));
         assert!(receiver.recv().unwrap());
         assert!(!broker.claim(&id));
+    }
+
+    #[test]
+    fn url_open_does_not_guess_between_frontends() {
+        let broker = URLRequests::default();
+        let (first, _) = captured_writer();
+        let (second, _) = captured_writer();
+        broker.subscribe(1, vec![TERMINAL.into()], first).unwrap();
+        broker.subscribe(2, vec![TERMINAL.into()], second).unwrap();
+        assert!(broker.prepare(TERMINAL, "https://example.com").is_none());
+        broker.disconnect(2);
+        assert!(broker.prepare(TERMINAL, "https://example.com").is_some());
     }
 
     #[test]

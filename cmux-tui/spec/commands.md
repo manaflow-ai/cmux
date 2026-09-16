@@ -3879,6 +3879,8 @@ The result is `{opened:boolean}`. At most 16 requests remain pending; a missing
 frontend, disconnect, declined delivery, or five-second deadline returns false.
 This command never starts guest Chrome, creates a resource, or writes a journal
 entry. The guest OS opener prints the URL and exits successfully on false.
+Several frontend subscriptions for the same terminal also return false: the
+guest request cannot identify a physical Mac, so the daemon never guesses.
 
 ### url-open-subscribe
 
