@@ -17687,7 +17687,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 if didSplit { onExecuted?() }
                 return didSplit
             }
-        case .command, .agent, .workspaceCommand, .workspace:
+        case .command, .text, .agent, .workspaceCommand, .workspace:
             guard let cmuxConfigStore = context.cmuxConfigStore else {
                 return false
             }

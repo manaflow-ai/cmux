@@ -14592,6 +14592,26 @@ extension Workspace: BonsplitDelegate {
             return
         }
 
+        if let payload = executable.button.action.textPayload {
+            _ = CmuxConfigExecutor.deliverTextActionIfAuthorized(
+                payload,
+                confirm: executable.button.confirm ?? false,
+                actionID: executable.button.id,
+                configSourcePath: executable.terminalCommandSourcePath ?? surfaceTabBarButtonSourcePath,
+                globalConfigPath: globalConfigPath,
+                displayTitle: executable.button.title ?? executable.button.tooltip,
+                icon: executable.button.icon ?? executable.button.action.defaultButtonIcon,
+                iconSourcePath: executable.button.iconSourcePath,
+                presentingWindow: presentingWindow
+            ) { [weak self] in
+                guard let self else { return }
+                self.bonsplitController.focusPane(pane)
+                guard let panel = self.selectedTerminalPanel(inPane: pane) else { return }
+                CmuxConfigExecutor.deliver(payload, to: panel)
+            }
+            return
+        }
+
         guard let command = executable.button.terminalCommand else { return }
         let target = executable.button.resolvedTerminalCommandTarget
         let didExecute = CmuxConfigExecutor.prepareShellInputIfAuthorized(
