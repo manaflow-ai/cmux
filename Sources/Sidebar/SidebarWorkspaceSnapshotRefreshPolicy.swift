@@ -22,6 +22,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
         let activeCodingAgentCount: Int
         let compactStatusGlyph: SidebarCompactStatusGlyph?
         let taskStatusInput: SidebarWorkspaceTaskStatusSnapshot
+        let hostTitleSuffix: String?
     }
 
     var contextMenuImmediateFields: ContextMenuImmediateFields {
@@ -45,7 +46,8 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             checklistFirstUncheckedText: checklistFirstUncheckedText,
             activeCodingAgentCount: activeCodingAgentCount,
             compactStatusGlyph: compactStatusGlyph,
-            taskStatusInput: taskStatusInput
+            taskStatusInput: taskStatusInput,
+            hostTitleSuffix: hostTitleSuffix
         )
     }
 
@@ -98,7 +100,9 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             deviceWorkspaceLabel: snapshot.deviceWorkspaceLabel,
             // The status glyph is resolved against the spinner state, so it
             // updates with the spinner while the menu is open.
-            compactStatusGlyph: snapshot.compactStatusGlyph
+            compactStatusGlyph: snapshot.compactStatusGlyph,
+            // The host after a colliding title is part of the title the row shows, so it updates with it.
+            hostTitleSuffix: snapshot.hostTitleSuffix
         )
     }
 }
