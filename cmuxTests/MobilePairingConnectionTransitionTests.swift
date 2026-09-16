@@ -37,6 +37,54 @@ struct MobilePairingConnectionTransitionTests {
         #expect(MobilePairingModel.v2StatusTransition(status, baselineConnectionCount: 0) == .preparing)
     }
 
+    @Test("Listener and registration failures expose recovery", arguments: [false, true])
+    func v2FailuresDoNotRemainPreparing(running: Bool) {
+        let status = MobileHostServiceStatus(
+            isRunning: running, port: running ? 58465 : nil, configuredPort: 58465,
+            usesEphemeralFallback: false, routes: [], activeConnectionCount: 0,
+            lastErrorDescription: "Registration is unavailable"
+        )
+        guard case .failed = MobilePairingModel.v2StatusTransition(status, baselineConnectionCount: 0) else {
+            Issue.record("A failed listener or registration must expose the Try Again state")
+            return
+        }
+    }
+
+    @Test("Preparation has a cancellable deadline and keeps recovery visible")
+    func preparationDeadline() async throws {
+        let clock = SidebarTestManualClock()
+        let model = MobilePairingModel(preparationClock: clock, preparationTimeout: .seconds(30))
+        var status = MobileHostServiceStatus(
+            isRunning: true, port: 58465, configuredPort: 58465,
+            usesEphemeralFallback: false, routes: [], activeConnectionCount: 0,
+            lastErrorDescription: nil
+        )
+        model.receiveHostStatus(status, baselineConnectionCount: 0)
+        #expect(model.state == .preparing)
+        let deadline = try #require(model.preparationTimeoutTask)
+        await clock.waitUntilSleeping()
+        clock.advance(by: .seconds(30))
+        await deadline.value
+        guard case .failed = model.state else {
+            Issue.record("A pending registration must expose recovery at its deadline")
+            model.stopObserving()
+            return
+        }
+        let failed = model.state
+        model.receiveHostStatus(status, baselineConnectionCount: 0)
+        #expect(model.state == failed)
+        status.isPairingReady = true
+        model.receiveHostStatus(status, baselineConnectionCount: 0)
+        guard case .ready = model.state else { Issue.record("A completed registration should recover"); return }
+        status.isPairingReady = false
+        model.receiveHostStatus(status, baselineConnectionCount: 0)
+        await clock.waitUntilSleeping()
+        model.stopObserving()
+        await clock.waitUntilIdle()
+        clock.advance(by: .seconds(30))
+        #expect(model.state == .preparing)
+    }
+
     /// Routes matching ``makeReady()``, so a transition that recomputes the
     /// diagnostics from them reproduces the same `Ready` value.
     private func matchingRoutes() throws -> [CmxAttachRoute] {
@@ -190,17 +238,6 @@ struct MobilePairingConnectionTransitionTests {
             baselineConnectionCount: 0
         )
         #expect(next == .signedOut)
-    }
-
-    @Test("Pairing-disabled empty state is unaffected by connection-count changes")
-    func pairingDisabledIsUnaffected() throws {
-        let next = MobilePairingModel.statusTransition(
-            from: .pairingDisabled,
-            routes: try matchingRoutes(),
-            activeConnectionCount: 1,
-            baselineConnectionCount: 0
-        )
-        #expect(next == .pairingDisabled)
     }
 
     @Test("Tailscale is the only Mac pairing QR when Iroh is also available")

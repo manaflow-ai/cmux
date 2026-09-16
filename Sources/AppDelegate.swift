@@ -5994,6 +5994,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
 
+        guard destinationWorkspace.acceptsSurface(from: sourceWorkspace, panelID: panelId) else { return false }
+
         let resolvedTargetPane = targetPane.flatMap { pane in
             destinationWorkspace.bonsplitController.allPaneIds.first(where: { $0 == pane })
         } ?? destinationWorkspace.bonsplitController.focusedPaneId
@@ -6186,74 +6188,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             managers.append(tabManager)
         }
         return managers.flatMap(\.tabs)
-    }
-
-    func moveBonsplitTab(
-        tabId: UUID,
-        toWorkspace targetWorkspaceId: UUID,
-        targetPane: PaneID? = nil,
-        targetIndex: Int? = nil,
-        splitTarget: (orientation: SplitOrientation, insertFirst: Bool)? = nil,
-        focus: Bool = true,
-        focusWindow: Bool = true
-    ) -> Bool {
-#if DEBUG
-        let moveStart = ProcessInfo.processInfo.systemUptime
-        func elapsedMs(since start: TimeInterval) -> String {
-            let ms = (ProcessInfo.processInfo.systemUptime - start) * 1000
-            return String(format: "%.2f", ms)
-        }
-        cmuxDebugLog(
-            "surface.moveBonsplit.begin tab=\(tabId.uuidString.prefix(5)) targetWs=\(targetWorkspaceId.uuidString.prefix(5)) " +
-            "targetPane=\(targetPane?.id.uuidString.prefix(5) ?? "auto") targetIndex=\(targetIndex.map(String.init) ?? "nil")"
-        )
-#endif
-        guard let located = locateBonsplitSurface(tabId: tabId) else {
-            // The tab isn't in any workspace pane tree — it may be a Dock tab
-            // being dragged out into the main split area. Route the live panel
-            // out of its Dock and into the destination workspace.
-            if let dockSource = locateDockSurface(tabId: tabId) {
-                return moveDockSurfaceToWorkspace(
-                    sourceDock: dockSource.dock,
-                    panelId: dockSource.panelId,
-                    toWorkspace: targetWorkspaceId,
-                    targetPane: targetPane,
-                    targetIndex: targetIndex,
-                    splitTarget: splitTarget,
-                    focus: focus,
-                    focusWindow: focusWindow
-                )
-            }
-#if DEBUG
-            cmuxDebugLog(
-                "surface.moveBonsplit.fail tab=\(tabId.uuidString.prefix(5)) reason=tabNotFound " +
-                "targetWs=\(targetWorkspaceId.uuidString.prefix(5)) elapsedMs=\(elapsedMs(since: moveStart))"
-            )
-#endif
-            return false
-        }
-#if DEBUG
-        cmuxDebugLog(
-            "surface.moveBonsplit.located tab=\(tabId.uuidString.prefix(5)) panel=\(located.panelId.uuidString.prefix(5)) " +
-            "sourceWs=\(located.workspaceId.uuidString.prefix(5)) sourceWin=\(located.windowId.uuidString.prefix(5))"
-        )
-#endif
-        let moved = moveSurface(
-            panelId: located.panelId,
-            toWorkspace: targetWorkspaceId,
-            targetPane: targetPane,
-            targetIndex: targetIndex,
-            splitTarget: splitTarget,
-            focus: focus,
-            focusWindow: focusWindow
-        )
-#if DEBUG
-        cmuxDebugLog(
-            "surface.moveBonsplit.end tab=\(tabId.uuidString.prefix(5)) panel=\(located.panelId.uuidString.prefix(5)) " +
-            "moved=\(moved ? 1 : 0) elapsedMs=\(elapsedMs(since: moveStart))"
-        )
-#endif
-        return moved
     }
 
     @discardableResult
@@ -8551,14 +8485,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return createdWorkspace
     }
 
-    /// Opens the Tailscale pairing flow as a dedicated workspace, reusing the
+    /// Opens the mobile pairing flow as a dedicated workspace, reusing the
     /// existing pairing workspace in the target window when one is open.
     ///
     /// - Parameters:
     ///   - preferredTabManager: The target window's workspace manager.
     ///   - preferredWindow: The target main window, when known.
     ///   - focusWorkspace: Whether to select and focus the pairing workspace.
-    ///   - enforceFeatureFlag: Whether the Tailscale Pairing button flag gates the action.
+    ///   - enforceFeatureFlag: Whether the Mobile Pairing button flag gates the action.
     ///   - bringWindowForward: Whether to activate the resolved main window.
     ///   - debugSource: The entrypoint name used in debug diagnostics.
     /// - Returns: The reused or newly created pairing workspace, or `nil` when unavailable.
@@ -8607,7 +8541,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return workspace
         }
 
-        let title = String(localized: "mobile.pairing.window.title", defaultValue: "Tailscale Pairing")
+        let title = String(localized: "mobile.pairing.window.title", defaultValue: "Mobile Pairing")
         guard let workspace = manager.addWorkspaceIfActive(
             title: title,
             select: focusWorkspace,
