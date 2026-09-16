@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare exact native releases in Sentry; missing data never passes a gate."""
+"""Compare exact macOS releases in Sentry; iOS crash consent excludes session tracking."""
 
 import argparse
 import datetime as dt
@@ -13,7 +13,6 @@ from urllib.parse import urlencode
 
 PLATFORMS = {
     "macos": ("4510796264636416", "production"),
-    "ios": ("4510604800491520", "ios-production"),
 }
 
 
@@ -26,6 +25,8 @@ def api(resource, params):
 
 
 def collect(platform, release, start, end):
+    if platform not in PLATFORMS:
+        raise ValueError("Session-rate gate supports macOS only; iOS needs a consent-compatible exposure source")
     project, environment = PLATFORMS[platform]
     # Release strings are exact matches; do not mix nightly, forks, or dev tags.
     query = "release:" + json.dumps(release)
@@ -35,9 +36,14 @@ def collect(platform, release, start, end):
         raise ValueError("Sentry rounded the session window; use whole UTC-hour boundaries")
     groups = sessions.get("groups", [])
     denominator = sum(group["totals"]["sum(session)"] for group in groups)
-    # Include Cocoa's live hang detector, MetricKit's fully/non-fully blocked
-    # hangs, and watchdog deaths. Split errors from hangs at the API query.
-    hang_query = query + ' (error.type:"App Hang*" OR error.type:WatchdogTermination OR error.mechanism:WatchdogTermination)'
+    # SDK exception types and mechanisms include fatal hangs and MetricKit.
+    # Use the same predicate for the total and every attributed segment.
+    hang_query = query + (
+        ' (error.type:"App Hang*" OR error.type:"Fatal App Hang*"'
+        ' OR error.type:WatchdogTermination OR error.type:MXHangDiagnostic'
+        ' OR error.mechanism:AppHang OR error.mechanism:watchdog_termination'
+        ' OR error.mechanism:mx_hang_diagnostic)'
+    )
     events = api("events/", dict(common, field=["count()"], query=hang_query))
     count = sum(row["count()"] for row in events["data"])
     segments = []
@@ -68,6 +74,8 @@ def collect(platform, release, start, end):
 def evaluate(baseline, candidate, min_sessions=1000, max_ratio=1.25):
     reasons = []
     for label, sample in (("baseline", baseline), ("candidate", candidate)):
+        if sample["platform"] not in PLATFORMS:
+            reasons.append(label + " has no supported session exposure source; gate supports macOS only")
         sessions = sample["sessions"]
         events = sample["hang_events"]
         if not isinstance(sessions, int) or sessions < min_sessions:

@@ -14,8 +14,9 @@ public struct TerminalWorkSentryContext: Sendable {
     /// - Parameter event: The event before last-mile privacy scrubbing.
     public func apply(to event: Event) {
         guard event.exceptions?.contains(where: {
-            $0.type?.hasPrefix("App Hang") == true || $0.mechanism?.type == "AppHang"
-                || $0.mechanism?.type == "WatchdogTermination"
+            $0.type?.hasPrefix("App Hang") == true || $0.type?.hasPrefix("Fatal App Hang") == true
+                || $0.type == "WatchdogTermination" || $0.type == "MXHangDiagnostic"
+                || ["AppHang", "watchdog_termination", "mx_hang_diagnostic"].contains($0.mechanism?.type ?? "")
         }) == true else { return }
         var active: [UUID: Breadcrumb] = [:]
         var sawTerminalEvidence = false
