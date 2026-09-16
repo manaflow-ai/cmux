@@ -49,6 +49,7 @@ public struct SentryEventScrubber: Sendable {
     /// - Parameter event: The event Sentry is about to send.
     /// - Returns: The scrubbed event.
     public func scrub(_ event: Event) -> Event {
+        TerminalWorkSentryContext().apply(to: event)
         event.message = scrub(event.message)
 
         event.serverName = scrubber.scrub(optional: event.serverName)

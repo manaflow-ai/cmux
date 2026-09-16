@@ -22,9 +22,10 @@ struct TerminalPortalReconciliationReasons: OptionSet {
 /// the originating framework callback has returned.
 @MainActor
 final class TerminalPortalReconciliationScheduler {
+    private enum Phase { case idle, scheduled, applying }
     private var pendingReasons: TerminalPortalReconciliationReasons = []
     private var pendingReconciliation: (@MainActor (TerminalPortalReconciliationReasons) -> Void)?
-    private var isFlushScheduled = false
+    private var phase = Phase.idle
 
     func stage(
         reasons: TerminalPortalReconciliationReasons = [],
@@ -41,8 +42,8 @@ final class TerminalPortalReconciliationScheduler {
     }
 
     private func scheduleFlushIfNeeded() {
-        guard !isFlushScheduled else { return }
-        isFlushScheduled = true
+        guard phase == .idle else { return }
+        phase = .scheduled
         RunLoop.main.perform(inModes: [.common]) { [weak self] in
             // RunLoop guarantees main-thread delivery, but Foundation does not
             // annotate this callback with MainActor.
@@ -54,11 +55,19 @@ final class TerminalPortalReconciliationScheduler {
 
     /// Flushes the staged reconciliation at a caller-owned safe boundary.
     func flushPendingReconciliation() {
+        // AppKit can drain a nested run loop while the current reconciliation
+        // lays out or reparents views. That delivery must leave pending work
+        // with this owner until the active geometry pass has unwound.
+        guard phase != .applying else { return }
         let reasons = pendingReasons
         let reconciliation = pendingReconciliation
         pendingReasons = []
         pendingReconciliation = nil
-        isFlushScheduled = false
+        phase = .applying
+        defer {
+            phase = .idle
+            if pendingReconciliation != nil { scheduleFlushIfNeeded() }
+        }
         reconciliation?(reasons)
     }
 }
@@ -100,6 +109,11 @@ extension GhosttyTerminalView {
             guard let host, let hostedView, let coordinator, let terminalSurface else { return }
             guard coordinator.attachGeneration == snapshot.attachGeneration else { return }
             guard coordinator.hostedView === hostedView else { return }
+            let work = TerminalGeometryDiagnostics().begin(
+                .geometryPublication, workspaceID: terminalSurface.tabId,
+                transition: reasons.contains(.bindingRequired) ? .reveal : .unknown
+            )
+            defer { work.end() }
 
             let portalBindingLive = terminalSurface.canAcceptPortalBinding(
                 expectedSurfaceId: snapshot.expectedSurfaceId,

@@ -18,7 +18,6 @@ import Testing
         #expect(DiagnosticEventPresentation().name(DiagnosticEventCode.hostAuthenticationFailed) == "hostAuthenticationFailed")
         #expect(DiagnosticEventPresentation().name(DiagnosticEventCode.appFeatureAction) == "appFeatureAction")
     }
-
     @Test func pinsTaxonomyNames() {
         #expect(DiagnosticEventPresentation().name(DiagnosticFailureKind.policyUnavailable) == "policyUnavailable")
         #expect(DiagnosticEventPresentation().name(DiagnosticFailureKind.identityMismatch) == "identityMismatch")
@@ -208,6 +207,7 @@ import Testing
 
     @Test func everyEventCodeHasAReadableTitle() {
         let expected: [DiagnosticEventCode: String] = [
+            .terminalWorkStarted: "Terminal phase started", .terminalWorkFinished: "Terminal phase completed",
             .connect: "Connection attempt started",
             .pairOk: "Pairing succeeded",
             .pairFail: "Pairing failed",

@@ -327,6 +327,9 @@ class GhosttyApp {
             SessionScrollbackReplayStore.environmentKey,
         globalFontMagnificationPercent: {
             GhosttyApp.shared.appliedGlobalFontMagnificationPercent
+        },
+        terminalWork: TerminalSurfaceWorkDiagnostics(log: MobileHostDiagnostics.log) { workspaceID in
+            TerminalGeometryDiagnostics().context(workspaceID: workspaceID, transition: .resize)
         }
     )
 
@@ -10409,14 +10412,7 @@ final class GhosttySurfaceScrollView: NSView {
     /// Request an immediate terminal redraw after geometry updates so stale IOSurface
     /// contents do not remain stretched during live resize churn.
     func refreshSurfaceNow(reason: String = "portal.refreshSurfaceNow") {
-        // Portal reparent/reveal can settle geometry a tick before AppKit finishes
-        // realizing the terminal subtree's backing layer state. Flush display for the
-        // hosted subtree first so forceRefresh does not race a still-unrealized layer.
-        layoutSubtreeIfNeeded()
-        surfaceView.layoutSubtreeIfNeeded()
-        displayIfNeeded()
-        surfaceView.displayIfNeeded()
-        surfaceView.terminalSurface?.forceRefresh(reason: reason)
+        TerminalGeometryDiagnostics().refresh(self, reason: reason)
     }
 
     /// Uses the last valid renderer size while the portal holds publication.
@@ -10436,6 +10432,8 @@ final class GhosttySurfaceScrollView: NSView {
         forceViewportSync: Bool? = nil,
         preservedReviewOriginY: CGFloat? = nil
     ) -> Bool {
+        let work = TerminalGeometryDiagnostics().begin(.layout, workspaceID: surfaceView.terminalSurface?.tabId)
+        defer { work.end() }
         clipsToBounds = true
         layer?.masksToBounds = true
         scrollView.clipsToBounds = true

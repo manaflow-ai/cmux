@@ -55,25 +55,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void = { _ in }
     var onArtifactGalleryRefreshSignal: @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void = { _ in }
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(
-            workspaceID: workspaceID,
-            surfaceID: surfaceID,
-            store: store,
-            terminalPresentationIsActive: terminalPresentationIsActive,
-            artifactFilesEnabled: artifactFilesEnabled,
-            terminalFolderTapEnabled: terminalFolderTapEnabled,
-            terminalFilesChipEnabled: terminalFilesChipEnabled,
-            showMissingFiles: showMissingFiles,
-            sessionArtifactCountEnabled: sessionArtifactCountEnabled,
-            visibleArtifactCount: visibleArtifactCount,
-            onArtifactFilesRequested: onArtifactFilesRequested,
-            onArtifactPathTapped: onArtifactPathTapped,
-            onVisibleArtifactCountChanged: onVisibleArtifactCountChanged,
-            onArtifactGalleryRefreshSignal: onArtifactGalleryRefreshSignal
-        )
-    }
-
     func makeUIView(context: Context) -> UIView {
         let runtime: GhosttyRuntime
         do {
@@ -109,6 +90,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // probes land in the blob the "Send to agent" feedback pane exports.
         // `nil` when no log is wired; every probe is then a no-op.
         view.diagnosticLog = store.diagnosticLog
+        view.terminalWorkPopulation = terminalWorkPopulation
         // Stamp the shell-level id so id-scoped registry lookups (the
         // "View as Text" capture) resolve this exact terminal.
         view.hostSurfaceID = surfaceID
@@ -147,6 +129,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         context.coordinator.setTerminalPresentationActive(terminalPresentationIsActive)
         context.coordinator.attemptPendingOutputConsumerRecoveryPresentation()
         guard let surfaceView = (uiView as? GhosttySurfaceHostView)?.surfaceView else { return }
+        surfaceView.terminalWorkPopulation = terminalWorkPopulation
         surfaceView.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         surfaceView.terminalTheme = terminalTheme
         surfaceView.terminalConfigTheme = terminalConfigTheme
