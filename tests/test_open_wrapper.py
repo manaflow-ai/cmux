@@ -114,6 +114,7 @@ esac
             cmux,
             """#!/usr/bin/env bash
 set -euo pipefail
+[[ "${CMUX_TERMINAL_LINK:-}" == "1" ]] || exit 2
 printf '%s\\n' "$*" >> "$FAKE_CMUX_LOG"
 url=""
 for arg in "$@"; do

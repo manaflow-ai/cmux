@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import enum CmuxSettings.TerminalLinkBrowserPlacement
 import Foundation
 import Testing
 import struct CmuxSettings.AppCatalogSection
@@ -37,7 +38,7 @@ private final class RecordingTerminalLinkContainer: TerminalLinkOpenContainer {
         return true
     }
 
-    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID) -> Bool {
+    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID, placement: TerminalLinkBrowserPlacement) -> Bool {
         false
     }
 }

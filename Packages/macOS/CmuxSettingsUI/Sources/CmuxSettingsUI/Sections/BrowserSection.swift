@@ -27,6 +27,7 @@ public struct BrowserSection: View {
     @State private var discardEnabled: DefaultsValueModel<Bool>
     @State private var discardDelay: DefaultsValueModel<Double>
     @State private var askWhereToSaveDownloads: DefaultsValueModel<Bool>
+    @State private var terminalLinkPlacement: DefaultsValueModel<TerminalLinkBrowserPlacement>
     @State private var openTermLinks: DefaultsValueModel<Bool>
     @State private var interceptOpen: DefaultsValueModel<Bool>
     @State private var hosts: DefaultsValueModel<String>
@@ -78,6 +79,7 @@ public struct BrowserSection: View {
         _discardEnabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.discardHiddenWebViews))
         _discardDelay = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.hiddenWebViewDiscardDelaySeconds))
         _askWhereToSaveDownloads = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.askWhereToSaveDownloads))
+        _terminalLinkPlacement = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.terminalLinkBrowserPlacement))
         _openTermLinks = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.openTerminalLinksInCmuxBrowser))
         _interceptOpen = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.interceptTerminalOpenCommandInCmuxBrowser))
         _hosts = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.hostsToOpenInEmbeddedBrowser))
@@ -107,7 +109,7 @@ public struct BrowserSection: View {
             Button(String(localized: "settings.browser.history.clearDialog.cancel", defaultValue: "Cancel"), role: .cancel) {}
         } message: {
             Text(String(localized: "settings.browser.history.clearDialog.message", defaultValue: "This removes visited-page suggestions from the browser omnibar."))
-        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, defaultZoom, discardEnabled, discardDelay, askWhereToSaveDownloads, openTermLinks, interceptOpen, hosts, external, httpAllowlist, urlAllowlist, importHint, reactGrab]) }
+        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, defaultZoom, discardEnabled, discardDelay, askWhereToSaveDownloads, terminalLinkPlacement, openTermLinks, interceptOpen, hosts, external, httpAllowlist, urlAllowlist, importHint, reactGrab]) }
         .task {
             for await _ in ManagedDevicePolicy.changeSignals() {
                 browserManagedByPolicy = ManagedDevicePolicy().isBrowserDisableLocked(
@@ -305,28 +307,14 @@ public struct BrowserSection: View {
             }
             SettingsCardDivider()
 
-            // Open Terminal Links
-            SettingsCardRow(
-                configurationReview: .json("browser.openTerminalLinksInCmuxBrowser"),
-                String(localized: "settings.browser.openTerminalLinks", defaultValue: "Open Terminal Links in cmux Browser"),
-                subtitle: String(localized: "settings.browser.openTerminalLinks.subtitle", defaultValue: "When off, links clicked in terminal output open in your default browser.")
-            ) {
-                Toggle("", isOn: Binding(get: { openTermLinks.current }, set: { openTermLinks.set($0) }))
-                    .labelsHidden()
-                    .controlSize(.small)
-            }
-            SettingsCardDivider()
-
-            // Intercept open
-            SettingsCardRow(
-                configurationReview: .json("browser.interceptTerminalOpenCommandInCmuxBrowser"),
-                String(localized: "settings.browser.interceptOpen", defaultValue: "Intercept open http(s) in Terminal"),
-                subtitle: String(localized: "settings.browser.interceptOpen.subtitle", defaultValue: "When off, `open https://...` and `open http://...` always use your default browser.")
-            ) {
-                Toggle("", isOn: Binding(get: { interceptOpen.current }, set: { interceptOpen.set($0) }))
-                    .labelsHidden()
-                    .controlSize(.small)
-            }
+            BrowserTerminalLinkSettingsRows(
+                openLinks: openTermLinks.current,
+                interceptOpen: interceptOpen.current,
+                placement: terminalLinkPlacement.current,
+                setOpenLinks: { openTermLinks.set($0) },
+                setInterceptOpen: { interceptOpen.set($0) },
+                setPlacement: { terminalLinkPlacement.set($0) }
+            )
 
             // Hosts (only when terminal routing is enabled)
             if openTermLinks.current || interceptOpen.current {

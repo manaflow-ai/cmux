@@ -1,6 +1,301 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.browser.terminalLinkPlacement": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "موضع روابط الطرفية"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Platzierung von Terminal-Links"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal Link Placement"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ubicación de enlaces del terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emplacement des liens du terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルリンクの配置"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 링크 위치"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端链接位置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機連結位置"
+          }
+        }
+      }
+    },
+    "settings.browser.terminalLinkPlacement.samePane": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "علامة تبويب في الجزء نفسه"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab im selben Bereich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab in Same Pane"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pestaña en el mismo panel"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Onglet dans le même volet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同じペインのタブ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "같은 창의 탭"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同一窗格中的标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同一窗格中的分頁"
+          }
+        }
+      }
+    },
+    "settings.browser.terminalLinkPlacement.search": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طرفية رابط متصفح موضع نفس الجزء علامة تبويب تقسيم فتح URL"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal Link Browser Platzierung gleicher Bereich Tab teilen öffnen URL"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal link browser placement same pane tab split open URL"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal enlace navegador ubicación mismo panel pestaña dividir abrir URL"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal lien navigateur emplacement même volet onglet diviser ouvrir URL"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル リンク ブラウザ 配置 同じペイン タブ 分割 開く URL"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 링크 브라우저 위치 같은 창 탭 분할 열기 URL"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端 链接 浏览器 位置 同一窗格 标签页 拆分 打开 URL"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機 連結 瀏覽器 位置 同一窗格 分頁 分割 開啟 URL"
+          }
+        }
+      }
+    },
+    "settings.browser.terminalLinkPlacement.split": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تقسيم إلى اليمين"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechts teilen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Split Right"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dividir a la derecha"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diviser à droite"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右に分割"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽으로 분할"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向右拆分"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向右分割"
+          }
+        }
+      }
+    },
+    "settings.browser.terminalLinkPlacement.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مكان إنشاء علامات تبويب المتصفح عند النقر على روابط الطرفية أو اعتراض أوامر open. لا تتغير تقسيمات المتصفح اليدوية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legt fest, wo angeklickte Terminal-Links und abgefangene open-Befehle Browser-Tabs erstellen. Manuelle Browser-Aufteilungen bleiben unverändert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Where clicked terminal links and intercepted open commands create browser tabs. Manual browser splits are unchanged."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dónde crean pestañas los enlaces del terminal y los comandos open interceptados. Las divisiones manuales del navegador no cambian."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emplacement des onglets créés par les liens du terminal et les commandes open interceptées. Les divisions manuelles du navigateur restent inchangées."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル内のリンクのクリックや、インターセプトされた open コマンドでブラウザタブを作成する位置です。手動でのブラウザ分割には影響しません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 링크 클릭 및 가로챈 open 명령으로 브라우저 탭을 만들 위치입니다. 수동 브라우저 분할은 변경되지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点击终端链接和拦截的 open 命令创建浏览器标签页的位置。手动拆分浏览器的行为保持不变。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "點按終端機連結及攔截的 open 指令建立瀏覽器分頁的位置。手動分割瀏覽器的行為不變。"
+          }
+        }
+      }
+    },
     "cloud.portAccess.desktopDisconnected": {
       "extractionState": "manual",
       "localizations": {

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxPanes
+import CmuxSettings
 import Foundation
 
 extension DockSplitStore: TerminalLinkOpenContainer {
@@ -38,39 +39,17 @@ extension DockSplitStore: TerminalLinkOpenContainer {
         false
     }
 
-    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID) -> Bool {
-        guard let panelId = panelID(forTerminalLinkSourceID: sourcePanelId),
-              let sourcePane = paneId(forPanelId: panelId) else { return false }
-        if let targetPane = BrowserRightSidePaneResolver().preferredPane(
-            from: sourcePane,
-            in: bonsplitController
-        ) {
-            noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
-            guard let panelId = newSurface(
-                kind: .browser,
-                inPane: targetPane,
-                url: url,
-                focus: false
-            ) else { return false }
-            focusPanelFromDockInteraction(
-                panelId,
-                window: NSApp.keyWindow ?? NSApp.mainWindow
-            )
-            return true
-        }
+    func openTerminalBrowserLink(
+        url: URL,
+        sourcePanelId: UUID,
+        placement: TerminalLinkBrowserPlacement
+    ) -> Bool {
+        guard let panelId = panelID(forTerminalLinkSourceID: sourcePanelId) else { return false }
         noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
-        guard let panelId = newSplit(
-            kind: .browser,
-            orientation: .horizontal,
-            insertFirst: false,
-            sourcePanelId: panelId,
-            url: url,
-            focus: false
-        ) else { return false }
-        focusPanelFromDockInteraction(
-            panelId,
-            window: NSApp.keyWindow ?? NSApp.mainWindow
-        )
-        return true
+        return BrowserSplitContainer.dock(self).openBrowser(
+            of: panelId,
+            placement: placement,
+            request: BrowserSplitRequest(url: url, focus: true, preloadInBackground: false)
+        ) != nil
     }
 }

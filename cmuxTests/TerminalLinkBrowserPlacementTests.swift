@@ -116,4 +116,70 @@ struct TerminalLinkBrowserPlacementTests {
             #expect(workspace.bonsplitController.allPaneIds.count == 2)
         }
     }
+
+    @Test("Settings JSON imports, reloads, and rejects invalid placement")
+    func settingsJSONRoundTrip() throws {
+        try withDefaults { defaults in
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let file = root.appendingPathComponent("cmux.json")
+            try #"{"browser":{"terminalLinkBrowserPlacement":"samePane"}}"#.write(to: file, atomically: true, encoding: .utf8)
+            defaults.removeObject(forKey: "browserTerminalLinkBrowserPlacement")
+            let store = CmuxSettingsFileStore(
+                primaryPath: file.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                userDefaults: defaults,
+                startWatching: false
+            )
+            #expect(defaults.string(forKey: "browserTerminalLinkBrowserPlacement") == "samePane")
+            try #"{"browser":{"terminalLinkBrowserPlacement":"split"}}"#.write(to: file, atomically: true, encoding: .utf8)
+            store.reload()
+            #expect(defaults.string(forKey: "browserTerminalLinkBrowserPlacement") == "split")
+            try #"{"browser":{"terminalLinkBrowserPlacement":"invalid"}}"#.write(to: file, atomically: true, encoding: .utf8)
+            store.reload()
+            #expect(defaults.string(forKey: "browserTerminalLinkBrowserPlacement") != "invalid")
+        }
+    }
+
+    @Test("Socket terminal origin obeys placement while explicit browser open keeps split behavior")
+    func socketRespectsTerminalOrigin() throws {
+        let defaults = UserDefaults.standard
+        let key = "browserTerminalLinkBrowserPlacement"
+        let original = defaults.object(forKey: key)
+        defaults.set("samePane", forKey: key)
+        defer {
+            if let original { defaults.set(original, forKey: key) }
+            else { defaults.removeObject(forKey: key) }
+        }
+        let fixture = DockSocketLifecycleTests()
+        try fixture.withSocketAppContext { _, workspace, _ in
+            let source = try #require(workspace.focusedPanelId)
+            let sourcePane = try #require(workspace.paneId(forPanelId: source))
+            let result = try fixture.v2Result(method: "browser.open_split", params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": source.uuidString,
+                "url": "about:blank",
+                "terminal_link": true,
+                "focus": false,
+            ])
+            #expect(result["created_split"] as? Bool == false)
+            #expect(result["placement_strategy"] as? String == "same_pane")
+            #expect(result["pane_id"] as? String == sourcePane.id.uuidString)
+            #expect(workspace.bonsplitController.allPaneIds.count == 1)
+            #expect(workspace.focusedPanelId == source)
+
+            let explicit = try fixture.v2Result(method: "browser.open_split", params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": source.uuidString,
+                "url": "about:blank",
+                "focus": false,
+            ])
+            #expect(explicit["created_split"] as? Bool == true)
+            #expect(explicit["placement_strategy"] as? String == "split_right")
+            #expect(workspace.bonsplitController.allPaneIds.count == 2)
+        }
+    }
+
 }

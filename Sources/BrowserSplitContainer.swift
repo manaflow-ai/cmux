@@ -1,6 +1,7 @@
 import Bonsplit
 import CmuxBrowser
 import CmuxPanes
+import CmuxSettings
 import Foundation
 
 /// Adapts the main workspace and Dock split trees to one browser-placement path.
@@ -75,9 +76,10 @@ enum BrowserSplitContainer {
         }
     }
 
-    /// Reuses the nearest pane on the right or creates a horizontal split.
-    func openBrowserToRight(
+    /// Creates a tab directly in the source pane, or uses the split-right policy.
+    func openBrowser(
         of sourcePanelID: UUID,
+        placement: TerminalLinkBrowserPlacement = .split,
         request: BrowserSplitRequest
     ) -> BrowserSplitPlacement? {
         guard containsPanel(sourcePanelID),
@@ -85,12 +87,17 @@ enum BrowserSplitContainer {
             return nil
         }
 
+        if placement == .samePane {
+            return createBrowserSurface(in: sourcePane, request: request).map {
+                BrowserSplitPlacement(panel: $0, strategy: .samePane)
+            }
+        }
         if let targetPane = preferredRightSidePane(from: sourcePane) {
             return createBrowserSurface(
                 in: targetPane,
                 request: request
             ).map {
-                BrowserSplitPlacement(panel: $0, createdSplit: false)
+                BrowserSplitPlacement(panel: $0, strategy: .reuseRightSibling)
             }
         }
 
@@ -98,7 +105,7 @@ enum BrowserSplitContainer {
             from: sourcePanelID,
             request: request
         ).map {
-            BrowserSplitPlacement(panel: $0, createdSplit: true)
+            BrowserSplitPlacement(panel: $0, strategy: .splitRight)
         }
     }
 
@@ -152,7 +159,7 @@ enum BrowserSplitContainer {
                 focus: request.focus,
                 selectWhenNotFocused: true,
                 preferredProfileID: request.preferredProfileID,
-                creationPolicy: .automationPreload,
+                creationPolicy: request.preloadInBackground ? .automationPreload : .userInitiated,
                 chromeVisibility: request.chromeVisibility,
                 transparentBackground: request.transparentBackground,
                 bypassRemoteProxy: request.bypassRemoteProxy
@@ -165,7 +172,7 @@ enum BrowserSplitContainer {
                 focus: false,
                 preferredProfileID: request.preferredProfileID,
                 chromeVisibility: request.chromeVisibility,
-                preloadInitialNavigationInBackground: true,
+                preloadInitialNavigationInBackground: request.preloadInBackground,
                 transparentBackground: request.transparentBackground,
                 bypassRemoteProxy: request.bypassRemoteProxy
             ) else {
@@ -190,7 +197,7 @@ enum BrowserSplitContainer {
                 url: request.url,
                 preferredProfileID: request.preferredProfileID,
                 focus: request.focus,
-                creationPolicy: .automationPreload,
+                creationPolicy: request.preloadInBackground ? .automationPreload : .userInitiated,
                 chromeVisibility: request.chromeVisibility,
                 transparentBackground: request.transparentBackground,
                 bypassRemoteProxy: request.bypassRemoteProxy
@@ -204,7 +211,7 @@ enum BrowserSplitContainer {
                 url: request.url,
                 preferredProfileID: request.preferredProfileID,
                 chromeVisibility: request.chromeVisibility,
-                preloadInitialNavigationInBackground: true,
+                preloadInitialNavigationInBackground: request.preloadInBackground,
                 transparentBackground: request.transparentBackground,
                 bypassRemoteProxy: request.bypassRemoteProxy,
                 focus: false
