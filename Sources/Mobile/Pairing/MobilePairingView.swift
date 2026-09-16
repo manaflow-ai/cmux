@@ -2,6 +2,7 @@ import CmuxFoundation
 import AppKit
 import CMUXMobileCore
 import CmuxAuthRuntime
+import Foundation
 import SwiftUI
 
 /// The macOS window for pairing an iPhone with this Mac.
@@ -61,6 +62,14 @@ struct MobilePairingView: View {
         }
         .task { await model.refresh() }
         .onDisappear { model.stopObserving() }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: UserDefaults.didChangeNotification,
+                object: UserDefaults.standard
+            )
+        ) { _ in
+            Task { await model.refresh() }
+        }
         .onChange(of: coordinator?.isAuthenticated ?? false) { _, _ in
             Task { await model.refresh() }
         }
@@ -129,6 +138,8 @@ struct MobilePairingView: View {
             loadingContent
         case .signedOut:
             AccountSignInView(model: signInModel, automaticallyStartsSignIn: false)
+        case .pairingDisabled:
+            pairingDisabledContent
         case .preparing:
             centered {
                 ProgressView().controlSize(.small)
@@ -157,6 +168,36 @@ struct MobilePairingView: View {
                     .foregroundStyle(.secondary)
             }
         }
+    }
+
+    private var pairingDisabledContent: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "iphone.slash")
+                .cmuxFont(size: 28)
+                .foregroundStyle(.secondary)
+            Text(String(
+                localized: "mobile.pairing.disabled.title",
+                defaultValue: "Enable iOS pairing"
+            ))
+                .cmuxFont(.headline)
+            Text(String(
+                localized: "mobile.pairing.disabled.body",
+                defaultValue: "iOS pairing is off on this Mac. Open Settings and enable iOS pairing to discover this Mac from cmux on your iPhone."
+            ))
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button(String(
+                localized: "mobile.pairing.disabled.openSettings",
+                defaultValue: "Open Settings"
+            )) {
+                AppDelegate.shared?.openPreferencesWindow(
+                    debugSource: "mobilePairingDisabled"
+                )
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .frame(maxWidth: .infinity, minHeight: 200)
     }
 
     private func failure(message: String) -> some View {

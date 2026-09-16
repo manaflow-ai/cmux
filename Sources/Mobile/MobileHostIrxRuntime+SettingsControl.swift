@@ -1,5 +1,4 @@
 import CMUXMobileCore
-import CmuxIrxTransport
 import Foundation
 
 /// Thrown for Settings mutations the irx runtime does not support yet
@@ -24,8 +23,10 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
     func irohSettingsSnapshot() async -> CmxIrohSettingsSnapshot {
         let phase = settingsPhase
         let hadLiveDiscovery = hadLiveDiscoveryThisRun
-        let cache = cachedState
+        let broker = brokerService
         let supervisor = endpointSupervisor
+        let trust = await broker?.cachedTrust()
+        let credentials = await broker?.cachedRelayCredentials() ?? []
         let endpointOnline = await supervisor?.isHealthy() ?? false
         let homeRelayURL = await supervisor?.homeRelayURL()
         return Self.settingsSnapshot(
@@ -33,10 +34,10 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
             forceRelayOnly: Self.forceRelayOnly,
             endpointOnline: endpointOnline,
             homeRelayURL: homeRelayURL,
-            relayFleet: cache?.directory?.relayURLs ?? cache?.relayCredentials.map(\.relayURL) ?? [],
-            hasTrustSnapshot: cache?.directory != nil,
+            relayFleet: trust?.relayFleet ?? [],
+            hasTrustSnapshot: trust != nil,
             hadLiveDiscovery: hadLiveDiscovery,
-            credentialExpiry: cache?.relayCredentials.map { Date(timeIntervalSince1970: Double($0.expiresAt)) }.max()
+            credentialExpiry: credentials.map(\.expiresAt).max()
         )
     }
 
@@ -106,12 +107,14 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
     }
 
     func refreshIrohSettings() async {
-        guard isNetworkingAllowed, let service = controlService else {
+        guard MobileHostService.isListeningEnabled,
+              isNetworkingAllowed,
+              let broker = brokerService else {
             publishIrxSettingsUpdate()
             return
         }
         // Force a live discovery so the fleet and policy source are current.
-        if (try? await service.refreshDirectory()) != nil {
+        if (try? await broker.discover(maximumAge: 0)) != nil {
             noteLiveDiscoverySucceeded()
         }
         publishIrxSettingsUpdate()
