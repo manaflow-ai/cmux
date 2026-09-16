@@ -496,7 +496,6 @@ enum CloudTreeNodeBuilder {
                 )
             })
             guard !wanted.isEmpty else { return nil }
-
             var placementCountByResource: [SurfaceResourceID: Int] = [:]
             for identity in wanted {
                 placementCountByResource[identity.resource, default: 0] += 1
@@ -767,7 +766,6 @@ enum CloudTreeNodeBuilder {
             children: children
         )
     }
-
     // MARK: Cloud machines
 
     /// `http://<name>.internal:<port>` when the machine has a private address
@@ -781,7 +779,6 @@ enum CloudTreeNodeBuilder {
         guard machine.isLocal == false else { return nil }
         return CmuxInternalHostnames.directPortURL(privateAddress: address, port: port)
     }
-
     private static func cloudChildren(
         machine: SurfaceMachineID,
         machineSnapshot: MachineSnapshot,
@@ -868,7 +865,10 @@ enum CloudTreeNodeBuilder {
         } else {
             children.append(placeholder(machine, text: String(localized: "cloudTree.placeholder.connecting", defaultValue: "Connecting…"), style: .connecting))
         }
-        children.append(resourceNodeBuilder.groupNode(machine: machine, snapshot: machineSnapshot, now: now))
+        let resourceSnapshot = resourceNodeBuilder.snapshot(
+            from: machineSnapshot, linkState: info?.linkState, now: now
+        )
+        children.append(resourceNodeBuilder.groupNode(machine: machine, snapshot: resourceSnapshot, now: now))
         return children
     }
     /// Builds every nonempty Cloud workspace from its actual layout members.

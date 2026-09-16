@@ -40,4 +40,34 @@ struct CloudTreeMachineResourceNodeBuilder {
     func rowID(machine: SurfaceMachineID, metric: CloudTreeMachineResourceMetric) -> String {
         "machine:\(machine.rawValue)/resources/\(metric.rawValue)"
     }
+
+    /// Removes cached live readings when the machine link is not authoritative.
+    func snapshot(
+        from machine: MachineSnapshot,
+        linkState: SurfaceLinkState?,
+        now: Date
+    ) -> MachineSnapshot {
+        var snapshot = machine
+        switch linkState {
+        case .some(.connected), .some(.notApplicable):
+            break
+        case .some(.asleep):
+            let previous = machine.stats
+            snapshot.stats = VMStats(
+                state: .asleep,
+                sampledAt: now,
+                cpus: previous?.cpus,
+                cpuPercent: nil,
+                loadAverage1m: nil,
+                memoryTotalMb: previous?.memoryTotalMb,
+                memoryUsedMb: nil,
+                diskTotalMb: previous?.diskTotalMb,
+                diskUsedMb: nil
+            )
+        case .some(.connecting), .some(.error), .some(.unavailable), .none:
+            snapshot.capabilities.stats = false
+            snapshot.stats = nil
+        }
+        return snapshot
+    }
 }
