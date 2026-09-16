@@ -95,7 +95,11 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
         }
         if value.get("ok").and_then(Value::as_bool) == Some(true) {
             if plan.stream {
-                if super::wire::print_local_success(value.get("data").unwrap_or(&Value::Null), global.output) != 0 {
+                if super::wire::print_local_success(
+                    value.get("data").unwrap_or(&Value::Null),
+                    global.output,
+                ) != 0
+                {
                     return 3;
                 }
                 continue;

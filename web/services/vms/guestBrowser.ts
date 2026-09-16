@@ -82,9 +82,9 @@ export function guestBrowserInstallCommand(): string {
     `chmod ${mode} "$cmux_browser_tmp" && mv -f "$cmux_browser_tmp" '${path}'`,
   ]);
   return [
-    "mkdir -p /usr/local/bin /etc/profile.d /etc/cmux /etc/fish/conf.d /etc/zsh",
+    "mkdir -p /usr/local/bin /etc/profile.d /etc/cmux /etc/fish/conf.d",
     ...writes,
-    `for cmux_rc in /etc/bash.bashrc /etc/zsh/zshenv; do touch "$cmux_rc"; grep -Fqx '${source}' "$cmux_rc" || printf '\\n%s\\n' '${source}' >> "$cmux_rc"; done`,
+    `for cmux_rc in /etc/bash.bashrc /etc/zsh/zshenv; do [ -f "$cmux_rc" ] || continue; grep -Fqx '${source}' "$cmux_rc" || printf '\\n%s\\n' '${source}' >> "$cmux_rc"; done`,
     `printf '%s\\n' '${browserDigest}' > /etc/cmux/browser-opener-version`,
   ].join(" && ");
 }

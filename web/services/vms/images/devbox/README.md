@@ -517,3 +517,18 @@ public ingress, installs a system VPN, or changes an existing machine. A
 cleanup failure names the resource requiring operator attention and fails the
 command. Run this alongside `devbox:verify` when validating a new image or a
 new Cloud client.
+
+## Terminal browser openers
+
+Human authentication is installed by `guestBrowser.ts` through the provider's
+create/heal path, rather than baked into the immutable snapshot. It installs
+`cmux-open-url`, web-only OS opener wrappers, and shell defaults while retaining
+Chrome/CDP/CUA on the guest desktop. The daemon's ephemeral `url-open` request
+is scoped to the source terminal and needs a live Mac acknowledgement within
+five seconds. Headless or older clients print the URL and return success.
+A new image promotion is unnecessary; deploy the guest installer and updated
+cmux-tui daemon with the matching Mac client.
+
+端末からのブラウザー認証はイメージの再作成ではなく、プロバイダーの作成・
+修復処理で導入します。接続先の Mac が受信できない場合は URL を表示して
+正常終了します。ゲストデスクトップの Chrome/CDP/CUA には影響しません。

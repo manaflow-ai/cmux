@@ -684,10 +684,20 @@ struct BrowserProviderTargetRequest {
 enum Command {
     Identify,
     /// Private, connection-scoped guest-to-frontend OS browser opening.
-    UrlOpenSubscribe { terminal_ids: Vec<String> },
-    UrlOpen { terminal_id: String, url: String },
-    UrlOpenClaim { request_id: String },
-    UrlOpenResult { request_id: String, opened: bool },
+    UrlOpenSubscribe {
+        terminal_ids: Vec<String>,
+    },
+    UrlOpen {
+        terminal_id: String,
+        url: String,
+    },
+    UrlOpenClaim {
+        request_id: String,
+    },
+    UrlOpenResult {
+        request_id: String,
+        opened: bool,
+    },
     PasteImage {
         surface: SurfaceId,
         terminal_id: String,
@@ -11277,7 +11287,9 @@ fn handle_command_with_cancellation(
         Command::UrlOpenResult { request_id, opened } => {
             Ok(json!({"accepted": mux.control_clients.url_opens.complete(&request_id, opened)}))
         }
-        Command::UrlOpen { .. } => anyhow::bail!("URL opening requires the asynchronous request path"),
+        Command::UrlOpen { .. } => {
+            anyhow::bail!("URL opening requires the asynchronous request path")
+        }
         Command::PasteImage {
             surface,
             terminal_id,

@@ -71,7 +71,10 @@ final class CloudGuestURLService {
     }
 
     private func deliver(_ request: CloudGuestURLRequest, link: CloudMachineLink, socket: String, generation: UUID) async {
-        guard let initial = resolve(request.terminalID), terminals.contains(request.terminalID) else { return }
+        guard let initial = resolve(request.terminalID), terminals.contains(request.terminalID),
+              admission.admit(machineID: machineID, event: CloudMachineNotificationEvent(
+                  id: request.requestID, terminalID: request.terminalID, title: "url-open", body: request.url
+              )) == .allowed else { return }
         // A claim is rejected once the guest's bounded wait has expired.
         guard let data = try? await link.run(arguments: arguments(socket: socket, request: [
             "cmd": "url-open-claim", "request_id": request.requestID
@@ -80,10 +83,7 @@ final class CloudGuestURLService {
               reply["claimed"] as? Bool == true,
               self.generation == generation, !Task.isCancelled else { return }
         var opened = false
-        if let current = resolve(request.terminalID), current.sourceWorkspaceId == initial.sourceWorkspaceId,
-           admission.admit(machineID: machineID, event: CloudMachineNotificationEvent(
-               id: request.requestID, terminalID: request.terminalID, title: "url-open", body: request.url
-           )) == .allowed {
+        if let current = resolve(request.terminalID), current.sourceWorkspaceId == initial.sourceWorkspaceId {
             var externalURL: URL?
             let coordinator = TerminalLinkOpenCoordinator(externalOpen: { externalURL = $0; return true })
             var context = current
