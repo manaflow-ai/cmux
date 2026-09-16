@@ -10,4 +10,3 @@ struct SessionWorkspacePullRequestSnapshot: Codable, Sendable, Equatable {
     var branch: String?
     var isStale: Bool
 }
-

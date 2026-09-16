@@ -5311,9 +5311,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// its terminal's requested directory, then the workspace's current directory.
     /// Returns `nil` when none is known so callers can apply their own fallback.
     ///
-    /// This is the focused-panel case of ``configTrackingDirectory(for:)`` (the same
-    /// three-tier order); the tiers are spelled out here so the public entry point is
-    /// self-contained.
+    /// Terminal-scoped configuration continues to use ``configTrackingDirectory(for:)``.
     func resolvedWorkingDirectory() -> String? {
         let candidates = [
             focusedPanelId.flatMap { panelDirectories[$0] },
