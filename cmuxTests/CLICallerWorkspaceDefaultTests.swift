@@ -14,6 +14,37 @@ import Testing
 /// visible workspace rather than the agent's own.
 @Suite(.serialized)
 struct CLICallerWorkspaceDefaultTests {
+    @Test func pullRequestRoutingPrefersExplicitThenTTYThenEnvironment() {
+        #expect(
+            CMUXCLI.pullRequestWorkspaceRoute(
+                explicitWorkspace: "workspace:9",
+                environmentWorkspace: "workspace:2",
+                ttyWorkspace: "workspace:3"
+            ) == .explicit("workspace:9")
+        )
+        #expect(
+            CMUXCLI.pullRequestWorkspaceRoute(
+                explicitWorkspace: nil,
+                environmentWorkspace: "workspace:2",
+                ttyWorkspace: "workspace:3"
+            ) == .tty("workspace:3")
+        )
+        #expect(
+            CMUXCLI.pullRequestWorkspaceRoute(
+                explicitWorkspace: nil,
+                environmentWorkspace: "workspace:2",
+                ttyWorkspace: nil
+            ) == .environment("workspace:2")
+        )
+        #expect(
+            CMUXCLI.pullRequestWorkspaceRoute(
+                explicitWorkspace: nil,
+                environmentWorkspace: nil,
+                ttyWorkspace: nil
+            ) == .ambiguous
+        )
+    }
+
     /// A blank `--workspace` from a caller pane must target the caller's workspace and
     /// must never consult `workspace.current` (the focused workspace).
     @Test func blankWorkspaceArgDefaultsToCallerWorkspace() throws {
