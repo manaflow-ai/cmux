@@ -14,6 +14,8 @@ describe("locale preference ownership", () => {
     ["router prefetch", { rsc: "1", "next-router-prefetch": "1" }],
     ["HTML prefetch", { purpose: "prefetch" }],
     ["browser prefetch", { "sec-purpose": "prefetch" }],
+    // Next.js strips its internal RSC headers before invoking Proxy.
+    ["normalized browser fetch", { "sec-fetch-dest": "empty", "sec-fetch-mode": "cors" }],
   ] as const) {
     test(`${kind} cannot overwrite a newer explicit language choice`, () => {
       const response = middleware(request("/ko/blog", headers));
