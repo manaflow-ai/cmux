@@ -246,7 +246,7 @@ extension SurfaceCatalog {
 
         @MainActor
         static let app = NewWorkspaceHost(
-            create: { title in try SurfacePaneFactory.createLocalWorkspace(title: title) },
+            create: { title in try SurfacePaneFactory.createLocalWorkspace(title: title, titleSource: .auto) },
             paneLookup: { panelID, workspaceID in SurfacePaneFactory.paneID(ofPanel: panelID, in: workspaceID) },
             closeStarter: { panelID, workspaceID in SurfacePaneFactory.close(panelID: panelID, in: workspaceID) },
             applyDividerRatios: { workspaceID, layout in SurfacePaneFactory.applyDividerRatios(layout, in: workspaceID) }
