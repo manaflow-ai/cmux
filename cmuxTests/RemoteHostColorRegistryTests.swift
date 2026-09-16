@@ -1,3 +1,5 @@
+import AppKit
+import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -86,6 +88,53 @@ import Testing
         #expect(reg.slot(for: "anything") == nil)
     }
 
+    /// The color each slot resolves to, in slot order, read through `colorHex(for:)` with a fresh
+    /// registry per host so no probing moves it. This checks the palette the registry really hands out.
+    private func paletteInSlotOrder() -> [String] {
+        let count = RemoteHostColorRegistry().slotCount
+        var bySlot: [Int: String] = [:]
+        var i = 0
+        while bySlot.count < count, i < 100_000 {
+            let name = "slot-probe-\(i)"
+            i += 1
+            let slot = startSlot(name, count: count)
+            guard bySlot[slot] == nil, let hex = RemoteHostColorRegistry().colorHex(for: name) else { continue }
+            bySlot[slot] = hex
+        }
+        return (0 ..< count).compactMap { bySlot[$0] }
+    }
+
+    @Test func hostColorsStayDistinguishableOnTheSidebarRail() {
+        // The rail draws each color brightened. Two servers read as the same red when the
+        // workspace tab palette's Red and Crimson, or Magenta and Rose, came out that way:
+        // Magenta and Rose differ by 2.4 in OKLab (x100) on the rail. Every pair here must
+        // differ by at least 14, and palette neighbors by at least 25, because a host bumped
+        // by a collision takes the next slot.
+        let palette = paletteInSlotOrder()
+        #expect(palette.count == 16)
+        let rails = palette.map { hex -> (String, Self.RGB) in
+            let color = WorkspaceTabColorSettings.displayNSColor(hex: hex, colorScheme: .light, forceBright: true)
+            #expect(color != nil, "\(hex) does not parse")
+            return (hex, color.map(Self.srgb) ?? (0, 0, 0))
+        }
+        for i in rails.indices {
+            for j in rails.indices where j > i {
+                let distance = Self.deltaE(rails[i].1, rails[j].1)
+                #expect(distance >= 14, "\(rails[i].0) and \(rails[j].0) differ by \(distance) on the rail")
+            }
+            let next = rails[(i + 1) % rails.count]
+            let neighbor = Self.deltaE(rails[i].1, next.1)
+            #expect(neighbor >= 25, "neighbors \(rails[i].0) and \(next.0) differ by \(neighbor)")
+        }
+        for scheme in [ColorScheme.light, .dark] {
+            let selection = Self.srgb(cmuxAccentNSColor(for: scheme))
+            for (hex, rgb) in rails {
+                let distance = Self.deltaE(rgb, selection)
+                #expect(distance >= 12, "\(hex) differs from the \(scheme) selection by \(distance)")
+            }
+        }
+    }
+
     @Test func colorHexIsStablePerHost() {
         // Uses the real built-in palette; a host resolves to a non-nil hex and the
         // same hex every time.
@@ -93,5 +142,36 @@ import Testing
         let hex = reg.colorHex(for: "cmux-srvA")
         #expect(hex != nil)
         #expect(hex == reg.colorHex(for: "cmux-srvA"))
+    }
+
+    // MARK: - Color measurement
+
+    private typealias RGB = (r: Double, g: Double, b: Double)
+
+    private static func srgb(_ color: NSColor) -> RGB {
+        let c = color.usingColorSpace(.sRGB) ?? color
+        return (Double(c.redComponent), Double(c.greenComponent), Double(c.blueComponent))
+    }
+
+    private static func linear(_ c: Double) -> Double {
+        c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+    }
+
+    private static func oklab(_ rgb: RGB) -> (Double, Double, Double) {
+        let r = linear(rgb.r), g = linear(rgb.g), b = linear(rgb.b)
+        let l = cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
+        let m = cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
+        let s = cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
+        return (
+            0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+            1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+            0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s
+        )
+    }
+
+    private static func deltaE(_ a: RGB, _ b: RGB) -> Double {
+        let x = oklab(a), y = oklab(b)
+        let dl = x.0 - y.0, da = x.1 - y.1, db = x.2 - y.2
+        return 100 * (dl * dl + da * da + db * db).squareRoot()
     }
 }
