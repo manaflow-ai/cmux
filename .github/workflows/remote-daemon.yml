@@ -49,3 +49,17 @@ jobs:
         run: python3 tests/test_remote_daemon_release_assets.py
       - name: Test daemon behavior with the race detector
         run: go -C daemon/remote test -race ./...
+
+  remote-daemon-macos-tests:
+    runs-on: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.x'
+          cache: false
+      - name: Test native macOS daemon behavior with the race detector
+        run: go -C daemon/remote test -race ./...
