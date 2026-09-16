@@ -44,7 +44,7 @@ const TERMINAL_ID = "term_0123456789abcdef0123456789abcdef";
 describe("in-VM cmux shim", () => {
   test("routes an attached terminal's web URL through the durable host notification, with a headless fallback", () => {
     const attached = runShim(
-      ["open-url", "https://github.com/login/device"],
+      ["open-url", "HTTPS://github.com/login/device"],
       { CMUX_TUI_TERMINAL_ID: TERMINAL_ID },
       (directory) => writeFileSync(join(directory, "cmux-tui"), `#!/bin/sh
 if [ "$3" = --json ] && [ "$4" = client ] && [ "$5" = list ]; then printf '%s' '[{"attached_terminal_ids":["${TERMINAL_ID}"]}]'; exit 0; fi

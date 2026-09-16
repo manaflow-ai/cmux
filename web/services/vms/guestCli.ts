@@ -2768,7 +2768,8 @@ case "\${1:-}" in
     # return success so callers keep polling instead of launching guest Chrome.
     shift
     cmux_open_url="\${1:-}"
-    case "\$cmux_open_url" in
+    cmux_open_scheme="\$(printf '%s' "\$cmux_open_url" | tr '[:upper:]' '[:lower:]')"
+    case "\$cmux_open_scheme" in
       http://*|https://*) ;;
       *)
         [ -n "\$cmux_open_url" ] && printf 'Open this URL: %s\\n' "\$cmux_open_url"
