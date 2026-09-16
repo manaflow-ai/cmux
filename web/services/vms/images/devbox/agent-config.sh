@@ -172,36 +172,74 @@ CMUX_TOML_CHECK
     unset cmux_claude_key_tail
   fi
 
-  # opencode: the provider catalog (ids, npm packages, model lists) lives in
-  # the team's opencode console account behind the coderouter proxy and
-  # changes without image rebuilds, so the ready-made rewritten config is
-  # fetched from the coderouter opencode config endpoint instead of being
-  # guessed statically. The endpoint inlines each provider's apiKey; it is
-  # swapped for an {env:OPENAI_API_KEY} reference that opencode resolves at
-  # request time, and any route-token-shaped value is swapped the same way so
-  # a token never lands on disk. A coderouter outage, a team without an
-  # opencode account (503), or an empty catalog writes nothing and the next
-  # shell retries.
-  if [ -n "${CMUX_CODEROUTER_URL-}" ] && [ -n "${OPENAI_API_KEY-}" ] \
-    && [ ! -e "$HOME/.config/opencode/opencode.json" ] \
-    && command -v curl >/dev/null 2>&1; then
+}
+
+# OpenCode's provider catalog is optional shell-adjacent state. It must never
+# be fetched while a shell is starting: the endpoint can be unavailable and
+# its timeout is deliberately much longer than the terminal latency budget.
+# Fetch only when OpenCode is invoked, keep one authenticated fetch in flight,
+# and negatively cache an outage so repeated launches do not stampede the edge.
+cmux_ensure_opencode_config() {
+  local cmux_config="$HOME/.config/opencode/opencode.json"
+  local cmux_state_dir="$HOME/.cache/cmux"
+  local cmux_state="$cmux_state_dir/opencode-config.state"
+  local cmux_lock="$cmux_state_dir/opencode-config.lock"
+  local cmux_now cmux_failed_at cmux_opencode_config
+
+  [ -e "$cmux_config" ] && return 0
+  [ -n "${CMUX_CODEROUTER_URL-}" ] || return 0
+  [ -n "${OPENAI_API_KEY-}" ] || return 0
+  command -v curl >/dev/null 2>&1 || return 0
+
+  # A service outage is not a reason to make every later OpenCode launch wait
+  # ten seconds. The next launch after this short window gets a fresh chance.
+  cmux_now=$(date +%s)
+  if [ -r "$cmux_state" ]; then
+    IFS= read -r cmux_failed_at < "$cmux_state" || cmux_failed_at=""
+    case $cmux_failed_at in
+      ''|*[!0-9]*) ;;
+      *) [ "$((cmux_now - cmux_failed_at))" -lt 60 ] && return 0 ;;
+    esac
+  fi
+
+  mkdir -p "$cmux_state_dir" 2>/dev/null || return 0
+  # mkdir is an atomic lock on every supported guest image and does not make
+  # concurrent OpenCode launches wait. A second launch returns immediately;
+  # the first launch publishes either the config or the shared failure marker.
+  mkdir "$cmux_lock" 2>/dev/null || return 0
+  (
+    trap 'rmdir "$cmux_lock" 2>/dev/null || true' EXIT
+    [ -e "$cmux_config" ] && exit 0
+
     cmux_opencode_config=$(curl -fsS --connect-timeout 2 -m 10 \
       -H "authorization: Bearer $OPENAI_API_KEY" \
       "$CMUX_CODEROUTER_URL/api/coderouter/opencode/config" 2>/dev/null) || cmux_opencode_config=""
     case $cmux_opencode_config in
-      '{"provider":{}}') ;;
+      '{"provider":{}}')
+        printf '%s\n' "$cmux_now" > "$cmux_state" 2>/dev/null || true
+        ;;
       '{"provider":'*)
-        mkdir -p "$HOME/.config/opencode" 2>/dev/null && (
+        mkdir -p "${cmux_config%/*}" 2>/dev/null && (
           umask 077
           printf '%s\n' "$cmux_opencode_config" \
             | sed "s/\"$OPENAI_API_KEY\"/\"{env:OPENAI_API_KEY}\"/g" \
             | sed 's/"crt_[A-Za-z0-9._-]*"/"{env:OPENAI_API_KEY}"/g' \
-            > "$HOME/.config/opencode/opencode.json"
-        ) 2>/dev/null
+            > "$cmux_config.cmux-tmp" 2>/dev/null && mv -f "$cmux_config.cmux-tmp" "$cmux_config" 2>/dev/null
+        ) || printf '%s\n' "$cmux_now" > "$cmux_state" 2>/dev/null || true
+        ;;
+      *)
+        printf '%s\n' "$cmux_now" > "$cmux_state" 2>/dev/null || true
         ;;
     esac
     unset cmux_opencode_config
-  fi
+  )
+}
+
+# Keep the command's existing argv and exit status. The only new work is the
+# authenticated, lazy config fetch above, immediately before OpenCode starts.
+opencode() {
+  cmux_ensure_opencode_config
+  command opencode "$@"
 }
 
 # claude folder-trust gate: claude's trust check short-circuits on

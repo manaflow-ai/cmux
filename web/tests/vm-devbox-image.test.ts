@@ -77,9 +77,9 @@ const listen = (
     });
   });
 
-const sourceAgentConfig = (home: string, coderouterOrigin: string): Promise<void> =>
+const sourceAgentConfig = (home: string, coderouterOrigin: string, fetchOpenCodeConfig = false): Promise<void> =>
   new Promise((resolve, reject) => {
-    const child = spawn("bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}`], {
+    const child = spawn("bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}; ${fetchOpenCodeConfig ? "cmux_ensure_opencode_config" : ":"}`], {
       env: {
         ...process.env,
         HOME: home,
@@ -880,8 +880,7 @@ describe("devbox image template", () => {
       expect(pi).not.toContain("crt_");
       // claude: env only, nothing generated.
       expect(existsSync(path.join(home, ".claude"))).toBe(false);
-      // opencode: the config endpoint is unreachable here, so nothing may be
-      // written (the next shell retries).
+      // opencode config is lazy; a normal shell never contacts the endpoint.
       expect(existsSync(path.join(home, ".config/opencode/opencode.json"))).toBe(false);
     } finally {
       rmSync(home, { recursive: true, force: true });
@@ -909,7 +908,10 @@ describe("devbox image template", () => {
       );
     });
     try {
+      // Shell initialization must never perform optional network discovery.
       await sourceAgentConfig(home, server.origin);
+      expect(authorization).toBeUndefined();
+      await sourceAgentConfig(home, server.origin, true);
       // The guest sends only the placeholder; the edge adds the route token.
       expect(authorization).toBe("Bearer cmux-vm-edge-placeholder");
       const configPath = path.join(home, ".config/opencode/opencode.json");
@@ -930,7 +932,7 @@ describe("devbox image template", () => {
       expect(written).not.toContain("crt_test-token");
       // Write-if-missing: a second shell leaves the user's file alone.
       authorization = undefined;
-      await sourceAgentConfig(home, server.origin);
+      await sourceAgentConfig(home, server.origin, true);
       expect(authorization).toBeUndefined();
     } finally {
       await server.close();
@@ -950,12 +952,12 @@ describe("devbox image template", () => {
     try {
       const configPath = path.join(home, ".config/opencode/opencode.json");
       // 503 no_usable_account: nothing written, the shell exits clean.
-      await sourceAgentConfig(home, server.origin);
+      await sourceAgentConfig(home, server.origin, true);
       expect(existsSync(configPath)).toBe(false);
       // An empty catalog is not persisted either (it would block retries).
       body = JSON.stringify({ provider: {} });
       status = 200;
-      await sourceAgentConfig(home, server.origin);
+      await sourceAgentConfig(home, server.origin, true);
       expect(existsSync(configPath)).toBe(false);
     } finally {
       await server.close();
