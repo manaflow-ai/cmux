@@ -9,10 +9,6 @@
   "defaultOptions": {},
   "testTargets": [
     {
-      "selectedTests": [
-        "MobileIrohReleaseGateRunnerTests",
-        "MobileIrohSoakRunnerTests"
-      ],
       "target": {
         "containerPath": "container:cmuxPackage",
         "identifier": "cmuxFeatureTests",

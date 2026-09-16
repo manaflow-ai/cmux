@@ -335,6 +335,7 @@ cleanup() {
     rm -rf "$VERCEL_DIR"
   fi
   defaults delete "$MAC_BUNDLE_ID" cmux.iroh.debug.transport-mode >/dev/null 2>&1 || true
+  defaults delete "$MAC_BUNDLE_ID" cmux.iroh.v2.force-relay >/dev/null 2>&1 || true
   defaults delete "$MAC_BUNDLE_ID" presenceServiceURL >/dev/null 2>&1 || true
   pkill -f "cmux DEV ${SLUG}.app/Contents/MacOS/cmux DEV" 2>/dev/null || true
   if [[ "$PRODUCTION" -eq 1 ]]; then
@@ -581,6 +582,12 @@ fi
 # Both endpoints read the mode before constructing their Iroh endpoint. Write
 # after installation so a fresh simulator app container cannot replace it.
 defaults write "$MAC_BUNDLE_ID" cmux.iroh.debug.transport-mode -string "$RAW_MODE"
+# The current Iroh implementation owns a separate endpoint configuration.
+# Constrain both generations so a same-host direct route cannot satisfy a
+# check advertised as exercising the relay fleet.
+FORCE_RELAY=0
+[[ "$RAW_MODE" != relayOnly ]] || FORCE_RELAY=1
+defaults write "$MAC_BUNDLE_ID" cmux.iroh.v2.force-relay -bool "$FORCE_RELAY"
 if [[ -n "$PRESENCE_BASE_URL" ]]; then
   defaults write "$MAC_BUNDLE_ID" presenceServiceURL -string "$PRESENCE_BASE_URL"
 else
@@ -588,6 +595,8 @@ else
 fi
 xcrun simctl spawn "$SIMULATOR_ID" defaults write \
   "$IOS_BUNDLE_ID" cmux.iroh.debug.transport-mode -string "$RAW_MODE"
+xcrun simctl spawn "$SIMULATOR_ID" defaults write \
+  "$IOS_BUNDLE_ID" cmux.iroh.v2.config.CMUX_IROH_V2_FORCE_RELAY -string "$FORCE_RELAY"
 
 # The driver owns this unique tag, so restart it unconditionally. A live pairing
 # socket can otherwise make `cmux_attach_ensure_mac` return without relaunching,
