@@ -67,6 +67,7 @@ import {
   reconcileVmProviderStatuses,
   resizeVm,
   snapshotVm,
+  resumeVm,
 } from "../services/vms/workflows";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
@@ -195,6 +196,55 @@ afterAll(async () => {
 });
 
 describe("VM Effect workflows", () => {
+  dbTest("concurrent paused resumes start once and record one resume event", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    const userId = "user-concurrent-paused-resume";
+    const providerVmId = "provider-concurrent-paused-resume";
+    await sql`delete from cloud_vms where user_id = ${userId}`;
+    const [row] = await sql<{ id: string }[]>`
+      insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
+      values (${userId}, ${userId}, 'pro', 'freestyle', ${providerVmId}, 'snapshot-test', 'paused') returning id
+    `;
+    let releaseProbes!: () => void;
+    const bothProbed = new Promise<void>((resolve) => { releaseProbes = resolve; });
+    let probes = 0;
+    let starts = 0;
+    let running = false;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.promise(async () => {
+        probes += 1;
+        // Both requests read the paused row and provider before either reserves.
+        if (probes <= 2) {
+          if (probes === 2) releaseProbes();
+          await bothProbed;
+          return "paused" as const;
+        }
+        return running ? "running" as const : "paused" as const;
+      }),
+      resume: () => Effect.sync(() => {
+        starts += 1;
+        running = true;
+        return testVmHandle({ providerVmId });
+      }),
+      pause: () => Effect.die("a waiter must not pause the winner"),
+    };
+    try {
+      const input = { userId, billingTeamId: userId, providerVmId, callerPlanId: "pro", maxActiveVms: 1 };
+      const run = () => Effect.runPromise(resumeVm(input).pipe(Effect.provide(providerLayer(provider))));
+      const results = await Promise.all([run(), run()]);
+      expect(results).toEqual([{ id: providerVmId, status: "running" }, { id: providerVmId, status: "running" }]);
+      expect(starts).toBe(1);
+      const events = await sql`select event_type from cloud_vm_usage_events where vm_id = ${row!.id}`;
+      expect(events.map((event) => event.event_type)).toEqual(["vm.resumed"]);
+      const [current] = await sql`select status from cloud_vms where id = ${row!.id}`;
+      expect(current!.status).toBe("running");
+    } finally {
+      await sql`delete from cloud_vm_usage_events where vm_id = ${row!.id}`;
+      await sql`delete from cloud_vms where id = ${row!.id}`;
+    }
+  });
+
   dbTest("keeps prompt revisions ordered across rapid renames and clock skew", async () => {
     if (!sql) throw new Error("test database not initialized");
     const userId = "user-prompt-revisions";
@@ -6503,7 +6553,7 @@ function testWorkflowRepo(input: {
       Effect.succeed({
         ...input.vm,
         status: "running" as const,
-        resumeClaimed: true,
+        resumeClaimed: input.vm.status === "paused",
       }),
     reconciliationCandidates: () => Effect.succeed([]),
     markProviderObservedStatus: (update) =>

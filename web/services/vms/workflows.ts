@@ -2344,14 +2344,16 @@ function resumeUntilRunning(
   });
 }
 
+type PausedResumeClaim = "reserved" | "unreserved" | "observed";
+
 function reservePausedResumeIfTeam(
   repo: VmRepositoryShape,
   providers: VmProviderGatewayShape,
   vm: CloudVmRow,
   providerVmId: string,
   maxActiveVms: number | null = maxActiveVmsForPlan(vm.billingPlanId),
-): Effect.Effect<{ readonly shouldResume: boolean; readonly reservedForBilling: boolean }, VmWorkflowError> {
-  if (!vm.billingTeamId) return Effect.succeed({ shouldResume: true, reservedForBilling: false });
+): Effect.Effect<PausedResumeClaim, VmWorkflowError> {
+  if (!vm.billingTeamId) return Effect.succeed("unreserved");
   return Effect.gen(function* () {
     const reserved = yield* repo.reservePausedResume({
       id: vm.id,
@@ -2375,10 +2377,10 @@ function reservePausedResumeIfTeam(
     // The reservation query returns the current row when another request has
     // already claimed the paused-to-running transition. That caller owns the
     // provider start; wait for it instead of issuing a duplicate start.
-    const claimed = reserved.resumeClaimed === undefined
-      ? vm.status === "paused" // compatibility with older test doubles
-      : reserved.resumeClaimed;
-    if (claimed) return { shouldResume: true, reservedForBilling: true };
+    if (reserved.resumeClaimed) return "reserved";
+    // A provider-side pause can leave an already-accounted running row. No
+    // paused-to-running claim was needed; it still needs a provider start.
+    if (vm.status !== "paused") return "unreserved";
 
     const settled = yield* waitForRunningStatus(providers, vm, providerVmId);
     if (!settled) {
@@ -2392,7 +2394,7 @@ function reservePausedResumeIfTeam(
     }
     const recorded = yield* repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "running" });
     if (!recorded) return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
-    return { shouldResume: false, reservedForBilling: false };
+    return "observed";
   });
 }
 
@@ -2528,12 +2530,12 @@ function preflightResumeIfSuspended(
     }
     if (status !== "paused") return false;
 
-    const reserved = yield* reservePausedResumeIfTeam(repo, providers, vm, providerVmId, options.maxActiveVms);
-    if (reserved.shouldResume) {
-      yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
-        Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved.reservedForBilling)),
-      );
-    }
+    const claim = yield* reservePausedResumeIfTeam(repo, providers, vm, providerVmId, options.maxActiveVms);
+    if (claim === "observed") return false;
+    const reserved = claim === "reserved";
+    yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
+      Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
+    );
     yield* recordRunningTransition(
       repo,
       providers,
@@ -2541,9 +2543,9 @@ function preflightResumeIfSuspended(
       providerVmId,
       new VmNotFoundError({ vmId: providerVmId }),
     ).pipe(
-      Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved.reservedForBilling)),
+      Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
     );
-    if (reserved.reservedForBilling) yield* recordResumeUsageEvent(repo, vm, resumeSource);
+    if (reserved) yield* recordResumeUsageEvent(repo, vm, resumeSource);
     return true;
   });
 }
@@ -2582,17 +2584,17 @@ function withResumeOnSuspendedAfterFailure<A>(
           return yield* Effect.fail(originalError);
         }
 
-        const reserved = yield* reservePausedResumeIfTeam(repo, providers, vm, providerVmId, maxActiveVms);
-        if (reserved.shouldResume) {
-          yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
-            Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved.reservedForBilling)),
-            Effect.catchAll(() => Effect.fail(originalError)),
-          );
-        }
-        yield* recordRunningTransition(repo, providers, vm, providerVmId, originalError).pipe(
-          Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved.reservedForBilling)),
+        const claim = yield* reservePausedResumeIfTeam(repo, providers, vm, providerVmId, maxActiveVms);
+        if (claim === "observed") return yield* op;
+        const reserved = claim === "reserved";
+        yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
+          Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
+          Effect.catchAll(() => Effect.fail(originalError)),
         );
-        if (reserved.reservedForBilling) yield* recordResumeUsageEvent(repo, vm, resumeSource);
+        yield* recordRunningTransition(repo, providers, vm, providerVmId, originalError).pipe(
+          Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
+        );
+        if (reserved) yield* recordResumeUsageEvent(repo, vm, resumeSource);
         return yield* op;
       });
     }),
