@@ -1,4 +1,5 @@
 public import Foundation
+import os
 
 /// Adapts a URLSession WebSocket to the shared actor's transport seam.
 public actor V2URLSessionSocket: V2ControlSocket {
@@ -50,7 +51,14 @@ public actor V2URLSessionSocket: V2ControlSocket {
         using sendPing: (@escaping @Sendable ((any Error)?) -> Void) -> Void
     ) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            // lint:allow lock -- URLSession can repeat a ping callback during
+            // network teardown. Claim completion synchronously before any actor hop.
+            let pending = OSAllocatedUnfairLock(initialState: Optional(continuation))
             sendPing { error in
+                guard let continuation = pending.withLock({ pending in
+                    defer { pending = nil }
+                    return pending
+                }) else { return }
                 if let error { continuation.resume(throwing: error) }
                 else { continuation.resume() }
             }
