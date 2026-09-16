@@ -94,5 +94,36 @@ chmod +x "$fx/bin/mktemp"
 PATH="$fx/bin:$PATH" LINT_SCOPE_DIR="$fx/Sources" LINT_BASELINE_FILE="$base" bash "$LINT" >/dev/null 2>&1
 chk "an unwritable allowance ledger exits 2" 2 "$?"
 
+# 9. A clock held in a property sleeps like any other clock. The pattern is lexical, so it has
+# to catch `.sleep(` on any receiver, not only the `ContinuousClock()` constructor spelling.
+rm -f "$base"; : > "$base"
+cat > "$fx/Sources/RemoteTmuxFixture.swift" <<'SWIFT'
+func usesStoredClock() {
+    try await clock.sleep(for: .seconds(1))
+}
+SWIFT
+out="$(LINT_SCOPE_DIR="$fx/Sources" LINT_BASELINE_FILE="$base" bash "$LINT" 2>&1)"; rc=$?
+chk "a stored clock's sleep is caught" 1 "$rc"
+chk "and the report names its function" 1 "$(grep -c "usesStoredClock" <<<"$out")"
+
+# 10. The scan's own plumbing must not be able to hide hits. If the lint could not create a
+# scratch file next to its temp files, a redirect failing before grep ran used to read as
+# "no matches". Temp files land in a directory that turns read-only after both are created.
+mkdir -p "$fx/ro-tmp" "$fx/bin10"
+cat > "$fx/bin10/mktemp" <<SHIM
+#!/bin/bash
+n=\$(( \$(cat "$fx/bin10/count" 2>/dev/null || echo 0) + 1 )); echo "\$n" > "$fx/bin10/count"
+f="$fx/ro-tmp/tmp\$n"; : > "\$f"
+[ "\$n" -eq 2 ] && chmod 555 "$fx/ro-tmp"
+echo "\$f"
+SHIM
+chmod +x "$fx/bin10/mktemp"
+out="$(PATH="$fx/bin10:$PATH" LINT_SCOPE_DIR="$fx/Sources" LINT_BASELINE_FILE="$base" bash "$LINT" 2>&1)"; rc=$?
+chmod 755 "$fx/ro-tmp"
+if [ "$(id -u)" -eq 0 ]; then echo "skip: running as root, read-only temp dir case not testable"; else
+  chk "a read-only temp dir cannot turn hits into a clean run" 1 "$rc"
+  chk "and the hit is still reported" 1 "$(grep -c "usesStoredClock" <<<"$out")"
+fi
+
 echo "lint-remote-tmux-no-polling.test: $pass passed, $fail failed"
 exit $(( fail > 0 ))
