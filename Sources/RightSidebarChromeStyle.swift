@@ -355,6 +355,7 @@ struct RightSidebarModeBarItem: Identifiable, Equatable, Sendable {
 struct ModeBarButton: View {
     let item: RightSidebarModeBarItem
     let isSelected: Bool
+    let isKeyboardFocusActive: Bool
     var badgeCount: Int = 0
     let shortcutHint: StoredShortcut
     let showsShortcutHint: Bool
@@ -392,6 +393,13 @@ struct ModeBarButton: View {
                 isHovered: isHovered,
                 geometryKeyPrefix: "rightSidebarModeControl_\(item.id)"
             )
+            .overlay {
+                RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.controlCornerRadius, style: .continuous)
+                    .strokeBorder(cmuxAccentColor(), lineWidth: 1.5)
+                    .opacity(isSelected && isKeyboardFocusActive ? 1 : 0)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
             .overlay(alignment: .trailing) {
                 if showsShortcutHint {
                     ShortcutHintPill(shortcut: shortcutHint, fontSize: 9, emphasis: isSelected ? 1.15 : 0.95)

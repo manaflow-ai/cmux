@@ -291,6 +291,7 @@ struct RightSidebarPanelView: View {
                         isSelected: item.isSelected(
                             mode: fileExplorerState.mode
                         ),
+                        isKeyboardFocusActive: fileExplorerState.rightSidebarOwnsInputFocus,
                         badgeCount: item.mode == .feed ? feedPendingCount : 0,
                         shortcutHint: shortcut,
                         showsShortcutHint: ShortcutHintTitlebarPolicy.shouldShow(
