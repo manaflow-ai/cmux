@@ -23,10 +23,8 @@ extension TerminalController {
         if let tunnelResponse = socketWorkerCloudTunnelResponse(method: method, id: id, params: params) {
             return tunnelResponse
         }
-        // `DisableCloud`: every remaining `vm.*` verb fails closed here, before
-        // any control-plane call, with a stable error code. `VMClient` refuses
-        // as well, so this gate is the CLI's error surface, not the only line
-        // of defense.
+        // Refuse disabled Cloud before any control-plane call. VMClient also
+        // enforces this policy for non-socket callers.
         if ManagedDevicePolicy().isEnforced(.disableCloud) || !CloudMachinesFeature.offMainIsEnabled() {
             return v2Error(
                 id: id,
@@ -36,26 +34,7 @@ extension TerminalController {
         }
         switch method {
         case "vm.file_transfer_failure":
-            guard let phaseValue = params["phase"] as? String,
-                  let phase = CloudOperationPhase(rawValue: phaseValue),
-                  [.snapshot, .request, .connect, .file, .process, .cleanup].contains(phase),
-                  let failureValue = params["failure"] as? String,
-                  let failure = CloudDiagnosticFailure(rawValue: failureValue),
-                  [.network, .process, .timeout, .storage, .response, .unknown].contains(failure),
-                  Set(params.keys).isSubset(of: ["phase", "failure", "error_number", "cloud_operation_id", "cloud_trace_id", "cloud_parent_span_id"]) else {
-                return v2Error(id: id, code: "invalid_params", message: "Expected a structured file transfer failure.")
-            }
-            let errorNumber = Self.socketWorkerInt(params["error_number"])
-            guard errorNumber.map({ (-65_535...65_535).contains($0) }) ?? true else {
-                return v2Error(id: id, code: "invalid_params", message: "Invalid file transfer error number.")
-            }
-            return v2VmCall(id: id, timeoutSeconds: 5) {
-                let recorder = await MainActor.run { AppDelegate.shared?.cloudOperations }
-                guard let reference = await recorder?.recordFileTransferFailure(phase: phase, failure: failure, errorNumber: errorNumber) else {
-                    return ["recorded": false]
-                }
-                return ["recorded": true, "reference": reference]
-            }
+            return socketWorkerFileTransferFailureResponse(id: id, params: params)
         case "vm.list":
             return v2CloudCall(id: id, method: method, params: params) {
                 let page = try await VMClient.shared.listPage()
