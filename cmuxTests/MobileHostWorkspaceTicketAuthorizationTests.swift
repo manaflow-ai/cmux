@@ -340,32 +340,19 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
     }
 
     #if DEBUG
-    @Test func attachTicketWithoutListenerPreservesNoRoutesError() async {
+    @Test func attachTicketWithoutPublishedRoutesPreservesNoRoutesError() async {
         let service = MobileHostService.shared
         let previousRoutes = MobileHostPublicStatusCache.snapshot()
-        let previousGeneration = service.debugListenerGenerationForTesting()
-        let previousPort = service.debugListenerPortForTesting()
-        let previousEphemeralFallback = service.debugListenerUsesEphemeralFallbackForTesting()
+        let previousDeviceID = MobileHostPublicStatusCache.currentV2DeviceID()
         defer {
             MobileHostPublicStatusCache.removeAll()
+            MobileHostPublicStatusCache.updateV2DeviceID(previousDeviceID)
             MobileHostPublicStatusCache.update(routes: previousRoutes.filter { $0.kind != .iroh })
             if let route = previousRoutes.first(where: { $0.kind == .iroh }),
                case let .peer(identity, pathHints) = route.endpoint {
                 MobileHostPublicStatusCache.update(irohIdentity: identity, pathHints: pathHints)
             }
-            service.debugSetListenerStateForTesting(
-                generation: previousGeneration,
-                usesEphemeralFallback: previousEphemeralFallback,
-                port: previousPort
-            )
         }
-        service.debugSetListenerStateForTesting(
-            generation: UUID(),
-            usesEphemeralFallback: false,
-            port: nil
-        )
-        // Ticket creation reads the published routes, independently of the
-        // listener's private port and any cached Iroh identity.
         MobileHostPublicStatusCache.removeAll()
 
         await #expect(throws: MobileAttachTicketStoreError.noRoutes) {
