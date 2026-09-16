@@ -824,8 +824,8 @@ struct PostHogAnalyticsPropertiesTests {
         #expect(properties["$exception_fingerprint"] as? String == "cmux-mac-crash:UnknownCrash")
     }
 
-    @Test
-    func nativeCrashWithoutAppContextUsesPreviousLaunchIdentity() throws {
+    @Test(arguments: [false, true])
+    func nativeCrashWithoutAppContextUsesPreviousLaunchIdentity(olderArtifact: Bool) throws {
         let suiteName = "cmux.posthog.native.tests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -855,14 +855,17 @@ struct PostHogAnalyticsPropertiesTests {
             workQueue: workQueue, didStart: true, userDefaults: defaults,
             now: { Date(timeIntervalSince1970: 2_000) },
             capturePostHog: { _, properties in capturedQueue.sync { captured = properties } },
-            flushPostHog: {}
+            flushPostHog: {}, environment: [:], telemetryEnabled: { true }
         )
-        analytics.captureCrashException(pendingCrash: .init(fileURL: url, modifiedAt: Date(timeIntervalSince1970: 1_000)))
+        analytics.recordLaunchIdentity()
+        workQueue.sync {}
+        #expect(defaults.dictionary(forKey: "posthog.previousLaunchIdentity")?["started_at"] as? Date == Date(timeIntervalSince1970: 2_000))
+        analytics.captureCrashException(pendingCrash: .init(fileURL: url, modifiedAt: Date(timeIntervalSince1970: olderArtifact ? 800 : 1_000)))
         workQueue.sync {}
         let properties = capturedQueue.sync { captured }
-        #expect(properties["crash_app_version"] as? String == "0.64.22")
-        #expect(properties["crash_app_build"] as? String == "6422")
-        #expect(properties["crash_app_namespace"] as? String == "com.cmuxterm.app")
+        #expect(properties["crash_app_version"] as? String == (olderArtifact ? nil : "0.64.22"))
+        #expect(properties["crash_app_build"] as? String == (olderArtifact ? nil : "6422"))
+        #expect(properties["crash_app_namespace"] as? String == (olderArtifact ? nil : "com.cmuxterm.app"))
         #expect(properties["$exception_fingerprint"] as? String == "cmux-mac-crash:UnknownCrash")
     }
 

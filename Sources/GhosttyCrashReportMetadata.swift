@@ -89,7 +89,7 @@ enum GhosttyCrashReportMetadata {
 extension GhosttyCrashReportMetadata {
     /// Crash summary parsed from a `.ghosttycrash` Sentry envelope, used to
     /// mirror the crash into PostHog Error Tracking as an `$exception`. All
-    /// fields are best effort; only `type` is required for a non-nil result.
+    /// fields are best effort; native envelopes may only have a minidump.
     struct ReportedException: Equatable, Sendable {
         /// Sentry exception type, e.g. `EXC_BAD_ACCESS` or an NSException name.
         let type: String
@@ -106,23 +106,18 @@ extension GhosttyCrashReportMetadata {
     }
 
     /// Reads the exception and app context out of a crash envelope. Returns
-    /// nil when the envelope has no parseable event or exception payload.
+    /// nil when the envelope has no parseable event payload.
     static func reportedException(in url: URL) -> ReportedException? {
         guard let data = try? Data(contentsOf: url, options: .mappedIfSafe),
-              let event = sentryEvent(from: data),
-              let exception = event["exception"] as? [String: Any],
-              let values = exception["values"] as? [[String: Any]]
+              let event = sentryEvent(from: data)
         else {
             return nil
         }
         // Sentry orders exception values oldest first; the last one is the
         // crash that terminated the process.
-        guard let crash = values.last,
-              let type = crash["type"] as? String,
-              !type.isEmpty
-        else {
-            return nil
-        }
+        let values = (event["exception"] as? [String: Any])?["values"] as? [[String: Any]]
+        let crash = values?.last ?? [:]
+        let type = crash["type"] as? String ?? "UnknownCrash"
         let mechanism = crash["mechanism"] as? [String: Any]
         let appContext = (event["contexts"] as? [String: Any])?["app"] as? [String: Any]
         return ReportedException(

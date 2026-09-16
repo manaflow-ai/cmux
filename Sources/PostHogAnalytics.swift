@@ -31,6 +31,8 @@ final class PostHogAnalytics: @unchecked Sendable {
     private let flushPostHog: @Sendable () -> Void
     private let environment: [String: String]
     private let telemetryEnabled: @Sendable () -> Bool
+    private let previousLaunchIdentity: [String: Any]
+    private let launchStartedAt: Date
 
     private var didStart: Bool
     private var activeCheckTimer: Timer?
@@ -55,6 +57,8 @@ final class PostHogAnalytics: @unchecked Sendable {
         self.flushPostHog = flushPostHog
         self.environment = environment
         self.telemetryEnabled = telemetryEnabled
+        self.previousLaunchIdentity = userDefaults.dictionary(forKey: "posthog.previousLaunchIdentity") ?? [:]
+        self.launchStartedAt = now()
         utcHourFormatter = Self.makeUTCFormatter("yyyy-MM-dd'T'HH")
         utcDayFormatter = Self.makeUTCFormatter("yyyy-MM-dd")
         workQueue.setSpecific(key: workQueueSpecificKey, value: ())
@@ -97,6 +101,25 @@ final class PostHogAnalytics: @unchecked Sendable {
 #else
         return !apiKey.isEmpty && apiKey != "REPLACE_WITH_POSTHOG_PUBLIC_KEY"
 #endif
+    }
+
+    /// Retains the prior launch's identity before replacing it with this build.
+    /// Native Ghostty envelopes do not contain the host app's version.
+    func recordLaunchIdentity() {
+        dispatchAsyncOnWorkQueue { [weak self] in
+            guard let self else { return }
+            guard !MacSentryStartupPolicy.isRunningUnderXCTest(environment: self.environment) else { return }
+            guard self.telemetryEnabled() else {
+                self.userDefaults.removeObject(forKey: "posthog.previousLaunchIdentity")
+                return
+            }
+            let info = Bundle.main.infoDictionary ?? [:]
+            var identity: [String: Any] = ["started_at": self.launchStartedAt]
+            identity["app_version"] = info["CFBundleShortVersionString"] as? String
+            identity["app_build"] = info["CFBundleVersion"] as? String
+            identity["app_namespace"] = info["CFBundleIdentifier"] as? String
+            self.userDefaults.set(identity, forKey: "posthog.previousLaunchIdentity")
+        }
     }
 
     func startIfNeeded() {
@@ -150,13 +173,22 @@ final class PostHogAnalytics: @unchecked Sendable {
             guard pendingCrash.modifiedAt > lastReported else { return }
             self.userDefaults.set(pendingCrash.modifiedAt, forKey: self.lastReportedCrashAtKey)
             let reported = GhosttyCrashReportMetadata.reportedException(in: pendingCrash.fileURL)
-            self.capturePostHog(
-                self.crashExceptionEvent,
-                Self.crashExceptionProperties(
-                    reported: reported,
-                    infoDictionary: Bundle.main.infoDictionary ?? [:]
-                )
+            var properties = Self.crashExceptionProperties(
+                reported: reported,
+                infoDictionary: Bundle.main.infoDictionary ?? [:]
             )
+            // Prefer the artifact's identity. A launch record only describes
+            // crashes newer than that launch, never older historical files.
+            if properties["crash_app_version"] == nil,
+               let startedAt = self.previousLaunchIdentity["started_at"] as? Date,
+               pendingCrash.modifiedAt >= startedAt {
+                for key in ["app_version", "app_build", "app_namespace"] {
+                    if let value = self.previousLaunchIdentity[key] as? String, !value.isEmpty {
+                        properties["crash_\(key)"] = value
+                    }
+                }
+            }
+            self.capturePostHog(self.crashExceptionEvent, properties)
         }
     }
 

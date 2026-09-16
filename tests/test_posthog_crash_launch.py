@@ -13,11 +13,9 @@ import os
 from pathlib import Path
 import plistlib
 import queue
-import signal
 import subprocess
 import tempfile
 import threading
-import time
 
 
 def main():
@@ -87,7 +85,7 @@ def main():
             "CMUXTERM_REPO_ROOT": str(root),
         })
 
-        def fixture(name, version):
+        def fixture(name, version, native=False):
             event = {
                 "exception": {"values": [{"type": "EXC_BAD_ACCESS", "value": private_reason,
                                            "mechanism": {"type": "mach", "handled": False}}]},
@@ -95,6 +93,11 @@ def main():
                                       "app_identifier": "com.cmuxterm.app"}},
                 "debug_meta": {"images": [{"code_file": str(executable)}]},
             }
+            if native:
+                event.pop("exception")
+                event["contexts"] = {"os": {"name": "macOS"}}
+                event["release"] = "1.3.2-HEAD-ghostty"
+                event["platform"] = "native"
             payload = json.dumps(event).encode()
             envelope = b'{}\n' + json.dumps({"type": "event", "length": len(payload)}).encode()
             (crash_dir / f"{name}.ghosttycrash").write_bytes(envelope + b'\n' + payload + b'\n')
@@ -122,15 +125,16 @@ def main():
             log = (args.output / f"{label}.log").open("wb")
             process = subprocess.Popen([str(executable)], cwd=root, env=env, stdout=log, stderr=log)
 
-        def receive(version):
+        def receive(version, native=False):
             event = events.get(timeout=60)
             properties = event["properties"]
             assert properties["crash_app_version"] == version, properties
-            assert properties["crash_app_build"] == "6422", properties
-            assert properties["crash_app_namespace"] == "com.cmuxterm.app", properties
+            assert properties["crash_app_build"] == (info["CFBundleVersion"] if native else "6422"), properties
+            assert properties["crash_app_namespace"] == (bundle_id if native else "com.cmuxterm.app"), properties
             assert properties["app_version"] == info["CFBundleShortVersionString"], properties
             assert properties["$app_namespace"] == bundle_id, properties
-            assert properties["$exception_fingerprint"] == "cmux-mac-crash:EXC_BAD_ACCESS"
+            expected_type = "UnknownCrash" if native else "EXC_BAD_ACCESS"
+            assert properties["$exception_fingerprint"] == f"cmux-mac-crash:{expected_type}"
             assert properties["$exception_list"][0]["value"] == "Previous launch crashed"
             serialized = json.dumps(event)
             assert "private-e2e-token" not in serialized and "Jane Doe" not in serialized
@@ -161,6 +165,11 @@ def main():
             launch("new-crash")
             captured.append(receive("0.64.21"))
             results.append("a newer crash is captured independently")
+            stop()
+            fixture("native", info["CFBundleShortVersionString"], native=True)
+            launch("native-crash")
+            captured.append(receive(info["CFBundleShortVersionString"], native=True))
+            results.append("native minidump envelope uses the frozen previous-launch identity")
             stop()
             fixture("disabled", "0.64.20")
             launch("disabled", enabled=False)

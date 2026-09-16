@@ -1535,6 +1535,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             telemetryEnabled: telemetryEnabled
         )
         let isRunningUnderXCTest = sentryStartupPolicy.isRunningUnderXCTest
+        if !isRunningUnderXCTest {
+            PostHogAnalytics.shared.recordLaunchIdentity()
+        }
         StartupBreadcrumbLog.append(
             "appDelegate.didFinish.begin",
             fields: [
