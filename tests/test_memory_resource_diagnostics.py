@@ -40,8 +40,8 @@ class MemoryResourceDiagnosticsTests(unittest.TestCase):
         self.assertIn(context["aggregate"]["severity"], ("normal", "warning", "critical"))
         self.assertGreater(context["aggregate"]["physical_memory_bytes"], 0)
         self.assertIsInstance(context["aggregate"]["complete"], bool)
-        self.assertGreaterEqual(context["descendants"]["descendant_count"], 1)
-        self.assertGreaterEqual(context["descendants"]["child_rss_bytes"], 0)
+        self.assertGreaterEqual(context["descendants"]["unique_descendant_count"], 1)
+        self.assertGreaterEqual(context["descendants"]["rss_bytes"], 0)
         self.assertGreaterEqual(context["system_memory"]["compressor_bytes"], 0)
         self.assertGreaterEqual(context["system_memory"]["available_bytes"], 0)
         descriptors = context["file_descriptors"]
