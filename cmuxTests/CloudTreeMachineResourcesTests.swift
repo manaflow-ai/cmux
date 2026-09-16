@@ -46,6 +46,15 @@ struct CloudTreeMachineResourcesTests {
         #expect(resources.disk.detail.contains("3/4"))
     }
 
+    @Test func resourceRowValuesDoNotRepeatTheirLabels() {
+        let rows = CloudTreeMachineResourceSection(machine: machine(), now: Self.sampleTime).rows
+        #expect(rows[0].detail == (0.094).formatted(.percent.precision(.fractionLength(0))))
+        #expect(rows[1].detail == "2/4 GB (50%)")
+        #expect(rows[2].detail == "3/4 GB (75%)")
+        let asleep = CloudTreeMachineResourceSection(machine: machine(state: .asleep), now: Self.sampleTime).rows
+        #expect(asleep[0].detail == "Asleep")
+    }
+
     @Test(arguments: [VMStats.State.asleep, .unknown])
     func inactiveSamplesNeverPresentOldValuesAsLive(state: VMStats.State) {
         let resources = CloudMachineResourcePresentation(machine: machine(state: state), now: Self.sampleTime)
