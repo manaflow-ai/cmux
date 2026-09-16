@@ -128,4 +128,33 @@ struct CloudSurfaceDragFeedbackTests {
         router.clear()
     }
 
+    @Test("Cloud tree rows reject foreign surfaces with the same warning")
+    func cloudTreeFeedback() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let app = try VaultPaneAppFixture()
+            defer { app.tearDown() }
+            let fixture = CloudSidebarOrderingFixture()
+            defer { fixture.close() }
+            fixture.coordinator.apply(nodes: fixture.nodes())
+            let outline = try #require(fixture.coordinator.outlineView as? CloudTreeNSOutlineView)
+            let target = try #require(CloudTreeNodeBuilder.flattened(fixture.nodes()).first { $0.structureTag == "workspace" })
+            let tabID = try #require(app.workspace.surfaceIdFromPanelId(try #require(app.workspace.focusedPanelId)))
+            let pane = try #require(app.workspace.bonsplitController.allPaneIds.first)
+            let registration = try #require(app.appDelegate.tabDragTransferRegistry.register(TabDragTransfer(
+                tab: Tab(id: tabID, title: "local", kind: "terminal"), sourcePaneId: pane
+            )))
+            let pasteboard = NSPasteboard(name: NSPasteboard.Name("cloud-tree-ownership-\(UUID())"))
+            #expect(registration.write(to: pasteboard))
+            defer { app.appDelegate.tabDragTransferRegistry.end(registration); pasteboard.clearContents() }
+            let sender = CloudSidebarDraggingInfo(source: outline, pasteboard: pasteboard, location: .zero)
+            #expect(fixture.coordinator.outlineView(outline, validateDrop: sender, proposedItem: target,
+                                                    proposedChildIndex: NSOutlineViewDropOnItemIndex).isEmpty)
+            #expect(outline.ownershipFeedback.rejection == .cloudMachineMismatch)
+            #expect(!fixture.coordinator.outlineView(outline, acceptDrop: sender, item: target,
+                                                     childIndex: NSOutlineViewDropOnItemIndex))
+            #expect(outline.ownershipFeedback.rejection == nil)
+            #expect(fixture.provider.moved.isEmpty && fixture.provider.projected.isEmpty && fixture.provider.closedTabs.isEmpty)
+        }
+    }
+
 }

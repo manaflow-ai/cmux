@@ -60,7 +60,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     private var wakeTask: Task<Void, Never>?
     private var shutdownTask: Task<Void, Never>?
     private var activeScope: AuthenticatedTeamScope?
-    private var signingOutScope: AuthenticatedTeamScope?
+    private var signingOutScope: AuthenticatedTeamScope? // Session/team generations make a fresh same-account sign-in a different scope.
     private var wantsHost = true
     private var requiresTransition = false
     private var generationToken = UUID()
