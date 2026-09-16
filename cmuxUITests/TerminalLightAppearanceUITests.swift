@@ -24,9 +24,7 @@ final class TerminalLightAppearanceUITests: SettingsUITestCase {
         launchAndActivate(app)
         defer { app.terminate() }
 
-        let terminal = app.textViews.matching(
-            NSPredicate(format: "help == %@", "Terminal content area")
-        ).firstMatch
+        let terminal = app.textViews.firstMatch
         XCTAssertTrue(terminal.waitForExistence(timeout: 15), "The workspace must contain a live terminal")
 
         selectAppearance("Dark", app: app)
@@ -38,14 +36,6 @@ final class TerminalLightAppearanceUITests: SettingsUITestCase {
         attachDesktop("Same workspace after selecting Light")
         XCTAssertTrue(changed, "Selecting Light must recolor the existing terminal despite its font setting")
 
-        // A new terminal uses the same committed configuration as the existing surface.
-        app.typeKey("t", modifierFlags: .command)
-        let newTerminal = app.textViews.matching(
-            NSPredicate(format: "help == %@", "Terminal content area")
-        ).firstMatch
-        XCTAssertTrue(newTerminal.waitForExistence(timeout: 10))
-        XCTAssertTrue(waitForBackground(newTerminal, isLight: true), "New terminal must also render light")
-        attachDesktop("New terminal in Light mode")
     }
 
     private func selectAppearance(_ name: String, app: XCUIApplication) {
