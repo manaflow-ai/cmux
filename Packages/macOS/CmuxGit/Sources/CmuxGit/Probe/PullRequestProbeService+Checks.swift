@@ -62,7 +62,7 @@ extension PullRequestProbeService {
 
     nonisolated static func mergeStatus(
         mergeable: Bool?, mergeableState: String?
-    ) -> PullRequestChecksSummary.MergeStatus {
+    ) -> PullRequestMergeStatus {
         if mergeable == false || mergeableState?.lowercased() == "dirty" { return .conflict }
         switch mergeableState?.lowercased() {
         case "blocked", "unstable", "draft", "behind": return .blocked

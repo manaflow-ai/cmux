@@ -2,12 +2,9 @@ import Foundation
 
 /// Bounded optional-check cache. Keys include credential identity and head SHA.
 actor PullRequestChecksCache {
-    private struct Entry: Sendable {
-        let fetchedAt: Date
-        let summary: PullRequestChecksSummary
-    }
 
-    private var entries: [String: Entry] = [:]
+
+    private var entries: [String: PullRequestChecksCacheEntry] = [:]
     private let lifetime: TimeInterval = 30
     private let maximumEntries = 256
 
@@ -25,6 +22,6 @@ actor PullRequestChecksCache {
            let oldest = entries.min(by: { $0.value.fetchedAt < $1.value.fetchedAt })?.key {
             entries.removeValue(forKey: oldest)
         }
-        entries[key] = Entry(fetchedAt: now, summary: summary)
+        entries[key] = PullRequestChecksCacheEntry(fetchedAt: now, summary: summary)
     }
 }

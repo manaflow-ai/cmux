@@ -12,7 +12,7 @@ extension SidebarPullRequestChecks {
                     detailsURL: $0.detailsURL
                 )
             },
-            mergeStatus: MergeStatus(rawValue: summary.mergeStatus.rawValue) ?? .unknown
+            mergeStatus: SidebarPullRequestMergeStatus(rawValue: summary.mergeStatus.rawValue) ?? .unknown
         )
     }
 
@@ -26,7 +26,7 @@ extension SidebarPullRequestChecks {
                     detailsURL: $0.detailsURL
                 )
             },
-            mergeStatus: PullRequestChecksSummary.MergeStatus(rawValue: mergeStatus.rawValue) ?? .unknown
+            mergeStatus: PullRequestMergeStatus(rawValue: mergeStatus.rawValue) ?? .unknown
         )
     }
 }
