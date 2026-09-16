@@ -213,7 +213,7 @@ final class MachinesPanelViewModel: ObservableObject {
         case .httpStatus(402, _):
             return .requiresPro
         case .notSignedIn, .sessionRefreshFailed, .backendUnreachable, .httpStatus, .malformedResponse, .lifecycleUnsupported,
-             .disabledByManagedPolicy:
+             .disabledByManagedPolicy, .cloudMachinesDisabled:
             // A managed policy can race a refresh; keep the generic unreachable state.
             return .unreachable
         }
