@@ -43,6 +43,8 @@ jobs:
           cache: false
       - name: Verify complete release assets
         run: node scripts/release_asset_guard.test.js
+      - name: Reject broken app bundles and daemon artifacts
+        run: python3 tests/test_remote_daemon_release_verification.py
       - name: Build and exercise stable and nightly daemon artifacts
         run: python3 tests/test_remote_daemon_release_assets.py
       - name: Test daemon behavior with the race detector

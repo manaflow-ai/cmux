@@ -16,6 +16,9 @@ import urllib.request
 
 
 IMMUTABLE_ASSET_PATTERNS = [
+    re.compile(r"^cmuxd-remote-(?:darwin|linux)-(?:arm64|amd64)-(?P<build>\d+)$"),
+    re.compile(r"^cmuxd-remote-checksums-(?P<build>\d+)\.txt$"),
+    re.compile(r"^cmuxd-remote-manifest-(?P<build>\d+)\.json$"),
     re.compile(r"^cmux-nightly-macos-(?P<build>\d+)\.dmg$"),
     re.compile(r"^cmux-nightly-macos-(?:arm64|x86_64|universal)-(?P<build>\d+)\.dmg$"),
     # Sparkle delta from an older build to <build>; pruned together with <build>.

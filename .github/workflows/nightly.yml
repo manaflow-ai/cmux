@@ -340,6 +340,9 @@ jobs:
 
   build-nightly-app:
     needs: decide
+    outputs:
+      daemon_build: ${{ steps.remote_daemon.outputs.build }}
+      daemon_version: ${{ steps.remote_daemon.outputs.version }}
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
     # Full runs match the cache warmer and stable release lane. Fast branch
     # dogfood always uses the dedicated Blacksmith image. A repository-wide
@@ -546,6 +549,36 @@ jobs:
               --require-capability wireguard-hub
           fi
 
+      - name: Build immutable SSH daemon assets once for every app variant
+        if: needs.decide.outputs.build_only != 'true'
+        id: remote_daemon
+        run: |
+          set -euo pipefail
+          app="build-universal/Build/Products/Release/cmux.app"
+          base_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")"
+          build="${GITHUB_RUN_ID}$(printf '%02d' "${GITHUB_RUN_ATTEMPT:-1}")"
+          version="${base_version}-nightly.${build}"
+          ./scripts/build_remote_daemon_release_assets.sh \
+            --version "$version" --release-tag nightly --repo "$GITHUB_REPOSITORY" \
+            --asset-suffix "$build" --output-dir remote-daemon-assets
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Attest immutable SSH daemon assets
+        if: needs.decide.outputs.build_only != 'true'
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: remote-daemon-assets/cmuxd-remote-*
+
+      - name: Upload SSH daemon assets
+        if: needs.decide.outputs.build_only != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-remote-daemon
+          path: remote-daemon-assets/cmuxd-remote-*
+          if-no-files-found: error
+          retention-days: 3
+
       - name: Strip unsigned nightly app before transfer
         run: |
           set -euo pipefail
@@ -618,6 +651,8 @@ jobs:
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       NIGHTLY_VARIANT: ${{ matrix.variant }}
       NIGHTLY_FAST_BUILD: ${{ needs.decide.outputs.fast_build }}
+      NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
+      NIGHTLY_MARKETING_VERSION: ${{ needs.build-nightly-app.outputs.daemon_version }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -646,6 +681,12 @@ jobs:
         with:
           name: cmux-nightly-unsigned-app
           path: nightly-inputs/app
+
+      - name: Download SSH daemon assets
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-nightly-remote-daemon
+          path: remote-daemon-assets
 
       - name: Download universal Ghostty CLI helper
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -777,18 +818,8 @@ jobs:
           SHORT_SHA="${{ needs.decide.outputs.short_sha }}"
           APP_DIR="build-universal/Build/Products/Release"
 
-          BASE_MARKETING=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "${APP_DIR}/cmux.app/Contents/Info.plist")
-          NIGHTLY_DATE=$(date -u +%Y%m%d)
-
-          # Build number: unique/monotonic per workflow run attempt so same-day
-          # nightlies and reruns still compare as newer in Sparkle.
-          if [ -n "${GITHUB_RUN_ID:-}" ]; then
-            RUN_ATTEMPT="$(printf '%02d' "${GITHUB_RUN_ATTEMPT:-1}")"
-            NIGHTLY_BUILD="${GITHUB_RUN_ID}${RUN_ATTEMPT}"
-          else
-            NIGHTLY_BUILD="${NIGHTLY_DATE}000000"
-          fi
-          NIGHTLY_MARKETING_VERSION="${BASE_MARKETING}-nightly.${NIGHTLY_BUILD}"
+          # The producer owns the version for both the daemon and every app variant.
+          : "${NIGHTLY_BUILD:?missing daemon build}" "${NIGHTLY_MARKETING_VERSION:?missing daemon version}"
 
           NIGHTLY_DMG_IMMUTABLE="cmux-nightly-macos-${NIGHTLY_VARIANT}-${NIGHTLY_BUILD}.dmg"
           NIGHTLY_DMG_RELEASE="cmux-nightly-macos-${NIGHTLY_VARIANT}.dmg"
@@ -860,6 +891,13 @@ jobs:
           echo "Nightly build number: ${NIGHTLY_BUILD}"
           echo "Nightly immutable DMG: ${NIGHTLY_DMG_IMMUTABLE}"
           echo "Commit SHA: ${SHORT_SHA}"
+
+      - name: Embed verified SSH daemon manifest
+        run: |
+          python3 scripts/verify_remote_daemon_release.py \
+            --manifest "remote-daemon-assets/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
+            --assets-dir remote-daemon-assets \
+            --app "build-universal/Build/Products/Release/cmux NIGHTLY.app" --embed --verify-cli
 
       - name: Import signing cert
         env:
@@ -966,6 +1004,13 @@ jobs:
               "$APPLE_SIGNING_IDENTITY"
           done
 
+      - name: Verify signed app SSH daemon contract
+        run: |
+          python3 scripts/verify_remote_daemon_release.py \
+            --manifest "remote-daemon-assets/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
+            --assets-dir remote-daemon-assets \
+            --app "build-universal/Build/Products/Release/cmux NIGHTLY.app" --verify-cli
+
       - name: Smoke launch signed app before notarization
         run: |
           set -euo pipefail
@@ -1040,6 +1085,7 @@ jobs:
           path: |
             cmux-nightly-macos-arm64.dmg
             cmux-nightly-macos-arm64-*.dmg
+            remote-daemon-assets/cmuxd-remote-*
           if-no-files-found: error
           retention-days: 3
 
@@ -1050,12 +1096,13 @@ jobs:
           rm -f /tmp/cert.p12
 
   publish-nightly:
-    needs: [decide, build-sign-notarize-nightly]
+    needs: [decide, build-nightly-app, build-sign-notarize-nightly]
     if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     env:
       NIGHTLY_LEGACY_VARIANT: ${{ needs.decide.outputs.legacy_variant }}
+      NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
     steps:
       - name: Checkout publish ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1069,6 +1116,17 @@ jobs:
           pattern: cmux-nightly-variant-*
           path: nightly-out
           merge-multiple: true
+
+      - name: Download SSH daemon assets for publication
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-nightly-remote-daemon
+          path: nightly-out
+
+      - name: Verify SSH daemon assets survived artifact transfer
+        run: |
+          python3 scripts/verify_remote_daemon_release.py \
+            --manifest "nightly-out/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" --assets-dir nightly-out
 
       - name: Assemble legacy nightly names
         run: |
@@ -1100,6 +1158,7 @@ jobs:
             nightly-out/cmux-nightly-macos*.dmg
             nightly-out/cmux-nightly-macos*.delta
             nightly-out/appcast*.xml
+            nightly-out/cmuxd-remote-*
           if-no-files-found: error
 
       - name: Prune old nightly release assets
@@ -1140,6 +1199,7 @@ jobs:
             nightly-out/appcast-arm64.xml
             nightly-out/appcast-x86_64.xml
             nightly-out/appcast-universal.xml
+            nightly-out/cmuxd-remote-*
           overwrite_files: true
 
       - name: Upload nightly appcasts to R2

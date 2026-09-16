@@ -62,8 +62,10 @@ class RemoteDaemonReleaseTests(unittest.TestCase):
                 response = json.loads(hello.stdout.splitlines()[0])
                 self.assertTrue(response["ok"], response)
                 self.assertEqual(response["result"]["version"], version)
-                self.assertIn("pty.session", response["result"]["capabilities"])
-                self.assertIn("proxy.stream", response["result"]["capabilities"])
+                required = {"proxy.stream.push", "pty.session", "pty.session.token",
+                            "pty.session.persistent_daemon", "pty.write.notification",
+                            "pty.resize.notification", "pty.attach.cancel"}
+                self.assertTrue(required <= set(response["result"]["capabilities"]), response)
 
 
 if __name__ == "__main__":
