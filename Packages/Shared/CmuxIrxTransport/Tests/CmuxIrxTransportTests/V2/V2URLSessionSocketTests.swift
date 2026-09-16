@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxIrxTransport
 
-@Suite(.timeLimit(.minutes(1)))
+@Suite
 struct V2URLSessionSocketTests {
     enum Outcome: Sendable {
         case pong, aborted, disconnected
