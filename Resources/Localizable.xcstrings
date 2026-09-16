@@ -60336,19 +60336,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "You can always find this in Settings > Browser."
+            "value": "You can always find this in Settings > Import Browser Data."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "あとでいつでも「設定 > ブラウザー」で見つけられます。"
+            "value": "「設定」>「ブラウザデータをインポート」からいつでも利用できます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "설정 > 브라우저에서 언제든 찾을 수 있습니다."
+            "value": "설정 > 브라우저 데이터 가져오기에서 언제든지 찾을 수 있습니다."
           }
         },
         "uk": {
@@ -60360,37 +60360,37 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你随时可以在「设置 > 浏览器」中找到它。"
+            "value": "你随时都可以在“设置”>“导入浏览器数据”中找到此功能。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sie finden dies jederzeit unter Einstellungen > Browser."
+            "value": "Du findest diese Funktion jederzeit unter Einstellungen > Browserdaten importieren."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vous pouvez toujours retrouver cette option dans Paramètres > Navigateur."
+            "value": "Vous pouvez toujours retrouver cette option dans Réglages > Importer les données du navigateur."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يمكنك دائمًا العثور على هذا في الإعدادات > المتصفح."
+            "value": "يمكنك دائمًا العثور على هذا في الإعدادات > استيراد بيانات المتصفح."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Siempre puedes encontrar esto en Ajustes > Navegador."
+            "value": "Siempre puedes encontrar esta opción en Ajustes > Importar datos del navegador."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "您隨時可以在「設定 > 瀏覽器」中找到此選項。"
+            "value": "你隨時都可以在「設定」>「匯入瀏覽器資料」中找到此功能。"
           }
         }
       }
@@ -525491,6 +525491,183 @@
           "stringUnit": {
             "state": "translated",
             "value": "クラウドマシンは一時的に利用できません。"
+          }
+        }
+      }
+    },
+    "featureFlags.search.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search flags"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flags suchen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechercher des indicateurs"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "البحث في العلامات"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar indicadores"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜尋旗標"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索标志"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "플래그 검색"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フラグを検索"
+          }
+        }
+      }
+    },
+    "featureFlags.search.clear": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear search"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suche löschen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effacer la recherche"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مسح البحث"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Borrar búsqueda"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除搜尋"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除搜索"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "검색 지우기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索をクリア"
+          }
+        }
+      }
+    },
+    "featureFlags.search.noResults": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No matching flags"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine passenden Flags"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun indicateur correspondant"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد علامات مطابقة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay indicadores coincidentes"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有符合的旗標"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有匹配的标志"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일치하는 플래그 없음"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一致するフラグがありません"
           }
         }
       }

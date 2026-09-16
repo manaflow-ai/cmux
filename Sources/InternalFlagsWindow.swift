@@ -50,23 +50,76 @@ private struct InternalFlagsView: View {
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
 #endif
 
+    @State private var searchText = ""
+
     private var rows: [InternalFlagRowSnapshot] {
         CmuxFeatureFlags.allFlags.map { definition in
             InternalFlagRowSnapshot(definition: definition, flags: flags)
         }
     }
 
+    private var showsDebugBannerRow: Bool {
+#if DEBUG
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return true }
+        return InternalFlagRowSnapshot.matches(
+            query: query,
+            title: String(localized: "debug.devBuildBanner.show", defaultValue: "Show Dev Build Banner"),
+            key: DevBuildBannerDebugSettings.sidebarBannerVisibleKey,
+            description: String(
+                localized: "debug.devBuildBanner.description",
+                defaultValue: "Controls the red debug-build label below the sidebar footer."
+            )
+        )
+#else
+        false
+#endif
+    }
+
     var body: some View {
+        let flagRows = rows
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let visibleRows = query.isEmpty ? flagRows : flagRows.filter { $0.matches(query: query) }
+        let showsBanner = showsDebugBannerRow
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(String(localized: "featureFlags.window.heading", defaultValue: "Feature Flags"))
-                    .font(.title2.weight(.semibold))
-                Text(String(
-                    localized: "featureFlags.window.subtitle",
-                    defaultValue: "Inspect PostHog flag state and local overrides for this Mac."
-                ))
-                .font(.callout)
-                .foregroundStyle(.secondary)
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(String(localized: "featureFlags.window.heading", defaultValue: "Feature Flags"))
+                        .font(.title2.weight(.semibold))
+                    Text(String(
+                        localized: "featureFlags.window.subtitle",
+                        defaultValue: "Inspect PostHog flag state and local overrides for this Mac."
+                    ))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 12)
+
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                    TextField(
+                        String(localized: "featureFlags.search.prompt", defaultValue: "Search flags"),
+                        text: $searchText
+                    )
+                    .textFieldStyle(.plain)
+                    .accessibilityIdentifier("InternalFlagsSearchField")
+                    if !searchText.isEmpty {
+                        Button {
+                            searchText = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(String(localized: "featureFlags.search.clear", defaultValue: "Clear search"))
+                    }
+                }
+                .padding(.horizontal, 9)
+                .padding(.vertical, 7)
+                .frame(width: 240)
+                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 7))
             }
             .padding(.horizontal, 24)
             .padding(.top, 22)
@@ -79,26 +132,36 @@ private struct InternalFlagsView: View {
             ScrollView {
                 LazyVStack(spacing: 0) {
 #if DEBUG
-                    InternalBooleanSettingRow(
-                        title: String(
-                            localized: "debug.devBuildBanner.show",
-                            defaultValue: "Show Dev Build Banner"
-                        ),
-                        key: DevBuildBannerDebugSettings.sidebarBannerVisibleKey,
-                        settingDescription: String(
-                            localized: "debug.devBuildBanner.description",
-                            defaultValue: "Controls the red debug-build label below the sidebar footer."
-                        ),
-                        isOn: $showSidebarDevBuildBanner
-                    )
+                    if showsBanner {
+                        InternalBooleanSettingRow(
+                            title: String(
+                                localized: "debug.devBuildBanner.show",
+                                defaultValue: "Show Dev Build Banner"
+                            ),
+                            key: DevBuildBannerDebugSettings.sidebarBannerVisibleKey,
+                            settingDescription: String(
+                                localized: "debug.devBuildBanner.description",
+                                defaultValue: "Controls the red debug-build label below the sidebar footer."
+                            ),
+                            isOn: $showSidebarDevBuildBanner
+                        )
+                    }
 #endif
-                    ForEach(rows) { row in
+                    ForEach(visibleRows) { row in
                         InternalFlagRow(
                             snapshot: row,
                             setOverride: { value in
                                 flags.setOverride(value, for: row.definition)
                             }
                         )
+                    }
+
+                    if visibleRows.isEmpty && !showsBanner {
+                        Text(String(localized: "featureFlags.search.noResults", defaultValue: "No matching flags"))
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(24)
                     }
                 }
             }
@@ -118,7 +181,7 @@ private struct InternalFlagsView: View {
                 Button(String(localized: "featureFlags.clearAll", defaultValue: "Clear all overrides")) {
                     flags.clearAllOverrides()
                 }
-                .disabled(!rows.contains { $0.overrideValue != nil })
+                .disabled(!flagRows.contains { $0.overrideValue != nil })
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 14)
