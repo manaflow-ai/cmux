@@ -155,3 +155,91 @@ struct LiveAgentIndexRelevantChurnTests {
         #expect(loadCount.withLock { $0 } >= 1)
     }
 }
+
+/// An ownership-sensitive restore waits for a scan that started after its
+/// request. On a Mac with many live agents that is routinely two scans: the
+/// one already running when session restore asked, plus the request's own
+/// scan once a hook lands mid-flight. Each awaited scan gets its own wait
+/// budget. Charging one budget to the request as a whole made startup restores
+/// fail closed with the "could not verify" notice whenever both scans, plus
+/// main-actor latency during session restore, exceeded it.
+@MainActor
+@Suite(.serialized)
+struct LiveAgentIndexOwnershipScanBudgetTests {
+    private static func makeHookStoreDirectory() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-scan-budget-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    nonisolated private static func emptyLoadResult() -> SharedLiveAgentIndexLoader.LoadResult {
+        (
+            index: RestorableAgentSessionIndex.empty,
+            liveAgentProcessFingerprint: [],
+            processScopeFingerprint: [],
+            forkValidatedPanels: []
+        )
+    }
+
+    @Test
+    func inFlightScanAndOwnScanEachGetTheFullBudget() async throws {
+        let directory = try Self.makeHookStoreDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let churnedFile = directory.appendingPathComponent("claude-hook-sessions.json")
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let scanSeconds: TimeInterval = 0.35
+        let budgetNanoseconds: UInt64 = 500_000_000
+        let index = SharedLiveAgentIndex(
+            indexLoader: {
+                let count = loadCount.withLock { $0 += 1; return $0 }
+                if count == 1 {
+                    // A hook lands while the first scan runs, so a request that
+                    // arrived after that scan started needs a scan of its own.
+                    try? Data("{\"version\":1,\"sessions\":{}}".utf8)
+                        .write(to: churnedFile, options: .atomic)
+                }
+                Thread.sleep(forTimeInterval: scanSeconds)
+                return Self.emptyLoadResult()
+            },
+            ownershipScanWaitNanoseconds: budgetNanoseconds,
+            hookStoreDirectoryProvider: { directory.path }
+        )
+        // Session restore starts the first scan before any pane waits on it.
+        _ = index.currentIndexForOwnershipSensitiveRestore()
+
+        let start = ContinuousClock.now
+        let outcome = await index.indexForOwnershipDecision()
+        let elapsed = start.duration(to: .now)
+
+        guard case .index(let refreshed) = outcome else {
+            Issue.record("Two in-budget scans failed the ownership decision: \(outcome)")
+            return
+        }
+        #expect(refreshed.isComplete)
+        #expect(loadCount.withLock { $0 } == 2)
+        // Both scans together exceed one budget; only a per-scan budget admits.
+        #expect(elapsed > .nanoseconds(Int64(budgetNanoseconds)))
+    }
+
+    @Test
+    func scanSlowerThanTheBudgetStillFailsClosed() async throws {
+        let directory = try Self.makeHookStoreDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let index = SharedLiveAgentIndex(
+            indexLoader: {
+                Thread.sleep(forTimeInterval: 0.6)
+                return Self.emptyLoadResult()
+            },
+            ownershipScanWaitNanoseconds: 200_000_000,
+            hookStoreDirectoryProvider: { directory.path }
+        )
+
+        let outcome = await index.indexForOwnershipDecision()
+
+        guard case .timedOut = outcome else {
+            Issue.record("A scan slower than its budget must fail closed: \(outcome)")
+            return
+        }
+    }
+}
