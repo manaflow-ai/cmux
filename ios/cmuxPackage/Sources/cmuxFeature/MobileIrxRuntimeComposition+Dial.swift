@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxAuthRuntime
 import CmuxIrohTransport
 import CmuxIrxTransport
 import Foundation
@@ -77,7 +78,7 @@ extension MobileIrxRuntimeComposition {
         switch dialIntentByPeer[peerHex] ?? .automatic {
         case .automatic:
             guard let supervisor = endpointSupervisor,
-                  await supervisor.boundEndpoint() != nil else {
+                  await supervisor.isHealthy() else {
                 return nil
             }
         case .direct:
