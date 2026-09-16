@@ -44,8 +44,8 @@ public struct TerminalCatalogSection: SettingCatalogSection {
     )
 
     /// Whether cmux supplies its appearance-adaptive managed palette for an
-    /// untouched Ghostty config. Default-on preserves cmux's historical fresh
-    /// install behavior; any Ghostty directive suppresses the managed palette.
+    /// Ghostty config without authored themes or terminal colors. Font and
+    /// behavior settings preserve the managed palette; it is enabled by default.
     public let adaptiveDefaultTheme = DefaultsKey<Bool>(
         id: "terminal.adaptiveDefaultTheme",
         defaultValue: true,

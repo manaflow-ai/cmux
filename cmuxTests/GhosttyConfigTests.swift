@@ -4413,7 +4413,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
         XCTAssertTrue(paths.contains(currentConfig.path))
         XCTAssertFalse(paths.contains(legacyConfig.path))
-        XCTAssertFalse(GhosttyApp.shouldApplyManagedDefaultAppearance(
+        XCTAssertTrue(GhosttyApp.shouldApplyManagedDefaultAppearance(
             configPaths: paths,
             adaptiveDefaultThemeEnabled: true
         ))
@@ -4421,12 +4421,12 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
     // MARK: shouldApplyManagedDefaultAppearance
 
-    func testShouldApplyManagedDefaultAppearanceSkipsNonAppearanceConfig() throws {
+    func testShouldApplyManagedDefaultAppearancePreservesNonAppearanceConfig() throws {
         try withTempConfig("""
         font-family = JetBrains Mono
         background-opacity = 0.92
         """) { path in
-            XCTAssertFalse(
+            XCTAssertTrue(
                 GhosttyApp.shouldApplyManagedDefaultAppearance(
                     configPaths: [path],
                     adaptiveDefaultThemeEnabled: true
