@@ -64,7 +64,7 @@ struct CloudTreeNodeActions {
     ) -> CloudTreeNodeActions {
         let run: @MainActor (
             _ label: String,
-            _ operation: @escaping @MainActor (SurfaceCatalog) async throws -> Void
+            _ operation: @MainActor (SurfaceCatalog) async throws -> Void
         ) -> Task<Void, Never> = { label, operation in
             onWillMutate(label)
             return Task { @MainActor in
