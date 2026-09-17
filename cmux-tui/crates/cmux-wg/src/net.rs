@@ -60,6 +60,9 @@ const COMMAND_DEPTH: usize = 64;
 const TIMER_TICK: Duration = Duration::from_millis(250);
 /// Idle TCP connections with no ACK for this long are aborted.
 const TCP_TIMEOUT: Duration = Duration::from_secs(60);
+/// Probe each idle TCP connection before its receive timeout. WireGuard
+/// keepalives and application heartbeats on another lane do not elicit its ACKs.
+const TCP_KEEP_ALIVE: Duration = Duration::from_secs(15);
 /// Largest datagram or packet buffer: the UDP payload maximum.
 const BUFFER_BYTES: usize = 65_535;
 /// UDP send readiness is edge-triggered by Tokio. Keep datagrams that arrive
@@ -789,6 +792,9 @@ impl Driver {
         socket.set_nagle_enabled(false);
         socket.set_timeout(Some(smoltcp::time::Duration::from_micros(
             u64::try_from(TCP_TIMEOUT.as_micros()).unwrap_or(u64::MAX),
+        )));
+        socket.set_keep_alive(Some(smoltcp::time::Duration::from_micros(
+            u64::try_from(TCP_KEEP_ALIVE.as_micros()).unwrap_or(u64::MAX),
         )));
         socket
     }
