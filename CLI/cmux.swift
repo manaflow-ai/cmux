@@ -15341,17 +15341,9 @@ struct CMUXCLI {
                 responseTimeout: waitForReady ? 185 : nil
             )
         } catch {
-            // Prefer the structured v2 error code over description matching so a
-            // message-format change cannot silently turn a retryable failure fatal.
-            let exitCode: SSHPTYAttachExitCode
-            if let cliError = error as? CLIError, let code = cliError.v2Code {
-                exitCode = SSHPTYAttachExitCode.classifyBridgeEstablishmentFailure(
-                    code: code,
-                    message: cliError.message
-                )
-            } else {
-                exitCode = SSHPTYAttachExitCode.classifyBridgeEstablishmentFailure(String(describing: error))
-            }
+            let exitCode = sshPTYBridgeEstablishmentExitCode(error)
+            // A parked session may still own a running remote PTY: keep it for Reconnect.
+            if sshPTYBridgeErrorIsParkedSession(error) { preserveLifecycleForRecovery = true }
             let closedGeneration = (error as? CLIError)?.v2Code == "pty_lifecycle_closed"
             if !closedGeneration, sshPTYAttachWrapperWillRetry(exitCode) {
                 wrapperWillRetrySameSurface = true
@@ -15785,7 +15777,7 @@ struct CMUXCLI {
         let downloadCommand = "gh release download \(releaseTag) --repo manaflow-ai/cmux --pattern \(assetName)"
         let downloadChecksumsCommand = "gh release download \(releaseTag) --repo manaflow-ai/cmux --pattern \(checksumsAssetName)"
         let checksumVerifyCommand = "shasum -a 256 -c \(checksumsAssetName) --ignore-missing"
-        let signerWorkflow = releaseTag == "nightly"
+        let signerWorkflow = releaseTag == "nightly" || releaseTag == "rc"
             ? "manaflow-ai/cmux/.github/workflows/nightly.yml"
             : "manaflow-ai/cmux/.github/workflows/release.yml"
         let verifyCommand = "gh attestation verify ./\(assetName) --repo manaflow-ai/cmux --signer-workflow \(signerWorkflow)"
