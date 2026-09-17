@@ -74,7 +74,7 @@ extension GhosttySurfaceView {
     ) -> Bool {
         let outputPresentation = read == nil ? nil : onOutputPresentation
         onOutputPresentation = nil
-        enqueueRenderSubmission(
+        return enqueueRenderSubmission(
             GhosttySurfaceView.RenderSubmission(
                 token: submission.token,
                 generation: generation,
