@@ -284,6 +284,9 @@
 			mainGroup = 8B41F63C2DEDD0D5001A66F9;
 			minimizedProjectReferenceProxies = 1;
 			productRefGroup = 8B41F6462DEDD0D5001A66F9 /* Products */;
+			packageReferences = (
+				D4E2A010000000000000001 /* XCLocalSwiftPackageReference "CmuxPhonePush" */,
+			);
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -655,7 +658,14 @@
 			productName = CmuxIrohReleaseGateSupport;
 		};
 /* End XCSwiftPackageProductDependency section */
-		D4E2A00A0000000000000001 /* CmuxPhonePush */ = { isa = XCSwiftPackageProductDependency; productName = CmuxPhonePush; };
+		D4E2A00A0000000000000001 /* CmuxPhonePush */ = { isa = XCSwiftPackageProductDependency; package = D4E2A010000000000000001 /* XCLocalSwiftPackageReference "CmuxPhonePush" */; productName = CmuxPhonePush; };
+
+/* Begin XCLocalSwiftPackageReference section */
+		D4E2A010000000000000001 /* XCLocalSwiftPackageReference "CmuxPhonePush" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../Packages/macOS/CmuxPhonePush;
+		};
+/* End XCLocalSwiftPackageReference section */
 	};
 	rootObject = 8B41F63D2DEDD0D5001A66F9 /* Project object */;
 }
