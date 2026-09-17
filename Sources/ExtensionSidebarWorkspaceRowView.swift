@@ -283,7 +283,7 @@ struct CmuxExtensionWorkspaceInspectorBrowserView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
-        let webView = WKWebView(frame: .zero, configuration: configuration)
+        let webView = CmuxUndoableWebView(frame: .zero, configuration: configuration)
         webView.setValue(false, forKey: "drawsBackground")
         return webView
     }

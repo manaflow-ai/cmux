@@ -69,6 +69,7 @@ describe("billing success page", () => {
       });
       const html = renderToStaticMarkup(element);
       expect(html).toContain("cmux Pro is active");
+      expect(html).toContain("You&#x27;re all set");
       expect(html).toContain("What you unlocked");
     } finally {
       acceptLanguage = "en";

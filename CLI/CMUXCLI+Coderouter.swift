@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-// `cmux coderouter <status|machines|claude>`: the team-level settings of the
+// `cmux coderouter <status|machines|claude|agent>`: the team-level settings of the
 // cmux coderouter model plane that Cloud machines route their agents through.
 // The CLI is presentation only; each verb maps to one `coderouter.*` socket
 // method handled by the app's `CoderouterClient`, which holds the Stack
@@ -11,12 +11,12 @@ extension CMUXCLI {
     static let coderouterUsage = CMUXDiffViewerLocalization.string(
         "cli.coderouter.usage",
         defaultValue: """
-        Usage: cmux coderouter <accounts|machines> [options]
+        Usage: cmux coderouter <accounts|machines|agent> [options]
 
         The accounts a team routes its Cloud machines through: ChatGPT Codex and
         OpenCode Go subscriptions, Claude Code OAuth tokens, Anthropic API keys,
         Amazon Bedrock credentials. Any other verb, and every `cmux cr ...`, runs
-        the installed CodeRouter CLI unchanged.
+        the CodeRouter CLI unchanged, offering to install it first when missing.
 
           cmux coderouter accounts [--team <id>] [--json]
               Every account with kind, label, masked identifier, state, usage.
@@ -48,6 +48,9 @@ extension CMUXCLI {
         Older spellings keep working: status, claude <list|add|remove|enable|disable|clear>,
         subscriptions <list|add|remove>.
 
+          cmux coderouter agent <claude|codex|opencode|pi> [vm-agent-options] -- <prompt or args...>
+              Start an agent on a routed Cloud machine, through the same path as `cmux vm agent`.
+
         Examples:
           cmux coderouter accounts add claude --label work
           cmux coderouter accounts
@@ -57,9 +60,9 @@ extension CMUXCLI {
 
     /// The first-argument verbs cmux owns under `cmux coderouter`. Everything
     /// else keeps the pre-existing passthrough into the installed CodeRouter CLI,
-    /// so `cmux coderouter accounts`, `cmux coderouter login`, and a bare
+    /// so `cmux coderouter login` and a bare
     /// `cmux coderouter` behave exactly as before.
-    static let cmuxOwnedCoderouterVerbs: Set<String> = ["accounts", "status", "machines", "claude", "subscriptions", "subs", "help", "--help", "-h"]
+    static let cmuxOwnedCoderouterVerbs: Set<String> = ["accounts", "status", "machines", "claude", "subscriptions", "subs", "agent", "help", "--help", "-h"]
 
     static func isCmuxOwnedCoderouterInvocation(_ args: [String]) -> Bool {
         guard let first = args.first?.lowercased() else { return false }
@@ -142,6 +145,9 @@ extension CMUXCLI {
         case "subscriptions", "subs":
             try runCoderouterSubscriptionsCommand(commandArgs: rest, client: client, jsonOutput: jsonOutput)
 
+        case "agent":
+            try runCoderouterAgentCommand(commandArgs: rest, client: client, jsonOutput: jsonOutput)
+
         default:
             throw CLIError(message: """
                 Unknown coderouter subcommand: \(Self.sanitizeForTerminal(sub))
@@ -149,6 +155,17 @@ extension CMUXCLI {
                 \(Self.coderouterUsage)
                 """)
         }
+    }
+
+    /// Routes the CodeRouter agent spelling through the existing VM-agent
+    /// implementation so machine selection, sync, detached terminals, and
+    /// reattach output have one owner.
+    private func runCoderouterAgentCommand(commandArgs: [String], client: SocketClient, jsonOutput: Bool) throws {
+        if CmuxTuiRemoteRouting.vmAgentRequestsHelp(commandArgs) {
+            print(Self.vmAgentUsage.replacingOccurrences(of: "cmux vm agent", with: "cmux coderouter agent"))
+            return
+        }
+        try runVMAgentCommand(rest: Self.vmAgentAliasArgs(commandArgs), client: client, jsonOutput: jsonOutput)
     }
 
     private func runCoderouterClaudeCommand(commandArgs: [String], client: SocketClient, jsonOutput: Bool) async throws {
@@ -397,7 +414,7 @@ extension CMUXCLI {
                 "cli.coderouter.setup.running",
                 "Running `claude setup-token` to mint a long-lived token; finish the sign-in in your browser.\n"
             )
-            FileHandle.standardError.write(Data(message.utf8))
+            cliWriteStderr(message)
             if let token = await runClaudeSetupToken(executable: claude) {
                 return token
             }
@@ -405,7 +422,7 @@ extension CMUXCLI {
                 "cli.coderouter.setup.noToken",
                 "`claude setup-token` did not print a token; paste one instead.\n"
             )
-            FileHandle.standardError.write(Data(fallback.utf8))
+            cliWriteStderr(fallback)
         }
         return try readHiddenTerminalLine(prompt: Self.coderouterLocalized(
             "cli.coderouter.setup.prompt",
@@ -458,11 +475,11 @@ extension CMUXCLI {
         for await chunk in ClaudeSetupTokenPipe.chunks(from: reader) {
             capture.append(chunk)
             for line in redactor.feed(chunk) {
-                FileHandle.standardError.write(line)
+                cliWriteStderr(line)
             }
         }
         let tail = redactor.finish()
-        if !tail.isEmpty { FileHandle.standardError.write(tail) }
+        if !tail.isEmpty { cliWriteStderr(tail) }
         var terminatedStatus: Int32?
         for await status in termination {
             terminatedStatus = status
@@ -578,7 +595,7 @@ extension CMUXCLI {
     }
 
     private func readHiddenTerminalLine(prompt: String) throws -> String {
-        FileHandle.standardError.write(Data(prompt.utf8))
+        cliWriteStderr(prompt)
         var original = termios()
         let hasTerminal = tcgetattr(STDIN_FILENO, &original) == 0
         if hasTerminal {
@@ -590,7 +607,7 @@ extension CMUXCLI {
             if hasTerminal {
                 _ = tcsetattr(STDIN_FILENO, TCSANOW, &original)
             }
-            FileHandle.standardError.write(Data("\n".utf8))
+            cliWriteStderr("\n")
         }
         guard let line = readLine(strippingNewline: true) else {
             throw CLIError(message: Self.coderouterLocalized("cli.coderouter.input.none", "No input received."))
@@ -853,7 +870,7 @@ extension CMUXCLI {
             menu += Self.coderouterFormatted("cli.coderouter.picker.item", "  %lld) %@\n", Int64(index + 1), kind.pickerLine)
         }
         menu += Self.coderouterLocalized("cli.coderouter.picker.choice", "Choice [1]: ")
-        FileHandle.standardError.write(Data(menu.utf8))
+        cliWriteStderr(menu)
         guard let line = readLine(strippingNewline: true) else {
             throw CLIError(message: Self.coderouterLocalized("cli.coderouter.picker.noChoice", "No choice received."))
         }

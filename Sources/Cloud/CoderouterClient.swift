@@ -119,6 +119,8 @@ actor CoderouterClient {
     /// `validate` is false, refusing a rejected one with 422. Returns
     /// `{ teamId, account, accountsTotal, alreadyExists, validation }`.
     func addClaudeAccount(_ input: ClaudeUpstreamInput, label: String?, validate: Bool, teamID: String?) async throws -> JSONValue {
+        // `DisableAICredentialUpload` (MDM): the input carries the credential.
+        guard ManagedAICredentialUploadPolicy.isEnabled else { throw ManagedAICredentialUploadPolicy.refusalError() }
         let (data, http) = try await request(
             "POST",
             path: "/api/coderouter/claude-upstream",
@@ -217,6 +219,9 @@ actor CoderouterClient {
         jsonBody: [String: Any]? = nil,
         teamID explicitTeamID: String?
     ) async throws -> (Data, HTTPURLResponse) {
+        // `DisableCloud` (MDM): fail closed before any token or network work,
+        // whichever entry point asked.
+        guard ManagedCloudPolicy.isEnabled else { throw VMClientError.disabledByManagedPolicy }
         // Validate the destination before loading bearer and refresh tokens.
         // A malformed debug override must never receive credential headers.
         let requestURL = try Self.validatedRequestURL(

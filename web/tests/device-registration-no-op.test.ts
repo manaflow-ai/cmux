@@ -40,7 +40,7 @@ const incoming = {
 function check(
   storedValue: StoredRegistration | null,
   incomingValue = incoming,
-  touchIntervalMs = 60_000,
+  touchIntervalMs = presenceTouchIntervalMs(undefined),
 ): boolean {
   return registrationIsUnchanged({
     stored: storedValue,
@@ -74,9 +74,16 @@ describe("device registration no-op detection", () => {
   });
 
   test("a stale presence timestamp forces the write through", () => {
-    expect(check(stored({ lastSeenAt: new Date(now.getTime() - 61_000) })).valueOf()).toBe(false);
+    expect(check(stored({ lastSeenAt: new Date(now.getTime() - 301_000) })).valueOf()).toBe(false);
     // Exactly at the interval still writes: the boundary belongs to freshness.
-    expect(check(stored({ lastSeenAt: new Date(now.getTime() - 60_000) }))).toBe(false);
+    expect(check(stored({ lastSeenAt: new Date(now.getTime() - 300_000) }))).toBe(false);
+  });
+
+  test("the interval is the write budget: a four-minute-old row is still fresh", () => {
+    // The registry's steady write rate is one row per device per interval, so
+    // this case is the reduction itself: at the old one-minute default every
+    // poll this far apart wrote two rows.
+    expect(check(stored({ lastSeenAt: new Date(now.getTime() - 240_000) }))).toBe(true);
   });
 
   test("a presence timestamp from the future never looks fresh", () => {
@@ -119,9 +126,9 @@ describe("device registration no-op detection", () => {
 });
 
 describe("presenceTouchIntervalMs", () => {
-  test("defaults to one minute", () => {
-    expect(presenceTouchIntervalMs(undefined)).toBe(60_000);
-    expect(presenceTouchIntervalMs("  ")).toBe(60_000);
+  test("defaults to five minutes", () => {
+    expect(presenceTouchIntervalMs(undefined)).toBe(300_000);
+    expect(presenceTouchIntervalMs("  ")).toBe(300_000);
   });
 
   test("honors an override, including zero to disable", () => {
@@ -130,7 +137,7 @@ describe("presenceTouchIntervalMs", () => {
   });
 
   test("ignores values that are not whole non-negative milliseconds", () => {
-    expect(presenceTouchIntervalMs("-1")).toBe(60_000);
-    expect(presenceTouchIntervalMs("soon")).toBe(60_000);
+    expect(presenceTouchIntervalMs("-1")).toBe(300_000);
+    expect(presenceTouchIntervalMs("soon")).toBe(300_000);
   });
 });

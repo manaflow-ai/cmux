@@ -44,6 +44,7 @@ export type BrokenAccountNotice = {
   readonly brokenAt: Date | null;
   /** Stack user id of whoever added it, when the store records that. */
   readonly createdBy: string | null;
+  readonly visibility?: "private" | "team";
   /** Recipient hashes that already accepted this account-health notice. */
   readonly deliveredRecipientHashes: readonly string[];
 };
@@ -167,6 +168,20 @@ function renderTemplate(template: string, values: Readonly<Record<string, string
   return template.replace(/\{([A-Za-z][A-Za-z0-9]*)\}/g, (_, key: string) => String(values[key] ?? ""));
 }
 
+async function noticeRecipients(
+  notice: BrokenAccountNotice,
+  dependencies: AccountHealthDependencies,
+  teamRecipients: Map<string, readonly Recipient[]>,
+): Promise<readonly Recipient[]> {
+  const sharedNotice = !notice.createdBy && notice.visibility !== "private";
+  if (sharedNotice && teamRecipients.has(notice.teamId)) {
+    return teamRecipients.get(notice.teamId)!;
+  }
+  const recipients = (await dependencies.recipients(notice).catch(() => [])).slice(0, MAX_RECIPIENTS_PER_ACCOUNT);
+  if (sharedNotice) teamRecipients.set(notice.teamId, recipients);
+  return recipients;
+}
+
 export async function runAccountHealthNotifications(
   dependencies: AccountHealthDependencies = defaultDependencies(),
 ): Promise<AccountHealthRunResult> {
@@ -192,13 +207,7 @@ export async function runAccountHealthNotifications(
     if (!teamNames.has(notice.teamId)) {
       teamNames.set(notice.teamId, await dependencies.teamName(notice.teamId).catch(() => null));
     }
-    let recipients: readonly Recipient[];
-    if (!notice.createdBy && teamRecipients.has(notice.teamId)) {
-      recipients = teamRecipients.get(notice.teamId)!;
-    } else {
-      recipients = (await dependencies.recipients(notice).catch(() => [])).slice(0, MAX_RECIPIENTS_PER_ACCOUNT);
-      if (!notice.createdBy) teamRecipients.set(notice.teamId, recipients);
-    }
+    const recipients = await noticeRecipients(notice, dependencies, teamRecipients);
     if (recipients.length === 0) {
       withoutRecipient += 1;
       unaddressed.push(notice);
@@ -527,6 +536,7 @@ export function noticeFromClaudeRow(row: ClaudeAccountRow): BrokenAccountNotice 
     failureCode: row.lastFailureCode ?? "invalid_credential",
     brokenAt: row.brokenAt,
     createdBy: row.createdBy,
+    visibility: row.visibility,
     deliveredRecipientHashes: [],
   };
 }
@@ -566,6 +576,8 @@ async function brokenSubscriptionRows(): Promise<readonly BrokenAccountNotice[]>
       label: coderouterAccounts.label,
       lastFailureCode: coderouterAccounts.lastFailureCode,
       updatedAt: coderouterAccounts.updatedAt,
+      createdBy: coderouterAccounts.createdBy,
+      visibility: coderouterAccounts.visibility,
     })
     .from(coderouterAccounts)
     .where(and(inArray(coderouterAccounts.state, ["expired", "broken"]), isNull(coderouterAccounts.brokenNotifiedAt)))
@@ -580,7 +592,8 @@ async function brokenSubscriptionRows(): Promise<readonly BrokenAccountNotice[]>
     identifier: "",
     failureCode: row.lastFailureCode ?? "refresh_failed",
     brokenAt: row.updatedAt,
-    createdBy: null,
+    createdBy: row.visibility === "private" ? row.createdBy : null,
+    visibility: row.visibility,
     deliveredRecipientHashes: delivered.get(row.id) ?? [],
   }));
 }
@@ -626,6 +639,7 @@ async function stackRecipients(notice: BrokenAccountNotice): Promise<readonly Re
     const recipient = stackRecipient(user);
     if (recipient) return [recipient];
   }
+  if (notice.visibility === "private") return [];
   const team = await app.getTeam(notice.teamId).catch(() => null);
   if (!team) {
     // Personal organizations use the user id as the team id.

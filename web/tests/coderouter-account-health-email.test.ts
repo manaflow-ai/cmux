@@ -1,6 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import {
   buildAccountHealthEmail,
+  defaultDependencies,
   accountHealthRecipientHash,
   noticeSection,
   runAccountHealthNotifications,
@@ -61,6 +62,24 @@ function harness(input: {
   };
   return { dependencies, sent, notified, delivered };
 }
+
+test("private account health recipients never fall back to the team", async () => {
+  let teamReads = 0;
+  mock.module("../app/lib/stack", () => ({
+    getStackServerApp: () => ({
+      getUser: async (id: string) => id === "private-owner"
+        ? { primaryEmail: "owner@example.com", displayName: "Owner" }
+        : null,
+      getTeam: async () => { teamReads += 1; return { listUsers: async () => [{ primaryEmail: "teammate@example.com" }] }; },
+    }),
+  }));
+  const dependencies = defaultDependencies();
+  expect(await dependencies.recipients(notice({ visibility: "private", createdBy: "private-owner" })))
+    .toEqual([{ email: "owner@example.com", name: "Owner", locale: undefined }]);
+  expect(await dependencies.recipients(notice({ visibility: "private", createdBy: "missing-owner" }))).toEqual([]);
+  expect(await dependencies.recipients(notice({ visibility: "private", createdBy: null }))).toEqual([]);
+  expect(teamReads).toBe(0);
+});
 
 describe("account health email copy", () => {
   test("says what broke, why, and exactly how to fix it, once", async () => {

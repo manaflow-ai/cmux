@@ -14,6 +14,7 @@ type CodeRouterFailure =
   | "rds"
   | "analytics_delivery"
   | "analytics_query"
+  | "api_key_usage"
   | "usage_ledger"
   | "upstream_transport"
   | "account_health_email"
@@ -35,6 +36,7 @@ const OPERATOR_FAULT_FAILURES: ReadonlySet<CodeRouterFailure> = new Set([
   "rds",
   "analytics_delivery",
   "analytics_query",
+  "api_key_usage",
   "usage_ledger",
   "route_crash",
   "health_check",
@@ -84,7 +86,7 @@ export function addCoderouterBreadcrumb(
  * Error Tracking, the primary sink, receives an `$exception` carrying a safe
  * error class and repository-only stack frames, grouped by failure kind and
  * provider. The original error is never sent to Sentry. Events are joined
- * to the request's `$ai_trace` by the ledger request id when a route is active.
+ * to the ClickHouse route row by the ledger request id when a route is active.
  */
 export function reportCoderouterFailure(
   failure: CodeRouterFailure,
@@ -125,7 +127,7 @@ export function reportCoderouterFailure(
         properties: {
           coderouter_failure: failure,
           coderouter_error_type: errorType,
-          ...(requestId ? { coderouter_request_id: requestId, $ai_trace_id: requestId } : {}),
+          ...(requestId ? { coderouter_request_id: requestId } : {}),
           ...safeContext,
         },
       }),

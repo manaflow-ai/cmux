@@ -5,6 +5,7 @@ import { coderouterControlRoute } from "@/services/coderouter/requestTelemetry";
 // carry masked identifiers only.
 import {
   addClaudeAccount,
+  ClaudeAccountCredentialConflict,
   listClaudeAccounts,
   parseClaudeUpstreamInput,
   removeAllClaudeAccounts,
@@ -43,6 +44,15 @@ const defaultDependencies: ClaudeUpstreamRouteDependencies = {
   probe: probeClaudeCredential,
 };
 
+function accountVisibility(body: unknown): unknown {
+  return body && typeof body === "object" && "visibility" in body ? body.visibility : "private";
+}
+
+function skipsCredentialValidation(request: Request, body: unknown): boolean {
+  return new URL(request.url).searchParams.get("validate") === "0"
+    || (typeof body === "object" && body !== null && (body as { validate?: unknown }).validate === false);
+}
+
 export function makeClaudeUpstreamHandlers(
   dependencies: ClaudeUpstreamRouteDependencies = defaultDependencies,
 ) {
@@ -50,7 +60,7 @@ export function makeClaudeUpstreamHandlers(
     const resolved = await dependencies.resolveUsageTeam(request);
     if (!resolved.ok) return resolved.response;
     try {
-      const accounts = await dependencies.list(resolved.teamId);
+      const accounts = await dependencies.list(resolved.teamId, resolved.access);
       return Response.json(
         // `upstream` mirrors the first account for clients written against the
         // single-upstream contract; new clients read `accounts`.
@@ -69,6 +79,9 @@ export function makeClaudeUpstreamHandlers(
     if (!resolved.ok) return resolved.response;
     const body = await readJsonBody(request);
     if (!body.ok) return body.response;
+    const visibility = accountVisibility(body.value);
+    if (visibility !== "private" && visibility !== "team") return Response.json({ error: "invalid_visibility" }, { status: 400 });
+    if (!resolved.value.team.manageAccounts) return Response.json({ error: "forbidden" }, { status: 403 });
     let input = parseClaudeUpstreamInput(body.value);
     if (!input) {
       return Response.json({ error: "invalid_request" }, { status: 400 });
@@ -78,8 +91,7 @@ export function makeClaudeUpstreamHandlers(
     // Live check by default: a dead key or revoked token is refused here rather
     // than failing the first machine routed to it. `validate: false` (or
     // ?validate=0) skips it for offline scripting.
-    const skipValidation = new URL(request.url).searchParams.get("validate") === "0"
-      || (typeof body.value === "object" && body.value !== null && (body.value as { validate?: unknown }).validate === false);
+    const skipValidation = skipsCredentialValidation(request, body.value);
     let validation: "ok" | "skipped" | "unreachable" = "skipped";
     if (!skipValidation) {
       const probe = await dependencies.probe(input);
@@ -104,8 +116,8 @@ export function makeClaudeUpstreamHandlers(
       }
     }
     try {
-      const before = await dependencies.list(teamId);
-      const { account, alreadyExists } = await dependencies.add(teamId, stackUserId, input);
+      const before = await dependencies.list(teamId, { kind: "user", userId: stackUserId });
+      const { account, alreadyExists } = await dependencies.add(teamId, stackUserId, input, visibility);
       if (alreadyExists) {
         addCoderouterBreadcrumb("account", "Claude upstream account already present", { upstream_kind: input.kind });
         return Response.json(
@@ -129,6 +141,9 @@ export function makeClaudeUpstreamHandlers(
         { status: 201, headers: { "cache-control": "no-store" } },
       );
     } catch (error) {
+      if (error instanceof ClaudeAccountCredentialConflict) {
+        return Response.json({ error: "credential_conflict" }, { status: 409, headers: { "cache-control": "no-store" } });
+      }
       reportCoderouterFailure("rds", error, { operation: "add_claude_account" });
       return claudeUpstreamUnavailable("coderouter could not store the Claude upstream account. Nothing was changed; retry shortly.");
     }
@@ -138,10 +153,11 @@ export function makeClaudeUpstreamHandlers(
   async function DELETE(request: Request): Promise<Response> {
     const resolved = await dependencies.resolveContext(request);
     if (!resolved.ok) return resolved.response;
+    if (!resolved.value.team.manageAccounts) return Response.json({ error: "forbidden" }, { status: 403 });
     const teamId = resolved.value.team.teamId;
-    let result;
+    let result: Awaited<ReturnType<ClaudeUpstreamRouteDependencies["removeAll"]>>;
     try {
-      result = await dependencies.removeAll(teamId);
+      result = await dependencies.removeAll(teamId, { kind: "user", userId: resolved.value.user.id });
     } catch (error) {
       reportCoderouterFailure("rds", error, { operation: "remove_all_claude_accounts" });
       return claudeUpstreamUnavailable("coderouter could not remove the Claude upstream accounts. Nothing was changed; retry shortly.");

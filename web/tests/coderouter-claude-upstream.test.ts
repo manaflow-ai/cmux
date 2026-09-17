@@ -314,7 +314,7 @@ describe("claude upstream accounts service", () => {
 
   test("adding the same secret twice returns the existing account", async () => {
     const { inner, store } = service();
-    const first = await inner.add("team-1", "user-1", { kind: "anthropic_oauth", token: OAUTH_TOKEN, label: "work" });
+    const first = await inner.add("team-1", "user-1", { kind: "anthropic_oauth", token: OAUTH_TOKEN, label: "work" }, "team");
     const again = await inner.add("team-1", "user-2", { kind: "anthropic_oauth", token: OAUTH_TOKEN, label: "other" });
     expect(first.alreadyExists).toBe(false);
     expect(again).toEqual({ account: first.account, alreadyExists: true });
@@ -324,6 +324,16 @@ describe("claude upstream accounts service", () => {
     expect(elsewhere.alreadyExists).toBe(false);
     expect(store.rows.size).toBe(2);
     expect(store.rows.get(first.account.id)!.fingerprint).toHaveLength(64);
+  });
+
+  test("keeps another member's private duplicate out of the add response", async () => {
+    const { inner, store } = service();
+    const first = await inner.add("team-1", "user-1", { kind: "anthropic_oauth", token: OAUTH_TOKEN });
+    const own = await inner.add("team-1", "user-1", { kind: "anthropic_oauth", token: OAUTH_TOKEN });
+    expect(own).toEqual({ account: first.account, alreadyExists: true });
+    await expect(inner.add("team-1", "user-2", { kind: "anthropic_oauth", token: OAUTH_TOKEN }))
+      .rejects.toThrow("Credential cannot be added to this account scope.");
+    expect(store.rows.size).toBe(1);
   });
 
   test("turns a concurrent fingerprint unique conflict into an idempotent result", async () => {
