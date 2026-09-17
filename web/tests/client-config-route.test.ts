@@ -445,7 +445,10 @@ describe("client config", () => {
     const fetchGate = new Promise<void>((resolve) => {
       releaseFetch = resolve;
     });
+    let signalFetchStarted!: () => void;
+    const fetchStarted = new Promise<void>((resolve) => { signalFetchStarted = resolve; });
     const fetchMock = mock(async () => {
+      signalFetchStarted();
       await fetchGate;
       return new Response(
         JSON.stringify({
@@ -466,9 +469,15 @@ describe("client config", () => {
     });
 
     const firstPromise = POST(request());
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await fetchStarted;
+    let signalSecondAdmission!: () => void;
+    const secondAdmission = new Promise<void>((resolve) => { signalSecondAdmission = resolve; });
+    checkRateLimit.mockImplementation(async () => {
+      signalSecondAdmission();
+      return { rateLimited: false, error: null };
+    });
     const secondPromise = POST(request());
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await secondAdmission;
 
     releaseFetch();
     const [first, second] = await Promise.all([firstPromise, secondPromise]);
@@ -486,7 +495,10 @@ describe("client config", () => {
     process.env.VERCEL_ENV = "production";
     let releaseFetch!: () => void;
     const gate = new Promise<void>((resolve) => { releaseFetch = resolve; });
+    let signalFetchStarted!: () => void;
+    const fetchStarted = new Promise<void>((resolve) => { signalFetchStarted = resolve; });
     const fetchMock = mock(async () => {
+      signalFetchStarted();
       await gate;
       return Response.json({ errorsWhileComputingFlags: false, featureFlags: {}, featureFlagPayloads: {} });
     });
@@ -497,12 +509,11 @@ describe("client config", () => {
     });
 
     const allowed = POST(request());
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await fetchStarted;
     checkRateLimit.mockResolvedValue({ rateLimited: true, error: null });
-    const blocked = POST(request());
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    const blockedResponse = await POST(request());
     releaseFetch();
-    const [allowedResponse, blockedResponse] = await Promise.all([allowed, blocked]);
+    const allowedResponse = await allowed;
 
     expect(allowedResponse.status).toBe(200);
     expect(blockedResponse.status).toBe(429);

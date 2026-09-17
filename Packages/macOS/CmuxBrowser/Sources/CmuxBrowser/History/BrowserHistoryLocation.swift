@@ -21,12 +21,15 @@ public struct BrowserHistoryLocation: Sendable {
         self.bundleIdentifier = bundleIdentifier
     }
 
-    /// Folds tagged debug/staging bundle identifiers down to a shared namespace
+    /// Folds tagged debug/rc/staging bundle identifiers down to a shared namespace
     /// so every dev build of the same lane reuses one history file, while
     /// production identifiers pass through unchanged.
     public static func normalizedNamespace(bundleIdentifier: String) -> String {
         if bundleIdentifier.hasPrefix("com.cmuxterm.app.debug.") {
             return "com.cmuxterm.app.debug"
+        }
+        if bundleIdentifier.hasPrefix("com.cmuxterm.app.rc.") {
+            return "com.cmuxterm.app.rc"
         }
         if bundleIdentifier.hasPrefix("com.cmuxterm.app.staging.") {
             return "com.cmuxterm.app.staging"
