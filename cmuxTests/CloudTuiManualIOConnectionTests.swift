@@ -8,6 +8,36 @@ import Testing
 #endif
 
 @Suite struct CloudTuiManualIOConnectionTests {
+    @Test func inputAdmissionIsBoundedBeforeTheTransportQueueRuns() async throws {
+        let queue = DispatchQueue(label: "cmux-test-blocked-manual-io")
+        try await Self.withConnection(queue: queue) { connection, peer in
+            queue.suspend()
+            let admitted = connection.send(line: Data(repeating: 0x20, count: 256 * 1024))
+            let rejected = connection.send(line: Data("overflow\n".utf8))
+            queue.resume()
+            #expect(admitted)
+            #expect(!rejected)
+            var iterator = connection.events.makeAsyncIterator()
+            #expect(await iterator.next() == nil)
+            #expect(!connection.send(line: Data("after-close\n".utf8)))
+        }
+    }
+
+    @Test func inputRouterAdmissionAndTeardownDoNotWaitForItsQueue() {
+        let queue = DispatchQueue(label: "cmux-test-blocked-input-router")
+        let router = CloudTuiManualIOInputRouter(surfaceID: 1, queue: queue)
+        queue.suspend()
+        let admitted = router.send(.bytes(Data(repeating: 0x61, count: 256 * 1024)))
+        let rejected = router.send(.bytes(Data([0x62])))
+        router.invalidate()
+        let afterInvalidation = router.send(.bytes(Data([0x63])))
+        queue.resume()
+        queue.sync {}
+        #expect(admitted)
+        #expect(!rejected)
+        #expect(!afterInvalidation)
+    }
+
     @Test func burstSurvivesAConsumerWaitingForAnInputRoundTrip() async throws {
         try await Self.withConnection { connection, peer in
             let chunks = (0..<100).map { Data("\u{1b}[?2026hchunk-\($0)\u{1b}[?2026l".utf8) }
@@ -123,6 +153,7 @@ import Testing
     }
 
     private static func withConnection(
+        queue: DispatchQueue = DispatchQueue(label: "cmux-test-manual-io"),
         _ body: (CloudTuiManualIOConnection, Int32) async throws -> Void
     ) async throws {
         let path = "/tmp/cmux-io-\(UUID().uuidString.prefix(12)).sock"
@@ -141,7 +172,7 @@ import Testing
             }
         }
         guard bound == 0, listen(listener, 1) == 0 else { throw socketError() }
-        let connection = CloudTuiManualIOConnection(socketPath: path)
+        let connection = CloudTuiManualIOConnection(socketPath: path, queue: queue)
         defer { connection.close() }
         try await connection.start()
         let peer = accept(listener, nil, nil)
