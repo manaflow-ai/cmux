@@ -1,6 +1,6 @@
 import AppKit
 import Bonsplit
-import CmuxRemoteSession
+import CmuxCore
 import Testing
 
 #if canImport(cmux_DEV)
