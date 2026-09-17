@@ -16,12 +16,30 @@ final class MobileIrohSoakRunner {
     }
 
     struct Evidence: Codable, Equatable, Sendable {
+        struct OperationTiming: Codable, Equatable, Sendable {
+            var count = 0
+            var totalSeconds = 0.0
+            var minimumSeconds = 0.0
+            var maximumSeconds = 0.0
+            var lastSeconds = 0.0
+
+            mutating func record(_ seconds: Double) {
+                guard seconds.isFinite, seconds >= 0 else { return }
+                count += 1
+                totalSeconds += seconds
+                minimumSeconds = count == 1 ? seconds : min(minimumSeconds, seconds)
+                maximumSeconds = max(maximumSeconds, seconds)
+                lastSeconds = seconds
+            }
+        }
+
         let planVersion = 1
         let profile: Profile
         let requestedDurationSeconds: Int
         var elapsedSeconds: Double = 0
         var completedCycles = 0
         var operationCounts: [String: Int] = [:]
+        var operationLatencies: [String: OperationTiming] = [:]
         var currentOperation = "starting"
         var maximumCycleSeconds: Double = 0
         var selectedPath: String?
@@ -62,7 +80,7 @@ final class MobileIrohSoakRunner {
         marker: String,
         connection: @escaping @MainActor () async -> CmxTransportConnectionObservation?,
         probe: @escaping @MainActor (String) async throws -> MobileIrohReleaseGateProbeResult,
-        stress: @escaping @MainActor (Int, String) async throws -> [String]
+        stress: @escaping @MainActor (Int, String) async throws -> [String: Double]
     ) async throws -> MobileIrohReleaseGateProbeResult {
         let started = ContinuousClock.now
         operationDeadline = started.advanced(by: operationTimeout)
@@ -110,7 +128,7 @@ final class MobileIrohSoakRunner {
         marker: String,
         connection: () async -> CmxTransportConnectionObservation?,
         probe: (String) async throws -> MobileIrohReleaseGateProbeResult,
-        stress: (Int, String) async throws -> [String]
+        stress: (Int, String) async throws -> [String: Double]
     ) async throws -> MobileIrohReleaseGateProbeResult {
         let started = clock.now
         let deadline = started.advanced(by: .seconds(durationSeconds))
@@ -127,6 +145,9 @@ final class MobileIrohSoakRunner {
             evidence.currentOperation = "app_rpc_and_terminal_round_trip"
             last = try await probe(cycleMarker)
             try Task.checkCancellation()
+            for (operation, seconds) in last?.operationLatencies ?? [:] {
+                evidence.operationLatencies[operation, default: .init()].record(seconds)
+            }
             for operation in ["host_status", "rpc_inventory", "terminal_round_trip", "workspace_rename_restore",
                               "independent_events", "notification_reconcile", "chat_sessions", "artifact_scan"] {
                 evidence.operationCounts[operation, default: 0] += 1
@@ -136,9 +157,10 @@ final class MobileIrohSoakRunner {
                 evidence.currentOperation = cycle % 120 == 119 ? "forced_reconnect" : [
                     "workspace_navigation", "unicode_output_burst", "workspace_create_close", "terminal_after_refresh",
                 ][cycle % 4]
-                for operation in try await stress(cycle, cycleMarker) {
+                for (operation, seconds) in try await stress(cycle, cycleMarker) {
                     try Task.checkCancellation()
                     evidence.operationCounts[operation, default: 0] += 1
+                    evidence.operationLatencies[operation, default: .init()].record(seconds)
                 }
                 if cycle % 120 == 119 {
                     expectedConnection = try observe(await connection())
@@ -161,6 +183,9 @@ final class MobileIrohSoakRunner {
         guard try observe(await connection()) == expectedConnection else { throw Failure.connectionChanged }
         last = try await probe("\(marker)_FINAL")
         try Task.checkCancellation()
+        for (operation, seconds) in last?.operationLatencies ?? [:] {
+            evidence.operationLatencies[operation, default: .init()].record(seconds)
+        }
         guard try observe(await connection()) == expectedConnection else { throw Failure.connectionChanged }
         evidence.elapsedSeconds = Self.seconds(started.duration(to: clock.now))
         guard evidence.completedCycles >= minimumCycles, let last else {

@@ -14,6 +14,24 @@ struct MobileIrohSoakRunnerTests {
         notificationReconcileVerified: true, chatSessionsVerified: true, artifactScanCountVerified: true
     )
 
+    @Test func recordsProbeAndUsageLatencies() async throws {
+        let timedProbe = MobileIrohReleaseGateProbeResult(
+            hostStatusVerified: true, rpcMethodInventoryVerified: true, terminalRoundTripVerified: true,
+            workspaceMutationVerified: true, independentEventsVerified: true,
+            notificationReconcileVerified: true, chatSessionsVerified: true, artifactScanCountVerified: true,
+            operationLatencies: ["host_status": 0.1]
+        )
+        let runner = MobileIrohSoakRunner(profile: .stress, durationSeconds: 0, minimumCycles: 1)
+        _ = try await runner.run(marker: "test", connection: { relay }, probe: { _ in timedProbe },
+                                 stress: { _, _ in ["workspace_refresh": 0.2] })
+        let host = runner.evidence.operationLatencies["host_status"]
+        #expect(host?.count == 2)
+        #expect(host?.totalSeconds == 0.2)
+        let refresh = runner.evidence.operationLatencies["workspace_refresh"]
+        #expect(refresh?.count == 1)
+        #expect(refresh?.lastSeconds == 0.2)
+    }
+
     @Test func completionRequiresFinalTransaction() async throws {
         let runner = MobileIrohSoakRunner(profile: .basic, durationSeconds: 0, minimumCycles: 1)
         var markers: [String] = []
