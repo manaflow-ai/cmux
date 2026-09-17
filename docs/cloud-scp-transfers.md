@@ -10,7 +10,7 @@ File data stays outside the control API and command arguments. The CLI stages a 
 
 Each grant request opens a fresh authenticated local control connection and closes it after the reply. The watcher and the file transfer do not retain an idle control socket. A grant renewal uses the same rule and never replays an uncertain upload.
 
-Local transfer failures use `vm.file_transfer_failure` to send a bounded phase, failure category, and exit code to the signed-in app. The app records a file operation with a failed phase and supplies a copyable diagnostic reference. The normal Cloud exporter attaches the client channel, version, and revision. No file paths, contents, SSH keys, commands, or stderr enter the report. A missing app or failed report leaves the original CLI error intact. Preparation API failures are already recorded by the app and are not reported twice.
+Local transfer failures use `vm.file_transfer_failure` to send a bounded phase, failure category, and optional subprocess exit code to the signed-in app. The app records a file operation with a failed phase and supplies a copyable diagnostic reference. The normal Cloud exporter attaches the client channel, version, and revision. No file paths, contents, SSH keys, commands, or stderr enter the report. A missing app or failed report leaves the original CLI error intact. Preparation API failures are already recorded by the app and are not reported twice.
 
 ## Verification
 

@@ -9,11 +9,11 @@ extension TerminalController {
               let failure = CloudDiagnosticFailure(rawValue: failureValue),
               [.network, .process, .timeout, .storage, .response, .unknown].contains(failure),
               Set(params.keys).isSubset(of: ["phase", "failure", "error_number", "cloud_operation_id", "cloud_trace_id", "cloud_parent_span_id"]) else {
-            return v2Error(id: id, code: "invalid_params", message: "Expected a structured file transfer failure.")
+            return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.cloudDiagnostics.invalidFailure", defaultValue: "Expected a structured file transfer failure."))
         }
         let errorNumber = Self.socketWorkerInt(params["error_number"])
         guard errorNumber.map({ (-65_535...65_535).contains($0) }) ?? true else {
-            return v2Error(id: id, code: "invalid_params", message: "Invalid file transfer error number.")
+            return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.cloudDiagnostics.invalidErrorNumber", defaultValue: "Invalid file transfer error number."))
         }
         return v2VmCall(id: id, timeoutSeconds: 5) {
             let recorder = await MainActor.run { AppDelegate.shared?.cloudOperations }

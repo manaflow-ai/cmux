@@ -8,10 +8,15 @@ extension CMUXCLI {
         var description: String { "Cloud SSH file transfer failed (exit \(status)): \(detail)" }
     }
 
+    struct VMSCPGrantTransportFailure: Error, CustomStringConvertible {
+        let underlying: Error
+        var description: String { String(describing: underlying) }
+    }
+
     func reportVMPushFailure(_ error: Error, phase: String, client: SocketClient) {
         let processError = error as? VMSCPProcessFailure
         let failure = processError.map { $0.timedOut ? "timeout" : "process" }
-            ?? (phase == "request" ? "network" : phase == "snapshot" ? "storage" : "response")
+            ?? (error is VMSCPGrantTransportFailure || phase == "request" ? "network" : phase == "snapshot" ? "storage" : "response")
         var params: [String: Any] = ["phase": phase, "failure": failure]
         if let processError { params["error_number"] = Int(processError.status) }
         // Error reporting never replays the failed command and cannot hide it.
@@ -42,7 +47,13 @@ extension CMUXCLI {
         // watcher hold none. Never retry a request with an uncertain outcome.
         client.close()
         defer { client.close() }
-        let response = try client.sendV2(method: "vm.scp_info", params: ["id": vmID, "public_key": publicKey], responseTimeout: 100)
+        let response: [String: Any]
+        do {
+            response = try client.sendV2(method: "vm.scp_info", params: ["id": vmID, "public_key": publicKey], responseTimeout: 100)
+        } catch {
+            if (error as? CLIError)?.isStructuredProtocolResponse == true { throw error }
+            throw VMSCPGrantTransportFailure(underlying: error)
+        }
         guard let host = response["host"] as? String, host == "127.0.0.1",
               let port = response["port"] as? Int, (1...65535).contains(port),
               let username = response["username"] as? String,
