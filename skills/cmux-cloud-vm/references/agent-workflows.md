@@ -361,3 +361,13 @@ Pair with `cmux notify` so they know why a pane appeared. Prefer `--print`/`--de
   wakes them, so leaving one for the user to inspect is fine (say so in your handoff).
 - Delete forks and scratch machines you created once their purpose is served.
 - Never `vm rm` or `vm base reset` a machine you didn't create without explicit user confirmation — both discard data permanently.
+
+## Proposed guest-isolated workflows
+
+The [guest command policy](../../../docs/cloud-guest-command-policy.md) defines
+the Rust target for agents inside a VM. A guest will act only on its leased
+VM resources, run browsers and file viewers there, and receive a VM-local
+model endpoint with authority bound outside guest control. The host will
+initiate bounded file transfers and projection containers. These are rollout
+requirements; the recipes above describe installed commands and do not prove
+that the planned hostile-guest boundary is enforced.

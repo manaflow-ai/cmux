@@ -446,3 +446,19 @@ provider subcommands pass through unchanged.
 | [references/agent-workflows.md](references/agent-workflows.md) | Recipes: cloud dev box, routed agents, parallel forks, desktop/browser tasks, showing the human |
 | [../cmux/SKILL.md](../cmux/SKILL.md) | Windows/workspaces/panes when presenting machine panes |
 | [../cmux-workspace/SKILL.md](../cmux-workspace/SKILL.md) | Non-disruptive automation rules (focus, caller workspace) |
+
+## Proposed Rust guest boundary
+
+The [Rust Cloud system design](../../docs/cloud-rust-system-design.md) and
+[guest command policy](../../docs/cloud-guest-command-policy.md) specify the
+next boundary. These are implementation requirements, not guarantees of the
+installed CLI or current private network. Use the shipped commands above and
+check help before using a planned verb.
+
+The target gives a guest only VM-owned resources in its explicit workspace
+lease. It denies host IDs, host sockets, files, clipboard, keychain, SSH agents,
+and new VM-to-Mac connections. VM viewers and browsers execute inside the VM;
+the host starts transfers and bounded projections, and guest topology changes
+mirror only inside the host-attached container. Model authority is bound to
+machine and session outside the guest, without a reusable model bearer in it.
+These invariants must be tested against hostile VM root before rollout.

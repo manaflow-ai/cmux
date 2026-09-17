@@ -7,6 +7,39 @@ cmux-tui terminal, the macOS app renders it through the Ghostty manual-IO
 surface, and any cmux-tui terminal (cloud, ssh, local) can be attached by
 dragging it out of the right pane.
 
+## System boundary (Rust target)
+
+The Rust client, guest leases, and bounded host projections in this section
+and the guest-isolation requirements below are the proposed target. The
+Freestyle delivery and state sections retain the current implementation.
+The current trusted private listener is not proof of hostile-guest isolation;
+the target requires a separately enforced daemon and network boundary.
+
+The daemon is the Cloud data-plane component. It owns authenticated remote
+links, workspaces, terminals, processes, event lanes, replay cursors, and
+terminal snapshots. It does not own account login, team policy, billing,
+machine lifecycle, DNS, TLS, or CodeRouter account management.
+
+Those control-plane responsibilities belong to the Rust Cloud client and the
+versioned contract in
+[docs/cloud-rust-system-design.md](cloud-rust-system-design.md). The desktop
+app may project the same resources into panes, but a Cloud CLI or agent can
+use the control and data planes without opening the app. Every attach token
+or route is scoped by the control plane to a stable machine, session, and
+machine-generation fence before the daemon accepts it.
+
+The implementation sequence and compatibility obligations are in
+[plans/feat-cloud-rust-cli/DESIGN.md](../plans/feat-cloud-rust-cli/DESIGN.md).
+The exact guest command allowlist, effect types, result shapes, peer rules, and
+Mac denial are normative in
+[docs/cloud-guest-command-policy.md](cloud-guest-command-policy.md).
+
+Machine creation is optimized outside the daemon protocol. The control plane
+claims a clean, single-claim warm machine, starts one daemon-ready probe, and
+returns the machine route without a discovery round trip. A cold create returns
+an operation immediately. The daemon only reports readiness and transport state;
+it does not decide billing, placement, or account policy.
+
 ## Why replace cmuxd-remote
 
 `daemon/remote/cmd/cmuxd-remote` speaks an ad-hoc protocol on `/terminal`: a
@@ -15,8 +48,8 @@ scrollback replay (1 MiB cap) that can begin mid-escape-sequence and corrupt
 the client grid. Auth is a lease file the web tier writes into the VM before
 every attach. When the daemon restarts, `pty.attach` with
 `require_existing=false` silently respawns a fresh shell, which users read as
-losing their session. Each provider driver carries its own copy of the
-injection and repair logic.
+losing their session. Duplicated deployment drivers used to carry their own
+copy of the injection and repair logic; the new boundary centralizes it.
 
 The cmux-tui stack already solves each of these on `main`:
 
@@ -36,27 +69,34 @@ The cmux-tui stack already solves each of these on `main`:
   lane (`.github/workflows/cmux-tui-build-package.yml`) already produces the
   needed artifact: a static `x86_64-unknown-linux-musl` build.
 
+The daemon control endpoint is not an open machine service. Prefer a loopback
+bind inside the VM. If the selected transport needs a private listener, the
+VM firewall allows only the authenticated host or relay route, and the
+listener still requires the end-to-end cmux-remote handshake. A machine-to-
+machine grant may expose an application port, never the daemon control port.
+The browser proxy and the daemon use separate listeners and credentials, so an
+application route cannot become a topology or terminal control channel.
+
 ## What the spike proved (2026-08-26)
 
-Historical record. The spike ran against a live Blaxel sandbox; Blaxel has
-since been removed as a provider (its driver, images, and build scripts are
-gone) and Freestyle on the public platform is the default. The transport
-conclusions below still describe how every cmux Cloud machine works, but the
-Blaxel-specific mechanics are history, not current code:
+Historical record. The spike ran against a temporary sandbox and a
+deployment-specific image. Those mechanics are retired. The transport
+conclusions below still describe how every cmux Cloud machine works, while the
+image and gateway details are intentionally implementation-neutral:
 
 1. A static musl `cmux-tui` (55 MB stripped, built on a Blacksmith testbox in
-   1m47s warm) runs unmodified in a `blaxel/base-image` microVM.
-2. Injection works through the same channel `blaxel.ts` uses for
-   `cmuxd-remote`: gzip+base64 through the sandbox filesystem API, then a
-   decode exec. The encoded payload (~30 MB) exceeds the API body cap, so the
+   1m47s warm) runs unmodified in a Cloud microVM.
+2. Injection works through the sandbox filesystem API: gzip+base64, followed by
+   a decode exec. The encoded payload (~30 MB) exceeds the API body cap, so the
    script uploads 8 MB chunks and concatenates in the VM.
 3. `cmux-tui server start --session cloud --remote-ws 0.0.0.0:1337
    --remote-ws-insecure-bind` under the sandbox process supervisor
-   (`keepAlive`, `restartOnFailure`) serves `/v1/link` behind Blaxel's TLS.
+   (`keepAlive`, `restartOnFailure`) serves `/v1/link` behind the managed TLS
+   edge.
 4. The single exposed HTTPS port works as-is: a private preview for port 1337
-   plus a preview token passed as `?bl_preview_token=...`. The Blaxel gateway
-   accepts the token as a query parameter, and the Rust dialer
-   (`DirectWebSocketProvider`, plain `tokio-tungstenite` connect) passes the
+   plus a short-lived query token. The managed gateway accepts the token, and
+   the Rust dialer
+   (`DirectWebSocket`, plain `tokio-tungstenite` connect) passes the
    URL through verbatim, so no header-injection change was needed. Requests
    without the token get 401 from the gateway; requests with it reach the
    daemon.
@@ -71,7 +111,7 @@ Blaxel-specific mechanics are history, not current code:
 An Aug-20 client binary interoperated with a daemon built from `main` tip,
 consistent with the protocol-version gate doing its job (both protocol 5).
 
-## Local repro without provider credentials
+## Local repro without deployment credentials
 
 `scripts/spike-cmux-tui-local.sh` runs the same protocol loop with a local
 `server start --remote-ws 127.0.0.1:<port>` process standing in for the VM:
@@ -400,9 +440,9 @@ remote connect <route> --headless` maintains the authenticated link (with its
 own unlimited-attempt reconnect, heartbeats, lane replay, and snapshot
 resync) and exposes the standard local control socket; the pump's `attach
 --pipe-io` targets that socket. The app never re-implements the remote
-protocol, and `cmux-terminal-client` (today iroh-only, C-ABI) can later
-subsume the sidecar by adding `ws`/`wss` to its accepted schemes; the
-provider machinery it needs is already shared in `cmux-remote`.
+protocol. `cmux-terminal-client` can later subsume the sidecar through its
+transport-neutral C ABI. The required transport machinery is already shared
+in `cmux-remote`.
 
 ## macOS: private-network machines dial through one WireGuard hub
 
@@ -440,7 +480,7 @@ headless link to that daemon exists, then starts a pump on `attach
 --terminal <id> --pipe-io`. Because the payload names a daemon and terminal
 rather than a VM, the same drag works for a cloud VM, an ssh box, and another
 local cmux-tui session; "arbitrary cmux TUI terminals" falls out of the
-shared catalog rather than a cloud-specific feature. Multi-attach is safe:
+shared resource catalog rather than a cloud-specific action. Multi-attach is safe:
 daemon-side terminals accept multiple attachments and size to the minimum
 grid, matching current cmuxd-remote semantics.
 
@@ -480,7 +520,7 @@ from the daemon's own session model rather than a cloud-specific catalog:
     ● display:1  Desktop  noVNC  (cmux surface open <machine>/display/display:1)
   terminals/                     every terminal resource the machine owns
     ● term_…  <title>             terminal shown in a workspace
-    (detached — …)               live terminal in no workspace's layout
+    (detached: …)               live terminal in no workspace's layout
       ● term_…  <title>
 ```
 
@@ -488,7 +528,7 @@ A machine is the big box and its workspaces are rows under it, never machines
 of their own. The sidebar's Cloud tab renders the same order as four groups:
 the machine's Workspaces group first (always its own row, with a ＋ that is
 `cmux vm workspace new`; an empty machine shows "No workspaces yet" under it;
-a workspace folder is exactly its layout — a terminal whose tab closed is gone
+a workspace folder is exactly its layout: a terminal whose tab closed is gone
 from it), then Ports, VNC Displays (one row per screen), and last, its own
 Terminals section (every terminal resource the machine owns, always present;
 live zero-view ones are greyed as "detached"). Exited records with stale,
@@ -513,7 +553,15 @@ can be rendered for diagnosis but cannot authorize a new open or rename. A
 `snapshot_only` graph can be opened for inspection, but rename commands return
 an upgrade error until a journaled daemon snapshot is available.
 
-Socket methods (the CLI, the sidebar tree, and agents all go through them):
+Socket methods (the CLI, the sidebar tree, and agents use these for remote
+machine resources):
+
+The `surface_id`, `workspace_id`, and `panel_id` fields in host-side projection
+receipts are local-only. The guest-facing daemon strips them and returns the
+remote resource and remote workspace IDs. A host-only `url` field is also a
+local display handle, never a URL that a guest can ask the Mac to navigate.
+This prevents a remote agent from turning a projection receipt into a host
+lookup.
 
 | Method | Params | Result |
 | --- | --- | --- |
@@ -536,15 +584,67 @@ locally as a pane running
 `cmux-tui attach --terminal <term_…>` against the link socket, with the exact
 remote workspace and tab IDs retained in the projection.
 
-Agents route work with the same primitives: `cmux vm route` prints the machine
+Agents route work with the same remote primitives: `cmux vm route` prints the machine
 `vm run` would choose (sticky per directory → idle pool machine → sleeper →
 provision) without running anything; `cmux vm agent --agent <claude|codex|opencode|pi>
 -- <prompt>` starts the agent as a detached terminal in the chosen machine's
 session (so it survives the pane and reattaches from any device); `cmux vm run`,
 `exec`, `push`/`pull`, and `wait` stay the headless verbs. CodeRouter is
-orthogonal: it routes model credentials, not compute, and is configured inside
-the machine the same way as locally. The `skills/cmux-cloud-vm` skill teaches
-this policy to Claude Code, Codex, OpenCode, and Pi.
+orthogonal: it routes model work, not compute. The guest calls a VM-local model
+endpoint. The managed edge binds model authority to machine and session
+identity outside guest control. No reusable model bearer enters the VM. The
+`skills/cmux-cloud-vm` skill teaches this policy to Claude Code, Codex,
+OpenCode, and Pi.
+
+The remote daemon is the only authority for a Cloud workspace. Its topology
+methods accept a machine-scoped session lease and remote workspace ID, then
+return only remote IDs. They support workspace, tab, pane, terminal, browser,
+and layout list, create, rename, move, reorder, and close operations. `current`
+is evaluated in that daemon. The daemon rejects a local machine selector,
+host surface ID, host path, or request without the leased workspace. A local
+projection binding is created by the host after attach and is never visible to
+the guest.
+
+Topology mutations follow one direction: the agent calls the VM-local socket,
+the daemon validates the lease and mutates its graph, then emits an event or
+snapshot. The host reconciler can mirror that state only inside the exact
+projection container that the host user attached to the remote workspace. A
+guest-created workspace appears in the Cloud tree but does not open on the Mac
+until the host attaches it. Tabs, panes, and surfaces can move inside an
+attached container. They cannot cross its host-owned boundary, select a local
+workspace, or change Mac focus. User input travels through the binding back to
+the daemon. The guest never sends a direct host-layout mutation.
+
+Each host input stream is bound to one projection ID, remote surface ID, and
+input epoch. Guest focus never retargets it. Closing or replacing the remote
+surface revokes the stream and drops later input. A move preserves input only
+when the same remote surface ID and projection binding survive.
+
+The guest image sets the daemon socket explicitly and omits the host socket,
+host home directory, host environment, clipboard, keychain, and SSH agent. The
+host opens the authenticated remote link. A missing or expired lease fails
+closed; it never falls back to a local socket. Browser processes and file
+readers are guest services. They return VM-owned frames or bounded snapshots,
+not host paths or host UI state.
+
+The daemon groups the complete guest-facing operation set as follows. The
+linked guest policy is the exact allowlist. An operation absent from it is
+denied:
+
+| Method | Scope and result |
+| --- | --- |
+| context and discovery | Lease, current machine, current session, leased tree, bounded events, and journal cursors |
+| workspace topology | Lease-scoped workspace, screen, pane, tab, surface, layout, focus, attach, and detach actions with remote IDs and revisions |
+| terminal and process | Exact argv, durable process, terminal I/O, screen snapshots, wait, signal, attach, and resource-specific close |
+| viewers | VM-rooted file, diff, Markdown, image, video, and desktop snapshots with one viewer lifecycle |
+| browser | VM-owned browser, revisioned semantic actions, frame streams, VM downloads, and managed destination policy |
+| peers | Declared same-project application services and exact host-issued grants for stronger peer actions |
+| agent and events | Untrusted agent status, bounded notifications, event streams, and VM-local model status |
+
+Every mutating method carries `machine_id`, `session_id`, `workspace_id`,
+`request_id`, `nonce`, `expires_at`, `expected_revision`, and an idempotency
+key. The daemon rejects a missing scope before parsing a path or URL. It never
+returns a host placement ID.
 
 ## Notifications: the VM is the source of truth
 
@@ -612,18 +712,21 @@ everywhere it is shown; nothing evaluates it.
 
 ## Surface catalog
 
-Terminals, VNC screens and browsers are *resources*; panes and workspaces are
-*projections* of them. On the Mac, `SurfaceCatalog` (`Sources/Surfaces/`) is the
-one owner of resource identities (`<machine>/<kind>/<key>`, machine = `local` or
-a cloud machine id) and projections (resource, workspace, panel). Providers push
-resources in: `LocalSurfaceProvider` (this Mac's terminals and browsers) and one
-`CmuxTuiSurfaceProvider` per cloud machine (its cmux-tui workspaces/terminals
+Terminals, VNC screens and Cloud browsers are *resources*; panes and
+workspaces are *projections* of them. On the Mac, `SurfaceCatalog`
+(`Sources/Surfaces/`) is the one owner of resource identities
+(`<machine>/<kind>/<key>`, machine = `local` or a Cloud machine ID) and
+projections (resource, workspace, panel). Adapters push resources in:
+`LocalSurfaceAdapter` (this Mac's trusted terminals and browsers) and one
+`CmuxTuiSurfaceAdapter` per Cloud machine (its cmux-tui workspaces/terminals
 from the headless link, its noVNC screen `display:1`, its forwarded ports).
-`catalog.project(resource, into:)` is the single open path — the sidebar tree,
-drag and drop, the CLI and agents all go through it — so an already-open
-resource is focused instead of duplicated, a closed pane never destroys a
-remote resource, and restored panes re-project when their provider reports the
-resource again.
+`catalog.project(resource, into:)` is the single local open path for trusted
+desktop clients. A Cloud agent cannot enumerate or project `machine:local`
+resources. When a Cloud resource is attached, the host broker creates a local
+projection binding and reuses the placement and viewer adapters. The remote
+principal receives only the remote resource receipt, never the host surface ID.
+This preserves code reuse for placement and receipts without sharing host read
+or control authority.
 
 Socket (worker lane, like `vm.*`):
 
@@ -632,6 +735,37 @@ Socket (worker lane, like `vm.*`):
 | `surface.catalog` | `{machine?: "local"\|<id>, refresh?}` | `{machines: [{id, local, name, status, image, has_desktop, memory_mb, disk_mb, link_state, link_error, cpu_percent, memory_used_mb, disk_used_mb, remote_workspaces}], workspaces: [{id, title, ref, selected, window_id}] (this Mac's workspaces; absent for a cloud-only request), resources: [{id, machine, kind: terminal\|display\|browser, key, title, detail, lifecycle, agent?, remote_workspace?, port?, url?, open, open_surface_ids, open_workspace_ids}], projections: [{resource, workspace_id, surface_id}]}`. `refresh: true` is the sidebar's Refresh: fleet list + every provider. |
 | `surface.project` | `{resource, workspace_id?, pane_id?, direction?: left\|right\|up\|down, tab_index?, placement?: split\|tab, focus? (true), reuse? (true)}` | `{surface_id, workspace_id, reused, resource}` — `pane_id` + `direction` splits that pane on that side; `pane_id` + `tab_index`/`placement: tab` tabs into it; else the workspace's focused pane |
 | `surface.new_terminal` | `{machine, command?: [string], cwd?, name?, remote_workspace_id?, open? (true), + the destination params}` | `{resource, terminal_id, machine, remote_workspace_id, workspace_id?, surface_id?}` |
+
+`surface.catalog` with `machine: local` is a desktop-only operation. A Cloud
+principal cannot use it to enumerate host files or host browser tabs. A
+`surface.project` result for a Cloud resource may create a local display, but
+the remote principal receives no host surface ID or readback authority. Host
+file and host-browser actions are not part of the remote agent protocol. A
+local user may open a host item independently or perform an explicit bounded
+file transfer to a VM.
+
+The local display adapter must not interpret a VM URL by calling the host
+browser. It renders VM browser frames and sends explicit pointer and keyboard
+events back to the VM. Host-owned chrome shows the machine and project outside
+the remote frame. Host autofill, password managers, clipboard, drag and drop,
+automatic audio, and global input are disabled.
+
+The managed network outside VM-root control enforces browser destinations.
+The default `project` policy allows VM loopback, assigned interfaces, and
+declared same-project application services. Exact grants can add named peer
+services. `machine-only` removes peer access. `internet` explicitly adds public
+destinations and accepts the risk that an unrelated public address can belong
+to a user device. Every policy blocks known Mac identities, the Mac gateway
+and LAN, metadata, link-local, undeclared private ranges, and daemon control
+ports. Checks cover IPv4, IPv6, mapped and integer forms, DNS, redirects,
+subresources, WebSockets, WebRTC, and downloads. Peer network access does not
+authorize a second VM's daemon.
+
+The Mac starts every attach, projection, SSH, and private forward. Its tunnel
+drops any packet that is not return traffic for an established host-started
+flow. The Mac advertises no route or service to a VM. A VM cannot create a
+reverse forward, spoof a source, or start a new Mac connection, even after VM
+root replaces the guest CLI, daemon, and firewall.
 
 The `vm.tree`, `vm.terminal_open`, `vm.terminal_new`, `vm.desktop_open`,
 `vm.port_open` and `vm.link_socket` verbs keep their shapes and are wrappers

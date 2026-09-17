@@ -66,3 +66,13 @@ spellings for its local session (`cmux send-key`, `cmux terminal send|read|wait`
 `cmux new-workspace`, `cmux layout …`, `cmux env …`, `cmux tree`), so an agent in the
 cloud drives its machine — and, through a link, a peer machine — with the verbs it
 already knows from the Mac.
+
+## Proposed guest projection boundary
+
+The table above describes host CLI and sidebar parity. The
+[guest command policy](../../../docs/cloud-guest-command-policy.md) adds a
+separate Rust target: guest topology mutations use a VM-local lease and
+revision, return only remote IDs, and mirror only inside the host-attached
+container. A guest cannot create a host workspace, move a host projection,
+change Mac focus, or fall back to the host socket on scope denial. This
+requires implementation and hostile-guest verification before rollout.

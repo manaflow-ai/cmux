@@ -697,6 +697,11 @@ Verbs that exist only in an open PR. They are **not** on this branch; do not run
 # cmux vm command reference
 
 
+
+The proposed [Rust guest command policy](../../../docs/cloud-guest-command-policy.md)
+defines lease-scoped VM topology and viewer commands, host-started projections,
+and expiring network grants. Its syntax and isolation guarantees are targets
+for that migration, not additions to the shipped command reference above.
 ## Discovery: the cloud tree
 
 ```bash

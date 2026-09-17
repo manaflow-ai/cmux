@@ -600,3 +600,46 @@ The following systems are retained only for auditability and rollback history:
 Do not restore these names to deployment env, provider selection, or new image
 build instructions. Historical references in migration files, audit tests, and
 the daemon spike document must remain labelled as historical.
+
+## Rust parity gate (proposed)
+
+
+Backend readiness is necessary but does not make Cloud usable from npm, PyPI,
+or a guest. The Rust client and backend must converge on the contract in
+[docs/cloud-rust-system-design.md](cloud-rust-system-design.md), with the
+vertical slices tracked in
+[plans/feat-cloud-rust-cli/DESIGN.md](../plans/feat-cloud-rust-cli/DESIGN.md).
+The exact in-VM boundary is
+[docs/cloud-guest-command-policy.md](cloud-guest-command-policy.md).
+Before a Cloud command is marked ready, the backend must provide:
+
+- a versioned facade and generated request and response fixtures;
+- explicit team scope, machine principal scope, and action metadata;
+- idempotency lookup, operation receipts, cancellation tombstones, and
+  stale-backend reconciliation;
+- stable error codes, request and trace IDs, absolute-deadline behavior, and
+  event cursors;
+- cleanup for leases, ports, private routes, publications, sessions, and
+  backend resources;
+- redacted usage references for billing and CodeRouter attribution;
+- a readiness report that proves the guest daemon and requested action
+  preconditions;
+- the existing domains list, zones, verify, publish, access, and rm verbs,
+  including URL-first output, labelled DNS instructions, generated-name
+  defaults, and the sign-in or denial flow;
+- a package and hosted behavior check that does not open the desktop app.
+- a signed guest lease with workspace closure, project root, effects, peer
+  grants, limits, generation, nonce, and expiry;
+- declared `project-app` service routes, exact grants for stronger peer work,
+  and a hard deny for every Mac and daemon-control destination;
+- source-machine-bound peer and model authority that cannot be copied to a
+  second VM;
+- stateful host access that admits replies to a Mac-started flow and rejects
+  every new VM-to-Mac connection, reverse forward, route advertisement, and
+  spoofed source;
+- hostile-VM tests that repeat the boundary checks after VM root replaces the
+  guest CLI, daemon, and firewall.
+
+Deployment SDKs, DNS, TLS, billing, and secret custody stay in backend
+services. Adding a web route without a Rust fixture, action check, and headless
+acceptance test is an incomplete slice.
