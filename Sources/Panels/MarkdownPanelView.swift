@@ -115,7 +115,7 @@ struct MarkdownPanelView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
 
-            if panel.displayMode == .preview, let searchState = panel.searchState {
+            if panel.displayMode != .text, let searchState = panel.searchState {
                 BrowserSearchOverlay(
                     panelId: panel.id,
                     searchState: searchState,

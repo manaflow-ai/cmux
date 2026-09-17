@@ -8,7 +8,7 @@ extension MarkdownPanel {
     /// Shows (or refocuses) the preview find bar. Text and rich edit modes use
     /// their own editing paths via the responder chain.
     func startFind() {
-        guard displayMode == .preview else { return }
+        guard displayMode != .text else { return }
         let created = searchState == nil
         let recoveredNeedle = created ? lastSearchNeedle : ""
         if created { searchState = BrowserSearchState(needle: recoveredNeedle) }
@@ -37,7 +37,7 @@ extension MarkdownPanel {
         self.searchState = nil
         if shouldRestorePreviewFocus {
             pendingPreviewFocus = false
-            if displayMode == .preview,
+            if displayMode != .text,
                let webView = rendererSession.webView,
                webView.window === window {
                 _ = window?.makeFirstResponder(webView)

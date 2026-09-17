@@ -40,7 +40,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     @Published private(set) var isSaving: Bool = false
 
     /// The current view mode for this markdown panel. New panels default to preview.
-    @Published private(set) var displayMode: MarkdownPanelDisplayMode = .preview
+    @Published private(set) var displayMode: MarkdownPanelDisplayMode = .edit
 
     /// Title shown in the tab bar (filename).
     @Published private(set) var displayTitle: String = ""

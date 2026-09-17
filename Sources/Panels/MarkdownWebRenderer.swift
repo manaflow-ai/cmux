@@ -552,6 +552,15 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                     if let resolved = resolvedMarkdownFilePath(rawPath) {
                         openMarkdownFile(resolved)
                     }
+                case "openMarkdownLink":
+                    guard let rawHref = body["href"] as? String,
+                          let url = markdownLinkURL(rawHref) else { return }
+                    handleExternalLink(url)
+                case "openMarkdownLinkExternal":
+                    guard let rawHref = body["href"] as? String,
+                          let url = markdownLinkURL(rawHref),
+                          Self.isSafeMarkdownLinkURL(url) else { return }
+                    NSWorkspace.shared.open(url)
                 case "editMarkdown":
                     guard message.frameInfo.isMainFrame, isLoaded,
                           let markdown = body["markdown"] as? String else { return }
@@ -726,6 +735,19 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             guard !trimmed.isEmpty else { return nil }
             guard MarkdownPanelFileLinkResolver.isMarkdownPathLike(trimmed) else { return nil }
             return MarkdownPanelFileLinkResolver.resolve(rawPath: trimmed, relativeToMarkdownFile: filePath)
+        }
+
+        private func markdownLinkURL(_ rawHref: String) -> URL? {
+            let trimmed = rawHref.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  let url = URL(string: trimmed, relativeTo: URL(fileURLWithPath: filePath))?.absoluteURL,
+                  Self.isSafeMarkdownLinkURL(url) else { return nil }
+            return url
+        }
+
+        private static func isSafeMarkdownLinkURL(_ url: URL) -> Bool {
+            guard let scheme = url.scheme?.lowercased() else { return true }
+            return ["http", "https", "file", "mailto", "tel"].contains(scheme)
         }
 
         private func openMarkdownFile(_ path: String) {

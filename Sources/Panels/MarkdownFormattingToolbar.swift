@@ -13,6 +13,14 @@ enum MarkdownFormattingAction: String, CaseIterable, Identifiable {
     case numberedList
     case quote
     case codeBlock
+    case insertTable
+    case tableAddRowBefore
+    case tableAddRowAfter
+    case tableAddColumnBefore
+    case tableAddColumnAfter
+    case tableDeleteRow
+    case tableDeleteColumn
+    case tableToggleHeader
 
     var id: String { rawValue }
 
@@ -29,6 +37,14 @@ enum MarkdownFormattingAction: String, CaseIterable, Identifiable {
         case .numberedList: "list.number"
         case .quote: "text.quote"
         case .codeBlock: "chevron.left.forwardslash.chevron.right"
+        case .insertTable: "tablecells"
+        case .tableAddRowBefore: "rectangle.topthird.inset.filled"
+        case .tableAddRowAfter: "rectangle.bottomthird.inset.filled"
+        case .tableAddColumnBefore: "rectangle.leadingthird.inset.filled"
+        case .tableAddColumnAfter: "rectangle.trailingthird.inset.filled"
+        case .tableDeleteRow: "rectangle.split.1x2"
+        case .tableDeleteColumn: "rectangle.split.2x1"
+        case .tableToggleHeader: "tablecells.badge.ellipsis"
         }
     }
 
@@ -56,6 +72,22 @@ enum MarkdownFormattingAction: String, CaseIterable, Identifiable {
             String(localized: "markdown.format.quote", defaultValue: "Quote")
         case .codeBlock:
             String(localized: "markdown.format.codeBlock", defaultValue: "Code block")
+        case .insertTable:
+            String(localized: "markdown.format.insertTable", defaultValue: "Insert table")
+        case .tableAddRowBefore:
+            String(localized: "markdown.format.tableAddRowBefore", defaultValue: "Add row above")
+        case .tableAddRowAfter:
+            String(localized: "markdown.format.tableAddRowAfter", defaultValue: "Add row below")
+        case .tableAddColumnBefore:
+            String(localized: "markdown.format.tableAddColumnBefore", defaultValue: "Add column before")
+        case .tableAddColumnAfter:
+            String(localized: "markdown.format.tableAddColumnAfter", defaultValue: "Add column after")
+        case .tableDeleteRow:
+            String(localized: "markdown.format.tableDeleteRow", defaultValue: "Delete row")
+        case .tableDeleteColumn:
+            String(localized: "markdown.format.tableDeleteColumn", defaultValue: "Delete column")
+        case .tableToggleHeader:
+            String(localized: "markdown.format.tableToggleHeader", defaultValue: "Toggle header row")
         }
     }
 }
@@ -79,6 +111,15 @@ struct MarkdownFormattingToolbar: View {
             toolbarButton(.numberedList)
             toolbarButton(.quote)
             toolbarButton(.codeBlock)
+            Divider().frame(height: 16)
+            toolbarButton(.insertTable)
+            toolbarButton(.tableAddRowBefore)
+            toolbarButton(.tableAddRowAfter)
+            toolbarButton(.tableAddColumnBefore)
+            toolbarButton(.tableAddColumnAfter)
+            toolbarButton(.tableDeleteRow)
+            toolbarButton(.tableDeleteColumn)
+            toolbarButton(.tableToggleHeader)
         }
     }
 

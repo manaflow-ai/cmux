@@ -62,6 +62,43 @@ body {
 #content[contenteditable="true"] .cmux-code-copy-button {
   display: none;
 }
+.cmux-link-menu {
+  position: fixed;
+  z-index: 1000;
+  display: grid;
+  gap: 4px;
+  min-width: 190px;
+  padding: 6px;
+  border: 1px solid var(--borderColor-default);
+  border-radius: 8px;
+  background: var(--bgColor-default);
+  color: var(--fgColor-default);
+  box-shadow: 0 8px 24px rgba(0,0,0,.28);
+  font: 12px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+.cmux-link-menu input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 5px 7px;
+  border: 1px solid var(--borderColor-default);
+  border-radius: 5px;
+  background: var(--bgColor-muted);
+  color: var(--fgColor-default);
+}
+.cmux-link-menu button {
+  padding: 5px 7px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.cmux-link-menu button:hover,
+.cmux-link-menu button:focus-visible { background: var(--bgColor-neutral-muted); }
+.cmux-link-menu .cmux-link-menu-row { display: flex; gap: 4px; }
+.cmux-link-menu .cmux-link-menu-row button { flex: 1; text-align: center; }
+.cmux-link-menu .cmux-link-menu-error { color: #f85149; padding: 2px 6px; }
 /* Fenced code blocks: github-markdown-css already styles `pre`; we
    add highlight.js's hljs class so the syntax theme applies. */
 .markdown-body pre code.hljs {
@@ -524,6 +561,176 @@ html { scroll-behavior: smooth; }
     return rows.join('\n');
   }
 
+  function selectionElement() {
+    var selection = window.getSelection && window.getSelection();
+    if (!selection || !selection.anchorNode) { return null; }
+    var node = selection.anchorNode.nodeType === Node.ELEMENT_NODE
+      ? selection.anchorNode
+      : selection.anchorNode.parentElement;
+    return node && node.closest ? node.closest('td, th') : null;
+  }
+
+  function focusEditorNode(node, atStart) {
+    if (!node) { return; }
+    var range = document.createRange();
+    range.selectNodeContents(node);
+    range.collapse(!!atStart);
+    var selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    if (typeof node.scrollIntoView === 'function') {
+      node.scrollIntoView({ block: 'nearest' });
+    }
+  }
+
+  function tableCellAtSelection() {
+    var cell = selectionElement();
+    return cell && cell.closest('table') ? cell : null;
+  }
+
+  function tableRows(table) {
+    return Array.prototype.slice.call(table.querySelectorAll('tr'));
+  }
+
+  function tableCells(row) {
+    return Array.prototype.slice.call(row.children).filter(function(cell) {
+      return cell.tagName.toLowerCase() === 'td' || cell.tagName.toLowerCase() === 'th';
+    });
+  }
+
+  function newTableCell(tag) {
+    var cell = document.createElement(tag || 'td');
+    cell.innerHTML = '<br>';
+    return cell;
+  }
+
+  function selectTableCell(cell) {
+    focusEditorNode(cell, true);
+    if (cell) { cell.classList.add('cmux-table-cell-active'); }
+  }
+
+  function tableAddRow(after) {
+    var cell = tableCellAtSelection();
+    if (!cell) { return false; }
+    var table = cell.closest('table');
+    var row = cell.parentElement;
+    var cells = tableCells(row);
+    var newRow = document.createElement('tr');
+    cells.forEach(function() { newRow.appendChild(newTableCell('td')); });
+    var section = row.parentNode;
+    if (section && section.tagName.toLowerCase() === 'thead') {
+      // Markdown has one header row. New rows always belong in tbody, even
+      // when the caret is in that header, so the serialized header remains
+      // the first row and the delimiter stays valid.
+      section = table.tBodies[0] || table.appendChild(document.createElement('tbody'));
+      section.insertBefore(newRow, section.firstChild || null);
+    } else if (after) {
+      section.insertBefore(newRow, row.nextSibling);
+    } else {
+      section.insertBefore(newRow, row);
+    }
+    selectTableCell(newRow.firstElementChild);
+    return true;
+  }
+
+  function tableAddColumn(after) {
+    var cell = tableCellAtSelection();
+    if (!cell) { return false; }
+    var table = cell.closest('table');
+    var column = cell.cellIndex;
+    tableRows(table).forEach(function(row) {
+      var cells = tableCells(row);
+      var tag = cells[0] && cells[0].tagName.toLowerCase() === 'th' ? 'th' : 'td';
+      var inserted = newTableCell(tag);
+      var index = after ? column + 1 : column;
+      row.insertBefore(inserted, cells[index] || null);
+    });
+    selectTableCell(tableRows(table)[0].children[after ? column + 1 : column]);
+    return true;
+  }
+
+  function tableDeleteRow() {
+    var cell = tableCellAtSelection();
+    if (!cell) { return false; }
+    var table = cell.closest('table');
+    var row = cell.parentElement;
+    var rows = tableRows(table);
+    if (rows.length <= 1) { table.remove(); return true; }
+    var next = row.nextElementSibling || row.previousElementSibling;
+    row.remove();
+    selectTableCell(next && next.firstElementChild);
+    return true;
+  }
+
+  function tableDeleteColumn() {
+    var cell = tableCellAtSelection();
+    if (!cell) { return false; }
+    var table = cell.closest('table');
+    var column = cell.cellIndex;
+    var rows = tableRows(table);
+    if (!rows.length || tableCells(rows[0]).length <= 1) { table.remove(); return true; }
+    rows.forEach(function(row) {
+      var cells = tableCells(row);
+      if (cells[column]) { cells[column].remove(); }
+    });
+    selectTableCell(tableRows(table)[0].children[Math.max(0, column - 1)]);
+    return true;
+  }
+
+  function tableToggleHeader() {
+    var cell = tableCellAtSelection();
+    if (!cell) { return false; }
+    var row = cell.closest('table').querySelector('tr');
+    tableCells(row).forEach(function(oldCell) {
+      var nextTag = oldCell.tagName.toLowerCase() === 'th' ? 'td' : 'th';
+      var next = document.createElement(nextTag);
+      next.innerHTML = oldCell.innerHTML;
+      Array.prototype.slice.call(oldCell.attributes).forEach(function(attr) {
+        next.setAttribute(attr.name, attr.value);
+      });
+      oldCell.replaceWith(next);
+    });
+    return true;
+  }
+
+  function insertTable() {
+    if (!markdownEditorEnabled) { return false; }
+    var html = '<table><thead><tr><th>Header</th><th>Header</th></tr></thead>'
+      + '<tbody><tr><td>Cell</td><td>Cell</td></tr></tbody></table><p><br></p>';
+    try { document.execCommand('insertHTML', false, html); }
+    catch (e) { return false; }
+    return true;
+  }
+
+  function moveTableCell(forward) {
+    var cell = tableCellAtSelection();
+    if (!cell) { return false; }
+    var table = cell.closest('table');
+    var cells = Array.prototype.slice.call(table.querySelectorAll('th, td'));
+    var index = cells.indexOf(cell);
+    var next = cells[index + (forward ? 1 : -1)];
+    if (!next && forward) {
+      tableAddRow(true);
+      return true;
+    }
+    if (next) { selectTableCell(next); return true; }
+    return false;
+  }
+
+  function runTableAction(action) {
+    switch (action) {
+    case 'insertTable': return insertTable();
+    case 'tableAddRowBefore': return tableAddRow(false);
+    case 'tableAddRowAfter': return tableAddRow(true);
+    case 'tableAddColumnBefore': return tableAddColumn(false);
+    case 'tableAddColumnAfter': return tableAddColumn(true);
+    case 'tableDeleteRow': return tableDeleteRow();
+    case 'tableDeleteColumn': return tableDeleteColumn();
+    case 'tableToggleHeader': return tableToggleHeader();
+    default: return false;
+    }
+  }
+
   function serializeBlock(node) {
     if (!node || node.nodeType !== Node.ELEMENT_NODE) { return ''; }
     if (node.classList && node.classList.contains('cmux-editor-locked')) {
@@ -626,6 +833,11 @@ html { scroll-behavior: smooth; }
 
   window.__cmuxFormatMarkdown = function(action) {
     if (!markdownEditorEnabled) { return; }
+    if (runTableAction(action)) {
+      configureEditorLockedBlocks();
+      scheduleMarkdownEditSerialization();
+      return;
+    }
     contentEl.focus();
     var command = action;
     var value = null;
@@ -652,7 +864,14 @@ html { scroll-behavior: smooth; }
 
   contentEl.addEventListener('input', scheduleMarkdownEditSerialization);
   contentEl.addEventListener('keydown', function(ev) {
-    if (!markdownEditorEnabled || !ev.metaKey || ev.altKey) { return; }
+    if (!markdownEditorEnabled) { return; }
+    if (ev.key === 'Tab' && tableCellAtSelection()) {
+      ev.preventDefault();
+      moveTableCell(!ev.shiftKey);
+      scheduleMarkdownEditSerialization();
+      return;
+    }
+    if (!ev.metaKey || ev.altKey) { return; }
     if (ev.key.toLowerCase() === 's' && !ev.shiftKey) {
       ev.preventDefault();
       flushMarkdownEdits();
@@ -718,6 +937,122 @@ html { scroll-behavior: smooth; }
       }
     });
   }
+
+  var activeMarkdownLink = null;
+  var markdownLinkMenu = null;
+
+  function closeMarkdownLinkMenu() {
+    if (markdownLinkMenu) {
+      markdownLinkMenu.remove();
+      markdownLinkMenu = null;
+    }
+    activeMarkdownLink = null;
+  }
+
+  function postLinkAction(action, href) {
+    try {
+      window.webkit.messageHandlers.cmuxLib.postMessage({ action: action, href: href });
+    } catch (e) { /* no native bridge in previews */ }
+  }
+
+  function linkMenuButton(label, action) {
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = label;
+    button.addEventListener('click', function(ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      action();
+    });
+    return button;
+  }
+
+  function linkMenuPosition(menu, anchor) {
+    var rect = anchor.getBoundingClientRect();
+    var left = Math.max(8, Math.min(window.innerWidth - menu.offsetWidth - 8, rect.left));
+    var top = rect.bottom + 6;
+    if (top + menu.offsetHeight > window.innerHeight - 8) {
+      top = Math.max(8, rect.top - menu.offsetHeight - 6);
+    }
+    menu.style.left = Math.round(left) + 'px';
+    menu.style.top = Math.round(top) + 'px';
+  }
+
+  function showMarkdownLinkEditForm() {
+    if (!markdownLinkMenu || !activeMarkdownLink) { return; }
+    var anchor = activeMarkdownLink;
+    var urlInput = document.createElement('input');
+    var textInput = document.createElement('input');
+    urlInput.type = 'url';
+    textInput.type = 'text';
+    urlInput.value = anchor.getAttribute('href') || '';
+    textInput.value = anchor.textContent || '';
+    urlInput.setAttribute('aria-label', cmuxString('linkURL', 'Link URL'));
+    textInput.setAttribute('aria-label', cmuxString('linkText', 'Link text'));
+    var error = document.createElement('div');
+    error.className = 'cmux-link-menu-error';
+    var actions = document.createElement('div');
+    actions.className = 'cmux-link-menu-row';
+    var apply = linkMenuButton(cmuxString('linkApply', 'Apply'), function() {
+      var href = urlInput.value.trim();
+      if (!isSafeURLAttribute('href', href)) {
+        error.textContent = cmuxString('linkInvalidURL', 'Enter a safe HTTP, HTTPS, file, mail, or tel link.');
+        urlInput.focus();
+        return;
+      }
+      anchor.setAttribute('href', href);
+      anchor.textContent = textInput.value;
+      closeMarkdownLinkMenu();
+      scheduleMarkdownEditSerialization();
+    });
+    var cancel = linkMenuButton(cmuxString('linkCancel', 'Cancel'), closeMarkdownLinkMenu);
+    actions.appendChild(apply);
+    actions.appendChild(cancel);
+    markdownLinkMenu.replaceChildren(
+      document.createTextNode(cmuxString('linkURL', 'Link URL')),
+      urlInput,
+      document.createTextNode(cmuxString('linkText', 'Link text')),
+      textInput,
+      error,
+      actions
+    );
+    linkMenuPosition(markdownLinkMenu, anchor);
+    urlInput.focus();
+    urlInput.select();
+  }
+
+  function showMarkdownLinkMenu(anchor) {
+    closeMarkdownLinkMenu();
+    activeMarkdownLink = anchor;
+    var menu = document.createElement('div');
+    menu.className = 'cmux-link-menu';
+    menu.setAttribute('role', 'menu');
+    menu.appendChild(linkMenuButton(cmuxString('linkOpenInCmux', 'Open in cmux'), function() {
+      postLinkAction('openMarkdownLink', anchor.getAttribute('href') || '');
+      closeMarkdownLinkMenu();
+    }));
+    menu.appendChild(linkMenuButton(cmuxString('linkOpenInBrowser', 'Open in default browser'), function() {
+      postLinkAction('openMarkdownLinkExternal', anchor.getAttribute('href') || '');
+      closeMarkdownLinkMenu();
+    }));
+    menu.appendChild(linkMenuButton(cmuxString('linkCopy', 'Copy link'), function() {
+      copyTextToClipboard(anchor.href || anchor.getAttribute('href') || '');
+      closeMarkdownLinkMenu();
+    }));
+    if (markdownEditorEnabled) {
+      menu.appendChild(linkMenuButton(cmuxString('linkEdit', 'Edit link'), showMarkdownLinkEditForm));
+    }
+    document.body.appendChild(menu);
+    markdownLinkMenu = menu;
+    linkMenuPosition(menu, anchor);
+  }
+
+  document.addEventListener('pointerdown', function(ev) {
+    if (markdownLinkMenu && !markdownLinkMenu.contains(ev.target)) {
+      var anchor = ev.target && ev.target.closest && ev.target.closest('a[href]');
+      if (anchor !== activeMarkdownLink) { closeMarkdownLinkMenu(); }
+    }
+  }, true);
 
   function compactForProtocolCheck(value) {
     var raw = String(value || '');
@@ -2048,14 +2383,20 @@ html { scroll-behavior: smooth; }
     if (el) { resolveMarkdownCandidate(el, false); }
   });
   contentEl.addEventListener('click', function(ev) {
-    if (markdownEditorEnabled) { return; }
+    var clickedAnchor = ev.target && ev.target.closest && ev.target.closest('a[href]');
+    if (clickedAnchor && !clickedAnchor.closest('.cmux-link-menu')) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      showMarkdownLinkMenu(clickedAnchor);
+      return;
+    }
     if (ev.target && ev.target.closest && ev.target.closest('.cmux-remote-image-placeholder')) {
       if (ev.target.closest('button')) { return; }
       ev.preventDefault();
       ev.stopPropagation();
       return;
     }
-    var el = ev.target && ev.target.closest && ev.target.closest('code[data-cmux-file], a[href]');
+    var el = ev.target && ev.target.closest && ev.target.closest('code[data-cmux-file]');
     var rawPath = markdownCandidateForElement(el);
     if (!rawPath) { return; }
     // For markdown-looking paths, always stop WebKit navigation first.
