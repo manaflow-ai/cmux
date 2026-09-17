@@ -43,6 +43,37 @@ struct CloudTerminalPaneReservationTests {
     }
 
     @Test
+    func relaySendsEarlyInputToStableTerminalBeforePromotingTheSurfaceRouter() async throws {
+        let relay = CloudOptimisticInputRelay()
+        let sender = RecordingUntrackedSender()
+        relay.send(.bytes(Data("ls".utf8)))
+        relay.send(.namedKey("enter"))
+        relay.bindRemoteTerminal(terminalID: "term_created", sender: sender)
+
+        let queue = DispatchQueue(label: "reservation-early-input-test")
+        let router = CloudTuiManualIOInputRouter(surfaceID: 17, queue: queue)
+        let connection = try CloudManualMirrorSocketFixture()
+        defer { connection.close() }
+        relay.attach(router)
+
+        try await Self.waitUntil { relay.pendingCount == 0 }
+        let requests = await sender.requests
+        #expect(requests.map(\.operation) == ["terminal.input.write", "terminal.input.keys"])
+        #expect(requests[0].params["terminal"] as? String == "term_created")
+        #expect(requests[1].params["terminal"] as? String == "term_created")
+        #expect((requests[1].params["keys"] as? [String]) == ["enter"])
+
+        let transport = CloudTuiManualIOConnection(socketPath: connection.socketPath)
+        defer { transport.close() }
+        try await transport.start()
+        router.setConnection(transport)
+        relay.send(.bytes(Data("pwd\n".utf8)))
+        let forwarded = await connection.nextCommand(timeout: .seconds(2))
+        #expect(forwarded?.inputBytes == Data("pwd\n".utf8))
+        #expect(forwarded?.surface == 17)
+    }
+
+    @Test
     func relayDiscardDropsQueuedInputAndALaterAttachResumesForwarding() {
         let relay = CloudOptimisticInputRelay()
         relay.send(.bytes(Data("typed too early".utf8)))
@@ -171,5 +202,13 @@ struct CloudTerminalPaneReservationTests {
             try await Task.sleep(for: .milliseconds(5))
         }
         try #require(condition())
+    }
+}
+
+private actor RecordingUntrackedSender: CloudTuiUntrackedCommandSending {
+    private(set) var requests: [CloudTuiRequest] = []
+
+    func sendUntrackedTuiCommand(arguments: CloudTuiRequest) async throws {
+        requests.append(arguments)
     }
 }

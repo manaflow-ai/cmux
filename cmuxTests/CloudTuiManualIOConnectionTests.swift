@@ -165,6 +165,23 @@ import Testing
         }
     }
 
+    @Test func persistentUntrackedRequestSharesTheAuthenticatedSocket() async throws {
+        try await Self.withResourceConnection { channel, peer in
+            let request = CloudTuiRequest(
+                "terminal.input.write",
+                ["terminal": "term_early", "bytes_base64": Data("ls".utf8).base64EncodedString()],
+                mutation: true
+            )
+            try await channel.sendUntracked(request)
+            let line = try await Self.blocking { try Self.readLine(peer) }
+            let object = try Self.object(line)
+            #expect(object["operation"] as? String == "terminal.input.write")
+            #expect((object["params"] as? [String: Any])?["terminal"] as? String == "term_early")
+            try Self.write(peer, Self.response(object, result: ["accepted": true]))
+            #expect(!(await channel.isClosed))
+        }
+    }
+
     @Test func persistentDeadlineCompletesWithoutAReplyOrClosingSiblings() async throws {
         let clock = SidebarTestManualClock()
         try await Self.withResourceConnection(clock: clock) { channel, peer in

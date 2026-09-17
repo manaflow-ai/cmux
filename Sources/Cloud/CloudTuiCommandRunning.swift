@@ -13,8 +13,19 @@ protocol CloudTuiCommandRunning: Sendable {
     func runTuiCommand(arguments: CloudTuiRequest, deadline: Duration) async throws -> Data
 }
 
+/// Sends a Cloud TUI request without waiting for its response.
+///
+/// Input uses this path because the PTY is the source of truth for echo and
+/// line discipline. The request is written on the link's persistent channel;
+/// no retry is attempted after the bytes have been handed to that channel.
+protocol CloudTuiUntrackedCommandSending: Sendable {
+    func sendUntrackedTuiCommand(arguments: CloudTuiRequest) async throws
+}
+
 extension CloudMachineLink: CloudTuiCommandRunning {
     func runTuiCommand(arguments: CloudTuiRequest, deadline: Duration) async throws -> Data {
         try await run(arguments: arguments, timeout: deadline)
     }
 }
+
+extension CloudMachineLink: CloudTuiUntrackedCommandSending {}
