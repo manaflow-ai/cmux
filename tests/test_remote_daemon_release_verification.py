@@ -9,6 +9,7 @@ from pathlib import Path
 import plistlib
 import tempfile
 import unittest
+import zlib
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -99,6 +100,33 @@ class ReleaseVerificationTests(unittest.TestCase):
         self.write_manifest()
         with self.assertRaisesRegex(ValueError, "download URL"):
             verify.verify_assets(self.manifest_path, self.root)
+
+    def write_bundled_assets(self):
+        directory = self.app / "Contents/Resources/remote-daemons"
+        directory.mkdir(parents=True)
+        for entry in self.manifest["entries"]:
+            data = (self.root / entry["assetName"]).read_bytes()
+            compressor = zlib.compressobj(wbits=-15)
+            (directory / (entry["assetName"] + ".deflate")).write_bytes(
+                compressor.compress(data) + compressor.flush())
+        return directory
+
+    def test_corrupt_bundled_daemon_rejected_before_signing(self):
+        verify.verify_bundle(self.app, self.manifest, embed=True)
+        directory = self.write_bundled_assets()
+        entry = self.manifest["entries"][0]
+        compressor = zlib.compressobj(wbits=-15)
+        (directory / (entry["assetName"] + ".deflate")).write_bytes(
+            compressor.compress(b"wrong daemon") + compressor.flush())
+        with self.assertRaisesRegex(ValueError, "bundled daemon checksum mismatch"):
+            verify.verify_bundle(self.app, self.manifest)
+
+    def test_missing_bundled_platform_rejected(self):
+        verify.verify_bundle(self.app, self.manifest, embed=True)
+        directory = self.write_bundled_assets()
+        (directory / (self.manifest["entries"][0]["assetName"] + ".deflate")).unlink()
+        with self.assertRaisesRegex(ValueError, "missing or empty asset"):
+            verify.verify_bundle(self.app, self.manifest)
 
 
 if __name__ == "__main__":
