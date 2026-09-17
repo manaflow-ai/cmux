@@ -305,6 +305,53 @@ describe("device registry route", () => {
     expect((third.routes[0] as { kind: string }).kind).toBe("tailscale");
   }, 30_000);
 
+  dbTest("presence is refreshed once per touch interval, not once per poll", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    const body = {
+      deviceId: DEVICE_A,
+      platform: "mac",
+      displayName: "Registry Mac",
+      tag: "default",
+      routes: [privateIrohRoute],
+    };
+    expect((await POST(registerRequest(body))).status).toBe(200);
+
+    const instanceUpdatedAt = async (): Promise<Date> => {
+      const [row] = await sql!<{ updated_at: Date }[]>`
+        select updated_at from device_app_instances
+        where tag = 'default' and device_id in (
+          select id from devices where device_uuid = ${DEVICE_A}
+        )
+      `;
+      return row.updated_at;
+    };
+    const backdatePresence = async (minutes: number): Promise<void> => {
+      await sql!`
+        update device_app_instances
+        set last_seen_at = now() - make_interval(mins => ${minutes})
+        where tag = 'default' and device_id in (
+          select id from devices where device_uuid = ${DEVICE_A}
+        )
+      `;
+    };
+
+    // Four minutes of identical polls stay inside the five-minute touch
+    // interval, so the registry answers them without writing. At the previous
+    // one-minute default every one of these polls wrote both rows, which is
+    // what made this the hottest write in production.
+    const before = await instanceUpdatedAt();
+    await backdatePresence(4);
+    expect((await POST(registerRequest(body))).status).toBe(200);
+    expect((await instanceUpdatedAt()).getTime()).toBe(before.getTime());
+
+    // Past the interval, presence is refreshed so the device list keeps a
+    // roughly current "last seen" without a write per poll.
+    await backdatePresence(6);
+    expect((await POST(registerRequest(body))).status).toBe(200);
+    expect((await instanceUpdatedAt()).getTime()).toBeGreaterThan(before.getTime());
+  }, 30_000);
+
   // 26 sequential registrations, each a full HTTP + transaction round trip
   // against a containerized Postgres. The assertion is the instance cap, not
   // latency, and the default 5s budget leaves no headroom for a cold pool.

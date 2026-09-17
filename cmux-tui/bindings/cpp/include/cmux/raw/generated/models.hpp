@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "8ff10c20fef75f9aaa1498eaf5e1107f084bdcf3febdcf8806fb4e7fc1c90b86";
+inline constexpr std::string_view kProtocolIrSha256 = "d9db9b34a8e4f367ce1aae230fcd188796903d6adf169f9675872a48d9fd1f25";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -111,6 +111,7 @@ struct Size;
 enum class SplitDirection;
 struct SurfaceResult;
 struct Tab;
+struct TerminalColorOverrides;
 struct TerminalColors;
 struct TerminalEventsResult;
 struct TerminalExit;
@@ -193,6 +194,8 @@ struct NewWorkspaceRequest;
 struct NotifyRequest;
 struct PairingResponseRequest;
 struct PaneNeighborRequest;
+struct PasteImageRequest;
+struct PasteImageResult;
 struct PingRequest;
 struct ProcessInfoRequest;
 struct PutFrontendProjectionRequest;
@@ -929,12 +932,20 @@ enum class CursorStyle {
     bar,
 };
 
+struct TerminalColorOverrides {
+    std::optional<ColorHex> bg{};
+    std::optional<ColorHex> cursor{};
+    std::optional<ColorHex> fg{};
+    friend bool operator==(const TerminalColorOverrides&, const TerminalColorOverrides&) = default;
+};
+
 struct ColorsChangedEvent {
     std::optional<ColorHex> bg{};
     Field<ColorHex> cursor{};
     Field<bool> cursor_blink{};
     Field<CursorStyle> cursor_style{};
     std::optional<ColorHex> fg{};
+    std::optional<TerminalColorOverrides> overrides{};
     std::optional<std::map<std::string, ColorHex, std::less<>>> palette{};
     std::optional<ColorHex> selection_bg{};
     std::optional<ColorHex> selection_fg{};
@@ -1688,6 +1699,7 @@ struct TerminalColors {
     Field<bool> cursor_blink{};
     Field<CursorStyle> cursor_style{};
     std::optional<ColorHex> fg{};
+    std::optional<TerminalColorOverrides> overrides{};
     std::optional<std::map<std::string, ColorHex, std::less<>>> palette{};
     std::optional<ColorHex> selection_bg{};
     std::optional<ColorHex> selection_fg{};
@@ -1760,6 +1772,24 @@ struct PaneNeighborRequest {
 struct PaneNeighborResult {
     std::optional<Id> pane{};
     friend bool operator==(const PaneNeighborResult&, const PaneNeighborResult&) = default;
+};
+
+struct PasteImageRequest {
+    Field<std::string> data{};
+    std::string lease{};
+    Field<std::string> mime{};
+    Field<std::uint64_t> offset{};
+    std::string op{};
+    Field<std::uint64_t> size{};
+    Id surface{};
+    std::string terminal_id{};
+    std::string upload_id{};
+    friend bool operator==(const PasteImageRequest&, const PasteImageRequest&) = default;
+};
+
+struct PasteImageResult {
+    bool accepted{};
+    friend bool operator==(const PasteImageResult&, const PasteImageResult&) = default;
 };
 
 struct PingRequest {
@@ -3256,6 +3286,12 @@ struct Codec<Tab> {
 };
 
 template <>
+struct Codec<TerminalColorOverrides> {
+    static Result<Json> encode(const TerminalColorOverrides& value);
+    static Result<TerminalColorOverrides> decode(const Json& value);
+};
+
+template <>
 struct Codec<TerminalColors> {
     static Result<Json> encode(const TerminalColors& value);
     static Result<TerminalColors> decode(const Json& value);
@@ -3745,6 +3781,18 @@ template <>
 struct Codec<PaneNeighborRequest> {
     static Result<Json> encode(const PaneNeighborRequest& value);
     static Result<PaneNeighborRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<PasteImageRequest> {
+    static Result<Json> encode(const PasteImageRequest& value);
+    static Result<PasteImageRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<PasteImageResult> {
+    static Result<Json> encode(const PasteImageResult& value);
+    static Result<PasteImageResult> decode(const Json& value);
 };
 
 template <>

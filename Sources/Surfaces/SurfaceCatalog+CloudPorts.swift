@@ -135,6 +135,8 @@ extension SurfaceCatalog {
         reuseExisting: Bool,
         reuseInWorkspace: UUID? = nil
     ) async throws -> (projection: SurfaceProjection, reused: Bool) {
+        let id = SurfaceResourceID(machine: machine, kind: .browser, key: SurfaceResourceID.portKey(port))
+        try validateOwnership(of: [id], at: destination)
         guard case .cloud = machine, (1...65_535).contains(port) else {
             throw SurfaceCatalogError.unsupported(
                 String(localized: "cloudTree.port.invalidMachine", defaultValue: "Ports can only be opened on a cloud machine.")
@@ -147,7 +149,6 @@ extension SurfaceCatalog {
             throw SurfaceCatalogError.unsupported(Self.portPreviewUnavailableMessage(machineID: machine.rawValue))
         }
 
-        let id = SurfaceResourceID(machine: machine, kind: .browser, key: SurfaceResourceID.portKey(port))
         let directURL = provider.info.privateAddress.map {
             CmuxInternalHostnames.directPortURL(privateAddress: $0, port: port)
         }
@@ -247,7 +248,9 @@ extension SurfaceCatalog {
         let projectedResourceIDs = Set(projections.map(\.resource))
         var result = refreshed
         for candidate in snapshot.resources(on: machine)
-        where candidate.id.isForwardedPort && !refreshedIDs.contains(candidate.id) {
+        where candidate.id.isForwardedPort
+            && !CmuxTuiSnapshotParser.internalPorts.contains(candidate.id.forwardedPort ?? -1)
+            && !refreshedIDs.contains(candidate.id) {
             let wasAddedDuringRefresh = !previousIDs.contains(candidate.id)
             let remainsProjected = projectedResourceIDs.contains(candidate.id)
             guard wasAddedDuringRefresh || remainsProjected else { continue }
@@ -283,7 +286,10 @@ extension CmuxTuiSurfaceProvider {
     ) -> [SurfaceResource] {
         let previous: [SurfaceResourceID: SurfaceResource] = Dictionary(
             uniqueKeysWithValues: previousResources
-                .filter { $0.id.isForwardedPort }
+                .filter {
+                    $0.id.isForwardedPort
+                        && !CmuxTuiSnapshotParser.internalPorts.contains($0.id.forwardedPort ?? -1)
+                }
                 .map { ($0.id, $0) }
         )
         guard let scannedPorts else {

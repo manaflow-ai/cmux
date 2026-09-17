@@ -56,6 +56,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     private let baseDirectoryProvider: () -> String?
     private let remoteBrowserSettingsProvider: () -> DockRemoteBrowserSettings
     private let browserAvailabilityProvider: () -> Bool
+    let fileContentChangeCoordinator: FileContentChangeCoordinator
     @ObservationIgnored weak var notificationStore: TerminalNotificationStore?
     var panels: [UUID: any Panel] = [:]
     var surfaceIdToPanelId: [TabID: UUID] = [:]
@@ -311,6 +312,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         settings: any SettingsReading = UserDefaultsSettingsClient(defaults: .standard),
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
         agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
+        fileContentChangeCoordinator: FileContentChangeCoordinator? = nil,
         terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver = TerminalWorkingDirectoryResolver(),
         closedItemHistoryStore: ClosedItemHistoryStore? = nil,
         restorableAgentIndexProvider: (@MainActor () -> RestorableAgentSessionIndex?)? = nil
@@ -321,6 +323,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         self.baseDirectoryProvider = baseDirectoryProvider
         self.remoteBrowserSettingsProvider = remoteBrowserSettingsProvider
         self.browserAvailabilityProvider = browserAvailabilityProvider
+        self.fileContentChangeCoordinator =
+            fileContentChangeCoordinator ?? FileContentChangeCoordinator()
         self.terminalTitleUpdateCoalescer =
             terminalTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.settings = settings

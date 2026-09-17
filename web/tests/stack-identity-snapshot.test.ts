@@ -149,3 +149,22 @@ describe("identitySnapshotTtlMs", () => {
     expect(identitySnapshotTtlMs("1.5")).toBe(600_000);
   });
 });
+
+describe("identity snapshot email lookup", () => {
+  test("finds the Gmail owner of a canonical address across dot spellings", async () => {
+    const { findIdentitySnapshotUserIdsByEmail } = await import("../services/auth/identitySnapshot");
+    const { db } = fakeDb([
+      { userId: "dotted", primaryEmail: "Billing.Fixture@gmail.com" },
+      { userId: "plus", primaryEmail: "billingfixture+tag@gmail.com" },
+      { userId: "other", primaryEmail: "someone@example.com" },
+    ]);
+    expect(await findIdentitySnapshotUserIdsByEmail("billingfixture@gmail.com", db)).toEqual(["dotted"]);
+  });
+
+  test("a database failure reads as no match rather than throwing", async () => {
+    const { findIdentitySnapshotUserIdsByEmail } = await import("../services/auth/identitySnapshot");
+    const { db, state } = fakeDb([{ userId: "x", primaryEmail: "billingfixture@gmail.com" }]);
+    state.failReads = true;
+    expect(await findIdentitySnapshotUserIdsByEmail("billingfixture@gmail.com", db)).toEqual([]);
+  });
+});

@@ -27,6 +27,10 @@ struct VMTunnelEnroller: CloudTunnelEnrolling {
         )
     }
 
+    func discardEnrollment() {
+        manager.removeLocalCredentials()
+    }
+
     /// `host:port` for System Settings' server address column.
     static func serverAddress(for endpoint: VMTunnelEndpoint) -> String {
         guard let host = endpoint.endpointHost, !host.isEmpty else { return "cmux Cloud" }
