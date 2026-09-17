@@ -414,7 +414,11 @@ jobs:
     # runner override may point at a slower shared builder, which defeats the
     # purpose of the one-architecture path.
     runs-on: ${{ needs.decide.outputs.fast_build == 'true' && 'blacksmith-12vcpu-macos-26' || vars.MACOS_RUNNER_26_NIGHTLY_BUILD || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 45
+    # A warm main build finishes in about 35 minutes. The Blacksmith cache is
+    # scoped per branch, so the first build of a new rc/** branch starts with
+    # no compilation cache and no SwiftPM cache and needs the cold budget
+    # (rc/v0.65.0 run 35172632556 was cancelled at 45 minutes mid-compile).
+    timeout-minutes: 90
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
