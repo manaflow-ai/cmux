@@ -73,14 +73,14 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
             pingReturnsPong: {
                 for candidate in self.socketCandidates() {
                     guard FileManager.default.fileExists(atPath: candidate) else { continue }
-                    if self.controlSocketCommandViaNetcat("ping", socketPath: candidate, responseTimeout: 1) == "PONG" {
+                    if ControlSocketUITestClient(path: candidate, responseTimeout: 1).sendLine("ping") == "PONG" {
                         self.socketPath = candidate
                         return true
                     }
                 }
                 return false
             }
-        ))
+        ), "Socket diagnostics: \(readState(fixture.appendingPathComponent("socket.json")))")
         let source = try XCTUnwrap(readState(stateURL)["surfaceId"] as? String)
         let workspace = try XCTUnwrap(rpc("workspace.current")["workspace_id"] as? String)
         let initial = try surfaces(workspace)
@@ -135,11 +135,9 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
     }
 
     private func rpc(_ method: String, _ params: [String: Any] = [:]) throws -> [String: Any] {
-        let response = try XCTUnwrap(controlSocketJSONViaNetcat(
-            ["id": UUID().uuidString, "method": method, "params": params],
-            socketPath: socketPath,
-            responseTimeout: method == "browser.open_split" ? 8 : 2
-        ))
+        let response = try XCTUnwrap(ControlSocketUITestClient(path: socketPath, responseTimeout: 8).sendJSON(
+            ["id": UUID().uuidString, "method": method, "params": params]
+        ), "No response for \(method). Diagnostics: \(readState(fixture.appendingPathComponent("socket.json")))")
         XCTAssertEqual(response["ok"] as? Bool, true, "\(response)")
         return try XCTUnwrap(response["result"] as? [String: Any])
     }
