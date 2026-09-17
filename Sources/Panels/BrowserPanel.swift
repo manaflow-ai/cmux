@@ -1997,8 +1997,8 @@ final class BrowserPanel: Panel, ObservableObject {
         cloudBrowserProxyEndpoint = nil
         websiteDataStore = preservesExplicitEphemeralWebsiteDataStore
             ? .nonPersistent() : WKWebsiteDataStore(forIdentifier: identifier)
-        replaceWebViewPreservingState(from: webView, websiteDataStore: websiteDataStore,
-                                     reason: "cloud_browser_route", restoreAfterReplacement: false)
+        // The route may still be connecting. Do not construct its WebView with
+        // an unconfigured store: its first network session must own the proxy.
     }
 
     /// Apply proxy credentials before the first request, with no system-network fallback.
@@ -2008,6 +2008,10 @@ final class BrowserPanel: Panel, ObservableObject {
         guard endpoint != cloudBrowserProxyEndpoint else { return }
         cloudBrowserProxyEndpoint = endpoint
         websiteDataStore.proxyConfigurations = [CloudBrowserRouting.configuration(endpoint: endpoint, address: address)]
+        if webView.configuration.websiteDataStore !== websiteDataStore {
+            replaceWebViewPreservingState(from: webView, websiteDataStore: websiteDataStore,
+                                         reason: "cloud_browser_route", restoreAfterReplacement: false)
+        }
     }
 
     func showCloudAddress(_ url: URL) { currentURL = url }
@@ -5573,6 +5577,12 @@ final class BrowserPanel: Panel, ObservableObject {
         if shouldPreloadInitialNavigationInBackground {
             shouldPreloadInitialNavigationInBackground = false
             ensureBackgroundPreloadHostIfNeeded(reason: "initial-navigation")
+        }
+        if cloudAccess.model != nil && !cloudAccess.showsPage {
+            // The connection card mounts the visible browser only after load.
+            // Store replacement closes the old preload host, so the new view
+            // needs its own host to load while that card remains onscreen.
+            ensureBackgroundPreloadHostIfNeeded(reason: "cloud-navigation")
         }
         if recordTypedNavigation {
             historyStore.recordTypedNavigation(url: originalURL)
