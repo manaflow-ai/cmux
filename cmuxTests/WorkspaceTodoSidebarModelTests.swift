@@ -366,12 +366,14 @@ struct WorkspaceTodoSidebarModelTests {
         let appKitRow = try Self.sourceText(
             "Sources/Sidebar/AppKitList/Cells/SidebarRowChecklistItemLine.swift"
         )
+        let legacySection = try Self.sourceText("Sources/SidebarWorkspaceChecklistView.swift")
 
         // The tinted AppKit renderer treats the filled-circle SF Symbol as a
         // single opaque mask, turning xmark.circle.fill into a solid dot.
         // Both checklist renderers must use the alpha-only xmark glyph.
         #expect(popover.contains("systemName: \"xmark\", pointSize: Self.checkboxPointSize - 2"))
         #expect(appKitRow.contains("systemName: \"xmark\", pointSize: model.scaled(9)"))
+        #expect(legacySection.contains("magnified: \"xmark\", pointSize: 9 * fontScale"))
     }
 
     // MARK: - Checklist display policy
