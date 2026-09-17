@@ -3,9 +3,15 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
+use crate::agent::{
+    identify_agent, normalize_agents, title_has_action_required, title_has_braille_spinner,
+    AgentDetector, AgentEntry, AgentInfo, AgentSource, AgentState, AgentStateChange, AgentStore,
+    DetectorAction, DetectorEvent,
+};
 use crate::browser::BrowserRuntime;
 use crate::model::{Node, Pane, Screen, State, Workspace};
 use crate::surface::{DefaultColors, Surface, SurfaceOptions};
@@ -27,6 +33,12 @@ pub enum MuxEvent {
     SurfaceExited(SurfaceId),
     TitleChanged(SurfaceId),
     Bell(SurfaceId),
+    AgentStateChanged(AgentStateChange),
+    Notification {
+        title: String,
+        body: Option<String>,
+        level: String,
+    },
     /// The workspace/screen/pane/tab tree changed (from any frontend or
     /// the control socket).
     TreeChanged,
@@ -40,7 +52,11 @@ pub struct Mux {
     subscribers: Mutex<Vec<Sender<MuxEvent>>>,
     next_id: AtomicU64,
     next_active_at: AtomicU64,
+    next_agent_change: AtomicU64,
     surface_options: SurfaceOptions,
+    agent_names: Mutex<Vec<String>>,
+    agent_store: Mutex<AgentStore>,
+    agent_detector_tx: Sender<DetectorEvent>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     cell_pixels: Mutex<(u16, u16)>,
     default_colors: Mutex<DefaultColors>,
@@ -49,7 +65,9 @@ pub struct Mux {
 
 impl Mux {
     pub fn new(session: impl Into<String>, surface_options: SurfaceOptions) -> Arc<Self> {
-        Arc::new(Mux {
+        let (agent_detector_tx, agent_detector_rx) = channel();
+        let agent_names = normalize_agents(&surface_options.agents);
+        let mux = Arc::new(Mux {
             state: Mutex::new(State {
                 workspaces: Vec::new(),
                 active_workspace: 0,
@@ -59,12 +77,18 @@ impl Mux {
             subscribers: Mutex::new(Vec::new()),
             next_id: AtomicU64::new(1),
             next_active_at: AtomicU64::new(1),
+            next_agent_change: AtomicU64::new(1),
             surface_options,
+            agent_names: Mutex::new(agent_names),
+            agent_store: Mutex::new(AgentStore::default()),
+            agent_detector_tx,
             browser_runtime: Mutex::new(None),
             cell_pixels: Mutex::new((8, 16)),
             default_colors: Mutex::new(DefaultColors::default()),
             session: session.into(),
-        })
+        });
+        Mux::start_agent_detector(&mux, agent_detector_rx);
+        mux
     }
 
     fn next_id(&self) -> u64 {
@@ -73,6 +97,47 @@ impl Mux {
 
     fn next_active_at(&self) -> u64 {
         self.next_active_at.fetch_add(1, Ordering::Relaxed)
+    }
+
+    fn next_agent_change(&self) -> u64 {
+        self.next_agent_change.fetch_add(1, Ordering::Relaxed)
+    }
+
+    fn start_agent_detector(mux: &Arc<Self>, rx: Receiver<DetectorEvent>) {
+        let mux = Arc::downgrade(mux);
+        std::thread::Builder::new()
+            .name("mux-agent-detector".into())
+            .spawn(move || {
+                let mut detector = AgentDetector::default();
+                loop {
+                    let event = match detector.next_deadline() {
+                        Some(deadline) => {
+                            let now = Instant::now();
+                            match rx.recv_timeout(deadline.saturating_duration_since(now)) {
+                                Ok(event) => Some(event),
+                                Err(RecvTimeoutError::Timeout) => None,
+                                Err(RecvTimeoutError::Disconnected) => break,
+                            }
+                        }
+                        None => match rx.recv() {
+                            Ok(event) => Some(event),
+                            Err(_) => break,
+                        },
+                    };
+                    if let Some(event) = event {
+                        detector.ingest(Instant::now(), event);
+                    }
+                    let actions = detector.drain_due(Instant::now());
+                    if actions.is_empty() {
+                        continue;
+                    }
+                    let Some(mux) = mux.upgrade() else { break };
+                    for action in actions {
+                        mux.apply_detector_action(action);
+                    }
+                }
+            })
+            .expect("spawn mux agent detector");
     }
 
     pub fn subscribe(&self) -> Receiver<MuxEvent> {
@@ -84,6 +149,172 @@ impl Mux {
     pub fn emit(&self, event: MuxEvent) {
         let mut subs = self.subscribers.lock().unwrap();
         subs.retain(|tx| tx.send(event.clone()).is_ok());
+    }
+
+    pub(crate) fn observe_agent_activity(&self, surface: SurfaceId, title: String) {
+        let _ = self.agent_detector_tx.send(DetectorEvent::Activity { surface, title });
+    }
+
+    fn apply_detector_action(&self, action: DetectorAction) {
+        match action {
+            DetectorAction::Active { surface, title } => {
+                self.apply_detection_from_title(surface, &title, false);
+            }
+            DetectorAction::Quiet { surface, title } => {
+                self.apply_detection_from_title(surface, &title, true);
+            }
+        }
+    }
+
+    fn apply_detection_from_title(&self, surface: SurfaceId, title: &str, quiet: bool) {
+        if !self.surface_is_pty(surface) {
+            return;
+        }
+        let agents = self.agent_names.lock().unwrap().clone();
+        let Some(agent) = identify_agent(title, &agents) else {
+            self.clear_agent_detection(surface);
+            return;
+        };
+        let working = title_has_braille_spinner(title) || !quiet;
+        let state = if title_has_action_required(title) {
+            AgentState::Blocked
+        } else if working {
+            AgentState::Working
+        } else {
+            AgentState::Idle
+        };
+        self.apply_agent_detection(surface, agent, state, None, None);
+    }
+
+    fn surface_is_pty(&self, surface: SurfaceId) -> bool {
+        self.state
+            .lock()
+            .unwrap()
+            .surfaces
+            .get(&surface)
+            .is_some_and(|surface| surface.kind() == crate::SurfaceKind::Pty)
+    }
+
+    pub fn set_agent_names(&self, agents: Vec<String>) {
+        *self.agent_names.lock().unwrap() = normalize_agents(&agents);
+    }
+
+    pub fn list_agents(&self) -> Vec<AgentEntry> {
+        self.agent_store.lock().unwrap().list()
+    }
+
+    pub fn agent_info(&self, surface: SurfaceId) -> Option<AgentInfo> {
+        self.agent_store.lock().unwrap().effective(surface)
+    }
+
+    pub fn report_agent(
+        &self,
+        surface: SurfaceId,
+        source: AgentSource,
+        agent: Option<String>,
+        state: Option<AgentState>,
+        custom_status: Option<String>,
+        session_ref: Option<String>,
+    ) -> anyhow::Result<()> {
+        if !self.surface_is_pty(surface) {
+            anyhow::bail!("unknown PTY surface {surface}");
+        }
+        if let (Some(agent), Some(session_ref)) = (agent.as_ref(), session_ref.as_ref()) {
+            self.agent_store.lock().unwrap().record_session(
+                surface,
+                agent.clone(),
+                Some(session_ref.clone()),
+            );
+        }
+        let Some(state) = state else {
+            if source == AgentSource::Hook && agent.is_none() {
+                self.clear_agent_hook(surface);
+            }
+            return Ok(());
+        };
+        match source {
+            AgentSource::Detection => {
+                let Some(agent) = agent else {
+                    self.clear_agent_detection(surface);
+                    return Ok(());
+                };
+                self.apply_agent_detection(surface, agent, state, custom_status, session_ref);
+            }
+            AgentSource::Hook => {
+                let Some(agent) = agent else {
+                    self.clear_agent_hook(surface);
+                    return Ok(());
+                };
+                let info = AgentInfo {
+                    agent: Some(agent),
+                    state,
+                    source,
+                    custom_status,
+                    session_ref,
+                    last_change: self.next_agent_change(),
+                };
+                let change = self.agent_store.lock().unwrap().apply_hook(surface, info);
+                if let Some(change) = change {
+                    self.emit(MuxEvent::AgentStateChanged(change));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn clear_agent_hook(&self, surface: SurfaceId) {
+        let change = self.agent_store.lock().unwrap().clear_hook(surface, self.next_agent_change());
+        if let Some(change) = change {
+            self.emit(MuxEvent::AgentStateChanged(change));
+        }
+    }
+
+    fn clear_agent_detection(&self, surface: SurfaceId) {
+        let change = self.agent_store.lock().unwrap().clear_detection(surface);
+        if let Some(change) = change {
+            self.emit(MuxEvent::AgentStateChanged(change));
+        }
+    }
+
+    pub fn notify(&self, title: String, body: Option<String>, level: Option<String>) {
+        self.emit(MuxEvent::Notification {
+            title,
+            body,
+            level: level.unwrap_or_else(|| "info".to_string()),
+        });
+    }
+
+    fn apply_agent_detection(
+        &self,
+        surface: SurfaceId,
+        agent: String,
+        state: AgentState,
+        custom_status: Option<String>,
+        session_ref: Option<String>,
+    ) {
+        let info = AgentInfo {
+            agent: Some(agent),
+            state,
+            source: AgentSource::Detection,
+            custom_status,
+            session_ref,
+            last_change: self.next_agent_change(),
+        };
+        let change = self.agent_store.lock().unwrap().apply_detection(surface, info);
+        if let Some(change) = change {
+            self.emit(MuxEvent::AgentStateChanged(change));
+        }
+    }
+
+    fn finish_agent(&self, surface: SurfaceId, source: AgentSource) {
+        let change = self.agent_store.lock().unwrap().finish_and_clear(
+            surface,
+            source,
+            self.next_agent_change(),
+        );
+        if let Some(change) = change {
+            self.emit(MuxEvent::AgentStateChanged(change));
+        }
     }
 
     fn spawn_surface(
@@ -678,6 +909,7 @@ impl Mux {
     /// reaps the surface out of the tree itself, so frontends only need to
     /// drop their render state.
     pub fn surface_exited(&self, id: SurfaceId) {
+        self.finish_agent(id, AgentSource::Detection);
         self.close_surface(id);
         self.emit(MuxEvent::SurfaceExited(id));
     }

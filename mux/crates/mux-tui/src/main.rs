@@ -124,6 +124,7 @@ fn run_server(args: Args) -> anyhow::Result<()> {
     surface_options.browser_discover_ports = config.browser.discover_ports.clone();
     surface_options.browser_user_data_dir = config.browser.user_data_dir.clone();
     surface_options.browser_ephemeral = config.browser.ephemeral;
+    surface_options.agents = config.tabs.agents.clone();
     if let Some(term) = args.term {
         surface_options.term = term;
     }

@@ -8,6 +8,7 @@
 //! [`MuxEvent`]s and read surface state; they never own terminal state
 //! themselves, which is what makes the backend attachable.
 
+mod agent;
 mod browser;
 mod model;
 mod mux;
@@ -17,6 +18,7 @@ mod surface;
 pub mod layout;
 pub mod server;
 
+pub use agent::{AgentEntry, AgentInfo, AgentSource, AgentState, AgentStateChange};
 pub use layout::{
     directional_neighbor, layout_screen, split_for_pane_edge, split_sides, LayoutResult, Rect,
     SplitEdge, SplitResize,
