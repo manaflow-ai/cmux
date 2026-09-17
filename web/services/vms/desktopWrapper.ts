@@ -1,22 +1,31 @@
 /**
  * The cmux-owned desktop wrapper: the URL a person actually sees and keeps.
  *
- * Blaxel's gateway owns the `bl_preview_token` query parameter — it cannot be
- * renamed at their edge — so instead the raw tokened preview URL stops being
- * user-visible at all. `openUrl` for a port open points at
- * `/vm/desktop/<machine>#cmux_token=…` on our origin; that page validates the
- * upstream host and frames the noVNC page with the token internal to the
- * iframe src. The wrapper also knows the token's expiry, so a lapsed pane
- * shows an honest "reopen from cmux" screen instead of a silent white one.
+ * A desktop preview gateway owns its own token query parameter and cannot be
+ * asked to rename it. `openUrl` for a port open points at
+ * `/vm/desktop/<machine>#cmux_token=…` on our origin. The browser validates
+ * the host and token, then navigates top-level so gateway cookies work in
+ * WebKit. The fragment stays out of cmux server logs and Referer headers.
+ * Legacy query URLs are scrubbed before navigation.
  *
- * The session rides in the URL *fragment*, not the query string: a fragment
- * never leaves the browser, so the week-long bearer token stays out of server
- * access logs, request traces, and Referer headers. Query parameters are still
- * accepted for wrapper URLs minted before this change.
+ * DORMANT on today's driver: Freestyle's `openPort` returns the machine's
+ * private VPC address (`http://10.x.x.x:6901/...`, reachable only over the
+ * owner's WireGuard tunnel; web/services/vms/drivers/freestyle.ts), which
+ * needs no gateway token and no wrapper, so `desktopWrapperUrl` returns null
+ * for it and the open-port route hands the private URL through untouched. It
+ * is kept as the seam for a public desktop edge (a TLS rule on a verified
+ * domain); whoever wires that up sets DESKTOP_UPSTREAM_TOKEN_PARAM and the
+ * host suffix to whatever that edge actually uses.
  */
 
-/** Hosts the wrapper will agree to frame: Blaxel previews, branded or not. */
-const ALLOWED_UPSTREAM_SUFFIXES = [".vm.cmux.sh", ".preview.bl.run"] as const;
+/** Hosts the wrapper will agree to send a pane to: the cmux-branded machine domain. */
+const ALLOWED_UPSTREAM_SUFFIXES = [".vm.cmux.sh"] as const;
+
+/**
+ * The upstream gateway's own token parameter. Still carries the retired
+ * gateway's name because no replacement edge has been chosen yet.
+ */
+const DESKTOP_UPSTREAM_TOKEN_PARAM = "bl_preview_token";
 
 export function isAllowedDesktopUpstreamHost(host: string | null | undefined): boolean {
   const normalized = host?.trim().toLowerCase();
@@ -31,24 +40,22 @@ export function isAllowedDesktopUpstreamHost(host: string | null | undefined): b
 /**
  * On the cmux-owned domain every preview is branded `<machine>-<port>.vm.cmux.sh`,
  * so the wrapper can also insist the host names the machine in its path — a
- * forged link cannot dress another machine's screen up as this one. Opaque
- * `preview.bl.run` hash hosts carry no machine name, so only the suffix
- * allowlist applies there.
+ * forged link cannot dress another machine's screen up as this one.
  */
 export function desktopHostMatchesVm(host: string, vmId: string): boolean {
   const normalizedHost = host.trim().toLowerCase();
-  if (!normalizedHost.endsWith(".vm.cmux.sh")) return true;
+  if (!isAllowedDesktopUpstreamHost(normalizedHost)) return false;
   const machine = vmId.trim().toLowerCase();
   if (!machine) return false;
   const label = normalizedHost.slice(0, normalizedHost.length - ".vm.cmux.sh".length);
-  // Port previews are the only branded shape the wrapper frames, so the label
+  // Port previews are the only branded shape the wrapper accepts, so the label
   // is exactly `<machine>-<port>` — a plain prefix test would let a machine
   // named "tidy" claim "tidy-heron-6901".
   if (!label.startsWith(`${machine}-`)) return false;
   return /^\d{1,5}$/.test(label.slice(machine.length + 1));
 }
 
-/** noVNC display options the wrapper forwards into the iframe, nothing else. */
+/** noVNC display options the wrapper forwards to the upstream, nothing else. */
 const FORWARDED_DISPLAY_PARAMS = [
   "autoconnect",
   "resize",
@@ -151,10 +158,10 @@ export function upgradedLegacyWrapperUrl(href: string): string | null {
 }
 
 /**
- * The iframe src the wrapper page renders: the upstream noVNC page with the
+ * Where the wrapper page sends the pane: the upstream noVNC page with the
  * gateway's own token parameter plus the forwarded display options.
  */
-export function desktopIframeUrl(input: {
+export function desktopUpstreamUrl(input: {
   readonly host: string;
   readonly token: string;
   readonly vmId?: string;
@@ -165,7 +172,7 @@ export function desktopIframeUrl(input: {
   const token = input.token.trim();
   if (!token || !/^[A-Za-z0-9_-]{8,512}$/.test(token)) return null;
   const url = new URL(`https://${input.host.trim().toLowerCase()}/`);
-  url.searchParams.set("bl_preview_token", token);
+  url.searchParams.set(DESKTOP_UPSTREAM_TOKEN_PARAM, token);
   for (const key of FORWARDED_DISPLAY_PARAMS) {
     const value = input.params[key];
     const single = Array.isArray(value) ? value[0] : value;

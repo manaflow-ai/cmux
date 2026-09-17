@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useSyncExternalStore, type CSSProperties } from "react";
+import { useCallback, useSyncExternalStore, type CSSProperties } from "react";
 import {
-  desktopIframeUrl,
+  desktopUpstreamUrl,
   desktopSessionFromInputs,
   upgradedLegacyWrapperUrl,
 } from "../../../../services/vms/desktopWrapper";
@@ -14,10 +14,8 @@ export type DesktopFrameStrings = {
   readonly expiredBody: string;
 };
 
-// The session (token, upstream host, expiry) rides in the URL fragment, which
-// only the browser can read — so the frame is a client component. The server
-// renders the dark shell; the client parses the fragment (or the legacy query
-// for wrapper URLs minted before the fragment change) and mounts the iframe.
+// The browser reads the session fragment and navigates top-level, preserving
+// the current gateway cookie behavior without exposing the token to our server.
 
 /** `null` while server-rendering/hydrating, the actual fragment afterwards. */
 function useLocationFragment(): string | null {
@@ -75,20 +73,6 @@ function useExpiryPassed(expiresAtMs: number | null): boolean {
   );
 }
 
-/**
- * Legacy wrapper URLs carry the bearer token in the query string, which lands
- * in browser history and any log that sees the URL. Rewrite the address bar
- * once so the token lives only in the fragment from here on. replaceState
- * swaps the history entry in place — no navigation, the iframe stays up.
- */
-function useLegacyTokenScrub(active: boolean): void {
-  useEffect(() => {
-    if (!active) return;
-    const upgraded = upgradedLegacyWrapperUrl(window.location.href);
-    if (upgraded) window.history.replaceState(window.history.state, "", upgraded);
-  }, [active]);
-}
-
 export default function DesktopFrame({
   machine,
   legacyQuery,
@@ -101,16 +85,23 @@ export default function DesktopFrame({
   const fragment = useLocationFragment();
   const hydrating = fragment === null;
   const session = desktopSessionFromInputs({ fragment: fragment ?? "", legacyQuery });
-  const frameSrc = hydrating
+  const upstreamUrl = hydrating
     ? null
-    : desktopIframeUrl({
+    : desktopUpstreamUrl({
         host: session.host,
         token: session.token,
         vmId: machine,
         params: session.displayParams,
       });
   const expired = useExpiryPassed(hydrating ? null : session.expiresAtMs);
-  useLegacyTokenScrub(!hydrating);
+  const navigate = useCallback((node: HTMLElement | null) => {
+    if (!node || hydrating) return;
+    const upgraded = upgradedLegacyWrapperUrl(window.location.href);
+    if (upgraded) window.history.replaceState(window.history.state, "", upgraded);
+    if (upstreamUrl && (session.expiresAtMs === null || Date.now() <= session.expiresAtMs)) {
+      window.location.replace(upstreamUrl);
+    }
+  }, [hydrating, upstreamUrl, session.expiresAtMs]);
 
   const shell: CSSProperties = {
     margin: 0,
@@ -128,11 +119,11 @@ export default function DesktopFrame({
     return <main style={{ margin: 0, height: "100vh", background: "#101418" }} />;
   }
 
-  if (expired || !frameSrc) {
+  if (expired || !upstreamUrl) {
     const title = expired ? strings.expiredTitle : strings.invalidTitle;
     const body = expired ? strings.expiredBody : strings.invalidBody;
     return (
-      <main style={shell}>
+      <main ref={navigate} style={shell}>
         <div style={{ maxWidth: 440, padding: 24 }}>
           <h1 style={{ fontSize: 18, margin: "0 0 8px" }}>{title}</h1>
           <p style={{ margin: 0, color: "#8fa2ac", fontSize: 14, lineHeight: 1.5 }}>{body}</p>
@@ -142,17 +133,8 @@ export default function DesktopFrame({
   }
 
   return (
-    <main style={{ margin: 0, height: "100vh", background: "#101418" }}>
+    <main ref={navigate} style={{ margin: 0, height: "100vh", background: "#101418" }}>
       <title>{`${machine} — desktop`}</title>
-      <iframe
-        src={frameSrc}
-        title={`${machine} desktop`}
-        allow="clipboard-read; clipboard-write; fullscreen"
-        // The upstream gateway must never learn this page's URL: legacy
-        // wrapper URLs carry the cmux token in the query string.
-        referrerPolicy="no-referrer"
-        style={{ border: 0, width: "100%", height: "100%", display: "block" }}
-      />
     </main>
   );
 }

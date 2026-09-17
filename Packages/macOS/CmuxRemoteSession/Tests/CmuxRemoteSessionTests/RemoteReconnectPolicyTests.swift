@@ -212,7 +212,7 @@ struct RemoteReconnectPolicyTests {
             coordinator.isSystemSleeping = true
             coordinator.reconnectRetryCount = 8
             coordinator.consecutiveUnreachableProbeCount = policy.maxConsecutiveUnreachableProbes
-            coordinator.reconnectSuspended = true
+            coordinator.parkedState = RemoteSessionParkedState(cause: .hostUnreachable, detail: "test")
         }
 
         coordinator.resetReconnectPolicyAndReconnect(reason: "test wake")
@@ -269,7 +269,7 @@ struct RemoteReconnectPolicyTests {
         let panelID = UUID()
         coordinator.queue.sync {
             coordinator.isSystemSleeping = true
-            coordinator.reconnectSuspended = true
+            coordinator.parkedState = RemoteSessionParkedState(cause: .hostUnreachable, detail: "test")
             coordinator.remotePortScanGeneration = 7
             coordinator.remotePortScanBurstActive = true
             coordinator.remotePortScanActiveReason = .command
@@ -400,7 +400,10 @@ struct RemoteReconnectPolicyTests {
             buildInfo: IntentionalCleanupBuildInfo(),
             daemonStrings: RemoteDaemonStrings(
                 missingPersistentPTYCapability: "",
-                missingRequiredFunctionality: ""
+                missingRequiredFunctionality: "",
+                cloudNotificationClearWorkspaceInvalid: "",
+                cloudNotificationClearWorkspaceDenied: "",
+                cloudNotificationClearSurfaceInvalid: ""
             ),
             strings: RemoteSessionStrings(
                 connectedVMNoProxyFormat: "%@",

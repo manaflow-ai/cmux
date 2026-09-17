@@ -56,6 +56,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     private let baseDirectoryProvider: () -> String?
     private let remoteBrowserSettingsProvider: () -> DockRemoteBrowserSettings
     private let browserAvailabilityProvider: () -> Bool
+    let fileContentChangeCoordinator: FileContentChangeCoordinator
     @ObservationIgnored weak var notificationStore: TerminalNotificationStore?
     var panels: [UUID: any Panel] = [:]
     var surfaceIdToPanelId: [TabID: UUID] = [:]
@@ -91,6 +92,14 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         terminalStartupRestoreCoordinator.lifecycle
     }
     @ObservationIgnored var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+    /// In-memory compare-and-claim state held while a CLI restore hands the
+    /// validated binding to its child process.
+    @ObservationIgnored var surfaceResumeRestoreClaimsByPanelId: [
+        UUID: (binding: SurfaceResumeBindingSnapshot, claimedAt: Date)
+    ] = [:]
+    @ObservationIgnored var deferredAgentResumeRestoresByPanelId: [UUID: DeferredAgentResumeRestore] = [:]
+    @ObservationIgnored var deferredAgentResumeClaimsByPanelId: [UUID: (kind: String, sessionId: String)] = [:]
+    @ObservationIgnored var deferredAgentResumeIndexTask: Task<Void, Never>?
     /// Authoritative agent-hook identity for a Dock panel. The effective
     /// surface binding may temporarily become a process-detected tmux binding,
     /// but hook teardown must still address the managed agent generation.
@@ -133,11 +142,17 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     @ObservationIgnored var reactGrabTaskPanelId: UUID?
     @ObservationIgnored var terminalViewReattachCoalescingDepth = 0
     @ObservationIgnored var pendingTerminalViewReattachPanelIds: Set<UUID> = []
+    /// Prevents synchronous Bonsplit selection callbacks from materializing
+    /// deferred browser panels while a restore tree is still being assembled.
+    @ObservationIgnored var sessionRestoreDepth = 0
+    /// Browser panel IDs requested by a host while the restore transaction was active.
+    @ObservationIgnored var pendingDeferredBrowserMaterializationPanelIds: Set<UUID> = []
     @ObservationIgnored let focusHistoryNavigation: any FocusHistoryNavigating
     @ObservationIgnored let terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver
     private let settings: any SettingsReading
     private let settingsCatalog = SettingCatalog()
     let agentSessionAutoResumeDefaults: UserDefaults
+    @ObservationIgnored let restorableAgentIndexProvider: @MainActor () -> RestorableAgentSessionIndex?
 
     /// Weak registry of every live Dock store. Lets control-surface routing
     /// resolve a Dock surface/pane by querying only the workspaces that actually
@@ -297,8 +312,10 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         settings: any SettingsReading = UserDefaultsSettingsClient(defaults: .standard),
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
         agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
+        fileContentChangeCoordinator: FileContentChangeCoordinator? = nil,
         terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver = TerminalWorkingDirectoryResolver(),
-        closedItemHistoryStore: ClosedItemHistoryStore? = nil
+        closedItemHistoryStore: ClosedItemHistoryStore? = nil,
+        restorableAgentIndexProvider: (@MainActor () -> RestorableAgentSessionIndex?)? = nil
     ) {
         let tabDragTransferRegistry = tabDragTransferRegistry ?? TabDragTransferRegistry()
         self.workspaceId = workspaceId
@@ -306,10 +323,15 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         self.baseDirectoryProvider = baseDirectoryProvider
         self.remoteBrowserSettingsProvider = remoteBrowserSettingsProvider
         self.browserAvailabilityProvider = browserAvailabilityProvider
+        self.fileContentChangeCoordinator =
+            fileContentChangeCoordinator ?? FileContentChangeCoordinator()
         self.terminalTitleUpdateCoalescer =
             terminalTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.settings = settings
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
+        self.restorableAgentIndexProvider = restorableAgentIndexProvider ?? {
+            SharedLiveAgentIndex.shared.currentIndexForOwnershipSensitiveRestore()
+        }
         self.terminalStartupRestoreCoordinator = TerminalStartupRestoreCoordinator(
             workspaceID: workspaceId,
             lifecycle: RestoredAgentLifecycleCoordinator(),
@@ -391,6 +413,37 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
 
     func browserPanel(for panelId: UUID) -> BrowserPanel? {
         panels[panelId] as? BrowserPanel
+    }
+
+    /// Resolves the mute state for a live or deferred browser tab.
+    func resolvedAudioMuted(for panel: any Panel) -> Bool {
+        (panel as? BrowserPanel)?.isMuted
+            ?? (panel as? DeferredBrowserPanel)?.sessionPanelSnapshot.browser?.isMuted
+            ?? false
+    }
+
+    /// Requests a deferred browser transition from the Dock owner.
+    @discardableResult
+    func requestDeferredBrowserMaterialization(
+        panelId: UUID,
+        isVisibleInUI: Bool,
+        reason: String = "browser.deferred.request"
+    ) -> Bool {
+        guard let deferredPanel = panels[panelId] as? DeferredBrowserPanel else {
+            return panels[panelId] is BrowserPanel
+        }
+        guard isVisibleInUI else { return false }
+        guard sessionRestoreDepth == 0 else {
+            pendingDeferredBrowserMaterializationPanelIds.insert(panelId)
+            return false
+        }
+#if DEBUG
+        cmuxDebugLog(
+            "session.restore.dockBrowser.materialize.request dock=\(workspaceId.uuidString.prefix(8)) " +
+                "panel=\(panelId.uuidString.prefix(8)) reason=\(reason)"
+        )
+#endif
+        return materializeDeferredBrowserPanel(deferredPanel) != nil
     }
 
     /// Binds a Dock tab to its panel and makes that tab the authoritative reverse lookup.
@@ -744,7 +797,10 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         )
         recordExplicitPanelCreation()
         if focus {
-            focusPanel(panel.id)
+            // Low-level creation may request visual selection without claiming
+            // the window's keyboard-routing intent. Explicit Dock affordances
+            // call ``focusPanelFromDockInteraction`` after creation.
+            focusPanel(panel.id, claimKeyboardFocus: false)
         } else {
             restoreDockPaneSelection(previousFocus)
         }

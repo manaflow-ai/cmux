@@ -4,15 +4,11 @@ import { preferredLocaleFromAcceptLanguage } from "../../../../i18n/accept-langu
 import { loadMessages } from "../../../../i18n/messages";
 import DesktopFrame from "./desktop-frame";
 
-// The cmux-owned face of a machine's screen. The pane's address bar shows
-// this URL (`cmux_token` in the fragment on our origin — the token never
-// reaches this server); the gateway's own token parameter exists only inside
-// the iframe src. The fragment is browser-only, so the session is parsed and
-// the frame mounted by the client component; this server shell resolves the
-// machine name and the localized invalid/expired copy. Legacy wrapper URLs
-// (token in the query string) still work and are scrubbed into the fragment
-// form client-side. When the token lapses, the overlay says so and points at
-// the fix instead of leaving a silent white canvas.
+// The browser reads the fragment and navigates top-level so gateway cookies
+// remain first-party. Credentials never reach this server in new wrapper URLs.
+export const instant = false;
+export const metadata = { referrer: "no-referrer" };
+
 export default async function VmDesktopPage({
   params,
   searchParams,

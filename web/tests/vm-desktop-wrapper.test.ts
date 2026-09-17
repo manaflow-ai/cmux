@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   desktopHostMatchesVm,
-  desktopIframeUrl,
+  desktopUpstreamUrl,
   desktopSessionFromInputs,
   desktopWrapperUrl,
   isAllowedDesktopUpstreamHost,
@@ -9,12 +9,13 @@ import {
 } from "../services/vms/desktopWrapper";
 
 describe("desktop upstream host allowlist", () => {
-  test("branded and gateway preview hosts pass", () => {
+  test("the branded machine host passes", () => {
     expect(isAllowedDesktopUpstreamHost("tidy-heron-6901.vm.cmux.sh")).toBe(true);
-    expect(isAllowedDesktopUpstreamHost("noble-wren-cmux.preview.bl.run")).toBe(true);
   });
 
   test("anything else fails closed", () => {
+    // The retired gateway's own preview domain is no longer trusted.
+    expect(isAllowedDesktopUpstreamHost("noble-wren-cmux.preview.bl.run")).toBe(false);
     expect(isAllowedDesktopUpstreamHost("evil.example.com")).toBe(false);
     expect(isAllowedDesktopUpstreamHost("vm.cmux.sh")).toBe(false);
     expect(isAllowedDesktopUpstreamHost("x.vm.cmux.sh.evil.com")).toBe(false);
@@ -35,8 +36,8 @@ describe("branded host to machine binding", () => {
     expect(desktopHostMatchesVm("tidy-heron-6901.vm.cmux.sh", "tidy")).toBe(false);
   });
 
-  test("opaque bl.run hash hosts carry no machine name, so only the allowlist applies", () => {
-    expect(desktopHostMatchesVm("a1b2c3d4.us-pdx-1.preview.bl.run", "tidy-heron")).toBe(true);
+  test("retired gateway hosts fail closed", () => {
+    expect(desktopHostMatchesVm("a1b2c3d4.us-pdx-1.preview.bl.run", "tidy-heron")).toBe(false);
   });
 });
 
@@ -155,9 +156,9 @@ describe("legacy URL upgrade (token scrubbed out of the query)", () => {
   });
 });
 
-describe("iframe URL (internal to the wrapper)", () => {
+describe("upstream URL (where the wrapper sends the pane)", () => {
   test("uses the gateway parameter and forwards only display options", () => {
-    const url = desktopIframeUrl({
+    const url = desktopUpstreamUrl({
       host: "tidy-heron-6901.vm.cmux.sh",
       token: "abc123def456",
       vmId: "tidy-heron",
@@ -183,11 +184,11 @@ describe("iframe URL (internal to the wrapper)", () => {
   });
 
   test("rejects bad hosts, malformed tokens, and machine-mismatched branded hosts", () => {
-    expect(desktopIframeUrl({ host: "evil.example.com", token: "abc123def456", params: {} })).toBeNull();
-    expect(desktopIframeUrl({ host: "a-1.vm.cmux.sh", token: "", params: {} })).toBeNull();
-    expect(desktopIframeUrl({ host: "a-1.vm.cmux.sh", token: "bad token!", params: {} })).toBeNull();
+    expect(desktopUpstreamUrl({ host: "evil.example.com", token: "abc123def456", params: {} })).toBeNull();
+    expect(desktopUpstreamUrl({ host: "a-1.vm.cmux.sh", token: "", params: {} })).toBeNull();
+    expect(desktopUpstreamUrl({ host: "a-1.vm.cmux.sh", token: "bad token!", params: {} })).toBeNull();
     expect(
-      desktopIframeUrl({
+      desktopUpstreamUrl({
         host: "tidy-heron-6901.vm.cmux.sh",
         token: "abc123def456",
         vmId: "other-machine",

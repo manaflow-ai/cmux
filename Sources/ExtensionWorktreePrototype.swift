@@ -12,16 +12,15 @@ struct CmuxExtensionWorktreeCreationResult: Sendable {
     let generatedArtifactContents: Data
     /// Filesystem identity captured immediately after `git worktree add`.
     /// Rollback refuses to touch a path whose checkout was replaced.
-    let worktreeDeviceID: UInt64? = nil
-    let worktreeFileID: UInt64? = nil
+    let worktreeDeviceID: UInt64?
+    let worktreeFileID: UInt64?
     /// A convenience command (e.g. a sample dev-server launcher) that should run
     /// inside the new workspace's interactive shell. This is *setup*, never the
     /// workspace's primary process.
     let setupCommand: String
 
-    /// Keeps the optional filesystem identity labels available on every toolchain.
-    /// Swift omits stored properties with default values from a synthesized
-    /// memberwise initializer, which would otherwise drop the rollback identity.
+    /// Keeps the optional filesystem identity labels available while preserving
+    /// default-`nil` call sites without preinitializing immutable properties.
     init(
         projectRootPath: String,
         worktreePath: String,
