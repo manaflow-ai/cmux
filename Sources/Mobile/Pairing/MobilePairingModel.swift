@@ -96,7 +96,9 @@ final class MobilePairingModel {
     }
 
     /// The current render state, observed by ``MobilePairingView``.
-    private(set) var state: State = .loading
+    private(set) var state: State = .loading {
+        didSet { updatePreparationDeadline() }
+    }
     /// The signed-in account email, shown in the checklist. `nil` when signed out.
     private(set) var signedInEmail: String?
     /// Exact iOS apps this Mac build can intentionally address.
@@ -114,6 +116,9 @@ final class MobilePairingModel {
     /// refresh from several places) can't overwrite a newer result with a stale
     /// ticket. Each run captures its value and bails after an `await` if superseded.
     private var refreshGeneration = 0
+    private let preparationClock: any Clock<Duration>
+    private let preparationTimeout: Duration
+    @ObservationIgnored var preparationTimeoutTask: Task<Void, Never>?
 
     /// Creates a pairing model.
     ///
@@ -126,9 +131,16 @@ final class MobilePairingModel {
     ///     to 600. Covers only the RPC/v1 fallback token the mint produces as a
     ///     side effect; the displayed Tailscale QR carries no token and never
     ///     expires.
-    init(host: MobileHostService? = nil, ticketTTL: TimeInterval = 600) {
+    init(
+        host: MobileHostService? = nil,
+        ticketTTL: TimeInterval = 600,
+        preparationClock: any Clock<Duration> = ContinuousClock(),
+        preparationTimeout: Duration = .seconds(30)
+    ) {
         self.host = host ?? .shared
         self.ticketTTL = ticketTTL
+        self.preparationClock = preparationClock
+        self.preparationTimeout = preparationTimeout
         let targetStore = MobileIOSPairingTargetStore()
         iosAppTargetStore = targetStore
         let targets = targetStore.availableNamespaces.map { namespace in
@@ -145,6 +157,8 @@ final class MobilePairingModel {
                 == targetStore.selectedNamespace?.bundleIdentifier
         } ?? targets[0]
     }
+
+    deinit { preparationTimeoutTask?.cancel() }
 
     private var coordinator: AuthCoordinator? { AppDelegate.shared?.auth?.coordinator }
 
@@ -208,7 +222,7 @@ final class MobilePairingModel {
             return
         }
         guard generation == refreshGeneration else { return }
-        state = Self.v2StatusTransition(status, baselineConnectionCount: status.activeConnectionCount)
+        receiveHostStatus(status, baselineConnectionCount: status.activeConnectionCount)
         observeHostStatus()
     }
 
@@ -253,6 +267,8 @@ final class MobilePairingModel {
         refreshGeneration &+= 1
         connectionObservationTask?.cancel()
         connectionObservationTask = nil
+        preparationTimeoutTask?.cancel()
+        preparationTimeoutTask = nil
     }
 
     /// Watches the mobile host's status while the window is open and flips
@@ -272,10 +288,7 @@ final class MobilePairingModel {
                     self.state = .pairingDisabled
                     return
                 }
-                let next = Self.v2StatusTransition(status, baselineConnectionCount: baseline)
-                if next != self.state {
-                    self.state = next
-                }
+                self.receiveHostStatus(status, baselineConnectionCount: baseline)
             }
         }
     }
@@ -286,12 +299,48 @@ final class MobilePairingModel {
         _ status: MobileHostServiceStatus,
         baselineConnectionCount: Int
     ) -> State {
-        guard status.isRunning, status.isPairingReady else { return .preparing }
+        guard status.isRunning else { return .failed(preparationFailureMessage) }
+        guard status.isPairingReady else {
+            return status.lastErrorDescription?.isEmpty == false ? .failed(preparationFailureMessage) : .preparing
+        }
         let ready = State.ready(Ready(
             attachURL: "", tailscaleLines: [], manualEntry: nil,
             reachableViaIroh: true, v2Only: true
         ))
         return status.activeConnectionCount > baselineConnectionCount ? .connected(from: ready) : ready
+    }
+
+    /// A retry starts in `refresh`; repeated pending status cannot hide an error.
+    func receiveHostStatus(_ status: MobileHostServiceStatus, baselineConnectionCount: Int) {
+        let next = Self.v2StatusTransition(status, baselineConnectionCount: baselineConnectionCount)
+        if case .failed = state, next == .preparing { return }
+        if next != state { state = next }
+    }
+
+    private static var preparationFailureMessage: String {
+        String(localized: "mobile.pairing.error.preparationFailed",
+               defaultValue: "Pairing could not finish. Check your connection and try again.")
+    }
+
+    private func updatePreparationDeadline() {
+        guard state == .preparing else {
+            preparationTimeoutTask?.cancel()
+            preparationTimeoutTask = nil
+            return
+        }
+        guard preparationTimeoutTask == nil else { return }
+        let clock = preparationClock
+        let timeout = preparationTimeout
+        let generation = refreshGeneration
+        // This deadline bounds the visible preparing state, including a bound
+        // endpoint whose authenticated registration has not completed.
+        preparationTimeoutTask = Task { @MainActor [weak self, clock] in
+            do { try await clock.sleep(for: timeout) } catch { return }
+            guard !Task.isCancelled, let self, self.refreshGeneration == generation,
+                  self.state == .preparing else { return }
+            self.preparationTimeoutTask = nil
+            self.state = .failed(Self.preparationFailureMessage)
+        }
     }
 
     /// Computes the next render state from a host status event. Pure, so the
