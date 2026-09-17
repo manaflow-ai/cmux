@@ -127,13 +127,18 @@ pub enum ConfigError {
     MultiplePeers,
     /// A key with a value that failed to parse. Key material is never echoed;
     /// for addresses the offending text is included.
-    InvalidValue { key: &'static str, detail: String },
+    InvalidValue {
+        key: &'static str,
+        detail: String,
+    },
     MissingPrivateKey,
     MissingAddress,
     MissingPeerPublicKey,
     MissingAllowedIps,
     /// More addresses than the interface can hold.
-    TooManyAddresses { maximum: usize },
+    TooManyAddresses {
+        maximum: usize,
+    },
 }
 
 impl fmt::Display for ConfigError {
@@ -345,8 +350,10 @@ fn parse_allowed_network(value: &str) -> Result<IpNetwork, ConfigError> {
 }
 
 fn parse_endpoint(value: &str) -> Result<Endpoint, ConfigError> {
-    let invalid =
-        || ConfigError::InvalidValue { key: "Endpoint", detail: format!("{value} is not host:port") };
+    let invalid = || ConfigError::InvalidValue {
+        key: "Endpoint",
+        detail: format!("{value} is not host:port"),
+    };
     if let Some(rest) = value.strip_prefix('[') {
         let (host, port) = rest.split_once("]:").ok_or_else(invalid)?;
         let port = port.parse::<u16>().map_err(|_| invalid())?;

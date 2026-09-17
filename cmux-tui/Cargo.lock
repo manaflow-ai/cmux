@@ -686,7 +686,6 @@ dependencies = [
 name = "cmux-remote"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "async-trait",
  "axum",
  "base64",
@@ -713,7 +712,6 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "snow",
- "socket2 0.5.10",
  "subtle",
  "tempfile",
  "tokio",
@@ -796,14 +794,15 @@ dependencies = [
  "cmux-wg",
  "crossbeam-channel",
  "crossterm",
- "fs4",
  "getrandom 0.3.4",
  "ghostty-vt",
  "glob",
  "libc",
  "parking_lot",
  "ratatui",
+ "reqwest",
  "rusqlite",
+ "rustls",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -848,7 +847,6 @@ dependencies = [
  "ghostty-vt",
  "jsonschema",
  "libc",
- "portable-pty",
  "regex",
  "rusqlite",
  "serde",
@@ -897,6 +895,7 @@ dependencies = [
  "getrandom 0.3.4",
  "ip_network",
  "smoltcp",
+ "tempfile",
  "tokio",
  "tokio-util",
  "x25519-dalek",
@@ -4902,16 +4901,6 @@ dependencies = [
  "rustc_version",
  "sha2 0.10.9",
  "subtle",
-]
-
-[[package]]
-name = "socket2"
-version = "0.5.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e22376abed350d73dd1cd119b57ffccad95b4e585a7cda43e286245ce23c0678"
-dependencies = [
- "libc",
- "windows-sys 0.52.0",
 ]
 
 [[package]]

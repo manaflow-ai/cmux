@@ -3,7 +3,7 @@ import Dispatch
 import Foundation
 
 /// Reads a Git index through a bounded, stable regular-file descriptor.
-nonisolated struct GitIndexDataReader: Sendable {
+struct GitIndexDataReader: Sendable {
     private static let readChunkByteCount = 64 * 1_024
 
     /// One stable-descriptor read, retaining a valid header even when the body

@@ -263,7 +263,8 @@ mod tests {
             server_reply(&mut server, REPLY_NOT_ALLOWED, None).await.unwrap();
         };
         let client_side = async {
-            let error = client_connect(&mut client, "10.0.0.1:80".parse().unwrap()).await.unwrap_err();
+            let error =
+                client_connect(&mut client, "10.0.0.1:80".parse().unwrap()).await.unwrap_err();
             assert!(matches!(error, SocksError::Reply(REPLY_NOT_ALLOWED)), "{error}");
             assert!(error.to_string().contains("0x02"));
         };
@@ -289,10 +290,7 @@ mod tests {
         let server_side = async {
             assert!(server_greet(&mut server).await.unwrap());
             let request = server_read_request(&mut server).await.unwrap();
-            assert_eq!(
-                request.target,
-                Target::Domain { name: "example.com".into(), port: 443 }
-            );
+            assert_eq!(request.target, Target::Domain { name: "example.com".into(), port: 443 });
         };
         let client_side = async {
             client.write_all(&[VERSION, 1, METHOD_NO_AUTH]).await.unwrap();

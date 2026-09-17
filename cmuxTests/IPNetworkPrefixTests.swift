@@ -68,8 +68,8 @@ struct IPNetworkPrefixTests {
         #expect(IPNetworkPrefix.routeHost("not a route") == nil)
     }
 
-    /// The hub decision: capability present, literal private host. Anything else dials
-    /// directly, exactly as before the hub existed.
+    /// The hub decision: capability present, literal private host. The Cloud caller
+    /// rejects a false result instead of using another transport.
     @Test
     func hubDecisionNeedsCapabilityAndPrivateHost() {
         let caps = ["direct-ws-user-agent", "wireguard-hub"]
@@ -81,8 +81,8 @@ struct IPNetworkPrefixTests {
         // Public hosts never go through the hub.
         #expect(!CloudMachineLinkManager.usesWireGuardHub(route: "wss://m.vm.cmux.sh/v1/link", clientCapabilities: caps, enrolledRoutes: []))
         #expect(!CloudMachineLinkManager.usesWireGuardHub(route: "ws://[2606:4700::1]:1337/v1/link", clientCapabilities: caps, enrolledRoutes: []))
-        // Once the tunnel's routes are known they are authoritative: a private host
-        // outside them (another network) falls back to a direct dial.
+        // Once the tunnel's routes are known they are authoritative. A private host
+        // outside them is rejected by the Cloud caller.
         #expect(CloudMachineLinkManager.usesWireGuardHub(route: vpcRoute, clientCapabilities: caps, enrolledRoutes: ["10.0.0.0/8", "fd00::/8"]))
         #expect(!CloudMachineLinkManager.usesWireGuardHub(route: "ws://192.168.1.5:1337/v1/link", clientCapabilities: caps, enrolledRoutes: ["10.0.0.0/8", "fd00::/8"]))
     }

@@ -349,7 +349,16 @@ extension Workspace {
 
     /// Whether `surfaceID` is the workspace's canonical keyboard-input target.
     func isFocusedTerminalInputSurface(_ surfaceID: UUID) -> Bool {
-        focusedTerminalInputTarget()?.surfaceID == surfaceID
+        // A Cloud manual-mirror panel owns its own native input surface. It is
+        // represented by a TerminalPanel, but it is not a remote-tmux container
+        // and therefore has no nested control projection to resolve.
+        if focusedPanelId == surfaceID,
+           let panel = panels[surfaceID] as? TerminalPanel,
+           panel.cloudAttachment != nil,
+           !isRemoteTmuxControlContainer(surfaceID) {
+            return true
+        }
+        return focusedTerminalInputTarget()?.surfaceID == surfaceID
     }
 
     /// Resolves the selected terminal target. A mirror container projects its
@@ -375,17 +384,30 @@ extension Workspace {
     }
 
     /// Resolves explicit-or-default control-plane surface targeting. An
-    /// explicit surface id (or a routed tmux pane's surface) canonicalizes
-    /// fail-closed via ``controlSurfaceTarget(for:)``; the focused default
-    /// projects a mirror container to its tmux-active pane like
-    /// `surface.current`. Returns nil when nothing is focused.
+    /// explicit surface id or pane-selected surface canonicalizes fail-closed
+    /// via ``controlSurfaceTarget(for:)``; the focused default projects a
+    /// mirror container to its tmux-active pane like `surface.current`.
+    /// Returns nil when an explicit pane cannot resolve or nothing is focused.
     func controlRequestedSurfaceTarget(
         explicitSurfaceID: UUID?,
         routedPaneID: UUID?
     ) -> (requestedSurfaceID: UUID, target: ControlSurfaceProjection?)? {
-        if let explicit = explicitSurfaceID
-            ?? routedPaneID.flatMap({ remoteTmuxControlPane(paneID: $0)?.pane.panel.id }) {
-            return (explicit, controlSurfaceTarget(for: explicit))
+        if let explicitSurfaceID {
+            return (explicitSurfaceID, controlSurfaceTarget(for: explicitSurfaceID))
+        }
+        if let routedPaneID {
+            if let remote = remoteTmuxControlPane(paneID: routedPaneID) {
+                let surfaceID = remote.pane.panel.id
+                return (surfaceID, controlSurfaceTarget(for: surfaceID))
+            }
+            guard let paneID = bonsplitController.allPaneIds.first(where: {
+                $0.id == routedPaneID
+            }),
+            let selectedTab = bonsplitController.selectedTab(inPane: paneID),
+            let panelID = panelIdFromSurfaceId(selectedTab.id) else {
+                return nil
+            }
+            return (panelID, controlSurfaceTarget(for: panelID))
         }
         guard let focusedPanelId else { return nil }
         return (focusedPanelId, controlSurfaceProjection(forContainerPanelID: focusedPanelId))

@@ -24,7 +24,7 @@ struct VMTunnelManagerTests {
     func keypairIsMintedOnceAndStable() throws {
         let home = try temporaryHome()
         defer { try? FileManager.default.removeItem(at: home) }
-        let manager = VMTunnelManager(home: home)
+        let manager = VMTunnelManager(home: home, interfaceName: "cmux-test")
 
         let first = try manager.keypair()
         let second = try manager.keypair()
@@ -46,10 +46,35 @@ struct VMTunnelManagerTests {
     func deviceFingerprintIsStablePerInstallation() throws {
         let home = try temporaryHome()
         defer { try? FileManager.default.removeItem(at: home) }
-        let manager = VMTunnelManager(home: home)
+        let manager = VMTunnelManager(home: home, interfaceName: "cmux-test")
         let first = try manager.deviceFingerprint()
         #expect(first.hasPrefix("mac-"))
         #expect(try manager.deviceFingerprint() == first)
+    }
+
+    @Test
+    func readingStoredFingerprintDoesNotMintAfterRevoke() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let manager = VMTunnelManager(home: home, interfaceName: "cmux-test")
+
+        #expect(manager.storedDeviceFingerprint() == nil)
+        #expect(!FileManager.default.fileExists(atPath: manager.deviceIDURL.path))
+
+        let minted = try manager.deviceFingerprint()
+        #expect(manager.storedDeviceFingerprint() == minted)
+
+        manager.removeLocalCredentials()
+        #expect(manager.storedDeviceFingerprint() == nil)
+        #expect(!FileManager.default.fileExists(atPath: manager.deviceIDURL.path))
+    }
+
+    @Test
+    func cloudAccessRevokeSendsTheDeviceIDInTheBody() throws {
+        let request = VMClient.cloudAccessRevocationRequest(deviceID: "mac physical/device")
+
+        #expect(request.path == "/api/vm/tunnel")
+        #expect(request.body["deviceId"] as? String == "mac physical/device")
     }
 
     @Test
@@ -95,11 +120,18 @@ struct VMTunnelManagerTests {
     }
 
     @Test
-    func interfaceUpIsFalseWithoutAWrittenConfig() throws {
+    func browserEnrollerReusesSavedConfigWithoutACloudClient() async throws {
         let home = try temporaryHome()
         defer { try? FileManager.default.removeItem(at: home) }
-        // No config on disk means nothing to match interfaces against.
-        #expect(VMTunnelManager(home: home).wgQuickInterfaceUp() == false)
+        let manager = VMTunnelManager(home: home, interfaceName: "cmux-cache-test")
+        try FileManager.default.createDirectory(at: manager.stateDir, withIntermediateDirectories: true)
+        let config = "[Interface]\nPrivateKey = local\n\n[Peer]\nAllowedIPs = 10.40.0.0/24\n"
+        try config.write(to: manager.configURL, atomically: true, encoding: .utf8)
+
+        let enrollment = try await VMTunnelEnroller(manager: manager).enroll()
+
+        #expect(enrollment.wgQuickConfig == config)
+        #expect(enrollment.serverAddress == "cmux Cloud")
     }
 
     @Test
@@ -124,48 +156,237 @@ struct VMTunnelManagerTests {
     }
 
     @Test
-    func interfaceUpMatchesALiveInterfaceAddress() throws {
-        let home = try temporaryHome()
-        defer { try? FileManager.default.removeItem(at: home) }
-        let manager = VMTunnelManager(home: home)
-        try FileManager.default.createDirectory(at: manager.stateDir, withIntermediateDirectories: true)
-        // Loopback is always present, so a config claiming 127.0.0.1 as the
-        // interface address reads as up — proving detection is address-based.
-        try """
-        [Interface]
-        Address = 127.0.0.1/32
+    func interfaceNameAndStateHaveALegacyDeploymentFallback() {
+        #expect(VMTunnelManager.interfaceName(forAPIBaseURL: URL(string: "https://cmux.com")!) == "cmux")
+        #expect(VMTunnelManager.interfaceName(forAPIBaseURL: URL(string: "https://cmux-staging.vercel.app")!) == "cmux-staging")
+        #expect(VMTunnelManager.interfaceName(forAPIBaseURL: URL(string: "http://localhost:9170")!) == "cmux-local")
+        #expect(VMTunnelManager.interfaceName(forAPIBaseURL: URL(string: "https://dev.example.invalid")!) == "cmux-dev")
 
-        [Peer]
-        PublicKey = Y
-        """.write(to: manager.configURL, atomically: true, encoding: .utf8)
-        #expect(manager.wgQuickInterfaceUp() == true)
+        let home = URL(fileURLWithPath: "/tmp/cmux-tunnel-scope-tests", isDirectory: true)
+        let manager = VMTunnelManager(home: home, interfaceName: "cmux-staging")
+        #expect(manager.configURL.lastPathComponent == "cmux-staging.conf")
     }
 
     @Test
-    func appIdentityDerivesFromTheSystemFingerprintWithItsOwnKeyAndConfig() throws {
+    func buildScopesDoNotShareCredentialsOrConfigFiles() throws {
         let home = try temporaryHome()
         defer { try? FileManager.default.removeItem(at: home) }
-        let system = VMTunnelManager(home: home, identity: .system)
-        let app = VMTunnelManager(home: home, identity: .app(instanceTag: VMTunnelManager.Identity.releaseInstanceTag))
+        let productionURL = URL(string: "https://cmux.com")!
+        let nightly = VMTunnelManager(
+            home: home,
+            bundleIdentifier: "com.cmuxterm.app.nightly",
+            apiBaseURL: productionURL
+        )
+        let dev = VMTunnelManager(
+            home: home,
+            bundleIdentifier: "com.cmuxterm.app.debug.all.agents",
+            apiBaseURL: productionURL
+        )
 
-        // One minted device id, two fingerprints: the hub is visibly the same Mac.
-        let base = try system.deviceFingerprint()
-        #expect(try app.deviceFingerprint() == base + "-app")
-        #expect(try system.deviceFingerprint() == base)
+        #expect(nightly.interfaceName != dev.interfaceName)
+        #expect(nightly.configURL != dev.configURL)
+        #expect(nightly.privateKeyURL != dev.privateKeyURL)
+        #expect(nightly.deviceIDURL != dev.deviceIDURL)
+
+        let nightlyKeys = try nightly.keypair()
+        let devKeys = try dev.keypair()
+        #expect(nightlyKeys.privateKey != devKeys.privateKey)
+        #expect(nightlyKeys.publicKey != devKeys.publicKey)
+        let nightlyFingerprint = try nightly.deviceFingerprint()
+        let devFingerprint = try dev.deviceFingerprint()
+        #expect(nightlyFingerprint != devFingerprint)
+
+        let devRestart = VMTunnelManager(
+            home: home,
+            bundleIdentifier: "com.cmuxterm.app.debug.all.agents",
+            apiBaseURL: URL(string: "http://localhost:9170")!
+        )
+        #expect(devRestart.interfaceName == dev.interfaceName)
+        #expect(try devRestart.keypair().privateKey == devKeys.privateKey)
+        #expect(try devRestart.deviceFingerprint() == devFingerprint)
+    }
+
+    @Test
+    func stableProductionKeepsLegacyCredentialPathsWhileOtherBuildsAreScoped() {
+        let home = URL(fileURLWithPath: "/tmp/cmux-tunnel-path-tests", isDirectory: true)
+        let productionURL = URL(string: "https://cmux.com")!
+        let stable = VMTunnelManager(
+            home: home,
+            bundleIdentifier: "com.cmuxterm.app",
+            apiBaseURL: productionURL
+        )
+        let nightly = VMTunnelManager(
+            home: home,
+            bundleIdentifier: "com.cmuxterm.app.nightly",
+            apiBaseURL: productionURL
+        )
+
+        #expect(stable.interfaceName == "cmux")
+        #expect(stable.privateKeyURL.lastPathComponent == "private.key")
+        #expect(stable.deviceIDURL.lastPathComponent == "device-id")
+        #expect(stable.configURL.lastPathComponent == "cmux.conf")
+        #expect(nightly.interfaceName == "cmux-nightly")
+        #expect(nightly.privateKeyURL.lastPathComponent == "cmux-nightly.private.key")
+        #expect(nightly.deviceIDURL.lastPathComponent == "cmux-nightly.device-id")
+        #expect(nightly.configURL.lastPathComponent == "cmux-nightly.conf")
+    }
+
+    @Test
+    func rcBuildOwnsItsOwnInterfaceAndCredentialPaths() {
+        let home = URL(fileURLWithPath: "/tmp/cmux-tunnel-path-tests", isDirectory: true)
+        let productionURL = URL(string: "https://cmux.com")!
+        let rc = VMTunnelManager(
+            home: home,
+            bundleIdentifier: "com.cmuxterm.app.rc",
+            apiBaseURL: productionURL
+        )
+
+        let nightlyManager = VMTunnelManager(
+            home: home,
+            bundleIdentifier: "com.cmuxterm.app.nightly",
+            apiBaseURL: productionURL
+        )
+        // RC is a non-legacy channel like nightly: same credential file shape,
+        // keyed by its own interface name, never the stable `private.key`.
+        func rcName(_ nightlyName: String) -> String {
+            nightlyName.replacingOccurrences(of: "cmux-nightly", with: "cmux-rc")
+        }
+        #expect(rc.interfaceName == "cmux-rc")
+        #expect(rc.privateKeyURL.lastPathComponent == rcName(nightlyManager.privateKeyURL.lastPathComponent))
+        #expect(rc.deviceIDURL.lastPathComponent == rcName(nightlyManager.deviceIDURL.lastPathComponent))
+        #expect(rc.configURL.lastPathComponent == rcName(nightlyManager.configURL.lastPathComponent))
+        #expect(rc.privateKeyURL.lastPathComponent != "private.key")
+
+        let taggedRC = VMTunnelManager.interfaceName(
+            bundleIdentifier: "com.cmuxterm.app.rc.candidate1",
+            apiBaseURL: productionURL
+        )
+        let stable = VMTunnelManager.interfaceName(
+            bundleIdentifier: "com.cmuxterm.app",
+            apiBaseURL: productionURL
+        )
+        let nightly = VMTunnelManager.interfaceName(
+            bundleIdentifier: "com.cmuxterm.app.nightly",
+            apiBaseURL: productionURL
+        )
+        #expect(taggedRC != rc.interfaceName)
+        #expect(taggedRC.hasPrefix("cmux-r-"))
+        #expect(rc.interfaceName != stable)
+        #expect(rc.interfaceName != nightly)
+        #expect(taggedRC.utf8.count <= 15)
+        #expect(taggedRC.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" })
+    }
+
+    @Test
+    func taggedBuildIdentityWinsOverItsBackendOrigin() {
+        let productionURL = URL(string: "https://cmux.com")!
+        let localURL = URL(string: "http://localhost:9170")!
+        let taggedDev = VMTunnelManager.interfaceName(
+            bundleIdentifier: "com.cmuxterm.app.debug.all.agents",
+            apiBaseURL: productionURL
+        )
+        let sameTaggedDevOnLocalAPI = VMTunnelManager.interfaceName(
+            bundleIdentifier: "com.cmuxterm.app.debug.all.agents",
+            apiBaseURL: localURL
+        )
+        let anotherTaggedDev = VMTunnelManager.interfaceName(
+            bundleIdentifier: "com.cmuxterm.app.debug.cloud-notify",
+            apiBaseURL: localURL
+        )
+        let nightly = VMTunnelManager.interfaceName(
+            bundleIdentifier: "com.cmuxterm.app.nightly",
+            apiBaseURL: productionURL
+        )
+
+        #expect(taggedDev == sameTaggedDevOnLocalAPI)
+        #expect(taggedDev != anotherTaggedDev)
+        #expect(taggedDev != nightly)
+        for name in [taggedDev, anotherTaggedDev, nightly] {
+            #expect(name.utf8.count <= 15)
+            #expect(name.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" })
+        }
+    }
+
+    @Test
+    func baseDebugBundleUsesItsLaunchTag() {
+        let productionURL = URL(string: "https://cmux.com")!
+        let first = VMTunnelManager.interfaceName(
+            bundleIdentifier: "com.cmuxterm.app.debug",
+            environment: ["CMUX_TAG": "all-agents"],
+            apiBaseURL: productionURL
+        )
+        let second = VMTunnelManager.interfaceName(
+            bundleIdentifier: "com.cmuxterm.app.debug",
+            environment: ["CMUX_TAG": "cloud-notify"],
+            apiBaseURL: productionURL
+        )
+
+        #expect(first != second)
+        #expect(first != "cmux-dev")
+        #expect(second != "cmux-dev")
+    }
+
+    @Test
+    func removingCredentialsDeletesBothRoleSecrets() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let terminal = VMTunnelManager(home: home, interfaceName: "cmux-test", purpose: .terminal)
+        let browser = VMTunnelManager(home: home, interfaceName: "cmux-test", purpose: .browser)
+        try FileManager.default.createDirectory(at: terminal.stateDir, withIntermediateDirectories: true)
+        for manager in [terminal, browser] {
+            try "private".write(to: manager.privateKeyURL, atomically: true, encoding: .utf8)
+            try "device".write(to: manager.deviceIDURL, atomically: true, encoding: .utf8)
+            try "config".write(to: manager.configURL, atomically: true, encoding: .utf8)
+            manager.removeLocalCredentials()
+            #expect(!FileManager.default.fileExists(atPath: manager.privateKeyURL.path))
+            #expect(!FileManager.default.fileExists(atPath: manager.deviceIDURL.path))
+            #expect(!FileManager.default.fileExists(atPath: manager.configURL.path))
+        }
+    }
+
+    @Test
+    func completedConfigNarrowsRoutesWhenTheNetworkIsKnown() throws {
+        let server = """
+        [Interface]
+        PrivateKey =
+        Address = 100.64.0.1/32
+
+        [Peer]
+        PublicKey = server-key
+        AllowedIPs = 10.0.0.0/8, fd00::/8
+        Endpoint = vpn.example.com:51820
+        """
+        let completed = try VMTunnelManager.completedConfig(
+            server,
+            privateKey: "PRIVATE",
+            allowedIPs: ["10.16.170.0/24", "fd98:deb9:4c94::/64"]
+        )
+        #expect(completed.contains("PrivateKey = PRIVATE"))
+        #expect(completed.contains("AllowedIPs = 10.16.170.0/24, fd98:deb9:4c94::/64"))
+        #expect(!completed.contains("10.0.0.0/8"))
+    }
+
+    @Test
+    func terminalAndBrowserRolesUseSeparateKeysAndConfigs() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let browser = VMTunnelManager(home: home, purpose: .browser)
+        let terminal = VMTunnelManager(home: home, purpose: .terminal)
+
+        #expect(try terminal.deviceFingerprint() != browser.deviceFingerprint())
 
         // Separate key material: one WireGuard key supports one live session.
-        let systemKeys = try system.keypair()
-        let appKeys = try app.keypair()
-        #expect(systemKeys.privateKey != appKeys.privateKey)
-        #expect(app.privateKeyURL.lastPathComponent == "app.key")
-        #expect(system.privateKeyURL.lastPathComponent == "private.key")
-        let attrs = try FileManager.default.attributesOfItem(atPath: app.privateKeyURL.path)
+        let browserKeys = try browser.keypair()
+        let terminalKeys = try terminal.keypair()
+        #expect(browserKeys.privateKey != terminalKeys.privateKey)
+        #expect(terminal.privateKeyURL.lastPathComponent == "cmux.terminal.private.key")
+        #expect(browser.privateKeyURL.lastPathComponent == "private.key")
+        let attrs = try FileManager.default.attributesOfItem(atPath: terminal.privateKeyURL.path)
         #expect((attrs[.posixPermissions] as? Int) == 0o600)
 
-        // Separate configs, so `cmux vpn up` and the hub never read each other's.
-        #expect(app.configURL.lastPathComponent == "cmux-app.conf")
-        #expect(system.configURL.lastPathComponent == "cmux.conf")
-        #expect(app.configURL != system.configURL)
+        #expect(terminal.configURL.lastPathComponent == "cmux.terminal.conf")
+        #expect(browser.configURL.lastPathComponent == "cmux.conf")
+        #expect(terminal.configURL != browser.configURL)
     }
 
     @Test
@@ -188,9 +409,9 @@ struct VMTunnelManagerTests {
     func configuredRoutesReadTheIdentityConfigOnDisk() throws {
         let home = try temporaryHome()
         defer { try? FileManager.default.removeItem(at: home) }
-        let app = VMTunnelManager(home: home, identity: .app(instanceTag: VMTunnelManager.Identity.releaseInstanceTag))
-        #expect(app.configuredRoutes() == [])
-        try FileManager.default.createDirectory(at: app.stateDir, withIntermediateDirectories: true)
+        let terminal = VMTunnelManager(home: home, purpose: .terminal)
+        #expect(terminal.configuredRoutes() == [])
+        try FileManager.default.createDirectory(at: terminal.stateDir, withIntermediateDirectories: true)
         try """
         [Interface]
         Address = 100.64.0.2/32
@@ -198,72 +419,31 @@ struct VMTunnelManagerTests {
         [Peer]
         PublicKey = Y
         AllowedIPs = 10.0.0.0/8
-        """.write(to: app.configURL, atomically: true, encoding: .utf8)
-        #expect(app.configuredRoutes() == ["10.0.0.0/8"])
-        // The system identity has no config here; it never reads the app's.
+        """.write(to: terminal.configURL, atomically: true, encoding: .utf8)
+        #expect(terminal.configuredRoutes() == ["10.0.0.0/8"])
+        // The browser role has no config here; it never reads the terminal role's.
         #expect(VMTunnelManager(home: home).configuredRoutes() == [])
     }
 
     @Test
-    func taggedInstancesScopeTheAppIdentityByInstanceTag() throws {
-        let home = try temporaryHome()
-        defer { try? FileManager.default.removeItem(at: home) }
-        let system = VMTunnelManager(home: home, identity: .system)
-        let base = try system.deviceFingerprint()
-        // Stable release: the unscoped names, unchanged.
-        let release = VMTunnelManager(home: home, identity: .app(instanceTag: "default"))
-        #expect(try release.deviceFingerprint() == base + "-app")
-        #expect(release.privateKeyURL.lastPathComponent == "app.key")
-        #expect(release.configURL.lastPathComponent == "cmux-app.conf")
-        // Tagged DEV builds: scoped by the instance tag that owns their debug socket.
-        let wghub = VMTunnelManager(home: home, identity: .app(instanceTag: "wghub"))
-        #expect(try wghub.deviceFingerprint() == base + "-app-wghub")
-        #expect(wghub.privateKeyURL.lastPathComponent == "app-wghub.key")
-        #expect(wghub.configURL.lastPathComponent == "cmux-app-wghub.conf")
-        let wgios = VMTunnelManager(home: home, identity: .app(instanceTag: "wgios"))
-        #expect(try wgios.deviceFingerprint() == base + "-app-wgios")
-        // Two tagged builds on one Mac never share a key file or a config.
-        let wghubKeys = try wghub.keypair()
-        let wgiosKeys = try wgios.keypair()
-        #expect(wghubKeys.privateKey != wgiosKeys.privateKey)
-        #expect(wghub.privateKeyURL != wgios.privateKeyURL)
-        #expect(wghub.configURL != wgios.configURL)
-        #expect(wghub.privateKeyURL != release.privateKeyURL)
-        // Other channels are scoped too, and the system identity is untouched.
-        #expect(VMTunnelManager(home: home, identity: .app(instanceTag: "nightly")).configURL.lastPathComponent == "cmux-app-nightly.conf")
-        #expect(system.privateKeyURL.lastPathComponent == "private.key")
-        #expect(system.configURL.lastPathComponent == "cmux.conf")
-    }
+    func tunnelDecoderAcceptsPayloadFromOlderCloudBackend() throws {
+        let endpoint = try VMClient.decodeTunnelEndpoint([
+            "tunnelId": "provider-tunnel-1",
+            "provider": "freestyle",
+            "deviceFingerprint": "mac-old-client",
+            "clientConfig": "[Interface]\nPrivateKey = \n",
+            "clientPublicKey": "client-public-key",
+            "serverPublicKey": "server-public-key",
+            "endpointPort": 51820,
+            "routes": ["10.0.0.0/8"],
+            "address": ["ipv4": "100.64.0.2"],
+            "network": ["id": "network-1", "cidr": "10.0.0.0/24"],
+        ], fallbackPurpose: "browser")
 
-    @Test(arguments: [
-        ("default", ""),
-        ("", ""),
-        ("nightly", "nightly"),
-        ("rc", "rc"),
-        ("wghub", "wghub"),
-        ("Feat_Thing.2", "feat-thing-2"),
-    ])
-    func appScopeIsTheSanitizedInstanceTag(_ instanceTag: String, _ expected: String) {
-        #expect(VMTunnelManager.Identity.appScope(instanceTag: instanceTag) == expected)
-    }
-
-    @Test
-    func aTaggedDebugBundleResolvesToItsTagWithoutLaunchEnvironment() {
-        // The canonical derivation the debug socket uses: a tagged DEV bundle id
-        // yields its tag, so the hub identity follows the same scope as the socket.
-        let tag = MobileHostIdentity.instanceTag(environment: [:], bundleIdentifier: "com.cmuxterm.app.debug.wghub")
-        #expect(tag == "wghub")
-        #expect(VMTunnelManager.Identity.app(instanceTag: tag).fingerprintSuffix == "-app-wghub")
-        let stable = MobileHostIdentity.instanceTag(environment: [:], bundleIdentifier: "com.cmuxterm.app")
-        #expect(VMTunnelManager.Identity.app(instanceTag: stable).fingerprintSuffix == "-app")
-    }
-
-    @Test
-    func forThisAppUsesTheRunningInstanceTag() {
-        guard case .app(let tag) = VMTunnelManager.Identity.forThisApp() else {
-            Issue.record("expected an app identity")
-            return
-        }
-        #expect(tag == MobileHostIdentity.instanceTag())
+        // The pre-access-grant endpoint did not send these fields. They are
+        // local metadata during the additive rollout, not credentials.
+        #expect(endpoint.accessGrantId == "provider-tunnel-1")
+        #expect(endpoint.tunnelPurpose == "browser")
+        #expect(endpoint.networkCidr == "10.0.0.0/24")
     }
 }

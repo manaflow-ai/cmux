@@ -5,6 +5,7 @@ import AppKit
 import Bonsplit
 import CmuxTerminal
 import CmuxWorkspaces
+import GhosttyKit
 
 /// TerminalPanel wraps an existing TerminalSurface and conforms to the Panel protocol.
 /// This allows TerminalSurface to be used within the bonsplit-based layout system.
@@ -93,6 +94,9 @@ final class TerminalPanel: Panel, ObservableObject {
     @Published var viewReattachToken: UInt64 = 0
 
     @Published var agentHibernationPhase: AgentHibernationPanelPhase = .live
+    /// A native cloud pane's live attachment state (nil for local terminals).
+    /// Written only by the owning cloud session; the view shows it.
+    var cloudAttachment: CloudTerminalAttachmentStatus?
 
     var onRequestWorkspacePaneFlash: ((WorkspaceAttentionFlashReason) -> Void)?
     var onRequestAgentHibernationResume: ((Bool) -> Bool)?
