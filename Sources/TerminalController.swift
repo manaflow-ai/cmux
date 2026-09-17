@@ -1592,6 +1592,11 @@ class TerminalController {
             return v2Result(id: request.id, v2FeedQuestionReply(params: request.params))
         case "feed.exit_plan.reply":
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
+        case "hooks.invoke", "hooks.invoke.begin", "hooks.invoke.append", "hooks.invoke.cancel", "hooks.invoke.execute":
+            return v2Result(
+                id: request.id,
+                v2RemoteHookInvocation(method: request.method, params: request.params)
+            )
         case "agent.hook.enqueue":
             let hookParams: [String: Any]
             if request.params["relay_backed"] as? Bool == true,

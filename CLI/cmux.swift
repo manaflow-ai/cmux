@@ -3040,7 +3040,7 @@ final class SocketClient {
     }
 
     var isRelayBacked: Bool {
-        relayEndpoint != nil
+        relayEndpoint != nil || ProcessInfo.processInfo.environment["CMUX_HOOK_RELAY_BACKED"] == "1"
     }
 
     func connectionAppearsOpen() -> Bool {
@@ -33784,7 +33784,7 @@ export default CMUXSessionRestore;
     }
 
     private static func codexNormalizedHookSourcePath(_ path: String) -> String {
-        let url = URL(fileURLWithPath: path).standardizedFileURL
+        let url = URL(fileURLWithPath: remoteHookInstallDestinationPath(path)).standardizedFileURL
         if let resolved = realPath(url.path) {
             return resolved
         }
@@ -40599,6 +40599,7 @@ export default CMUXSessionRestore;
     // MARK: - Hooks namespace
 
     private func runHooksNoSocketCommand(commandArgs: [String]) throws -> Bool {
+        if try runRemoteHookBridgeCommand(commandArgs) { return true }
         guard let first = commandArgs.first?.lowercased() else {
             print(subcommandUsage("hooks") ?? "Usage: cmux hooks <setup|uninstall|agent>")
             return true
@@ -40804,7 +40805,10 @@ export default CMUXSessionRestore;
             default:
                 if !arg.hasPrefix("-") {
                     if positionalAgent != nil {
-                        throw CLIError(message: "Too many hooks targets: specify at most one positional agent")
+                        throw CLIError(message: String(
+                            localized: "cli.hooks.setup.tooManyTargets",
+                            defaultValue: "Too many hook targets: specify at most one positional agent"
+                        ))
                     }
                     positionalAgent = arg
                 }
@@ -40824,7 +40828,10 @@ export default CMUXSessionRestore;
                 throw CLIError(message: "Unknown hooks target: \(positionalAgentFilter)")
             }
             if flagDef.name != positionalDef.name {
-                throw CLIError(message: "Conflicting hooks target: use either --agent or a positional target, not both")
+                throw CLIError(message: String(
+                    localized: "cli.hooks.setup.conflictingTargets",
+                    defaultValue: "Conflicting hook targets: use either --agent or a positional target, not both"
+                ))
             }
         }
         let agentFilter = flagAgentFilter ?? positionalAgentFilter

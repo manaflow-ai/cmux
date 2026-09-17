@@ -44,6 +44,7 @@ struct ControlCommandExecutionPolicyTests {
             "system.ping", "system.capabilities", "auth.status", "auth.sign_in_url",
             "feed.jump", "feed.push", "agent.hook.enqueue", "agent.hook.barrier",
             "agent.restore.admit", "agent.restore.release",
+            "hooks.invoke", "hooks.invoke.execute",
             "browser.download.list", "browser.download.wait", "system.top", "system.memory",
             "workspace.remote.pty_bridge", "workspace.env", "sidebar.custom.reload",
             "sidebar.custom.open",
@@ -187,6 +188,12 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy(forMethod: "surface.read_text") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forMethod: "surface.read_selection") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forV1Command: "read_screen") == .socketWorker(mainThreadCallable: false))
+    }
+
+    @Test func remoteHookBridgeRunsOffTheMainActor() {
+        for method in ["hooks.invoke", "hooks.invoke.begin", "hooks.invoke.append", "hooks.invoke.cancel", "hooks.invoke.execute"] {
+            #expect(ControlCommandExecutionPolicy(forMethod: method) == .socketWorker(mainThreadCallable: false))
+        }
     }
 
     @Test func windowScreenshotsRunOnTheWorkerAndAreNotMainThreadCallable() {

@@ -32,6 +32,14 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "workspace.equalize_splits",
     ]
 
+    private static let remoteHookMethods: Set<String> = [
+        "hooks.invoke",
+        "hooks.invoke.begin",
+        "hooks.invoke.append",
+        "hooks.invoke.cancel",
+        "hooks.invoke.execute",
+    ]
+
     private static let workspaceRequiredMethods: Set<String> = Set([
         "workspace.current",
         "workspace.remote.status",
@@ -54,9 +62,9 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "surface.ports_kick",
         "notification.create",
         "notification.create_for_target",
-    ]).union(tmuxCompatibleMethods)
+    ]).union(tmuxCompatibleMethods).union(remoteHookMethods)
 
-    private static let surfaceRequiredMethods: Set<String> = [
+    private static let surfaceRequiredMethods: Set<String> = Set([
         "workspace.remote.terminal_session_launching",
         "workspace.remote.terminal_session_connected",
         "workspace.remote.terminal_session_end",
@@ -77,9 +85,9 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "surface.split",
         "surface.close",
         "surface.send_text",
-    ]
+    ]).union(remoteHookMethods)
 
-    private static let exactSurfaceSelectorMethods: Set<String> = [
+    private static let exactSurfaceSelectorMethods: Set<String> = Set([
         "surface.split",
         "surface.close",
         "surface.send_text",
@@ -89,7 +97,7 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "surface.clear_git_branch",
         "surface.report_shell_state",
         "surface.ports_kick",
-    ]
+    ]).union(remoteHookMethods)
 
     private static let workspaceSelectorKeys: Set<String> = [
         "workspace_id",
@@ -146,7 +154,7 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
             )
         }
 
-        if method != "surface.resume.set",
+        if method != "surface.resume.set", !Self.remoteHookMethods.contains(method),
            let key = firstParameterKey(
                in: parameters,
                keys: Self.localExecutionKeys.union(["command"])

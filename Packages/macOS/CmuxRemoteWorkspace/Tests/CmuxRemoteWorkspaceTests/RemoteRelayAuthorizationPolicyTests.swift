@@ -113,6 +113,49 @@ struct RemoteRelayAuthorizationPolicyTests {
         ))
     }
 
+    @Test("remote hook transfer methods require the authenticated workspace and surface")
+    func remoteHookSelectors() {
+        let policy = RemoteRelayAuthorizationPolicy()
+        let owner = UUID()
+        let surface = UUID()
+        let foreignSurface = UUID()
+        let methods = [
+            "hooks.invoke",
+            "hooks.invoke.begin",
+            "hooks.invoke.append",
+            "hooks.invoke.cancel",
+            "hooks.invoke.execute",
+        ]
+
+        for method in methods {
+            let owned: [String: Any] = [
+                "workspace_id": owner.uuidString,
+                "surface_id": surface.uuidString,
+            ]
+            #expect(policy.validate(
+                method: method,
+                parameters: owned,
+                ownerWorkspaceID: owner,
+                surfaceIDs: [surface]
+            ) == .allowed)
+            #expect(policy.validate(
+                method: method,
+                parameters: ["workspace_id": owner.uuidString],
+                ownerWorkspaceID: owner,
+                surfaceIDs: [surface]
+            ) != .allowed)
+            #expect(policy.validate(
+                method: method,
+                parameters: [
+                    "workspace_id": owner.uuidString,
+                    "surface_id": foreignSurface.uuidString,
+                ],
+                ownerWorkspaceID: owner,
+                surfaceIDs: [surface]
+            ) != .allowed)
+        }
+    }
+
     @Test("respawn planner quotes remote directories and classifies transports")
     func planner() {
         let planner = RemotePTYRespawnPlanner()

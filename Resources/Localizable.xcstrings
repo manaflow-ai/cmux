@@ -527472,6 +527472,839 @@
           }
         }
       }
+    },
+    "cli.hooks.setup.tooManyTargets": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Too many hook targets: specify at most one positional agent" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フックの対象が多すぎます。位置引数で指定できるエージェントは 1 つだけです" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zu viele Hook-Ziele: Gib höchstens einen Agenten als Positionsargument an"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trop de cibles de hook : indiquez au plus un agent positionnel"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عدد أهداف الخطاف كبير جدًا: حدّد وكيلاً موضعيًا واحدًا كحد أقصى"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demasiados destinos de hook: especifica como máximo un agente posicional"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hook 目標過多：最多只能指定一個位置代理程式"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hook 目标过多：最多只能指定一个位置代理"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "후크 대상이 너무 많습니다. 위치 인수 에이전트는 최대 하나만 지정하세요"
+          }
+        }
+      }
+    },
+    "cli.hooks.setup.conflictingTargets": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Conflicting hook targets: use either --agent or a positional target, not both" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フックの対象が競合しています。--agent または位置引数のどちらか一方を使用してください" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widersprüchliche Hook-Ziele: Verwende entweder --agent oder ein Positionsargument, nicht beides"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cibles de hook incompatibles : utilisez --agent ou une cible positionnelle, mais pas les deux"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أهداف الخطاف متعارضة: استخدم --agent أو هدفًا موضعيًا، وليس كليهما"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Destinos de hook en conflicto: usa --agent o un destino posicional, pero no ambos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hook 目標衝突：請使用 --agent 或位置目標，不可同時使用兩者"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hook 目标冲突：请使用 --agent 或位置目标，不可同时使用两者"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "후크 대상이 충돌합니다. --agent 또는 위치 대상 중 하나만 사용하세요"
+          }
+        }
+      }
+    },
+    "cli.hooks.remoteBridge.error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remote hook bridge failed: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモートフックブリッジに失敗しました: %@" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Hook-Bridge fehlgeschlagen: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échec du pont de hooks distant : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشل جسر الخطاف البعيد: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Error del puente de hooks remoto: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端 Hook 橋接失敗：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程 Hook 桥接失败：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 후크 브리지 실패: %@"
+          }
+        }
+      }
+    },
+    "socket.hooks.remoteBridge.chunkTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remote hook payload chunk is too large." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモートフックのペイロードチャンクが大きすぎます。" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Nutzdatenblock des Remote-Hooks ist zu groß."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le fragment de données du hook distant est trop volumineux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جزء حمولة الخطاف البعيد كبير جدًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El fragmento de datos del hook remoto es demasiado grande."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端 Hook 承載資料區塊過大。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程 Hook 载荷块过大。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 후크 페이로드 청크가 너무 큽니다."
+          }
+        }
+      }
+    },
+    "socket.hooks.remoteBridge.invalidTransfer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remote hook payload transfer is missing or too large." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモートフックのペイロード転送が見つからないか、大きすぎます。" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Nutzdatenübertragung des Remote-Hooks fehlt oder ist zu groß."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le transfert de données du hook distant est absent ou trop volumineux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نقل حمولة الخطاف البعيد مفقود أو كبير جدًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La transferencia de datos del hook remoto no existe o es demasiado grande."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端 Hook 承載資料傳輸不存在或過大。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程 Hook 载荷传输不存在或过大。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 후크 페이로드 전송이 없거나 너무 큽니다."
+          }
+        }
+      }
+    },
+    "socket.hooks.remoteBridge.invalidMethod": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unknown remote hook bridge method." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明なリモートフックブリッジメソッドです。" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekannte Methode der Remote-Hook-Bridge."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Méthode de pont de hooks distant inconnue."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طريقة جسر الخطاف البعيد غير معروفة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Método desconocido del puente de hooks remoto."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的遠端 Hook 橋接方法。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的远程 Hook 桥接方法。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 원격 후크 브리지 메서드입니다."
+          }
+        }
+      }
+    },
+    "socket.hooks.remoteBridge.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The remote hook bridge failed." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモートフックブリッジに失敗しました。" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Remote-Hook-Bridge ist fehlgeschlagen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le pont de hooks distant a échoué."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشل جسر الخطاف البعيد."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El puente de hooks remoto ha fallado."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端 Hook 橋接失敗。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程 Hook 桥接失败。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 후크 브리지가 실패했습니다."
+          }
+        }
+      }
+    },
+    "socket.hooks.remoteBridge.invalidArguments": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remote hook arguments are invalid." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモートフックの引数が無効です。" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Argumente des Remote-Hooks sind ungültig."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les arguments du hook distant ne sont pas valides."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وسائط الخطاف البعيد غير صالحة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los argumentos del hook remoto no son válidos."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端 Hook 引數無效。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程 Hook 参数无效。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 후크 인수가 잘못되었습니다."
+          }
+        }
+      }
+    },
+    "socket.hooks.remoteBridge.invalidEnvironment": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remote hook environment is invalid." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモートフックの環境が無効です。" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Umgebung des Remote-Hooks ist ungültig."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’environnement du hook distant n’est pas valide."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بيئة الخطاف البعيد غير صالحة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El entorno del hook remoto no es válido."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端 Hook 環境無效。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程 Hook 环境无效。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 후크 환경이 잘못되었습니다."
+          }
+        }
+      }
+    },
+    "socket.hooks.remoteBridge.payloadTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remote hook payload exceeds the relay limit." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモートフックのペイロードがリレーの上限を超えています。" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Nutzdaten des Remote-Hooks überschreiten das Relay-Limit."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les données du hook distant dépassent la limite du relais."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تتجاوز حمولة الخطاف البعيد حد الترحيل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los datos del hook remoto superan el límite del relé."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端 Hook 承載資料超過中繼限制。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程 Hook 载荷超过中继限制。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 후크 페이로드가 릴레이 한도를 초과합니다."
+          }
+        }
+      }
+    },
+    "socket.hooks.remoteBridge.cliUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The bundled cmux CLI is unavailable." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "同梱の cmux CLI を利用できません。" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die mitgelieferte cmux-CLI ist nicht verfügbar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’interface en ligne de commande cmux intégrée n’est pas disponible."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "واجهة cmux لسطر الأوامر المضمّنة غير متاحة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La CLI de cmux incluida no está disponible."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法使用隨附的 cmux CLI。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法使用随附的 cmux CLI。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "번들 cmux CLI를 사용할 수 없습니다."
+          }
+        }
+      }
+    },
+    "socket.hooks.remoteBridge.launchFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The bundled cmux hook command could not be launched." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "同梱の cmux フックコマンドを起動できませんでした。" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der mitgelieferte cmux-Hook-Befehl konnte nicht gestartet werden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La commande de hook cmux intégrée n’a pas pu être lancée."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تشغيل أمر خطاف cmux المضمّن."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo iniciar el comando de hook de cmux incluido."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法啟動隨附的 cmux Hook 指令。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法启动随附的 cmux Hook 命令。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "번들 cmux 후크 명령을 실행할 수 없습니다."
+          }
+        }
+      }
+    },
+    "socket.hooks.remoteBridge.timedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The remote hook command timed out." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモートフックコマンドがタイムアウトしました。" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Remote-Hook-Befehl hat das Zeitlimit überschritten."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La commande de hook distant a dépassé le délai imparti."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتهت مهلة أمر الخطاف البعيد."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El comando de hook remoto agotó el tiempo de espera."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端 Hook 指令逾時。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程 Hook 命令超时。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 후크 명령 시간이 초과되었습니다."
+          }
+        }
+      }
+    },
+    "socket.hooks.remoteBridge.outputTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remote hook output exceeds the relay limit." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモートフックの出力がリレーの上限を超えています。" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Ausgabe des Remote-Hooks überschreitet das Relay-Limit."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La sortie du hook distant dépasse la limite du relais."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتجاوز إخراج الخطاف البعيد حد الترحيل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La salida del hook remoto supera el límite del relé."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端 Hook 輸出超過中繼限制。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程 Hook 输出超过中继限制。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 후크 출력이 릴레이 한도를 초과합니다."
+          }
+        }
+      }
+    },
+    "socket.hooks.remoteBridge.tooManyTransfers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Too many remote hook payload transfers are active." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "進行中のリモートフックペイロード転送が多すぎます。" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Es sind zu viele Nutzdatenübertragungen für Remote-Hooks aktiv."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trop de transferts de données de hooks distants sont actifs."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هناك عدد كبير جدًا من عمليات نقل حمولة الخطافات البعيدة النشطة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hay demasiadas transferencias de datos de hooks remotos activas."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "進行中的遠端 Hook 承載資料傳輸過多。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "进行中的远程 Hook 载荷传输过多。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "활성 원격 후크 페이로드 전송이 너무 많습니다."
+          }
+        }
+      }
+    },
+    "socket.hooks.remoteBridge.invalidParameters": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remote hook bridge parameters are invalid." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモートフックブリッジのパラメータが無効です。" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Parameter der Remote-Hook-Bridge sind ungültig."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les paramètres du pont de hooks distant ne sont pas valides."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معلمات جسر الخطاف البعيد غير صالحة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los parámetros del puente de hooks remoto no son válidos."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端 Hook 橋接參數無效。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程 Hook 桥接参数无效。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 후크 브리지 매개변수가 잘못되었습니다."
+          }
+        }
+      }
+    },
+    "socket.hooks.remoteBridge.invalidPayload": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remote hook payload is invalid." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモートフックのペイロードが無効です。" } },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Nutzdaten des Remote-Hooks sind ungültig."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les données du hook distant ne sont pas valides."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حمولة الخطاف البعيد غير صالحة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los datos del hook remoto no son válidos."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端 Hook 承載資料無效。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程 Hook 载荷无效。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 후크 페이로드가 잘못되었습니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

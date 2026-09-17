@@ -78,6 +78,57 @@ struct RemoteRelayReporterRegressionTests {
             ownerWorkspaceID: owner, surfaceIDs: []) != .allowed)
     }
 
+    @Test("remote hook bridge accepts only bounded hook-shaped requests")
+    func hookBridgeCommandShape() throws {
+        let base: [String: Any] = [
+            "workspace_id": owner.uuidString,
+            "surface_id": remoteSurface.uuidString,
+        ]
+        let valid = base.merging([
+            "arguments": ["claude", "stop"],
+            "environment": [
+                "CMUX_WORKSPACE_ID": owner.uuidString,
+                "CMUX_SURFACE_ID": remoteSurface.uuidString,
+                "SSH_TTY": "/dev/pts/7",
+            ],
+            "stdin_base64": Data("{}".utf8).base64EncodedString(),
+        ]) { _, new in new }
+        #expect(commandVerdict("hooks.invoke", valid) == .allow)
+
+        let arbitraryEnvironment = valid.merging([
+            "environment": ["LD_PRELOAD": "/tmp/inject.so"],
+        ]) { _, new in new }
+        #expect(commandVerdict("hooks.invoke", arbitraryEnvironment) != .allow)
+
+        let installerInvocation = valid.merging([
+            "arguments": ["setup", "--yes"],
+        ]) { _, new in new }
+        #expect(commandVerdict("hooks.invoke", installerInvocation) != .allow)
+
+        let oversizedChunk = base.merging([
+            "transfer_id": "0:00000000-0000-0000-0000-000000000001",
+            "chunk_base64": Data(repeating: 0, count: 6 * 1_024 + 1).base64EncodedString(),
+        ]) { _, new in new }
+        #expect(commandVerdict("hooks.invoke.append", oversizedChunk) != .allow)
+    }
+
+    private func commandVerdict(
+        _ method: String,
+        _ params: [String: Any]
+    ) -> RemoteRelayCommandPolicy.Verdict {
+        let request: [String: Any] = [
+            "id": "hook-policy",
+            "method": method,
+            "params": params,
+        ]
+        let data = try! JSONSerialization.data(withJSONObject: request)
+        return RemoteRelayCommandPolicy().evaluate(
+            commandLine: data,
+            workspaceAliases: [:],
+            surfaceAliases: [:]
+        )
+    }
+
     private func decision(_ method: String, _ params: [String: Any]) -> RemoteRelayAuthorizationPolicy.Decision {
         RemoteRelayAuthorizationPolicy().validate(method: method, parameters: params,
             ownerWorkspaceID: owner, surfaceIDs: [remoteSurface])

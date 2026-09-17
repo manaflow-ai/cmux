@@ -300,12 +300,12 @@ extension CMUXCLI {
         if let existing = try? String(contentsOf: url, encoding: .utf8), existing == contents {
             // Ensure it stays executable, then reuse.
             try? fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
-            return url.path
+            return remoteHookInstallDestinationPath(url.path)
         }
         do {
             try contents.data(using: .utf8)?.write(to: url, options: .atomic)
             try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
-            return url.path
+            return remoteHookInstallDestinationPath(url.path)
         } catch {
             return nil
         }
