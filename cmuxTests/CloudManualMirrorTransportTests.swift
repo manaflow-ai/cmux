@@ -290,6 +290,27 @@ struct CloudManualMirrorTransportTests {
     }
 
     @Test
+    func persistentRequestBuilderCoversCloudCreationMutations() throws {
+        let request = try #require(CloudTuiPersistentRequestBuilder.parse([
+            "--socket", "/tmp/cloud.sock", "--json", "--idempotency-key", "create-1",
+            "workspace", "ws_current", "run", "--correlation-key", "corr-1", "--",
+            "/bin/bash", "-lc", "echo ready",
+        ]))
+        #expect(request.operation == "workspace.run")
+        #expect(request.idempotencyKey == "create-1")
+        #expect(request.params["workspace"] as? String == "ws_current")
+        #expect(request.params["correlation_key"] as? String == "corr-1")
+        #expect((request.params["argv"] as? [String]) == ["/bin/bash", "-lc", "echo ready"])
+
+        let split = try #require(CloudTuiPersistentRequestBuilder.parse([
+            "--socket", "/tmp/cloud.sock", "--json", "pane", "pane_1", "split", "--right",
+            "--idempotency-key", "split-1",
+        ]))
+        #expect(split.operation == "pane.split")
+        #expect(split.params["direction"] as? String == "right")
+    }
+
+    @Test
     func frameDecoderRejectsBooleanAndFractionalIdentifiers() throws {
         let decoder = CloudTuiManualIOFrameDecoder()
         let eventLines = [
