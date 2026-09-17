@@ -142,7 +142,11 @@ impl std::fmt::Display for UsageError {
 impl std::error::Error for UsageError {}
 
 pub fn is_public_scope(value: &str) -> bool {
-    PUBLIC_SCOPES.contains(&value)
+    PUBLIC_SCOPES.contains(&canonical_scope(value))
+}
+
+pub(super) fn canonical_scope(value: &str) -> &str {
+    shorthand::scope(value)
 }
 
 pub fn run(args: &[String], startup_usage: &str) -> i32 {
@@ -220,7 +224,9 @@ fn parse_command(
     if command_args[0] == "help" {
         return match command_args.get(1) {
             None => Ok(ParsedCommand::Help(None)),
-            Some(scope) if matches!(scope.as_str(), "start" | "shorthands") => Ok(ParsedCommand::Help(Some(scope.clone()))),
+            Some(scope) if matches!(scope.as_str(), "start" | "shorthands") => {
+                Ok(ParsedCommand::Help(Some(scope.clone())))
+            }
             Some(scope) if PUBLIC_SCOPES.contains(&shorthand::scope(scope)) => {
                 Ok(ParsedCommand::Help(Some(shorthand::scope(scope).to_string())))
             }
@@ -364,7 +370,9 @@ fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), (UsageErr
             }
             _ => {
                 command.push(value.clone());
-                if option_takes_value(value) && let Some(next) = args.get(index + 1) {
+                if option_takes_value(value)
+                    && let Some(next) = args.get(index + 1)
+                {
                     command.push(next.clone());
                     index += 1;
                 }
@@ -381,7 +389,10 @@ fn option_takes_value(value: &str) -> bool {
     shorthand::short_value_option(value)
         || (value.starts_with("--")
             && !value.contains('=')
-            && !matches!(value, "--help" | "--json" | "--jsonl" | "--quiet" | "--literal" | "--print")
+            && !matches!(
+                value,
+                "--help" | "--json" | "--jsonl" | "--quiet" | "--literal" | "--print"
+            )
             && !command::is_boolean_flag(value.trim_start_matches("--")))
 }
 
@@ -389,8 +400,12 @@ fn has_help_option(args: &[String]) -> bool {
     let mut index = 0;
     while index < args.len() {
         let value = args[index].as_str();
-        if value == "--" { break; }
-        if matches!(value, "-h" | "--help") { return true; }
+        if value == "--" {
+            break;
+        }
+        if matches!(value, "-h" | "--help") {
+            return true;
+        }
         index += if option_takes_value(value) { 2 } else { 1 };
     }
     false
@@ -928,14 +943,29 @@ mod tests {
             (vec!["ws", "ls"], vec!["workspace", "list"]),
             (vec!["ws", "new", "--name", "term"], vec!["workspace", "create", "--name", "term"]),
             (vec!["pane", "split", "--down"], vec!["pane", "current", "split", "--down"]),
-            (vec!["ws", "name:ls", "win", "current", "p", "current", "get"], vec!["workspace", "name:ls", "screen", "current", "pane", "current", "show"]),
-            (vec!["term", "current", "write", "--text", "--json"], vec!["terminal", "current", "write", "--text=--json"]),
-            (vec!["term", "current", "write", "--text", "--help"], vec!["terminal", "current", "write", "--text=--help"]),
-            (vec!["ws", "current", "run", "--", "echo", "--json", "neww"], vec!["workspace", "current", "run", "--", "echo", "--json", "neww"]),
+            (
+                vec!["ws", "name:ls", "win", "current", "p", "current", "get"],
+                vec!["workspace", "name:ls", "screen", "current", "pane", "current", "show"],
+            ),
+            (
+                vec!["term", "current", "write", "--text", "--json"],
+                vec!["terminal", "current", "write", "--text=--json"],
+            ),
+            (
+                vec!["term", "current", "write", "--text", "--help"],
+                vec!["terminal", "current", "write", "--text=--help"],
+            ),
+            (
+                vec!["ws", "current", "run", "--", "echo", "--json", "neww"],
+                vec!["workspace", "current", "run", "--", "echo", "--json", "neww"],
+            ),
         ] {
             let plan = |args: Vec<&str>| {
                 let ParsedCommand::Command { global, plan: CommandPlan::Protocol(request) } =
-                    parse(&strings(&args)).unwrap() else { panic!("expected typed request") };
+                    parse(&strings(&args)).unwrap()
+                else {
+                    panic!("expected typed request")
+                };
                 (global.output, request.operation.name().unwrap(), request.params)
             };
             assert_eq!(plan(short), plan(canonical));
@@ -953,14 +983,26 @@ mod tests {
             (vec!["splitw"], vec!["pane", "current", "split", "--down"]),
             (vec!["selectp", "-L"], vec!["pane", "current", "focus", "direction", "left"]),
             (vec!["selectw", "-t", "api"], vec!["screen", "api", "focus"]),
-            (vec!["renamew", "-t", "api", "backend"], vec!["screen", "api", "rename", "--name", "backend"]),
+            (
+                vec!["renamew", "-t", "api", "backend"],
+                vec!["screen", "api", "rename", "--name", "backend"],
+            ),
             (vec!["capturep"], vec!["terminal", "current", "screen", "read"]),
-            (vec!["send-keys", "C-c", "Enter"], vec!["terminal", "current", "keys", "ctrl+c", "enter"]),
-            (vec!["send-keys", "-l", "hello", "世界"], vec!["terminal", "current", "write", "--text", "hello世界"]),
+            (
+                vec!["send-keys", "C-c", "Enter"],
+                vec!["terminal", "current", "keys", "ctrl+c", "enter"],
+            ),
+            (
+                vec!["send-keys", "-l", "hello", "世界"],
+                vec!["terminal", "current", "write", "--text", "hello世界"],
+            ),
         ] {
             let plan = |args: Vec<&str>| {
                 let ParsedCommand::Command { plan: CommandPlan::Protocol(request), .. } =
-                    parse(&strings(&args)).unwrap() else { panic!("expected typed request") };
+                    parse(&strings(&args)).unwrap()
+                else {
+                    panic!("expected typed request")
+                };
                 (request.operation.name().unwrap(), request.params)
             };
             assert_eq!(plan(short), plan(canonical));
@@ -982,5 +1024,4 @@ mod tests {
             assert!(parse(&strings(&args)).is_err(), "accepted {args:?}");
         }
     }
-
 }

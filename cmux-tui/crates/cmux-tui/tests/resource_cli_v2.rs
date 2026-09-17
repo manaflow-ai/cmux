@@ -38,8 +38,18 @@ fn shorthand_public_requests_keep_typed_operations_and_literal_values() {
         (vec!["ws", "new", "--name", "term"], "workspace.create", "name", json!("term")),
         (vec!["splitw", "-h", "-t", PANE_ID], "pane.split", "direction", json!("right")),
         (vec!["selectp", "-L", "-t", PANE_ID], "pane.focus_direction", "direction", json!("left")),
-        (vec!["term", TERMINAL_ID, "write", "--text", "--json"], "terminal.input.write", "text", json!("--json")),
-        (vec!["send-keys", "-t", TERMINAL_ID, "C-c", "Enter"], "terminal.input.keys", "keys", json!(["ctrl+c", "enter"])),
+        (
+            vec!["term", TERMINAL_ID, "write", "--text", "--json"],
+            "terminal.input.write",
+            "text",
+            json!("--json"),
+        ),
+        (
+            vec!["send-keys", "-t", TERMINAL_ID, "C-c", "Enter"],
+            "terminal.input.keys",
+            "keys",
+            json!(["ctrl+c", "enter"]),
+        ),
     ] {
         let (output, requests) = fake_resource_cli(&args, FakeReply::Success(json!({"ok":true})));
         assert_success(&output);
