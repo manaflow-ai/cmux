@@ -8,6 +8,7 @@ import {
   stripeSubscriptions,
 } from "../db/schema";
 import { FOUNDER_TESTFLIGHT_GROUP_ID } from "../services/asc/testflightOwnership";
+import { billingPlanIdFromMetadata } from "../services/billing/teamResolution";
 
 process.env.RESEND_API_KEY ??= "test-resend-key";
 process.env.CMUX_FEEDBACK_FROM_EMAIL ??= "feedback@example.com";
@@ -966,6 +967,87 @@ describe("recordFoundersCheckoutCompletion", () => {
     expect(subscriptionInsert?.values.status).toBe("active");
   });
 
+  for (const [plan, eligible] of [
+    ["free", false],
+    ["unknown", false],
+    ["pro", true],
+    ["team", true],
+    [" PRO ", true],
+  ] as const) {
+    test(`honors the personal ${plan} override for Founder checkout eligibility (${eligible})`, async () => {
+      const update = mock(async () => undefined);
+      const user = {
+        id: "founder_override_free",
+        primaryEmail: "override@example.com",
+        primaryEmailVerified: true,
+        isAnonymous: false,
+        isRestricted: false,
+        clientReadOnlyMetadata: { cmuxVmPlan: plan },
+        update,
+      };
+      const enroll = mock(async () => undefined);
+      selectResults = Array.from({ length: 30 }, () => []);
+
+      const result = await recordFoundersCheckoutCompletion(
+        {
+          session: {
+            id: "cs_founder_override_free",
+            customer: "cus_founder_override_free",
+            customer_details: { email: "override@example.com" },
+            metadata: { founders_edition: "true" },
+            subscription: "sub_founder_override_free",
+          } as never,
+          subscription: {
+            id: "sub_founder_override_free",
+            customer: "cus_founder_override_free",
+            status: "active",
+            metadata: { founders_edition: "true" },
+            cancel_at_period_end: false,
+            items: { data: [] },
+          } as never,
+          customer: {
+            id: "cus_founder_override_free",
+            deleted: false,
+            email: "override@example.com",
+          } as never,
+        },
+        {
+          db: fakeDb() as never,
+          stackApp: {
+            getUser: async () => user,
+            listUsers: async () => [
+              {
+                id: user.id,
+                primaryEmail: user.primaryEmail,
+                primaryEmailVerified: true,
+                isAnonymous: false,
+                isRestricted: false,
+              },
+            ],
+          } as never,
+          testflight: { enrollTester: enroll },
+        },
+      );
+
+      expect(result).toEqual({
+        scope: "user",
+        stackUserId: user.id,
+        subscriptionId: "sub_founder_override_free",
+      });
+      if (eligible) {
+        expect(enroll).toHaveBeenCalledWith("override@example.com", undefined, undefined);
+        expect(update).toHaveBeenCalledWith({
+          clientReadOnlyMetadata: { cmuxVmPlan: plan, cmuxPlan: "pro" },
+        });
+      } else {
+        expect(enroll).not.toHaveBeenCalled();
+        expect(update).not.toHaveBeenCalledWith({
+          clientReadOnlyMetadata: { cmuxVmPlan: plan, cmuxPlan: "pro" },
+        });
+      }
+    });
+  }
+
   test("preserves a locally marked Founder entitlement on an unmarked event", async () => {
     const update = mock(async () => undefined);
     const user = {
@@ -1093,6 +1175,184 @@ describe("recordFoundersCheckoutCompletion", () => {
     ).toBe(true);
     expect(inserts.some((entry) => entry.table === billingEmailClaims)).toBe(false);
     expect(real.update).not.toHaveBeenCalledWith({ primaryEmailVerified: true });
+  });
+
+  test("acknowledges a replay after direct canonical-owner remapping", async () => {
+    const anonymous = {
+      id: "anonymous_replay_source",
+      isAnonymous: true,
+      primaryEmail: null,
+      clientReadOnlyMetadata: {},
+      update: mock(async () => undefined),
+    };
+    const real = {
+      id: "canonical_replay_owner",
+      isAnonymous: false,
+      isRestricted: false,
+      primaryEmail: "buyer@example.com",
+      primaryEmailVerified: true,
+      clientReadOnlyMetadata: {},
+      update: mock(async () => undefined),
+    };
+    const getUser = mock(async (...args: unknown[]) =>
+      args[0] === anonymous.id ? anonymous : real,
+    );
+    const listUsers = mock(async () => [
+      {
+        id: real.id,
+        primaryEmail: real.primaryEmail,
+        primaryEmailVerified: true,
+        isAnonymous: false,
+        isRestricted: false,
+      },
+    ]);
+    const input = checkoutInput("cus_direct_replay");
+    input.session.client_reference_id = anonymous.id;
+    input.subscription.metadata.stackUserId = anonymous.id;
+
+    // First delivery resolves the canonical owner and writes the remapped
+    // local rows. The exact queue is intentionally longer than the minimum so
+    // account-lease reads remain harmless as the implementation evolves.
+    selectResults = Array.from({ length: 20 }, () => []);
+    const db = fakeDb();
+    await recordCheckoutCompletion(input as never, {
+      db: db as never,
+      stackApp: { getUser, listUsers } as never,
+    });
+    const writesAfterFirstDelivery = inserts.length + updates.length;
+
+    // A delayed replay sees the already-mapped customer and exact subscription
+    // row. It must acknowledge the durable ownership without writing anything.
+    inserts.length = 0;
+    updates.length = 0;
+    selectResults = [
+      [{ stackUserId: real.id, stackTeamId: null }],
+      [{ id: "sub_123" }],
+      [{ id: "sub_123" }],
+    ];
+    const replay = await recordCheckoutCompletion(input as never, {
+      db: db as never,
+      stackApp: { getUser, listUsers } as never,
+    });
+
+    expect(writesAfterFirstDelivery).toBeGreaterThan(0);
+    expect(replay).toEqual({
+      scope: "user",
+      stackUserId: real.id,
+      subscriptionId: "sub_123",
+    });
+    expect(inserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+    expect(listUsers).toHaveBeenCalledTimes(1);
+  });
+
+  test("retries post-commit reconciliation after a mapped replay", async () => {
+    const anonymous = {
+      id: "anonymous_retry_source",
+      isAnonymous: true,
+      primaryEmail: null,
+      clientReadOnlyMetadata: {},
+      update: mock(async () => undefined),
+    };
+    let failFirstMetadataWrite = true;
+    let metadataWriteCount = 0;
+    const real = {
+      id: "canonical_retry_owner",
+      isAnonymous: false,
+      isRestricted: false,
+      primaryEmail: "buyer@example.com",
+      primaryEmailVerified: true,
+      clientReadOnlyMetadata: {},
+      update: mock(async () => {
+        metadataWriteCount += 1;
+        if (failFirstMetadataWrite) {
+          failFirstMetadataWrite = false;
+          throw new Error("temporary metadata failure");
+        }
+      }),
+    };
+    const getUser = mock(async (...args: unknown[]) =>
+      args[0] === anonymous.id ? anonymous : real,
+    );
+    const listUsers = mock(async () => [
+      {
+        id: real.id,
+        primaryEmail: real.primaryEmail,
+        primaryEmailVerified: true,
+        isAnonymous: false,
+        isRestricted: false,
+      },
+    ]);
+    const input = checkoutInput("cus_retry_reconciliation");
+    input.session.client_reference_id = anonymous.id;
+    input.subscription.metadata.stackUserId = anonymous.id;
+    const db = fakeDb();
+
+    selectResults = Array.from({ length: 30 }, () => []);
+    await expect(
+      recordCheckoutCompletion(input as never, {
+        db: db as never,
+        stackApp: { getUser, listUsers } as never,
+      }),
+    ).rejects.toThrow("temporary metadata failure");
+    expect(metadataWriteCount).toBe(1);
+
+    // The durable customer/subscription mapping makes the next webhook a
+    // replay. It must retry the failed post-commit metadata work before it
+    // acknowledges the event.
+    selectResults = [
+      [{ stackUserId: real.id, stackTeamId: null }],
+      [],
+      [{ id: "sub_123" }],
+      ...Array.from({ length: 30 }, () => []),
+    ];
+    await expect(
+      recordCheckoutCompletion(input as never, {
+        db: db as never,
+        stackApp: { getUser, listUsers } as never,
+      }),
+    ).resolves.toEqual({
+      scope: "user",
+      stackUserId: real.id,
+      subscriptionId: "sub_123",
+    });
+    expect(metadataWriteCount).toBe(2);
+  });
+
+  test("does not acknowledge a claimed replay for a different subscription", async () => {
+    const source = {
+      id: "anonymous_stale_replay",
+      isAnonymous: true,
+      primaryEmail: null,
+      clientReadOnlyMetadata: {},
+      update: mock(async () => undefined),
+    };
+    const target = {
+      id: "canonical_stale_replay_owner",
+      isAnonymous: false,
+      isRestricted: false,
+      primaryEmail: "buyer@example.com",
+      primaryEmailVerified: true,
+      clientReadOnlyMetadata: {},
+      update: mock(async () => undefined),
+    };
+    const getUser = mock(async (...args: unknown[]) =>
+      args[0] === source.id ? source : target,
+    );
+    // mapped customer, consumed claim, and no row for the replayed
+    // subscription id, respectively.
+    selectResults = [
+      [{ stackUserId: target.id, stackTeamId: null }],
+      [{ id: "claim_stale" }],
+      [],
+    ];
+
+    await expect(
+      recordCheckoutCompletion(checkoutInput("cus_stale_replay") as never, {
+        db: fakeDb() as never,
+        stackApp: { getUser } as never,
+      }),
+    ).rejects.toThrow("ownership conflict");
   });
 
   test("moves an already-parked alias customer without leaving a claim", async () => {
@@ -2176,6 +2436,46 @@ describe("recordCheckoutCompletion", () => {
     expect(inserts.some((insert) => insert.table === stripeCustomers)).toBe(false);
   });
 
+  test("does not let a stale checkout replay move a claimed customer back", async () => {
+    const source = {
+      id: "user_123",
+      primaryEmail: null,
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+      update: mock(async () => undefined),
+    };
+    const target = {
+      id: "target_user",
+      primaryEmail: "buyer@example.com",
+      primaryEmailVerified: true,
+      isAnonymous: false,
+      isRestricted: false,
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+      update: mock(async () => undefined),
+    };
+    const getUser = mock(async (stackUserId: unknown) =>
+      stackUserId === target.id ? target : source,
+    );
+    selectResults = [
+      [{ stackUserId: target.id }],
+      [{ id: "claim_1" }],
+      [{ id: "sub_123" }],
+    ];
+
+    const result = await recordCheckoutCompletion(checkoutInput() as never, {
+      db: fakeDb() as never,
+      stackApp: { getUser } as never,
+    });
+
+    expect(result).toEqual({
+      scope: "user",
+      stackUserId: target.id,
+      subscriptionId: "sub_123",
+    });
+    expect(getUser).toHaveBeenCalledWith(target.id);
+    expect(inserts.some((insert) => insert.table === stripeCustomers)).toBe(false);
+    expect(inserts.some((insert) => insert.table === stripeSubscriptions)).toBe(false);
+  });
+
   test("updates the existing Stack user customer row when Drizzle wraps a unique violation", async () => {
     const update = mock(async () => undefined);
     const user = {
@@ -2775,6 +3075,77 @@ describe("recordCheckoutCompletion", () => {
     );
     expect(update).toHaveBeenCalledWith({ clientReadOnlyMetadata: {} });
   });
+
+  for (const plan of ["pro", "team", "founders", " Founders "]) {
+    test(`preserves personal ${plan} grants when a Stripe subscription lapses`, async () => {
+      let persistedMetadata: Record<string, unknown> = { cmuxPlan: "pro", cmuxVmPlan: plan };
+      const update = mock(async (...args: unknown[]) => {
+        const [options] = args as [{ clientReadOnlyMetadata: Record<string, unknown> }];
+        persistedMetadata = options.clientReadOnlyMetadata;
+      });
+      const removeTester = mock(async () => undefined);
+      const user = {
+        id: "user_123",
+        primaryEmail: "buyer@example.com",
+        clientReadOnlyMetadata: persistedMetadata,
+        update,
+      };
+      selectResults = [[{ stackUserId: "user_123" }], [{ id: "sub_user" }]];
+
+      const result = await applySubscriptionUpdate(
+        userSubscriptionUpdate({ status: "canceled" }) as never,
+        {
+          db: fakeDb() as never,
+          stackApp: { getUser: async () => user } as never,
+          testflight: { isAscConfigured: () => true, removeTester },
+        },
+      );
+
+      // Founder access also keeps existing CodeRouter tokens alive; ordinary
+      // Pro/Team grants retain TestFlight but do not grant CodeRouter access.
+      expect(result).toEqual({ scope: "user", stackUserId: "user_123", isActive: plan.trim().toLowerCase() === "founders" });
+      expect(removeTester).not.toHaveBeenCalled();
+      // The Stripe mirror must still lapse, so removing the independent operator
+      // grant later cannot expose a stale cmuxPlan: pro fallback.
+      expect(update).toHaveBeenCalledWith({ clientReadOnlyMetadata: { cmuxVmPlan: plan } });
+      expect(billingPlanIdFromMetadata({ ...persistedMetadata, cmuxVmPlan: null })).toBeNull();
+    });
+  }
+
+  for (const plan of [null, "founders", "pro", "team", "free"]) {
+    test(`preserves a separate paid Founder mirror on recurring lapse with override ${plan}`, async () => {
+      const update = mock(async () => undefined);
+      const removeTester = mock(async () => undefined);
+      const user = {
+        id: "user_123",
+        primaryEmail: "buyer@example.com",
+        clientReadOnlyMetadata: { cmuxVmPlan: plan, theme: "dark" },
+        update,
+      };
+      selectResults = [
+        [{ stackUserId: "user_123" }],
+        [{ id: "sub_user" }],
+        [{ raw: { metadata: { founders_edition: "true" } } }],
+      ];
+
+      const result = await applySubscriptionUpdate(
+        userSubscriptionUpdate({ status: "canceled" }) as never,
+        {
+          db: fakeDb() as never,
+          stackApp: { getUser: async () => user } as never,
+          testflight: { isAscConfigured: () => true, removeTester },
+        },
+      );
+
+      expect(result).toEqual({ scope: "user", stackUserId: "user_123", isActive: plan === null || plan === "founders" });
+      expect(update).toHaveBeenCalledWith({ clientReadOnlyMetadata: { cmuxVmPlan: plan, theme: "dark", cmuxPlan: "pro" } });
+      if (plan === "free") {
+        expect(removeTester).toHaveBeenCalledWith("buyer@example.com", { ownedLegacyGroupIDs: [] });
+      } else {
+        expect(removeTester).not.toHaveBeenCalled();
+      }
+    });
+  }
 
   test("does not restore Pro metadata while removing recorded TestFlight ownership after a lapse", async () => {
     const metadataWrites: unknown[] = [];

@@ -8700,6 +8700,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let sessionId = "019dad34-d218-7943-b81a-eddac5c87951"
         let parentSessionId = "019dad34-d218-7943-b81a-parent-session"
         let ttyName = "ttys-test-codex-teams-resume"
+        let codexHome = root.appendingPathComponent("codex-home", isDirectory: true)
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer {
@@ -8708,6 +8709,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             try? FileManager.default.removeItem(at: root)
         }
 
+        // Launch metadata alone is not proof that Codex can resume the fork.
+        try writeCodexResumeTranscript(
+            at: codexHome.appendingPathComponent("sessions/2026/08/26/rollout-\(sessionId).jsonl"),
+            sessionID: sessionId
+        )
         let storeURL = root.appendingPathComponent("codex-hook-sessions.json", isDirectory: false)
         let now = Date().timeIntervalSince1970
         let store: [String: Any] = [
@@ -8736,7 +8742,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                             "initial prompt should not replay"
                         ],
                         "workingDirectory": root.path,
-                        "environment": ["CODEX_HOME": root.appendingPathComponent("codex-home", isDirectory: true).path],
+                        "environment": ["CODEX_HOME": codexHome.path],
                         "capturedAt": now,
                         "source": "test",
                     ],
@@ -8798,7 +8804,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "danger-full-access",
             "initial prompt should not replay"
         ])
-        environment["CODEX_HOME"] = root.appendingPathComponent("codex-home", isDirectory: true).path
+        environment["CODEX_HOME"] = codexHome.path
 
         let result = runProcess(
             executablePath: cliPath,

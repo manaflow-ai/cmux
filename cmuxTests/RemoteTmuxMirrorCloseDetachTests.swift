@@ -332,12 +332,30 @@ import Testing
         let manager: TabManager
         let workspace: Workspace
         var controller: RemoteTmuxController { appDelegate.remoteTmuxController }
+        private let headlessWindowInterceptor: HeadlessMainWindowInterceptor
 
         init() throws {
-            appDelegate = try #require(AppDelegate.shared)
-            windowId = appDelegate.createMainWindow()
-            manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
-            workspace = try #require(manager.selectedWorkspace)
+            let resolvedAppDelegate = try #require(AppDelegate.shared)
+            let interceptor = HeadlessMainWindowInterceptor(appDelegate: resolvedAppDelegate)
+            let createdWindowID = HeadlessMainWindowInterceptor.replacingNewWindowContent {
+                resolvedAppDelegate.createMainWindow(shouldActivate: false)
+            }
+            do {
+                let createdManager = try #require(
+                    resolvedAppDelegate.tabManagerFor(windowId: createdWindowID)
+                )
+                let createdWorkspace = try #require(createdManager.selectedWorkspace)
+                appDelegate = resolvedAppDelegate
+                headlessWindowInterceptor = interceptor
+                windowId = createdWindowID
+                manager = createdManager
+                workspace = createdWorkspace
+            } catch {
+                resolvedAppDelegate.discardMainWindowWithoutClosedHistory(windowId: createdWindowID)
+                resolvedAppDelegate.forgetRecoverableMainWindowRoute(windowId: createdWindowID)
+                interceptor.invalidate()
+                throw error
+            }
         }
 
         func tearDown() {
@@ -345,6 +363,7 @@ import Testing
             // Clear any marker so it can't leak into another serialized test.
             controller.consumeKillSessionsOnWindowClose(windowId: windowId)
             closeWindow(windowId)
+            headlessWindowInterceptor.invalidate()
         }
 
         func cacheConnection(host: RemoteTmuxHost, session: String) {
@@ -429,10 +448,12 @@ import Testing
         let surfaceIDBefore = try #require(focusedBefore["surface_id"] as? String)
 
         let responseText = await Task.detached {
-            TerminalController.shared.v2RemoteTmuxWindow(
-                id: 1,
-                params: ["host": host.destination]
-            )
+            HeadlessMainWindowInterceptor.replacingNewWindowContent {
+                TerminalController.shared.v2RemoteTmuxWindow(
+                    id: 1,
+                    params: ["host": host.destination]
+                )
+            }
         }.value
         let responseData = try #require(responseText.data(using: .utf8))
         let response = try #require(JSONSerialization.jsonObject(with: responseData) as? [String: Any])

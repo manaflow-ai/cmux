@@ -225,6 +225,9 @@ jobs:
       - name: Validate unit-test SwiftPM retry guard
         run: ./tests/test_ci_unit_test_spm_retry.sh
 
+      - name: Validate hosted selected-unit-suite execution
+        run: python3 tests/test_depot_selected_unit_suites.py
+
       - name: Validate Swift Testing suite timeout guard
         run: python3 tests/test_swift_testing_suite_timeout.py
 
@@ -489,6 +492,11 @@ jobs:
         run: bunx playwright install --with-deps chromium
 
       - name: Instant navigation tests
+        env:
+          # The preceding Typecheck step owns the repository-wide tsgo gate;
+          # avoid launching a second tsgo process inside Playwright's server
+          # command on constrained Linux runners.
+          CMUX_INSTANT_SKIP_TYPECHECK: "1"
         run: bun run test:instant
 
   # Checks for in-app React webviews (currently the diff viewer; more cmux React

@@ -121,6 +121,24 @@ describe("Max as a personal plan", () => {
     expect(status.hasManualVmPlanOverride).toBe(true);
   });
 
+  for (const plan of ["go", "pro", "max"] as const) {
+    test(`Founder access coexists with ${plan} while retaining the exact billing tier`, async () => {
+      const written: unknown[] = [];
+      const user = { id: "founder-with-plan", clientReadOnlyMetadata: {},
+        update: async (options: { clientReadOnlyMetadata: unknown }) => { written.push(options.clientReadOnlyMetadata); } };
+      const status = await resolveProPlanStatus(user, {
+        activePersonalPlan: async () => plan,
+        hasActiveFounderSubscription: async () => true,
+        hasStripeCustomer: async () => true,
+        withFreshMetadataUser: async (_id, operation) => operation(user, lease),
+      });
+      const expected = plan === "max" ? "max" : "pro";
+      expect(status.planId).toBe(expected);
+      expect(status.billingManagement).toBe("stripe");
+      expect(written).toEqual([{ cmuxPlan: expected }]);
+    });
+  }
+
   test("the legacy boolean seam still means pro", async () => {
     const status = await resolveProPlanStatus(
       { update: async () => undefined, id: "user-legacy", isAnonymous: false, clientReadOnlyMetadata: { cmuxPlan: "pro" } },

@@ -180,28 +180,19 @@ struct SSHPTYAttachRetryScriptBuilderTests {
     ) throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ssh-attach-backoff-\(UUID().uuidString)", isDirectory: true)
-        let markerURL = root.appendingPathComponent("shell-pid")
-        let backoffReadyURL = root.appendingPathComponent("backoff-ready")
-        let backoffSleepPIDURL = root.appendingPathComponent("backoff-sleep-pid")
-        let fakeSleepURL = root.appendingPathComponent("sleep")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let markerURL = root.appendingPathComponent("shell-pid")
+        let backoffPIDURL = root.appendingPathComponent("backoff-pid")
+        let backoffReadyURL = root.appendingPathComponent("backoff-ready")
+        let sleepURL = root.appendingPathComponent("sleep")
         try """
         #!/bin/sh
-        printf '%s\n' "$$" > "$CMUX_TEST_BACKOFF_SLEEP_PID"
-        printf 'ready\n' > "$CMUX_TEST_BACKOFF_READY"
+        printf '%s\\n' "$$" > "$CMUX_TEST_BACKOFF_PID"
+        printf 'ready\\n' > "$CMUX_TEST_BACKOFF_READY"
         exec /bin/sleep "$1"
-        """.write(to: fakeSleepURL, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: 0o700],
-            ofItemAtPath: fakeSleepURL.path
-        )
-        defer {
-            if let rawPID = try? String(contentsOf: backoffSleepPIDURL, encoding: .utf8),
-               let pid = Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)) {
-                Darwin.kill(pid, SIGKILL)
-            }
-            try? FileManager.default.removeItem(at: root)
-        }
+        """.write(to: sleepURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: sleepURL.path)
 
         let retryLines = SSHPTYAttachRetryScriptBuilder().lines(
             command: "cmux_test_attach",
@@ -235,48 +226,63 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", script]
         process.environment = ProcessInfo.processInfo.environment.merging([
-            "CMUX_TEST_BACKOFF_MARKER": markerURL.path,
-            "CMUX_TEST_BACKOFF_READY": backoffReadyURL.path,
-            "CMUX_TEST_BACKOFF_SLEEP_PID": backoffSleepPIDURL.path,
             "PATH": "\(root.path):/usr/bin:/bin",
+            "CMUX_TEST_BACKOFF_MARKER": markerURL.path,
+            "CMUX_TEST_BACKOFF_PID": backoffPIDURL.path,
+            "CMUX_TEST_BACKOFF_READY": backoffReadyURL.path,
             "CMUX_SSH_RECONNECT_DELAY_SECONDS": "30",
             "CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS": "30",
         ]) { _, override in override }
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
+        var shellPID: Int32?
+        var backoffPID: Int32?
+        defer {
+            if process.isRunning {
+                if let shellPID { Darwin.kill(shellPID, SIGKILL) }
+                Darwin.kill(process.processIdentifier, SIGKILL)
+                process.waitUntilExit()
+            }
+            if let backoffPID { Darwin.kill(backoffPID, SIGKILL) }
+        }
 
         try process.run()
-        let markerDeadline = Date().addingTimeInterval(3)
-        while !FileManager.default.fileExists(atPath: markerURL.path),
-              process.isRunning,
-              Date() < markerDeadline {
-            Thread.sleep(forTimeInterval: 0.01)
-        }
-        #expect(FileManager.default.fileExists(atPath: markerURL.path))
-        #expect(
+        // The status line precedes synchronous terminal preparation. Wait for
+        // the actual backoff child so this test exercises signal-aware waiting,
+        // not an unrelated foreground stty/flush command's signal semantics.
+        try #require(
             waitForFile(
                 at: backoffReadyURL,
-                containing: "ready",
+                containing: "ready\n",
                 while: process,
                 timeout: 3
             )
         )
 
-        let shellPID = try #require(
+        let runningShellPID = try #require(
             Int32(
                 String(contentsOf: markerURL, encoding: .utf8)
                     .trimmingCharacters(in: .whitespacesAndNewlines)
             )
         )
-        Darwin.kill(shellPID, signal)
+        shellPID = runningShellPID
+        let runningBackoffPID = try #require(Int32(
+            String(contentsOf: backoffPIDURL, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
+        backoffPID = runningBackoffPID
+        let signalResult = Darwin.kill(runningShellPID, signal)
+        #expect(signalResult == 0)
         let exitDeadline = Date().addingTimeInterval(1)
         while process.isRunning, Date() < exitDeadline {
             Thread.sleep(forTimeInterval: 0.01)
         }
         let exitedPromptly = !process.isRunning
         if process.isRunning {
-            Darwin.kill(shellPID, SIGKILL)
+            Darwin.kill(runningShellPID, SIGKILL)
+            Darwin.kill(runningBackoffPID, SIGKILL)
+            backoffPID = nil
         }
         process.waitUntilExit()
 
@@ -284,6 +290,11 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         if exitedPromptly {
             #expect(process.terminationReason == .exit)
             #expect(process.terminationStatus == expectedStatus)
+            // Signal only the wrapper; it must terminate and reap its sleeper.
+            let childExists = Darwin.kill(runningBackoffPID, 0)
+            let childError = errno
+            #expect(childExists == -1 && childError == ESRCH)
+            if childExists == -1 && childError == ESRCH { backoffPID = nil }
         }
     }
 

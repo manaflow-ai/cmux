@@ -125,7 +125,7 @@ struct MobileTerminalLaneCoordinatorTests {
         await coordinator.deactivateAll()
     }
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func outputLaneDoesNotFallBackToInputOnlyProvider() async throws {
         let outputProvider = TerminalLaneTestProvider(lanes: [])
         let inputProvider = TerminalLaneTestProvider(lanes: [
@@ -142,12 +142,13 @@ struct MobileTerminalLaneCoordinatorTests {
                 try await inputProvider.callAsFunction(request, surfaceID, cursor: cursor)
             }
         )
+        let readiness = TerminalLaneReadinessRecorder()
 
         await coordinator.ensure(Self.configuration(
             providerRequest: try Self.request(),
             cursor: { nil },
             consume: { _ in .accepted(outputReady: true) },
-            readinessChanged: { _ in }
+            readinessChanged: { await readiness.append($0) }
         ))
         // The output provider is the causal completion signal. Its empty lane
         // list makes the request fail after recording the attempted selection.
@@ -156,6 +157,7 @@ struct MobileTerminalLaneCoordinatorTests {
         #expect(await outputProvider.requestCount() > 0)
         #expect(await inputProvider.requestCount() == 0)
         await coordinator.deactivateAll()
+        #expect(await readiness.values().isEmpty)
         #expect(await coordinator.isOutputReady(surfaceID: Self.surfaceID) == false)
     }
 

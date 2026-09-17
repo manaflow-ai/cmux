@@ -209,16 +209,12 @@ describe("promoteImageManifestEntry", () => {
         defaultForLocalDev: true,
       }),
       passedEntry({ version: "freestyle-old-base", imageId: "sh-old", kind: "base", defaultForKind: true }),
-      // A foreign provider's entry: the type only knows freestyle now, but the
-      // promote step must still leave such rows alone.
-      passedEntry({
-        provider: "e2b" as unknown as DevboxManifestEntry["provider"],
-        version: "e2b-x",
-        imageId: "cmux-devbox:x",
-        envVar: "E2B_CMUXD_WS_TEMPLATE",
-        kind: "base",
-        defaultForKind: true,
-      }),
+      // Legacy provider rows remain valid manifest data even though the active
+      // provider union only permits Freestyle for new bake entries.
+      ({
+        ...passedEntry({ version: "e2b-x", imageId: "cmux-devbox:x", envVar: "E2B_CMUXD_WS_TEMPLATE", kind: "base", defaultForKind: true }),
+        provider: "e2b",
+      } as unknown as DevboxManifestEntry),
     ],
   };
 
@@ -460,12 +456,8 @@ describe("imageManifestProblems", () => {
       ],
     };
     const problems = imageManifestProblems(bad);
-    for (const expected of [
-      "b: defaultForKind but validationStatus is unknown",
-      "freestyle/base: 2 entries flagged defaultForKind",
-      "freestyle/d: version listed more than once",
-    ]) {
-      expect(problems.some((problem) => problem.includes(expected))).toBe(true);
-    }
+    expect(problems.some((problem) => problem.includes("b: defaultForKind but validationStatus is unknown"))).toBe(true);
+    expect(problems.some((problem) => problem.includes("freestyle/base: 2 entries flagged defaultForKind"))).toBe(true);
+    expect(problems.some((problem) => problem.includes("freestyle/d: version listed more than once"))).toBe(true);
   });
 });

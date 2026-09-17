@@ -24,7 +24,7 @@ const proUser = {
   id: "user-pro",
   isAnonymous: false,
   primaryEmail: "pro@example.com",
-  clientReadOnlyMetadata: { cmuxPlan: "pro" },
+  clientReadOnlyMetadata: { cmuxPlan: "pro" } as Record<string, unknown>,
   update: mock(async () => undefined),
 };
 const getUser = mock(async () => proUser);
@@ -227,6 +227,7 @@ describe("localized pricing page", () => {
     process.env.CMUX_VAULT_ENABLED = "0";
     stackConfigured = false;
     stripeSubscriptionRows = [];
+    proUser.clientReadOnlyMetadata = { cmuxPlan: "pro" };
     getUser.mockClear();
     proUser.update.mockClear();
   });
@@ -345,6 +346,20 @@ describe("localized pricing page", () => {
     // link (the server routes an active Pro subscription to the portal).
     expect(html).toContain("/api/billing/portal?flow=switch_plan&amp;plan=max");
     expect(html).toMatch(/plan=max[^"]*"[^>]*><span>Get Max/);
+  });
+
+  test("does not offer a Stripe portal or another Pro purchase for a Founder entitlement", async () => {
+    stackConfigured = true;
+    proUser.clientReadOnlyMetadata = { cmuxVmPlan: "founders" };
+
+    const element = await PricingPage({ params: Promise.resolve({ locale: "en" }) });
+    const html = await renderSettled(element);
+
+    // The streamed fallback precedes the personalized section in the wire HTML.
+    const personal = Array.from(html.matchAll(/aria-labelledby="individual-pricing-category"[\s\S]*?<\/section>/g), (match) => match[0]).find((section) => section.includes("Current plan")) ?? "";
+    expect(personal).toContain("Current plan");
+    expect(personal).not.toContain('href="/api/billing/portal"');
+    expect(personal).not.toContain("/api/billing/checkout?plan=pro");
   });
 
   test("renders monthly offers for an old annual link", async () => {

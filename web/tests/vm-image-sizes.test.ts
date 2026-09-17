@@ -13,9 +13,9 @@ import {
   type DevboxManifestEntry,
 } from "../scripts/devbox-image-common";
 
-// Machine sizes are Freestyle's t-shirt ladder plus cmux's validated 24 GiB
-// intermediate snapshot, one cmux snapshot per size, picked by plan memory.
-// These pin the ladder and the per-size promotion semantics.
+// Machine sizes are Freestyle's t-shirt ladder (freestyle-vms
+// catalog/snapshots.json), one cmux snapshot per size, picked by the plan's
+// memory. These pin the ladder and the per-size promotion semantics.
 
 const entry = (overrides: Partial<DevboxManifestEntry> = {}): DevboxManifestEntry => ({
   provider: "freestyle",
@@ -58,7 +58,7 @@ describe("size ladder", () => {
     expect(pickVmImageSizeForMemory(512)?.name).toBe("sm");
     expect(pickVmImageSizeForMemory(4096)?.name).toBe("sm");
     expect(pickVmImageSizeForMemory(4097)?.name).toBe("md");
-    // cmux's paid default (24 GiB) is between lg and xl: it gets xl.
+    // cmux's paid default (24 GiB) is the validated intermediate snapshot.
     expect(pickVmImageSizeForMemory(20480)?.name).toBe("lgx");
     expect(pickVmImageSizeForMemory(24576)?.name).toBe("lgx");
     expect(pickVmImageSizeForMemory(24577)?.name).toBe("xl");
@@ -78,7 +78,7 @@ describe("promoteImageManifestEntry with sizes", () => {
     schemaVersion: 1,
     images: [
       // A pre-ladder, size-less default: the sized promotion replaces it.
-      entry({ version: "freestyle-old", imageId: "sh-old", kind: "base", defaultForKind: true, defaultForLocalDev: true }),
+      entry({ version: "freestyle-old", imageId: "sh-old", kind: "base", defaultForKind: true }),
       // An old desktop default: not this promotion's kind, untouched.
       entry({ version: "freestyle-old-desktop", imageId: "sh-old-d", kind: "desktop", defaultForKind: true }),
     ],
@@ -87,7 +87,7 @@ describe("promoteImageManifestEntry with sizes", () => {
   test("writes one entry per kind and size, ladder order, and demotes the size-less default", () => {
     const next = promoteImageManifestEntry(base, entry(), { kinds: ["base"], sizes, validationNotes: "ok" });
     expect(imageManifestProblems(next)).toEqual([]);
-    expect(next.images[0]).toMatchObject({ version: "freestyle-old", defaultForKind: false, defaultForLocalDev: false });
+    expect(next.images[0]).toMatchObject({ version: "freestyle-old", defaultForKind: false });
     expect(next.images[1]).toMatchObject({ version: "freestyle-old-desktop", defaultForKind: true });
     expect(next.images.slice(2).map((e) => [e.version, e.imageId, e.kind, e.size?.name, e.defaultForKind])).toEqual([
       ["freestyle-cmux-devbox-test-sm", "sh-sm", "base", "sm", true],
@@ -95,7 +95,6 @@ describe("promoteImageManifestEntry with sizes", () => {
       ["freestyle-cmux-devbox-test-xl", "sh-xl", "base", "xl", true],
     ]);
     expect(next.images[2].size).toEqual({ name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384, freestyleBase: "freestyle/ubuntu-sm" });
-    expect(next.images[2].defaultForLocalDev).toBe(true);
     expect(next.images[2].notes).toBe("epoch test ok");
   });
 
@@ -143,12 +142,8 @@ describe("imageManifestProblems with sizes", () => {
       ],
     };
     const problems = imageManifestProblems(bad);
-    for (const expected of [
-      "freestyle/base: defaults mix sized and size-less entries",
-      "freestyle/base/lg: 2 entries flagged defaultForKind",
-      "d: size huge is not on the ladder",
-    ]) {
-      expect(problems.some((problem) => problem.includes(expected))).toBe(true);
-    }
+    expect(problems.some((problem) => problem.includes("freestyle/base: defaults mix sized and size-less entries"))).toBe(true);
+    expect(problems.some((problem) => problem.includes("freestyle/base/lg: 2 entries flagged defaultForKind"))).toBe(true);
+    expect(problems.some((problem) => problem.includes("d: size huge is not on the ladder"))).toBe(true);
   });
 });

@@ -50,6 +50,68 @@ actor AppContextSerialGate {
     }
 }
 
+private struct HeadlessMainWindowTaskContext {
+    @TaskLocal static var isEnabled = false
+}
+
+/// Keeps the production main-window registration and routing path, but replaces
+/// test-window content before it is ordered on screen. Socket routing tests do
+/// not need a SwiftUI/Ghostty renderer for their model and focus assertions.
+@MainActor
+final class HeadlessMainWindowInterceptor: NSObject {
+    private weak var appDelegate: AppDelegate?
+    private var knownWindowKeys: Set<ObjectIdentifier>
+    private var isInvalidated = false
+
+    init(appDelegate: AppDelegate) {
+        self.appDelegate = appDelegate
+        knownWindowKeys = Set(
+            appDelegate.mainWindowContexts.values.compactMap(\.window).map(ObjectIdentifier.init)
+        )
+        super.init()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(mainWindowContextsDidChange(_:)),
+            name: .mainWindowContextsDidChange,
+            object: appDelegate
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    nonisolated static func replacingNewWindowContent<T>(
+        _ operation: () throws -> T
+    ) rethrows -> T {
+        try HeadlessMainWindowTaskContext.$isEnabled.withValue(true, operation: operation)
+    }
+
+    func invalidate() {
+        guard !isInvalidated else { return }
+        isInvalidated = true
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func mainWindowContextsDidChange(_ notification: Notification) {
+        guard !isInvalidated, let appDelegate else { return }
+        let windows = appDelegate.mainWindowContexts.values.compactMap(\.window)
+        let currentWindowKeys = Set(windows.map(ObjectIdentifier.init))
+        let newWindowKeys = currentWindowKeys.subtracting(knownWindowKeys)
+        knownWindowKeys = currentWindowKeys
+
+        // Task-local opt-in follows the socket's inherited Task and MainActor
+        // hops without changing windows created by another test's task.
+        guard HeadlessMainWindowTaskContext.isEnabled else { return }
+        for window in windows where newWindowKeys.contains(ObjectIdentifier(window)) {
+            window.contentViewController = nil
+            let placeholder = NSView(frame: window.contentLayoutRect)
+            placeholder.autoresizingMask = [.width, .height]
+            window.contentView = placeholder
+        }
+    }
+}
+
 /// Test-only main-window context seams, kept in the test target per the
 /// debug-seam policy and reaching internal AppDelegate state via
 /// `@testable import`. Tests register a windowless context and tear it down

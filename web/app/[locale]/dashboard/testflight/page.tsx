@@ -3,7 +3,7 @@ import { getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
 
 import { loadDashboardSection } from "@/app/lib/dashboard-auth";
-import { isStackConfigured } from "@/app/lib/stack";
+import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
 import { Link } from "@/i18n/navigation";
 import { isAscConfigured } from "@/services/asc/client";
 import { testerGroupStatus } from "@/services/asc/testflight";
@@ -70,13 +70,17 @@ export async function DashboardTestflightContent({
   locale: string;
   testflight?: string;
 }) {
-  // The session comes from the private cache; entitlement and enrollment are
-  // read fresh so a lapsed subscription or a leave action shows at once.
+  // The private session deliberately omits billing metadata. Read the full
+  // account outside that cache so Founder overrides, revocations, and the
+  // enrollment email are authoritative while the static shell stays instant.
   const section = await loadDashboardSection(locale, RETURN_PATH);
   if (section.kind === "unavailable") {
     return <DashboardAuthRecovery locale={locale} returnPath={RETURN_PATH} />;
   }
-  const { user } = section;
+  const user = await getStackServerApp().getUser(section.user.id);
+  if (!user) {
+    return <DashboardAuthRecovery locale={locale} returnPath={RETURN_PATH} />;
+  }
   const eligible = await isTestflightEligible(user);
   const email = normalizedEmail(user.primaryEmail);
 

@@ -361,6 +361,9 @@
         "free": "Kostenlos",
         "pro": "Pro",
         "loading": "Wird geladen…"
+      },
+      "pro": {
+        "entitledBody": "Dein cmux Pro-Zugang ist aktiv."
       }
     },
     "iroh": {
@@ -3899,10 +3902,10 @@
   },
   "support": {
     "metaTitle": "Support | cmux",
-    "metaDescription": "Erhalte Hilfe zu cmux. Schick uns eine Nachricht und wir antworten per E-Mail – oder erreiche uns auf Discord und GitHub.",
+    "metaDescription": "Erhalten Sie Hilfe zu cmux. Schicken Sie uns eine Nachricht und wir antworten per E-Mail – oder erreichen Sie uns auf Discord und GitHub.",
     "section": "Support",
-    "title": "Hol dir Hilfe zu cmux.",
-    "body": "Schick uns eine Nachricht und wir antworten per E-Mail. Beschreib, was du gemacht hast, was du erwartet hast und was stattdessen passiert ist – so können wir dir schneller helfen.",
+    "title": "Holen Sie sich Hilfe zu cmux.",
+    "body": "Schicken Sie uns eine Nachricht und wir antworten per E-Mail. Beschreiben Sie, was Sie gemacht haben, was Sie erwartet haben und was stattdessen passiert ist – so können wir Ihnen schneller helfen.",
     "channels": {
       "docs": {
         "label": "Dokumentation",
@@ -3910,15 +3913,15 @@
       },
       "discord": {
         "label": "Discord",
-        "description": "Frag die Community und das Team in Echtzeit."
+        "description": "Fragen Sie die Community und das Team in Echtzeit."
       },
       "github": {
         "label": "GitHub-Issues",
-        "description": "Melde Bugs und schlage neue Funktionen öffentlich vor."
+        "description": "Melden Sie Bugs und schlagen Sie neue Funktionen öffentlich vor."
       },
       "email": {
         "label": "founders@manaflow.com",
-        "description": "Lieber per E-Mail? Schreib uns direkt."
+        "description": "Lieber per E-Mail? Schreiben Sie uns direkt."
       }
     },
     "formAriaLabel": "Support-Kontaktformular",
@@ -3936,11 +3939,11 @@
         "Feature-Wunsch",
         "Sonstiges"
       ],
-      "privacy": "Wir verwenden deine E-Mail-Adresse nur, um auf deine Support-Anfrage zu antworten. Wir verkaufen keine Kontaktdaten.",
+      "privacy": "Wir verwenden Ihre E-Mail-Adresse nur, um auf Ihre Support-Anfrage zu antworten. Wir verkaufen keine Kontaktdaten.",
       "submit": "Nachricht senden",
       "submitting": "Wird gesendet …",
-      "success": "Danke! Wir haben deine Nachricht erhalten und antworten dir per E-Mail von founders@manaflow.com.",
-      "error": "Etwas ist schiefgelaufen. Bitte versuche es erneut oder schreib an founders@manaflow.com."
+      "success": "Danke! Wir haben Ihre Nachricht erhalten und antworten Ihnen per E-Mail von founders@manaflow.com.",
+      "error": "Etwas ist schiefgelaufen. Bitte versuchen Sie es erneut oder schreiben Sie an founders@manaflow.com."
     }
   },
   "emails": {

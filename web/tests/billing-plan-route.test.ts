@@ -73,6 +73,48 @@ describe("billing plan route", () => {
     expect(response.billingManagement).toBe("stripe");
   });
 
+  test("reports a Founder entitlement as Pro without Stripe management", async () => {
+    currentUser = planUser({
+      clientReadOnlyMetadata: { cmuxVmPlan: "founders" },
+    });
+
+    const response = await planResponse();
+
+    expect(response.planId).toBe("pro");
+    expect(response.isPro).toBe(true);
+    expect(response.billingManagement).toBe("none");
+  });
+
+  test("recognizes a durable Founder subscription without Stripe management", async () => {
+    stripeSubscriptionRows = [
+      { id: "sub_founder", raw: { metadata: { founders_edition: "true" } } },
+    ];
+
+    const response = await planResponse();
+
+    expect(response.planId).toBe("pro");
+    expect(response.isPro).toBe(true);
+    expect(response.billingManagement).toBe("none");
+  });
+
+  test("keeps a Founder personal plan alongside a Team Stripe plan", async () => {
+    currentUser = planUser({
+      clientReadOnlyMetadata: { cmuxVmPlan: "founders" },
+      selectedTeam: { id: "team-founder", clientReadOnlyMetadata: {} },
+    });
+    // An operator grant does not imply billing backing: the personal resolver
+    // also probes Founder rows before querying the selected team's subscription.
+    stripeSubscriptionResults = [[], [], [], [{ id: "sub_team" }]];
+
+    const response = await planResponse();
+
+    expect(response.planId).toBe("pro");
+    expect(response.isPro).toBe(true);
+    expect(response.billingManagement).toBe("none");
+    expect(response.teamPlanId).toBe("team");
+    expect(response.teamBillingManagement).toBe("stripe");
+  });
+
   test("reports Free for Stack Pro products without Stripe subscription rows", async () => {
     currentUser = planUser({
       stackProductGrant: true,
@@ -124,10 +166,7 @@ describe("billing plan route", () => {
     currentUser = planUser({
       selectedTeam: { id: "team-plan", clientReadOnlyMetadata: {} },
     });
-    // The personal snapshot consumes its subscription and active-row queries
-    // before the team resolver reads the team subscription. Keep the fixture
-    // results aligned with those query boundaries.
-    stripeSubscriptionResults = [[], [], [{ id: "sub_team" }]];
+    stripeSubscriptionResults = [[], [], [], [{ id: "sub_team" }]];
 
     const response = await planResponse();
 
@@ -191,6 +230,7 @@ function planUser(options: {
   listTeams?: () => Promise<readonly unknown[]>;
   stackProductGrant?: boolean;
   primaryEmailVerified?: boolean;
+  clientReadOnlyMetadata?: unknown;
 } = {}) {
   return {
     id: "user-plan",
@@ -198,7 +238,7 @@ function planUser(options: {
     displayName: "Plan User",
     primaryEmail: "plan@example.com",
     primaryEmailVerified: options.primaryEmailVerified ?? false,
-    clientReadOnlyMetadata: {},
+    clientReadOnlyMetadata: options.clientReadOnlyMetadata ?? {},
     selectedTeam: options.selectedTeam ?? null,
     listTeams: options.listTeams ?? mock(async () => []),
     stackProductGrant: options.stackProductGrant ?? false,

@@ -22,19 +22,21 @@ import {
 } from "./helpers/testflight-user";
 
 let stackConfigured = true;
-let currentUser: ReturnType<typeof createTestflightUser> | null = null;
 let userPending = false;
+let currentUser: ReturnType<typeof createTestflightUser> | null = null;
+let freshUser: ReturnType<typeof createTestflightUser> | null | undefined;
 let ascConfigured = true;
 let status = { enrolled: false } as { enrolled: boolean; state?: string };
 
 const pendingUser = new Promise<never>(() => {});
-const getUser = mock(async () => userPending ? pendingUser : currentUser);
-// The section receives the narrow session user, so eligibility is looked up
-// on the Stack user the test configured rather than on the argument.
+const getUser = mock(async (input?: unknown) => {
+  if (typeof input === "string") {
+    return freshUser === undefined ? currentUser : freshUser;
+  }
+  return userPending ? pendingUser : currentUser;
+});
 const isTestflightEligible = mock(async (user: unknown) =>
-  (user as { id?: string }).id === currentUser?.id
-    ? (testflightUserEligibility(currentUser) ?? false)
-    : false,
+  testflightUserEligibility(user) ?? false,
 );
 const billingProModule = await import("../services/billing/pro");
 const ascFetch = mock(async (path: unknown) => {
@@ -126,14 +128,15 @@ mock.module("@/services/billing/pro", () => ({
 
 const { PRO_TESTFLIGHT_GROUP_ID } = await import("../services/asc/testflight");
 const { default: DashboardTestflightPage, DashboardTestflightContent } = await import(
-  "../app/[locale]/dashboard/testflight/page"
+  "../app/[locale]/dashboard/testflight/page",
 );
 
 describe("dashboard TestFlight page", () => {
   beforeEach(() => {
     stackConfigured = true;
-    currentUser = createTestflightUser();
     userPending = false;
+    currentUser = createTestflightUser();
+    freshUser = undefined;
     ascConfigured = true;
     status = { enrolled: false };
     getUser.mockClear();
@@ -163,7 +166,7 @@ describe("dashboard TestFlight page", () => {
     const html = await renderTestflightPage();
 
     expect(html).toContain("Subscription required");
-    expect(html).toContain("active personal Pro subscribers");
+    expect(html).toContain("cmux Pro entitlement");
     expect(html).toContain('href="/pricing"');
     expect(html).not.toContain("/api/testflight");
     expect(ascFetch).not.toHaveBeenCalled();
@@ -176,6 +179,7 @@ describe("dashboard TestFlight page", () => {
     expect(html).toContain("Apple will send a TestFlight invite to pro@example.com");
     expect(html).toContain('action="/api/testflight"');
     expect(html).toContain('name="action" value="join"');
+    expect(isTestflightEligible).toHaveBeenCalledWith(currentUser);
     expect(ascFetch).toHaveBeenCalledWith(
       "/v1/betaTesters?filter[email]=pro%40example.com&limit=1",
     );
@@ -188,25 +192,49 @@ describe("dashboard TestFlight page", () => {
 
     expect(html).toContain("You are enrolled");
     expect(html).toContain("INVITED");
-    expect(html).toContain("Access ends automatically if your subscription lapses.");
+    expect(html).toContain("Your TestFlight access follows your cmux Pro entitlement.");
     expect(html).toContain('name="action" value="leave"');
   });
 
-  test("rechecks eligibility before every rendered page", async () => {
-    const eligibleHtml = await renderTestflightPage();
+  test("reads updated Founder metadata and enrollment email on the next request", async () => {
     currentUser = createTestflightUser({ eligible: false });
-    const ineligibleHtml = await renderTestflightPage();
+    expect(await renderTestflightPage()).toContain("Subscription required");
+    expect(ascFetch).not.toHaveBeenCalled();
 
-    expect(eligibleHtml).toContain("Join the iOS beta");
-    expect(ineligibleHtml).toContain("Subscription required");
-    expect(isTestflightEligible).toHaveBeenCalledTimes(2);
+    freshUser = Object.assign(createTestflightUser(), {
+      clientReadOnlyMetadata: { cmuxVmPlan: "founders" },
+      primaryEmail: "founder@example.com",
+    });
+
+    const html = await renderTestflightPage();
+
+    expect(getUser).toHaveBeenLastCalledWith("user-pro");
+    expect(isTestflightEligible).toHaveBeenLastCalledWith(freshUser);
+    expect(html).toContain("Apple will send a TestFlight invite to founder@example.com");
+    expect(ascFetch).toHaveBeenCalledWith(
+      "/v1/betaTesters?filter[email]=founder%40example.com&limit=1",
+    );
+  });
+
+  test("does not retain eligibility from an older dashboard session", async () => {
+    expect(await renderTestflightPage()).toContain('name="action" value="join"');
+    expect(ascFetch).toHaveBeenCalled();
+    ascFetch.mockClear();
+    freshUser = createTestflightUser({ eligible: false });
+
+    const html = await renderTestflightPage();
+
+    expect(getUser).toHaveBeenLastCalledWith("user-pro");
+    expect(isTestflightEligible).toHaveBeenLastCalledWith(freshUser);
+    expect(html).toContain("Subscription required");
+    expect(ascFetch).not.toHaveBeenCalled();
   });
 
   for (const [testflight, message] of [
     ["joined", "Apple will email your TestFlight invite shortly."],
     ["left", "You have left the iOS TestFlight group."],
     ["error", "TestFlight could not be updated. Try again shortly."],
-    ["ineligible", "An active personal Pro subscription is required for iOS TestFlight."],
+    ["ineligible", "A cmux Pro entitlement is required for iOS TestFlight."],
     ["needs_email", "Add a verified primary email before joining iOS TestFlight."],
     ["unavailable", "TestFlight enrollment is not available right now."],
   ] as const) {

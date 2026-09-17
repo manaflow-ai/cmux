@@ -6,6 +6,7 @@ import enMessages from "../messages/en.json";
 import jaMessages from "../messages/ja.json";
 import { withAccountMutationLeaseSupport } from
   "./helpers/account-mutation-db-mock";
+import type { StripeBillingStatus } from "../services/billing/pro";
 
 const dbClientModule = await import("../db/client");
 const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
@@ -16,6 +17,8 @@ let currentUser: typeof proUser | null = null;
 let subscriptionRows: Array<Record<string, unknown>> = [];
 let subscriptionResults: Array<Array<Record<string, unknown>>> = [];
 let customerRows: Array<Record<string, unknown>> = [];
+let personalCustomerAvailable: boolean | null = null;
+let stripeBillingStatusOverride: StripeBillingStatus | null = null;
 
 const proUser = {
   id: "user-pro",
@@ -76,6 +79,22 @@ mock.module("../db/client", () => ({
   }),
 }));
 
+const billingProModule = await import("../services/billing/pro");
+const realHasStripeCustomerForUser = billingProModule.hasStripeCustomerForUser;
+const realResolveProPlanStatus = billingProModule.resolveProPlanStatus;
+mock.module("../services/billing/pro", () => ({
+  ...billingProModule,
+  resolveProPlanStatus: (
+    user: Parameters<typeof realResolveProPlanStatus>[0],
+    options?: Parameters<typeof realResolveProPlanStatus>[1],
+  ) => realResolveProPlanStatus(user, stripeBillingStatusOverride
+    ? { ...options, stripeBillingStatus: stripeBillingStatusOverride }
+    : options),
+  hasStripeCustomerForUser: (userId: string) => personalCustomerAvailable === null
+    ? realHasStripeCustomerForUser(userId)
+    : Promise.resolve(personalCustomerAvailable),
+}));
+
 const { default: DashboardBillingPage } = await import("../app/[locale]/dashboard/billing/page");
 const { DashboardQueryProvider } = await import("../app/[locale]/dashboard/components/query-provider");
 
@@ -86,6 +105,8 @@ describe("dashboard billing page", () => {
     subscriptionRows = [];
     subscriptionResults = [];
     customerRows = [];
+    personalCustomerAvailable = null;
+    stripeBillingStatusOverride = null;
     proUser.clientReadOnlyMetadata = {};
     proUser.selectedTeam = null;
     proUser.listTeams.mockClear();
@@ -157,6 +178,123 @@ describe("dashboard billing page", () => {
     expect(html).toContain("Cancel plan");
     expect(html).toContain('action="/api/billing/subscription"');
     expect(html).toContain('href="/api/billing/portal"');
+  });
+
+  test("renders a Founder entitlement as cmux Pro without subscription controls or an upsell", async () => {
+    proUser.clientReadOnlyMetadata = { cmuxVmPlan: "founders" };
+
+    const html = await renderBillingPage();
+
+    expect(html).toContain("cmux Pro");
+    expect(html).not.toContain("You are currently on the Free plan.");
+    expect(html).not.toContain("Upgrade when you need cloud agents or shared CodeRouter.");
+    expect(html).not.toContain("/api/billing/checkout?plan=pro");
+    expect(html).not.toContain("/api/billing/subscription");
+    expect(html).not.toContain("/api/billing/portal");
+  });
+
+  test("does not expose personal portal controls when only a team customer exists", async () => {
+    subscriptionRows = [stripeSubscriptionRow({ cancelAtPeriodEnd: false })];
+    customerRows = [{ id: "cus_team", stackTeamId: "team-pro" }];
+    personalCustomerAvailable = false;
+
+    const html = await renderBillingPage();
+
+    expect(html).toContain("cmux Pro");
+    expect(html).not.toContain('href="/api/billing/portal"');
+  });
+
+  for (const grant of ["founders", "pro", "team", "durable-founder"] as const) {
+    test(`keeps unpaid recovery available alongside ${grant} Pro access`, async () => {
+      proUser.clientReadOnlyMetadata = grant === "durable-founder" ? {} : { cmuxVmPlan: grant };
+      if (grant === "durable-founder") {
+        subscriptionRows = [{
+          ...stripeSubscriptionRow({ cancelAtPeriodEnd: false }),
+          raw: { metadata: { founders_edition: "true" } },
+        }];
+      }
+      customerRows = [{ id: "cus_unpaid_personal" }];
+      stripeBillingStatusOverride = {
+        customerId: "cus_unpaid_personal",
+        subscriptionId: "sub_unpaid",
+        activePlanId: null,
+        subscriptionStatus: "unpaid",
+        cancelAtPeriodEnd: false,
+        hasCustomer: true,
+        hasActiveSubscription: false,
+      };
+
+      const html = await renderBillingPage();
+
+      expect(html).toContain("cmux Pro");
+      expect(html).toContain('href="/api/billing/portal"');
+      expect(html).toContain("Manage billing");
+      expect(html).toContain(enMessages.dashboard.billing.pro.entitledBody);
+      expect(html).not.toContain(enMessages.dashboard.billing.pro.grantedBody);
+      expect(html).not.toContain("/api/billing/subscription");
+      expect(html).not.toContain("/api/billing/checkout?plan=pro");
+    });
+  }
+
+  test("does not expose recovery for a canceled subscription alongside a Founder grant", async () => {
+    proUser.clientReadOnlyMetadata = { cmuxVmPlan: "founders" };
+    customerRows = [{ id: "cus_canceled_personal" }];
+    stripeBillingStatusOverride = {
+      customerId: "cus_canceled_personal",
+      subscriptionId: "sub_canceled",
+      activePlanId: null,
+      subscriptionStatus: "canceled",
+      cancelAtPeriodEnd: false,
+      hasCustomer: true,
+      hasActiveSubscription: false,
+    };
+
+    const html = await renderBillingPage();
+
+    expect(html).toContain("cmux Pro");
+    expect(html).not.toContain("/api/billing/portal");
+  });
+
+  test("does not expose Stripe management for a durable Founder row with a customer", async () => {
+    subscriptionRows = [{
+      ...stripeSubscriptionRow({ cancelAtPeriodEnd: false }),
+      raw: { metadata: { founders_edition: "true" } },
+    }];
+    customerRows = [{ id: "cus_founder" }];
+
+    const html = await renderBillingPage();
+
+    expect(html).toContain("cmux Pro");
+    expect(html).not.toContain("/api/billing/subscription");
+    expect(html).not.toContain("/api/billing/portal");
+  });
+
+  test("keeps a Founder personal plan alongside a Team subscription", async () => {
+    proUser.clientReadOnlyMetadata = { cmuxVmPlan: "founders" };
+    proUser.selectedTeam = { id: "team-founder", displayName: "Founder Team" };
+    subscriptionResults = [
+      [],
+      [],
+      [],
+      [], // Personal Founder backing is queried independently of the override.
+      [
+        stripeSubscriptionRow({
+          cancelAtPeriodEnd: false,
+          plan: "team",
+          scope: "team",
+          seats: 2,
+        }),
+      ],
+    ];
+    customerRows = [{ id: "cus_team" }];
+
+    const html = await renderBillingPage();
+
+    expect(html).toContain("cmux Pro");
+    expect(html).toContain("cmux Team");
+    expect(html).toContain("Founder Team renews on");
+    expect(html).not.toContain("Upgrade when you need cloud agents or shared CodeRouter.");
+    expect(html).not.toContain("/api/billing/checkout?plan=pro");
   });
 
   test("prices every Stripe Pro subscription from its own price amount", async () => {
@@ -233,6 +371,7 @@ describe("dashboard billing page", () => {
       [],
       [],
       [],
+      [],
       [
         stripeSubscriptionRow({
           cancelAtPeriodEnd: false,
@@ -263,6 +402,7 @@ describe("dashboard billing page", () => {
       [],
       [],
       [],
+      [],
       [
         stripeSubscriptionRow({
           cancelAtPeriodEnd: false,
@@ -286,6 +426,7 @@ describe("dashboard billing page", () => {
       [],
       [],
       [],
+      [],
       [
         stripeSubscriptionRow({
           cancelAtPeriodEnd: false,
@@ -303,6 +444,7 @@ describe("dashboard billing page", () => {
     expect(await renderBillingPage()).toContain("$35/seat/mo");
 
     subscriptionResults = [
+      [],
       [],
       [],
       [],
@@ -336,6 +478,7 @@ describe("dashboard billing page", () => {
       { id: "team-pro", displayName: "Team Pro", clientReadOnlyMetadata: { cmuxPlan: "team" } },
     ]);
     subscriptionResults = [
+      [],
       [],
       [],
       [],

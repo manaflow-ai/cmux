@@ -343,6 +343,28 @@ describe("app pricing page", () => {
     expect(html).toContain("Get Max");
   });
 
+  test("does not offer a Stripe portal or another Pro purchase for a Founder entitlement", async () => {
+    stackConfigured = true;
+    currentUser = {
+      ...proUser,
+      clientReadOnlyMetadata: { cmuxVmPlan: "founders" },
+    };
+
+    const element = await AppPricingPage({
+      searchParams: Promise.resolve({
+        cmux_app: "1",
+        cmux_scheme: "cmux-dev-test",
+      }),
+    });
+    const html = await renderSettled(element);
+
+    // Inspect the settled personal cards, excluding the initial streamed fallback.
+    const personal = Array.from(html.matchAll(/id="individual-pricing-category"[\s\S]*?<\/section>/g), (match) => match[0]).find((section) => section.includes("Current plan")) ?? "";
+    expect(personal).toContain("Current plan");
+    expect(personal).not.toContain('href="/api/billing/portal"');
+    expect(personal).not.toContain("api/billing/checkout?plan=pro");
+  });
+
   for (const [name, params, message] of [
     ["welcomeTeam", { welcome: "team" }, "Your cmux Team purchase is complete."],
     ["billingCancelled", { billing: "cancelled" }, "Checkout cancelled. You have not been charged."],

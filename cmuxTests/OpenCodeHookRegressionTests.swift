@@ -178,7 +178,7 @@ const fs = require("node:fs");
   process.env.CMUX_SOCKET_PATH = activeSocketPath;
   const source = fs.readFileSync(pluginPath, "utf8")
     .replace("export const CMUXFeed = async", "globalThis.CMUXFeed = async");
-  eval(source);
+  new Function("require", source)(require);
   const hooks = await globalThis.CMUXFeed({ directory: "/tmp/opencode-project" });
   await hooks.event({ event: {
     type: "session.created",

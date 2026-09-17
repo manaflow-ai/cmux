@@ -339,9 +339,11 @@ function PricingContent({
       >
         {isProCurrent ? (
           <div className="space-y-2">
-            <SecondaryLink href="/api/billing/portal">
-              {t("manageBilling")}
-            </SecondaryLink>
+            {canManageBilling ? (
+              <SecondaryLink href="/api/billing/portal">
+                {t("manageBilling")}
+              </SecondaryLink>
+            ) : <DisabledButton>{t("currentPlan")}</DisabledButton>}
           </div>
         ) : (canManageBilling && !isGo) || isMax ? (
           <SecondaryLink href="/api/billing/portal">

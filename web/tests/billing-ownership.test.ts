@@ -206,131 +206,154 @@ describe("billing email claim resolution", () => {
     });
   });
 
-  test("enrolls a Founder claimant only after verification", async () => {
-    const transfer = {
-      kind: "claimed" as const,
-      claimId: "founder-claim",
-      email: "founder@example.com",
-      customerId: "cus-founder",
-      subscriptionIds: ["sub-founder"],
-      founderSubscriptionIds: ["sub-founder"],
-      sourceStackUserId: "anonymous-founder",
-      targetStackUserId: "verified-founder",
-    };
-    const findClaims = mock(async () => [
-      {
-        id: transfer.claimId,
-        email: transfer.email,
-        stripeCustomerId: transfer.customerId,
-        stackUserId: transfer.sourceStackUserId,
-        claimedByUserId: null,
-      },
-    ]);
-    const transferClaim = mock(async () => transfer);
-    const enroll = mock(async () => undefined);
-    const targetUpdate = mock(async () => undefined);
-
-    const result = await claimPendingProBilling(
-      {
-        id: transfer.targetStackUserId,
-        primaryEmail: transfer.email,
-        primaryEmailVerified: true,
-        isAnonymous: false,
-        isRestricted: false,
-      },
-      {
-        db: metadataDb() as never,
-        stackApp: {
-          getUser: async (id: string) =>
-            id === transfer.targetStackUserId
-              ? {
-                  id,
-                  isAnonymous: false,
-                  isRestricted: false,
-                  primaryEmail: transfer.email,
-                  primaryEmailVerified: true,
-                  clientReadOnlyMetadata: {},
-                  update: targetUpdate,
-                }
-              : {
-                  id,
-                  isAnonymous: true,
-                  primaryEmail: null,
-                  primaryEmailVerified: false,
-                  clientReadOnlyMetadata: {},
-                  update: mock(async () => undefined),
-                },
-        } as never,
-        ownershipRepository: { findClaims, transferClaim },
-        testflight: { enrollTester: enroll },
-        stripeClient: () => ({
-          customers: {
-            retrieve: async () => ({
-              id: transfer.customerId,
-              deleted: false,
-              email: transfer.email,
-              metadata: {},
-            }),
-            update: async () => undefined,
-          },
-          subscriptions: {
-            retrieve: async () => ({
-              id: transfer.subscriptionIds[0],
-              customer: transfer.customerId,
-              metadata: {},
-            }),
-            update: async () => undefined,
-          },
-        }) as never,
-      },
-    );
-
-    expect(result).toEqual({ claimed: 1 });
-    expect(enroll).toHaveBeenCalledWith("founder@example.com", undefined, undefined);
-  });
-
-  test("retries Founder enrollment from the durable row after a consumed claim", async () => {
-    const enroll = mock(async () => undefined);
-    const targetUpdate = mock(async () => undefined);
-    const findClaims = mock(async () => []);
-
-    const result = await claimPendingProBilling(
-      {
-        id: "verified-founder",
-        primaryEmail: "founder@example.com",
-        primaryEmailVerified: true,
-        isAnonymous: false,
-        isRestricted: false,
-      },
-      {
-        db: metadataDb([
-          { raw: { metadata: { founders_edition: "true" } } },
-        ]) as never,
-        stackApp: {
-          getUser: async () => ({
-            id: "verified-founder",
-            primaryEmail: "founder@example.com",
-            primaryEmailVerified: true,
-            isAnonymous: false,
-            isRestricted: false,
-            clientReadOnlyMetadata: {},
-            update: targetUpdate,
-          }),
-        } as never,
-        ownershipRepository: {
-          findClaims,
-          transferClaim: async () => null,
+  for (const [plan, eligible] of [
+    [undefined, true], ["pro", true], ["team", true], ["free", false], ["unknown", false],
+  ] as const) {
+    test(`enrolls a verified Founder claimant with override ${plan} only when entitled (${eligible})`, async () => {
+      const metadata = plan === undefined ? {} : { cmuxVmPlan: plan };
+      const transfer = {
+        kind: "claimed" as const,
+        claimId: "founder-claim",
+        email: "founder@example.com",
+        customerId: "cus-founder",
+        subscriptionIds: ["sub-founder"],
+        founderSubscriptionIds: ["sub-founder"],
+        sourceStackUserId: "anonymous-founder",
+        targetStackUserId: "verified-founder",
+      };
+      const findClaims = mock(async () => [
+        {
+          id: transfer.claimId,
+          email: transfer.email,
+          stripeCustomerId: transfer.customerId,
+          stackUserId: transfer.sourceStackUserId,
+          claimedByUserId: null,
         },
-        testflight: { enrollTester: enroll },
-      },
-    );
+      ]);
+      const transferClaim = mock(async () => transfer);
+      const enroll = mock(async () => undefined);
+      const targetUpdate = mock(async () => undefined);
 
-    expect(result).toEqual({ claimed: 0 });
-    expect(targetUpdate).toHaveBeenCalledWith({
-      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+      const result = await claimPendingProBilling(
+        {
+          id: transfer.targetStackUserId,
+          primaryEmail: transfer.email,
+          primaryEmailVerified: true,
+          isAnonymous: false,
+          isRestricted: false,
+        },
+        {
+          db: metadataDb() as never,
+          stackApp: {
+            getUser: async (id: string) =>
+              id === transfer.targetStackUserId
+                ? {
+                    id,
+                    isAnonymous: false,
+                    isRestricted: false,
+                    primaryEmail: transfer.email,
+                    primaryEmailVerified: true,
+                    clientReadOnlyMetadata: metadata,
+                    update: targetUpdate,
+                  }
+                : {
+                    id,
+                    isAnonymous: true,
+                    primaryEmail: null,
+                    primaryEmailVerified: false,
+                    clientReadOnlyMetadata: {},
+                    update: mock(async () => undefined),
+                  },
+          } as never,
+          ownershipRepository: { findClaims, transferClaim },
+          testflight: { enrollTester: enroll },
+          stripeClient: () => ({
+            customers: {
+              retrieve: async () => ({
+                id: transfer.customerId,
+                deleted: false,
+                email: transfer.email,
+                metadata: {},
+              }),
+              update: async () => undefined,
+            },
+            subscriptions: {
+              retrieve: async () => ({
+                id: transfer.subscriptionIds[0],
+                customer: transfer.customerId,
+                metadata: {},
+              }),
+              update: async () => undefined,
+            },
+          }) as never,
+        },
+      );
+
+      expect(result).toEqual({ claimed: 1 });
+      if (eligible) {
+        expect(enroll).toHaveBeenCalledWith("founder@example.com", undefined, undefined);
+        expect(targetUpdate).toHaveBeenCalledWith({
+          clientReadOnlyMetadata: { ...metadata, cmuxPlan: "pro" },
+        });
+      } else {
+        expect(enroll).not.toHaveBeenCalled();
+        expect(targetUpdate).not.toHaveBeenCalled();
+      }
     });
-    expect(enroll).toHaveBeenCalledWith("founder@example.com", undefined, undefined);
-  });
+  }
+
+  for (const [plan, eligible] of [
+    [undefined, true], ["pro", true], ["team", true], ["free", false], ["unknown", false],
+  ] as const) {
+    test(`retries durable Founder enrollment with override ${plan} only when entitled (${eligible})`, async () => {
+      const metadata = plan === undefined ? {} : { cmuxVmPlan: plan };
+      const enroll = mock(async () => undefined);
+      const targetUpdate = mock(async () => undefined);
+      const findClaims = mock(async () => []);
+
+      const result = await claimPendingProBilling(
+        {
+          id: "verified-founder",
+          primaryEmail: "founder@example.com",
+          primaryEmailVerified: true,
+          isAnonymous: false,
+          isRestricted: false,
+        },
+        {
+          db: metadataDb([
+            { raw: { metadata: { founders_edition: "true" } } },
+          ]) as never,
+          stackApp: {
+            getUser: async () => ({
+              id: "verified-founder",
+              primaryEmail: "founder@example.com",
+              primaryEmailVerified: true,
+              isAnonymous: false,
+              isRestricted: false,
+              clientReadOnlyMetadata: metadata,
+              update: targetUpdate,
+            }),
+          } as never,
+          ownershipRepository: {
+            findClaims,
+            transferClaim: async () => null,
+          },
+          testflight: { enrollTester: enroll },
+        },
+      );
+
+      expect(result).toEqual({ claimed: 0 });
+      if (eligible) {
+        expect(targetUpdate).toHaveBeenCalledWith({
+          clientReadOnlyMetadata: { ...metadata, cmuxPlan: "pro" },
+        });
+        expect(enroll).toHaveBeenCalledWith("founder@example.com", undefined, undefined);
+      } else {
+        expect(targetUpdate).not.toHaveBeenCalled();
+        expect(enroll).not.toHaveBeenCalled();
+      }
+    });
+  }
 
   test("does not resolve claims from an unverified email", async () => {
     const findClaims = mock(async () => []);

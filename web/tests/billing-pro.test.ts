@@ -1,8 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
   FREE_PLAN_ID,
+  hasActiveCoderouterSubscription,
   isDevelopmentProAccessEnabled,
   isTestflightEligible,
+  hasFounderEditionEntitlement,
+  isFounderPlanId,
+  normalizePersonalPlan,
   PRO_PLAN_ID,
   reconcileProPlanMetadata,
   resolveProPlanStatus,
@@ -15,6 +19,7 @@ import {
 } from "../services/account/deletionLock";
 import { AccountMetadataUserUnavailableError } from
   "../services/account/metadataMutation";
+import { billingPlanIdFromMetadata } from "../services/billing/teamResolution";
 import type {
   FreshProMetadataUserMutation,
   ProMetadataJson,
@@ -22,6 +27,10 @@ import type {
 
 type MetadataUser = {
   id?: string;
+  primaryEmail?: string | null;
+  primaryEmailVerified?: boolean;
+  isAnonymous?: boolean;
+  isRestricted?: boolean;
   clientReadOnlyMetadata?: unknown;
   update: (options: {
     clientReadOnlyMetadata: ProMetadataJson;
@@ -66,6 +75,16 @@ describe("syncProPlanMetadata", () => {
     expect(user.updates).toEqual([]);
   });
 
+  test("clears a lapsed Stripe mirror without changing an operator Founder grant", async () => {
+    const user = metadataUser({ cmuxVmPlan: "founders", cmuxPlan: PRO_PLAN_ID, theme: "dark" });
+    await syncProPlanMetadata(user, true, mutationLease());
+    expect(user.updates).toEqual([]);
+    const metadata = await syncProPlanMetadata(user, false, mutationLease());
+    expect(user.updates).toEqual([{ cmuxVmPlan: "founders", theme: "dark" }]);
+    expect(normalizePersonalPlan(metadata, false).isPro).toBe(true);
+    expect(billingPlanIdFromMetadata({ ...user.updates[0] as object, cmuxVmPlan: null })).toBeNull();
+  });
+
   test("removes cmuxPlan when pro lapsed", async () => {
     const user = metadataUser({ cmuxPlan: PRO_PLAN_ID, theme: "dark" });
     await syncProPlanMetadata(user, false, mutationLease());
@@ -105,6 +124,62 @@ describe("syncProPlanMetadata", () => {
   });
 });
 
+describe("normalizePersonalPlan", () => {
+  test("accepts the verified Founder marker without trusting an email", () => {
+    expect(hasFounderEditionEntitlement({ cmuxVmPlan: " Founders " })).toBe(true);
+    expect(
+      normalizePersonalPlan({ cmuxVmPlan: "founders" }, false),
+    ).toEqual({
+      planId: PRO_PLAN_ID,
+      isPro: true,
+      billingManagement: "none",
+    });
+  });
+
+  test("honors an explicit VM-plan override over a lower-priority Founder marker", () => {
+    expect(
+      normalizePersonalPlan(
+        { cmuxVmPlan: "free", cmuxPlan: "founders" },
+        false,
+      ),
+    ).toEqual({
+      planId: FREE_PLAN_ID,
+      isPro: false,
+      billingManagement: "none",
+    });
+  });
+
+  test("recognizes a normalized Pro mirror when a Founder grant remains", () => {
+    expect(
+      normalizePersonalPlan(
+        { cmuxVmPlan: "founders", cmuxPlan: PRO_PLAN_ID },
+        false,
+      ),
+    ).toEqual({
+      planId: PRO_PLAN_ID,
+      isPro: true,
+      billingManagement: "none",
+    });
+  });
+
+  test("normalizes Founder plan ids for shared entitlement gates", () => {
+    expect(isFounderPlanId(" Founders ")).toBe(true);
+    expect(isFounderPlanId("pro")).toBe(false);
+  });
+
+  test("lets hosted CodeRouter recognize an operator Founder grant without Stripe", async () => {
+    await expect(
+      hasActiveCoderouterSubscription("founder-user", "team-1", "founders", true),
+    ).resolves.toBe(true);
+  });
+
+  test("does not trust a bare mirrored Founder id without the manual-override bit", async () => {
+    await expect(
+      hasActiveCoderouterSubscription("mirrored-founder", "team-1", "founders", false),
+    ).resolves.toBe(false);
+  });
+});
+
 describe("reconcileProPlanMetadata", () => {
   test("upgrades metadata when a Stripe subscription row is active", async () => {
     const user = metadataUser({}, "user-stripe-pro");
@@ -141,7 +216,7 @@ describe("reconcileProPlanMetadata", () => {
     expect(user.updates).toEqual([]);
   });
 
-  test("skips when manual cmuxVmPlan override is set", async () => {
+  test("does not write when neither a billing row nor a stale mirror exists", async () => {
     const user = metadataUser({ cmuxVmPlan: "enterprise" }, "user-free");
     expect(
       await reconcileProPlanMetadata(user, {
@@ -149,6 +224,31 @@ describe("reconcileProPlanMetadata", () => {
       }),
     ).toBe(false);
     expect(user.updates).toEqual([]);
+  });
+
+  for (const override of ["pro", "team", " Founders ", "free", "enterprise"]) {
+    test(`clears a stale billing mirror beneath the ${override} override`, async () => {
+      const user = metadataUser({ cmuxVmPlan: override, cmuxPlan: PRO_PLAN_ID, theme: "dark" }, "user-granted");
+      expect(await reconcileProPlanMetadata(user, {
+        hasActiveStripeSubscription: async () => false,
+        hasActiveFounderSubscription: async () => false,
+        withFreshMetadataUser: withFreshMetadataUser(user),
+      })).toBe(true);
+      expect(user.updates).toEqual([{ cmuxVmPlan: override, theme: "dark" }]);
+      expect(billingPlanIdFromMetadata({ ...user.updates[0] as object, cmuxVmPlan: null })).toBeNull();
+    });
+  }
+
+  test("clears the stale mirror using fresh metadata when a Founder grant races the read", async () => {
+    const user = metadataUser({ cmuxPlan: PRO_PLAN_ID }, "user-granted");
+    const freshUser = metadataUser({ cmuxPlan: PRO_PLAN_ID, cmuxVmPlan: "founders", theme: "dark" }, "user-granted");
+    expect(await reconcileProPlanMetadata(user, {
+      hasActiveStripeSubscription: async () => false,
+      hasActiveFounderSubscription: async () => false,
+      withFreshMetadataUser: withFreshMetadataUser(freshUser),
+    })).toBe(true);
+    expect(user.updates).toEqual([]);
+    expect(freshUser.updates).toEqual([{ cmuxVmPlan: "founders", theme: "dark" }]);
   });
 
   test("defers reconciliation while account deletion blocks metadata mutation", async () => {
@@ -167,6 +267,162 @@ describe("reconcileProPlanMetadata", () => {
 });
 
 describe("resolveProPlanStatus", () => {
+  test("runs the pending ownership claim only for a verified account", async () => {
+    const user = metadataUser({}, "user-verified");
+    user.primaryEmail = "buyer@example.com";
+    user.primaryEmailVerified = true;
+    user.isAnonymous = false;
+    user.isRestricted = false;
+    let claimed = false;
+    const claimPendingBilling = async (candidate: { id: string }) => {
+      claimed = candidate.id === "user-verified";
+    };
+
+    await expect(
+      resolveProPlanStatus(user, {
+        hasActiveStripeSubscription: async () => false,
+        claimPendingBilling,
+      }),
+    ).resolves.toMatchObject({
+      planId: FREE_PLAN_ID,
+      isPro: false,
+    });
+    expect(claimed).toBe(true);
+  });
+
+  test("does not claim billing from an unverified account", async () => {
+    const user = metadataUser({}, "user-unverified");
+    user.primaryEmail = "buyer@example.com";
+    user.primaryEmailVerified = false;
+    let claimed = false;
+    const claimPendingBilling = async () => {
+      claimed = true;
+    };
+
+    await expect(
+      resolveProPlanStatus(user, {
+        hasActiveStripeSubscription: async () => false,
+        claimPendingBilling,
+      }),
+    ).resolves.toMatchObject({
+      planId: FREE_PLAN_ID,
+      isPro: false,
+    });
+    expect(claimed).toBe(false);
+  });
+
+  test("normalizes a verified Founder entitlement to Pro without Stripe management", async () => {
+    const user = metadataUser({ cmuxVmPlan: "founders" }, "user-founder");
+
+    await expect(
+      resolveProPlanStatus(user, {
+        hasActiveStripeSubscription: async () => false,
+        withFreshMetadataUser: withFreshMetadataUser(user),
+      }),
+    ).resolves.toMatchObject({
+      planId: PRO_PLAN_ID,
+      isPro: true,
+      billingManagement: "none",
+      hasManualVmPlanOverride: true,
+      metadataChanged: false,
+    });
+    expect(user.updates).toEqual([]);
+  });
+
+  test("keeps Stripe management when a Founder also has a Stripe subscription", async () => {
+    const user = metadataUser({ cmuxVmPlan: "founders" }, "user-founder-pro");
+
+    await expect(
+      resolveProPlanStatus(user, {
+        hasActiveStripeSubscription: async () => true,
+        withFreshMetadataUser: withFreshMetadataUser(user),
+      }),
+    ).resolves.toMatchObject({
+      planId: PRO_PLAN_ID,
+      isPro: true,
+      billingManagement: "stripe",
+      hasManualVmPlanOverride: true,
+      metadataChanged: true,
+    });
+    expect(user.updates).toEqual([{ cmuxVmPlan: "founders", cmuxPlan: PRO_PLAN_ID }]);
+  });
+
+  test("clears the lapsed Pro mirror while an operator Founder grant remains", async () => {
+    const user = metadataUser(
+      { cmuxVmPlan: "founders", cmuxPlan: PRO_PLAN_ID },
+      "user-founder-normalized",
+    );
+
+    await expect(
+      resolveProPlanStatus(user, {
+        hasActiveStripeSubscription: async () => true,
+        withFreshMetadataUser: withFreshMetadataUser(user),
+      }),
+    ).resolves.toMatchObject({
+      planId: PRO_PLAN_ID,
+      isPro: true,
+      billingManagement: "stripe",
+      hasManualVmPlanOverride: true,
+      metadataChanged: false,
+    });
+    await expect(
+      resolveProPlanStatus(user, {
+        hasActiveStripeSubscription: async () => false,
+        withFreshMetadataUser: withFreshMetadataUser(user),
+      }),
+    ).resolves.toMatchObject({
+      planId: PRO_PLAN_ID,
+      isPro: true,
+      billingManagement: "none",
+      hasManualVmPlanOverride: true,
+      metadataChanged: true,
+    });
+    expect(user.updates).toEqual([{ cmuxVmPlan: "founders" }]);
+    expect(billingPlanIdFromMetadata({ ...user.updates[0] as object, cmuxVmPlan: null })).toBeNull();
+  });
+
+  for (const override of ["founders", "pro", "team", "free"]) {
+    test(`keeps durable Founder backing independent of the ${override} override`, async () => {
+      const user = metadataUser({ cmuxVmPlan: override }, "user-founder-row");
+      let founderReads = 0;
+      const status = await resolveProPlanStatus(user, {
+        hasActiveStripeSubscription: async () => false,
+        hasActiveFounderSubscription: async () => {
+          founderReads += 1;
+          return true;
+        },
+        withFreshMetadataUser: withFreshMetadataUser(user),
+      });
+      expect(founderReads).toBe(1);
+      expect(status).toMatchObject({
+        isPro: override !== "free",
+        billingManagement: "none",
+        metadataChanged: true,
+      });
+      expect(user.updates).toEqual([{ cmuxVmPlan: override, cmuxPlan: PRO_PLAN_ID }]);
+      expect(billingPlanIdFromMetadata({ ...user.updates[0] as object, cmuxVmPlan: null })).toBe(PRO_PLAN_ID);
+    });
+  }
+
+  test("recognizes a durable Founder subscription without enabling Stripe management", async () => {
+    const user = metadataUser({}, "user-founder-row");
+
+    await expect(
+      resolveProPlanStatus(user, {
+        hasActiveStripeSubscription: async () => false,
+        hasActiveFounderSubscription: async () => true,
+        withFreshMetadataUser: withFreshMetadataUser(user),
+      }),
+    ).resolves.toMatchObject({
+      planId: PRO_PLAN_ID,
+      isPro: true,
+      billingManagement: "none",
+      hasManualVmPlanOverride: false,
+      metadataChanged: true,
+    });
+    expect(user.updates).toEqual([{ cmuxPlan: PRO_PLAN_ID }]);
+  });
+
   test("local development Stack accounts receive Pro without a billing grant", async () => {
     expect(isDevelopmentProAccessEnabled({
       NODE_ENV: "development",
@@ -366,11 +622,12 @@ describe("resolveProPlanStatus", () => {
     }
   });
 
-  test("does not mutate metadata when a manual VM plan override exists", async () => {
+  test("syncs only the billing mirror when a manual VM plan override exists", async () => {
     const user = metadataUser({ cmuxVmPlan: "enterprise" }, "user-stripe-pro");
     await expect(
       resolveProPlanStatus(user, {
         hasActiveStripeSubscription: async () => true,
+        withFreshMetadataUser: withFreshMetadataUser(user),
       }),
     ).resolves.toEqual({
       planId: PRO_PLAN_ID,
@@ -378,9 +635,9 @@ describe("resolveProPlanStatus", () => {
       billingManagement: "stripe",
       metadataPlanId: null,
       hasManualVmPlanOverride: true,
-      metadataChanged: false,
+      metadataChanged: true,
     });
-    expect(user.updates).toEqual([]);
+    expect(user.updates).toEqual([{ cmuxVmPlan: "enterprise", cmuxPlan: PRO_PLAN_ID }]);
   });
 
   test("still resolves the Stripe plan while another metadata mutation owns the lease", async () => {
@@ -438,6 +695,32 @@ describe("resolveProPlanStatus", () => {
 });
 
 describe("isTestflightEligible", () => {
+  for (const plan of ["pro", "team", " PRO "]) {
+    test(`includes the personal operator grant ${plan} without requiring Stripe`, async () => {
+      const user = metadataUser({ cmuxVmPlan: plan }, "operator-granted-testflight");
+
+      await expect(isTestflightEligible(user, {
+        hasActiveStripeSubscription: async () => false,
+      })).resolves.toBe(true);
+      await expect(isTestflightEligible(user, {
+        hasActiveStripeSubscription: async () => false,
+        hasActiveFounderSubscription: async () => true,
+      })).resolves.toBe(true);
+      expect(user.updates).toEqual([]);
+    });
+  }
+
+  for (const plan of ["pro", "team", "founders"]) {
+    test(`does not turn an unbacked ${plan} mirror into a TestFlight grant`, async () => {
+      const user = metadataUser({ cmuxPlan: plan }, "unbacked-testflight-mirror");
+
+      await expect(isTestflightEligible(user, {
+        hasActiveStripeSubscription: async () => false,
+      })).resolves.toBe(false);
+      expect(user.updates).toEqual([]);
+    });
+  }
+
   test("requires personal Pro without mutating Stack metadata or granting Team access", async () => {
     const user = metadataUser({ cmuxPlan: PRO_PLAN_ID }, "team-member") as MetadataUser & {
       selectedTeam: { id: string; clientReadOnlyMetadata: unknown };
@@ -451,5 +734,37 @@ describe("isTestflightEligible", () => {
       hasActiveStripeSubscription: async () => false,
     })).resolves.toBe(false);
     expect(user.updates).toEqual([]);
+  });
+
+  test("includes a Founder metadata entitlement", async () => {
+    const user = metadataUser({ cmuxVmPlan: "founders" }, "founder-testflight");
+
+    await expect(
+      isTestflightEligible(user, {
+        hasActiveStripeSubscription: async () => false,
+      }),
+    ).resolves.toBe(true);
+  });
+
+  test("includes a durable Founder row when the mailbox is otherwise Pro-eligible", async () => {
+    const user = metadataUser({}, "founder-row-testflight");
+
+    await expect(
+      isTestflightEligible(user, {
+        hasActiveStripeSubscription: async () => false,
+        hasActiveFounderSubscription: async () => true,
+      }),
+    ).resolves.toBe(true);
+  });
+
+  test("honors a non-Founder VM override over a Founder row", async () => {
+    const user = metadataUser({ cmuxVmPlan: "free" }, "founder-row-overridden");
+
+    await expect(
+      isTestflightEligible(user, {
+        hasActiveStripeSubscription: async () => false,
+        hasActiveFounderSubscription: async () => true,
+      }),
+    ).resolves.toBe(false);
   });
 });

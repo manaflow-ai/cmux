@@ -32,6 +32,9 @@ export async function activeStripeSubscriptionForStackUser(stackUserId: string) 
         inArray(stripeSubscriptions.plan, PERSONAL_PLAN_IDS),
         sql`coalesce(${stripeSubscriptions.raw}->'metadata'->>'founders_edition', '') <> 'true'`,
         inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
+        // Founder rows are durable entitlement records, not Stripe-managed
+        // subscriptions. They must never be selected for cancel/resume.
+        sql`${stripeSubscriptions.raw}->'metadata'->>'founders_edition' is distinct from 'true'`,
       ),
     )
     .orderBy(desc(stripeSubscriptions.currentPeriodEnd), desc(stripeSubscriptions.updatedAt))

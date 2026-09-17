@@ -2515,6 +2515,34 @@ extension CLINotifyProcessIntegrationRegressionTests {
             return result
         }
 
+        func assertWaitingJournal(_ commands: [String], kind: String, body: String) {
+            let events = AgentJournalAppendCapture.captures(in: commands)
+            XCTAssertEqual(events.count, 2, commands.joined(separator: "\n"))
+            for event in events {
+                XCTAssertEqual(event.kind, kind)
+                XCTAssertEqual(event.agentKey, "grok")
+                XCTAssertEqual(event.draft["source"] as? String, "grok")
+                XCTAssertEqual(event.sessionId, sessionId)
+                XCTAssertEqual(event.workspaceId, workspaceId)
+                XCTAssertEqual(event.surfaceId, surfaceId)
+                XCTAssertFalse(event.isSubagent)
+                XCTAssertFalse(event.pendingWork)
+            }
+            XCTAssertEqual(
+                events.compactMap { $0.draft["native_event"] as? String },
+                ["Notification"]
+            )
+            let notifications = events.compactMap { event in
+                (event.draft["attention"] as? [String: Any])?["notification"] as? [String: String]
+            }
+            XCTAssertEqual(notifications, [[
+                "title": "Grok",
+                "subtitle": "Waiting",
+                "body": body,
+                "category": "idle-reminder",
+            ]])
+        }
+
         let start = runGrokHook(
             "session-start",
             input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"SessionStart"}"#
@@ -2903,6 +2931,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(waiting.stdout, "{}\n")
 
         let waitingCommands = Array(state.commands.dropFirst(waitingCommandStart))
+        assertWaitingJournal(waitingCommands, kind: "agent.question.requested", body: waitingMessage)
         XCTAssertTrue(
             waitingCommands.contains {
                 $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Waiting|\(waitingMessage)")
@@ -2930,9 +2959,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
             },
             "Expected the saved-message fallback to dedupe the notification already delivered for that message, saw \(fallbackCommands)"
         )
-        XCTAssertTrue(
-            fallbackCommands.contains { $0.contains("set_status grok Grok needs input") },
-            "Expected fallback notification to preserve the saved needs-input status, saw \(fallbackCommands)"
+        assertWaitingJournal(fallbackCommands, kind: "agent.state.changed", body: waitingMessage)
+        XCTAssertFalse(
+            fallbackCommands.contains { $0.hasPrefix("set_status grok ") },
+            "Stored display text must not fabricate a lifecycle status, saw \(fallbackCommands)"
         )
 
         json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
@@ -2940,7 +2970,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         session = try XCTUnwrap(sessions[sessionId] as? [String: Any])
         XCTAssertEqual(session["lastSubtitle"] as? String, "Waiting")
         XCTAssertEqual(session["lastBody"] as? String, waitingMessage)
-        XCTAssertEqual(session["lastNotificationStatus"] as? String, "needsInput")
+        XCTAssertNil(session["lastNotificationStatus"])
 
         for neutralMessage in ["Invalid input format", "Question mark rendered"] {
             let neutralCommandStart = state.commands.count
@@ -2974,11 +3004,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(incompleteWaiting.stdout, "{}\n")
 
         let incompleteWaitingCommands = Array(state.commands.dropFirst(incompleteWaitingCommandStart))
-        XCTAssertTrue(
-            incompleteWaitingCommands.contains {
-                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Waiting|\(incompleteWaitingMessage)")
-            },
-            "Incomplete/undone waiting text should not be classified as a completion, saw \(incompleteWaitingCommands)"
+        // The notification reducer can coalesce a second waiting banner; the
+        // journal must still record the exact question and its display payload.
+        assertWaitingJournal(
+            incompleteWaitingCommands,
+            kind: "agent.question.requested",
+            body: incompleteWaitingMessage
         )
         XCTAssertFalse(
             incompleteWaitingCommands.contains { $0.contains("Grok|Completed|") },
@@ -3028,9 +3059,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
             },
             "Expected the saved-message fallback to dedupe the notification already delivered for that message, saw \(neutralFallbackCommands)"
         )
-        XCTAssertTrue(
-            neutralFallbackCommands.contains { $0.contains("set_status grok Grok needs input") },
-            "Fallback notifications should preserve the saved needs-input status, saw \(neutralFallbackCommands)"
+        assertWaitingJournal(
+            neutralFallbackCommands,
+            kind: "agent.state.changed",
+            body: incompleteWaitingMessage
+        )
+        XCTAssertFalse(
+            neutralFallbackCommands.contains { $0.hasPrefix("set_status grok ") },
+            "Stored display text must not fabricate a lifecycle status, saw \(neutralFallbackCommands)"
         )
     }
 
@@ -4469,7 +4505,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertNotEqual(result.status, 0, result.stdout)
         XCTAssertTrue(
-            result.stderr.contains("cmux could not create the hooks directory: a file exists at \(hooksPath.path); remove or rename the conflicting file and re-run `cmux hooks setup`"),
+            result.stderr.contains("cmux could not create the hooks directory: a file exists at \(hooksPath.path). Remove or rename the conflicting file, then run `cmux hooks setup` again."),
             result.stderr
         )
         XCTAssertFalse(
@@ -5014,7 +5050,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
     }
 
-    private func writeCodexResumeTranscript(at url: URL, sessionID: String) throws {
+    func writeCodexResumeTranscript(at url: URL, sessionID: String) throws {
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(),
             withIntermediateDirectories: true

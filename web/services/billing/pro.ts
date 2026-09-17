@@ -6,7 +6,7 @@
 // `cmuxVmPlan` takes precedence over `cmuxPlan` there and is left untouched
 // here so manual overrides survive.
 
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
 import { stripeCustomers, stripeSubscriptions } from "../../db/schema";
@@ -36,7 +36,8 @@ export const TEAM_PLAN_ID = "team";
 // Founder's Edition is a one-time purchase. Its completion recorder stores a
 // durable active Pro row with a Founder marker, and subscription reconciliation
 // skips that marker so a cancelled provider duplicate cannot clear access.
-// Existing operator grants may still use `cmuxVmPlan: "founders"`.
+// Existing operator grants may still use `cmuxVmPlan: "founders"`; both forms
+// provide Pro access without subscription-management controls.
 export const FOUNDERS_PLAN_ID = "founders";
 export const FREE_PLAN_ID = "free";
 
@@ -123,10 +124,10 @@ export type ProMetadataCustomer = {
 };
 
 /**
- * Writes `cmuxPlan: "pro"` (or `"max"`, the plan in force) into the user's
- * clientReadOnlyMetadata when a personal subscription is active, and removes
- * it when it lapsed. Returns the normalized metadata snapshot that was
- * written or observed.
+ * Mirrors billing-backed Pro access (recurring or durable Founder rows) in
+ * `cmuxPlan`, and removes stale paid mirrors when that backing lapses. Operator
+ * grants live independently in `cmuxVmPlan`, which is never changed here.
+ * Returns the normalized metadata snapshot that was written or observed.
  */
 export async function syncProPlanMetadata(
   user: ProMetadataCustomer,
@@ -161,10 +162,14 @@ export async function syncProPlanMetadata(
 
 export type ProReconcileUser = ProMetadataCustomer & {
   readonly id?: string;
+  readonly primaryEmail?: string | null;
+  readonly primaryEmailVerified?: boolean;
   readonly isAnonymous?: boolean;
+  readonly isRestricted?: boolean;
 };
 
 export type ActiveStripeSubscriptionQuery = (stackUserId: string) => Promise<boolean>;
+export type ActiveFounderSubscriptionQuery = (stackUserId: string) => Promise<boolean>;
 /** The best active personal plan for an owner, or null when none is active. */
 export type ActivePersonalPlanQuery = (stackUserId: string) => Promise<PersonalPlanId | null>;
 export type StripeCustomerQuery = (stackUserId: string) => Promise<boolean>;
@@ -198,7 +203,17 @@ export type FreshProMetadataUserMutation = <Result>(
     lease: AccountDeletionUserMutationLease,
   ) => Promise<Result>,
 ) => Promise<Result>;
+export type PendingBillingClaimResolver = (
+  user: ProReconcileUser & { readonly id: string },
+) => Promise<unknown>;
 export type BillingManagementKind = "stripe" | "none";
+
+export type NormalizedPersonalPlan = {
+  readonly planId: typeof FREE_PLAN_ID | typeof PRO_PLAN_ID;
+  readonly isPro: boolean;
+  /** Stripe is the only source that enables subscription-management actions. */
+  readonly billingManagement: BillingManagementKind;
+};
 
 export type ProPlanStatus = {
   /** The personal plan in force: free, pro, or max (max satisfies isPro). */
@@ -211,15 +226,74 @@ export type ProPlanStatus = {
 };
 
 /**
+ * Collapse verified entitlement sources into the user-facing personal plan.
+ * Founder access is permanent but not subscription-managed; only an active
+ * Stripe row enables Stripe billing controls.
+ */
+export function normalizePersonalPlan(
+  metadata: unknown,
+  hasActiveStripeSubscription: boolean,
+  hasActiveFounderSubscription = false,
+): NormalizedPersonalPlan {
+  const metadataRecord = proMetadataRecord(metadata);
+  const isFounder = hasEffectiveFounderEntitlement(
+    metadataRecord,
+    hasActiveFounderSubscription,
+  );
+  const isManualGrant = isPaidPlanId(manualVmPlanOverride(metadataRecord));
+  const isPro = hasActiveStripeSubscription || isFounder || isManualGrant;
+  return {
+    planId: isPro ? PRO_PLAN_ID : FREE_PLAN_ID,
+    isPro,
+    billingManagement: hasActiveStripeSubscription ? "stripe" : "none",
+  };
+}
+
+/** Resolve Founder's Edition only from durable account metadata. */
+export function hasFounderEditionEntitlement(raw: unknown): boolean {
+  const metadata = proMetadataRecord(raw);
+  // `cmuxVmPlan` is the explicit, operator-owned Founder source. A bare
+  // `cmuxPlan` value is only a Stripe mirror and must not become a permanent
+  // entitlement when its backing row has lapsed or is absent.
+  return isFounderPlanId(normalizedPlanValue(metadata.cmuxVmPlan));
+}
+
+/** Compare a plan value using the same normalization as Founder metadata. */
+export function isFounderPlanId(raw: unknown): boolean {
+  return normalizedPlanValue(raw) === FOUNDERS_PLAN_ID;
+}
+
+/**
+ * Resolve the permanent Founder source while honoring an explicit, non-Founder
+ * `cmuxVmPlan` override. This shared predicate keeps UI and side effects in
+ * agreement about the effective entitlement.
+ */
+export function hasEffectiveFounderEntitlement(
+  raw: unknown,
+  hasActiveFounderSubscription = false,
+): boolean {
+  const metadata = proMetadataRecord(raw);
+  return (
+    hasFounderEditionEntitlement(metadata) ||
+    (!hasManualVmOverride(metadata) && hasActiveFounderSubscription)
+  );
+}
+
+/** Return whether the metadata carries a non-empty operator VM override. */
+export function hasManualVmPlanOverride(raw: unknown): boolean {
+  return hasManualVmOverride(proMetadataRecord(raw));
+}
+
+/**
  * Read-time reconciliation: compares the `cmuxPlan` metadata against the
  * actual Stripe Pro subscription state and syncs it in either direction.
- * Skipped when a manual `cmuxVmPlan` override is set — that key wins in plan
- * resolution and is operator-owned. Returns true when metadata was changed.
+ * Independent operator grants are preserved, but cannot back the billing mirror.
  */
 export async function reconcileProPlanMetadata(
   user: ProReconcileUser,
   options: {
     hasActiveStripeSubscription?: ActiveStripeSubscriptionQuery;
+    hasActiveFounderSubscription?: ActiveFounderSubscriptionQuery;
     activePersonalPlan?: ActivePersonalPlanQuery;
     withFreshMetadataUser?: FreshProMetadataUserMutation;
   } = {},
@@ -229,17 +303,15 @@ export async function reconcileProPlanMetadata(
     raw && typeof raw === "object" && !Array.isArray(raw)
       ? (raw as Record<string, unknown>)
       : {};
-  const override = metadata.cmuxVmPlan;
-  if (typeof override === "string" && override.trim()) return false;
-
-  const activePlan = user.id
-    ? await resolveActivePersonalPlan(user.id, options)
-    : null;
-  if (!proMirrorNeedsReconcile(activePlan, planIdFromMetadata(metadata))) return false;
   if (!user.id) return false;
+  const activePlan = await resolveActivePersonalPlan(user.id, options);
+  const founder = await founderSubscriptionForStatus(user.id, activePlan, options);
+  const mirrorPlan = highestPersonalPlanId([activePlan, founder ? PRO_PLAN_ID : null]);
+  if (!proMirrorNeedsReconcile(mirrorPlan, planIdFromMetadata(metadata))) return false;
+
   return await reconcileProMetadataIfAvailable(
     user.id,
-    activePlan,
+    mirrorPlan,
     options.withFreshMetadataUser ?? withDefaultFreshProMetadataUser,
   );
 }
@@ -267,18 +339,42 @@ export async function resolveProPlanStatus(
   user: ProReconcileUser,
   options: {
     hasActiveStripeSubscription?: ActiveStripeSubscriptionQuery;
+    hasActiveFounderSubscription?: ActiveFounderSubscriptionQuery;
     activePersonalPlan?: ActivePersonalPlanQuery;
     hasStripeCustomer?: StripeCustomerQuery;
     /** Optional state snapshot used by checkout and deterministic callers. */
     stripeBillingStatus?: StripeBillingStatus | StripeBillingStatusQuery;
     withFreshMetadataUser?: FreshProMetadataUserMutation;
+    claimPendingBilling?: PendingBillingClaimResolver;
     /** Runtime environment override used by deterministic callers and tests. */
     environment?: Record<string, string | undefined>;
   } = {},
 ): Promise<ProPlanStatus> {
+  // Keep ordinary plan reads read-mostly. Mutation-capable callers (for
+  // example subscription actions) can opt into the ownership-claim boundary
+  // explicitly; the plan API must not transfer billing rows as a side effect.
+  if (
+    options.claimPendingBilling &&
+    user.id &&
+    user.isAnonymous !== true &&
+    user.isRestricted !== true &&
+    user.primaryEmailVerified === true &&
+    user.primaryEmail?.trim()
+  ) {
+    try {
+      await options.claimPendingBilling(
+        user as ProReconcileUser & { readonly id: string },
+      );
+    } catch {
+      // Billing status still resolves from authoritative Stripe rows when a
+      // pending ownership claim is temporarily unavailable.
+    }
+  }
   const metadata = proMetadataRecord(user.clientReadOnlyMetadata);
-  const hasManualVmPlanOverride = hasManualVmOverride(metadata);
+  const metadataFounderEntitlement = hasFounderEditionEntitlement(metadata);
   const metadataPlanId = planIdFromMetadata(metadata);
+  const hasManualVmPlanOverride =
+    hasManualVmOverride(metadata) || metadataFounderEntitlement;
   if (!user.isAnonymous && isDevelopmentProAccessEnabled(options.environment)) {
     return {
       planId: PRO_PLAN_ID,
@@ -292,7 +388,12 @@ export async function resolveProPlanStatus(
   const { stripeBillingStatus, activeStripePlan, hasStripeCustomer } =
     await stripeStateForStatus(user.id, options);
   const hasActiveStripePro = activeStripePlan !== null;
-  const planId = personalPlanIdForStatus(activeStripePlan, manualVmPlanOverride(metadata));
+  const founder = await founderSubscriptionForStatus(user.id, activeStripePlan, options);
+  const mirrorPlan = highestPersonalPlanId([activeStripePlan, founder ? PRO_PLAN_ID : null]);
+  const entitlementPlan = hasEffectiveFounderEntitlement(metadata, founder)
+    ? highestPersonalPlanId([activeStripePlan, PRO_PLAN_ID])
+    : activeStripePlan;
+  const planId = personalPlanIdForStatus(entitlementPlan, manualVmPlanOverride(metadata));
   const isPro = planId !== FREE_PLAN_ID;
   const billingManagement = billingManagementForStatus(
     stripeBillingStatus,
@@ -303,12 +404,11 @@ export async function resolveProPlanStatus(
 
   if (
     user.id &&
-    !hasManualVmPlanOverride &&
-    proMirrorNeedsReconcile(activeStripePlan, metadataPlanId)
+    proMirrorNeedsReconcile(mirrorPlan, metadataPlanId)
   ) {
     metadataChanged = await reconcileProMetadataIfAvailable(
       user.id,
-      activeStripePlan,
+      mirrorPlan,
       options.withFreshMetadataUser ?? withDefaultFreshProMetadataUser,
     );
   }
@@ -321,6 +421,21 @@ export async function resolveProPlanStatus(
     hasManualVmPlanOverride,
     metadataChanged,
   };
+}
+
+async function founderSubscriptionForStatus(
+  stackUserId: string | undefined,
+  activePlan: PersonalPlanId | null,
+  options: {
+    hasActiveStripeSubscription?: ActiveStripeSubscriptionQuery;
+    activePersonalPlan?: ActivePersonalPlanQuery;
+    hasActiveFounderSubscription?: ActiveFounderSubscriptionQuery;
+  },
+): Promise<boolean> {
+  if (!stackUserId || activePlan === PRO_PLAN_ID || activePlan === MAX_PLAN_ID) return false;
+  if (options.hasActiveFounderSubscription) return await options.hasActiveFounderSubscription(stackUserId);
+  if (options.hasActiveStripeSubscription || options.activePersonalPlan) return false;
+  return await hasActiveFounderStripeSubscription(stackUserId);
 }
 
 type StripeStateForStatus = {
@@ -479,7 +594,6 @@ async function reconcileFreshProMetadata(
   const metadata = proMetadataRecord(user.clientReadOnlyMetadata);
   if (
     metadata.cmuxAccountDeleting === true ||
-    hasManualVmOverride(metadata) ||
     !proMirrorNeedsReconcile(activePlan, planIdFromMetadata(metadata))
   ) {
     return false;
@@ -542,7 +656,7 @@ export async function activePersonalPlanForUser(
 ): Promise<PersonalPlanId | null> {
   try {
     const rows = await cloudDb()
-      .select({ plan: stripeSubscriptions.plan })
+      .select({ plan: stripeSubscriptions.plan, id: stripeSubscriptions.id, raw: stripeSubscriptions.raw })
       .from(stripeSubscriptions)
       .where(
         and(
@@ -553,7 +667,7 @@ export async function activePersonalPlanForUser(
           inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
         ),
       );
-    return highestPersonalPlanId(rows.map((row) => row.plan));
+    return highestPersonalPlanId(rows.filter((row) => !isFounderSubscriptionRow(row)).map((row) => row.plan));
   } catch (error) {
     if (isMissingDatabaseConfig(error)) return null;
     throw error;
@@ -582,9 +696,9 @@ export async function hasStripeCustomerForUser(stackUserId: string): Promise<boo
 }
 
 /**
- * Reads the personal Stripe customer and its newest Pro subscription in one
- * state snapshot. A customer row is retained for checkout identity, while the
- * newest subscription decides whether the portal can recover billing.
+ * Reads the personal Stripe customer and newest Pro subscription in one state
+ * snapshot. A customer row is retained for checkout identity, while the
+ * newest subscription supplies portal/recovery metadata.
  */
 export async function stripeBillingStatusForUser(
   stackUserId: string,
@@ -621,8 +735,6 @@ export async function stripeBillingStatusForUser(
           sql`coalesce(${stripeSubscriptions.raw}->'metadata'->>'founders_edition', '') <> 'true'`,
         ),
       );
-    // Keep the ordering in the real Drizzle query, while allowing lightweight
-    // database doubles that expose only the common where/limit chain.
     const orderedSubscriptionQuery = typeof subscriptionQuery.orderBy === "function"
       ? subscriptionQuery.orderBy(
           desc(sql`${stripeSubscriptions.status} in ('active', 'trialing')`),
@@ -707,7 +819,6 @@ export async function stripeBillingStatusForTeam(
           desc(stripeSubscriptions.currentPeriodEnd),
         )
       : subscriptionQuery;
-    // Same any-active-row authority rule as the personal snapshot.
     const [customerRows, subscriptionRows, hasActiveSubscription] = await Promise.all([
       customerRowsPromise,
       orderedSubscriptionQuery.limit(10),
@@ -721,6 +832,64 @@ export async function stripeBillingStatusForTeam(
     );
   } catch (error) {
     if (isMissingDatabaseConfig(error)) return emptyStripeBillingStatus();
+    throw error;
+  }
+}
+
+/** Return whether a durable Founder-marked personal row is still present. */
+export async function hasActiveFounderStripeSubscription(
+  stackUserId: string,
+): Promise<boolean> {
+  try {
+    return (await activeStripeSubscriptionState(stackUserId)).founder;
+  } catch (error) {
+    if (isMissingDatabaseConfig(error)) return false;
+    throw error;
+  }
+}
+
+async function activeStripeSubscriptionState(
+  stackUserId: string,
+): Promise<{ readonly regular: boolean; readonly founder: boolean }> {
+  try {
+    const rows = await cloudDb()
+      .select({
+        regular: sql<boolean>`coalesce(bool_or(${stripeSubscriptions.raw}->'metadata'->>'founders_edition' is distinct from 'true'), false)`,
+        founder: sql<boolean>`coalesce(bool_or(${stripeSubscriptions.raw}->'metadata'->>'founders_edition' = 'true'), false)`,
+      })
+      .from(stripeSubscriptions)
+      .where(
+        and(
+          eq(stripeSubscriptions.stackUserId, stackUserId),
+          isNull(stripeSubscriptions.stackTeamId),
+          eq(stripeSubscriptions.scope, "user"),
+          inArray(stripeSubscriptions.plan, PERSONAL_PLAN_IDS),
+          inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
+        ),
+      )
+      .limit(1);
+    const aggregate = rows[0] as
+      | { regular?: unknown; founder?: unknown }
+      | undefined;
+    if (
+      aggregate &&
+      ("regular" in aggregate || "founder" in aggregate)
+    ) {
+      return {
+        regular: aggregate.regular === true,
+        founder: aggregate.founder === true,
+      };
+    }
+    // Lightweight test doubles and older adapters may return raw rows instead
+    // of the aggregate projection. Keep that fallback bounded by the adapter;
+    // production PostgreSQL always returns the single aggregate row above.
+    const rawRows = rows as unknown as readonly { raw?: unknown }[];
+    return {
+      regular: rawRows.some((row) => !isFounderSubscriptionRaw(row.raw)),
+      founder: rawRows.some((row) => isFounderSubscriptionRaw(row.raw)),
+    };
+  } catch (error) {
+    if (isMissingDatabaseConfig(error)) return { regular: false, founder: false };
     throw error;
   }
 }
@@ -748,16 +917,117 @@ export async function hasActiveTeamSubscriptionForTeam(
   }
 }
 
+/**
+ * A hosted coderouter seat is covered either by the user's own Pro
+ * subscription or by the selected team's Team subscription. Keep this as one
+ * indexed query so route-session issuance does not serialize two RDS reads.
+ * The caller must establish membership in `stackTeamId` before calling.
+ */
+export async function hasActiveCoderouterSubscription(
+  stackUserId: string,
+  stackTeamId: string,
+  userBillingPlanId?: string | null,
+  userHasManualVmPlanOverride = false,
+): Promise<boolean> {
+  // Auth already resolved this Stack user's authoritative personal plan. Keep
+  // the hosted CodeRouter gate on the same Founder-aware source as billing and
+  // VM/TestFlight access, including operator grants with no Stripe row.
+  // A Founder id is sufficient only when it came from the explicit operator
+  // override. A bare `cmuxPlan: "founders"` mirror must still be backed by a
+  // durable Founder row, just like any other mirrored plan value.
+  if (isFounderPlanId(userBillingPlanId) && userHasManualVmPlanOverride) return true;
+  try {
+    const rows = await cloudDb()
+      .select({
+        regular: sql<boolean>`coalesce(bool_or(
+          ${stripeSubscriptions.scope} = 'team' or
+          (${stripeSubscriptions.scope} = 'user' and
+            ${stripeSubscriptions.raw}->'metadata'->>'founders_edition' is distinct from 'true')
+        ), false)`,
+        founder: sql<boolean>`coalesce(bool_or(
+          ${stripeSubscriptions.scope} = 'user' and
+          ${stripeSubscriptions.raw}->'metadata'->>'founders_edition' = 'true'
+        ), false)`,
+      })
+      .from(stripeSubscriptions)
+      .where(
+        and(
+          inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
+          or(
+            and(
+              eq(stripeSubscriptions.stackUserId, stackUserId),
+              eq(stripeSubscriptions.scope, "user"),
+              inArray(stripeSubscriptions.plan, PERSONAL_PLAN_IDS),
+            ),
+            and(
+              eq(stripeSubscriptions.stackTeamId, stackTeamId),
+              eq(stripeSubscriptions.scope, "team"),
+              eq(stripeSubscriptions.plan, TEAM_PLAN_ID),
+            ),
+          ),
+        ),
+      )
+      .limit(1);
+    const aggregate = rows[0] as
+      | { regular?: unknown; founder?: unknown }
+      | undefined;
+    if (aggregate && ("regular" in aggregate || "founder" in aggregate)) {
+      if (aggregate.regular === true) return true;
+      return hasCoderouterFounderEntitlement(
+        userBillingPlanId,
+        userHasManualVmPlanOverride,
+        aggregate.founder === true,
+      );
+    }
+    // Lightweight test doubles and older adapters may return raw rows instead
+    // of the aggregate projection. Keep this fallback bounded by the adapter.
+    const rawRows = rows as unknown as readonly { raw?: unknown }[];
+    const regular = rawRows.some((row) => !isFounderSubscriptionRaw(row.raw));
+    if (regular) return true;
+    const founder = rawRows.some((row) => isFounderSubscriptionRaw(row.raw));
+    return hasCoderouterFounderEntitlement(
+      userBillingPlanId,
+      userHasManualVmPlanOverride,
+      founder,
+    );
+  } catch (error) {
+    if (isMissingDatabaseConfig(error)) return false;
+    throw error;
+  }
+}
+
+function hasCoderouterFounderEntitlement(
+  userBillingPlanId: string | null | undefined,
+  userHasManualVmPlanOverride: boolean,
+  hasActiveFounderSubscription: boolean,
+): boolean {
+  const metadata = userHasManualVmPlanOverride
+    ? { cmuxVmPlan: userBillingPlanId }
+    : { cmuxPlan: userBillingPlanId };
+  return hasEffectiveFounderEntitlement(metadata, hasActiveFounderSubscription);
+}
+
+/** Read the same personal Pro entitlement as billing, without metadata writes
+ * or treating selected-team membership as a personal operator grant. */
 export async function isTestflightEligible(
-  user: Pick<ProReconcileUser, "id">,
+  user: ProReconcileUser,
   options: {
     hasActiveStripeSubscription?: ActiveStripeSubscriptionQuery;
+    hasActiveFounderSubscription?: ActiveFounderSubscriptionQuery;
   } = {},
 ): Promise<boolean> {
   if (!user.id) return false;
-  return (options.hasActiveStripeSubscription ?? hasActiveStripeProSubscription)(
-    user.id,
-  );
+  const metadata = proMetadataRecord(user.clientReadOnlyMetadata);
+  if (normalizePersonalPlan(metadata, false).isPro) return true;
+  if (options.hasActiveStripeSubscription) {
+    const regular = await options.hasActiveStripeSubscription(user.id);
+    const founder = !regular && !hasManualVmOverride(metadata) && options.hasActiveFounderSubscription
+      ? await options.hasActiveFounderSubscription(user.id)
+      : false;
+    return normalizePersonalPlan(metadata, regular, founder).isPro;
+  }
+  const state = await activeStripeSubscriptionState(user.id);
+  return normalizePersonalPlan(metadata, state.regular, state.founder).isPro;
 }
 
 export function metadataPlanId(raw: unknown): string | null {
@@ -828,15 +1098,31 @@ function planIdFromMetadata(metadata: Record<string, unknown>): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+export function isFounderSubscriptionRaw(raw: unknown): boolean {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
+  const metadata = (raw as Record<string, unknown>).metadata;
+  return Boolean(
+    metadata &&
+      typeof metadata === "object" &&
+      !Array.isArray(metadata) &&
+      (metadata as Record<string, unknown>).founders_edition === "true",
+  );
+}
+
+function normalizedPlanValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim()
+    ? value.trim().toLowerCase()
+    : null;
+}
+
 function isMissingDatabaseConfig(error: unknown): boolean {
   return error instanceof Error && /DATABASE_URL is required/.test(error.message);
 }
 
 /**
  * Pick the subscription row that should drive portal/recovery metadata. A
- * stale canceled row can carry the newest updatedAt, so prefer any
- * portal-recoverable row (latest period end wins) and fall back to the first
- * returned row.
+ * stale canceled row can be newer than a recoverable one, so prefer any
+ * recoverable row and sort by its current period end.
  */
 function pickPortalMetadataRow<T extends {
   readonly status?: string | null;
@@ -847,8 +1133,9 @@ function pickPortalMetadataRow<T extends {
     (row.status && (STRIPE_PORTAL_RECOVERABLE_STATUSES as readonly string[]).includes(row.status)) ||
     Boolean(row.cancelAtPeriodEnd));
   if (recoverable.length === 0) return rows[0];
-  return [...recoverable].sort((a, b) =>
-    (b.currentPeriodEnd?.getTime() ?? 0) - (a.currentPeriodEnd?.getTime() ?? 0))[0];
+  return [...recoverable].sort((left, right) =>
+    (right.currentPeriodEnd?.getTime() ?? 0) -
+    (left.currentPeriodEnd?.getTime() ?? 0))[0];
 }
 
 function stripeBillingStatusFromRows(
