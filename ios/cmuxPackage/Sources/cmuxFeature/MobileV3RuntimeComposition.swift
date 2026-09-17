@@ -12,10 +12,10 @@ public actor MobileV3RuntimeComposition {
     public struct Configuration: Sendable {
         public let controlOrigin: URL
         public let audience: String
-        public let authorityKeys: [String: [UInt8]]
+        public let authorityKeys: [String: Data]
         public let keychainAccessGroup: String?
 
-        public init(controlOrigin: URL, audience: String, authorityKeys: [String: [UInt8]], keychainAccessGroup: String? = nil) throws {
+        public init(controlOrigin: URL, audience: String, authorityKeys: [String: Data], keychainAccessGroup: String? = nil) throws {
             guard controlOrigin.scheme?.lowercased() == "https" || controlOrigin.host == "127.0.0.1" || controlOrigin.host == "localhost" else {
                 throw Error.invalidConfiguration
             }
@@ -134,7 +134,7 @@ public actor MobileV3RuntimeComposition {
         let deviceID = try store.deviceID()
         let signingKey = try CmxV3SigningKey(rawRepresentation: seed)
         let endpoint = try await NativeEndpoint.create(
-            seed: Array(seed), team: next.teamID, authorityKeys: configuration.authorityKeys
+            seed: seed, team: next.teamID, authorityKeys: configuration.authorityKeys
         )
         _ = try await endpoint.listen(
             address: "/ip4/0.0.0.0/udp/0/quic-v1",
