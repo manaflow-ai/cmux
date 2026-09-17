@@ -1,3 +1,4 @@
+import { currentVmRequestContext } from "./requestContext";
 import {
   recordSpanError,
   setSpanAttributes,
@@ -13,6 +14,7 @@ export type { MaybeAttributes, SpanCallback };
 
 export async function withVmSpan<T>(
   name: string,
+  phase: "provider" | "tunnel",
   attributes: MaybeAttributes,
   fn: SpanCallback<T>,
 ): Promise<T> {
@@ -24,6 +26,9 @@ export async function withVmSpan<T>(
       "cmux.runtime": "provider-driver",
       ...attributes,
     },
-    fn,
+    (span) => {
+      const progress = currentVmRequestContext()?.progress;
+      return progress ? progress.run(phase, () => Promise.resolve(fn(span))) : fn(span);
+    },
   );
 }

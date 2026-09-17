@@ -1,10 +1,9 @@
-import Darwin
 import Foundation
 
 /// Reads file status through `lstat`.
 struct SystemGitFileStatusReader: GitFileStatusReading {
     func status(atPath path: String) -> GitFileStatus? {
-        var statValue = Darwin.stat()
+        var statValue = stat()
         guard lstat(path, &statValue) == 0 else {
             return nil
         }

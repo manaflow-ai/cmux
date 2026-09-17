@@ -1,4 +1,5 @@
 public import Foundation
+internal import CmuxFoundation
 internal import CMUXAgentLaunch
 internal import Darwin
 internal import OSLog
@@ -90,26 +91,7 @@ extension TerminalSurface {
 
     /// Prepends `directory` to a `PATH`-style string exactly once.
     public static func pathByPrependingUniqueDirectory(_ directory: String, to path: String) -> String {
-        let trimmedDirectory = directory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedDirectory.isEmpty else { return path }
-        let standardizedDirectory = URL(fileURLWithPath: trimmedDirectory, isDirectory: true)
-            .standardizedFileURL
-            .path
-        guard !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return standardizedDirectory
-        }
-        var entries = path
-            .split(separator: ":", omittingEmptySubsequences: false)
-            .map(String.init)
-            .filter { entry in
-                let trimmedEntry = entry.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmedEntry.isEmpty else { return true }
-                return URL(fileURLWithPath: trimmedEntry, isDirectory: true)
-                    .standardizedFileURL
-                    .path != standardizedDirectory
-            }
-        entries.insert(standardizedDirectory, at: 0)
-        return entries.joined(separator: ":")
+        CmuxPathEnvironment.prependingUniqueDirectory(directory, to: path)
     }
 
     /// Merges base, additional, and override environments with key

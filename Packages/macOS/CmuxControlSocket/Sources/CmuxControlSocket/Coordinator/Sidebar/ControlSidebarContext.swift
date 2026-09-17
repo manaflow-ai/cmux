@@ -1,5 +1,4 @@
 public import Foundation
-public import CmuxBrowser
 
 /// The sidebar-domain slice of the control-command seam (a constituent of the
 /// ``ControlCommandContext`` umbrella): live app reach for the v1 sidebar
@@ -308,18 +307,12 @@ public protocol ControlSidebarContext: AnyObject {
         isBrowser: Bool,
         orientationIsHorizontal: Bool,
         insertFirst: Bool,
-        url: URL?,
-        engine: BrowserEngineKind?
+        url: URL?
     ) -> ControlSidebarPaneSplitResolution
 
     /// Creates a `new_surface` in a pane (UUID-or-index argument, focused
     /// pane otherwise).
-    func controlSidebarNewSurface(
-        isBrowser: Bool,
-        paneArg: String?,
-        url: URL?,
-        engine: BrowserEngineKind?
-    ) -> ControlSidebarNewSurfaceResolution
+    func controlSidebarNewSurface(isBrowser: Bool, paneArg: String?, url: URL?) -> ControlSidebarNewSurfaceResolution
 
     /// Closes a surface (`close_surface`; empty argument = focused surface).
     func controlSidebarCloseSurface(surfaceArg: String?) -> ControlSidebarCloseSurfaceResolution

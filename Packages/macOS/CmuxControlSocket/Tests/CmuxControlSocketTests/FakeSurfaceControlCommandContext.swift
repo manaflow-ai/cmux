@@ -5,8 +5,10 @@ import Foundation
 final class FakeSurfaceControlCommandContext: ControlCommandContext {
     var paneCreateResolution: ControlPaneCreateResolution = .tabManagerUnavailable
     var paneCreateInputs: ControlPaneCreateInputs?
+    var splitResolution: ControlSurfaceSplitResolution = .tabManagerUnavailable
+    var splitInputs: ControlSurfaceSplitInputs?
     var createResolution: ControlSurfaceCreateResolution = .tabManagerUnavailable
-    var surfaceCreateInputs: ControlSurfaceCreateInputs?
+    var createInputs: ControlSurfaceCreateInputs?
     var surfaceListSnapshot: ControlSurfaceListSnapshot?
     var resumeResolution: ControlSurfaceResumeResolution = .surfaceNotFound
     var resumeSetInputs: ControlSurfaceResumeSetInputs?
@@ -60,12 +62,29 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
         return paneCreateResolution
     }
 
+    func controlSurfaceSplit(
+        routing: ControlRoutingSelectors,
+        inputs: ControlSurfaceSplitInputs
+    ) -> ControlSurfaceSplitResolution {
+        splitInputs = inputs
+        return splitResolution
+    }
+
     func controlSurfaceCreate(
         routing: ControlRoutingSelectors,
         inputs: ControlSurfaceCreateInputs
     ) -> ControlSurfaceCreateResolution {
-        surfaceCreateInputs = inputs
+        createInputs = inputs
         return createResolution
+    }
+
+    nonisolated func controlSurfaceInputStrings() -> ControlSurfaceInputStrings {
+        ControlSurfaceInputStrings(
+            initialInputRequiresTerminalType: "app-localized terminal creation type error",
+            inputQueueFull: "",
+            surfaceUnavailable: "",
+            processExited: ""
+        )
     }
 
     func controlSurfaceResumeSet(

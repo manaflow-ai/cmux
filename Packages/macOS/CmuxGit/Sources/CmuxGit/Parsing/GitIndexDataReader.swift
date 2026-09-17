@@ -3,7 +3,7 @@ import Dispatch
 import Foundation
 
 /// Reads a Git index through a bounded, stable regular-file descriptor.
-nonisolated struct GitIndexDataReader: Sendable {
+struct GitIndexDataReader: Sendable {
     private static let readChunkByteCount = 64 * 1_024
 
     /// One stable-descriptor read, retaining a valid header even when the body
@@ -31,7 +31,7 @@ nonisolated struct GitIndexDataReader: Sendable {
         }
         defer { Darwin.close(descriptor) }
 
-        var metadata = Darwin.stat()
+        var metadata = stat()
         guard Darwin.fstat(descriptor, &metadata) == 0,
               metadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG),
               metadata.st_size >= 0,

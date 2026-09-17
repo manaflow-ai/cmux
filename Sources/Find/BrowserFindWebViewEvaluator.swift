@@ -19,9 +19,6 @@ final class BrowserFindWebViewEvaluator: BrowserFindScriptEvaluating {
 
     func evaluate(_ script: BrowserFindScript) async throws -> Any? {
         guard let panel else { return nil }
-        if panel.isChromiumBacked {
-            return try await panel.evaluateChromiumJavaScript(script.source).anyValue
-        }
         return try await panel.webView.evaluateJavaScript(script.source)
     }
 }

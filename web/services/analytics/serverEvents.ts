@@ -146,7 +146,7 @@ export function captureServerEvent(
     if (started) return;
     started = true;
     try {
-      if (!isSecurePosthogHost(posthogHost)) {
+      if (!isAllowedPosthogHost(posthogHost, deps.env)) {
         throw new Error("PostHog host must use HTTPS");
       }
       await deliver(JSON.stringify(payload), deps.fetch, posthogHost);
@@ -178,6 +178,26 @@ export function isSecurePosthogHost(host: string): boolean {
   try {
     const url = new URL(host);
     return url.protocol === "https:" && url.hostname.length > 0 && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
+
+/** Localhost is allowed only for the explicit smoke harness. Production and
+ * preview always require HTTPS, so a misconfigured host cannot exfiltrate
+ * person or team analytics over clear text.
+ */
+export function isAllowedPosthogHost(
+  host: string,
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  if (isSecurePosthogHost(host)) return true;
+  if (env.CMUX_SERVER_ANALYTICS_SMOKE !== "1") return false;
+  try {
+    const url = new URL(host);
+    return url.protocol === "http:" &&
+      (url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "::1" || url.hostname === "[::1]") &&
+      !url.username && !url.password;
   } catch {
     return false;
   }

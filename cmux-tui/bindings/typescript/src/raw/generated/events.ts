@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0d60b5c04eb89444ff0b4a9354896f2ae81a2bf4c953aacadd12e2907c6d84a8. */
+/* cmux-tui mux protocol 12, IR d9db9b34a8e4f367ce1aae230fcd188796903d6adf169f9675872a48d9fd1f25. */
 
 
 import type * as T from "./types.js";
@@ -63,6 +63,7 @@ export type ColorsChangedEvent = { event: "colors-changed" } & {
   "cursor_blink"?: (boolean) | null;
   "cursor_style"?: (T.CursorStyle) | null;
   "fg": (T.ColorHex) | null;
+  "overrides"?: T.TerminalColorOverrides;
   "palette"?: Record<string, T.ColorHex>;
   "selection_bg": (T.ColorHex) | null;
   "selection_fg": (T.ColorHex) | null;
@@ -71,6 +72,10 @@ export type ColorsChangedEvent = { event: "colors-changed" } & {
 
 /** Protocol v6; emission: emitted; streams: subscribe. */
 export type ConfigReloadRequestedEvent = { event: "config-reload-requested" } & {
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type DaemonShutdownEvent = { event: "daemon-shutdown" } & {
 };
 
 /** Protocol v5; emission: emitted; streams: attach-byte, attach-render, attach-browser. */
@@ -406,6 +411,7 @@ export type KnownCmuxEvent =
   | ClientDetachedEvent
   | ColorsChangedEvent
   | ConfigReloadRequestedEvent
+  | DaemonShutdownEvent
   | DetachedEvent
   | EmptyEvent
   | FrameEvent

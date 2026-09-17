@@ -17,45 +17,29 @@ struct CloudWireGuardHubProcessSpawner: CloudWireGuardHubSpawning {
             wrapper.didExit(status: terminated.terminationStatus)
         }
         try process.run()
-        // Read the pipes only after run(), the same order CloudMachineLink uses for the
-        // sidecar's connection-snapshot line: the readabilityHandler is armed once the
-        // child owns the write end.
-        wrapper.beginReading(stdout: stdout.fileHandleForReading, stderr: stderr.fileHandleForReading)
+        wrapper.drain(stdout.fileHandleForReading)
+        wrapper.drain(stderr.fileHandleForReading)
         return wrapper
     }
 }
 
-/// ``CloudWireGuardHubProcess`` over a running Foundation `Process`. stdout is
-/// handed to the hub as lines (its `hub-ready` announcement lives there); stderr is
-/// kept as a short tail for error messages.
+/// ``CloudWireGuardHubProcess`` over a running Foundation `Process`.
+///
+/// `Process` callbacks are synchronous and can race exit registration and pipe
+/// delivery. The short lock protects only this callback seam; callers see the
+/// actor-owned ``CloudWireGuardHub`` lifecycle.
 final class CloudWireGuardHubFoundationProcess: CloudWireGuardHubProcess, @unchecked Sendable {
     private let process: Process
     private let lock = NSLock()
     private var tail: [String] = []
     private var status: Int32?
     private var exitHandler: (@Sendable (Int32) -> Void)?
-    private let stdoutStream: AsyncStream<String>
-    private let stdoutContinuation: AsyncStream<String>.Continuation
 
     init(process: Process) {
         self.process = process
-        (stdoutStream, stdoutContinuation) = AsyncStream<String>.makeStream(bufferingPolicy: .unbounded)
     }
-
-    var stdoutLines: AsyncStream<String> { stdoutStream }
 
     var isRunning: Bool { process.isRunning }
-
-    /// Arm the pipe readers after `process.run()`, so the child owns the write ends.
-    func beginReading(stdout: FileHandle, stderr: FileHandle) {
-        let continuation = stdoutContinuation
-        let stdoutLines = CloudLinkPipe.lines(from: stdout)
-        Task.detached {
-            for await line in stdoutLines { continuation.yield(line) }
-            continuation.finish()
-        }
-        drain(stderr)
-    }
 
     var exitStatus: Int32? {
         lock.lock()

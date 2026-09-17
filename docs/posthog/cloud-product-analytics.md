@@ -75,29 +75,21 @@ audit source for those destroys.
 
 ## CodeRouter events
 
-Source: `services/coderouter/analytics.ts` and
-`services/coderouter/requestTelemetry.ts`. The request wrapper emits one
-canonical trace for every routed request and links model usage to that trace.
+PostHog is only for CodeRouter lifecycle and operational exception events.
+ClickHouse is the authoritative source for every routed request, model
+completion, token count, provider, model, latency, failure, and VM attribution.
 
 | Event | When | Properties |
 | --- | --- | --- |
-| `$ai_trace` | Every CodeRouter request, after the response | `$ai_trace_id`, `$ai_latency` (seconds), `$ai_http_status`, `$ai_is_error`, `coderouter_request_id`, `coderouter_outcome`, `coderouter_failure_stage`, `coderouter_fault`, `coderouter_provider`, `coderouter_agent`, `coderouter_attempts`, `coderouter_vm_id` when bound, bounded `upstream_account_id` when available, `trace_id` |
-| `$ai_span` | Each bounded request step | `$ai_parent_id`, `$ai_span_id`, `$ai_span_name`, `$ai_latency`, `$ai_is_error`, scrubbed `$ai_error`, `upstream_kind`, bounded `upstream_account_id` when available |
-| `$ai_generation` | A completion with usable token usage | `$ai_trace_id`, `$ai_parent_id`, `$ai_model`, `$ai_provider`, `$ai_input_tokens`, `$ai_cache_read_input_tokens`, `$ai_output_tokens`, `coderouter_total_tokens`, `coderouter_priced_tokens`, `coderouter_unpriced_tokens`, `coderouter_pricing_version`, `$ai_total_cost_usd` when priced, `$ai_http_status`, `$ai_stream`, `coderouter_vm_id` when bound, bounded `upstream_account_id` when available |
 | `coderouter_account_added` / `_removed` | Provider account lifecycle | Closed-schema provider and source fields, plus bounded state flags |
 | `coderouter_route_session_issued` / `_revoked` | Route-session lifecycle | No free-form fields |
 | `coderouter_claude_upstream_set` / `_removed` | Claude upstream lifecycle | Closed-schema upstream kind and replacement flag |
 
-All CodeRouter events carry `product: coderouter` and the current schema
-version. `$ai_trace` with `$ai_is_error: true` replaces the old
-`coderouter_request_failed` event. Non-caller failures also produce a
-`$exception`; caller errors stay on the trace. The request id is shared with
-the ClickHouse route and usage ledger, so a report can join PostHog, Axiom and
-ClickHouse without sending prompts, outputs, headers, credentials, emails or
-request bodies.
-
-`$ai_total_cost_usd` is a versioned API-equivalent list-price estimate, not
-cmux spend. Upstream accounts belong to the user's own subscriptions.
+Lifecycle events carry `product: coderouter` and the current schema version.
+Non-caller failures also produce a `$exception`. The route request id is
+shared with ClickHouse and Axiom, but no request-level LLM trace or token event
+is sent to PostHog. ClickHouse stores the versioned API-equivalent list-price
+estimate, not cmux spend.
 
 The application no longer writes new CodeRouter events to the former dedicated
 project (`549394`). Its old dashboards and environment keys are legacy; remove
@@ -118,32 +110,26 @@ WHERE event IN ('cloud_vm_created','cloud_vm_attached','cloud_vm_exec','cloud_vm
 GROUP BY d ORDER BY d
 ```
 
-CodeRouter per-user value (30d):
+CodeRouter per-user usage (30d, ClickHouse):
 
 ```sql
-SELECT distinct_id, count() AS generations,
-       sum(properties.$ai_total_cost_usd) AS api_equivalent_usd
-FROM events
-WHERE event = '$ai_generation'
-  AND properties.product = 'coderouter'
-  AND distinct_id != 'coderouter-server'
-  AND timestamp >= now() - INTERVAL 30 DAY
-GROUP BY distinct_id ORDER BY api_equivalent_usd DESC LIMIT 25
+SELECT stack_user_id, count() AS completions,
+       sum(total_tokens) AS total_tokens,
+       sum(api_equivalent_usd) AS api_equivalent_usd
+FROM coderouter.usage_events
+WHERE event_time >= now() - INTERVAL 30 DAY
+GROUP BY stack_user_id ORDER BY api_equivalent_usd DESC LIMIT 25
 ```
 
-CodeRouter failure rate uses all known-user traces as the denominator, not
-only successful generations:
+CodeRouter failure rate uses ClickHouse route rows for the denominator:
 
 ```sql
-SELECT toStartOfDay(timestamp) AS d,
+SELECT toStartOfDay(event_time) AS d,
        count() AS requests,
-       countIf(properties.$ai_is_error = true) AS failed,
-       round(100 * countIf(properties.$ai_is_error = true) / max2(1, count()), 1) AS failure_pct
-FROM events
-WHERE event = '$ai_trace'
-  AND properties.product = 'coderouter'
-  AND distinct_id != 'coderouter-server'
-  AND timestamp >= now() - INTERVAL 30 DAY
+       countIf(status >= 400 OR outcome != 'success') AS failed,
+       round(100 * countIf(status >= 400 OR outcome != 'success') / max2(1, count()), 1) AS failure_pct
+FROM coderouter.route_events
+WHERE event_time >= now() - INTERVAL 30 DAY
 GROUP BY d ORDER BY d
 ```
 

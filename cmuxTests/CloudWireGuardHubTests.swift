@@ -12,6 +12,15 @@ import Testing
 /// socket, and the clock.
 @Suite(.serialized)
 struct CloudWireGuardHubTests {
+    @Test
+    func cancelledCallbackWaiterFinishesWithoutAValue() async {
+        let first = CloudLinkFirstValue<String>()
+        let task = Task { await first.result }
+        await Task.yield()
+        task.cancel()
+        #expect(await task.value == nil)
+    }
+
     /// A child process the test ends on demand.
     final class FakeProcess: CloudWireGuardHubProcess, @unchecked Sendable {
         let arguments: [String]
@@ -20,21 +29,10 @@ struct CloudWireGuardHubTests {
         private var status: Int32?
         private var handler: (@Sendable (Int32) -> Void)?
         private(set) var terminateCalls = 0
-        let stdoutLines: AsyncStream<String>
-        private let stdout: AsyncStream<String>.Continuation
 
         init(arguments: [String]) {
             self.arguments = arguments
-            (stdoutLines, stdout) = AsyncStream<String>.makeStream(bufferingPolicy: .unbounded)
         }
-
-        /// The hub's readiness announcement, as `cmux-tui wg hub` prints it.
-        func announceReady(socket: String, routes: [String]) {
-            let quoted = routes.map { "\"\($0)\"" }.joined(separator: ",")
-            stdout.yield("{\"event\":\"hub-ready\",\"socket\":\"\(socket)\",\"routes\":[\(quoted)]}")
-        }
-
-        func emitStdout(_ line: String) { stdout.yield(line) }
 
         var isRunning: Bool {
             lock.lock()
@@ -80,7 +78,6 @@ struct CloudWireGuardHubTests {
             let handler = self.handler
             self.handler = nil
             lock.unlock()
-            stdout.finish()
             handler?(status)
         }
     }
@@ -89,9 +86,6 @@ struct CloudWireGuardHubTests {
         private let lock = NSLock()
         private(set) var processes: [FakeProcess] = []
         var failNextSpawn = false
-        /// When set, every spawned hub announces readiness at once with these routes,
-        /// like a healthy `wg hub`. Nil leaves the announcement to the test.
-        var announceRoutesOnSpawn: [String]? = ["10.0.0.0/8", "fd00::/8"]
 
         func spawn(executable: URL, arguments: [String]) throws -> any CloudWireGuardHubProcess {
             lock.lock()
@@ -102,11 +96,6 @@ struct CloudWireGuardHubTests {
             }
             let process = FakeProcess(arguments: arguments)
             processes.append(process)
-            if let routes = announceRoutesOnSpawn {
-                let socket = arguments.firstIndex(of: "--socket").map { arguments[$0 + 1] } ?? ""
-                process.emitStdout("starting")
-                process.announceReady(socket: socket, routes: routes)
-            }
             return process
         }
 
@@ -123,56 +112,46 @@ struct CloudWireGuardHubTests {
         }
     }
 
-    /// Sleeps park until the test releases them, so idle stops and restart backoffs run
-    /// exactly when the test says the clock has reached them. Each sleep is keyed by
-    /// its duration, so a test elapses the idle grace without touching the ready
-    /// timeout that every start races against.
-    actor SleepGate {
-        private var nextID = 0
-        private var waiters: [Int: (duration: Duration, continuation: CheckedContinuation<Void, Error>)] = [:]
-        private(set) var requested: [Duration] = []
+    actor AttemptCounter {
+        private(set) var value = 0
 
-        func sleep(_ duration: Duration) async throws {
-            let id = nextID
-            nextID += 1
-            requested.append(duration)
-            try await withTaskCancellationHandler {
-                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                    if Task.isCancelled {
-                        continuation.resume(throwing: CancellationError())
-                        return
-                    }
-                    waiters[id] = (duration, continuation)
-                }
-            } onCancel: {
-                Task { await self.cancel(id) }
-            }
+        func next() -> Int {
+            value += 1
+            return value
         }
-
-        private func cancel(_ id: Int) {
-            if let waiter = waiters.removeValue(forKey: id) {
-                waiter.continuation.resume(throwing: CancellationError())
-            }
-        }
-
-        /// Wakes every sleeper parked on `duration`.
-        func elapse(_ duration: Duration) {
-            for (id, waiter) in waiters where waiter.duration == duration {
-                waiters.removeValue(forKey: id)
-                waiter.continuation.resume()
-            }
-        }
-
-        func pending(_ duration: Duration) -> Int {
-            waiters.values.filter { $0.duration == duration }.count
-        }
-
-        /// Durations requested other than the ready timeout, which every start races.
-        var requestedTimers: [Duration] { requested.filter { $0 != CloudWireGuardHubTests.readyTimeout } }
     }
 
-    private static let readyTimeout: Duration = .seconds(20)
-    private static let idleGrace: Duration = .seconds(10)
+    /// Sleeps park until the test releases them, so idle stops and restart backoffs run
+    /// exactly when the test says the clock has reached them.
+    actor SleepGate {
+        private(set) var requested: [Duration] = []
+        private var waiters: [CheckedContinuation<Void, Error>] = []
+
+        func sleep(_ duration: Duration) async throws {
+            requested.append(duration)
+            try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { continuation in
+                    waiters.append(continuation)
+                }
+            } onCancel: {
+                Task { await self.cancelAll() }
+            }
+        }
+
+        func elapse() {
+            let pending = waiters
+            waiters = []
+            for waiter in pending { waiter.resume() }
+        }
+
+        private func cancelAll() {
+            let pending = waiters
+            waiters = []
+            for waiter in pending { waiter.resume(throwing: CancellationError()) }
+        }
+
+        var pendingCount: Int { waiters.count }
+    }
 
     private struct Harness {
         let hub: CloudWireGuardHub
@@ -183,33 +162,30 @@ struct CloudWireGuardHubTests {
         let routes = ["10.0.0.0/8", "fd00::/8"]
     }
 
-    private func makeHarness(
-        verifySocket: @escaping @Sendable (String) -> Bool = { _ in true },
-        enrolledRoutes: [String] = ["10.0.0.0/8", "fd00::/8"]
-    ) -> Harness {
+    private func makeHarness(readiness: @escaping @Sendable (String) async throws -> Void = { _ in }) -> Harness {
         let spawner = FakeSpawner()
         let gate = SleepGate()
         let socketURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-hub-test-\(UUID().uuidString.lowercased()).sock")
+        let routes = ["10.0.0.0/8", "fd00::/8"]
         let configuration = CloudWireGuardHub.Configuration(
-            enroll: { CloudWireGuardHub.Enrollment(configPath: "/tmp/cmux-app.conf", routes: enrolledRoutes) },
+            enroll: { CloudWireGuardHub.Enrollment(configPath: "/tmp/cmux-app.conf", routes: routes) },
             clientURL: URL(fileURLWithPath: "/usr/bin/true"),
             socketURL: socketURL,
             spawner: spawner,
-            verifySocket: verifySocket,
-            readyTimeout: Self.readyTimeout,
+            waitUntilReady: readiness,
             sleep: { duration in try await gate.sleep(duration) },
             restartBackoff: [.seconds(1), .seconds(2)],
-            idleGrace: Self.idleGrace
+            idleGrace: .seconds(10)
         )
         return Harness(hub: CloudWireGuardHub(configuration: configuration), spawner: spawner, gate: gate, socketPath: socketURL.path)
     }
 
     /// Yields until the gate holds `count` parked sleeps (the hub schedules them on its
     /// own tasks), bounded by a generous number of turns.
-    private func waitForPendingSleep(_ gate: SleepGate, _ duration: Duration) async {
+    private func waitForPendingSleeps(_ gate: SleepGate, count: Int) async {
         for _ in 0..<2_000 {
-            if await gate.pending(duration) >= 1 { return }
+            if await gate.pendingCount >= count { return }
             await Task.yield()
         }
     }
@@ -245,18 +221,52 @@ struct CloudWireGuardHubTests {
     }
 
     @Test
+    func prewarmHoldsAClaimUntilTheFleetIsEmpty() async throws {
+        let h = makeHarness()
+        let ready = try await h.hub.prewarm()
+        #expect(ready.socketPath == h.socketPath)
+        #expect(h.spawner.count == 1)
+        #expect(await h.hub.status().leases == 1)
+
+        _ = try await h.hub.prewarm()
+        #expect(h.spawner.count == 1)
+        await h.hub.releasePrewarm()
+        await waitForPendingSleeps(h.gate, count: 1)
+        #expect(await h.hub.status().leases == 0)
+    }
+
+    @Test
+    func prewarmRetriesATransientStartupFailure() async throws {
+        let attempts = AttemptCounter()
+        let h = makeHarness(readiness: { _ in
+            if await attempts.next() == 1 {
+                throw CloudWireGuardHub.HubError.notReady("transient startup")
+            }
+        })
+        let task = Task { try await h.hub.prewarm() }
+        await waitForSpawnCount(h.spawner, count: 1)
+        await waitForPendingSleeps(h.gate, count: 1)
+        await h.gate.elapse()
+        await waitForSpawnCount(h.spawner, count: 2)
+        let ready = try await task.value
+        #expect(ready.socketPath == h.socketPath)
+        #expect(await attempts.value == 2)
+        #expect(await h.hub.status().leases == 1)
+    }
+
+    @Test
     func hubStopsIdleGraceAfterTheLastRelease() async throws {
         let h = makeHarness()
         let a = try await h.hub.acquire()
         let b = try await h.hub.acquire()
         await h.hub.release(a.lease)
         // One lease still held: no idle stop scheduled.
-        #expect(await h.gate.pending(Self.idleGrace) == 0)
+        #expect(await h.gate.pendingCount == 0)
         await h.hub.release(b.lease)
-        await waitForPendingSleep(h.gate, Self.idleGrace)
-        #expect(await h.gate.requestedTimers == [Self.idleGrace])
+        await waitForPendingSleeps(h.gate, count: 1)
+        #expect(await h.gate.requested == [.seconds(10)])
         #expect(h.spawner.last?.isRunning == true)
-        await h.gate.elapse(Self.idleGrace)
+        await h.gate.elapse()
         for _ in 0..<2_000 {
             if h.spawner.last?.isRunning != true { break }
             await Task.yield()
@@ -273,10 +283,10 @@ struct CloudWireGuardHubTests {
         let h = makeHarness()
         let a = try await h.hub.acquire()
         await h.hub.release(a.lease)
-        await waitForPendingSleep(h.gate, Self.idleGrace)
+        await waitForPendingSleeps(h.gate, count: 1)
         _ = try await h.hub.acquire()
         // The idle stop was cancelled; elapsing its timer changes nothing.
-        await h.gate.elapse(Self.idleGrace)
+        await h.gate.elapse()
         await Task.yield()
         #expect(h.spawner.count == 1)
         #expect(h.spawner.last?.isRunning == true)
@@ -289,10 +299,10 @@ struct CloudWireGuardHubTests {
         _ = try await h.hub.acquire()
         let first = try #require(h.spawner.last)
         first.exit(status: 1)
-        await waitForPendingSleep(h.gate, .seconds(1))
-        #expect(await h.gate.requestedTimers == [.seconds(1)])
+        await waitForPendingSleeps(h.gate, count: 1)
+        #expect(await h.gate.requested == [.seconds(1)])
         #expect(await h.hub.status().running == false)
-        await h.gate.elapse(.seconds(1))
+        await h.gate.elapse()
         await waitForSpawnCount(h.spawner, count: 2)
         await waitUntilRunning(h.hub)
         let status = await h.hub.status()
@@ -307,9 +317,8 @@ struct CloudWireGuardHubTests {
         _ = try await h.hub.acquire()
         for attempt in 0..<2 {
             try #require(h.spawner.last).exit(status: 1)
-            let delay: Duration = attempt == 0 ? .seconds(1) : .seconds(2)
-            await waitForPendingSleep(h.gate, delay)
-            await h.gate.elapse(delay)
+            await waitForPendingSleeps(h.gate, count: 1)
+            await h.gate.elapse()
             await waitForSpawnCount(h.spawner, count: attempt + 2)
             await waitUntilRunning(h.hub)
         }
@@ -318,8 +327,7 @@ struct CloudWireGuardHubTests {
         await Task.yield()
         for _ in 0..<200 { await Task.yield() }
         #expect(h.spawner.count == 3)
-        #expect(await h.gate.pending(.seconds(1)) == 0)
-        #expect(await h.gate.pending(.seconds(2)) == 0)
+        #expect(await h.gate.pendingCount == 0)
         let status = await h.hub.status()
         #expect(!status.running)
         #expect(status.lastError?.contains("keeps exiting") == true)
@@ -340,15 +348,15 @@ struct CloudWireGuardHubTests {
         let status = await h.hub.status()
         #expect(!status.running)
         #expect(status.leases == 0)
-        #expect(await h.gate.pending(Self.idleGrace) == 0)
-        #expect(await h.gate.pending(.seconds(1)) == 0)
+        #expect(await h.gate.pendingCount == 0)
     }
 
     @Test
     func exitBeforeReadyFailsTheAcquireAndDropsTheLease() async throws {
-        let h = makeHarness()
-        // The hub never announces readiness; its death must end the acquire.
-        h.spawner.announceRoutesOnSpawn = nil
+        let h = makeHarness(readiness: { _ in
+            // Never ready; the process death must win the race.
+            try await Task.sleep(for: .seconds(30))
+        })
         let task = Task { try await h.hub.acquire() }
         await waitForSpawnCount(h.spawner, count: 1)
         try #require(h.spawner.last).exit(status: 3)
@@ -356,8 +364,6 @@ struct CloudWireGuardHubTests {
         let status = await h.hub.status()
         #expect(!status.running)
         #expect(status.leases == 0)
-        // The exit status is the attributed failure, not the incidental stdout EOF that
-        // ends the reader at the same moment.
         #expect(status.lastError?.contains("status 3") == true)
     }
 
@@ -378,63 +384,13 @@ struct CloudWireGuardHubTests {
         await h.hub.release(a.lease)
         for _ in 0..<200 { await Task.yield() }
         // Pinned: no idle stop is scheduled and the hub keeps running.
-        #expect(await h.gate.pending(Self.idleGrace) == 0)
+        #expect(await h.gate.pendingCount == 0)
         let status = await h.hub.status()
         #expect(status.running)
         #expect(status.pinnedByExternalClient)
         // Only an explicit stop ends it.
         await h.hub.stop()
         #expect(await h.hub.status().running == false)
-    }
-
-    @Test
-    func readyRoutesComeFromTheHubAnnouncementNotTheEnrollment() async throws {
-        let h = makeHarness(enrolledRoutes: ["192.168.0.0/16"])
-        h.spawner.announceRoutesOnSpawn = ["100.64.0.0/10"]
-        let claim = try await h.hub.acquire()
-        #expect(claim.ready.routes == ["100.64.0.0/10"])
-        #expect(claim.ready.socketPath == h.socketPath)
-    }
-
-    @Test
-    func enrollmentRoutesAreTheFallbackWhenTheHubAnnouncesNone() async throws {
-        let h = makeHarness(enrolledRoutes: ["10.0.0.0/8"])
-        h.spawner.announceRoutesOnSpawn = []
-        let claim = try await h.hub.acquire()
-        #expect(claim.ready.routes == ["10.0.0.0/8"])
-    }
-
-    @Test
-    func noAnnouncementWithinTheTimeoutFailsTheStart() async throws {
-        let h = makeHarness()
-        h.spawner.announceRoutesOnSpawn = nil
-        let task = Task { try await h.hub.acquire() }
-        await waitForSpawnCount(h.spawner, count: 1)
-        // A hub that prints anything but hub-ready is still not ready.
-        h.spawner.last?.emitStdout("{\"event\":\"something-else\"}")
-        await waitForPendingSleep(h.gate, Self.readyTimeout)
-        await h.gate.elapse(Self.readyTimeout)
-        await #expect(throws: CloudWireGuardHub.HubError.self) { try await task.value }
-        #expect(h.spawner.last?.isRunning == false)
-        #expect(await h.hub.status().leases == 0)
-    }
-
-    @Test
-    func announcedSocketThatDoesNotAcceptFailsTheStart() async throws {
-        let h = makeHarness(verifySocket: { _ in false })
-        await #expect(throws: CloudWireGuardHub.HubError.self) { _ = try await h.hub.acquire() }
-        #expect(h.spawner.last?.isRunning == false)
-    }
-
-    @Test
-    func readyEventParsesOnlyTheHubReadyLine() {
-        let line = "{\"event\":\"hub-ready\",\"socket\":\"/w/hub-1.sock\",\"routes\":[\"10.0.0.0/8\",\"fd00::/8\"]}"
-        let event = CloudWireGuardHubReadyEvent(line: line)
-        #expect(event?.socketPath == "/w/hub-1.sock")
-        #expect(event?.routes == ["10.0.0.0/8", "fd00::/8"])
-        #expect(CloudWireGuardHubReadyEvent(line: "{\"event\":\"other\",\"socket\":\"/x\"}") == nil)
-        #expect(CloudWireGuardHubReadyEvent(line: "not json") == nil)
-        #expect(CloudWireGuardHubReadyEvent(line: "{\"event\":\"hub-ready\"}") == nil)
     }
 
     @Test

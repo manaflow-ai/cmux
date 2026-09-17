@@ -155,23 +155,24 @@ enum BrowserSplitContainer {
                 creationPolicy: .automationPreload,
                 chromeVisibility: request.chromeVisibility,
                 transparentBackground: request.transparentBackground,
-                bypassRemoteProxy: request.bypassRemoteProxy,
-                engine: request.engine
+                bypassRemoteProxy: request.bypassRemoteProxy
             )
         case .dock(let dock):
             guard let panelID = dock.newSurface(
                 kind: .browser,
                 inPane: paneID,
                 url: request.url,
-                focus: request.focus,
+                focus: false,
                 preferredProfileID: request.preferredProfileID,
                 chromeVisibility: request.chromeVisibility,
                 preloadInitialNavigationInBackground: true,
                 transparentBackground: request.transparentBackground,
-                bypassRemoteProxy: request.bypassRemoteProxy,
-                engine: request.engine
+                bypassRemoteProxy: request.bypassRemoteProxy
             ) else {
                 return nil
+            }
+            if request.focus {
+                dock.focusPanelFromDockInteraction(panelID, window: nil)
             }
             return dock.browserPanel(for: panelID)
         }
@@ -192,8 +193,7 @@ enum BrowserSplitContainer {
                 creationPolicy: .automationPreload,
                 chromeVisibility: request.chromeVisibility,
                 transparentBackground: request.transparentBackground,
-                bypassRemoteProxy: request.bypassRemoteProxy,
-                engine: request.engine
+                bypassRemoteProxy: request.bypassRemoteProxy
             )
         case .dock(let dock):
             guard let panelID = dock.newSplit(
@@ -207,10 +207,12 @@ enum BrowserSplitContainer {
                 preloadInitialNavigationInBackground: true,
                 transparentBackground: request.transparentBackground,
                 bypassRemoteProxy: request.bypassRemoteProxy,
-                engine: request.engine,
-                focus: request.focus
+                focus: false
             ) else {
                 return nil
+            }
+            if request.focus {
+                dock.focusPanelFromDockInteraction(panelID, window: nil)
             }
             return dock.browserPanel(for: panelID)
         }

@@ -247,9 +247,9 @@ struct SidebarWorkspaceChecklistPopover: View {
             } label: {
                 CmuxSystemSymbolImage(
                     systemName: checkboxSymbolName(for: item.state),
-                    pointSize: Self.checkboxPointSize
+                    pointSize: Self.checkboxPointSize,
+                    tint: isCompleted ? .secondary : .primary
                 )
-                .foregroundColor(isCompleted ? .secondary : .primary)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -371,8 +371,7 @@ struct SidebarWorkspaceChecklistPopover: View {
         return Button {
             actions.removeItem(item.id)
         } label: {
-            CmuxSystemSymbolImage(systemName: "xmark.circle.fill", pointSize: Self.checkboxPointSize - 2)
-                .foregroundColor(.secondary)
+            CmuxSystemSymbolImage(systemName: "xmark.circle.fill", pointSize: Self.checkboxPointSize - 2, tint: .secondary)
                 .frame(width: Self.checkboxPointSize + 6, height: Self.checkboxPointSize + 6, alignment: .center)
                 .contentShape(Rectangle())
         }
@@ -394,8 +393,7 @@ struct SidebarWorkspaceChecklistPopover: View {
         return HStack(alignment: .center, spacing: 6) {
             // A `plus.circle` "add" affordance, not an empty checkbox, so the
             // add row never reads as a real (unchecked) item.
-            CmuxSystemSymbolImage(systemName: "plus.circle", pointSize: Self.checkboxPointSize)
-                .foregroundColor(.secondary)
+            CmuxSystemSymbolImage(systemName: "plus.circle", pointSize: Self.checkboxPointSize, tint: .secondary)
             TextField(
                 placeholder,
                 text: $pendingItemText,
@@ -565,7 +563,7 @@ struct SidebarWorkspaceChecklistPopover: View {
             actions.openPane()
         } label: {
             HStack(spacing: 6) {
-                CmuxSystemSymbolImage(systemName: "rectangle.split.2x1", pointSize: 11)
+                CmuxSystemSymbolImage(systemName: "rectangle.split.2x1", pointSize: 11, tint: .secondary)
                 Text(String(localized: "sidebar.checklist.openAsPane", defaultValue: "Open as Pane"))
                     .font(.system(size: 12))
             }

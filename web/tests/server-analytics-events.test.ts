@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   captureServerEvent,
   isSecurePosthogHost,
+  isAllowedPosthogHost,
   serverAnalyticsEnabled,
   serverEventPayload,
   SERVER_EVENT_LIB,
@@ -228,5 +229,12 @@ describe("server event delivery", () => {
     expect(isSecurePosthogHost("https://r.cmux.com")).toBe(true);
     expect(isSecurePosthogHost("http://r.cmux.com")).toBe(false);
     expect(isSecurePosthogHost("not a URL")).toBe(false);
+  });
+
+  test("allows HTTP only for the explicit loopback smoke harness", () => {
+    expect(isAllowedPosthogHost("http://127.0.0.1:4318", { CMUX_SERVER_ANALYTICS_SMOKE: "1" })).toBe(true);
+    expect(isAllowedPosthogHost("http://[::1]:4318", { CMUX_SERVER_ANALYTICS_SMOKE: "1" })).toBe(true);
+    expect(isAllowedPosthogHost("http://127.0.0.1:4318", {})).toBe(false);
+    expect(isAllowedPosthogHost("http://posthog.example", { CMUX_SERVER_ANALYTICS_SMOKE: "1" })).toBe(false);
   });
 });

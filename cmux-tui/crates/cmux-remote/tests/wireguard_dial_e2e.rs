@@ -17,7 +17,7 @@ use cmux_remote::daemon::{RemoteDaemon, serve_direct_websocket};
 use cmux_remote::identity::AuthDatabase;
 use cmux_remote::observability::{ConnectionState, TransportPathKind};
 use cmux_remote::provider::{
-    ConnectRequest, DirectWebSocketProvider, OsTcpDialer, TransportProvider, WireGuardDialer,
+    ConnectRequest, DirectWebSocketProvider, TransportProvider, WireGuardDialer,
 };
 use cmux_remote::session::SessionLimits;
 use cmux_remote_protocol::{FrameFlags, Lane, LanePolicy, SessionId};
@@ -70,7 +70,7 @@ async fn invitation_enrolls_over_a_wireguard_dialed_websocket() {
         }
     });
     let session = SessionId([91; 16]);
-    let dialer = Arc::new(WireGuardDialer::with_fallback(Arc::clone(&tunnel), Arc::new(OsTcpDialer)));
+    let dialer = Arc::new(WireGuardDialer::new(Arc::clone(&tunnel)));
     let group = DirectWebSocketProvider::with_dialer(65_535, dialer)
         .connect(ConnectRequest {
             endpoint,
@@ -118,7 +118,10 @@ async fn invitation_enrolls_over_a_wireguard_dialed_websocket() {
         .unwrap();
     assert_eq!(daemon_client.receive().await.unwrap().unwrap().payload, b"keys".as_slice());
     let screen = vec![0x5a; 16_000];
-    daemon_client.send(Lane::Bulk, 2, Bytes::from(screen.clone()), FrameFlags::empty()).await.unwrap();
+    daemon_client
+        .send(Lane::Bulk, 2, Bytes::from(screen.clone()), FrameFlags::empty())
+        .await
+        .unwrap();
     assert_eq!(client.receive().await.unwrap().unwrap().payload, screen.as_slice());
 
     assert!(tunnel.time_since_last_handshake().await.unwrap().is_some());
@@ -129,7 +132,7 @@ async fn invitation_enrolls_over_a_wireguard_dialed_websocket() {
 }
 
 #[tokio::test]
-async fn addresses_outside_the_tunnel_use_the_fallback() {
+async fn addresses_outside_the_tunnel_fail_closed() {
     let state = tempdir().unwrap();
     let auth = AuthDatabase::load_or_create(state.path(), "wireguard-fallback", false).unwrap();
     let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
@@ -138,17 +141,17 @@ async fn addresses_outside_the_tunnel_use_the_fallback() {
         .unwrap();
     let LoopbackPair { client, client_socket, .. } = loopback_pair().await.unwrap();
     // No peer is running; the tunnel never handshakes. A loopback route must
-    // still connect because 127.0.0.1 is outside the tunnel's routes.
+    // fail before the operating-system TCP stack can reach it.
     let tunnel = Arc::new(WgNet::start(client, client_socket).await.unwrap());
     let dialer = Arc::new(WireGuardDialer::new(tunnel));
     let endpoint = Url::parse(&format!("ws://{}/v1/link", server.local_addr())).unwrap();
-    let link = tokio::time::timeout(
+    let error = tokio::time::timeout(
         TIMEOUT,
         cmux_remote::provider::connect_websocket_via(&endpoint, 65_535, dialer.as_ref()),
     )
     .await
-    .expect("fallback dial timed out")
-    .unwrap();
-    drop(link);
+    .expect("fail-closed dial timed out")
+    .unwrap_err();
+    assert!(error.to_string().contains("outside the configured WireGuard routes"), "{error}");
     server.shutdown().await.unwrap();
 }

@@ -11,7 +11,7 @@ const SENSITIVE_TEXT = [
   /(?:https?|postgres(?:ql)?:)\/\/[^\s/@]+:[^\s/@]+@[^\s]+/gi,
   /https?:\/\/[^\s]*(?:hooks\.slack\.com|api\.sentry\.io|posthog)[^\s]*/gi,
   /\b(?:Bearer|Basic)\s+[^\s]+/gi,
-  /\b(?:srt|sk|crt|xox[baprs]|gh[pousr])[_-][A-Za-z0-9_-]{8,}\b/gi,
+  /\b(?:srt|sk|crt|crk|xox[baprs]|gh[pousr])[_-][A-Za-z0-9_-]{8,}\b/gi,
   /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*\b/g,
   /\b[A-Z0-9]{20,}\b/g,
   /\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b/g,

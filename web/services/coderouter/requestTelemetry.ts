@@ -2,26 +2,21 @@
 //
 // Every coderouter route runs inside `withCoderouterRoute`, which owns one
 // request context (AsyncLocalStorage), one OpenTelemetry route span (Axiom),
-// and one PostHog trace in the isolated coderouter project. The proxies and
+// and one ClickHouse route row. The proxies and
 // the auth helper enrich the context as the request proceeds: the identity
 // once the route token is verified, one span per upstream attempt, and the
 // terminal outcome when the route result is known. After the response the
-// wrapper ships one batch to PostHog:
+// wrapper records the route in ClickHouse. PostHog receives only operational
+// exceptions:
 //
-// - `$ai_trace` (root) with the outcome, status, latency, provider, agent,
-//   attempts and the Axiom trace id, so the LLM analytics waterfall shows the
-//   request end to end;
-// - one `$ai_span` per recorded step (auth, account selection, each upstream
-//   attempt, credential refresh);
 // - `$exception` (Error Tracking) for every failure that is not the caller's
 //   fault, fingerprinted by outcome, stage and provider, `error` level when the
 //   fault is ours (RDS, config, crash), `warning` when an upstream provider or
 //   the tenant's account state caused it.
 //
 // The ledger request id (`x-coderouter-request-id` on every response) is the
-// PostHog `$ai_trace_id` and the ClickHouse `request_id`, so one id joins the
-// customer's report, the PostHog trace, the ClickHouse row and, via the
-// `trace_id` property, the Axiom span. No prompt, output, header, credential,
+// ClickHouse `request_id`, so one id joins the customer's report, the
+// ClickHouse row and the Axiom span. No prompt, output, header, credential,
 // email or account label ever enters this module.
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
@@ -65,6 +60,7 @@ export type CoderouterSurface =
   | "session"
   | "claude_upstream"
   | "vm_usage"
+  | "vm_reflection"
   | "analytics"
   | "health";
 
@@ -108,7 +104,8 @@ export type CoderouterRequestContext = {
   readonly startedAt: number;
   readonly startedAtEpochMs: number;
   readonly vercelRequestId?: string;
-  identity?: Pick<RouteTokenIdentity, "teamId" | "stackUserId" | "vmId">;
+  identity?: Pick<RouteTokenIdentity, "teamId" | "stackUserId" | "vmId" | "apiKeyId" | "poolId">;
+  authMode?: "api_key" | "route_token" | "control_plane";
   /** Stack user id for control-plane routes (no route token). */
   userId?: string;
   outcome?: CoderouterOutcome;
@@ -161,16 +158,26 @@ export function currentCoderouterRequestId(): string {
 }
 
 export function recordCoderouterIdentity(
-  identity: Pick<RouteTokenIdentity, "teamId" | "stackUserId" | "vmId">,
+  identity: Pick<RouteTokenIdentity, "teamId" | "stackUserId" | "vmId" | "apiKeyId" | "poolId">,
+  authMode: "api_key" | "route_token" | "control_plane" = identity.apiKeyId ? "api_key" : "route_token",
 ): void {
   const context = storage.getStore();
   if (!context) return;
-  context.identity = { teamId: identity.teamId, stackUserId: identity.stackUserId, vmId: identity.vmId };
+  context.identity = {
+    teamId: identity.teamId,
+    stackUserId: identity.stackUserId,
+    vmId: identity.vmId,
+    ...(identity.poolId ? { poolId: identity.poolId } : {}),
+    ...(identity.apiKeyId ? { apiKeyId: identity.apiKeyId } : {}),
+  };
+  context.authMode = authMode;
   const span = trace.getActiveSpan();
   if (span) {
     setSpanAttributes(span, {
       "cmux.coderouter.bound_to_vm": identity.vmId !== null,
       "cmux.coderouter.vm_id": identity.vmId ?? undefined,
+      "cmux.coderouter.auth_mode": authMode,
+      "cmux.coderouter.pool_id": identity.poolId ?? undefined,
     });
   }
 }
@@ -288,11 +295,10 @@ export function classifyCoderouterFault(outcome: CoderouterOutcome): CoderouterF
 // PostHog event builders.
 
 /**
- * The PostHog batch for one finished request: the `$ai_trace` root, its
- * `$ai_span` children, and an `$exception` when the outcome was a failure the
- * caller did not cause. Caller errors still mark the trace as an error so
- * HTTP failures remain filterable without creating Error Tracking issues.
- * Exported for tests; `withCoderouterRoute` sends it.
+ * Build the diagnostic trace shape used by tests and local debugging. The
+ * PostHog sender drops the trace and span entries before transmission, so it
+ * receives only an operational exception. Request outcomes and all token
+ * usage are authoritative in ClickHouse.
  */
 export function traceEvents(
   context: CoderouterRequestContext,
@@ -302,11 +308,32 @@ export function traceEvents(
     ? derivedOutcome(context, input)
     : context.outcome;
   const fault = classifyCoderouterFault(outcome);
-  const traceIsError = input.status >= 400 || outcome.outcome !== "success";
   const shouldEmitException = fault !== "none" && fault !== "caller";
   const teamId = context.identity?.teamId;
   const userId = context.identity?.stackUserId ?? context.userId;
-  const common = {
+  const common = coderouterCommonProperties(context, input.status, outcome, fault);
+  const traceIsError = input.status >= 400 || outcome.outcome !== "success";
+  const events: CoderouterRawEvent[] = [
+    {
+      event: "$ai_trace",
+      userId,
+      teamId,
+      timestamp: new Date(context.startedAtEpochMs).toISOString(),
+      properties: coderouterTraceProperties(context, input, outcome, common, traceIsError, shouldEmitException),
+    },
+  ];
+  appendCoderouterSpanEvents(events, context, userId, teamId);
+  if (shouldEmitException) appendCoderouterExceptionEvent(events, context, input, outcome, fault, userId, teamId, common);
+  return events;
+}
+
+function coderouterCommonProperties(
+  context: CoderouterRequestContext,
+  status: number,
+  outcome: CoderouterOutcome,
+  fault: CoderouterFault,
+): Record<string, string | number | boolean> {
+  return {
     coderouter_request_id: context.requestId,
     coderouter_surface: context.surface,
     coderouter_provider: outcome.provider ?? "unknown",
@@ -314,33 +341,44 @@ export function traceEvents(
     coderouter_outcome: outcome.outcome,
     coderouter_failure_stage: outcome.failureStage,
     coderouter_fault: fault,
-    coderouter_status: input.status,
+    coderouter_status: status,
     ...(context.traceId ? { trace_id: context.traceId } : {}),
     ...(context.vercelRequestId ? { vercel_request_id: context.vercelRequestId } : {}),
     ...(context.identity?.vmId ? { coderouter_vm_id: context.identity.vmId } : {}),
+    coderouter_auth_mode: context.authMode ?? coderouterAuthMode(context.identity),
   };
-  const events: CoderouterRawEvent[] = [
-    {
-      event: "$ai_trace",
-      userId,
-      teamId,
-      timestamp: new Date(context.startedAtEpochMs).toISOString(),
-      properties: {
-        ...common,
-        $ai_trace_id: context.requestId,
-        $ai_span_name: `coderouter ${context.method} ${context.route}`,
-        $ai_latency: input.durationMs / 1_000,
-        $ai_http_status: input.status,
-        $ai_is_error: traceIsError,
-        ...(shouldEmitException ? { $ai_error: `${outcome.outcome}/${outcome.failureStage}` } : {}),
-        coderouter_attempts: outcome.attempts ?? 0,
-        coderouter_refresh_retries: outcome.refreshRetries ?? 0,
-        coderouter_response_streamed: outcome.responseStreamed === true,
-        ...(outcome.upstreamKind ? { upstream_kind: outcome.upstreamKind } : {}),
-        ...(outcome.upstreamAccountId ? { upstream_account_id: outcome.upstreamAccountId } : {}),
-      },
-    },
-  ];
+}
+
+function coderouterTraceProperties(
+  context: CoderouterRequestContext,
+  input: { readonly status: number; readonly durationMs: number },
+  outcome: CoderouterOutcome,
+  common: Readonly<Record<string, string | number | boolean>>,
+  traceIsError: boolean,
+  shouldEmitException: boolean,
+): Record<string, string | number | boolean> {
+  return {
+    ...common,
+    $ai_trace_id: context.requestId,
+    $ai_span_name: `coderouter ${context.method} ${context.route}`,
+    $ai_latency: input.durationMs / 1_000,
+    $ai_http_status: input.status,
+    $ai_is_error: traceIsError,
+    ...(shouldEmitException ? { $ai_error: `${outcome.outcome}/${outcome.failureStage}` } : {}),
+    coderouter_attempts: outcome.attempts ?? 0,
+    coderouter_refresh_retries: outcome.refreshRetries ?? 0,
+    coderouter_response_streamed: outcome.responseStreamed === true,
+    ...(outcome.upstreamKind ? { upstream_kind: outcome.upstreamKind } : {}),
+    ...(outcome.upstreamAccountId ? { upstream_account_id: outcome.upstreamAccountId } : {}),
+  };
+}
+
+function appendCoderouterSpanEvents(
+  events: CoderouterRawEvent[],
+  context: CoderouterRequestContext,
+  userId: string | undefined,
+  teamId: string | undefined,
+): void {
   for (const span of context.spans) {
     events.push({
       event: "$ai_span",
@@ -360,23 +398,40 @@ export function traceEvents(
       },
     });
   }
-  if (shouldEmitException) {
-    const summary = input.error !== undefined
-      ? errorSummary(input.error)
-      : `coderouter ${outcome.outcome} (${outcome.failureStage}) HTTP ${input.status}`;
-    events.push(exceptionEvent({
-      type: input.error instanceof Error ? input.error.name : `coderouter_${outcome.outcome}`,
-      value: summary,
-      fingerprint: `coderouter:${outcome.outcome}:${outcome.failureStage}:${outcome.provider ?? "unknown"}`,
-      level: fault === "operator" ? "error" : "warning",
-      error: input.error,
-      handled: input.error === undefined,
-      userId,
-      teamId,
-      properties: { ...common, $ai_trace_id: context.requestId },
-    }));
-  }
-  return events;
+}
+
+function appendCoderouterExceptionEvent(
+  events: CoderouterRawEvent[],
+  context: CoderouterRequestContext,
+  input: { readonly status: number; readonly durationMs: number; readonly error?: unknown },
+  outcome: CoderouterOutcome,
+  fault: CoderouterFault,
+  userId: string | undefined,
+  teamId: string | undefined,
+  common: Readonly<Record<string, string | number | boolean>>,
+): void {
+  const summary = input.error !== undefined
+    ? errorSummary(input.error)
+    : `coderouter ${outcome.outcome} (${outcome.failureStage}) HTTP ${input.status}`;
+  events.push(exceptionEvent({
+    type: input.error instanceof Error ? input.error.name : `coderouter_${outcome.outcome}`,
+    value: summary,
+    fingerprint: `coderouter:${outcome.outcome}:${outcome.failureStage}:${outcome.provider ?? "unknown"}`,
+    level: fault === "operator" ? "error" : "warning",
+    error: input.error,
+    handled: input.error === undefined,
+    userId,
+    teamId,
+    properties: { ...common, $ai_trace_id: context.requestId },
+  }));
+}
+
+function coderouterAuthMode(
+  identity: CoderouterRequestContext["identity"],
+): "api_key" | "route_token" | "none" {
+  if (identity?.apiKeyId) return "api_key";
+  if (identity) return "route_token";
+  return "none";
 }
 
 function derivedOutcome(
@@ -447,8 +502,9 @@ export function coderouterControlRoute<Context = unknown>(
 /**
  * Wraps a route handler so every request has a ledger request id, a route
  * span, a request context, trace and request-id response headers, and a
- * post-response PostHog batch. An unhandled throw is reported with its real
- * stack (Sentry via `reportCoderouterFailure`, PostHog `$exception`) and
+ * post-response operational exception event. An unhandled throw is reported
+ * with its real stack (Sentry via `reportCoderouterFailure`, PostHog
+ * `$exception`) and
  * answered with the surface's 503, never swallowed.
  */
 export function withCoderouterRoute<Context = unknown>(

@@ -9,8 +9,7 @@
 //! datagram, a command, a stream write, the WireGuard timer tick, or the
 //! deadline smoltcp asks for.
 
-use std::collections::HashSet;
-use std::collections::hash_map::RandomState;
+use std::collections::{HashSet, VecDeque, hash_map::RandomState};
 use std::fmt;
 use std::hash::{BuildHasher, Hasher};
 use std::io;
@@ -63,6 +62,10 @@ const TIMER_TICK: Duration = Duration::from_millis(250);
 const TCP_TIMEOUT: Duration = Duration::from_secs(60);
 /// Largest datagram or packet buffer: the UDP payload maximum.
 const BUFFER_BYTES: usize = 65_535;
+/// UDP send readiness is edge-triggered by Tokio. Keep datagrams that arrive
+/// while the socket is temporarily unwritable and retry them on the next
+/// driver pass instead of silently losing a handshake.
+const UDP_SEND_QUEUE_DEPTH: usize = 64;
 /// The ephemeral port range (IANA 49152-65535); allocation starts at a random
 /// port inside it and wraps, as a real stack does.
 const FIRST_EPHEMERAL_PORT: u16 = 49_152;
@@ -89,12 +92,14 @@ pub enum WgError {
     ConnectionRefused(SocketAddr),
     /// The destination is outside the peer's configured `AllowedIPs`.
     RouteNotAllowed(IpAddr),
+    /// No ephemeral TCP source port is available.
+    EphemeralPortsExhausted,
     /// A listener already owns the port.
     ListenerBusy(u16),
     /// The tunnel has been shut down.
     Shutdown,
-    /// No ephemeral TCP source port is available.
-    EphemeralPortsExhausted,
+    /// No WireGuard handshake completed before the startup deadline.
+    HandshakeTimeout(Duration),
     /// smoltcp refused the operation.
     Stack(String),
 }
@@ -114,10 +119,13 @@ impl fmt::Display for WgError {
             Self::RouteNotAllowed(remote) => {
                 write!(formatter, "destination {remote} is outside the tunnel routes")
             }
-            Self::ListenerBusy(port) => write!(formatter, "port {port} already has a listener"),
-            Self::Shutdown => formatter.write_str("the tunnel is shut down"),
             Self::EphemeralPortsExhausted => {
                 formatter.write_str("no ephemeral TCP port is available")
+            }
+            Self::ListenerBusy(port) => write!(formatter, "port {port} already has a listener"),
+            Self::Shutdown => formatter.write_str("the tunnel is shut down"),
+            Self::HandshakeTimeout(timeout) => {
+                write!(formatter, "no WireGuard handshake completed within {timeout:?}")
             }
             Self::Stack(detail) => write!(formatter, "tcp stack: {detail}"),
         }
@@ -186,7 +194,9 @@ impl WgNet {
             .resolve()
             .await
             .map_err(|_| WgError::EndpointUnresolved(endpoint.host.clone()))?;
-        let peer = *candidates.first().ok_or_else(|| WgError::EndpointUnresolved(endpoint.host.clone()))?;
+        let peer = *candidates
+            .first()
+            .ok_or_else(|| WgError::EndpointUnresolved(endpoint.host.clone()))?;
         let bind: SocketAddr = if peer.is_ipv4() { "0.0.0.0:0".parse() } else { "[::]:0".parse() }
             .expect("literal bind address");
         let socket = UdpSocket::bind(bind).await?;
@@ -252,6 +262,27 @@ impl WgNet {
             .await
             .map_err(|_| WgError::Shutdown)?;
         reply_rx.await.map_err(|_| WgError::Shutdown)
+    }
+
+    /// Wait until the peer completes a WireGuard handshake.
+    ///
+    /// Starting the driver only proves that the local UDP socket and the
+    /// userspace stack are alive. A hub must also prove that its peer can be
+    /// reached before it advertises a ready SOCKS socket. The driver sends an
+    /// initial handshake during startup, so polling this value is a bounded
+    /// end-to-end readiness check.
+    pub async fn wait_for_handshake(&self, timeout: Duration) -> Result<Duration, WgError> {
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            if let Some(age) = self.time_since_last_handshake().await? {
+                return Ok(age);
+            }
+            let now = tokio::time::Instant::now();
+            if now >= deadline {
+                return Err(WgError::HandshakeTimeout(timeout));
+            }
+            tokio::time::sleep_until(deadline.min(now + Duration::from_millis(100))).await;
+        }
     }
 
     /// Stop the driver and wait for it to exit. Open connections are reset.
@@ -421,8 +452,7 @@ enum Handoff {
 struct Conn {
     handle: SocketHandle,
     remote: SocketAddr,
-    /// Ephemeral source port reserved for this connection, if any. Accepted
-    /// sockets use a listener port and do not participate in allocation.
+    /// Reserved ephemeral source port; accepted sockets use their listener port.
     local_port: Option<u16>,
     /// The stream waiting to be handed to its owner once the socket is
     /// established. Taken on delivery.
@@ -457,6 +487,7 @@ impl PortAllocator {
         Self { next_port, reserved: HashSet::new() }
     }
 
+    #[cfg(test)]
     fn set_next_port(&mut self, next_port: u16) {
         self.next_port = next_port;
     }
@@ -500,6 +531,7 @@ struct Driver {
     epoch: std::time::Instant,
     ports: PortAllocator,
     scratch: Vec<u8>,
+    pending_udp: VecDeque<(Vec<u8>, SocketAddr)>,
 }
 
 enum Event {
@@ -552,8 +584,12 @@ impl Driver {
         // goes into the tunnel.
         for entry in &config.addresses {
             let result = match entry.address {
-                IpAddr::V4(address) => iface.routes_mut().add_default_ipv4_route(address).map(|_| ()),
-                IpAddr::V6(address) => iface.routes_mut().add_default_ipv6_route(address).map(|_| ()),
+                IpAddr::V4(address) => {
+                    iface.routes_mut().add_default_ipv4_route(address).map(|_| ())
+                }
+                IpAddr::V6(address) => {
+                    iface.routes_mut().add_default_ipv6_route(address).map(|_| ())
+                }
             };
             result.map_err(|_| WgError::Stack("route table full".into()))?;
         }
@@ -573,11 +609,14 @@ impl Driver {
             epoch,
             ports: PortAllocator::new(),
             scratch: vec![0u8; BUFFER_BYTES + 32],
+            pending_udp: VecDeque::new(),
         })
     }
 
     fn now(&self) -> SmolInstant {
-        SmolInstant::from_micros(i64::try_from(self.epoch.elapsed().as_micros()).unwrap_or(i64::MAX))
+        SmolInstant::from_micros(
+            i64::try_from(self.epoch.elapsed().as_micros()).unwrap_or(i64::MAX),
+        )
     }
 
     async fn run(mut self) {
@@ -588,6 +627,7 @@ impl Driver {
         let mut datagram = vec![0u8; BUFFER_BYTES];
 
         self.initiate_handshake();
+        self.flush_pending_udp();
         self.service();
 
         loop {
@@ -633,15 +673,40 @@ impl Driver {
                 Event::Wake | Event::StackDeadline => {}
                 Event::Tick => self.update_timers(),
             }
+            self.flush_pending_udp();
             self.service();
+            self.flush_pending_udp();
         }
     }
 
-    fn send_to_peer(&self, packet: &[u8]) {
+    fn send_to_peer(&mut self, packet: &[u8]) {
         if let Some(peer) = self.peer {
-            // WireGuard tolerates loss; a momentarily unwritable UDP socket
-            // drops the datagram rather than blocking the driver.
-            let _ = self.udp.try_send_to(packet, peer);
+            match self.udp.try_send_to(packet, peer) {
+                Ok(_) => {}
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    if self.pending_udp.len() < UDP_SEND_QUEUE_DEPTH {
+                        self.pending_udp.push_back((packet.to_vec(), peer));
+                    }
+                }
+                Err(error) => {
+                    eprintln!("wireguard UDP send to {peer} failed: {error}");
+                }
+            }
+        }
+    }
+
+    fn flush_pending_udp(&mut self) {
+        while let Some((packet, peer)) = self.pending_udp.front() {
+            match self.udp.try_send_to(packet, *peer) {
+                Ok(_) => {
+                    self.pending_udp.pop_front();
+                }
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
+                Err(error) => {
+                    eprintln!("wireguard UDP send to {peer} failed: {error}");
+                    self.pending_udp.pop_front();
+                }
+            }
         }
     }
 
@@ -776,6 +841,9 @@ impl Driver {
         remote: SocketAddr,
         reply: oneshot::Sender<Result<WgStream, WgError>>,
     ) {
+        if reply.is_closed() {
+            return;
+        }
         if !self.config.routes_contain(remote.ip()) {
             let _ = reply.send(Err(WgError::RouteNotAllowed(remote.ip())));
             return;
@@ -938,6 +1006,18 @@ impl Driver {
             let socket = self.sockets.get_mut::<tcp::Socket>(conn.handle);
 
             if let Some((handoff, stream)) = conn.pending_stream.take() {
+                if matches!(&handoff, Handoff::Connect(reply) if reply.is_closed()) {
+                    // The connect future was cancelled before the handshake
+                    // completed. No stream owner remains to close this socket.
+                    socket.abort();
+                    if let Some(port) = conn.local_port {
+                        self.ports.release(port);
+                    }
+                    let handle = conn.handle;
+                    self.sockets.remove(handle);
+                    self.conns.swap_remove(index);
+                    continue;
+                }
                 if socket.state() == tcp::State::Established {
                     match handoff {
                         Handoff::Connect(reply) => {
@@ -1088,8 +1168,6 @@ fn packet_source(packet: &[u8]) -> Option<IpAddr> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-
     use super::*;
 
     #[test]
@@ -1123,6 +1201,31 @@ mod tests {
         allocator.release(released);
         allocator.set_next_port(released);
         assert_eq!(allocator.allocate(), Some(released));
+    }
+
+    #[tokio::test]
+    async fn cancelled_hub_dial_releases_the_pending_tcp_socket() {
+        let pair = crate::testing::loopback_pair().await.unwrap();
+        let (_commands, receiver) = mpsc::channel(COMMAND_DEPTH);
+        let mut driver = Driver::new(
+            pair.client,
+            pair.client_socket,
+            Some(pair.server_socket.local_addr().unwrap()),
+            receiver,
+            Arc::new(Notify::new()),
+        )
+        .unwrap();
+        let (reply, pending) = oneshot::channel();
+        driver.begin_connect(SocketAddr::new(pair.server_v6, 1337), reply);
+        assert_eq!(driver.conns.len(), 1);
+        assert_eq!(driver.sockets.iter().count(), 1);
+
+        drop(pending);
+        driver.process_conns();
+
+        assert!(driver.conns.is_empty(), "a cancelled dial must not wait for TCP_TIMEOUT");
+        assert_eq!(driver.sockets.iter().count(), 0);
+        assert!(driver.ports.reserved.is_empty(), "cancelled dial must release its port");
     }
 
     #[test]

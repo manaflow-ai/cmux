@@ -1,6 +1,5 @@
 //! Two in-process WireGuard peers over loopback UDP: no root, no interface.
 
-use std::future::Future;
 use std::net::SocketAddr;
 use std::time::Duration;
 
@@ -82,6 +81,31 @@ async fn tcp_echo_through_the_tunnel_in_both_families() {
     drop(v6);
     client.shutdown().await;
     server.shutdown().await;
+}
+
+#[tokio::test]
+async fn startup_readiness_waits_for_a_handshake() {
+    let LoopbackPair { client, server, client_socket, server_socket, .. } =
+        loopback_pair().await.unwrap();
+    let server = WgNet::start(server, server_socket).await.unwrap();
+    let client = WgNet::start(client, client_socket).await.unwrap();
+
+    within(client.wait_for_handshake(Duration::from_secs(2))).await.unwrap();
+    within(server.wait_for_handshake(Duration::from_secs(2))).await.unwrap();
+
+    client.shutdown().await;
+    server.shutdown().await;
+}
+
+#[tokio::test]
+async fn startup_readiness_reports_an_unreachable_peer() {
+    let LoopbackPair { client, client_socket, .. } = loopback_pair().await.unwrap();
+    let client = WgNet::start(client, client_socket).await.unwrap();
+
+    let error = within(client.wait_for_handshake(Duration::from_millis(300))).await.unwrap_err();
+    assert!(matches!(error, WgError::HandshakeTimeout(_)), "{error}");
+
+    client.shutdown().await;
 }
 
 #[tokio::test]
