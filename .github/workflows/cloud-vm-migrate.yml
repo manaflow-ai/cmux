@@ -75,6 +75,8 @@ jobs:
             postgres://*|postgresql://*) ;;
             *) echo "::error::DATABASE_URL must use the PostgreSQL URL scheme"; exit 1 ;;
           esac
+      - name: Verify staging PlanetScale connection (read only)
+        run: bun run cloud-vm:migrate -- staging --check
       - name: Apply staging migration
         run: bun run cloud-vm:migrate -- staging
       - name: Clean up staging Iroh challenges
@@ -113,6 +115,8 @@ jobs:
             postgres://*|postgresql://*) ;;
             *) echo "::error::DATABASE_URL must use the PostgreSQL URL scheme"; exit 1 ;;
           esac
+      - name: Verify production PlanetScale connection (read only)
+        run: bun run cloud-vm:migrate -- production --check
       - name: Apply production migration
         run: bun run cloud-vm:migrate -- production
       - name: Clean up production Iroh challenges
