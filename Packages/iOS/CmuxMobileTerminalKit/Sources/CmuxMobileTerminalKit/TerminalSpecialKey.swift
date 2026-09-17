@@ -8,8 +8,9 @@ import Foundation
 /// on any platform.
 ///
 /// `Codable` (synthesized by case name) lets a ``CustomToolbarAction`` that
-/// sends a special key persist which key it targets.
-public enum TerminalSpecialKey: Hashable, Sendable, Codable {
+/// sends a special key persist which key it targets. `CaseIterable` lets the
+/// toolbar-action editor enumerate the keys a custom key combo can target.
+public enum TerminalSpecialKey: Hashable, Sendable, Codable, CaseIterable {
     /// The Up arrow key.
     case upArrow
     /// The Down arrow key.
