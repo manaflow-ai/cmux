@@ -40,6 +40,20 @@ import Testing
             ["id": "agent_1", "terminal_id": "term_build", "state": "working", "source": "claude"],
         ],
     ]
+    @Test func creationAttachmentRequiresMatchingTerminalAndGeneration() {
+        let result: [String: Any] = [
+            "value": ["terminal_id": "term_test", "tab_id": "tab_test"],
+            "generation": "g1", "revision": "2",
+            "attachment": ["terminal_id": "term_test", "generation": "g1", "surface": 17]
+        ]
+        #expect(CmuxTuiSnapshotParser.createdTerminal(fromRunResult: result)?.attachment?.surfaceID == 17)
+        var stale = result
+        stale["attachment"] = ["terminal_id": "term_test", "generation": "g0", "surface": 17]
+        #expect(CmuxTuiSnapshotParser.createdTerminal(fromRunResult: stale)?.attachment == nil)
+        stale["attachment"] = ["terminal_id": "term_other", "generation": "g1", "surface": 17]
+        #expect(CmuxTuiSnapshotParser.createdTerminal(fromRunResult: stale)?.attachment == nil)
+    }
+
     @Test func legacyScreensKeepArrivalOrderAndExplicitPositions() throws {
         var snapshot = Self.sessionSnapshot
         snapshot["screens"] = [
