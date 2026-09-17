@@ -15310,11 +15310,12 @@ struct CMUXCLI {
         let isTerminalInput = isatty(STDIN_FILENO) == 1
         let filtersReconnectInput = requireExisting && command == nil && isTerminalInput
         // Capture once. Admission and network setup must not mutate this snapshot.
-        let terminalInputMode = isTerminalInput ? SSHPTYTerminalInputMode() : nil
+        let terminalInputMode = isTerminalInput ? SSHPTYTerminalInputMode(fileDescriptor: STDIN_FILENO) : nil
         var signalMonitor: SSHPTYAttachSignalMonitor?
+        var discardDisconnectedInput = filtersReconnectInput
         defer {
             if let terminalInputMode,
-               !terminalInputMode.restore(flushInput: filtersReconnectInput) {
+               !terminalInputMode.restore(flushInput: discardDisconnectedInput) {
                 cliDebugLog("ssh.pty.attach.terminal.restore_failed")
             }
             signalMonitor?.cancel()
@@ -15385,8 +15386,15 @@ struct CMUXCLI {
                 exitCode: exitCode
             )
         }
-        try SSHPTYDaemonCompatibility(clientVersion: remoteDaemonVersionString(from: resolvedVersionInfo()))
-            .validate(bridge["daemon_version"] as? String)
+        do {
+            try validateSSHPTYDaemonVersion(
+                bridge["daemon_version"] as? String,
+                clientVersion: remoteDaemonVersionString(from: resolvedVersionInfo())
+            )
+        } catch {
+            discardDisconnectedInput = false
+            throw error
+        }
         if isTerminalInput, terminalInputMode == nil { throw sshPTYTerminalModeError() }
         var connectedFD: Int32?
         var bridgeHandshakeSize = Self.currentCLITerminalSize()
@@ -15445,7 +15453,7 @@ struct CMUXCLI {
             }
         } catch {
             if let connectedFD { Darwin.close(connectedFD) }
-            try signalMonitor?.checkCancellation()
+            try checkSSHPTYCancellation(signalMonitor)
             let sessionNotFound = requireExisting &&
                 (error as? CLIError)?.exitCode == SSHPTYAttachExitCode.sessionNotFound.rawValue
             if sessionNotFound {
@@ -15468,6 +15476,7 @@ struct CMUXCLI {
         let fd = connectedFD!
         defer { Darwin.close(fd) }
 
+        let outputWriter = try SSHPTYOutputWriter(fileDescriptor: STDOUT_FILENO)
         // Fresh output may contain live terminal queries, so raw mode precedes it.
         // A reconnect keeps signal keys live until its historical replay is drained.
         if isTerminalInput, !filtersReconnectInput, terminalInputMode?.beginForwarding() != true {
@@ -15552,11 +15561,12 @@ struct CMUXCLI {
             guard !data.isEmpty else { return }
             let filtered = replayOutputFilter.filter(data)
             if !filtered.isEmpty,
-               !cliWrite(filtered, to: .standardOutput, onBrokenPipe: .ignore) {
+               !outputWriter.write(filtered, cancellation: signalMonitor!) {
                 // A closed output consumer still has to unwind the termios owner.
                 // Keep the remote lifecycle available for the wrapper's recovery
                 // reconciliation; local output failure does not prove the PTY ended.
                 preserveLifecycleForRecovery = true
+                try checkSSHPTYCancellation(signalMonitor)
                 throw CLIError(message: "", exitCode: 0)
             }
         }
@@ -15565,7 +15575,7 @@ struct CMUXCLI {
                 discarding: sshPTYAttachWrapperRetryPending()
             )
             try? writeReplayFilteredOutput(pendingReplay)
-            _ = cliWrite(replayOutputFilter.finish(), to: .standardOutput, onBrokenPipe: .ignore)
+            _ = outputWriter.write(replayOutputFilter.finish(), cancellation: signalMonitor!)
         }
         func startInputForwardingAfterReplay() throws {
             guard !inputPumpStarted, outputProgress.replayBytesRemaining == 0 else { return }
@@ -15603,7 +15613,7 @@ struct CMUXCLI {
         var outputBuffer = [UInt8](repeating: 0, count: 32768)
         while true {
             let count = Darwin.read(fd, &outputBuffer, outputBuffer.count)
-            try signalMonitor?.checkCancellation()
+            try checkSSHPTYCancellation(signalMonitor)
             if count > 0 {
                 let output = outputProgress.terminalOutput(
                     from: Data(outputBuffer.prefix(count)),
