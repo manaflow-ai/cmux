@@ -154,6 +154,10 @@ struct RemoteSessionReadinessParkingTests {
         let parked = try #require(await host.firstPublication(of: .suspended))
         let parkedDetail = try #require(parked.detail)
         #expect(!parkedDetail.isEmpty)
+        // Parking publishes and then releases its waiters inside one block on
+        // the coordinator queue; the publication alone does not mean that
+        // block has finished.
+        coordinator.queue.sync {}
         let released = try #require(waitingAttach.current)
         #expect(Self.failureDescription(of: released) == parkedDetail)
         // Parking owns the transport: the relay restart loop must be over.
@@ -205,6 +209,7 @@ struct RemoteSessionReadinessParkingTests {
         await clock.resumeNextSleep()
         let parked = try #require(await host.firstPublication(of: .suspended))
         #expect(parked.detail?.isEmpty == false)
+        coordinator.queue.sync {}
         #expect(coordinator.queue.sync {
             coordinator.proxyLease == nil && !coordinator.daemonReady
         })
