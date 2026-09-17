@@ -197,6 +197,7 @@ fn machine_listening_tcp_json() -> anyhow::Result<Value> {
 fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&'static str> {
     let mut capabilities = vec![
         ATTACH_INITIAL_SIZE_CAPABILITY,
+        "attach-identity-v1",
         WORKSPACE_REGISTRY_CAPABILITY,
         DAEMON_HANDOFF_FORCE_CAPABILITY,
         GUARDED_BROWSER_POINTER_CAPABILITY,
@@ -1358,7 +1359,12 @@ enum Command {
     },
     /// Stream a surface: vt-state event followed by live output events.
     AttachSurface {
-        surface: SurfaceId,
+        #[serde(default)]
+        surface: Option<SurfaceId>,
+        #[serde(default)]
+        expected_generation: Option<String>,
+        #[serde(default)]
+        expected_terminal_id: Option<String>,
         #[serde(default)]
         mode: Option<String>,
         /// Optional initial viewer size. Supplying this pair makes the attach
@@ -1413,9 +1419,9 @@ impl Command {
             | Self::ReleaseSurfaceSize { surface }
             | Self::ReleaseAttachedViewSize { surface, .. }
             | Self::DetachAttachedView { surface, .. }
-            | Self::AttachSurface { surface, .. }
             | Self::ScrollSurface { surface, .. } => Some(*surface),
-            Self::Notify { surface, .. }
+            Self::AttachSurface { surface, .. }
+            | Self::Notify { surface, .. }
             | Self::ListAgents { surface, .. }
             | Self::Subscribe { surface, .. } => *surface,
             _ => None,
@@ -12799,13 +12805,58 @@ fn handle_command_with_cancellation(
             })?;
             Ok(json!({}))
         }
-        Command::AttachSurface { surface: surface_id, mode, cols, rows } => {
+        Command::AttachSurface {
+            surface: surface_id,
+            mode,
+            cols,
+            rows,
+            expected_generation,
+            expected_terminal_id,
+        } => {
             let initial_size = match (cols, rows) {
                 (Some(cols), Some(rows)) => Some((cols, rows)),
                 (None, None) => None,
                 _ => anyhow::bail!("attach-surface cols and rows must be supplied together"),
             };
+            let surface_id = match surface_id {
+                Some(surface) => surface,
+                None => {
+                    let generation = expected_generation.as_deref().ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "attachment identity requires generation and terminal together"
+                        )
+                    })?;
+                    anyhow::ensure!(
+                        mux.registry_identity().1 == generation,
+                        "attachment_generation_mismatch"
+                    );
+                    let terminal = expected_terminal_id.as_deref().ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "attachment identity requires generation and terminal together"
+                        )
+                    })?;
+                    let terminal = TerminalPublicId::parse(terminal)
+                        .map_err(|_| anyhow::anyhow!("attachment_terminal_mismatch"))?;
+                    mux.resource_surface_for_terminal(&terminal)
+                        .ok_or_else(|| anyhow::anyhow!("attachment_terminal_mismatch"))?
+                }
+            };
             let surface = get_surface(mux, surface_id)?;
+            match (expected_generation, expected_terminal_id) {
+                (Some(generation), Some(terminal)) => {
+                    anyhow::ensure!(
+                        mux.registry_identity().1 == generation,
+                        "attachment_generation_mismatch"
+                    );
+                    anyhow::ensure!(
+                        surface.terminal_public_id().map(|id| id.as_str())
+                            == Some(terminal.as_str()),
+                        "attachment_terminal_mismatch"
+                    );
+                }
+                (None, None) => {}
+                _ => anyhow::bail!("attachment identity requires generation and terminal together"),
+            }
             if surface.kind() == SurfaceKind::Browser {
                 let guarded_owner = mux
                     .control_clients
@@ -19539,6 +19590,45 @@ mod tests {
     }
 
     #[test]
+    fn creation_attachment_identity_rejects_wrong_generation_and_terminal() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let terminal = surface.terminal_public_id().unwrap().to_string();
+        for (generation, terminal, expected) in [
+            ("old-generation".to_string(), terminal.clone(), "attachment_generation_mismatch"),
+            (
+                mux.registry_identity().1,
+                "term_00000000000000000000000000000000".to_string(),
+                "attachment_terminal_mismatch",
+            ),
+        ] {
+            let command = Command::AttachSurface {
+                surface: Some(surface.id),
+                mode: None,
+                cols: None,
+                rows: None,
+                expected_generation: Some(generation),
+                expected_terminal_id: Some(terminal),
+            };
+            let error = handle_command(&mux, client, command, &writer).unwrap_err();
+            assert!(error.to_string().contains(expected), "{error:#}");
+        }
+        let command = Command::AttachSurface {
+            surface: None,
+            mode: None,
+            cols: None,
+            rows: None,
+            expected_generation: Some(mux.registry_identity().1),
+            expected_terminal_id: Some(terminal),
+        };
+        handle_command(&mux, client, command, &writer).unwrap();
+        disconnect_client(&mux, client, false);
+        mux.shutdown();
+    }
+
+    #[test]
     fn guarded_browser_attach_rejects_a_late_capability_upgrade() {
         let mux = test_mux();
         let writer = test_writer();
@@ -19563,7 +19653,14 @@ mod tests {
         let attach = handle_command(
             &mux,
             client,
-            Command::AttachSurface { surface: surface.id, mode: None, cols: None, rows: None },
+            Command::AttachSurface {
+                surface: Some(surface.id),
+                mode: None,
+                cols: None,
+                rows: None,
+                expected_generation: None,
+                expected_terminal_id: None,
+            },
             &writer,
         );
         mux.shutdown();

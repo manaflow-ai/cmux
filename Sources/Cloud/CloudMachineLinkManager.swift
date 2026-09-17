@@ -42,6 +42,7 @@ actor CloudMachineLinkManager {
     private let isCloudEnabled: @Sendable () -> Bool
     private let paths: CloudTuiClientPaths
     private let clientURL: URL?
+    private var cachedClientCapabilities: [String]?
     /// The app's in-process WireGuard hub; nil in tests that never touch the network.
     /// A machine whose route points into the private network is linked through it when
     /// the bundled client advertises `wireguard-hub`. Public routes are refused.
@@ -181,7 +182,16 @@ actor CloudMachineLinkManager {
             try Task.checkCancellation()
             let link = CloudMachineLink(machineID: machineID, clientURL: clientURL, paths: paths)
             self.store(link: link, for: machineID)
-            let capabilities = Self.clientCapabilities(clientURL: clientURL)
+            let capabilities: [String]
+            if let cached = self.cachedClientCapabilities { capabilities = cached }
+            else if let probed = Self.clientCapabilities(clientURL: clientURL) {
+                capabilities = probed
+                self.cachedClientCapabilities = probed
+            } else {
+                // A failed probe must not poison the actor-wide cache. A later
+                // connection can retry the probe and discover the capability.
+                capabilities = []
+            }
             let knownFingerprint = paths.deviceFingerprint(for: machineID)
             var session = "cmux"
             // The machine's daemon serves a trusted listener inside the private
@@ -401,7 +411,7 @@ actor CloudMachineLinkManager {
     private func runThemePush(machineID: String, socketPath: String) async {
         guard let link = links[machineID] else { return }
         guard let colors = await hostThemeColors(),
-              let arguments = CloudTuiCommandLine.setDefaultColorsArguments(
+              let arguments = CloudTuiRequests.setDefaultColorsArguments(
                   socketPath: socketPath, foreground: colors.foreground, background: colors.background
               ) else { return }
         do {
@@ -426,7 +436,7 @@ actor CloudMachineLinkManager {
 
     /// `remote-probe --json` → `capabilities`; the control plane picks the machine host by
     /// them (a client that sends a User-Agent earns the branded host).
-    nonisolated static func clientCapabilities(clientURL: URL) -> [String] {
+    nonisolated static func clientCapabilities(clientURL: URL) -> [String]? {
         let process = Process()
         process.executableURL = clientURL
         process.arguments = ["remote-probe", "--json"]
@@ -437,7 +447,7 @@ actor CloudMachineLinkManager {
         do {
             try process.run()
         } catch {
-            return []
+            return nil
         }
         let data = out.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
@@ -445,7 +455,7 @@ actor CloudMachineLinkManager {
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               (object["app"] as? String) == "cmux-tui",
               let raw = object["capabilities"] as? [Any] else {
-            return []
+            return nil
         }
         return raw.compactMap { $0 as? String }
     }
