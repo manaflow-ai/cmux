@@ -15386,8 +15386,7 @@ struct CMUXCLI {
                 exitCode: exitCode
             )
         }
-        // An established endpoint may belong to a recoverable remote PTY.
-        // Only authoritative reconciliation can retire its lifecycle from here.
+        // After endpoint establishment, only remote reconciliation can retire the lifecycle.
         preserveLifecycleForRecovery = true
         do {
             try validateSSHPTYDaemonVersion(
@@ -15565,9 +15564,7 @@ struct CMUXCLI {
             let filtered = replayOutputFilter.filter(data)
             if !filtered.isEmpty,
                !outputWriter.write(filtered, cancellation: signalMonitor!) {
-                // A closed output consumer still has to unwind the termios owner.
-                // Keep the remote lifecycle available for the wrapper's recovery
-                // reconciliation; local output failure does not prove the PTY ended.
+                // Local output failure unwinds termios while preserving the remote PTY.
                 preserveLifecycleForRecovery = true
                 try checkSSHPTYCancellation(signalMonitor)
                 throw CLIError(message: "", exitCode: 0)
