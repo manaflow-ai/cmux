@@ -6,7 +6,6 @@ import CmuxMobileSupport
 import CmuxMobileTerminalKit
 import GhosttyKit
 import OSLog
-import Synchronization
 import UIKit
 import os
 
@@ -1425,7 +1424,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard let surface, !isDismantled else { return }
         let workQueue = outputQueue
         let generation = surfaceGeneration
-        workQueue.queue.async { [weak self] in
+        workQueue.async { [weak self] in
             workQueue.lastContentBottomTime = CACurrentMediaTime()
             guard let viewportText = Self.surfaceText(surface, pointTag: GHOSTTY_POINT_VIEWPORT),
                   viewportText.utf8.count <= 131_072 else { return }
@@ -1825,21 +1824,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ///
     /// The surface extends under the bottom safe area (the host applies
     /// `ignoresSafeArea(.container, .bottom)`), so when the keyboard is down the
-    /// always-visible toolbar must clear this much to avoid the home indicator. Reads
-    /// the view's own inset, falling back to the window's, because `safeAreaInsets`
-    /// can be zero before the view is on a window.
+    /// always-visible toolbar must clear this much to avoid the home indicator.
+    /// The window or captured outer inset owns the reservation: this surface
+    /// slides for the keyboard, so its local inset changes with presentation.
     private var safeAreaInsetsBottom: CGFloat {
         TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(
             viewInset: safeAreaInsets.bottom,
-            windowInset: window?.safeAreaInsets.bottom ?? 0,
-            capturedInset: capturedBottomSafeAreaInset,
+            windowInset: window?.safeAreaInsets.bottom,
+            capturedInset: capturedBottomSafeAreaInset > 0 ? capturedBottomSafeAreaInset : nil,
             ancestorInsets: safeAreaAncestorBottomInsets
         )
     }
 
     /// Safe-area value captured outside the SwiftUI subtree that intentionally
     /// ignores the terminal's bottom container region. This stays as a
-    /// fallback: a live view or window inset still wins when UIKit provides it.
+    /// fallback for the window, ahead of this moving surface's local inset.
     private var capturedBottomSafeAreaInset: CGFloat = 0
 
     /// Updates the outer safe-area fallback and immediately re-seats the dock
@@ -4414,7 +4413,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         renderInFlightSince = CACurrentMediaTime()
         let enqueuedAt = CACurrentMediaTime()
         let workQueue = outputQueue
-        workQueue.async { [weak self] in
+        let accepted = workQueue.async({ [weak self] in
             let lagMs = (CACurrentMediaTime() - enqueuedAt) * 1000
             if lagMs > 150 { MobileDebugLog.anchormux("oq.render.LAG \(Int(lagMs))ms") }
             switch submission.kind {
@@ -4482,6 +4481,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     }
                 }
             }
+        }, priority: submission.kind == .localScroll)
+        guard accepted else {
+            repairRenderAdmissionAfterFailedStart()
+            return false
         }
         return true
     }
@@ -5092,7 +5095,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let bottomInsetPx = UInt32(max(0, Int((bottomInsetPts * scale).rounded(.down))))
         let appliedBottomInsetPts = CGFloat(bottomInsetPx) / scale
         let eff = effectiveGrid
-        let requiresExactEffectiveGrid = verifiedReplayRenderSuppressed
         let pushContentScale = abs(lastAppliedContentScale - scale) > 0.001
         if pushContentScale { lastAppliedContentScale = scale }
         let generation = surfaceGeneration
@@ -5117,13 +5119,19 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             var pinnedSize: CGSize?
             if let eff, eff.cols > 0, eff.rows > 0, cell.width > 0, cell.height > 0 {
                 let fillsNaturalGrid = eff.cols >= Int(measured.columns) && eff.rows >= Int(measured.rows)
-                let withinOneCell = (Int(measured.columns) - eff.cols) <= 1 && (Int(measured.rows) - eff.rows) <= 1
                 let exactGridFitsInsideNatural = eff.cols <= Int(measured.columns)
                     && eff.rows <= Int(measured.rows)
                 let pinnedW = CGFloat(eff.cols) * cell.width / scale
                 let pinnedH = CGFloat(eff.rows) * cell.height / scale
+                // The producer's effective grid is the contract for every
+                // authoritative render-grid replay. Even a one-row/column
+                // difference must be fitted locally, otherwise the apply
+                // fence rejects every replay and the lane keeps reopening
+                // behind a fresh recovery cycle. Keep the fit bounded to
+                // grids that actually fit inside the measured surface; a
+                // larger effective grid still needs a normal geometry pass.
                 let shouldFitEffectiveGrid = !fillsNaturalGrid
-                    && (!withinOneCell || requiresExactEffectiveGrid && exactGridFitsInsideNatural)
+                    && exactGridFitsInsideNatural
                 if shouldFitEffectiveGrid,
                    pinnedW + 0.5 < containerW || pinnedH + 0.5 < containerH {
                     let fitted = Self.fitSurfaceToGrid(surface, cols: eff.cols, rows: eff.rows, cellPixelSize: cell)
@@ -5833,22 +5841,6 @@ private struct CopyableTextRead: @unchecked Sendable {
     let surface: ghostty_surface_t
     let generation: UInt64
     let cancellation: SurfaceOperationCancellationToken
-}
-
-private final class SurfaceOperationCancellationToken: Sendable {
-    // lint:allow lock - tiny cross-queue cancellation flag for already-enqueued
-    // libghostty work; actor hops would put the serial surface queue back behind
-    // the main actor and defeat the stale-read fast path.
-    private let cancelled: Mutex
-        <Bool> = .init(false)
-
-    var isCancelled: Bool {
-        cancelled.withLock { $0 }
-    }
-
-    func cancel() {
-        cancelled.withLock { $0 = true }
-    }
 }
 
 private class DisplayLinkProxy {

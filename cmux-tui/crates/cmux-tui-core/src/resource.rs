@@ -359,6 +359,8 @@ pub enum ResourceOperation {
     NotificationCreate,
     #[serde(rename = "notification.ack")]
     NotificationAck,
+    #[serde(rename = "notification.clear")]
+    NotificationClear,
     #[serde(rename = "agent.list")]
     AgentList,
     #[serde(rename = "agent.report")]
@@ -635,6 +637,7 @@ impl ResourceOperation {
             Self::NotificationList => "notification.list",
             Self::NotificationCreate => "notification.create",
             Self::NotificationAck => "notification.ack",
+            Self::NotificationClear => "notification.clear",
             Self::AgentList => "agent.list",
             Self::AgentReport => "agent.report",
             Self::SidebarViewGet => "sidebar_view.get",

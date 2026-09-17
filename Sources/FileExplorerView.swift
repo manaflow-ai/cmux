@@ -1141,9 +1141,9 @@ final class FileExplorerContainerView: NSView {
             searchBarView.trailingAnchor.constraint(equalTo: trailingAnchor),
             searchBarHeightConstraint,
 
-            searchField.leadingAnchor.constraint(equalTo: searchBarView.leadingAnchor, constant: 8),
+            searchField.leadingAnchor.constraint(equalTo: searchBarView.leadingAnchor, constant: SidebarSearchField.leadingPadding),
             searchField.trailingAnchor.constraint(equalTo: searchBarView.trailingAnchor, constant: -8),
-            searchField.topAnchor.constraint(equalTo: searchBarView.topAnchor, constant: 4),
+            searchField.topAnchor.constraint(equalTo: searchBarView.topAnchor, constant: SidebarSearchField.topPadding),
             searchFieldHeightConstraint,
             searchField.widthAnchor.constraint(greaterThanOrEqualToConstant: 120),
 

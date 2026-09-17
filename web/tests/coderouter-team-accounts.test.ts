@@ -78,7 +78,19 @@ function dependencies(
 
 describe("team account listing", () => {
   test("returns every store's accounts in one read", async () => {
-    const result = await listTeamAccounts({ teamId: "team_1", vault }, dependencies());
+    const access = { kind: "user" as const, userId: "user_1" };
+    const deps = dependencies();
+    const result = await listTeamAccounts({ teamId: "team_1", vault, access }, {
+      ...deps,
+      nativeAccounts: async (teamId, actualAccess) => {
+        expect(actualAccess).toEqual(access);
+        return deps.nativeAccounts(teamId, actualAccess);
+      },
+      claudeAccounts: async (teamId, actualAccess) => {
+        expect(actualAccess).toEqual(access);
+        return deps.claudeAccounts(teamId, actualAccess);
+      },
+    });
     expect(result.accounts.map((account) => account.source)).toEqual([
       "native",
       "claude",
@@ -190,9 +202,17 @@ describe("team account removal", () => {
     const result = await removeTeamAccount({
       teamId: "team_1",
       accountId: claudeAccount.id,
+      stackUserId: "user_1",
       vault,
       ...removeNothing,
-      removeClaude: async () => ({ removed: true }),
+      removeNative: async (_teamId, _accountId, userId) => {
+        expect(userId).toBe("user_1");
+        return removeNothing.removeNative();
+      },
+      removeClaude: async (_teamId, _accountId, access) => {
+        expect(access).toEqual({ kind: "user", userId: "user_1" });
+        return { removed: true };
+      },
     });
     expect(result).toEqual({
       removed: true,

@@ -6,13 +6,13 @@ const accountId = "00000000-0000-4000-8000-000000000001";
 
 describe("coderouter account removal", () => {
   test("scopes deletion to the resolved team", async () => {
-    let removed: { teamId: string; accountId: string } | undefined;
+    let removed: { teamId: string; accountId: string; stackUserId?: string } | undefined;
     const handler = createDeleteAccountHandler({
       resolve: async () => {
         return {
           ok: true as const,
           value: {
-            user: {} as never,
+            user: { id: "user_1" } as never,
             team: {
               teamId: "team-1",
               teamName: "Team",
@@ -41,6 +41,7 @@ describe("coderouter account removal", () => {
     expect(response.status).toBe(200);
     expect(removed?.teamId).toBe("team-1");
     expect(removed?.accountId).toBe(accountId);
+    expect(removed?.stackUserId).toBe("user_1");
     expect(await response.json()).toEqual({
       removed: true,
       source: "native",

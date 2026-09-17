@@ -21,6 +21,7 @@ import type { SubrouterAccount } from "../subrouter/types";
 import { hostedSubrouterCutoverReadyForTeam } from "../subrouter/cutover";
 import { listClaudeAccounts, type ClaudeAccountDescription } from "./claudeUpstream";
 import { accountsWithUsage } from "./usage";
+import type { CoderouterAccountAccess } from "./accountAccess";
 import type { CodeRouterAccountSummary } from "./types";
 
 export type TeamAccountSource = "native" | "claude" | "shared";
@@ -130,13 +131,14 @@ export async function listTeamAccounts(
   input: {
     readonly teamId: string;
     readonly vault: VaultAccess;
+    readonly access?: CoderouterAccountAccess;
   },
   dependencies: TeamAccountsDependencies = defaultDependencies,
 ): Promise<TeamAccountsResult> {
   const vaultStartedAt = performance.now();
   const [native, claude, shared] = await Promise.all([
-    readNative(input.teamId, dependencies),
-    readClaude(input.teamId, dependencies),
+    readNative(input.teamId, dependencies, input.access),
+    readClaude(input.teamId, dependencies, input.access),
     readShared(input.vault, dependencies),
   ]);
   return {
@@ -160,10 +162,11 @@ export async function listTeamAccounts(
 async function readNative(
   teamId: string,
   dependencies: TeamAccountsDependencies,
+  access?: CoderouterAccountAccess,
 ): Promise<NativeRead> {
   const now = Date.now();
   try {
-    const result = await dependencies.nativeAccounts(teamId);
+    const result = await dependencies.nativeAccounts(teamId, access);
     const accounts = result.accounts.map((account): TeamAccount => {
       const { usage, usageError, ...summary } = account as
         & CodeRouterAccountSummary
@@ -206,12 +209,13 @@ async function readNative(
 async function readClaude(
   teamId: string,
   dependencies: TeamAccountsDependencies,
+  access?: CoderouterAccountAccess,
 ): Promise<{
   readonly accounts: readonly TeamAccount[];
   readonly status: TeamAccountSourceStatus;
 }> {
   try {
-    const accounts = (await dependencies.claudeAccounts(teamId)).map(
+    const accounts = (await dependencies.claudeAccounts(teamId, access)).map(
       (account): TeamAccount => ({
         source: "claude",
         id: account.id,
@@ -312,11 +316,13 @@ export type TeamAccountRemoval =
 export async function removeTeamAccount(input: {
   readonly teamId: string;
   readonly accountId: string;
+  readonly stackUserId?: string;
   readonly vault: VaultAccess;
   readonly vaultClient?: typeof createHostedSubrouterClient;
   readonly removeNative: (
     teamId: string,
     accountId: string,
+    stackUserId?: string,
   ) => Promise<{
     readonly removed: boolean;
     readonly lastAccount: boolean;
@@ -325,10 +331,11 @@ export async function removeTeamAccount(input: {
   readonly removeClaude: (
     teamId: string,
     accountId: string,
+    access?: CoderouterAccountAccess,
   ) => Promise<{ readonly removed: boolean }>;
 }): Promise<TeamAccountRemoval> {
   if (UUID.test(input.accountId)) {
-    const native = await input.removeNative(input.teamId, input.accountId);
+    const native = await input.removeNative(input.teamId, input.accountId, input.stackUserId);
     if (native.removed) {
       return {
         removed: true,
@@ -337,7 +344,7 @@ export async function removeTeamAccount(input: {
         legacyCleanupPending: native.legacyCleanupPending,
       };
     }
-    const claude = await input.removeClaude(input.teamId, input.accountId);
+    const claude = await input.removeClaude(input.teamId, input.accountId, input.stackUserId ? { kind: "user", userId: input.stackUserId } : undefined);
     if (claude.removed) {
       return {
         removed: true,

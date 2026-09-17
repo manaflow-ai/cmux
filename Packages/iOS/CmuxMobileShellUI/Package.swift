@@ -6,7 +6,7 @@ let package = Package(
     name: "CmuxMobileShellUI",
     defaultLocalization: "en",
     platforms: [
-        .iOS(.v18),
+        .iOS(.v17),
     ],
     products: [
         .library(

@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 import Security
 
@@ -21,13 +22,21 @@ final class BrowserSSLTrustBypassState {
     private let maximumPendingBypassCount: Int
     private let maximumRetainedRequestBodyBytes: Int
     private let now: () -> Date
+    /// `DisableTLSTrustBypass` (MDM): while false, no bypass is offered,
+    /// minted, consumed, or honored. Read per call so a profile pushed
+    /// mid-session applies to the next navigation.
+    private let isBypassAllowed: () -> Bool
 
     init(
         tokenLifetime: TimeInterval = 24 * 60 * 60,
         maximumPendingBypassCount: Int = 32,
         maximumRetainedRequestBodyBytes: Int = 1_048_576,
-        now: @escaping () -> Date = { Date.now }
+        now: @escaping () -> Date = { Date.now },
+        isBypassAllowed: @escaping () -> Bool = {
+            !ManagedDevicePolicy().isEnforced(.disableTLSTrustBypass)
+        }
     ) {
+        self.isBypassAllowed = isBypassAllowed
         self.tokenLifetime = tokenLifetime
         self.maximumPendingBypassCount = max(1, maximumPendingBypassCount)
         self.maximumRetainedRequestBodyBytes = max(0, maximumRetainedRequestBodyBytes)
@@ -61,10 +70,12 @@ final class BrowserSSLTrustBypassState {
     }
 
     func isBypassed(scope: BrowserSSLTrustScope, fingerprint: BrowserServerTrustFingerprint) -> Bool {
-        bypassedTrusts.contains(BrowserSSLTrustGrant(scope: scope, fingerprint: fingerprint))
+        guard isBypassAllowed() else { return false }
+        return bypassedTrusts.contains(BrowserSSLTrustGrant(scope: scope, fingerprint: fingerprint))
     }
 
     func createPendingBypassAction(for request: URLRequest) -> URL? {
+        guard isBypassAllowed() else { return nil }
         guard let url = request.url,
               let scope = BrowserSSLTrustScope(url: url),
               let fingerprint = observedFingerprints[scope],
@@ -98,6 +109,7 @@ final class BrowserSSLTrustBypassState {
     }
 
     func hasPendingBypassToken(_ token: String) -> Bool {
+        guard isBypassAllowed() else { return false }
         purgeExpiredPendingBypasses(now: now())
         return pendingBypasses[token] != nil
     }
@@ -113,6 +125,7 @@ final class BrowserSSLTrustBypassState {
     }
 
     func consumePendingBypassToken(_ token: String) -> URLRequest? {
+        guard isBypassAllowed() else { return nil }
         let currentDate = now()
         purgeExpiredPendingBypasses(now: currentDate)
 

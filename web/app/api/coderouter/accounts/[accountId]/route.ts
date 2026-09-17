@@ -22,6 +22,7 @@ export function createDeleteAccountHandler(dependencies: {
     readonly teamId: string;
     readonly accountId: string;
     readonly request: Request;
+    readonly stackUserId?: string;
   }) => Promise<TeamAccountRemoval>;
 }) {
   return async (
@@ -30,6 +31,7 @@ export function createDeleteAccountHandler(dependencies: {
   ): Promise<Response> => {
     const resolved = await dependencies.resolve(request);
     if (!resolved.ok) return resolved.response;
+    if (!resolved.value.team.manageAccounts) return Response.json({ error: "forbidden" }, { status: 403 });
     const { accountId: rawAccountId } = await context.params;
     const accountId = normalizeAccountId(rawAccountId);
     if (!accountId || !isTeamAccountId(accountId)) {
@@ -41,6 +43,7 @@ export function createDeleteAccountHandler(dependencies: {
         teamId: resolved.value.team.teamId,
         accountId,
         request,
+        stackUserId: resolved.value.user.id,
       });
     } catch (error) {
       reportCoderouterFailure("rds", error, { operation: "remove_account" });
@@ -94,10 +97,11 @@ export const DELETE = coderouterControlRoute("accounts", "/api/coderouter/accoun
   resolve: resolveCodeRouterRequestContext,
   // One removal path for every store, so a client that read one account list
   // does not have to know which store answered for each row.
-  remove: async ({ teamId, accountId, request }) =>
+  remove: async ({ teamId, accountId, request, stackUserId }) =>
     await removeTeamAccount({
       teamId,
       accountId,
+      stackUserId,
       vault: await vaultAccessFromStackHeaders(request, teamId),
       removeNative: removeAccount,
       removeClaude: removeClaudeAccount,

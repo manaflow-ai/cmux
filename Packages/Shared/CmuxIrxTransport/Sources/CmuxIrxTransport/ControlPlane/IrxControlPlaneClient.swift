@@ -1,3 +1,4 @@
+import CMUXMobileCore
 public import Foundation
 
 /// Persisted control-plane sync position: the highest account route revision
@@ -96,6 +97,7 @@ public actor IrxControlPlaneClient {
     /// old loop before starting its replacement.
     private var loopGeneration: UInt64 = 0
     private var backoff: Duration = .seconds(1)
+    private let retryAfterGate = CmxRetryAfterGate()
     /// Highest revision acknowledged on the CURRENT socket; duplicate acks
     /// (a directory frame that also fanned hint updates) collapse here.
     private var lastAckedRev: Int?
@@ -276,10 +278,22 @@ public actor IrxControlPlaneClient {
     private func run(generation: UInt64) async {
         while !Task.isCancelled && generation == loopGeneration {
             do {
+                try await retryAfterGate.wait()
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, generation == loopGeneration else { return }
+            var retryAfterSeconds: Int?
+            do {
                 try await connectAndServe(generation: generation)
             } catch is CancellationError {
                 return
             } catch {
+                retryAfterSeconds = (error as? any CmxRetryAfterProviding)?
+                    .retryAfterSeconds
+                if let retryAfterSeconds {
+                    await retryAfterGate.extend(by: retryAfterSeconds)
+                }
                 journal.record(
                     "control-plane", "socket-ended",
                     ["error": String(describing: error)]
@@ -287,11 +301,15 @@ public actor IrxControlPlaneClient {
             }
             if Task.isCancelled || generation != loopGeneration { return }
             let jitter = Duration.milliseconds(Int.random(in: 0...500))
-            let delay = backoff + jitter
+            let serverFloor = Duration.seconds(Int64(max(0, retryAfterSeconds ?? 0)))
+            let delay = max(backoff + jitter, serverFloor)
             backoff = min(backoff * 2, Self.maxBackoff)
             journal.record(
                 "control-plane", "reconnect-scheduled",
-                ["delay": String(describing: delay)]
+                [
+                    "delay": String(describing: delay),
+                    "server_floor_s": retryAfterSeconds.map(String.init) ?? "-",
+                ]
             )
             try? await Task.sleep(for: delay)
         }
@@ -336,14 +354,23 @@ public actor IrxControlPlaneClient {
             clientInfo: configuration.clientInfo
         )
         let helloData = try JSONEncoder().encode(hello)
-        try await task.send(.string(String(decoding: helloData, as: UTF8.self)))
+        do {
+            try await task.send(.string(String(decoding: helloData, as: UTF8.self)))
+        } catch {
+            throw Self.rateLimitError(from: task) ?? error
+        }
         journal.record(
             "control-plane", "hello-sent",
             ["have_rev": cursorCache.load()?.haveRev.map(String.init) ?? "-"]
         )
 
         while !Task.isCancelled && generation == loopGeneration {
-            let message = try await receive(from: task)
+            let message: URLSessionWebSocketTask.Message
+            do {
+                message = try await receive(from: task)
+            } catch {
+                throw Self.rateLimitError(from: task) ?? error
+            }
             guard generation == loopGeneration, socket === task else { return }
             // Record transport activity before consumer handlers run. The
             // exact generation/socket guard prevents an old receive loop from
@@ -357,6 +384,17 @@ public actor IrxControlPlaneClient {
             }
             await route(data, generation: generation, socket: task)
         }
+    }
+
+    private static func rateLimitError(
+        from task: URLSessionWebSocketTask
+    ) -> CmxRateLimitedError? {
+        guard let response = task.response as? HTTPURLResponse,
+              response.statusCode == 429 else { return nil }
+        return CmxRateLimitedError(retryAfterSeconds: CmxRetryAfterPolicy.seconds(
+            from: response,
+            defaultSeconds: CmxRetryAfterPolicy.defaultRateLimitSeconds
+        ))
     }
 
     private func route(

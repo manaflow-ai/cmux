@@ -1,13 +1,14 @@
 import { Suspense } from "react";
 import { getTranslations } from "next-intl/server";
 import { headers } from "next/headers";
+import { connection } from "next/server";
 import { redirect } from "next/navigation";
 import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
 import {
-  authorizedSubrouterTeams,
-} from "@/services/subrouter/routeHelpers";
+  authorizedCoderouterTeams,
+} from "@/services/coderouter/permissions";
 import {
   isSubrouterAuthorizationError,
   SubrouterAuthorizationUnavailableError,
@@ -34,16 +35,14 @@ import {
   type TeamAccountSourceStatus,
 } from "@/services/coderouter/teamAccounts";
 import { CoderouterPageHeader } from "../components/dashboard-page-headers";
+import { DashboardSectionSkeleton } from "../components/dashboard-skeleton";
 import { withPrioritySpan } from "@/services/telemetry";
 import { withStackAuthSpan } from "@/services/auth/stackTelemetry";
 
-// The page resolves as one server render. Keeping the auth and data work in
-// this Suspense boundary prevents a header-only response while the private
-// content is still loading.
+// The header is part of the static shell and is prefetched with it. The
+// session, team grants, and team data stream in behind the section boundary,
+// so nothing private is ever part of a prefetch.
 export const instant = true;
-// The page reads the live browser session and team grants. Do not put a
-// private RSC response in the prefetch cache before the click is authorized.
-export const prefetch = "force-disabled";
 
 type PageProps = {
   params: Promise<{ locale: string }>;
@@ -84,13 +83,17 @@ export default function CoderouterOverviewPage(props: PageProps) {
   }
 
   return (
-    <Suspense fallback={null}>
-      <ResolvedCoderouterOverviewContent {...props} />
-    </Suspense>
+    <CoderouterPageFrame>
+      <Suspense fallback={<DashboardSectionSkeleton />}>
+        <ResolvedCoderouterOverviewContent {...props} />
+      </Suspense>
+    </CoderouterPageFrame>
   );
 }
 
 async function ResolvedCoderouterOverviewContent({ params, searchParams }: PageProps) {
+  // Authorization and tracing run per request, below the cached page shell.
+  await connection();
   // Framework promises are not stable cache keys across prerender phases.
   const [{ locale }, { team: teamParam }] = await Promise.all([params, searchParams]);
   const team = Array.isArray(teamParam) ? teamParam[0] : teamParam;
@@ -101,6 +104,7 @@ async function ResolvedCoderouterOverviewContent({ params, searchParams }: PageP
 type CoderouterAuthorization = {
   readonly selectedTeam: DashboardTeam;
   readonly accessToken: string;
+  readonly userId: string;
 };
 
 type CoderouterAuthorizationResult =
@@ -120,9 +124,9 @@ export async function CoderouterOverviewContent({
   team?: string;
   loadAccounts?: typeof listTeamAccounts;
 }) {
-  // Authorization and the access token are resolved for every request. There
-  // is no private page cache here, so a prefetched response cannot outlive a
-  // team grant or expose management controls after revocation.
+  // Team grants and the access token are resolved for every request, so a
+  // revoked membership stops showing team data on the next render. The
+  // static header above this section is what keeps the navigation instant.
   const requestHeaders = await headers();
   const authorization = await withPrioritySpan(
     "cmux-coderouter-dashboard",
@@ -140,7 +144,7 @@ export async function CoderouterOverviewContent({
     redirect("/dashboard");
   }
 
-  const { selectedTeam, accessToken } = authorization.value;
+  const { selectedTeam, accessToken, userId } = authorization.value;
   const [tPage, accounts, metrics, machineUsage] = await Promise.all([
     getTranslations({ locale, namespace: "dashboard.coderouter" }),
     withPrioritySpan(
@@ -152,6 +156,7 @@ export async function CoderouterOverviewContent({
       () =>
         loadAccounts({
           teamId: selectedTeam.id,
+          access: { kind: "user", userId },
           vault: {
             kind: "session",
             accessToken,
@@ -179,7 +184,7 @@ export async function CoderouterOverviewContent({
   ]);
 
   return (
-    <CoderouterPageFrame>
+    <>
       <TeamMetricsSection
         locale={locale}
         metrics={metrics}
@@ -189,6 +194,7 @@ export async function CoderouterOverviewContent({
       <CoderouterAccountsSection
         key={selectedTeam.id}
         teamId={selectedTeam.id}
+        viewerUserId={userId}
         canManage={selectedTeam.manageAccounts}
         claude={claudeState(accounts)}
         native={nativeState(accounts)}
@@ -201,7 +207,7 @@ export async function CoderouterOverviewContent({
         teamName={selectedTeam.name}
         usage={machineUsage}
       />
-    </CoderouterPageFrame>
+    </>
   );
 }
 
@@ -221,7 +227,7 @@ async function resolveCoderouterAuthorization(
         );
         if (!user) return null;
         const [authorized, authJson] = await Promise.all([
-          authorizedSubrouterTeams(user),
+          authorizedCoderouterTeams(user),
           withStackAuthSpan(
             "get_auth_json",
             () => getStackServerApp().getAuthJson({
@@ -275,6 +281,7 @@ async function resolveCoderouterAuthorization(
       value: {
         selectedTeam,
         accessToken,
+        userId: authenticated.user.id,
       },
     };
   } catch (error) {
@@ -285,11 +292,7 @@ async function resolveCoderouterAuthorization(
 
 async function renderCoderouterLoadError(locale: string) {
   const t = await getTranslations({ locale, namespace: "dashboard.coderouterAccounts" });
-  return (
-    <CoderouterPageFrame>
-      <StatusPanel title={t("pageErrorTitle")} body={t("pageErrorBody")} />
-    </CoderouterPageFrame>
-  );
+  return <StatusPanel title={t("pageErrorTitle")} body={t("pageErrorBody")} />;
 }
 
 function CoderouterPageFrame({ children }: React.PropsWithChildren) {

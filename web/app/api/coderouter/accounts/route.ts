@@ -16,6 +16,8 @@ import {
 } from "../../../../services/coderouter/observability";
 
 
+import { CodexSignatureError } from "../../../../services/coderouter/codexSignature";
+
 const MAX_BODY_BYTES = 128 * 1_024;
 
 export type AccountsGetDependencies = {
@@ -49,6 +51,7 @@ export function makeCoderouterAccountsGetHandler(
   // once the team is known, so it cannot start before authorization resolves.
   const result = await dependencies.list({
     teamId: resolved.teamId,
+    access: resolved.access,
     vault: await dependencies.vaultAccess(request, resolved.teamId),
   });
   const serializeStartedAt = performance.now();
@@ -134,12 +137,15 @@ export function makeCoderouterAccountsPostHandler(
   } catch {
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }
+  const visibility = value && typeof value === "object" && "visibility" in value ? (value as { visibility: unknown }).visibility : "private";
+  if (visibility !== "private" && visibility !== "team") return Response.json({ error: "invalid_visibility" }, { status: 400 });
+  if (!resolved.value.team.manageAccounts) return Response.json({ error: "forbidden" }, { status: 403 });
   const credential = parseCredential(value);
   if (!credential) {
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }
   try {
-    const result = await dependencies.add(resolved.value.team.teamId, credential);
+    const result = await dependencies.add(resolved.value.team.teamId, credential, undefined, undefined, undefined, { createdBy: resolved.value.user.id, visibility });
     captureCoderouterEvent({
       event: "coderouter_account_added",
       userId: resolved.value.user.id,
@@ -159,6 +165,9 @@ export function makeCoderouterAccountsPostHandler(
       headers: { "cache-control": "no-store" },
     });
   } catch (error) {
+    if (error instanceof CodexSignatureError) {
+      return Response.json({ error: "invalid_credential", message: "Sign in to Codex again before adding this account." }, { status: 400, headers: { "cache-control": "no-store" } });
+    }
     reportCoderouterFailure("rds", error, { operation: "add_account" });
     return Response.json(
       {
