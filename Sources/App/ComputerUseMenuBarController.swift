@@ -316,13 +316,13 @@ final class ComputerUseMenuBarController: NSObject, NSMenuDelegate {
         } == true
             ? String(
                 localized: "computerUse.menu.backgroundStatus",
-                defaultValue: "cmux Computer Use — Running in Background"
+                defaultValue: "cmux Computer Use: Running in Background"
             )
             : String(localized: "computerUse.menu.title", defaultValue: "cmux Computer Use")
         let label = activeRow?.targetAppName.map { targetName in
             String(
                 localized: "computerUse.menu.statusWithTarget",
-                defaultValue: "\(modeLabel) — \(targetName)"
+                defaultValue: "\(modeLabel): \(targetName)"
             )
         } ?? modeLabel
         statusItem.button?.toolTip = label

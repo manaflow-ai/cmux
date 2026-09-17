@@ -20,7 +20,7 @@ function fakeAlertDb(): ReturnType<typeof cloudDb> {
         where: () => {
           queryNumber += 1;
           const rows = queryNumber === 1
-            ? [{ total: 1, providers: ["e2b"] }]
+            ? [{ total: 1, providers: ["freestyle"] }]
             : queryNumber === 2
               ? []
               : [{ total: 0 }];

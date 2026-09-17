@@ -79,4 +79,44 @@ struct ShortcutActionNumberedDigitTests {
         #expect(!ShortcutAction.fileExplorerOpenSelection.allowsChordShortcut)
         #expect(!ShortcutAction.fileExplorerOpenSelectionFinderAlias.allowsChordShortcut)
     }
+
+    @Test func hostDefaultResolversDoNotShareState() {
+        let first = ShortcutDefaultResolver { action in
+            action == .switchRightSidebarToFiles
+                ? .stroke(ShortcutStroke(key: "7", control: true))
+                : .useBuiltIn
+        }
+        let second = ShortcutDefaultResolver { action in
+            action == .switchRightSidebarToFiles
+                ? .stroke(ShortcutStroke(key: "2", control: true))
+                : .useBuiltIn
+        }
+
+        #expect(
+            ShortcutAction.switchRightSidebarToFiles.defaultStroke(using: first)
+                == ShortcutStroke(key: "7", control: true)
+        )
+        #expect(
+            ShortcutAction.switchRightSidebarToFiles.defaultStroke(using: second)
+                == ShortcutStroke(key: "2", control: true)
+        )
+        #expect(
+            ShortcutAction.switchRightSidebarToFiles.defaultStroke(using: first)
+                == ShortcutStroke(key: "7", control: true)
+        )
+        #expect(
+            ShortcutAction.openSettings.defaultStroke(using: first)
+                == ShortcutAction.openSettings.defaultStroke
+        )
+    }
+
+    @Test func explicitHostUnboundDefaultDoesNotFallBackToBuiltIn() {
+        let hostDefault = StoredShortcut.unbound
+        let resolved = ShortcutAction.switchRightSidebarToFiles.effectivePersistedShortcut(
+            nil,
+            defaultShortcut: hostDefault
+        )
+
+        #expect(resolved == nil)
+    }
 }

@@ -29,7 +29,8 @@ enum HeaderChromeIconStyle {
         CmuxSystemSymbolImage(
             systemName: systemName,
             pointSize: RightSidebarChromeMetrics.headerIconSize,
-            weight: weight
+            weight: weight,
+            tint: foregroundColor
         )
     }
 
@@ -85,6 +86,17 @@ enum RightSidebarChromeControlStyle {
     static let labelWeight = HeaderChromeIconStyle.weight
     static let foregroundColor = HeaderChromeIconStyle.foregroundColor
 
+    /// Pill tint for a mode/grouping control, shared by the pill modifier's
+
+    /// text foreground and the hosted symbol's baked-in tint.
+
+    static func pillForegroundColor(isSelected: Bool, isHovered: Bool) -> Color {
+
+        foregroundColor.opacity(foregroundOpacity(isSelected: isSelected, isHovered: isHovered))
+
+    }
+
+
     static func foregroundOpacity(isSelected: Bool, isHovered: Bool, isEnabled: Bool = true) -> Double {
         guard isEnabled else { return HeaderChromeIconStyle.disabledOpacity }
         if isSelected {
@@ -128,7 +140,7 @@ struct RightSidebarChromePillModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .foregroundStyle(
-                RightSidebarChromeControlStyle.foregroundColor.opacity(foregroundOpacity)
+                RightSidebarChromeControlStyle.pillForegroundColor(isSelected: isSelected, isHovered: isHovered)
             )
             .padding(.horizontal, horizontalPadding)
             .frame(height: controlHeight)
@@ -214,7 +226,10 @@ private struct RightSidebarHeaderIconButtonStyleBody: View {
                 width: RightSidebarChromeMetrics.headerControlSize,
                 height: RightSidebarChromeMetrics.headerControlSize
             )
-            .foregroundStyle(HeaderChromeIconStyle.foregroundColor.opacity(foregroundOpacity))
+            // The hosted symbol bakes `HeaderChromeIconStyle.foregroundColor`
+            // into its bitmap; hover/pressed dimming applies as view opacity.
+            .foregroundStyle(HeaderChromeIconStyle.foregroundColor)
+            .opacity(foregroundOpacity)
             .background {
                 if backgroundOpacity > 0 {
                     RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.headerControlCornerRadius, style: .continuous)
@@ -354,6 +369,7 @@ struct ModeBarButton: View {
                     systemName: item.symbolName,
                     pointSize: RightSidebarChromeControlStyle.modeIconSize,
                     weight: RightSidebarChromeControlStyle.iconWeight,
+                    tint: RightSidebarChromeControlStyle.pillForegroundColor(isSelected: isSelected, isHovered: isHovered),
                     appliesGlobalFontMagnification: true
                 )
                     .reportRightSidebarChromeNamedGeometryForBonsplitUITest(

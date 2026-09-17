@@ -282,6 +282,49 @@ struct TerminalLinkOpenCoordinatorTests {
         #expect(externallyOpened.isEmpty)
     }
 
+    @Test("Explicit file URLs with locations keep the URL handler route")
+    @MainActor
+    func explicitFileURLWithLocationDoesNotUsePreferredEditor() throws {
+        let defaults = makeDefaults()
+        defaults.set(false, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
+        defaults.set(false, forKey: AppCatalogSection().openSupportedFilesInCmux.userDefaultsKey)
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-url-location-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fileURL = directory.appendingPathComponent("main.swift")
+        try "print(\"hello\")\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let marker = directory.appendingPathComponent("preferred-editor-used")
+        let editorScript = directory.appendingPathComponent("editor.sh")
+        try #"""
+        #!/bin/sh
+        touch '#(marker.path)'
+        """#.write(to: editorScript, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: editorScript.path)
+        defaults.set(editorScript.path, forKey: AppCatalogSection().preferredEditor.userDefaultsKey)
+
+        let fileOpener = RecordingFileOpener()
+        let coordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            containerResolver: { _, _ in nil },
+            fileOpen: fileOpener,
+            deferOperation: { operation in operation() }
+        )
+        let rawValue = URL(fileURLWithPath: fileURL.path).absoluteString + ":42"
+        let expectedURL = try #require(URL(string: rawValue))
+
+        #expect(coordinator.open(TerminalLinkOpenRequest(
+            rawValue: rawValue,
+            sourceWorkspaceId: nil,
+            sourcePanelId: UUID(),
+            workingDirectory: directory.path
+        )))
+        #expect(fileOpener.opened == [expectedURL])
+        #expect(!FileManager.default.fileExists(atPath: marker.path))
+    }
+
     @Test("Web URLs still open through the raw system opener with a preferred editor configured")
     @MainActor
     func webURLExternalOpenIgnoresPreferredEditor() throws {

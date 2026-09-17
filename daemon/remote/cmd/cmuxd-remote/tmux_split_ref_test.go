@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 )
 
@@ -21,7 +22,7 @@ func startMockTmuxCompatSocket(t *testing.T) string {
 	t.Cleanup(func() { ln.Close() })
 
 	go func() {
-		splitCreated := false
+		var splitCreated atomic.Bool
 		for {
 			conn, err := ln.Accept()
 			if err != nil {
@@ -81,7 +82,7 @@ func startMockTmuxCompatSocket(t *testing.T) string {
 						"title":                       "leader",
 						"requested_working_directory": cwd,
 					}}
-					if splitCreated {
+					if splitCreated.Load() {
 						surfaces = append(surfaces, map[string]any{
 							"id":                          "77777777-7777-4777-8777-777777777777",
 							"ref":                         "surface:2",
@@ -119,7 +120,7 @@ func startMockTmuxCompatSocket(t *testing.T) string {
 						"surface_count":       1,
 						"selected_surface_id": "44444444-4444-4444-8444-444444444444",
 					}}
-					if splitCreated {
+					if splitCreated.Load() {
 						panes = append(panes, map[string]any{
 							"id":                  "66666666-6666-4666-8666-666666666666",
 							"ref":                 "pane:2",
@@ -166,7 +167,7 @@ func startMockTmuxCompatSocket(t *testing.T) string {
 						}
 						break
 					}
-					splitCreated = true
+					splitCreated.Store(true)
 					resp["result"] = map[string]any{
 						"surface_id": "77777777-7777-4777-8777-777777777777",
 						"pane_id":    "66666666-6666-4666-8666-666666666666",

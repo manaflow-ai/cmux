@@ -484,6 +484,7 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(launch["verification_home"] == .string("/tmp/launch-user"))
         #expect(record["legacy_command"] == .null)
         #expect(resumeBinding["resume_evidence_provenance"] == .string("tui"))
+        #expect(payload["agent_restore_admission_supported"] == .bool(true))
     }
 
     @Test func surfaceResumeGetRejectsPartialRestoreClaim() {

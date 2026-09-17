@@ -284,7 +284,7 @@ func (c *eofWithPayloadConn) SetWriteDeadline(time.Time) error { return nil }
 
 func TestRunVersion(t *testing.T) {
 	var out bytes.Buffer
-	code := run([]string{"version"}, strings.NewReader(""), &out, &bytes.Buffer{})
+	code := run([]string{"version"}, strings.NewReader(""), &out, newNotifyingBuffer())
 	if code != 0 {
 		t.Fatalf("run version exit code = %d, want 0", code)
 	}
@@ -339,7 +339,7 @@ func TestRunStdioHelloAndPing(t *testing.T) {
 			`{"id":2,"method":"ping","params":{}}` + "\n",
 	)
 	var out bytes.Buffer
-	code := run([]string{"serve", "--stdio"}, input, &out, &bytes.Buffer{})
+	code := run([]string{"serve", "--stdio"}, input, &out, newNotifyingBuffer())
 	if code != 0 {
 		t.Fatalf("run serve exit code = %d, want 0", code)
 	}
@@ -430,7 +430,7 @@ func TestRunStdioPTYWriteNotificationDoesNotEmitResponse(t *testing.T) {
 			`{"id":2,"method":"ping","params":{}}` + "\n",
 	)
 	var out bytes.Buffer
-	code := run([]string{"serve", "--stdio"}, input, &out, &bytes.Buffer{})
+	code := run([]string{"serve", "--stdio"}, input, &out, newNotifyingBuffer())
 	if code != 0 {
 		t.Fatalf("run serve exit code = %d, want 0", code)
 	}
@@ -469,7 +469,7 @@ func TestRunStdioPTYResizeNotificationDoesNotEmitResponse(t *testing.T) {
 			`{"id":2,"method":"ping","params":{}}` + "\n",
 	)
 	var out bytes.Buffer
-	code := run([]string{"serve", "--stdio"}, input, &out, &bytes.Buffer{})
+	code := run([]string{"serve", "--stdio"}, input, &out, newNotifyingBuffer())
 	if code != 0 {
 		t.Fatalf("run serve exit code = %d, want 0", code)
 	}
@@ -505,7 +505,7 @@ func TestRunStdioPTYResizeNotificationDoesNotEmitResponse(t *testing.T) {
 func TestRunStdioNoIDNonPTYRequestStillEmitsResponse(t *testing.T) {
 	input := strings.NewReader(`{"method":"ping","params":{}}` + "\n")
 	var out bytes.Buffer
-	code := run([]string{"serve", "--stdio"}, input, &out, &bytes.Buffer{})
+	code := run([]string{"serve", "--stdio"}, input, &out, newNotifyingBuffer())
 	if code != 0 {
 		t.Fatalf("run serve exit code = %d, want 0", code)
 	}
@@ -529,7 +529,7 @@ func TestRunStdioNullIDPTYWriteStillEmitsResponse(t *testing.T) {
 			`{"id":2,"method":"ping","params":{}}` + "\n",
 	)
 	var out bytes.Buffer
-	code := run([]string{"serve", "--stdio"}, input, &out, &bytes.Buffer{})
+	code := run([]string{"serve", "--stdio"}, input, &out, newNotifyingBuffer())
 	if code != 0 {
 		t.Fatalf("run serve exit code = %d, want 0", code)
 	}
@@ -568,7 +568,7 @@ func TestRunStdioNullIDPTYResizeStillEmitsResponse(t *testing.T) {
 			`{"id":2,"method":"ping","params":{}}` + "\n",
 	)
 	var out bytes.Buffer
-	code := run([]string{"serve", "--stdio"}, input, &out, &bytes.Buffer{})
+	code := run([]string{"serve", "--stdio"}, input, &out, newNotifyingBuffer())
 	if code != 0 {
 		t.Fatalf("run serve exit code = %d, want 0", code)
 	}
@@ -2013,13 +2013,13 @@ func TestPersistentDaemonServerExitsAfterEmptySlotIdleTimeout(t *testing.T) {
 		t.Fatalf("listen unix: %v", err)
 	}
 
-	var stderr bytes.Buffer
+	stderr := newNotifyingBuffer()
 	done := make(chan error, 1)
 	go func() {
 		done <- servePersistentDaemonWithVerifierConfig(
 			listener,
 			persistentDaemonFixedTokenVerifier("idle-token"),
-			&stderr,
+			stderr,
 			persistentDaemonServerConfig{
 				emptyIdleTimeout: 500 * time.Millisecond,
 				acceptPollStep:   25 * time.Millisecond,
@@ -2073,8 +2073,8 @@ func TestPersistentDaemonServerExitsAfterEmptySlotIdleTimeout(t *testing.T) {
 }
 
 func TestRunStdioSlotRequiresPersistent(t *testing.T) {
-	var stderr bytes.Buffer
-	code := run([]string{"serve", "--stdio", "--slot", "slot-without-persistent"}, strings.NewReader(""), &bytes.Buffer{}, &stderr)
+	stderr := newNotifyingBuffer()
+	code := run([]string{"serve", "--stdio", "--slot", "slot-without-persistent"}, strings.NewReader(""), newNotifyingBuffer(), stderr)
 	if code != 2 {
 		t.Fatalf("run serve exit code = %d, want 2", code)
 	}
@@ -2089,7 +2089,7 @@ func TestRunStdioInvalidJSONAndUnknownMethod(t *testing.T) {
 			`{"id":2,"method":"unknown","params":{}}` + "\n",
 	)
 	var out bytes.Buffer
-	code := run([]string{"serve", "--stdio"}, input, &out, &bytes.Buffer{})
+	code := run([]string{"serve", "--stdio"}, input, &out, newNotifyingBuffer())
 	if code != 0 {
 		t.Fatalf("run serve exit code = %d, want 0", code)
 	}
@@ -2132,7 +2132,7 @@ func TestRunStdioSessionResizeFlow(t *testing.T) {
 			`{"id":4,"method":"session.status","params":{"session_id":"sess-stdio"}}` + "\n",
 	)
 	var out bytes.Buffer
-	code := run([]string{"serve", "--stdio"}, input, &out, &bytes.Buffer{})
+	code := run([]string{"serve", "--stdio"}, input, &out, newNotifyingBuffer())
 	if code != 0 {
 		t.Fatalf("run serve exit code = %d, want 0", code)
 	}
@@ -3062,7 +3062,7 @@ func TestRunStdioOversizedFrameContinuesServing(t *testing.T) {
 	oversized := `{"id":1,"method":"ping","params":{"blob":"` + strings.Repeat("a", maxRPCFrameBytes) + `"}}`
 	input := strings.NewReader(oversized + "\n" + `{"id":2,"method":"ping","params":{}}` + "\n")
 	var out bytes.Buffer
-	code := run([]string{"serve", "--stdio"}, input, &out, &bytes.Buffer{})
+	code := run([]string{"serve", "--stdio"}, input, &out, newNotifyingBuffer())
 	if code != 0 {
 		t.Fatalf("run serve exit code = %d, want 0", code)
 	}

@@ -6,7 +6,6 @@ import CmuxMobileSupport
 import CmuxMobileTerminalKit
 import GhosttyKit
 import OSLog
-import Synchronization
 import UIKit
 import os
 
@@ -139,12 +138,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private static let maximumRenderPresentationRetries: UInt8 = 3
     /// Value-only render metadata captured by the serial surface queue.
     ///
-    /// This type is explicitly nonisolated because its instances cross from
-    /// the main-actor admission path into `GhosttySurfaceWorkQueue.async`.
-    /// The raw surface pointer is valid for the matching generation, and the
-    /// owning view resets that generation before teardown; no UIKit state is
-    /// accessed from the queue closure.
-    nonisolated struct RenderSubmission: @unchecked Sendable {
+    /// Instances cross from the main-actor admission path into
+    /// `GhosttySurfaceWorkQueue.async`, so the type stays free of actor
+    /// isolation and value-only. The raw surface pointer is valid for the
+    /// matching generation, and the owning view resets that generation before
+    /// teardown; no UIKit state is accessed from the queue closure.
+    struct RenderSubmission: @unchecked Sendable {
         let token: UInt64
         let generation: UInt64
         let kind: RenderSubmissionKind
@@ -285,7 +284,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// gesture whose batch has not reached the queue voids the anchor. The lock
     /// is held only for field reads and writes, never across a Ghostty C call.
     /// The ticket revokes a timed-out restore whose queued block has not claimed it.
-    nonisolated struct ViewportRestoreGate {
+    struct ViewportRestoreGate {
         var interactionGeneration: UInt64 = 0
         var appliedInteractionGeneration: UInt64 = 0
         /// Raw Ghostty scrollbar state is not user intent. Resize and replay
@@ -301,7 +300,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// on `outputQueue`, and bottom snaps / surface replacement reset it from
     /// the main actor. Same lock discipline as `viewportRestoreGate`: held
     /// only for field reads and writes, never across a Ghostty C call.
-    nonisolated struct LocalPixelScrollState {
+    struct LocalPixelScrollState {
         /// Bumped by every clear (dock/typing snap, surface replacement,
         /// alt routing). Batches capture the epoch at pump time and only
         /// commit results while it still matches, so an in-flight batch
@@ -311,7 +310,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         var lastFallbackLogTime: CFTimeInterval = 0
         /// One applied pixel-pump position, remembered as the gesture's
         /// authority between batches.
-        nonisolated struct Held: Equatable, Sendable {
+        struct Held: Equatable, Sendable {
             /// The viewport top row applied to Ghostty.
             var row: UInt64
             /// The whole-pixel offset actually applied to Ghostty.
@@ -935,22 +934,55 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             guard let self else { return }
             self.delegate?.ghosttySurfaceView(self, didRequestArtifactFilesFrom: sourceView)
         }
-        inputProxy.accessoryLayoutInsetsProvider = { [weak self] in
+        inputProxy.accessoryLayoutInsetsProvider = { [weak self, weak inputProxy] in
             guard let self,
                   let window = self.window else {
                 return .zero
             }
 
-            let terminalFrame = self.convert(self.bounds, to: window)
-            return UIEdgeInsets(
-                top: 0,
-                left: max(0, terminalFrame.minX),
-                bottom: 0,
-                right: max(0, window.bounds.maxX - terminalFrame.maxX)
+            // The docked toolbar lives INSIDE the surface, so its leading edge
+            // already sits at the terminal's leading edge; measure the strip's
+            // insets against the toolbar's own frame, not the window. Window-space
+            // terminal X alone double-counts the horizontal offset whenever the
+            // surface does not start at the window edge (an iPad split-view detail
+            // pane next to a visible sidebar), stranding the whole control row a
+            // sidebar-width from the strip's leading edge.
+            let toolbarFrame: CGRect? = inputProxy.flatMap { proxy in
+                let toolbar = proxy.toolbarView
+                guard let toolbarSuperview = toolbar.superview,
+                      toolbar.window === window else { return nil }
+                return toolbarSuperview.convert(toolbar.frame, to: window)
+            }
+            return Self.accessoryLayoutInsets(
+                terminalFrame: self.convert(self.bounds, to: window),
+                toolbarFrame: toolbarFrame,
+                windowBounds: window.bounds
             )
         }
         return inputProxy
     }()
+
+    /// The accessory-strip insets that align the toolbar's controls with the
+    /// terminal's horizontal span, measured in window space. `toolbarFrame` is
+    /// the hosting bar's own frame: each side insets only by the span of the
+    /// BAR the terminal does not cover, so a window-spanning keyboard accessory
+    /// keeps its historical window-edge math (`toolbarFrame` == window bounds)
+    /// while a toolbar docked inside the surface (its edges already flush with
+    /// the terminal's) resolves to zero instead of re-applying the terminal's
+    /// window offset. `nil` (not yet hosted) falls back to the window bounds.
+    nonisolated static func accessoryLayoutInsets(
+        terminalFrame: CGRect,
+        toolbarFrame: CGRect?,
+        windowBounds: CGRect
+    ) -> UIEdgeInsets {
+        let reference = toolbarFrame ?? windowBounds
+        return UIEdgeInsets(
+            top: 0,
+            left: max(0, terminalFrame.minX - reference.minX),
+            bottom: 0,
+            right: max(0, reference.maxX - terminalFrame.maxX)
+        )
+    }
 
     /// Creates an embedded surface and applies its colors before the first frame.
     /// - Parameters:
@@ -1392,7 +1424,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard let surface, !isDismantled else { return }
         let workQueue = outputQueue
         let generation = surfaceGeneration
-        workQueue.queue.async { [weak self] in
+        workQueue.async { [weak self] in
             workQueue.lastContentBottomTime = CACurrentMediaTime()
             guard let viewportText = Self.surfaceText(surface, pointTag: GHOSTTY_POINT_VIEWPORT),
                   viewportText.utf8.count <= 131_072 else { return }
@@ -1526,8 +1558,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let hostLayer = host.layer.presentation() ?? host.layer
         if let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer) {
             let source = renderer.presentation() ?? renderer
+            // The layer extends past the grid by the bottom scroll-edge
+            // band; the presentation contract is about the GRID's bottom
+            // edge (the content that must ride the dock).
             return source.convert(
-                CGPoint(x: source.bounds.midX, y: source.bounds.maxY),
+                CGPoint(
+                    x: source.bounds.midX,
+                    y: source.bounds.maxY - appliedRenderBottomInsetPts
+                ),
                 to: hostLayer
             ).y
         }
@@ -1686,8 +1724,76 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             reservedToolbarHeight: reservedToolbarHeight,
             toolbarFrameHeight: Self.persistentToolbarHeight,
             bottomSafeAreaInset: safeAreaInsetsBottom,
-            chromeHidden: chromeHidden
+            chromeHidden: chromeHidden,
+            topContentInset: topContentInset
         ))
+    }
+
+    /// The top safe-area band this surface underlaps for the scroll-edge
+    /// band (0 when the surface does not extend under the top bar). Pushed
+    /// by the hosting representable from SwiftUI-captured geometry: the
+    /// UIKit `safeAreaInsets.top` reads 0 once the SwiftUI hierarchy ignores
+    /// the top container edge, so the value must be captured outside that
+    /// expansion and forwarded here.
+    private(set) var topContentInset: CGFloat = 0
+
+    /// The band heights actually applied to the libghostty surface by the
+    /// last geometry pass, pixel-aligned. The render layer is sized with
+    /// THESE values (not the live inputs) so the layer always matches the
+    /// exact pixel extent the renderer drew; changed insets converge
+    /// through the next geometry pass.
+    private var appliedRenderTopInsetPts: CGFloat = 0
+    private var appliedRenderBottomInsetPts: CGFloat = 0
+
+    public func setTopContentInset(_ inset: CGFloat) {
+        let clamped = max(0, inset)
+        guard abs(clamped - topContentInset) > 0.25 else { return }
+        MobileDebugLog.anchormux(
+            "scrolledge.topInset \(Int(topContentInset))->\(Int(clamped))"
+        )
+        topContentInset = clamped
+        let snapshot = viewportSnapshot()
+        layoutBottomDock(using: snapshot)
+        layoutRenderedTerminalForCurrentViewport(using: snapshot)
+        setNeedsGeometrySync()
+        setNeedsLayout()
+        // The host owns the screen-anchored scroll-edge fade sized by this
+        // inset; its layout does not follow from this view's.
+        bottomDockHostView?.setNeedsLayout()
+    }
+
+    /// The render layer rect: the grid render rect grown upward and
+    /// downward by the applied scroll-edge bands, matching the surface's
+    /// inflated drawable.
+    private func rendererLayerRect(forGridRenderRect renderRect: CGRect) -> CGRect {
+        let top = appliedRenderTopInsetPts
+        let bottom = appliedRenderBottomInsetPts
+        guard top > 0 || bottom > 0 else { return renderRect }
+        return CGRect(
+            x: renderRect.minX,
+            y: renderRect.minY - top,
+            width: renderRect.width,
+            height: renderRect.height + top + bottom
+        )
+    }
+
+    /// Screen-anchored scroll-edge fade: rows dissolve into the terminal
+    /// background as they pass under the (glass) navigation bar. Owned by
+    /// the HOST's keyboard-invariant chrome space (like the dock): the
+    /// render wrapper slides for the keyboard, the under-bar fade must not.
+    /// The host reads the live band height through this hook.
+    var hostedScrollEdgeFadeHeight: CGFloat {
+        topContentInset
+    }
+
+    /// Whether the dock-anchored bottom scroll-edge fade should show: the
+    /// band feature is on (a nonzero top inset is its enablement signal)
+    /// and the bottom chrome is visible to fade under. The bottom band
+    /// itself rides the grid bottom, which the constraint system glues to
+    /// the dock, so the fade's geometry lives entirely in dock-anchored
+    /// constraints.
+    var hostedBottomScrollEdgeFadeActive: Bool {
+        topContentInset > 0 && !chromeHidden
     }
 
     private func layoutRenderedTerminalForCurrentViewport() {
@@ -1704,7 +1810,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             "kb.renderRect \(Int(lastRenderRect.minY))->\(Int(renderRect.minY)) h=\(Int(renderRect.height))"
         )
         lastRenderRect = renderRect
-        syncRendererLayerFrame(scale: preferredScreenScale, renderRect: renderRect)
+        syncRendererLayerFrame(
+            scale: preferredScreenScale,
+            renderRect: rendererLayerRect(forGridRenderRect: renderRect)
+        )
         updateLetterboxBorder(
             renderRect: renderRect,
             isLetterboxed: snapshot.isLetterboxed(renderSize: renderRect.size)
@@ -1715,14 +1824,49 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ///
     /// The surface extends under the bottom safe area (the host applies
     /// `ignoresSafeArea(.container, .bottom)`), so when the keyboard is down the
-    /// always-visible toolbar must clear this much to avoid the home indicator. Reads
-    /// the view's own inset, falling back to the window's, because `safeAreaInsets`
-    /// can be zero before the view is on a window.
+    /// always-visible toolbar must clear this much to avoid the home indicator.
+    /// The window or captured outer inset owns the reservation: this surface
+    /// slides for the keyboard, so its local inset changes with presentation.
     private var safeAreaInsetsBottom: CGFloat {
         TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(
             viewInset: safeAreaInsets.bottom,
-            windowInset: window?.safeAreaInsets.bottom ?? 0
+            windowInset: window?.safeAreaInsets.bottom,
+            capturedInset: capturedBottomSafeAreaInset > 0 ? capturedBottomSafeAreaInset : nil,
+            ancestorInsets: safeAreaAncestorBottomInsets
         )
+    }
+
+    /// Safe-area value captured outside the SwiftUI subtree that intentionally
+    /// ignores the terminal's bottom container region. This stays as a
+    /// fallback for the window, ahead of this moving surface's local inset.
+    private var capturedBottomSafeAreaInset: CGFloat = 0
+
+    /// Updates the outer safe-area fallback and immediately re-seats the dock
+    /// and grid when the ignored SwiftUI subtree first reports its physical
+    /// bottom inset.
+    public func setCapturedBottomSafeAreaInset(_ inset: CGFloat) {
+        let next = max(0, inset)
+        guard abs(next - capturedBottomSafeAreaInset) > 0.25 else { return }
+        capturedBottomSafeAreaInset = next
+        layoutBottomDock(using: viewportSnapshot())
+        bottomDockHostView?.setNeedsLayout()
+        setNeedsGeometrySync()
+    }
+
+    /// The terminal is deliberately mounted inside a SwiftUI subtree that
+    /// ignores the container's bottom safe area. In that arrangement the
+    /// surface and its immediate UIKit host can both report zero even though
+    /// an outer hosting container still carries the device inset. Keep the
+    /// fallback resolver aware of that chain, while leaving the window inset
+    /// authoritative whenever UIKit exposes it.
+    private var safeAreaAncestorBottomInsets: [CGFloat] {
+        var insets: [CGFloat] = []
+        var ancestor = superview
+        while let view = ancestor {
+            insets.append(view.safeAreaInsets.bottom)
+            ancestor = view.superview
+        }
+        return insets
     }
 
     /// Reconcile the docked bar's visibility (and its reserved grid height) with
@@ -3158,20 +3302,46 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // resize/reflow since the previous applied frame, must not paint:
             // fail the apply so the caller resets its queue and replays.
             if let renderGridContract {
-                let measuredGrid = ghostty_surface_size(surface)
-                let gridGeneration = workQueue.noteObservedGrid(
-                    columns: Int(measuredGrid.columns),
-                    rows: Int(measuredGrid.rows)
-                )
-                let dimsMatch = Int(measuredGrid.columns) == renderGridContract.columns
-                    && Int(measuredGrid.rows) == renderGridContract.rows
+                // Screen-anchored primary deltas are chained to the exact
+                // locally observed grid. Querying libghostty's size for each
+                // keystroke adds a cross-thread surface read directly in the
+                // input-to-paint path, while the serial queue's generation is
+                // already updated by every local resize/reflow operation.
+                let measuredGrid: ghostty_surface_size_s?
+                let gridGeneration: UInt64
+                let dimsMatch: Bool
+                if renderGridContract.requiresSurfaceDimensionCheck {
+                    let measured = ghostty_surface_size(surface)
+                    measuredGrid = measured
+                    gridGeneration = workQueue.noteObservedGrid(
+                        columns: Int(measured.columns),
+                        rows: Int(measured.rows)
+                    )
+                    dimsMatch = Int(measured.columns) == renderGridContract.columns
+                        && Int(measured.rows) == renderGridContract.rows
+                } else {
+                    measuredGrid = nil
+                    gridGeneration = workQueue.observedGridGeneration
+                    // The producer's dimensions are stable for this direct
+                    // delta path. Compare them with the last locally observed
+                    // grid so stale daemon frames still fail closed; the
+                    // generation fence also rejects a delta that followed a
+                    // local reflow.
+                    dimsMatch = workQueue.observedGridMatches(
+                        columns: renderGridContract.columns,
+                        rows: renderGridContract.rows
+                    )
+                }
                 let deltaBaseIntact = !renderGridContract.isDelta
                     || workQueue.gridGenerationAtLastRenderGridApply == gridGeneration
                 if !dimsMatch || !deltaBaseIntact {
                     let appliedGeneration = workQueue.gridGenerationAtLastRenderGridApply
                         .map(String.init) ?? "nil"
+                    let localGrid = measuredGrid.map {
+                        "\($0.columns)x\($0.rows)"
+                    } ?? workQueue.observedGridDescription
                     MobileDebugLog.anchormux(
-                        "render_grid.apply_fence local=\(measuredGrid.columns)x\(measuredGrid.rows) " +
+                        "render_grid.apply_fence local=\(localGrid) " +
                             "frame=\(renderGridContract.columns)x\(renderGridContract.rows) " +
                             "delta=\(renderGridContract.isDelta) gen=\(gridGeneration) " +
                             "applied=\(appliedGeneration)"
@@ -4243,7 +4413,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         renderInFlightSince = CACurrentMediaTime()
         let enqueuedAt = CACurrentMediaTime()
         let workQueue = outputQueue
-        workQueue.async { [weak self] in
+        let accepted = workQueue.async({ [weak self] in
             let lagMs = (CACurrentMediaTime() - enqueuedAt) * 1000
             if lagMs > 150 { MobileDebugLog.anchormux("oq.render.LAG \(Int(lagMs))ms") }
             switch submission.kind {
@@ -4311,6 +4481,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     }
                 }
             }
+        }, priority: submission.kind == .localScroll)
+        guard accepted else {
+            repairRenderAdmissionAfterFailedStart()
+            return false
         }
         return true
     }
@@ -4845,6 +5019,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         /// the daemon grants a bogus shared PTY size (the
         /// keyboard-transition font-oscillation bug).
         let measuredFontSize: Float32
+        /// The pixel-aligned scroll-edge bands applied to the surface by
+        /// this pass, in points. The render layer must grow by exactly
+        /// these: the drawable is this much taller than the grid box.
+        let appliedTopInsetPts: CGFloat
+        let appliedBottomInsetPts: CGFloat
     }
 
     private func syncSurfaceGeometryAndWait(shouldReassertNaturalSize: Bool = true) async -> Bool {
@@ -4901,8 +5080,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let containerH = snapshot.containerSize.height
         let containerPxW = UInt32(max(1, Int((containerW * scale).rounded(.down))))
         let containerPxH = UInt32(max(1, Int((containerH * scale).rounded(.down))))
+        // The scroll-edge bands above and below the grid, pixel-aligned at
+        // the captured scale. Applied to the surface before set_size so the
+        // drawable grows while the app-facing size (and therefore the grid)
+        // stays container-sized. The bottom band spans the bottom chrome
+        // reservation (dock seam + toolbar + composer + safe area), whose
+        // rows only exist when scrolled into scrollback; it is gated on the
+        // same feature signal as the top band (a nonzero top inset).
+        let topInsetPx = UInt32(max(0, Int((topContentInset * scale).rounded(.down))))
+        let appliedTopInsetPts = CGFloat(topInsetPx) / scale
+        let bottomInsetPts = topContentInset > 0
+            ? max(0, snapshot.bounds.height - snapshot.layoutViewportRect.maxY)
+            : 0
+        let bottomInsetPx = UInt32(max(0, Int((bottomInsetPts * scale).rounded(.down))))
+        let appliedBottomInsetPts = CGFloat(bottomInsetPx) / scale
         let eff = effectiveGrid
-        let requiresExactEffectiveGrid = verifiedReplayRenderSuppressed
         let pushContentScale = abs(lastAppliedContentScale - scale) > 0.001
         if pushContentScale { lastAppliedContentScale = scale }
         let generation = surfaceGeneration
@@ -4912,6 +5104,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             if pushContentScale {
                 ghostty_surface_set_content_scale(surface, scale, scale)
             }
+            ghostty_surface_set_render_insets(surface, topInsetPx, bottomInsetPx)
             ghostty_surface_set_size(surface, containerPxW, containerPxH)
             let measured = ghostty_surface_size(surface)
 
@@ -4926,13 +5119,19 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             var pinnedSize: CGSize?
             if let eff, eff.cols > 0, eff.rows > 0, cell.width > 0, cell.height > 0 {
                 let fillsNaturalGrid = eff.cols >= Int(measured.columns) && eff.rows >= Int(measured.rows)
-                let withinOneCell = (Int(measured.columns) - eff.cols) <= 1 && (Int(measured.rows) - eff.rows) <= 1
                 let exactGridFitsInsideNatural = eff.cols <= Int(measured.columns)
                     && eff.rows <= Int(measured.rows)
                 let pinnedW = CGFloat(eff.cols) * cell.width / scale
                 let pinnedH = CGFloat(eff.rows) * cell.height / scale
+                // The producer's effective grid is the contract for every
+                // authoritative render-grid replay. Even a one-row/column
+                // difference must be fitted locally, otherwise the apply
+                // fence rejects every replay and the lane keeps reopening
+                // behind a fresh recovery cycle. Keep the fit bounded to
+                // grids that actually fit inside the measured surface; a
+                // larger effective grid still needs a normal geometry pass.
                 let shouldFitEffectiveGrid = !fillsNaturalGrid
-                    && (!withinOneCell || requiresExactEffectiveGrid && exactGridFitsInsideNatural)
+                    && exactGridFitsInsideNatural
                 if shouldFitEffectiveGrid,
                    pinnedW + 0.5 < containerW || pinnedH + 0.5 < containerH {
                     let fitted = Self.fitSurfaceToGrid(surface, cols: eff.cols, rows: eff.rows, cellPixelSize: cell)
@@ -4963,7 +5162,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 cellPixelSize: cell,
                 naturalSize: natural,
                 pinnedSize: pinnedSize,
-                measuredFontSize: measuredFontSize
+                measuredFontSize: measuredFontSize,
+                appliedTopInsetPts: appliedTopInsetPts,
+                appliedBottomInsetPts: appliedBottomInsetPts
             )
             Task { @MainActor in
                 guard let self else {
@@ -5018,15 +5219,24 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         layoutBottomDock(using: snapshot)
         let renderRect = snapshot.renderRect(forRenderSize: measuredRenderRect.size)
         lastRenderRect = renderRect
+        // The drawable this pass produced includes the scroll-edge bands;
+        // the layer must grow by exactly that much or every present is
+        // discarded on the size check.
+        appliedRenderTopInsetPts = result.appliedTopInsetPts
+        appliedRenderBottomInsetPts = result.appliedBottomInsetPts
         MobileDebugLog.anchormux(
             "geom container=\(Int(containerW))x\(Int(containerH)) scale=\(scale) "
             + "cellPx=\(Int(result.cellPixelSize.width))x\(Int(result.cellPixelSize.height)) "
             + "natural=\(result.naturalSize.columns)x\(result.naturalSize.rows) "
             + "eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil") "
             + "pinned=\(result.pinnedSize.map { "\(Int($0.width))x\(Int($0.height))" } ?? "nil") "
-            + "renderRect=\(Int(renderRect.width))x\(Int(renderRect.height))@\(Int(renderRect.minY))"
+            + "renderRect=\(Int(renderRect.width))x\(Int(renderRect.height))@\(Int(renderRect.minY)) "
+            + "topInset=\(Int(result.appliedTopInsetPts))"
         )
-        syncRendererLayerFrame(scale: scale, renderRect: renderRect)
+        syncRendererLayerFrame(
+            scale: scale,
+            renderRect: rendererLayerRect(forGridRenderRect: renderRect)
+        )
         updateLetterboxBorder(
             renderRect: renderRect,
             isLetterboxed: snapshot.isLetterboxed(renderSize: renderRect.size)
@@ -5569,7 +5779,7 @@ extension GhosttySurfaceView: UIScrollViewDelegate {
 }
 
 /// Internal for `GhosttySurfaceView+RenderRecovery.swift` replay decisions.
-nonisolated enum RenderPipelineRecoveryReplay {
+enum RenderPipelineRecoveryReplay {
     case callerWillRequestReplay
     case delegateWhenNoCaller
 }
@@ -5577,7 +5787,7 @@ nonisolated enum RenderPipelineRecoveryReplay {
 /// One output/geometry operation awaiting either its output-queue completion or
 /// the display-link deadline that rebuilds the stalled render pipeline.
 /// Internal for `GhosttySurfaceView+RenderRecovery.swift` deadline handling.
-nonisolated struct PendingSurfaceOperation {
+struct PendingSurfaceOperation {
     let id: UInt64
     let startedAt: CFTimeInterval
     let byteCount: Int?
@@ -5587,7 +5797,7 @@ nonisolated struct PendingSurfaceOperation {
 /// One visible-terminal snapshot read awaiting output-queue completion or its
 /// display-link deadline. A timeout skips only the pending text snapshot.
 /// Internal for `GhosttySurfaceView+RenderRecovery.swift` deadline handling.
-nonisolated struct PendingVisibleSnapshot {
+struct PendingVisibleSnapshot {
     let id: UInt64
     let startedAt: CFTimeInterval
     let continuation: CheckedContinuation<(text: String, columns: Int)?, Never>
@@ -5595,7 +5805,7 @@ nonisolated struct PendingVisibleSnapshot {
 
 /// One verified-replay viewport-anchor capture awaiting output-queue completion
 /// or its skip-only display-link deadline.
-nonisolated struct PendingVerifiedReplayViewportAnchorCapture {
+struct PendingVerifiedReplayViewportAnchorCapture {
     let id: UInt64
     let startedAt: CFTimeInterval
     let continuation: CheckedContinuation<VerifiedReplayCapturedViewportAnchor?, Never>
@@ -5603,7 +5813,7 @@ nonisolated struct PendingVerifiedReplayViewportAnchorCapture {
 
 /// One verified-replay viewport-anchor restore awaiting output-queue completion
 /// or its skip-only display-link deadline.
-nonisolated struct PendingVerifiedReplayViewportAnchorRestore {
+struct PendingVerifiedReplayViewportAnchorRestore {
     let id: UInt64
     let startedAt: CFTimeInterval
     let continuation: CheckedContinuation<Bool, Never>
@@ -5611,7 +5821,7 @@ nonisolated struct PendingVerifiedReplayViewportAnchorRestore {
 
 /// One "View as Text" read awaiting output-queue completion or deadline.
 /// Internal for `GhosttySurfaceView+RenderRecovery.swift` deadline handling.
-nonisolated struct PendingCopyableTextRead {
+struct PendingCopyableTextRead {
     let id: UInt64
     let startedAt: CFTimeInterval
     fileprivate let cancellation: SurfaceOperationCancellationToken
@@ -5627,26 +5837,10 @@ nonisolated struct PendingCopyableTextRead {
 ///
 /// The C surface pointer is dereferenced only on `GhosttySurfaceWorkQueue`,
 /// which is the same FIFO queue that owns `process_output` and surface free.
-nonisolated private struct CopyableTextRead: @unchecked Sendable {
+private struct CopyableTextRead: @unchecked Sendable {
     let surface: ghostty_surface_t
     let generation: UInt64
     let cancellation: SurfaceOperationCancellationToken
-}
-
-nonisolated private final class SurfaceOperationCancellationToken: Sendable {
-    // lint:allow lock - tiny cross-queue cancellation flag for already-enqueued
-    // libghostty work; actor hops would put the serial surface queue back behind
-    // the main actor and defeat the stale-read fast path.
-    private let cancelled: Mutex
-        <Bool> = .init(false)
-
-    var isCancelled: Bool {
-        cancelled.withLock { $0 }
-    }
-
-    func cancel() {
-        cancelled.withLock { $0 = true }
-    }
 }
 
 private class DisplayLinkProxy {
