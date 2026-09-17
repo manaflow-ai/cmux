@@ -59,9 +59,10 @@ describe("coderouter Sentry privacy", () => {
   });
 
   test("removes request bodies, auth headers, route tokens, JWTs, and PII", () => {
+    const apiKey = "crk_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN";
     const event = scrubSentryEvent({
       message:
-        "Bearer secret-bearer-token-123 crt_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN eyJabcdefghijk.payload.signature",
+        `Bearer secret-bearer-token-123 crt_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN ${apiKey} eyJabcdefghijk.payload.signature`,
       request: {
         data: { refresh_token: "refresh-secret" },
         cookies: { session: "secret" },
@@ -115,6 +116,8 @@ describe("coderouter Sentry privacy", () => {
     });
     expect(event.message).not.toContain("secret-bearer");
     expect(event.message).not.toContain("crt_");
+    expect(event.message).not.toContain(apiKey);
+    expect(event.message).not.toContain("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN");
     expect(event.message).not.toContain("eyJabcdefghijk");
   });
 });

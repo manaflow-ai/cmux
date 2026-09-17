@@ -67,6 +67,17 @@ pub enum GuardedMouseEncode {
     Contended,
 }
 
+/// Delivery classification for receipted terminal input.
+///
+/// `Known` means the implementation proved no bytes were submitted to the
+/// authoritative PTY owner. `Indeterminate` means bytes may have crossed a
+/// local writer or terminal-host socket before the failure became visible.
+#[derive(Debug)]
+pub(crate) enum ConfirmedInputFailure {
+    Known(std::io::Error),
+    Indeterminate(std::io::Error),
+}
+
 /// Nonblocking probe for the terminal mouse protocol and reporting mode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PointerSemanticProbe {
@@ -388,6 +399,21 @@ struct HostedFrameStager {
     expected_sequence: u64,
     smart_renderer: bool,
     pending: Option<PendingHostedTransition>,
+}
+
+#[cfg(unix)]
+fn is_targeted_host_response(kind: MessageKind) -> bool {
+    matches!(
+        kind,
+        MessageKind::Capability
+            | MessageKind::ResizeAck
+            | MessageKind::CellPixelSizeAck
+            | MessageKind::KittyGraphicsLimitsAck
+            | MessageKind::ClearHistoryAck
+            | MessageKind::TerminateAck
+            | MessageKind::DetachAck
+            | MessageKind::InputAck
+    )
 }
 
 #[cfg(unix)]
@@ -1615,6 +1641,7 @@ pub const CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR: &str =
 pub(crate) const CLEAR_HISTORY_STREAM_WAIT_TIMEOUT: Duration = Duration::from_millis(250);
 pub(crate) const CLEAR_HISTORY_KEY_TEXT_MAX_BYTES: usize = 4 * 1024;
 const CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT: Duration = Duration::from_millis(250);
+const LOCAL_PASTE_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 // Kitty associated-text encoding can expand each ASCII input byte to a
 // three-digit codepoint plus one separator. The extra key-text budget covers
 // the fixed CSI-u fields without making fallback writes unbounded.
@@ -1655,45 +1682,6 @@ impl ClearHistoryFailure {
 }
 
 #[cfg(unix)]
-struct NonblockingFdGuard {
-    fd: std::os::fd::RawFd,
-    original_flags: libc::c_int,
-    restored: bool,
-}
-
-#[cfg(unix)]
-impl NonblockingFdGuard {
-    fn install(fd: std::os::fd::RawFd) -> std::io::Result<Self> {
-        let original_flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
-        if original_flags < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        if unsafe { libc::fcntl(fd, libc::F_SETFL, original_flags | libc::O_NONBLOCK) } < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        Ok(Self { fd, original_flags, restored: false })
-    }
-
-    fn restore(&mut self) -> std::io::Result<()> {
-        if self.restored {
-            return Ok(());
-        }
-        if unsafe { libc::fcntl(self.fd, libc::F_SETFL, self.original_flags) } < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        self.restored = true;
-        Ok(())
-    }
-}
-
-#[cfg(unix)]
-impl Drop for NonblockingFdGuard {
-    fn drop(&mut self) {
-        let _ = self.restore();
-    }
-}
-
-#[cfg(unix)]
 fn clear_history_write_failure(error: std::io::Error, delivered: usize) -> ClearHistoryFailure {
     let error = anyhow::Error::from(error);
     if delivered == 0 {
@@ -1716,73 +1704,13 @@ pub(crate) fn write_clear_history_fallback(
 
     #[cfg(unix)]
     if let Some(fd) = master.as_raw_fd() {
-        let mut nonblocking = NonblockingFdGuard::install(fd)
-            .map_err(|error| clear_history_write_failure(error, 0))?;
-        let deadline = Instant::now() + CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT;
-        let mut delivered = 0;
-        while delivered < bytes.len() {
-            let written = unsafe {
-                libc::write(
-                    fd,
-                    bytes[delivered..].as_ptr().cast(),
-                    bytes.len().saturating_sub(delivered),
-                )
-            };
-            if written > 0 {
-                delivered = delivered.saturating_add(written as usize);
-                continue;
-            }
-            if written == 0 {
-                let error =
-                    std::io::Error::new(std::io::ErrorKind::WriteZero, "PTY write returned zero");
-                return Err(clear_history_write_failure(error, delivered));
-            }
-            let error = std::io::Error::last_os_error();
-            if error.kind() == std::io::ErrorKind::Interrupted {
-                continue;
-            }
-            if error.kind() != std::io::ErrorKind::WouldBlock {
-                return Err(clear_history_write_failure(error, delivered));
-            }
-
-            let now = Instant::now();
-            if now >= deadline {
-                let error = anyhow::anyhow!(CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR);
-                return Err(if delivered == 0 {
-                    ClearHistoryFailure::known_not_delivered(error)
-                } else {
-                    ClearHistoryFailure::ambiguous(error)
-                });
-            }
-            let remaining = deadline.saturating_duration_since(now);
-            let timeout_ms = remaining
-                .as_nanos()
-                .saturating_add(999_999)
-                .checked_div(1_000_000)
-                .unwrap_or(u128::MAX)
-                .clamp(1, i32::MAX as u128) as libc::c_int;
-            let mut poll_fd = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
-            let ready = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms) };
-            if ready > 0 {
-                if poll_fd.revents & libc::POLLNVAL != 0 {
-                    let error =
-                        std::io::Error::new(std::io::ErrorKind::BrokenPipe, "PTY fd is invalid");
-                    return Err(clear_history_write_failure(error, delivered));
-                }
-                continue;
-            }
-            if ready < 0 {
-                let error = std::io::Error::last_os_error();
-                if error.kind() == std::io::ErrorKind::Interrupted {
-                    continue;
-                }
-                return Err(clear_history_write_failure(error, delivered));
-            }
-        }
-        if let Err(error) = nonblocking.restore() {
-            return Err(ClearHistoryFailure::ambiguous(error.into()));
-        }
-        return Ok(());
+        return crate::pty_write::write_bounded(
+            fd,
+            bytes,
+            CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT,
+            CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR,
+        )
+        .map_err(|failure| clear_history_write_failure(failure.error, failure.delivered));
     }
 
     #[cfg(test)]
@@ -3075,15 +3003,9 @@ impl Surface {
                             Ok(Some(frame)) => frame,
                             Ok(None) | Err(_) => break,
                         };
-                        if matches!(
-                            frame.kind,
-                            MessageKind::Capability
-                                | MessageKind::CellPixelSizeAck
-                                | MessageKind::KittyGraphicsLimitsAck
-                                | MessageKind::ClearHistoryAck
-                                | MessageKind::TerminateAck
-                                | MessageKind::DetachAck
-                        ) && frame.request_id != 0
+                        // Targeted responses must be consumed before live staging:
+                        // HostedFrameStager intentionally rejects every nonzero request id.
+                        if is_targeted_host_response(frame.kind) && frame.request_id != 0
                         {
                             if frame.version != protocol_version
                                 || frame.flags != 0
@@ -4455,9 +4377,60 @@ impl Surface {
         }
     }
 
+    /// Write receipted input bytes and wait for authoritative PTY-owner delivery.
+    ///
+    /// Hosted input registers and writes its targeted request while holding the
+    /// short runtime lock, then releases that lock before waiting for `InputAck`.
+    /// Other receipted writes can therefore enter the host channel while an
+    /// earlier caller is waiting. Interactive input continues to use `write_bytes`.
+    pub(crate) fn write_bytes_confirmed(&self, bytes: &[u8]) -> Result<(), ConfirmedInputFailure> {
+        let Some(pty) = self.as_pty() else {
+            return Err(ConfirmedInputFailure::Known(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "browser surface does not accept PTY bytes",
+            )));
+        };
+        let mut runtime = pty.runtime.lock().unwrap();
+        match &mut *runtime {
+            PtyRuntime::Local { writer, .. } => writer
+                .write_all(bytes)
+                .and_then(|()| writer.flush())
+                .map_err(ConfirmedInputFailure::Indeterminate),
+            #[cfg(unix)]
+            PtyRuntime::Hosted(host) => {
+                let receipt = host.begin_input_confirmed(bytes)?;
+                drop(runtime);
+                receipt.wait().map_err(ConfirmedInputFailure::Indeterminate)
+            }
+            #[cfg(unix)]
+            PtyRuntime::ExitedHosted => Err(ConfirmedInputFailure::Known(std::io::Error::new(
+                std::io::ErrorKind::NotConnected,
+                "terminal has no live PTY owner for receipted input",
+            ))),
+        }
+    }
+
     /// Write a protocol input payload, conditionally applying bracketed-paste
     /// markers from a terminal-mode snapshot taken before the PTY write.
     pub fn write_paste(&self, bytes: &[u8]) -> std::io::Result<()> {
+        self.write_paste_with_timeout(bytes, None)
+    }
+
+    /// Write a paste with a bounded local PTY write for daemon-owned uploads.
+    ///
+    /// Hosted attachments already enforce their socket write deadline. Local
+    /// PTY masters are switched to nonblocking mode for this operation and
+    /// polled until the same two-second bound, so a full PTY cannot retain an
+    /// image-paste reservation indefinitely.
+    pub(crate) fn write_paste_bounded(&self, bytes: &[u8]) -> std::io::Result<()> {
+        self.write_paste_with_timeout(bytes, Some(LOCAL_PASTE_WRITE_TIMEOUT))
+    }
+
+    fn write_paste_with_timeout(
+        &self,
+        bytes: &[u8],
+        timeout: Option<Duration>,
+    ) -> std::io::Result<()> {
         let Some(pty) = self.as_pty() else {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Unsupported,
@@ -4484,17 +4457,43 @@ impl Surface {
             term.mode(2004, false)
         };
         let mut runtime = pty.runtime.lock().unwrap();
-        let PtyRuntime::Local { writer, .. } = &mut *runtime else {
+        let PtyRuntime::Local { writer, master, .. } = &mut *runtime else {
             unreachable!("hosted paste returned above")
         };
+        #[cfg(not(unix))]
+        let _ = master;
+        let mut payload = Vec::with_capacity(bytes.len() + if bracketed { 12 } else { 0 });
         if bracketed {
-            writer.write_all(b"\x1b[200~")?;
+            payload.extend_from_slice(b"\x1b[200~");
         }
-        writer.write_all(bytes)?;
+        payload.extend_from_slice(bytes);
         if bracketed {
-            writer.write_all(b"\x1b[201~")?;
+            payload.extend_from_slice(b"\x1b[201~");
         }
+        #[cfg(unix)]
+        if let Some(timeout) = timeout
+            && let Some(fd) = master.as_ref().and_then(|master| master.as_raw_fd())
+        {
+            return crate::pty_write::write_bounded(
+                fd,
+                &payload,
+                timeout,
+                "PTY paste write timed out",
+            )
+            .map_err(|failure| failure.error);
+        }
+        writer.write_all(&payload)?;
         writer.flush()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replace_input_writer_for_test(&self, replacement: Box<dyn Write + Send>) {
+        let pty = self.as_pty().expect("input test requires a terminal");
+        let mut runtime = pty.runtime.lock().unwrap();
+        let PtyRuntime::Local { writer, .. } = &mut *runtime else {
+            panic!("input test requires the in-process test runtime");
+        };
+        *writer = replacement;
     }
 
     /// Run `f` with exclusive access to the terminal state.
@@ -7391,6 +7390,27 @@ mod tests {
             .expect("macOS surface PTY spawn failed");
     }
 
+    struct PartialWouldBlockWriter {
+        accepted_prefix: bool,
+    }
+
+    impl Write for PartialWouldBlockWriter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if !self.accepted_prefix && !bytes.is_empty() {
+                self.accepted_prefix = true;
+                return Ok(1);
+            }
+            Err(std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "synthetic partial local PTY write",
+            ))
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
     #[derive(Clone, Default)]
     struct CapturingWriter(Arc<Mutex<Vec<u8>>>);
 
@@ -7435,6 +7455,43 @@ mod tests {
             panic!("test surface unexpectedly uses a terminal host");
         };
         *writer = replacement;
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn receipted_input_rejects_an_exited_host_before_effect() {
+        let mux = Mux::new_for_test("receipted-input-exited-host", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let pty = surface.as_pty().unwrap();
+        {
+            let mut runtime = pty.runtime.lock().unwrap();
+            *runtime = PtyRuntime::ExitedHosted;
+        }
+
+        let error = surface.write_bytes_confirmed(b"must-not-drop").unwrap_err();
+        let ConfirmedInputFailure::Known(error) = error else {
+            panic!("exited-host rejection became indeterminate");
+        };
+        assert_eq!(error.kind(), std::io::ErrorKind::NotConnected);
+        assert!(error.to_string().contains("no live PTY owner"));
+    }
+
+    #[test]
+    fn receipted_input_local_partial_would_block_is_indeterminate() {
+        let mux = Mux::new_for_test("receipted-input-local-partial", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        replace_local_writer(
+            &surface,
+            Box::new(PartialWouldBlockWriter { accepted_prefix: false }),
+        );
+
+        let error = surface.write_bytes_confirmed(b"ab").unwrap_err();
+        let ConfirmedInputFailure::Indeterminate(error) = error else {
+            panic!("partial local PTY write was incorrectly classified as known-not-delivered");
+        };
+        assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
     }
 
     #[test]
@@ -8235,6 +8292,78 @@ mod tests {
             Err(RecvTimeoutError::Disconnected)
         ));
         assert!(attachment.lifecycle.is_canceled());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hosted_receipted_input_requests_pipeline_through_surface_reader() {
+        let mux = Mux::new_for_test("hosted-input-ack-pipeline", SurfaceOptions::default());
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let (mut attachment, mut host) = crate::terminal_host_runtime::input_ack_surface_fixture();
+        let terminal_id = attachment.record.terminal_id.clone();
+        attachment.record.workspace_key = workspace.key.clone();
+        mux.seed_launching_terminal_for_test(&terminal_id, &workspace.key).unwrap();
+
+        let surface = Surface::spawn_hosted(
+            1,
+            SurfaceOptions::default(),
+            Arc::downgrade(&mux),
+            HostedSurfaceLaunch {
+                attachment,
+                kitty_reservation: None,
+                terminate_on_error: false,
+                defer_launch_activation: false,
+                lifetime: PtyLifetime::SessionOwned,
+                terminal_public_id: None,
+                resource_identity: None,
+            },
+        )
+        .unwrap();
+
+        host.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+        host.set_write_timeout(Some(Duration::from_secs(1))).unwrap();
+        let read_input = |host: &mut std::os::unix::net::UnixStream| {
+            let frame = crate::terminal_host_protocol::read_frame(
+                host,
+                crate::terminal_host_protocol::MAX_FRAME_PAYLOAD,
+            )
+            .expect("observe submitted input while the earlier ACK is withheld")
+            .expect("hosted connection remains open while awaiting input ACKs");
+            assert_eq!(frame.kind, MessageKind::Input);
+            frame
+        };
+
+        std::thread::scope(|scope| {
+            let first = scope.spawn(|| surface.write_bytes_confirmed(b"pipeline-a"));
+            let first_request = read_input(&mut host);
+            assert_eq!(first_request.payload, b"pipeline-a");
+            assert_ne!(first_request.request_id, 0);
+
+            let second = scope.spawn(|| surface.write_bytes_confirmed(b"pipeline-b"));
+            let second_request = read_input(&mut host);
+            assert_eq!(second_request.payload, b"pipeline-b");
+            assert_ne!(second_request.request_id, 0);
+            assert_ne!(first_request.request_id, second_request.request_id);
+
+            let interactive = scope.spawn(|| surface.write_bytes(b"pipeline-interactive"));
+            let interactive_request = read_input(&mut host);
+            assert_eq!(interactive_request.payload, b"pipeline-interactive");
+            assert_eq!(interactive_request.request_id, 0);
+            interactive.join().unwrap().unwrap();
+            assert!(!first.is_finished());
+            assert!(!second.is_finished());
+
+            let mut second_ack = Frame::new(MessageKind::InputAck, Vec::new());
+            second_ack.request_id = second_request.request_id;
+            crate::terminal_host_protocol::write_frame(&mut host, &second_ack).unwrap();
+            second.join().unwrap().unwrap();
+            assert!(!first.is_finished(), "B's ACK must leave A pending");
+
+            let mut first_ack = Frame::new(MessageKind::InputAck, Vec::new());
+            first_ack.request_id = first_request.request_id;
+            crate::terminal_host_protocol::write_frame(&mut host, &first_ack).unwrap();
+            first.join().unwrap().unwrap();
+        });
     }
 
     #[cfg(unix)]

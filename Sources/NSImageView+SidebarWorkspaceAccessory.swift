@@ -26,15 +26,15 @@ extension NSImageView {
         contentTintColor = tint
     }
 
-    /// Reserves one fixed accessory slot without changing the row's vertical layout.
-    func layoutSidebarWorkspaceAccessory(
-        maxX: CGFloat, centerY: CGFloat, side: CGFloat, spacing: CGFloat, apply: Bool
+    /// Reserves one leading accessory slot without changing the row's vertical layout.
+    func layoutLeadingSidebarWorkspaceAccessory(
+        minX: CGFloat, centerY: CGFloat, side: CGFloat, spacing: CGFloat, apply: Bool
     ) -> CGFloat {
-        guard !isHidden else { return maxX }
+        guard !isHidden else { return minX }
         if apply {
-            frame = NSRect(x: maxX - side, y: centerY - side / 2, width: side, height: side)
+            frame = NSRect(x: minX, y: centerY - side / 2, width: side, height: side)
         }
-        return maxX - side - spacing
+        return minX + side + spacing
     }
 
 }

@@ -137,7 +137,7 @@ struct CloudSidebarConsistencyTests {
         #expect(row.children.count == 1)
     }
 
-    @Test("User workspace and terminal names are protected before the write task starts")
+    @Test("User intents keep the accepted graph visible until their writes are acknowledged")
     func synchronousUserIntent() async throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
@@ -153,15 +153,13 @@ struct CloudSidebarConsistencyTests {
         workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: machine.rawValue, isBase: false, remoteWorkspaceID: "ws_main")
         let resource = try #require(catalog.resources[SurfaceResourceID(machine: machine, kind: .terminal, key: "term_a")])
         catalog.record(SurfaceProjection(resource: resource.id, workspaceID: workspace.id, panelID: panelID, remoteWorkspaceID: "ws_main", remoteTabID: "tab_a"))
-        _ = manager.setCustomTitle(tabId: workspace.id, title: "User workspace", propagateToCloud: false)
-        _ = workspace.setPanelCustomTitle(panelId: panelID, title: "User terminal", propagateToCloud: false)
-        service.propagate(workspace: workspace, localTitle: "User workspace", previousCustomTitle: "GOD WORKSPACE", catalog: catalog)
-        service.propagateTerminalRename(workspace: workspace, panelID: panelID, resource: resource, name: "User terminal", previousCustomTitle: "Explicit a", catalog: catalog)
+        #expect(catalog.submitCloudWorkspaceRename(workspace: workspace, title: "User workspace", source: .user) == true)
+        #expect(catalog.submitCloudPanelRename(workspace: workspace, panelID: panelID, title: "User terminal", source: .user) == true)
         #expect(catalog.cloudRenameCoordinator.pendingName(for: .workspace(machine: machine, id: "ws_main")) == "User workspace")
         #expect(catalog.cloudRenameCoordinator.pendingName(for: .tab(machine: machine, id: "tab_a")) == "User terminal")
         catalog.reconcileCloudRemoteState(machine: machine, state: graph)
-        #expect(workspace.title == "User workspace")
-        #expect(workspace.panelCustomTitles[panelID] == "User terminal")
+        #expect(workspace.title == "GOD WORKSPACE")
+        #expect(workspace.panelCustomTitles[panelID] == "Explicit a")
         // A barrier in the same lane completes both writes without a sleep.
         try await catalog.cloudRenameCoordinator.enqueue(key: .workspace(machine: machine, id: "barrier"), pendingName: "") {}.value
         #expect(provider.workspaceRenames == ["User workspace"])

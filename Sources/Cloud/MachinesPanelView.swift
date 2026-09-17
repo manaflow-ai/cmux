@@ -81,62 +81,12 @@ struct MachinesPanelView: View {
     @ViewBuilder
     private var authenticatedContent: some View {
         controlBar
-        if tunnelStatus.status?.state != .up {
-            Button {
-                openCloudVPNSetup()
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "network")
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(tunnelStatus.status?.state == .up
-                            ? String(localized: "cloud.vpn.setup.title", defaultValue: "Cloud VPN")
-                            : String(localized: "machines.menu.setupVPN", defaultValue: "Set Up cmux VPN…"))
-                            .cmuxFont(size: 12, weight: .medium)
-                        Text(String(localized: "cloud.vpn.setup.entry.subtitle", defaultValue: "Optional private IP access for other apps"))
-                            .cmuxFont(size: 11)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.right").font(.system(size: 10))
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 9)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("CloudVPNSetupEntryButton")
-        }
-        if let banner = tunnelStatus.banner, banner.showsInMachinesPanel,
-           !bannerDismissals.isDismissed(id: "machines.tunnel", signature: banner.dismissalSignature) {
-            MachinesTunnelBanner(banner: banner, backgroundColor: chromeBackgroundColor) {
-                SystemExtensionSettingsLink.open()
-            } onDismiss: {
-                bannerDismissals.dismiss(id: "machines.tunnel", signature: banner.dismissalSignature)
-            }
-        }
-        if let plan = viewModel.plan, !plan.isPaidPlan, let text = plan.freeAccessBannerText,
-           !bannerDismissals.isDismissed(id: "machines.free-access", signature: plan.freeAccessBanner.dismissalSignature) {
-            MachinesFreeAccessBanner(
-                text: text,
-                isExpired: plan.freeAccessBanner == .expired,
-                windowDays: plan.freeAccessWindowDays,
-                backgroundColor: chromeBackgroundColor,
-                onDismiss: {
-                    bannerDismissals.dismiss(id: "machines.free-access", signature: plan.freeAccessBanner.dismissalSignature)
-                }
-            )
-        }
+        MachinesPanelBanners(
+            tunnelBanner: tunnelStatus.banner, plan: viewModel.plan,
+            bannerDismissals: bannerDismissals, chromeBackgroundColor: chromeBackgroundColor
+        )
         content
     }
-    /// Clears the tunnel banner and opens the Cloud VPN setup flow.
-    private func openCloudVPNSetup(preferredWindow: NSWindow? = nil) {
-        bannerDismissals.clear(id: "machines.tunnel")
-        _ = AppDelegate.shared?.openCloudVPNSetupWorkspace(
-            preferredTabManager: tabManager,
-            preferredWindow: preferredWindow
-        )
-    }
-
     private func syncPolling(for state: CloudVMPanelAuthState) {
         switch state {
         case .signedIn:
@@ -464,6 +414,9 @@ struct MachinesPanelView: View {
         NewMachineSheetPresenter.shared.presentNewMachine(
             plan: viewModel.plan,
             memoryOptionsMb: viewModel.memoryOptionsMb,
+            lockedMemoryOptionsMb: viewModel.lockedMemoryOptionsMb,
+            memoryUpgradePlanId: viewModel.memoryUpgradePlanId,
+            memoryUpgradePlansByMb: viewModel.memoryUpgradePlansByMb,
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
             coordinator: viewModel.createCoordinator
         )
@@ -483,9 +436,6 @@ struct MachinesPanelView: View {
         let planMemoryGiB = viewModel.memoryOptionsMb.map { $0 / 1024 }.filter { $0 > 0 }
         machineActions.resizeMemoryOptionsGiB = planMemoryGiB
         machineActions.resizeCPUOptions = planMemoryGiB.map { max(1, ($0 + 3) / 4) }
-        machineActions.setupVPN = { window in
-            openCloudVPNSetup(preferredWindow: window)
-        }
         machineActions.setDefault = { [weak viewModel] id in
             viewModel?.setDefaultMachine(id: id)
         }
@@ -509,10 +459,9 @@ struct MachinesPanelView: View {
             unreadTerminalIDs: viewModel.unreadTerminalIDs,
             machineActions: machineActions,
             nodeActions: nodeActions,
-            expansionStore: expansionStore,
+            expansionStore: expansionStore, organizationStore: SurfaceCatalog.shared.sidebarOrganization, organizationState: SurfaceCatalog.shared.sidebarOrganization.state,
             style: CloudTreeStyle.preset(id: cloudTreeStyleID) ?? .defaultStyle,
-            onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) },
-            showsCloudVPNWarning: CloudPortsVPNWarning.projection(tunnelState: tunnelStatus.status?.state) != nil
+            onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) }
         )
         .accessibilityIdentifier("CloudMachinesTree")
     }
@@ -676,7 +625,7 @@ private struct MachinePlanMeter: View {
     }
 }
 
-private struct MachinesFreeAccessBanner: View {
+struct MachinesFreeAccessBanner: View {
     let text: String
     let isExpired: Bool
     let windowDays: Int
@@ -767,7 +716,6 @@ struct MachinesChromeIconButton: View {
 /// see the store. All verbs go through `CloudVMActionLauncher` so this panel,
 /// the ＋ menu, the palette, and the CLI share one mutation path.
 struct MachineRowActions {
-    var setupVPN: @MainActor (NSWindow?) -> Void
     let openShell: @MainActor (String) -> Void
     let openDesktop: @MainActor (String) -> Void
     let runCommand: @MainActor (String, [String]) -> Void
@@ -793,7 +741,6 @@ struct MachineRowActions {
         onDidMutate: @escaping @MainActor () -> Void
     ) -> MachineRowActions {
         MachineRowActions(
-            setupVPN: { window in _ = AppDelegate.shared?.openCloudVPNSetupWorkspace(preferredWindow: window) },
             openShell: { id in
                 onWillMutate(String(format: String(localized: "machines.operation.openShell", defaultValue: "Opening %@\u{2026}"), id))
                 if !launch(arguments: ["vm", "shell", id], onDidMutate: onDidMutate) {

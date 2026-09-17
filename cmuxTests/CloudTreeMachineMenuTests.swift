@@ -31,6 +31,30 @@ struct CloudTreeMachineMenuTests {
         #expect(!workspaceGroup.kind.refreshesOnExpansion)
     }
 
+    @Test("Ports menu contains refresh without a VPN setup action")
+    func portsMenuHasOnlyRefresh() throws {
+        let recorder = CloudTreeMenuVerbRecorder()
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions(recording: recorder),
+            nodeActions: Self.nodeActions(recording: recorder),
+            expansionStore: CloudTreeExpansionStore(
+                defaults: UserDefaults(suiteName: "cloud-tree-ports-menu-\(UUID().uuidString)")!
+            ),
+            tabDragTransferRegistry: { nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = container
+        defer { window.contentView = nil; withExtendedLifetime(window) {} }
+        coordinator.apply(nodes: [CloudTreeNode(
+            id: "machine:\(Self.machineID)/ports",
+            kind: .portsGroup(machine: .cloud(Self.machineID))
+        )])
+
+        let menu = try #require(coordinator.contextMenu(forRow: 0))
+        #expect(menu.items.filter { !$0.isSeparatorItem }.map(\.title) == [Self.title("cloudTree.menu.refresh", "Refresh")])
+    }
+
     @Test("A machine's menu exposes grow-only resource resize and wires its targets")
     func machineMenuOffersSupportedVerbs() throws {
         let recorder = CloudTreeMenuVerbRecorder()
@@ -53,6 +77,7 @@ struct CloudTreeMachineMenuTests {
         let menu = try #require(coordinator.contextMenu(forRow: 0))
         let titles = menu.items.filter { !$0.isSeparatorItem }.map(\.title)
         #expect(titles == [
+            Self.title("machines.menu.setDefaultMachine", "Set as Default Machine"),
             Self.title("machines.menu.openShell", "Open Shell"),
             Self.title("cloudTree.menu.newWorkspace", "New Workspace"),
             Self.title("cloudTree.menu.openFullClient", "Open Full cmux-tui Client"),
@@ -60,15 +85,11 @@ struct CloudTreeMachineMenuTests {
             Self.title("cloudTree.menu.refresh", "Refresh"),
             Self.title("machines.menu.rename", "Rename\u{2026}"),
             Self.title("machines.menu.copyIPAddress", "Copy IP Address"),
-            Self.title("machines.menu.privateNetwork", "Private Network Access…"),
             Self.title("machines.menu.status", "Status"),
             Self.title("machines.menu.checkpoint", "Checkpoint"),
             Self.title("machines.menu.fork", "Fork"),
             Self.title("machines.menu.delete", "Delete\u{2026}"),
         ])
-        try Self.choose(Self.title("machines.menu.privateNetwork", "Private Network Access…"), in: menu)
-        #expect(recorder.vpnSetupCount == 1)
-        #expect(recorder.vpnSetupWindow === window)
         let resizeRoot = try #require(menu.items.first { $0.title == Self.title("cloud.operation.kind.resize", "Resize machine") })
         let resizeMenu = try #require(resizeRoot.submenu)
         let diskRoot = try #require(resizeMenu.items.first { $0.title == Self.title("machines.menu.increaseDisk", "Increase Disk") })
@@ -251,7 +272,6 @@ struct CloudTreeMachineMenuTests {
 
     private static func machineActions(recording recorder: CloudTreeMenuVerbRecorder) -> MachineRowActions {
         MachineRowActions(
-            setupVPN: { window in recorder.vpnSetupCount += 1; recorder.vpnSetupWindow = window },
             openShell: { _ in },
             openDesktop: { _ in },
             runCommand: { id, verb in recorder.commands.append((id: id, verb: verb)) },
@@ -293,8 +313,6 @@ struct CloudTreeMachineMenuTests {
 /// wired to its closure and not merely titled.
 @MainActor
 private final class CloudTreeMenuVerbRecorder {
-    var vpnSetupCount = 0
-    weak var vpnSetupWindow: NSWindow?
     var newTerminals: [SurfaceMachineID] = []
     var commands: [(id: String, verb: [String])] = []
     var deletions: [String] = []

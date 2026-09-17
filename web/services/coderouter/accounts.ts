@@ -8,6 +8,7 @@ import {
   withVaultLease,
   bindCodexOwnerIdentity,
   encryptedCredentialForAccount,
+  transferEncryptedAccount,
   updateAccountLabel,
 } from "./repository";
 import { decryptCredential, encryptCredential, type CredentialKeyService } from "./encryption";
@@ -18,6 +19,14 @@ import {
 } from "./types";
 import { deleteVaultCredential } from "./vault";
 import { reportCoderouterFailure } from "./observability";
+
+export async function transferAccount(input: { sourceTeamId: string; destinationTeamId: string; accountId: string; stackUserId: string }): Promise<boolean> {
+  const envelope = await encryptedCredentialForAccount(input.sourceTeamId, input.accountId);
+  if (!envelope) return false;
+  const credential = await decryptCredential(envelope);
+  const moved = await encryptCredential({ accountId: input.accountId, teamId: input.destinationTeamId, provider: envelope.provider, credentialRevision: envelope.credentialRevision + 1, credential });
+  return await transferEncryptedAccount({ ...input, credential: moved });
+}
 import { providerIdentityKey, withCodexOwner } from "./codexIdentity";
 import { verifyCodexCredential, verifyStoredCodexCredential } from "./codexSignature";
 
@@ -27,6 +36,7 @@ export async function addAccount(
   keys?: CredentialKeyService,
   verify: typeof verifyCodexCredential = verifyCodexCredential,
   verifyStored: typeof verifyStoredCodexCredential = verifyStoredCodexCredential,
+  ownership?: { readonly createdBy: string; readonly visibility: "private" | "team" },
 ): Promise<{ accountId: string; alreadyExists: boolean }> {
   if (credential.provider === "codex") {
     await verify(credential);
@@ -38,6 +48,9 @@ export async function addAccount(
     credential.provider,
     providerIdentityKey(credential),
   );
+  if (existing?.visibility === "private" && ownership && existing.createdBy !== ownership.createdBy) {
+    throw new Error("account is not available to this user");
+  }
   if (existing?.state === "active" || existing?.state === "refreshing") {
     await updateAccountLabel(teamId, existing.id, credential);
     return { accountId: existing.id, alreadyExists: true };
@@ -57,6 +70,7 @@ export async function addAccount(
     const inserted = await insertAccountWithCredential({
       credential,
       encrypted,
+      ...ownership,
     });
     if (!inserted) {
       const raced = await findAccountByProviderIdentity(
@@ -108,9 +122,9 @@ export function createAccountRemover(dependencies: {
   readonly deleteLegacy: typeof deleteVaultCredential;
   readonly withLease: typeof withVaultLease;
   readonly report: typeof reportCoderouterFailure;
-}): (teamId: string, accountId: string) => Promise<RemoveAccountResult> {
-  return async (teamId, accountId) => {
-    const result = await dependencies.deleteRuntime({ teamId, accountId });
+}): (teamId: string, accountId: string, stackUserId?: string) => Promise<RemoveAccountResult> {
+  return async (teamId, accountId, stackUserId) => {
+    const result = await dependencies.deleteRuntime({ teamId, accountId, stackUserId });
     if (!result.removed) return { ...result, legacyCleanupPending: false };
     try {
       // Temporary rollback copy only. This call disappears after the migration

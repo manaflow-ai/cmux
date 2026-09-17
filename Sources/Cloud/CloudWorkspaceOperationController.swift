@@ -10,6 +10,10 @@ final class CloudWorkspaceOperationController {
     private let notificationCenter: NotificationCenter
     private var tasks: [UUID: Task<Void, Never>] = [:]
     private var keyedTasks: [String: Task<Void, Never>] = [:]
+    /// Identity fence for keyed operations. A cancelled operation can finish
+    /// after a re-enable starts a replacement under the same key; its cleanup
+    /// must not remove the replacement task.
+    private var keyedTaskIDs: [String: UUID] = [:]
     private var availabilityObservers: [NSObjectProtocol] = []
 
     init(
@@ -63,8 +67,14 @@ final class CloudWorkspaceOperationController {
     @discardableResult
     func start(key: String, _ operation: @escaping Operation) -> Bool {
         guard isAvailable(), keyedTasks[key] == nil else { return false }
+        let operationID = UUID()
         let task = Task { @MainActor [weak self] in
-            defer { self?.keyedTasks.removeValue(forKey: key) }
+            defer {
+                if self?.keyedTaskIDs[key] == operationID {
+                    self?.keyedTaskIDs.removeValue(forKey: key)
+                    self?.keyedTasks.removeValue(forKey: key)
+                }
+            }
             do {
                 try await operation()
             } catch is CancellationError {
@@ -74,6 +84,7 @@ final class CloudWorkspaceOperationController {
                     .error("Keyed Cloud workspace operation failed: \(String(describing: error), privacy: .private)")
             }
         }
+        keyedTaskIDs[key] = operationID
         keyedTasks[key] = task
         return true
     }
@@ -83,6 +94,7 @@ final class CloudWorkspaceOperationController {
         for task in keyedTasks.values { task.cancel() }
         tasks.removeAll()
         keyedTasks.removeAll()
+        keyedTaskIDs.removeAll()
     }
 
     /// Waits for operations already submitted by a caller, primarily for integration tests.

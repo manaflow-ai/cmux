@@ -683,14 +683,7 @@ function accountScopeWhere(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;
 }) {
-  const billingTeamId = input.billingTeamId?.trim();
-  if (!billingTeamId) {
-    return and(
-      eq(cloudVms.userId, input.userId),
-      or(isNull(cloudVms.billingTeamId), eq(cloudVms.billingTeamId, input.userId)),
-    );
-  }
-  return eq(cloudVms.billingTeamId, billingTeamId);
+  return eq(cloudVms.ownerTeamId, input.billingTeamId?.trim() || input.userId);
 }
 
 function positiveReservationInteger(value: unknown): number | null {
@@ -2636,7 +2629,12 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       const db = cloudDb();
       const updated = await db
         .update(cloudVms)
-        .set({ displayName: input.displayName, updatedAt: new Date() })
+        .set({
+          displayName: input.displayName,
+          // Date exposes milliseconds. Keep renames strictly ordered even
+          // when two writers arrive within the same millisecond.
+          updatedAt: sql`greatest(${cloudVms.updatedAt} + interval '1 millisecond', clock_timestamp())`,
+        })
         .where(and(eq(cloudVms.id, input.id), ne(cloudVms.status, "destroyed")))
         .returning({ id: cloudVms.id });
       return updated.length > 0;

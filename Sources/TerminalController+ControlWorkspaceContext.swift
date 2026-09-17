@@ -93,7 +93,10 @@ extension TerminalController: ControlWorkspaceContext {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
-        guard let workspaceId = tabManager.selectedTabId else {
+        // A relay request carries the authenticated workspace explicitly.  Do
+        // not answer with whichever workspace happens to be focused in that
+        // window, because it can be a local workspace in the same manager.
+        guard let workspaceId = routing.workspaceID ?? tabManager.selectedTabId else {
             return .noWorkspaceSelected
         }
         // Legacy: a selectedTabId pointing at a workspace missing from `tabs`
@@ -674,8 +677,9 @@ extension TerminalController: ControlWorkspaceContext {
         // `DisableCloud` (MDM): a workspace bound to a Cloud machine is a Cloud
         // attach whichever verb carried it, so pre-minted daemon credentials
         // cannot route around the `vm.*` gate.
-        if let managedCloudVMID, !managedCloudVMID.isEmpty, ManagedCloudPolicy.isDisabled {
-            return .err(code: ManagedCloudPolicy.socketErrorCode, message: ManagedCloudPolicy.disabledMessage, data: nil)
+        if let managedCloudVMID, !managedCloudVMID.isEmpty,
+           (ManagedCloudPolicy.isDisabled || !CloudMachinesFeature.offMainIsEnabled()) {
+            return .err(code: ManagedCloudPolicy.socketErrorCode, message: CloudMachinesFeature.disabledMessage, data: nil)
         }
         guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
               let workspace = owner.tabs.first(where: { $0.id == workspaceId }) else {
@@ -684,7 +688,6 @@ extension TerminalController: ControlWorkspaceContext {
                 "workspace_ref": controlWorkspaceRefValue(workspaceId),
             ]))
         }
-
         let config = WorkspaceRemoteConfiguration(
             transport: transport,
             terminalTransport: terminalTransport,

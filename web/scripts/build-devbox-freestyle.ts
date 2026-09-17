@@ -340,6 +340,8 @@ try {
   // Cache seeds cover root and the work user (uid 1000).
   await step("cmux-etc", "mkdir -p /etc/cmux /etc/skel");
   await put("cmux-bashrc", "/etc/cmux/bashrc");
+  await put("cmux-prompt.bash", "/etc/cmux/prompt.bash");
+  await step("prompt-default-name", "echo cmux > /etc/cmux/vm-name");
   await put("seed-history", "/etc/cmux/seed-history");
   await put("cmux-terminfo.sh", "/etc/profile.d/cmux-terminfo.sh");
   await put("cmux-terminfo.src", "/etc/cmux/terminfo.src");

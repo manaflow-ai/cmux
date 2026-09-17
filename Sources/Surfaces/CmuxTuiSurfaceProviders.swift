@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxSettings
 import Foundation
 /// One cloud machine's resources: its cmux-tui terminals (over the headless link), its
 /// noVNC screen, and its forwarded ports. Terminals live in the machine's cmux-tui
@@ -22,10 +23,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// when the build has no hub. Owned by the registry, shared by every provider.
     let portForwards: CloudHubPortForwarder?
     let portAccessStore: CloudPortAccessStore
+    let browserPolicy: @MainActor () -> BrowserURLAllowlistPolicy
     /// Invalidates suspended work when this provider is stopped or replaced.
-    private var lifecycleGeneration: UInt64 = 0
+    var isFeatureSuspended = false
+    private(set) var lifecycleGeneration: UInt64 = 0
     /// Invalidates an older refresh before it can publish over a newer one.
-    private var refreshGeneration: UInt64 = 0
+    var refreshGeneration: UInt64 = 0
     let refreshCoordinator = CloudProviderRefreshCoordinator()
     /// The only installed daemon graph for this machine. The catalog receives the
     /// same immutable value with its derived rows in one transaction.
@@ -63,6 +66,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// Native cloud terminals own a manual attachment separate from their
     /// catalog projection. The provider retains it for the life of the pane.
     var manualMirrorSessions: [UUID: CloudTuiManualMirrorSession] = [:]
+    /// Attach loops of reserved panes (restored, or a workspace opened as a whole), by panel id.
+    var restoredAttachTasks: [UUID: Task<Void, Never>] = [:]
     /// Numeric cmux-tui surface ids are process-local. Re-read the legacy tree
     /// when the link socket generation changes or an attachment disconnects,
     /// then reuse the result for the rest of that socket generation.
@@ -75,7 +80,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     let attachmentClock: any Clock<Duration>
     /// Terminal → tab from the last snapshot, so an exited terminal (whose own selector
     /// no longer resolves in cmux-tui) can still be closed through its tab.
-    private var tabByTerminal: [String: String] = [:]
+    var tabByTerminal: [String: String] = [:]
     /// Coalesces concurrent first opens of a zero-view terminal. `terminal.project` is a
     /// mutation, so two local panes racing on the same pool row must share one remote view.
     // Internal so the manual-mirror extension can share the provider-owned task map.
@@ -87,32 +92,33 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// the next snapshot can lag it. Keep the exact created row and placement
     /// until an accepted graph reaches that receipt. This is a transient view
     /// overlay, never a second remote-state store.
-    private struct PendingRemoteCreation {
+    struct PendingRemoteCreation {
         var resource: SurfaceResource
         var receipt: CloudVMCursor?
         let tabID: String?
     }
-    private var pendingRemoteCreations: [SurfaceResourceID: PendingRemoteCreation] = [:]
+    var pendingRemoteCreations: [SurfaceResourceID: PendingRemoteCreation] = [:]
     /// Rename receipts are transient read-your-write fences. They are keyed by
     /// daemon identity, not by a local title or projection, because one remote
     /// tab can be shown in several windows. The canonical graph remains the
     /// only source of remote values.
-    private enum PendingRemoteRenameKey: Hashable {
+    enum PendingRemoteRenameKey: Hashable {
         case workspace(String)
         case tab(String)
     }
-    private struct PendingRemoteRename {
+    struct PendingRemoteRename {
         var name: String
         var receipt: CloudVMCursor
     }
-    private var pendingRemoteRenames: [PendingRemoteRenameKey: PendingRemoteRename] = [:]
+    var pendingRemoteRenames: [PendingRemoteRenameKey: PendingRemoteRename] = [:]
     init(
         summary: VMSummary,
         links: CloudMachineLinkManager,
         catalog: SurfaceCatalog,
         portForwards: CloudHubPortForwarder? = nil,
         attachmentClock: any Clock<Duration> = ContinuousClock(),
-        portAccessStore: CloudPortAccessStore? = nil
+        portAccessStore: CloudPortAccessStore? = nil,
+        browserPolicy: @escaping @MainActor () -> BrowserURLAllowlistPolicy = { BrowserURLAllowlistPolicy() }
     ) {
         machineID = summary.id
         self.attachmentClock = attachmentClock
@@ -121,10 +127,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         self.catalog = catalog
         self.portForwards = portForwards
         self.portAccessStore = portAccessStore ?? CloudPortAccessStore()
+        self.browserPolicy = browserPolicy
         info = Self.info(from: summary, linkState: summary.status == "running" ? .connecting : .asleep, linkError: nil, stats: nil)
         installNotificationSync()
     }
     var isAwake: Bool { summary.status == "running" }
+    var providerID: String { summary.provider }
     /// Port rows are openable only when the machine advertises a preview
     /// capability or has the private route used by Freestyle.
     var capabilities: VMCapabilities { summary.capabilities }
@@ -132,7 +140,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         capabilities.ports || summary.preferredPrivateAddress != nil
     }
     func update(summary: VMSummary) {
-        guard isRegisteredInCatalog() else { return }
+        guard let current = catalog.provider(for: machine), ObjectIdentifier(current) == ObjectIdentifier(self) else { return }
+        isFeatureSuspended = false
         let previousPrivateAddress = info.privateAddress
         refreshGeneration &+= 1
         refreshCoordinator.invalidate()
@@ -160,7 +169,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
     }
     func stop() async {
+        suspendForFeatureFlag()
         await portAccessStore.remove(machineID: machineID)
+    }
+    func suspendForFeatureFlag() {
+        isFeatureSuspended = true
         lifecycleGeneration &+= 1
         refreshCoordinator.cancel()
         for task in browserPaneTasks.values { task.cancel() }
@@ -193,16 +206,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         pendingRemoteCreations.removeAll()
         pendingRemoteRenames.removeAll()
         acceptedCloudGenerations.removeAll()
-    }
-    func isCurrentLifecycleGeneration(_ generation: UInt64) -> Bool {
-        lifecycleGeneration == generation
-    }
-    /// The generation to capture before detached work that touches panes.
-    var currentLifecycleGeneration: UInt64 { lifecycleGeneration }
-    func isCurrentRefresh(lifecycle: UInt64, refresh: UInt64) -> Bool {
-        lifecycleGeneration == lifecycle
-            && refreshGeneration == refresh
-            && isRegisteredInCatalog()
     }
     /// One refresh pass. Sleeping machines retain their graph without being woken.
     func performRefresh(force: Bool) async -> Bool {
@@ -641,6 +644,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     }
 
     private func closeManualMirrorPane(panelID: UUID, terminalID: String) {
+        restoredAttachTasks.removeValue(forKey: panelID)?.cancel()
         materializedPanels.remove(panelID)
         manualMirrorSessions.removeValue(forKey: panelID)?.stop()
         guard let workspace = AppDelegate.shared?.workspace(containingSurfaceID: panelID) else { return }
@@ -681,183 +685,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
     }
 
-    private static func remoteWorkspaces(_ state: CloudVMState) -> [SurfaceRemoteWorkspace] {
+    static func remoteWorkspaces(_ state: CloudVMState) -> [SurfaceRemoteWorkspace] {
         state.workspaces.map {
             SurfaceRemoteWorkspace(id: $0.id, name: $0.name, index: $0.index, focused: $0.focused)
         }
-    }
-
-    /// Merges pending mutation receipts into derived rows until an accepted
-    /// graph reaches each receipt. The canonical graph is never edited here.
-    /// A generation change, or a cursorless snapshot after a versioned receipt,
-    /// retires the overlay because the old placement cannot be proven to exist.
-    private func resourcesWithPendingCreations(
-        _ resources: [SurfaceResource],
-        state: CloudVMState?
-    ) -> [SurfaceResource] {
-        var merged = resources
-        var completed: [SurfaceResourceID] = []
-        for (resourceID, pending) in pendingRemoteCreations where resourceID.machine == machine {
-            if let state {
-                if let receipt = pending.receipt {
-                    guard let cursor = state.cursor,
-                          cursor.generation == receipt.generation else {
-                        completed.append(resourceID)
-                        continue
-                    }
-                    if cursor.revision >= receipt.revision {
-                        // At or beyond the commit, the accepted graph is the
-                        // source of truth, including an intentional close.
-                        completed.append(resourceID)
-                        continue
-                    }
-                } else if pendingCreationIsVisible(pending, in: state) {
-                    // Legacy mutation responses have no ordering fence. Stop
-                    // overlaying as soon as the exact path is observed.
-                    completed.append(resourceID)
-                    continue
-                }
-            }
-            mergePendingCreation(pending, into: &merged)
-        }
-        for resourceID in completed {
-            pendingRemoteCreations.removeValue(forKey: resourceID)
-        }
-        return merged
-    }
-
-    private func pendingCreationIsVisible(
-        _ pending: PendingRemoteCreation,
-        in state: CloudVMState
-    ) -> Bool {
-        guard state.lookupIndex.terminal(id: pending.resource.id.key) != nil else { return false }
-        guard let tabID = pending.tabID else { return true }
-        return state.lookupIndex.tab(id: tabID) != nil
-    }
-
-    private func mergePendingCreation(
-        _ pending: PendingRemoteCreation,
-        into resources: inout [SurfaceResource]
-    ) {
-        guard let pendingView = pending.resource.remoteViews?.first else {
-            if !resources.contains(where: { $0.id == pending.resource.id }) {
-                resources.append(pending.resource)
-            }
-            return
-        }
-        guard let index = resources.firstIndex(where: { $0.id == pending.resource.id }) else {
-            resources.append(pending.resource)
-            return
-        }
-        var resource = resources[index]
-        var views = resource.remoteViews ?? []
-        if !views.contains(where: { $0.tabID == pendingView.tabID }) {
-            views.append(pendingView)
-            resource.remoteViews = views
-            if resource.remoteWorkspace == nil {
-                resource.remoteWorkspace = pendingView.workspace
-            }
-        }
-        resources[index] = resource
-    }
-
-    private func remoteWorkspaces(for state: CloudVMState?) -> [SurfaceRemoteWorkspace]? {
-        var result = state.map(Self.remoteWorkspaces) ?? info.remoteWorkspaces ?? []
-        var seen = Set(result.map(\.id))
-        for pending in pendingRemoteCreations.values {
-            guard let workspace = pending.resource.remoteWorkspace,
-                  seen.insert(workspace.id).inserted else { continue }
-            result.append(workspace)
-        }
-        return result.isEmpty ? nil : result
-    }
-
-    private func pendingMutationMetadata() -> [CloudVMPendingMutation] {
-        var writes = pendingRemoteCreations.map { resourceID, pending in
-            CloudVMPendingMutation(
-                kind: .terminalCreate,
-                resource: resourceID,
-                remoteWorkspaceID: pending.resource.remoteWorkspace?.id,
-                remoteTabID: pending.tabID,
-                name: pending.resource.remoteViews?.first?.name,
-                receipt: pending.receipt
-            )
-        }
-        writes.append(contentsOf: pendingRemoteRenames.map { key, pending in
-            switch key {
-            case .workspace(let id):
-                return CloudVMPendingMutation(
-                    kind: .workspaceRename,
-                    resource: nil,
-                    remoteWorkspaceID: id,
-                    remoteTabID: nil,
-                    name: pending.name,
-                    receipt: pending.receipt
-                )
-            case .tab(let id):
-                return CloudVMPendingMutation(
-                    kind: .tabRename,
-                    resource: nil,
-                    remoteWorkspaceID: nil,
-                    remoteTabID: id,
-                    name: pending.name,
-                    receipt: pending.receipt
-                )
-            }
-        })
-        return writes.sorted { left, right in
-            if left.kind.rawValue != right.kind.rawValue {
-                return left.kind.rawValue < right.kind.rawValue
-            }
-            let leftID = left.resource?.rawValue ?? left.remoteWorkspaceID ?? left.remoteTabID ?? ""
-            let rightID = right.resource?.rawValue ?? right.remoteWorkspaceID ?? right.remoteTabID ?? ""
-            return leftID < rightID
-        }
-    }
-
-    private func observationWithPendingWrites(
-        _ base: CloudVMStateObservation = .current
-    ) -> CloudVMStateObservation {
-        var observation = base
-        let pending = pendingMutationMetadata()
-        observation.pendingWrites = pending.isEmpty ? nil : pending
-        return observation
-    }
-
-    private func publishPendingMutationMetadata() {
-        catalog.updateCloudPendingWrites(
-            on: machine,
-            writes: pendingMutationMetadata(),
-            from: self
-        )
-    }
-
-    private func pendingCreation(for resourceID: SurfaceResourceID) -> PendingRemoteCreation? {
-        pendingRemoteCreations[resourceID]
-    }
-
-    private func pendingCreation(forTabID tabID: String) -> PendingRemoteCreation? {
-        pendingRemoteCreations.values.first { $0.tabID == tabID }
-    }
-
-    /// Advances a pending receipt after a follow-up rename commits before the
-    /// creation snapshot arrives. This keeps the optimistic row and its tab
-    /// label coherent without inventing a second canonical graph.
-    private func recordPendingRename(tabID: String, name: String, revision: UInt64) {
-        for resourceID in Array(pendingRemoteCreations.keys) {
-            guard var pending = pendingRemoteCreations[resourceID], pending.tabID == tabID else { continue }
-            if let receipt = pending.receipt {
-                guard revision >= receipt.revision else { continue }
-                pending.receipt = CloudVMCursor(generation: receipt.generation, revision: revision)
-            }
-            if var views = pending.resource.remoteViews,
-               let viewIndex = views.firstIndex(where: { $0.tabID == tabID }) {
-                views[viewIndex].name = name
-                pending.resource.remoteViews = views
-            }
-            pendingRemoteCreations[resourceID] = pending
-        }
-        publishPendingMutationMetadata()
     }
 
     private func recordPendingRemoteRename(
@@ -872,7 +703,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         publishPendingMutationMetadata()
     }
 
-    private func recordPendingRemoteRename(
+    func recordPendingRemoteRename(
         tabID: String,
         name: String,
         receipt: CloudVMCursor
@@ -884,7 +715,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         publishPendingMutationMetadata()
     }
 
-    private func pendingRemoteRename(for key: PendingRemoteRenameKey) -> PendingRemoteRename? {
+    func pendingRemoteRename(for key: PendingRemoteRenameKey) -> PendingRemoteRename? {
         pendingRemoteRenames[key]
     }
 
@@ -915,35 +746,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             || text.contains("revision_conflict") || text.contains("stale revision")
     }
 
-    /// `terminal <id> close`; a terminal whose process already exited is gone from
-    /// cmux-tui's selectors, so its tab is closed instead. Either way the resource
-    /// leaves the catalog now and the next snapshot confirms.
-    func closeTerminal(_ id: SurfaceResourceID) async throws {
-        try await closeTerminal(id, fallbackTabID: nil)
-    }
-
-    func closeTerminal(_ id: SurfaceResourceID, fallbackTabID: String?) async throws {
-        pendingRemoteCreations.removeValue(forKey: id)
-        do {
-            _ = try await runCloseCommand { CloudTuiCommandLine.closeTerminalArguments(socketPath: $0, terminalID: id.key) }
-        } catch {
-            guard let tabID = fallbackTabID ?? tabByTerminal[id.key], Self.isSelectorNotFound(error) else { throw error }
-            _ = try await runCloseCommand { CloudTuiCommandLine.closeTabArguments(socketPath: $0, tabID: tabID) }
-        }
-        closeLocalPanes(showing: [id])
-        catalog.remove(id, from: self)
-        scheduleRefresh()
-    }
-
-    /// A closed terminal has no pane to show any more: every local pane that projected it
-    /// goes too, instead of lingering as a dead attach the person has to close by hand.
-    private func closeLocalPanes(showing ids: [SurfaceResourceID]) {
-        let wanted = Set(ids)
-        for projection in catalog.snapshot.projections where wanted.contains(projection.resource) {
-            SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
-        }
-    }
-
     func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
         try await materialize(resource, remoteView: nil, at: destination, focus: focus)
     }
@@ -954,6 +756,18 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         at destination: SurfaceDestination,
         focus: Bool
     ) async throws -> SurfaceProjection {
+        try await materialize(resource, remoteView: remoteView, at: destination, focus: focus, adopting: nil)
+    }
+
+    /// `adopting` binds the attachment to an optimistic pane the workspace already
+    /// inserted instead of creating a second one; browsers never reserve panes.
+    func materialize(
+        _ resource: SurfaceResource,
+        remoteView: SurfaceRemoteView?,
+        at destination: SurfaceDestination,
+        focus: Bool,
+        adopting reservation: CloudTerminalPaneReservation?
+    ) async throws -> SurfaceProjection {
         let created: (workspaceID: UUID, panelID: UUID)
         var createdPlacement: SurfaceRemotePlacement?
         switch resource.kind {
@@ -962,13 +776,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 resource,
                 remoteTabID: (remoteView ?? Self.defaultRemoteView(for: resource))?.tabID,
                 at: destination,
-                focus: focus
+                focus: focus,
+                adopting: reservation
             )
             created = (manual.workspaceID, manual.panelID)
             createdPlacement = manual.remotePlacement
         case .display, .browser:
-            // Browser access is private by default. The browser owns the native
-            // VPN/forwarding controls before any connection is attempted.
             created = try await materializeBrowserPane(resource, at: destination, focus: focus)
         }
         materializedPanels.insert(created.panelID)
@@ -983,36 +796,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             remoteWorkspaceID: createdPlacement?.workspaceID ?? selectedView?.workspace.id,
             remoteTabID: createdPlacement?.tabID ?? selectedView?.tabID
         )
-    }
-
-    /// A new terminal in the machine's cmux-tui session (`workspace <ws> run -- argv`).
-    func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource {
-        try await createTerminal(command: command, cwd: cwd, name: name, remoteWorkspaceID: remoteWorkspaceID, onExit: nil)
-    }
-
-    /// The same, choosing the daemon's exit policy: `"keep"` retains the tab and final
-    /// screen after the process exits (a sender that reads the process's last lines as
-    /// its result needs that); nil is the daemon default, `close`.
-    func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, onExit: String?) async throws -> SurfaceResource {
-        let connected = try await links.connected(machineID: machineID)
-        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
-        // Resolve the active workspace inside the daemon mutation. A stale Mac
-        // catalog must never bootstrap a second workspace during concurrent creates.
-        let requestedWorkspace = remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let workspaceID = requestedWorkspace.flatMap { $0.isEmpty ? nil : $0 } ?? "current"
-        let argv = CloudTuiCommandLine.commandStartingIn(
-            cwd: cwd,
-            command: (command?.isEmpty == false ? command : nil) ?? CloudTuiCommandLine.defaultTerminalCommand
-        )
-        let data = try await link.run(arguments: CloudTuiCommandLine.runArguments(socketPath: connected.socketPath, workspaceID: workspaceID, command: argv, onExit: onExit))
-        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let created = CmuxTuiSnapshotParser.createdTerminal(fromRunResult: object) else {
-            throw ProviderError.terminalNotCreated(String(data: data, encoding: .utf8) ?? "")
-        }
-        guard let resolvedWorkspaceID = created.workspaceID ?? (workspaceID == "current" ? nil : workspaceID) else {
-            throw ProviderError.noWorkspaceOnMachine(machineID)
-        }
-        return recordCreatedTerminal(created, workspaceID: resolvedWorkspaceID, name: name, cwd: cwd)
     }
 
     func recordCreatedTerminal(
@@ -1185,93 +968,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         _ = await refreshCurrentGraph(force: true)
     }
 
-    /// Rename one placement-local daemon tab. This is the canonical path used by a
-    /// cloud-tree workspace row and by a local pane that remembers its remote tab id.
-    func renameRemoteTab(id: String, name: String) async throws {
-        try Task.checkCancellation()
-        let normalizedName = CloudRemoteRenameName(rawValue: name).wireValue
-
-        // Creation and rename can arrive back-to-back. Refresh before validating the
-        // target, but use the creation receipt when the accepted snapshot still
-        // trails it. The receipt's revision is a CAS fence, not a timing guess.
-        let refreshEstablishedCurrentGraph = await refreshCurrentGraph(force: true)
-        try Task.checkCancellation()
-        let pendingCreation = pendingCreation(forTabID: id)
-        let pendingRename = pendingRemoteRename(for: .tab(id))
-        let observed = cloudState
-        let previous = observed?.tabs.first(where: { $0.id == id })
-        let observedCursor = observed?.cursor
-        let pendingReceipt = [pendingCreation?.receipt, pendingRename?.receipt]
-            .compactMap { $0 }
-            .filter { receipt in
-                guard let observedCursor else { return true }
-                return receipt.generation == observedCursor.generation
-            }
-            .max { $0.revision < $1.revision }
-        let authority = CloudVMRemoteMutationAuthority.resolve(
-            refreshEstablishedCurrentGraph: refreshEstablishedCurrentGraph,
-            hasAcceptedState: observed != nil,
-            targetVisible: previous != nil,
-            hasVersionedCursor: observedCursor != nil,
-            hasPendingReceipt: pendingReceipt != nil
-        )
-        switch authority {
-        case .currentGraph:
-            guard let previous, let observedCursor else {
-                throw ProviderError.stateUnavailable(machineID)
-            }
-            do {
-                let receipt = try await sendRenameTab(
-                    id: id,
-                    name: normalizedName,
-                    expectedRevision: observedCursor.revision
-                )
-                let validated = try validatedReceipt(receipt, against: observedCursor)
-                recordPendingRemoteRename(tabID: id, name: normalizedName, receipt: validated)
-                recordPendingRename(tabID: id, name: normalizedName, revision: validated.revision)
-            } catch {
-                guard Self.isRevisionConflict(error),
-                      await refreshCurrentGraph(force: true),
-                      let latest = cloudState,
-                      let current = latest.tabs.first(where: { $0.id == id }),
-                      let latestCursor = latest.cursor,
-                      (current.name ?? "") == (previous.name ?? "") else { throw error }
-                let receipt = try await sendRenameTab(
-                    id: id,
-                    name: normalizedName,
-                    expectedRevision: latestCursor.revision
-                )
-                let validated = try validatedReceipt(receipt, against: latestCursor)
-                recordPendingRemoteRename(tabID: id, name: normalizedName, receipt: validated)
-                recordPendingRename(tabID: id, name: normalizedName, revision: validated.revision)
-            }
-        case .pendingReceipt:
-            guard let receipt = pendingReceipt else {
-                throw ProviderError.stateUnavailable(machineID)
-            }
-            let committed = try await sendRenameTab(
-                id: id,
-                name: normalizedName,
-                expectedRevision: receipt.revision
-            )
-            let validated = try validatedReceipt(committed, against: receipt)
-            recordPendingRemoteRename(tabID: id, name: normalizedName, receipt: validated)
-            recordPendingRename(tabID: id, name: normalizedName, revision: validated.revision)
-        case .snapshotOnly:
-            throw ProviderError.snapshotOnly(machineID)
-        case .unavailable:
-            throw ProviderError.stateUnavailable(machineID)
-        case .targetMissing:
-            throw SurfaceCatalogError.unsupported(
-                String(localized: "cloudTree.error.renameTerminalNoView", defaultValue: "This terminal is not open in a remote workspace.")
-            )
-        }
-        // The daemon event normally installs this before the command exits. The
-        // explicit read is the barrier for older clients that do not stream deltas.
-        try Task.checkCancellation()
-        _ = await refreshCurrentGraph(force: true)
-    }
-
     /// Compatibility operation for callers that intentionally mean “all views”.
     /// It is kept separate from `renameRemoteTab` so an ambiguous terminal identity
     /// can never silently rename an arbitrary placement.
@@ -1333,10 +1029,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             )
         }
 
-        // Do not spend a revision on a view that already has the requested name.
-        // This also reduces the window in which another client can race the
-        // compatibility fan-out.
-        let pendingTargets = targets.filter { $0.previousName != normalizedName }
+        // A same-text user rename must still claim an automatic name.
+        let pendingTargets = targets.filter {
+            $0.previousName != normalizedName || observed?.lookupIndex.tab(id: $0.tabID)?.nameAuthority?.source == .auto
+        }
         if pendingTargets.isEmpty { return }
 
         var lastCommitCursor = observedCursor
@@ -1432,7 +1128,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         return CmuxTuiSnapshotParser.mutationCursor(fromResult: object)
     }
 
-    private func sendRenameTab(id: String, name: String, expectedRevision: UInt64? = nil) async throws -> CloudVMCursor {
+    func sendRenameTab(id: String, name: String, expectedRevision: UInt64? = nil) async throws -> CloudVMCursor {
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
         let data = try await link.run(arguments: CloudTuiCommandLine.renameTabArguments(
@@ -1450,7 +1146,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         return receipt
     }
 
-    private func validatedReceipt(
+    func validatedReceipt(
         _ receipt: CloudVMCursor?,
         against expected: CloudVMCursor
     ) throws -> CloudVMCursor {
@@ -1499,6 +1195,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// The terminal lives in the machine's session; only the local pane went away.
     func projectionDidEnd(_ projection: SurfaceProjection) {
         browserPaneTasks.removeValue(forKey: projection.panelID)?.cancel()
+        restoredAttachTasks.removeValue(forKey: projection.panelID)?.cancel()
         materializedPanels.remove(projection.panelID)
         manualMirrorSessions.removeValue(forKey: projection.panelID)?.stop()
     }
@@ -1506,6 +1203,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     @discardableResult
     func discardMaterialization(_ projection: SurfaceProjection) -> Bool {
         browserPaneTasks.removeValue(forKey: projection.panelID)?.cancel()
+        restoredAttachTasks.removeValue(forKey: projection.panelID)?.cancel()
         materializedPanels.remove(projection.panelID)
         manualMirrorSessions.removeValue(forKey: projection.panelID)?.stop()
         SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
@@ -1546,14 +1244,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
     }
 
-    /// Compatibility fallback for callers that only have a terminal identity. A terminal with
-    /// several views has no safe implicit placement. Returning nil keeps the projection
-    /// placement-neutral until a caller supplies an exact tab id.
-    static func defaultRemoteView(for resource: SurfaceResource) -> SurfaceRemoteView? {
-        guard resource.kind != .display, let views = resource.remoteViews, views.count == 1 else { return nil }
-        return views[0]
-    }
-
     private func attachCommand(terminalID: String) async throws -> String {
         let connected = try await links.connected(machineID: machineID)
         guard let clientURL = CloudTuiClientPaths.clientURL() else {
@@ -1562,9 +1252,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         return CloudTuiCommandLine.attachShellCommand(clientPath: clientURL.path, socketPath: connected.socketPath, terminalID: terminalID)
     }
 
-    /// The tokened wrapper URL the control plane mints for a port; the desktop adds the
-    /// noVNC query the `cmux vm desktop` recipe uses.
-    /// What the connecting/failure screen calls the pane: "<machine> · Desktop" or "<machine>:<port>".
     static func paneLabel(machineID: String, port: Int, desktop: Bool) -> String {
         desktop
             ? "\(machineID) · \(String(localized: "cloudTree.node.desktop", defaultValue: "Desktop"))"
@@ -1655,7 +1342,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     }
 
     // MARK: Notifications
-
     private func installNotificationSync() {
         // The registry never creates a provider while the managed-device
         // policy disables Cloud, so no policy check is repeated here.
@@ -1688,8 +1374,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 // `cmux notify --clear` on the machine, or ledger eviction:
                 // the local banners for those rows go with them.
                 guard let store = AppDelegate.shared?.notificationStore else { return }
-                let keys = Set(ids.map { CloudNotificationCorrelation.key(machineID: machineID, notificationID: $0) })
-                for notification in store.notifications where notification.correlationKey.map(keys.contains) == true {
+                let removedIDs = Set(ids)
+                for notification in store.notifications where notification.correlationKey.map { CloudNotificationCorrelation.matches($0, machineID: machineID, notificationIDs: removedIDs) } == true {
                     store.remove(id: notification.id)
                 }
             }
@@ -1707,7 +1393,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             }
         }
     }
-
     private func syncNotifications(from state: CloudVMState) {
         guard let notificationSync else { return }
         let rows = CloudVMNotificationRow.rows(from: state)
@@ -1716,7 +1401,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         cmuxDebugLog("cloud.notifications.sync machine=\(machineID) revision=\((state.cursor?.revision).map(String.init) ?? "nil") rows=\(rows.count) unreadTerminals=\(notificationSync.unreadTerminalIDs.count) pending=\(notificationSync.state.pendingAcks.count)")
         #endif
     }
-
     /// The pane showing the terminal when one is open on this Mac, else the
     /// local workspace bound to the terminal's remote workspace, else any
     /// local workspace bound to the machine. No local placement means the row
@@ -1747,7 +1431,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
         return nil
     }
-
     private func deliverNotification(_ row: CloudVMNotificationRow, to target: CloudNotificationDeliveryTarget) -> Bool {
         guard let store = AppDelegate.shared?.notificationStore else { return false }
         guard CloudNotificationSyncHub.shared.admit(row, machineID: machineID) else { return true }
@@ -1777,7 +1460,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             origin: .cloudVM(machineID: machineID)
         ) != nil
     }
-
     private func watchChanges(link: CloudMachineLink, generation: UInt64) {
         guard generation == lifecycleGeneration else { return }
         if let watchedLink, watchedLink === link, changeWatcher != nil { return }
@@ -1797,7 +1479,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             }
         }
     }
-
     private func changeWatcherDidEnd(_ watcherID: UUID) {
         guard changeWatcherID == watcherID else { return }
         changeWatcher = nil
@@ -1805,16 +1486,18 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         changeWatcherID = nil
         scheduleRefresh()
     }
-
     private func handle(_ change: CloudMachineLink.Change, from link: CloudMachineLink) async {
         // Events from a retired link can arrive after a reconnect. They are
         // never allowed to mutate the graph owned by the replacement link.
         guard watchedLink === link else { return }
         switch change {
         case .connected:
-            if cloudState == nil { scheduleRefresh() }
+            // A link can recover after the shared WireGuard hub briefly fails
+            // to publish its listener. Always refresh on the successful
+            // connection edge so stale hub/link errors disappear from the
+            // machine, ports, and display rows immediately.
+            scheduleRefresh()
             notificationSync?.linkDidConnect()
-
         case .snapshot(let cursor, _, let payload):
             guard let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
                   let incoming = CmuxTuiSnapshotParser.state(fromSnapshot: object, machine: machine),
@@ -1843,7 +1526,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 reprojectRestoredPanes(generation: lifecycleGeneration)
                 syncNotifications(from: incoming)
             }
-
         case .delta(let cursor, let previousRevision, let revision, let payload):
             switch CloudVMStateSyncDecision.forDelta(
                 generation: cursor.generation,
@@ -1911,7 +1593,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 )
                 syncNotifications(from: next)
             }
-
         case .streamEnded(let reason, _):
             // A stream gap, unknown item, or transport end is a full-state
             // barrier. The snapshot command is the only safe recovery source;
@@ -1921,7 +1602,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 eventsFeedWarning = reason
             }
             scheduleStateRecoveryRefresh()
-
         case .unknown:
             // An unknown item is a synchronization barrier, but it is not proof that the
             // transport is dead. Coalesce the expensive snapshot repair and stop after a small
@@ -1929,7 +1609,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             scheduleStateRecoveryRefresh()
         }
     }
-
     /// Coalesces malformed, unknown, and relationship-invalid events behind one bounded
     /// snapshot refresh. A daemon can emit many bad lines during a protocol mismatch; one
     /// pending task and a finite budget protect both the machine and the UI from a refresh
@@ -1957,18 +1636,15 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             }
         }
     }
-
     private func clearStateRecovery() {
         stateRecoveryRefreshTask?.cancel()
         stateRecoveryRefreshTask = nil
         stateRecoveryRefreshQueued = false
         stateRecoveryCount = 0
     }
-
     /// Mutations also request a snapshot as a safety check. One main-actor yield
     /// coalesces calls made in the same transaction without adding a time guess.
     func reconcileRemovedRemoteWorkspace(_ id: String) { info.remoteWorkspaces = info.remoteWorkspaces?.filter { $0.id != id }; catalog.updateMachine(info, from: self) }
-
     func scheduleRefresh() {
         let lifecycle = lifecycleGeneration
         guard scheduledRefresh == nil else { return }
@@ -1980,11 +1656,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             await self.refreshCurrentGraph(force: false)
         }
     }
-
     /// A restored session brings back the pane (with its UUID) but not the attach process:
     /// the catalog resolved the record into a projection whose panel is a placeholder shell.
-    /// Replace it in place with a real attach pane, as a tab of the same pane, then close
-    /// the placeholder.
+    /// Every placeholder is swapped at once, synchronously, for a native pane reserved as a
+    /// tab of the same Bonsplit pane, so the whole layout is in place before any machine
+    /// round trip; each reserved pane then attaches in parallel and keeps retrying while
+    /// the link comes up (`attachReservedTerminalPane`). No pane waits for another.
     private func reprojectRestoredPanes(generation: UInt64) {
         guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() else { return }
         reprojectRestoredBrowserPanes(generation: generation)
@@ -1992,21 +1669,24 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         for terminal in terminals {
             for projection in catalog.projections(of: terminal.id) where !materializedPanels.contains(projection.panelID) {
                 guard cloudState.map({ catalog.cloudWorkspaceProjectionCoordinator.retainsProjection(projection, in: $0) }) != false,
-                      AppDelegate.shared?.workspace(containingSurfaceID: projection.panelID) != nil,
+                      let workspace = AppDelegate.shared?.workspace(containingSurfaceID: projection.panelID),
                       let paneID = SurfacePaneFactory.paneID(ofPanel: projection.panelID, in: projection.workspaceID) else {
                     continue
                 }
-                // Claimed before the async hop so a burst of refreshes cannot re-project twice.
+                // Claimed before any async hop so a burst of refreshes cannot re-project twice.
                 materializedPanels.insert(projection.panelID)
-                Task { @MainActor [weak self] in
-                    guard let self, self.isCurrentLifecycleGeneration(generation) else { return }
-                    await self.reprojectManualMirror(
-                        resource: terminal,
-                        projection: projection,
-                        paneID: paneID,
-                        generation: generation
-                    )
+                guard let reservation = workspace.reserveCloudTerminalPane(
+                    machine: machine,
+                    at: .tab(workspaceID: projection.workspaceID, paneID: paneID, index: nil),
+                    focus: false
+                ) else {
+                    materializedPanels.remove(projection.panelID)
+                    continue
                 }
+                catalog.replaceProjection(projection, withPanel: reservation.panelID, in: projection.workspaceID, remotePlacement: nil)
+                workspace.clearCloudMaterializationFailure(surfaceID: projection.panelID)
+                SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
+                attachReservedTerminalPane(reservation, resource: terminal, remoteTabID: projection.remoteTabID)
             }
         }
     }

@@ -27,19 +27,25 @@ struct CloudTerminalAttachmentResolver: Sendable {
     /// Deadline for each daemon round trip. The bundled client's raw bridge
     /// gives up after 10 s; this bound only covers a client that never starts.
     var commandDeadline: Duration
-    private let log = CloudTerminalAttachmentLog()
+    private let log: CloudTerminalAttachmentLog
 
     init(
         machineID: String = "",
         commandRunner: any CloudTuiCommandRunning,
         socketPath: String,
-        commandDeadline: Duration = .seconds(15)
+        commandDeadline: Duration = .seconds(15),
+        correlationID: String? = nil
     ) {
         self.machineID = machineID
         self.commandRunner = commandRunner
         self.socketPath = socketPath
         self.commandDeadline = commandDeadline
+        log = CloudTerminalAttachmentLog(correlationID: correlationID ?? UUID().uuidString.lowercased())
     }
+
+    /// The privacy-safe identifier shared by resolver diagnostics for one
+    /// attachment transaction.
+    var attachmentCorrelationID: String { log.correlationID }
 
     /// The private resolver's verdict, before any snapshot fallback.
     enum ModernOutcome: Equatable, Sendable {
