@@ -193,6 +193,12 @@ public struct TransportIncidentPolicy: Sendable {
         let failure = failureKind(of: event)
         guard isReportable(event: event, failure: failure) else { return nil }
 
+        if isTerminalLatencyIncident {
+            guard configuration.captureIndividualFailures, appPhase != .background else { return nil }
+            return decideFailureCapture(event: event, signature: "terminalRenderLagDetected/timedOut",
+                                        failure: failure, transport: nil)
+        }
+
         let transport = DiagnosticEventPresentation().transportKind(of: event)
         let signature = Self.signature(code: event.code, failure: failure, transport: transport)
 
