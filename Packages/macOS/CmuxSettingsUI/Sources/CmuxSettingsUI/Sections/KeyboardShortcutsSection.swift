@@ -10,15 +10,42 @@ import SwiftUI
 public struct KeyboardShortcutsSection: View {
     private let hostActions: SettingsHostActions
     @State private var model: ShortcutListModel
+    @State private var paneResizeStep: DefaultsValueModel<Int>
 
+    /// Creates the keyboard shortcut editor with both current and compatibility stores.
+    ///
+    /// - Parameters:
+    ///   - jsonStore: The authoritative `cmux.json` settings store.
+    ///   - userDefaultsStore: The store containing compatibility shortcut overrides, or `nil`
+    ///     to preserve the pre-compatibility behavior for existing package consumers.
+    ///   - catalog: The settings key catalog shared with the stores.
+    ///   - errorLog: The error sink for failed JSON writes.
+    ///   - hostActions: Host callbacks for opening the external configuration editor.
+    ///   - defaultShortcutResolver: Host-scoped factory defaults for dynamic actions.
     public init(
         jsonStore: JSONConfigStore,
+        userDefaultsStore: UserDefaultsSettingsStore? = nil,
         catalog: SettingCatalog,
         errorLog: SettingsErrorLog,
-        hostActions: SettingsHostActions
+        hostActions: SettingsHostActions,
+        defaultShortcutResolver: ShortcutDefaultResolver = .builtIn
     ) {
         self.hostActions = hostActions
-        _model = State(initialValue: ShortcutListModel(jsonStore: jsonStore, catalog: catalog, errorLog: errorLog))
+        _model = State(initialValue: ShortcutListModel(
+            jsonStore: jsonStore,
+            userDefaultsStore: userDefaultsStore,
+            catalog: catalog,
+            errorLog: errorLog,
+            canRegisterSystemWideHotkey: {
+                hostActions.canRegisterSystemWideHotkey($0)
+            },
+            defaultShortcutResolver: defaultShortcutResolver,
+            onShortcutsChanged: { hostActions.notifyShortcutSettingsDidChange() }
+        ))
+        _paneResizeStep = State(initialValue: DefaultsValueModel(
+            store: userDefaultsStore ?? UserDefaultsSettingsStore(defaults: .standard),
+            key: catalog.app.paneResizeStepPixels
+        ))
     }
 
     public var body: some View {
@@ -29,6 +56,8 @@ public struct KeyboardShortcutsSection: View {
                 chordsRow
                 SettingsCardDivider()
                 ModifierHoldHintsSettingsRow()
+                SettingsCardDivider()
+                paneResizeStepRow
                 SettingsCardDivider()
                 resetDefaultsRow
                 SettingsCardDivider()
@@ -41,7 +70,41 @@ public struct KeyboardShortcutsSection: View {
                 .padding(.leading, 2)
                 .accessibilityIdentifier("ShortcutRecordingHint")
         }
-        .task { model.startObserving() }
+        .task {
+            model.startObserving()
+            paneResizeStep.startObserving()
+        }
+    }
+
+    @ViewBuilder
+    private var paneResizeStepRow: some View {
+        SettingsCardRow(
+            configurationReview: .json("app.paneResizeStepPixels"),
+            searchAnchorID: "setting:keyboardShortcuts:pane-resize-step",
+            String(localized: "settings.shortcuts.paneResizeStep", defaultValue: "Pane Resize Step"),
+            subtitle: String(localized: "settings.shortcuts.paneResizeStep.subtitle", defaultValue: "Pixels moved each time a pane-resize shortcut repeats."),
+            controlWidth: 196
+        ) {
+            Stepper(
+                value: Binding(
+                    get: { PaneResizeStepSettings.normalizedPixels(paneResizeStep.current) },
+                    set: { paneResizeStep.set(PaneResizeStepSettings.normalizedPixels($0)) }
+                ),
+                in: PaneResizeStepSettings.minimumPixels...PaneResizeStepSettings.maximumPixels
+            ) {
+                Text(
+                    String(
+                        format: String(localized: "settings.shortcuts.paneResizeStep.value", defaultValue: "%d px"),
+                        PaneResizeStepSettings.normalizedPixels(paneResizeStep.current)
+                    )
+                )
+                .monospacedDigit()
+                .frame(minWidth: 56, alignment: .trailing)
+            }
+            .controlSize(.small)
+            .accessibilityIdentifier("SettingsPaneResizeStepStepper")
+            .accessibilityLabel(String(localized: "settings.shortcuts.paneResizeStep", defaultValue: "Pane Resize Step"))
+        }
     }
 
     @ViewBuilder

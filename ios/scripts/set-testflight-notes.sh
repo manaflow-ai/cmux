@@ -115,7 +115,7 @@ else
   TOP_VERSION="$(sed -n 's/^## \[\([^]]*\)\].*/\1/p' "$CHANGELOG" | head -n1)"
   [[ -n "$TOP_VERSION" ]] || { echo "error: no '## [version]' entry found in $CHANGELOG" >&2; exit 1; }
   if [[ -n "$EXPECT_MARKETING_VERSION" && "$TOP_VERSION" != "$EXPECT_MARKETING_VERSION" ]]; then
-    echo "error: changelog top entry is [$TOP_VERSION] but the build's marketing version is $EXPECT_MARKETING_VERSION; refusing to attach mismatched What to Test notes. Add a [$EXPECT_MARKETING_VERSION] entry to the top of $CHANGELOG (or bump MARKETING_VERSION to $TOP_VERSION before cutting)." >&2
+    echo "error: changelog top entry is [$TOP_VERSION] but the build's marketing version is $EXPECT_MARKETING_VERSION; refusing to attach mismatched What to Test notes. Add a [$EXPECT_MARKETING_VERSION] entry to the top of $CHANGELOG (or bump the beta marketing version with ios/scripts/bump-ios-version.sh before cutting)." >&2
     exit 1
   fi
 

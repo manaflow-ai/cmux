@@ -52,11 +52,13 @@ public struct ResetSection: View {
         }
     }
 
-    private func resetAll() async {
+    func resetAll() async {
         await defaultsStore.resetAll(catalog.all)
         for key in catalog.all {
             await key.resetInJSON(jsonStore)
         }
+        await defaultsStore.resetAllLegacyShortcutBindings()
+        hostActions.notifyShortcutSettingsDidChange()
         NotificationCenter.default.post(name: GlobalFontMagnification.didChangeNotification, object: nil)
         hostActions.resetAllSettingsSideEffects()
     }

@@ -1,18 +1,63 @@
 import Stripe from "stripe";
 
 import { env } from "../../app/env";
+import {
+  MAX_PRICING_USD,
+  GO_PRICING_USD,
+  PRO_PRICING_USD,
+  TEAM_PRICING_USD,
+  type BillingInterval,
+} from "./plans";
+import { assertPriceMatchesPlan, type PlanPrice } from "./priceGuard";
 
-export type ProBillingInterval = "month" | "year";
-
-const PRO_PRICE_LOOKUP_KEYS: Record<ProBillingInterval, string> = {
-  month: "cmux-pro-monthly",
-  year: "cmux-pro-yearly",
-};
-const TEAM_PRICE_LOOKUP_KEY = "cmux-team-monthly";
+export type { BillingInterval, ProBillingInterval } from "./plans";
 
 let stripeClient: Stripe | null = null;
-const resolvedPriceIds = new Map<ProBillingInterval, string>();
-let resolvedTeamPriceId: string | null = null;
+const resolvedProPriceIds = new Map<BillingInterval, string>();
+const resolvedTeamPriceIds = new Map<BillingInterval, string>();
+const resolvedMaxPriceIds = new Map<BillingInterval, string>();
+const resolvedGoPriceIds = new Map<BillingInterval, string>();
+
+/**
+ * Metadata the catalog script stamps on the Billing Portal configuration
+ * that allows a personal subscription to switch between Pro and Max. The
+ * default portal configuration deliberately allows quantity changes only,
+ * so plan switches use this dedicated configuration by id.
+ */
+export const PERSONAL_PLAN_SWITCH_PORTAL_METADATA = {
+  app: "cmux",
+  purpose: "personal_plan_switch",
+} as const;
+let resolvedPersonalPlanSwitchConfigurationId: string | null = null;
+
+/**
+ * The id of the portal configuration provisioned for Pro <-> Max switches,
+ * found by metadata like prices are found by lookup key. Throws when the
+ * catalog script has not provisioned it in this Stripe mode.
+ */
+export async function resolvePersonalPlanSwitchPortalConfiguration(): Promise<string> {
+  if (resolvedPersonalPlanSwitchConfigurationId) return resolvedPersonalPlanSwitchConfigurationId;
+  const overridden = env.STRIPE_PERSONAL_PLAN_SWITCH_PORTAL_CONFIGURATION_ID;
+  if (overridden) {
+    resolvedPersonalPlanSwitchConfigurationId = overridden;
+    return overridden;
+  }
+  const configurations = await stripe().billingPortal.configurations.list({
+    active: true,
+    limit: 100,
+  });
+  const found = configurations.data.find((configuration) =>
+    configuration.metadata?.app === PERSONAL_PLAN_SWITCH_PORTAL_METADATA.app &&
+    configuration.metadata?.purpose === PERSONAL_PLAN_SWITCH_PORTAL_METADATA.purpose,
+  );
+  if (!found) {
+    throw new Error(
+      "Stripe Billing Portal configuration for personal plan switches not found (run web/scripts/stripe/provision-catalog.sh)",
+    );
+  }
+  resolvedPersonalPlanSwitchConfigurationId = found.id;
+  return found.id;
+}
 
 export function isStripeBillingConfigured(): boolean {
   return Boolean(env.STRIPE_SECRET_KEY);
@@ -28,42 +73,71 @@ export function stripe(): Stripe {
   return stripeClient;
 }
 
-export async function resolveProPrice(interval: ProBillingInterval): Promise<string> {
-  const overridden = interval === "month"
-    ? env.STRIPE_PRO_MONTHLY_PRICE_ID
-    : env.STRIPE_PRO_YEARLY_PRICE_ID;
-  if (overridden) return overridden;
-
-  const cached = resolvedPriceIds.get(interval);
-  if (cached) return cached;
-
-  const lookupKey = PRO_PRICE_LOOKUP_KEYS[interval];
-  const prices = await stripe().prices.list({
-    active: true,
-    lookup_keys: [lookupKey],
-    limit: 1,
-  });
-  const priceId = prices.data[0]?.id;
-  if (!priceId) {
-    throw new Error(`Stripe price lookup key not found: ${lookupKey}`);
-  }
-  resolvedPriceIds.set(interval, priceId);
-  return priceId;
+export async function resolveProPrice(interval: BillingInterval): Promise<string> {
+  if (interval !== "month") throw new Error("Annual billing is unavailable for new subscriptions");
+  return resolvePlanPrice(PRO_PRICING_USD.month, interval, env.STRIPE_PRO_MONTHLY_50_PRICE_ID, resolvedProPriceIds, "pro");
 }
 
-export async function resolveTeamPrice(): Promise<string> {
-  if (env.STRIPE_TEAM_MONTHLY_PRICE_ID) return env.STRIPE_TEAM_MONTHLY_PRICE_ID;
-  if (resolvedTeamPriceId) return resolvedTeamPriceId;
+/** Max is sold monthly only; there is no yearly Price to resolve. */
+export async function resolveMaxPrice(): Promise<string> {
+  return resolvePlanPrice(
+    MAX_PRICING_USD.month,
+    "month",
+    env.STRIPE_MAX_MONTHLY_200_PRICE_ID,
+    resolvedMaxPriceIds,
+    "max",
+  );
+}
 
-  const prices = await stripe().prices.list({
-    active: true,
-    lookup_keys: [TEAM_PRICE_LOOKUP_KEY],
-    limit: 1,
-  });
-  const priceId = prices.data[0]?.id;
-  if (!priceId) {
-    throw new Error(`Stripe price lookup key not found: ${TEAM_PRICE_LOOKUP_KEY}`);
+export async function resolveGoPrice(): Promise<string> {
+  return resolvePlanPrice(
+    GO_PRICING_USD.month,
+    "month",
+    env.STRIPE_GO_MONTHLY_10_PRICE_ID,
+    resolvedGoPriceIds,
+    "go",
+  );
+}
+
+export async function resolveTeamPrice(interval: BillingInterval): Promise<string> {
+  if (interval !== "month") throw new Error("Annual billing is unavailable for new subscriptions");
+  return resolvePlanPrice(TEAM_PRICING_USD.month, interval, env.STRIPE_TEAM_MONTHLY_60_PRICE_ID, resolvedTeamPriceIds, "team");
+}
+
+/**
+ * The Stripe price id checkout will charge. A lookup-key resolution is
+ * trusted (the catalog script pins the amount behind each key); an env
+ * override is verified against the advertised amount, interval, and currency
+ * on first use, so a stale or miscopied id can never sell a grandfathered
+ * price under the current pricing page. Both results are cached per process.
+ */
+async function resolvePlanPrice(
+  plan: PlanPrice,
+  interval: BillingInterval,
+  overridden: string | undefined,
+  cache: Map<BillingInterval, string>,
+  planId: "go" | "pro" | "max" | "team",
+): Promise<string> {
+  const cached = cache.get(interval);
+  if (cached) return cached;
+
+  let priceId: string;
+  if (overridden) {
+    const price = await stripe().prices.retrieve(overridden, { expand: ["product"] });
+    assertPriceMatchesPlan(price, plan, interval, overridden, planId);
+    priceId = price.id;
+  } else {
+    const prices = await stripe().prices.list({
+      active: true,
+      lookup_keys: [plan.lookupKey],
+      limit: 1,
+    });
+    const found = prices.data[0]?.id;
+    if (!found) {
+      throw new Error(`Stripe price lookup key not found: ${plan.lookupKey}`);
+    }
+    priceId = found;
   }
-  resolvedTeamPriceId = priceId;
+  cache.set(interval, priceId);
   return priceId;
 }

@@ -5,8 +5,16 @@ struct MobileHostBuildIdentity {
     let appBuild: String?
 
     static func current(bundle: Bundle = .main) -> MobileHostBuildIdentity {
-        MobileHostBuildIdentity(
-            appVersion: normalized(bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String),
+        let bundleAppVersion = normalized(bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)
+#if DEBUG
+        let appVersion = normalized(ProcessInfo.processInfo.environment["CMUX_DEBUG_MOBILE_APP_VERSION"])
+            ?? bundleAppVersion
+#else
+        let appVersion = bundleAppVersion
+#endif
+
+        return MobileHostBuildIdentity(
+            appVersion: appVersion,
             appBuild: normalized(bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String)
         )
     }

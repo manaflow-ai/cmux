@@ -1,0 +1,1 @@
+terminal,agente IA,claude,codex,ssh,desenvolvedor,devops,ghostty,remoto,cli,automação,cmux

@@ -4,6 +4,7 @@ import Foundation
 
 enum AIAccountsClientError: Error, CustomStringConvertible {
     case notSignedIn
+    case sessionRefreshFailed
     case httpStatus(Int, String)
     case malformedResponse(String)
     case backendUnreachable(url: String, detail: String)
@@ -12,6 +13,8 @@ enum AIAccountsClientError: Error, CustomStringConvertible {
         switch self {
         case .notSignedIn:
             return "Not signed in. Run `cmux auth login`, then retry."
+        case .sessionRefreshFailed:
+            return "Signed in, but cmux could not refresh your session (network or server issue). Retry in a moment."
         case let .httpStatus(status, body):
             return AIAccountsClient.formatHTTPError(status: status, body: body)
         case let .malformedResponse(message):
@@ -57,6 +60,9 @@ actor AIAccountsClient {
     }
 
     func upload(_ payload: AIAccountUploadPayload, teamID: String?, validate: Bool) async throws -> JSONValue {
+        // `DisableAICredentialUpload` (MDM): authoritative boundary, whichever
+        // entry point built the payload.
+        guard ManagedAICredentialUploadPolicy.isEnabled else { throw ManagedAICredentialUploadPolicy.refusalError() }
         let queryItems = validate ? [URLQueryItem(name: "validate", value: "1")] : []
         let (data, http) = try await request(
             "POST",
@@ -106,9 +112,14 @@ actor AIAccountsClient {
         jsonBody: [String: Any]? = nil,
         teamID explicitTeamID: String?
     ) async throws -> (Data, HTTPURLResponse) {
+        // `DisableCloud` (MDM): fail closed before any token or network work,
+        // whichever entry point asked.
+        guard ManagedCloudPolicy.isEnabled else { throw VMClientError.disabledByManagedPolicy }
         let tokens: (accessToken: String, refreshToken: String)
         do {
             tokens = try await auth.currentTokens()
+        } catch AuthError.networkError {
+            throw AIAccountsClientError.sessionRefreshFailed
         } catch {
             throw AIAccountsClientError.notSignedIn
         }
