@@ -1,4 +1,6 @@
 use super::*;
+use base64::Engine;
+
 use crate::resource::WireDecimal;
 use crate::workspace_registry::session_journal::{
     JournalAppend, MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES, append_journal_record,
@@ -256,6 +258,21 @@ pub(crate) struct JournalCheckpointCommit {
     pub journal: JournalAppendCommit,
 }
 
+/// One durable `cmux.vt-replay.v1` snapshot captured when a terminal exited,
+/// decoded back to its replay bytes. It is the storage bound for
+/// `terminal.output_read`: every `terminal.output` record of `generation`
+/// whose `stream_offset_end` is at most `covered_through` is fully covered by
+/// this snapshot and is therefore prunable by the journal seal/prune pass;
+/// reads answer from the snapshot plus the records after it.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct TerminalExitSnapshot {
+    pub(crate) generation: String,
+    pub(crate) covered_through: u64,
+    pub(crate) cols: u16,
+    pub(crate) rows: u16,
+    pub(crate) replay_bytes: Vec<u8>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct JournalSegment {
@@ -421,6 +438,21 @@ pub(super) fn create_journal_extensions_schema(
            BEFORE DELETE ON journal_checkpoints
          BEGIN
            SELECT RAISE(ABORT, 'journal checkpoints are immutable');
+         END;
+         CREATE TABLE IF NOT EXISTS terminal_exit_snapshots (
+           terminal_id TEXT PRIMARY KEY NOT NULL,
+           generation TEXT NOT NULL,
+           content_id TEXT NOT NULL REFERENCES journal_content_blobs(content_id),
+           format TEXT NOT NULL,
+           cols INTEGER NOT NULL CHECK(cols > 0),
+           rows INTEGER NOT NULL CHECK(rows > 0),
+           covered_through INTEGER NOT NULL CHECK(covered_through > 0),
+           created_at_ms INTEGER NOT NULL CHECK(created_at_ms >= 0)
+         );
+         CREATE TRIGGER IF NOT EXISTS terminal_exit_snapshots_reject_update
+           BEFORE UPDATE ON terminal_exit_snapshots
+         BEGIN
+           SELECT RAISE(ABORT, 'terminal exit snapshots are immutable');
          END;",
     )?;
     ensure_built_in_agent_producer(transaction)?;
@@ -1396,6 +1428,16 @@ fn append_journal_ingress_transaction(
     if let Some(commit) =
         ingress_receipt(tx, &ingress.producer_id, origin, idempotency_key, fingerprint.as_slice())?
     {
+        if ingress.producer_id == crate::AGENT_HOOK_PRODUCER_ID {
+            WorkspaceRegistry::stage_agent_hook_pending(
+                tx,
+                &ingress.producer_id,
+                origin,
+                idempotency_key,
+                commit.sequence,
+                ingress,
+            )?;
+        }
         return Ok(commit);
     }
     let installed = tx
@@ -1496,6 +1538,16 @@ fn append_journal_ingress_transaction(
             canonical_json(&result)?,
         ],
     )?;
+    if built_in_agent {
+        WorkspaceRegistry::stage_agent_hook_pending(
+            tx,
+            &ingress.producer_id,
+            origin,
+            idempotency_key,
+            sequence,
+            ingress,
+        )?;
+    }
     Ok(JournalAppendCommit { sequence, event_id, replayed: false })
 }
 
@@ -1987,35 +2039,7 @@ impl WorkspaceRegistry {
         );
         let now = unix_epoch_ms()?;
         for blob in blobs {
-            tx.execute(
-                "INSERT OR IGNORE INTO journal_content_blobs(
-                   content_id, sha256, codec, content, uncompressed_bytes, created_at_ms
-                 ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
-                params![
-                    blob.reference.content_id,
-                    blob.digest.as_slice(),
-                    blob.reference.codec,
-                    blob.compressed,
-                    i64::try_from(blob.reference.uncompressed_bytes)?,
-                    i64::try_from(now)?,
-                ],
-            )?;
-            let matches = tx.query_row(
-                "SELECT EXISTS(
-                   SELECT 1 FROM journal_content_blobs
-                   WHERE content_id = ?1 AND sha256 = ?2 AND codec = ?3
-                     AND content = ?4 AND uncompressed_bytes = ?5
-                 )",
-                params![
-                    blob.reference.content_id,
-                    blob.digest.as_slice(),
-                    blob.reference.codec,
-                    blob.compressed,
-                    i64::try_from(blob.reference.uncompressed_bytes)?,
-                ],
-                |row| row.get::<_, bool>(0),
-            )?;
-            anyhow::ensure!(matches, "checkpoint content id collided with different content");
+            insert_journal_content_blob(&tx, blob, now)?;
         }
         let content_refs = blobs.iter().map(|blob| blob.reference.clone()).collect::<Vec<_>>();
         let digest_input = json!({
@@ -2105,6 +2129,145 @@ impl WorkspaceRegistry {
             },
             journal: JournalAppendCommit { sequence, event_id, replayed: false },
         })
+    }
+
+    /// Store the exit snapshot for one terminal generation, best-effort and
+    /// idempotent. The exit latch is first-writer-wins, so at most one row
+    /// exists per terminal; a replayed store is a no-op. Returns whether a
+    /// snapshot row was written.
+    pub(crate) fn put_terminal_exit_snapshot(
+        &mut self,
+        terminal_id: &str,
+        generation: &str,
+        blob: &JournalContentBlob,
+    ) -> anyhow::Result<bool> {
+        let tx = self.connection.transaction()?;
+        let covered_through = tx
+            .query_row(
+                "SELECT next_offset FROM journal_terminal_streams
+                 WHERE terminal_id = ?1 AND generation = ?2",
+                params![terminal_id, generation],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?
+            .map(u64::try_from)
+            .transpose()
+            .context("terminal journal offset is negative")?
+            .unwrap_or(0);
+        if covered_through == 0 {
+            // The generation journaled no output; there is nothing for the
+            // snapshot to cover and record reads stay exact without it.
+            return Ok(false);
+        }
+        let now = unix_epoch_ms()?;
+        insert_journal_content_blob(&tx, blob, now)?;
+        let inserted = tx.execute(
+            "INSERT OR IGNORE INTO terminal_exit_snapshots(
+               terminal_id, generation, content_id, format, cols, rows,
+               covered_through, created_at_ms
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                terminal_id,
+                generation,
+                blob.reference.content_id,
+                blob.reference.format,
+                i64::from(blob.reference.cols.max(1)),
+                i64::from(blob.reference.rows.max(1)),
+                i64::try_from(covered_through)?,
+                i64::try_from(now)?,
+            ],
+        )?;
+        tx.commit()?;
+        Ok(inserted > 0)
+    }
+
+    /// Load and verify one terminal's exit snapshot, decoded to replay bytes.
+    pub(crate) fn terminal_exit_snapshot(
+        &self,
+        terminal_id: &str,
+    ) -> anyhow::Result<Option<TerminalExitSnapshot>> {
+        type SnapshotRow = (String, i64, i64, i64, String, String, Vec<u8>, i64, Vec<u8>);
+        let Some(row) = self
+            .connection
+            .query_row(
+                "SELECT snapshot.generation, snapshot.covered_through, snapshot.cols,
+                        snapshot.rows, snapshot.format, blob.codec, blob.content,
+                        blob.uncompressed_bytes, blob.sha256
+                 FROM terminal_exit_snapshots AS snapshot
+                 JOIN journal_content_blobs AS blob USING(content_id)
+                 WHERE snapshot.terminal_id = ?1",
+                params![terminal_id],
+                |row| {
+                    Ok::<SnapshotRow, _>((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                        row.get(6)?,
+                        row.get(7)?,
+                        row.get(8)?,
+                    ))
+                },
+            )
+            .optional()?
+        else {
+            return Ok(None);
+        };
+        let (
+            generation,
+            covered_through,
+            cols,
+            rows,
+            format,
+            codec,
+            compressed,
+            uncompressed_bytes,
+            digest,
+        ) = row;
+        anyhow::ensure!(
+            format == "cmux.vt-replay.v1",
+            "terminal exit snapshot format {format:?} is unsupported"
+        );
+        anyhow::ensure!(codec == "gzip", "terminal exit snapshot codec {codec:?} is unsupported");
+        let covered_through =
+            u64::try_from(covered_through).context("terminal exit snapshot coverage is invalid")?;
+        let cols = u16::try_from(cols).context("terminal exit snapshot cols are invalid")?;
+        let rows = u16::try_from(rows).context("terminal exit snapshot rows are invalid")?;
+        let expected_bytes = usize::try_from(uncompressed_bytes)
+            .context("terminal exit snapshot length is invalid")?;
+        anyhow::ensure!(
+            expected_bytes <= MAX_CHECKPOINT_CONTENT_UNCOMPRESSED_BYTES,
+            "terminal exit snapshot exceeds the uncompressed size limit"
+        );
+        let decoder = flate2::read::GzDecoder::new(compressed.as_slice());
+        let mut uncompressed = Vec::with_capacity(expected_bytes);
+        decoder
+            .take(u64::try_from(expected_bytes)?.saturating_add(1))
+            .read_to_end(&mut uncompressed)
+            .context("decompress terminal exit snapshot")?;
+        anyhow::ensure!(
+            uncompressed.len() == expected_bytes,
+            "terminal exit snapshot length does not match its blob"
+        );
+        anyhow::ensure!(
+            Sha256::digest(&uncompressed).as_slice() == digest.as_slice(),
+            "terminal exit snapshot digest is invalid"
+        );
+        let replay: Value =
+            serde_json::from_slice(&uncompressed).context("decode terminal exit snapshot")?;
+        anyhow::ensure!(
+            replay["format"].as_str() == Some("cmux.vt-replay.v1"),
+            "terminal exit snapshot payload format is invalid"
+        );
+        let replay_bytes = replay["bytes_base64"]
+            .as_str()
+            .context("terminal exit snapshot omitted bytes_base64")?;
+        let replay_bytes = base64::engine::general_purpose::STANDARD
+            .decode(replay_bytes)
+            .context("decode terminal exit snapshot bytes")?;
+        Ok(Some(TerminalExitSnapshot { generation, covered_through, cols, rows, replay_bytes }))
     }
 
     pub(crate) fn journal_checkpoints(&self) -> anyhow::Result<Vec<JournalCheckpointSummary>> {
@@ -2745,6 +2908,45 @@ fn decode_sha256(value: &str) -> anyhow::Result<[u8; 32]> {
             u8::from_str_radix(text, 16).context("SHA-256 digest is not hexadecimal")?;
     }
     Ok(decoded)
+}
+
+/// Store one content-addressed blob, tolerating an identical replay and
+/// rejecting a content-id collision with different bytes.
+fn insert_journal_content_blob(
+    tx: &Transaction<'_>,
+    blob: &JournalContentBlob,
+    now: u64,
+) -> anyhow::Result<()> {
+    tx.execute(
+        "INSERT OR IGNORE INTO journal_content_blobs(
+           content_id, sha256, codec, content, uncompressed_bytes, created_at_ms
+         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            blob.reference.content_id,
+            blob.digest.as_slice(),
+            blob.reference.codec,
+            blob.compressed,
+            i64::try_from(blob.reference.uncompressed_bytes)?,
+            i64::try_from(now)?,
+        ],
+    )?;
+    let matches = tx.query_row(
+        "SELECT EXISTS(
+           SELECT 1 FROM journal_content_blobs
+           WHERE content_id = ?1 AND sha256 = ?2 AND codec = ?3
+             AND content = ?4 AND uncompressed_bytes = ?5
+         )",
+        params![
+            blob.reference.content_id,
+            blob.digest.as_slice(),
+            blob.reference.codec,
+            blob.compressed,
+            i64::try_from(blob.reference.uncompressed_bytes)?,
+        ],
+        |row| row.get::<_, bool>(0),
+    )?;
+    anyhow::ensure!(matches, "checkpoint content id collided with different content");
+    Ok(())
 }
 
 fn verify_journal_content_blob(blob: &JournalContentBlob) -> anyhow::Result<()> {

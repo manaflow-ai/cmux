@@ -141,7 +141,7 @@ struct TerminalPickerMenu: View, Equatable {
 
         #if canImport(UIKit)
         Section {
-            if !value.hasActiveBrowser && !value.isChatMode {
+            if !value.hasActiveBrowser {
                 Button(action: actions.openTextSheet) {
                     Label(
                         L10n.string("mobile.terminal.viewAsText", defaultValue: "View as Text"),

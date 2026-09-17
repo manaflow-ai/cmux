@@ -3,6 +3,10 @@ import postgres, { type Sql } from "postgres";
 
 import { closeCloudDbForTests } from "../db/client";
 import { accountDeletionUserHash } from "../services/account/deletionLock";
+import {
+  MAX_DEVICE_TOKENS_PER_ACCOUNT,
+  MAX_DEVICE_TOKENS_PER_USER,
+} from "../services/apns/routePolicy";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
 const dbTest = runDbTests ? test : test.skip;
@@ -47,6 +51,121 @@ beforeEach(async () => {
 });
 
 describe("device token route", () => {
+  test("rejects a bundle that does not match the authenticated app namespace", async () => {
+    const response = await POST(
+      new Request("https://cmux.test/api/device-tokens", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+          "x-cmux-app-namespace": "dev.cmux.app.demo",
+        },
+        body: JSON.stringify({
+          deviceToken: "b".repeat(64),
+          bundleId: "dev.cmux.app.internal",
+          platform: "ios",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error: "client_namespace_mismatch",
+    });
+  });
+
+  dbTest("allows a released legacy client to unregister its unique token", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    const token = "b".repeat(64);
+    await sql`
+      insert into device_tokens (
+        user_id,
+        device_token,
+        bundle_id,
+        environment,
+        platform
+      ) values (
+        'push-user-1',
+        ${token},
+        'dev.cmux.app.internal',
+        'production',
+        'ios'
+      )
+    `;
+
+    const response = await DELETE(
+      new Request("https://cmux.test/api/device-tokens", {
+        method: "DELETE",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify({
+          deviceToken: token,
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true });
+    const [remaining] = await sql<{ total: number }[]>`
+      select count(*)::int as total
+      from device_tokens
+      where user_id = 'push-user-1' and device_token = ${token}
+    `;
+    expect(remaining.total).toBe(0);
+  });
+
+  dbTest("legacy unregister fails closed when token bytes span app namespaces", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    const token = "c".repeat(64);
+    await sql`
+      insert into device_tokens (
+        user_id,
+        device_token,
+        bundle_id,
+        environment,
+        platform
+      ) values
+        (
+          'push-user-1',
+          ${token},
+          'dev.cmux.app.internal',
+          'production',
+          'ios'
+        ),
+        (
+          'push-user-1',
+          ${token},
+          'dev.cmux.app.demo',
+          'production',
+          'ios'
+        )
+    `;
+
+    const response = await DELETE(
+      new Request("https://cmux.test/api/device-tokens", {
+        method: "DELETE",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify({ deviceToken: token }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: "ambiguous_legacy_device_token",
+    });
+    const [remaining] = await sql<{ total: number }[]>`
+      select count(*)::int as total
+      from device_tokens
+      where user_id = 'push-user-1' and device_token = ${token}
+    `;
+    expect(remaining.total).toBe(2);
+  });
+
   dbTest("blocks registration while account deletion is in progress", async () => {
     if (!sql) throw new Error("test database not initialized");
 
@@ -212,6 +331,81 @@ describe("device token route", () => {
     expect(stored.map((row) => row.device_token)).not.toContain(newToken);
   }, DB_STRESS_TEST_TIMEOUT_MS);
 
+  dbTest("applies registration capacity independently per app namespace", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    const register = (index: number, bundleId: string) =>
+      POST(
+        new Request("https://cmux.test/api/device-tokens", {
+          method: "POST",
+          headers: {
+            authorization: "Bearer access-token",
+            "x-stack-refresh-token": "refresh-token",
+            "x-cmux-app-namespace": bundleId,
+          },
+          body: JSON.stringify({
+            deviceToken: `${bundleId === "dev.cmux.app.demo" ? "d" : "e"}${index
+              .toString(16)
+              .padStart(63, "0")}`,
+            bundleId,
+            platform: "ios",
+          }),
+        }),
+      );
+
+    const responses = await Promise.all([
+      ...Array.from({ length: 10 }, (_, index) =>
+        register(index, "dev.cmux.app.demo")),
+      ...Array.from({ length: 10 }, (_, index) =>
+        register(index, "dev.cmux.app.internal")),
+    ]);
+    expect(responses.every((response) => response.status === 200)).toBe(true);
+  });
+
+  dbTest("bounds total registrations across arbitrary app namespaces", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    await sql`
+      insert into device_tokens (
+        user_id,
+        device_token,
+        bundle_id,
+        environment,
+        platform
+      )
+      select
+        'push-user-1',
+        lpad(to_hex(value), 64, '0'),
+        'dev.cmux.ios.cap' || (value / 10)::text,
+        'sandbox',
+        'ios'
+      from generate_series(0, ${MAX_DEVICE_TOKENS_PER_ACCOUNT - 1}) as series(value)
+    `;
+
+    const response = await POST(
+      new Request("https://cmux.test/api/device-tokens", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+          "x-cmux-app-namespace": "dev.cmux.ios.overflow",
+        },
+        body: JSON.stringify({
+          deviceToken: "f".repeat(64),
+          bundleId: "dev.cmux.ios.overflow",
+          platform: "ios",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(429);
+    expect(await response.json()).toEqual({
+      error: "too_many_devices",
+      limit: MAX_DEVICE_TOKENS_PER_USER,
+      action: "disable_push_on_another_device",
+    });
+  });
+
   dbTest("canonicalizes token casing for register and delete", async () => {
     if (!sql) throw new Error("test database not initialized");
 
@@ -219,6 +413,7 @@ describe("device token route", () => {
     const headers = {
       authorization: "Bearer access-token",
       "x-stack-refresh-token": "refresh-token",
+      "x-cmux-app-namespace": "dev.cmux.ios.push1",
     };
     const register = (deviceToken: string) =>
       POST(
@@ -245,7 +440,10 @@ describe("device token route", () => {
       new Request("https://cmux.test/api/device-tokens", {
         method: "DELETE",
         headers,
-        body: JSON.stringify({ deviceToken: token.toUpperCase() }),
+        body: JSON.stringify({
+          deviceToken: token.toUpperCase(),
+          bundleId: "dev.cmux.ios.push1",
+        }),
       }),
     );
     expect(deleteResponse.status).toBe(200);
@@ -254,6 +452,57 @@ describe("device token route", () => {
       select count(*)::int as total from device_tokens where user_id = 'push-user-1'
     `;
     expect(remaining.total).toBe(0);
+  });
+
+  dbTest("keeps identical token bytes isolated by app namespace", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    const deviceToken = "b".repeat(64);
+    const request = (
+      method: "POST" | "DELETE",
+      bundleId: string,
+    ) =>
+      new Request("https://cmux.test/api/device-tokens", {
+        method,
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+          "x-cmux-app-namespace": bundleId,
+        },
+        body: JSON.stringify({
+          deviceToken,
+          bundleId,
+          platform: "ios",
+        }),
+      });
+
+    expect((await POST(request("POST", "dev.cmux.app.internal"))).status).toBe(200);
+    expect((await POST(request("POST", "dev.cmux.app.beta"))).status).toBe(200);
+
+    const rowsBeforeDelete = await sql<{
+      bundle_id: string;
+    }[]>`
+      select bundle_id
+      from device_tokens
+      where user_id = 'push-user-1' and device_token = ${deviceToken}
+      order by bundle_id
+    `;
+    expect(rowsBeforeDelete).toEqual([
+      { bundle_id: "dev.cmux.app.beta" },
+      { bundle_id: "dev.cmux.app.internal" },
+    ]);
+
+    expect((await DELETE(request("DELETE", "dev.cmux.app.internal"))).status).toBe(200);
+
+    const rowsAfterDelete = await sql<{
+      bundle_id: string;
+    }[]>`
+      select bundle_id
+      from device_tokens
+      where user_id = 'push-user-1' and device_token = ${deviceToken}
+    `;
+    expect(rowsAfterDelete).toEqual([
+      { bundle_id: "dev.cmux.app.beta" },
+    ]);
   });
 
   dbTest("does not transfer or delete a token during an active delivery", async () => {
@@ -292,7 +541,7 @@ describe("device token route", () => {
         headers,
         body: JSON.stringify({
           deviceToken: token,
-          bundleId: "dev.cmux.ios.push1",
+          bundleId: "com.cmux.app",
           platform: "ios",
         }),
       }),

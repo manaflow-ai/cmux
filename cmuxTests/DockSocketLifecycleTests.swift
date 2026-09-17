@@ -63,7 +63,7 @@ struct DockSocketLifecycleTests {
     }
 
     @MainActor
-    private func v2Result(method: String, params: [String: Any] = [:]) throws -> [String: Any] {
+    func v2Result(method: String, params: [String: Any] = [:]) throws -> [String: Any] {
         let envelope = try v2Envelope(method: method, params: params)
         if envelope["ok"] as? Bool != true {
             Issue.record("Expected \(method) to succeed: \(envelope)")
@@ -159,7 +159,7 @@ struct DockSocketLifecycleTests {
     }
 
     @MainActor
-    private func withDockEnabled(_ body: () throws -> Void) rethrows {
+    func withDockEnabled(_ body: () throws -> Void) rethrows {
         let defaults = UserDefaults.standard
         let key = RightSidebarBetaFeatureSettings.dockEnabledKey
         let previous = defaults.object(forKey: key)
@@ -240,7 +240,7 @@ struct DockSocketLifecycleTests {
     }
 
     @MainActor
-    private func withSocketAppContext(
+    func withSocketAppContext(
         fileExplorerState: FileExplorerState? = nil,
         _ body: (TabManager, Workspace, UUID) throws -> Void
     ) throws {
@@ -260,8 +260,8 @@ struct DockSocketLifecycleTests {
         )
         defer {
             TerminalController.shared.setActiveTabManager(previousManager)
-            // Unregistering the window context also tears down that window's Dock.
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
             manager.tabs.forEach { $0.teardownAllPanels() }
             AppDelegate.shared = previousAppDelegate
         }
@@ -295,8 +295,8 @@ struct DockSocketLifecycleTests {
             )
             defer {
                 TerminalController.shared.setActiveTabManager(previousManager)
-                // Unregistering the window context also tears down that window's Dock.
                 appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
                 manager.tabs.forEach { $0.teardownAllPanels() }
                 AppDelegate.shared = previousAppDelegate
             }
@@ -455,6 +455,7 @@ struct DockSocketLifecycleTests {
                     let otherWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: otherManager)
                     defer {
                         appDelegate.unregisterMainWindowContextForTesting(windowId: otherWindowId)
+                        appDelegate.forgetRecoverableMainWindowRoute(windowId: otherWindowId)
                         otherManager.tabs.forEach { $0.teardownAllPanels() }
                     }
 
@@ -620,6 +621,7 @@ struct DockSocketLifecycleTests {
                     let secondWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: secondManager)
                     defer {
                         appDelegate.unregisterMainWindowContextForTesting(windowId: secondWindowId)
+                        appDelegate.forgetRecoverableMainWindowRoute(windowId: secondWindowId)
                         secondManager.tabs.forEach { $0.teardownAllPanels() }
                     }
                     let secondWindowDock = appDelegate.windowDock(forWindowId: secondWindowId)
@@ -668,7 +670,7 @@ struct DockSocketLifecycleTests {
     func workspaceDockBrowserSurfacesResolveBrowserCommands() async throws {
         try await withBrowserEnabled {
             try await withSocketAppContext { _, workspace, windowId in
-                let dock = workspace.dockSplit
+                let dock = try #require(workspace.dockSplit)
                 let pane = try #require(
                     dock.bonsplitController.allPaneIds.first
                 )
@@ -752,7 +754,7 @@ struct DockSocketLifecycleTests {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         defer { manager.tabs.forEach { $0.teardownAllPanels() } }
         let workspace = try #require(manager.tabs.first)
-        let store = workspace.dockSplit
+        let store = workspace.requiredDockSplitForTesting
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
 
         let firstPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
@@ -785,7 +787,7 @@ struct DockSocketLifecycleTests {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         defer { manager.tabs.forEach { $0.teardownAllPanels() } }
         let workspace = try #require(manager.tabs.first)
-        let store = workspace.dockSplit
+        let store = workspace.requiredDockSplitForTesting
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
 
         let panelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
@@ -817,7 +819,7 @@ struct DockSocketLifecycleTests {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         defer { manager.tabs.forEach { $0.teardownAllPanels() } }
         let workspace = try #require(manager.tabs.first)
-        let store = workspace.dockSplit
+        let store = workspace.requiredDockSplitForTesting
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
 
         let firstPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
@@ -871,7 +873,7 @@ struct DockSocketLifecycleTests {
                 appDelegate.notificationStore = previousNotificationStore
             }
 
-            let store = workspace.dockSplit
+            let store = workspace.requiredDockSplitForTesting
             let rootPane = try #require(store.bonsplitController.allPaneIds.first)
             let panelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
             let tabId = try #require(store.surfaceId(forPanelId: panelId))
@@ -904,7 +906,7 @@ struct DockSocketLifecycleTests {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         defer { manager.tabs.forEach { $0.teardownAllPanels() } }
         let workspace = try #require(manager.tabs.first)
-        let store = workspace.dockSplit
+        let store = workspace.requiredDockSplitForTesting
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
 
         let confirmationPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
@@ -922,7 +924,7 @@ struct DockSocketLifecycleTests {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         defer { manager.tabs.forEach { $0.teardownAllPanels() } }
         let workspace = try #require(manager.tabs.first)
-        let store = workspace.dockSplit
+        let store = workspace.requiredDockSplitForTesting
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
         let panelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
         let runtimeSurface = try #require((store.panels[panelId] as? TerminalPanel)?.surface)
@@ -991,8 +993,8 @@ struct DockSocketLifecycleTests {
         window.makeKeyAndOrderFront(nil)
         defer {
             TerminalController.shared.setActiveTabManager(previousManager)
-            // Unregistering the window context also tears down that window's Dock.
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
             manager.tabs.forEach { $0.teardownAllPanels() }
             window.orderOut(nil)
             window.close()

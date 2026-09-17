@@ -159,6 +159,15 @@ extension SocketControlServer {
         var listenerActivated = false
         defer {
             if !listenerActivated {
+                if preserveAcceptFailureStreak {
+                    events.breadcrumb(
+                        "socket.listener.rearm.failed",
+                        socketListenerEventData(
+                            stage: "rearm_start",
+                            extra: ["preservedAcceptFailureStreak": 1]
+                        )
+                    )
+                }
                 if let activeBoundSocketPathIdentity,
                    listenerPolicy.shouldUnlinkSocketPathAfterListenerStop(
                        currentIdentity: transport.pathIdentity(at: activeSocketPath),
@@ -372,6 +381,18 @@ extension SocketControlServer {
                 "backlog": transport.listenBacklog,
             ]
         )
+        if preserveAcceptFailureStreak {
+            events.breadcrumb(
+                "socket.listener.rearm.completed",
+                socketListenerEventData(
+                    stage: "accept_rearm_complete",
+                    extra: [
+                        "generation": generation,
+                        "preservedAcceptFailureStreak": 1,
+                    ]
+                )
+            )
+        }
         events.listenerDidStart(activeSocketPath, generation)
 
         startSocketPathMonitor(path: activeSocketPath, generation: generation)

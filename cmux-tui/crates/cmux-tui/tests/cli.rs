@@ -10,7 +10,7 @@ use std::os::fd::AsRawFd;
 #[cfg(unix)]
 use std::os::unix::ffi::OsStringExt;
 #[cfg(unix)]
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt, symlink};
+use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt, symlink};
 #[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
@@ -33,6 +33,18 @@ impl HeadlessServer {
     }
 
     fn start_with_config(name: &str, config_contents: Option<&str>) -> Self {
+        Self::start_with_options(name, config_contents, None)
+    }
+
+    fn start_in(name: &str, launch_cwd: &std::path::Path) -> Self {
+        Self::start_with_options(name, None, Some(launch_cwd))
+    }
+
+    fn start_with_options(
+        name: &str,
+        config_contents: Option<&str>,
+        launch_cwd: Option<&std::path::Path>,
+    ) -> Self {
         let dir = unique_temp_dir(name);
         fs::create_dir_all(&dir).unwrap();
         let socket = dir.join("mux.sock");
@@ -44,16 +56,19 @@ impl HeadlessServer {
         if let Some(contents) = config_contents {
             fs::write(&config, contents).unwrap();
         }
-        let child = Command::new(bin())
+        let mut command = Command::new(bin());
+        command
             .args(["--headless", "--socket"])
             .arg(&socket)
             .arg("--state")
             .arg(&state)
             .env("CMUX_TUI_CONFIG", &config)
             .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
+            .stderr(Stdio::piped());
+        if let Some(launch_cwd) = launch_cwd {
+            command.current_dir(launch_cwd);
+        }
+        let child = command.spawn().unwrap();
         let server = Self { child, socket, state, dir };
         server.wait_for_socket();
         server
@@ -518,7 +533,7 @@ fn server_lifecycle_help_and_typos_do_not_fall_back_to_startup_help() {
         lifecycle_cli(&["--socket", "--json", "server", "stpo"]);
     assert_eq!(output_flag_used_as_a_socket_value.status.code(), Some(2));
     let error = String::from_utf8(output_flag_used_as_a_socket_value.stderr).unwrap();
-    assert!(error.contains("Did you mean `stop`?"), "{error}");
+    assert!(error.contains("--socket needs a value"), "{error}");
     assert!(!error.trim_start().starts_with('{'), "{error}");
 
     let misplaced_start_option = lifecycle_cli(&["--term", "xterm-256color", "server", "start"]);
@@ -654,6 +669,13 @@ fn local_and_authenticated_remote_namespaces_do_not_cross_target() {
     let remote_help = lifecycle_cli(&["remote", "--help"]);
     assert_success(&remote_help);
     let remote_help = String::from_utf8(remote_help.stdout).unwrap();
+    assert!(
+        remote_help.contains("USAGE: cmux remote connect|ssh|forward|rpc [OPTIONS]"),
+        "{remote_help}"
+    );
+    assert!(remote_help.contains("cmux remote enroll <ACTION> [OPTIONS]"), "{remote_help}");
+    assert!(remote_help.contains("cmux remote known-daemons [OPTIONS]"), "{remote_help}");
+    assert!(remote_help.contains("cmux remote stop [OPTIONS]"), "{remote_help}");
     assert!(remote_help.contains("cmux remote stop"), "{remote_help}");
     assert!(remote_help.contains("cmux remote connect"), "{remote_help}");
 
@@ -742,6 +764,28 @@ fn local_server_lifecycle_rejects_machine_before_socket_access() {
         assert_eq!(output.status.code(), Some(2));
         let error = String::from_utf8(output.stderr).unwrap();
         assert!(error.contains("--machine cannot target a local server"), "{error}");
+    }
+}
+
+#[test]
+fn local_server_lifecycle_rejects_invalid_derived_socket_sessions() {
+    for action in ["status", "stop", "reload-config"] {
+        let output = lifecycle_cli(&["--json", "--session", "../outside", "server", action]);
+
+        assert_eq!(output.status.code(), Some(2), "action={action}");
+        assert!(output.stdout.is_empty(), "action={action}");
+        let error: serde_json::Value =
+            serde_json::from_slice(&output.stderr).unwrap_or_else(|error| {
+                panic!(
+                    "action={action}: expected JSON error, got {error}: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                )
+            });
+        assert_eq!(error["code"], "usage.invalid", "action={action}");
+        assert!(
+            error["message"].as_str().is_some_and(|message| message.contains("invalid")),
+            "action={action}: {error}"
+        );
     }
 }
 
@@ -2600,6 +2644,101 @@ struct PtyChild {
 }
 
 #[cfg(unix)]
+struct CapturingPtyChild {
+    child: Option<Box<dyn cmux_pty::Child + Send + Sync>>,
+    writer: Option<Box<dyn Write + Send>>,
+    receiver: mpsc::Receiver<Vec<u8>>,
+    reader_thread: Option<std::thread::JoinHandle<()>>,
+}
+
+#[cfg(unix)]
+impl CapturingPtyChild {
+    fn start(args: &[&str]) -> Self {
+        let spawned = spawn_pty_child(args, &[]);
+        let writer = spawned.master.take_writer().unwrap();
+        let mut reader = spawned.master.try_clone_reader().unwrap();
+        let (sender, receiver) = mpsc::channel();
+        let reader_thread = std::thread::spawn(move || {
+            let mut buffer = [0; 8192];
+            loop {
+                match reader.read(&mut buffer) {
+                    Ok(0) => break,
+                    Ok(read) => {
+                        if sender.send(buffer[..read].to_vec()).is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+        Self {
+            child: Some(spawned.child),
+            writer: Some(writer),
+            receiver,
+            reader_thread: Some(reader_thread),
+        }
+    }
+
+    fn wait_for_output(&self, marker: &str, timeout: Duration) -> Vec<u8> {
+        let marker = marker.as_bytes();
+        let deadline = Instant::now() + timeout;
+        let mut output = Vec::new();
+        while Instant::now() < deadline {
+            let remaining = deadline.checked_duration_since(Instant::now()).unwrap_or_default();
+            match self.receiver.recv_timeout(remaining) {
+                Ok(chunk) => {
+                    output.extend(chunk);
+                    if output.windows(marker.len()).any(|window| window == marker) {
+                        return output;
+                    }
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => break,
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+        output
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        let writer = self.writer.as_mut().expect("scoped attach PTY writer is live");
+        writer.write_all(bytes).unwrap();
+        writer.flush().unwrap();
+    }
+
+    fn wait_for_exit(&mut self, timeout: Duration) -> Option<cmux_pty::ExitStatus> {
+        let mut child = self.child.take().expect("scoped attach child already waited");
+        let mut killer = child.clone_killer();
+        let (sender, receiver) = mpsc::sync_channel(1);
+        std::thread::spawn(move || {
+            let _ = sender.send(child.wait());
+        });
+        match receiver.recv_timeout(timeout) {
+            Ok(status) => Some(status.unwrap()),
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                let _ = killer.kill();
+                None
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => None,
+        }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for CapturingPtyChild {
+    fn drop(&mut self) {
+        self.writer.take();
+        if let Some(child) = self.child.as_mut() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        if let Some(reader_thread) = self.reader_thread.take() {
+            let _ = reader_thread.join();
+        }
+    }
+}
+
+#[cfg(unix)]
 struct TestTempDir(PathBuf);
 
 #[cfg(unix)]
@@ -2804,24 +2943,37 @@ fn plain_launch_attaches_to_existing_local_session() {
 
 #[cfg(unix)]
 #[test]
-fn session_shutdown_exits_an_interactive_local_owner() {
+fn session_shutdown_exits_an_interactive_detached_owner_client() {
     let dir = TestTempDir::create("interactive-session-shutdown");
     let socket = dir.path().join("mux.sock");
     let socket_arg = socket.to_str().unwrap();
-    let mut owner =
-        PtyChild::start(&["--session", "interactive-session-shutdown", "--socket", socket_arg]);
+    let state = dir.path().join("state");
+    let state_arg = state.to_str().unwrap();
+    let config = dir.path().join("config.json");
+    fs::write(&config, r#"{"server":{"detached_owner":true}}"#).unwrap();
+    let mut client = PtyChild::start_with_env(
+        &[
+            "--session",
+            "interactive-session-shutdown",
+            "--socket",
+            socket_arg,
+            "--state",
+            state_arg,
+        ],
+        &[("CMUX_TUI_CONFIG", config.as_os_str())],
+    );
     wait_for_socket_path(&socket);
-    wait_for_owner_server_ready(&socket, &mut owner);
+    wait_for_owner_server_ready(&socket, &mut client);
 
     let shutdown =
         lifecycle_cli(&["--json", "--socket", socket_arg, "session", "current", "shutdown"]);
     assert_success(&shutdown);
     assert_eq!(json_output(&shutdown)["value"]["accepted"], true);
 
-    let status = owner
+    let status = client
         .wait_for_exit(Duration::from_secs(5))
-        .expect("interactive owner remained alive after session shutdown");
-    assert!(status.success(), "interactive owner exited unsuccessfully: {status}");
+        .expect("interactive client remained alive after detached owner shutdown");
+    assert!(status.success(), "interactive client exited unsuccessfully: {status}");
 }
 
 #[cfg(unix)]
@@ -2924,6 +3076,86 @@ fn explicit_attach_registers_a_full_session_tui_client() {
     }
 
     panic!("explicit attach never registered the full session");
+}
+
+#[cfg(unix)]
+#[test]
+fn scoped_terminal_attach_streams_pty_and_detaches_without_killing_terminal() {
+    let server = HeadlessServer::start("scoped-terminal-attach-lifecycle");
+    let created = json_cli(&server, &["tab", "create", "terminal"]);
+    assert_success(&created);
+    let terminal = json_output(&created)["value"]["terminal_id"]
+        .as_str()
+        .expect("terminal creation returns a terminal id")
+        .to_string();
+
+    let first_marker = "scoped_attach_lifecycle_marker";
+    let write = json_cli(
+        &server,
+        &["terminal", &terminal, "write", "--text", &format!("printf '{first_marker}\\n'\n")],
+    );
+    assert_success(&write);
+    assert!(
+        wait_for_screen(&server, &terminal, first_marker).contains(first_marker),
+        "daemon terminal did not produce the attach marker"
+    );
+
+    let socket = server.socket.to_str().unwrap();
+    let mut attached =
+        CapturingPtyChild::start(&["attach", "--socket", socket, "--terminal", &terminal]);
+    let output = attached.wait_for_output(first_marker, Duration::from_secs(10));
+    assert!(
+        output.windows(first_marker.len()).any(|window| window == first_marker.as_bytes()),
+        "scoped attach PTY did not replay terminal output: {}",
+        String::from_utf8_lossy(&output)
+    );
+
+    let clients_deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < clients_deadline {
+        let clients = json_cli(&server, &["client", "list"]);
+        if clients.status.success()
+            && json_output(&clients).as_array().is_some_and(|clients| {
+                clients.iter().any(|client| {
+                    client["client_kind"].as_str() == Some("tui")
+                        && client["attached_terminal_ids"].as_array().is_some_and(|ids| {
+                            ids.len() == 1 && ids[0].as_str() == Some(terminal.as_str())
+                        })
+                })
+            })
+        {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let clients = json_output(&json_cli(&server, &["client", "list"]));
+    assert!(
+        clients.as_array().is_some_and(|clients| {
+            clients.iter().any(|client| {
+                client["client_kind"].as_str() == Some("tui")
+                    && client["attached_terminal_ids"].as_array().is_some_and(|ids| {
+                        ids.len() == 1 && ids[0].as_str() == Some(terminal.as_str())
+                    })
+            })
+        }),
+        "scoped attach did not register exactly one terminal: {clients}"
+    );
+
+    attached.write(b"\x02d");
+    let status = attached
+        .wait_for_exit(Duration::from_secs(10))
+        .expect("scoped attach did not exit after Ctrl-b d");
+    assert!(status.success(), "scoped attach exited unsuccessfully: {status}");
+
+    let second_marker = "scoped_attach_after_detach_marker";
+    let write = json_cli(
+        &server,
+        &["terminal", &terminal, "write", "--text", &format!("printf '{second_marker}\\n'\n")],
+    );
+    assert_success(&write);
+    assert!(
+        wait_for_screen(&server, &terminal, second_marker).contains(second_marker),
+        "daemon terminal stopped accepting input after scoped detach"
+    );
 }
 
 #[cfg(unix)]
@@ -3129,6 +3361,13 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
     let screen_id = created["value"]["screen_id"].as_str().unwrap().to_string();
     let pane0 = created["value"]["pane_id"].as_str().unwrap().to_string();
     let terminal = created["value"]["terminal_id"].as_str().unwrap().to_string();
+    // Create all terminals before opening the long-lived raw control client.
+    // Terminal creation can rebalance the shared Kitty image budget; keeping
+    // this resource setup ahead of the sizing lease avoids a cross-resource
+    // wait in this fixture.
+    let split = json_cli(&server, &["pane", &pane0, "split", "--right"]);
+    assert_success(&split);
+    let pane1 = json_output(&split)["value"]["pane_id"].as_str().unwrap().to_string();
     let raw_tree =
         raw_json(&server, serde_json::json!({"id":"created-tree","cmd":"list-workspaces"}));
     let sizing_surface =
@@ -3228,9 +3467,6 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
         "ordinary public layout unexpectedly used viewport columns"
     );
 
-    let split = json_cli(&server, &["pane", &pane0, "split", "--right"]);
-    assert_success(&split);
-    let pane1 = json_output(&split)["value"]["pane_id"].as_str().unwrap().to_string();
     let projected = json_cli(
         &server,
         &[
@@ -3565,8 +3801,24 @@ fn assert_subscribe_reports_tree_changed(server: &HeadlessServer) {
         }
     });
     writeln!(writer, r#"{{"id":1,"cmd":"subscribe"}}"#).unwrap();
+    writer.flush().unwrap();
 
-    std::thread::sleep(Duration::from_millis(200));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .expect("server did not acknowledge the tree-change subscription");
+        let line = rx
+            .recv_timeout(remaining)
+            .expect("server did not acknowledge the tree-change subscription");
+        let message: serde_json::Value =
+            serde_json::from_str(&line).expect("subscription returned invalid JSON");
+        if message["id"].as_u64() == Some(1) {
+            assert_eq!(message["ok"], true, "tree-change subscription failed: {message}");
+            break;
+        }
+    }
+
     let tab = json_cli(server, &["tab", "create", "terminal"]);
     if !tab.status.success() {
         let mut lines = Vec::new();
@@ -3829,6 +4081,31 @@ fn git(dir: &PathBuf, args: &[&str]) {
     assert_success(&output);
 }
 
+#[test]
+fn new_terminals_default_to_the_daemon_launch_directory() {
+    // Regression for https://github.com/manaflow-ai/cmux/issues/10756: a
+    // terminal created without an explicit cwd must start where the daemon
+    // was launched, not in $HOME. $HOME-rooted agents recursively scan and
+    // watch the whole home directory.
+    let launch = unique_temp_dir("launch-cwd-dir");
+    fs::create_dir_all(&launch).unwrap();
+    // The daemon reports its physical working directory, so compare against
+    // the resolved path (macOS /tmp is a symlink to /private/tmp).
+    let launch = launch.canonicalize().unwrap();
+    let server = HeadlessServer::start_in("launch-cwd", &launch);
+
+    let created = json_cli(&server, &["tab", "create", "terminal"]);
+    assert_success(&created);
+    let listed = json_output(&json_cli(&server, &["terminal", "list"]));
+    let terminals = listed.as_array().expect("terminal list returns an array");
+    assert_eq!(terminals.len(), 1, "expected one terminal: {listed}");
+    assert_eq!(
+        terminals[0]["cwd"].as_str(),
+        launch.to_str(),
+        "terminal cwd must be the daemon launch directory"
+    );
+}
+
 fn cli(server: &HeadlessServer, args: &[&str]) -> Output {
     Command::new(bin())
         .args(["--socket"])
@@ -3973,6 +4250,7 @@ fn create_live_terminal_host_record(root: &std::path::Path) -> fs::File {
         supports_set_defaults: true,
         supports_clear_history: true,
         supports_terminate_ack: false,
+        supports_input_ack: false,
     };
     let record_path = record.record_path(root);
     let live_path = record_path.with_extension(format!("{incarnation}-{host_start_nonce}.live"));
@@ -3998,4 +4276,112 @@ fn unique_temp_dir(name: &str) -> PathBuf {
 
 fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_cmux-tui")
+}
+
+#[cfg(unix)]
+const WG_HUB_TEST_PRIVATE_KEY: &str = "GDYq0RJ4LWL6jJhLMAlM1oHcCTdSiXPMZ4X5D8WzGdw=";
+#[cfg(unix)]
+const WG_HUB_TEST_PEER_KEY: &str = "Bo2I0OcpKnXtElGwH6EXV3MwDQctaIrFJ4tDX44DoWs=";
+
+#[cfg(unix)]
+fn write_wg_hub_config(dir: &std::path::Path, mode: u32) -> PathBuf {
+    let config = dir.join("wg.conf");
+    fs::write(
+        &config,
+        format!(
+            "[Interface]\nPrivateKey = {WG_HUB_TEST_PRIVATE_KEY}\nAddress = 100.64.0.1/32\nMTU = 1200\n\n[Peer]\nPublicKey = {WG_HUB_TEST_PEER_KEY}\nAllowedIPs = 10.0.0.0/8, fd00::/8\nEndpoint = 127.0.0.1:9\n"
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&config, fs::Permissions::from_mode(mode)).unwrap();
+    config
+}
+
+#[cfg(unix)]
+#[test]
+fn wg_hub_reports_readiness_and_removes_its_socket_on_sigterm() {
+    let dir = TestTempDir::create("wg-hub");
+    let config = write_wg_hub_config(dir.path(), 0o600);
+    let socket = dir.path().join("hub").join("wg.sock");
+    let mut child = Command::new(bin())
+        .args(["wg", "hub", "--config"])
+        .arg(&config)
+        .arg("--socket")
+        .arg(&socket)
+        .env("LC_ALL", "C")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let mut line = String::new();
+    stdout.read_line(&mut line).unwrap();
+    assert!(
+        !line.is_empty(),
+        "hub exited before printing readiness: {:?}",
+        child.wait_with_output()
+    );
+    let ready: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+    assert_eq!(ready["event"], "hub-ready", "{line}");
+    assert_eq!(ready["socket"], socket.to_str().unwrap(), "{line}");
+    assert_eq!(ready["routes"], serde_json::json!(["10.0.0.0/8", "fd00::/8"]), "{line}");
+
+    let socket_meta = fs::metadata(&socket).unwrap();
+    assert!(socket_meta.file_type().is_socket());
+    assert_eq!(socket_meta.permissions().mode() & 0o777, 0o600);
+    assert_eq!(fs::metadata(socket.parent().unwrap()).unwrap().permissions().mode() & 0o777, 0o700);
+
+    // A live socket must be refused by a second hub.
+    let second = Command::new(bin())
+        .args(["wg", "hub", "--config"])
+        .arg(&config)
+        .arg("--socket")
+        .arg(&socket)
+        .env("LC_ALL", "C")
+        .output()
+        .unwrap();
+    assert!(!second.status.success(), "second hub on a live socket must fail");
+    assert!(socket.exists(), "the losing hub must not remove the live socket");
+
+    let pid = i32::try_from(child.id()).unwrap();
+    assert_eq!(unsafe { libc::kill(pid, libc::SIGTERM) }, 0);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        assert!(Instant::now() < deadline, "hub did not exit after SIGTERM");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert!(status.success(), "hub exited unsuccessfully after SIGTERM: {status}");
+    assert!(!socket.exists(), "hub must remove its socket on exit");
+}
+
+#[cfg(unix)]
+#[test]
+fn wg_hub_refuses_a_readable_config_and_missing_options() {
+    let dir = TestTempDir::create("wg-hub-perms");
+    let config = write_wg_hub_config(dir.path(), 0o644);
+    let socket = dir.path().join("wg.sock");
+    let output = Command::new(bin())
+        .args(["wg", "hub", "--config"])
+        .arg(&config)
+        .arg("--socket")
+        .arg(&socket)
+        .env("LC_ALL", "C")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("cannot read WireGuard config"), "{stderr}");
+    assert!(!socket.exists());
+
+    let missing = lifecycle_cli(&["wg", "hub", "--config", config.to_str().unwrap()]);
+    assert!(!missing.status.success());
+    assert!(String::from_utf8(missing.stderr).unwrap().contains("--socket"));
+
+    let help = lifecycle_cli(&["wg", "hub", "--help"]);
+    assert!(help.status.success());
+    assert!(String::from_utf8(help.stdout).unwrap().starts_with("USAGE: cmux wg hub"));
 }

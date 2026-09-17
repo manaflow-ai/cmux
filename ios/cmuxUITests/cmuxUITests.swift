@@ -1,13 +1,196 @@
 import CMUXMobileCore
 import Network
 import UIKit
+import Vision
 import XCTest
 
 final class cmuxUITests: XCTestCase {
-    private static let taskComposerModelCatalogJSON = #"{"schemaVersion":1,"updatedAt":"2026-08-09T00:00:00Z","providers":{"claude":{"defaultModel":"claude-opus-4-8","models":[{"id":"claude-opus-4-8","label":"Opus 4.8"}]},"codex":{"defaultModel":"gpt-5.5","models":[{"id":"gpt-5.5","label":"GPT-5.5"}]},"opencode":{"defaultModel":"anthropic/claude-opus-4-8","models":[{"id":"anthropic/claude-opus-4-8","label":"Claude Opus 4.8"}]}}}"#
+    private static let taskComposerModelCatalogJSON = #"{"schemaVersion":1,"updatedAt":"2026-08-09T00:00:00Z","providers":{"claude":{"defaultModel":"claude-opus-4-8","models":[{"id":"claude-opus-4-8","label":"Opus 4.8"}]},"codex":{"defaultModel":"gpt-5.5","models":[{"id":"gpt-5.5","label":"GPT-5.5","efforts":[{"value":"medium","label":"Medium"},{"value":"high","label":"High"}],"defaultEffort":"medium"},{"id":"gpt-5.5-mini","label":"GPT-5.5 Mini","efforts":[{"value":"low","label":"Low"}],"defaultEffort":"low"}]},"opencode":{"defaultModel":"anthropic/claude-opus-4-8","models":[{"id":"anthropic/claude-opus-4-8","label":"Claude Opus 4.8"}]}}}"#
 
     override func setUpWithError() throws {
         continueAfterFailure = false
+    }
+
+    @MainActor
+    func testDeveloperSettingsReplaysWhatsNewRange() throws {
+        let app = launchApp(
+            mockData: false,
+            environment: ["CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1"]
+        )
+        defer { app.terminate() }
+        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 8))
+        tap(settings, in: app)
+
+        let replayRow = app.buttons["MobileSettingsReplayWhatsNew"]
+        for _ in 0..<10 where !replayRow.exists || !replayRow.isHittable {
+            app.swipeUp(velocity: .slow)
+        }
+        XCTAssertTrue(replayRow.isHittable)
+        tap(replayRow, in: app)
+        let show = app.buttons["MobileWhatsNewReplayShow"]
+        XCTAssertTrue(show.waitForExistence(timeout: 5))
+
+        func capture(_ name: String) {
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+
+        capture("Developer What's New range picker")
+        tap(show, in: app)
+        let continueButton = app.buttons["MobileWhatsNewContinue"]
+        XCTAssertTrue(continueButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["On this iPhone"].exists)
+        capture("Developer replay - pairing sheet")
+        app.staticTexts["On this iPhone"].swipeLeft()
+        XCTAssertTrue(app.staticTexts["Per-computer methods"].waitForExistence(timeout: 5))
+        capture("Developer replay - older sheet after swipe")
+        tap(continueButton, in: app)
+        XCTAssertTrue(show.waitForExistence(timeout: 5))
+
+        let first = app.buttons["MobileWhatsNewReplayFirst"]
+        tap(first, in: app)
+        tap(app.buttons["connections.v1"].firstMatch, in: app)
+        tap(show, in: app)
+        XCTAssertTrue(app.staticTexts["Per-computer methods"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["On this iPhone"].exists)
+        tap(continueButton, in: app)
+        XCTAssertTrue(show.waitForExistence(timeout: 5))
+        tap(show, in: app)
+        XCTAssertTrue(app.staticTexts["Per-computer methods"].waitForExistence(timeout: 5))
+        tap(continueButton, in: app)
+        XCTAssertTrue(show.waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testWhatsNewSheetFitsSwipedPageAndMatchesAppearance() throws {
+        let app = XCUIApplication()
+        defer { app.terminate() }
+
+        for appearance in ["light", "dark"] {
+            app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+            app.launchEnvironment = [
+                "CMUX_UITEST_WHATS_NEW_PREVIEW": "1",
+                "CMUX_UITEST_WHATS_NEW_APPEARANCE": appearance
+            ]
+            app.launch()
+            let image = app.images.matching(NSPredicate(
+                format: "label == %@",
+                "cmux Mac Settings, Mobile section, showing Enable iOS pairing."
+            )).firstMatch
+            XCTAssertTrue(image.waitForExistence(timeout: 15))
+            let sheet = app.collectionViews["MobileWhatsNewSheet"].firstMatch
+            let title = sheet.staticTexts["Action Required: Enable iOS pairing on your Mac"].firstMatch
+
+            func assertFitted(_ lastText: XCUIElement) {
+                XCTAssertTrue(lastText.exists)
+                let gap = app.buttons["Continue"].frame.minY - lastText.frame.maxY
+                XCTAssertGreaterThan(gap, 0)
+                XCTAssertLessThan(gap, 100, "The footer must follow this page's content")
+            }
+
+            let compatibilityDetail = app.staticTexts.matching(NSPredicate(
+                format: "label BEGINSWITH %@", "Use cmux 0.64.0 or later."
+            )).firstMatch
+            assertFitted(compatibilityDetail)
+            XCTAssertGreaterThanOrEqual(title.frame.minY - sheet.frame.minY, 28)
+            let pairingTop = title.frame.minY
+            let pixels = try XCTUnwrap(image.screenshot().image.cgImage)
+            var rgba = [UInt8](repeating: 0, count: 4)
+            let context = try XCTUnwrap(CGContext(
+                data: &rgba, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ))
+            context.draw(pixels, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+            let brightness = Double(Int(rgba[0]) + Int(rgba[1]) + Int(rgba[2])) / (3 * 255)
+            if appearance == "light" {
+                XCTAssertGreaterThan(brightness, 0.65, "Use the light Mac Settings capture")
+            } else {
+                XCTAssertLessThan(brightness, 0.35, "Use the dark Mac Settings capture")
+            }
+            let before = XCTAttachment(screenshot: app.screenshot())
+            before.name = "Fitted pairing page - \(appearance)"
+            before.lifetime = .keepAlways
+            add(before)
+
+            image.swipeLeft()
+            let olderTitle = sheet.staticTexts["What's New in cmux"].firstMatch
+            XCTAssertTrue(olderTitle.waitForExistence(timeout: 5))
+            let olderDetail = sheet.staticTexts.matching(NSPredicate(
+                format: "label BEGINSWITH %@", "Use cmux 0.64.0 or later."
+            )).firstMatch
+            assertFitted(olderDetail)
+            XCTAssertGreaterThan(abs(olderTitle.frame.minY - pairingTop), 20, "Swiping must resize the sheet")
+            let after = XCTAttachment(screenshot: app.screenshot())
+            after.name = "Fitted connections page - \(appearance)"
+            after.lifetime = .keepAlways
+            add(after)
+            olderTitle.swipeRight()
+            XCTAssertTrue(image.waitForExistence(timeout: 5))
+            assertFitted(compatibilityDetail)
+            XCTAssertEqual(title.frame.minY, pairingTop, accuracy: 2)
+            app.terminate()
+        }
+        try testWhatsNewSeparateUpdatesScreenshotCropAndLeadingAlignment()
+    }
+
+    @MainActor
+    func testWhatsNewSeparateUpdatesScreenshotCropAndLeadingAlignment() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchEnvironment = ["CMUX_UITEST_WHATS_NEW_PREVIEW": "1"]
+        app.launch()
+        defer { app.terminate() }
+
+        func verifyPairingPage(_ name: String) throws {
+            let screenshot = app.images.matching(NSPredicate(
+                format: "label == %@",
+                "cmux Mac Settings, Mobile section, showing Enable iOS pairing."
+            )).firstMatch
+            XCTAssertTrue(screenshot.waitForExistence(timeout: 15))
+            let title = app.staticTexts["On this iPhone"].firstMatch
+            let detail = app.staticTexts["Sign in to the same cmux account"].firstMatch
+            XCTAssertTrue(title.exists)
+            XCTAssertTrue(detail.exists)
+            XCTAssertEqual(title.frame.minX, screenshot.frame.minX, accuracy: 2)
+            XCTAssertEqual(detail.frame.minX, screenshot.frame.minX, accuracy: 2)
+            XCTAssertEqual(screenshot.frame.width / screenshot.frame.height, 642.0 / 95.0, accuracy: 0.05)
+
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = .accurate
+            request.recognitionLanguages = ["en-US"]
+            try VNImageRequestHandler(data: screenshot.screenshot().pngRepresentation).perform([request])
+            let text = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ")
+            XCTAssertTrue(text.contains("Mobile"), text)
+            XCTAssertTrue(text.contains("Enable iOS pairing"), text)
+            XCTAssertTrue(text.contains("for this Mac"), text)
+            XCTAssertFalse(text.contains("Notifications"), text)
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+
+        try verifyPairingPage("Pairing update sheet")
+        app.buttons["Continue"].tap()
+        XCTAssertTrue(app.staticTexts["Per-computer methods"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Auto-Connect is now Iroh"].exists)
+        app.buttons["Continue"].tap()
+        let newer = app.buttons["MobileWhatsNewEntry-connections.v2"]
+        let older = app.buttons["MobileWhatsNewEntry-connections.v1"]
+        XCTAssertTrue(newer.waitForExistence(timeout: 5))
+        XCTAssertTrue(older.exists)
+        newer.tap()
+        try verifyPairingPage("Pairing update in Settings")
+        let heading = app.staticTexts["Action Required: Enable iOS pairing on your Mac"].firstMatch
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.recognitionLanguages = ["en-US"]
+        try VNImageRequestHandler(data: heading.screenshot().pngRepresentation).perform([request])
+        let headingText = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ")
+        XCTAssertTrue(headingText.contains("on your Mac"), "The complete title must render: \(headingText)")
     }
 
     func testMockHostInstanceTagFollowsTargetBuildScope() {
@@ -20,6 +203,12 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(
             mockHostInstanceTag(
                 testBundleIdentifier: "dev.cmux.ios.uitests"
+            ),
+            "dev"
+        )
+        XCTAssertEqual(
+            mockHostInstanceTag(
+                testBundleIdentifier: "dev.cmux.ios.uitests.xctrunner"
             ),
             "dev"
         )
@@ -266,13 +455,46 @@ final class cmuxUITests: XCTestCase {
 
         primaryButton.tap()
 
+        // The push page shows the inline-reply preview and pairs Enable with
+        // Not Now; the footer legitimately grows for the second button, so the
+        // chrome reference frames are re-recorded on this page.
+        let pushScene = element("MobileOnboardingPushScene")
+        assertPageVisible(pushScene)
+        let pushTitle = app.staticTexts["Know the moment an agent needs you"]
+        XCTAssertTrue(pushTitle.exists)
+        let pushBody = app.staticTexts.matching(NSPredicate(
+            format: "label == %@",
+            "Get a push when an agent is waiting, and reply right from the Lock Screen."
+        )).firstMatch
+        XCTAssertTrue(pushBody.exists)
+        let pushPreview = element("MobileOnboardingScreenshot-push")
+        XCTAssertTrue(pushPreview.waitForExistence(timeout: 4))
+        XCTAssertTrue(primaryButton.label.contains("Enable Notifications"))
+        let notNowButton = app.buttons["MobileOnboardingSecondaryButton"]
+        XCTAssertTrue(notNowButton.waitForExistence(timeout: 4))
+        XCTAssertTrue(notNowButton.label.contains("Not Now"))
+        XCTAssertTrue(app.buttons["MobileOnboardingBackButton"].exists)
+        XCTAssertTrue(app.buttons["MobileOnboardingSkipButton"].exists)
+        recordChromeReferenceFrames()
+        assertPageContentFitsWithoutScrolling(
+            title: pushTitle,
+            visual: pushPreview,
+            additionalContent: [pushBody]
+        )
+        capture("onboarding-02c-push")
+
+        // Declining must not present the OS permission alert and advances the
+        // tour to the connection page.
+        notNowButton.tap()
+
         let connectScene = element("MobileOnboardingConnectScene")
         assertPageVisible(connectScene)
         XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].exists)
         XCTAssertTrue(app.staticTexts[
             "Use the same cmux account on both devices. Your Mac connects automatically."
         ].exists)
-        XCTAssertTrue(app.staticTexts["Looking for your Mac…"].exists)
+        let connectionSearching = element("MobileOnboardingConnectionSearching")
+        XCTAssertTrue(connectionSearching.waitForExistence(timeout: 4))
         XCTAssertFalse(element("MobileOnboardingSignInBridge").exists)
         XCTAssertFalse(app.buttons["signin.apple"].exists)
         XCTAssertFalse(app.buttons["Scan Mac QR"].exists)
@@ -354,15 +576,18 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(scannerGuidance.waitForExistence(timeout: 4))
         XCTAssertEqual(
             scannerGuidance.label,
-            "On cmux 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code. On newer versions, open Tailscale Pairing. Install Tailscale on both devices and use the same Tailscale network first."
+            "Install Tailscale on both devices and use the same Tailscale network. On cmux 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code. On newer versions, open Mobile Pairing and scan its code here."
         )
         XCTAssertTrue(scannerCancel.waitForExistence(timeout: 4))
         capture("onboarding-05-scanner-fallback")
 
         scannerCancel.tap()
-        XCTAssertTrue(connectScene.waitForExistence(timeout: 4))
+        XCTAssertTrue(app.descendants(matching: .any)["MobilePairingView"].waitForExistence(timeout: 4))
+        XCTAssertFalse(scanPairingCodeButton.isHittable)
         XCTAssertTrue(scannerPreview.waitForNonExistence(timeout: 2))
         capture("onboarding-06-scanner-cancelled")
+        app.buttons["MobilePairingCancelButton"].tap()
+        XCTAssertTrue(connectScene.waitForExistence(timeout: 4))
         tap(automaticMethod, in: app)
         XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].waitForExistence(timeout: 4))
 
@@ -394,6 +619,27 @@ final class cmuxUITests: XCTestCase {
         capture("onboarding-08-notifications-compact-height")
 
         primaryButton.tap()
+        assertPageVisible(pushScene)
+        let secondaryAnyType = element("MobileOnboardingSecondaryButton")
+        XCTAssertTrue(
+            notNowButton.waitForExistence(timeout: 4),
+            """
+            Secondary button missing in compact height. \
+            anyTyped exists=\(secondaryAnyType.exists) \
+            type=\(secondaryAnyType.exists ? String(secondaryAnyType.elementType.rawValue) : "-") \
+            buttons=\(app.buttons.allElementsBoundByIndex.map { "\($0.identifier):\($0.label)" }) \
+            footer=\(element("MobileOnboardingFooter").debugDescription)
+            """
+        )
+        recordChromeReferenceFrames()
+        assertPageContentFitsWithoutScrolling(
+            title: pushTitle,
+            visual: pushPreview,
+            additionalContent: [pushBody]
+        )
+        capture("onboarding-08a-push-compact-height")
+
+        notNowButton.tap()
         assertPageVisible(connectScene)
         XCTAssertFalse(app.buttons["MobileOnboardingSecondaryButton"].exists)
         let compactRetryButton = app.buttons["MobileOnboardingPrimaryButton"]
@@ -416,11 +662,14 @@ final class cmuxUITests: XCTestCase {
         capture("onboarding-09-connect-compact-height")
     }
 
-    /// Manual pairing only authorizes a Tailscale route, so Auto-Connect must
-    /// not expose Add Computer. Switching Settings still reveals the scanner
-    /// owned by the Tailscale method.
+    /// Add Computer (the manual host:port form) is available under every
+    /// connection method: entering the address where a same-account Mac is
+    /// reachable IS discovery for networks Iroh may not find fast enough.
+    /// Regression: the always-on affordance must actually present the form; a
+    /// stale method re-check in the root's showAddDevice() made the tap a
+    /// silent no-op on Auto-Connect setups.
     @MainActor
-    func testAutomaticConnectionMethodHidesAddComputer() throws {
+    func testAutomaticConnectionMethodPresentsAddComputer() throws {
         let automaticEnvironment = [
             "CMUX_UITEST_AUTOCONNECT_MIGRATION": "ineligible",
             "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
@@ -435,57 +684,26 @@ final class cmuxUITests: XCTestCase {
             app.descendants(matching: .any)["MobileDisconnectedWorkspaceShell"]
                 .waitForExistence(timeout: 12)
         )
-        XCTAssertFalse(app.buttons["MobileShowAddDeviceButton"].exists)
-        XCTAssertFalse(app.buttons["MobileShowAddDeviceToolbarButton"].exists)
-        let automaticDescription = app.descendants(matching: .any)[
-            "MobileDisconnectedEmptyDescription"
-        ]
-        XCTAssertTrue(automaticDescription.waitForExistence(timeout: 4))
-        for requiredFragment in [
-            "cmux 0.64.20 or later",
-            "same cmux account",
-            "keep cmux running on the Mac",
-            "both devices are online",
-            "will not appear automatically",
-        ] {
-            XCTAssertTrue(
-                automaticDescription.label.contains(requiredFragment),
-                "Auto-Connect empty-state copy is missing: \(requiredFragment)"
-            )
-        }
+        let addComputerToolbarButton = app.buttons["MobileShowAddDeviceToolbarButton"]
+        XCTAssertTrue(addComputerToolbarButton.waitForExistence(timeout: 4))
+        tap(addComputerToolbarButton, in: app)
         XCTAssertTrue(
-            automaticDescription.label.contains(
-                "To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
-            )
+            app.textFields["MobileAddDeviceHostField"].waitForExistence(timeout: 8),
+            "Add Computer must present the manual pairing form under Auto-Connect."
         )
-
-        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
-        XCTAssertTrue(settings.waitForExistence(timeout: 4))
-        tap(settings, in: app)
-        let picker = app.descendants(matching: .any)["MobileSettingsConnectionMethod"]
-        XCTAssertTrue(picker.waitForExistence(timeout: 4))
-        tap(picker, in: app)
-        let tailscale = app.descendants(matching: .any)[
-            "MobileSettingsConnectionMethodTailscale"
-        ]
-        XCTAssertTrue(tailscale.waitForExistence(timeout: 4))
-        tap(tailscale, in: app)
+        let cancelPairing = app.buttons["MobilePairingCancelButton"]
+        XCTAssertTrue(cancelPairing.waitForExistence(timeout: 4))
+        tap(cancelPairing, in: app)
         XCTAssertTrue(
-            app.buttons["MobileSettingsTailscaleScanButton"].waitForExistence(timeout: 4)
-        )
-
-        let done = app.buttons["MobileSettingsDone"]
-        XCTAssertTrue(done.waitForExistence(timeout: 4))
-        tap(done, in: app)
-        XCTAssertTrue(
-            app.descendants(matching: .any)["MobileSettingsView"]
-                .waitForNonExistence(timeout: 4)
+            app.textFields["MobileAddDeviceHostField"].waitForNonExistence(timeout: 8)
         )
     }
 
     /// An externally supplied Auto-Connect attach ticket may still need an
     /// explicit compatibility approval. That approval must remain reachable
-    /// without restoring any manual Add Computer controls.
+    /// without restoring any manual Add Computer controls mid-flow. Afterwards,
+    /// Add Computer inside the Computers sheet must hand the modal slot to the
+    /// manual pairing form instead of only dismissing the sheet.
     @MainActor
     func testAutomaticAttachVersionApprovalDoesNotExposeManualPairing() async throws {
         let server = try MobileSyncMockHostServer()
@@ -526,10 +744,25 @@ final class cmuxUITests: XCTestCase {
         let devices = app.buttons["MobileWorkspaceDevicesButton"]
         XCTAssertTrue(devices.waitForExistence(timeout: 8))
         tap(devices, in: app)
+        let deviceTree = app.descendants(matching: .any)["MobileDeviceTree"]
+        XCTAssertTrue(deviceTree.waitForExistence(timeout: 4))
+
+        // Regression: on an Auto-Connect (non-Tailscale) setup, tapping Add
+        // Computer inside the Computers sheet silently no-opped — the sheet
+        // dismissed and nothing appeared, because a stale method re-check in
+        // the root's showAddDevice() dropped the presentation the always-on
+        // Add Computer affordance had just requested.
+        let addComputer = app.buttons["MobileComputersAddButton"]
+        XCTAssertTrue(addComputer.waitForExistence(timeout: 4))
+        tap(addComputer, in: app)
         XCTAssertTrue(
-            app.descendants(matching: .any)["MobileDeviceTree"].waitForExistence(timeout: 4)
+            deviceTree.waitForNonExistence(timeout: 8),
+            "Add Computer must dismiss the Computers sheet before pairing presents."
         )
-        XCTAssertFalse(app.buttons["MobileComputersAddButton"].exists)
+        XCTAssertTrue(
+            app.textFields["MobileAddDeviceHostField"].waitForExistence(timeout: 8),
+            "Add Computer from the Computers sheet must present the manual pairing form."
+        )
     }
 
     @MainActor
@@ -556,6 +789,12 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(element("MobileOnboardingNotificationsScene").waitForExistence(timeout: 4))
         XCTAssertTrue(primaryButton.waitForExistence(timeout: 4))
         primaryButton.tap()
+
+        // Decline the push opt-in; the tour continues without any OS alert.
+        XCTAssertTrue(element("MobileOnboardingPushScene").waitForExistence(timeout: 4))
+        let notNowButton = app.buttons["MobileOnboardingSecondaryButton"]
+        XCTAssertTrue(notNowButton.waitForExistence(timeout: 4))
+        notNowButton.tap()
 
         XCTAssertTrue(element("MobileOnboardingConnectScene").waitForExistence(timeout: 4))
         XCTAssertFalse(element("MobileOnboardingSignInBridge").exists)
@@ -612,6 +851,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(scannerCancel.waitForExistence(timeout: 4))
         scannerCancel.tap()
         XCTAssertTrue(scannerPreview.waitForNonExistence(timeout: 4))
+        app.buttons["MobilePairingCancelButton"].tap()
 
         let tailscaleDescription = app.descendants(matching: .any)[
             "MobileDisconnectedEmptyDescription"
@@ -1542,7 +1782,7 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    func testIOSCanToggleMacKeepAwakeFromSettings() async throws {
+    func testIOSControlsMacKeepAwakePerComputer() async throws {
         let server = try MobileSyncMockHostServer(advertisesCaffeineControl: true)
         let port = try await server.start()
         defer { server.stop() }
@@ -1554,9 +1794,19 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(backButton.waitForExistence(timeout: 4))
         tap(backButton, in: app)
 
-        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
-        XCTAssertTrue(settings.waitForExistence(timeout: 4))
-        tap(settings, in: app)
+        // Keep-awake is per computer: the toggle lives in the computer's own
+        // detail view, not in app-wide Settings.
+        let devices = app.buttons["MobileWorkspaceDevicesButton"]
+        XCTAssertTrue(devices.waitForExistence(timeout: 4))
+        tap(devices, in: app)
+        let deviceTree = app.descendants(matching: .any)["MobileDeviceTree"]
+        XCTAssertTrue(deviceTree.waitForExistence(timeout: 4))
+
+        let row = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier BEGINSWITH 'MobileComputerRow-'")
+        ).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 6))
+        tap(row, in: app)
 
         let toggle = app.switches["MobileSettingsKeepMacAwakeToggle"]
         for _ in 0..<8 where !toggle.exists || !toggle.isHittable {
@@ -1564,36 +1814,69 @@ final class cmuxUITests: XCTestCase {
         }
         XCTAssertTrue(toggle.waitForExistence(timeout: 4))
         XCTAssertTrue(toggle.isHittable)
-        XCTAssertEqual(toggle.value as? String, "0")
         let didRequestInitialStatus = await server.waitForRequest(method: "caffeine.status")
         XCTAssertTrue(didRequestInitialStatus)
+        XCTAssertEqual(toggle.value as? String, "0")
 
         toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
         let enabled = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "value == %@", "1"),
             object: toggle
         )
-        XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 4), .completed)
+        let enabledResult = XCTWaiter.wait(for: [enabled], timeout: 4)
+        if enabledResult != .completed {
+            print("CAFFDBG toggle value=\(String(describing: toggle.value)) isEnabled=\(toggle.isEnabled)")
+            print("CAFFDBG tree begin\n\(app.debugDescription)\nCAFFDBG tree end")
+        }
+        XCTAssertEqual(enabledResult, .completed)
         let didEnableCaffeine = await server.waitForRequest(method: "caffeine.set")
         XCTAssertTrue(didEnableCaffeine)
 
-        let attachment = XCTAttachment(screenshot: app.screenshot())
-        attachment.name = "ios-keep-mac-awake-enabled"
-        attachment.lifetime = .keepAlways
-        add(attachment)
+        let detailAttachment = XCTAttachment(screenshot: app.screenshot())
+        detailAttachment.name = "ios-keep-mac-awake-detail-enabled"
+        detailAttachment.lifetime = .keepAlways
+        add(detailAttachment)
 
-        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
-        let disabled = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "value == %@", "0"),
-            object: toggle
-        )
-        XCTAssertEqual(XCTWaiter.wait(for: [disabled], timeout: 4), .completed)
+        // Back on the Computers list, the caffeinated Mac's row shows the cup
+        // indicator, and the leading swipe action turns keep-awake back off.
+        let detailBack = app.navigationBars.buttons.firstMatch
+        XCTAssertTrue(detailBack.waitForExistence(timeout: 4))
+        tap(detailBack, in: app)
+
+        // The cup indicator lives inside the row's combined accessibility
+        // element, so its label is asserted through the merged row label.
+        let indicator = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label CONTAINS 'Keeping Mac awake'")
+        ).firstMatch
+        XCTAssertTrue(indicator.waitForExistence(timeout: 4))
+
+        let listAttachment = XCTAttachment(screenshot: app.screenshot())
+        listAttachment.name = "ios-keep-mac-awake-row-indicator"
+        listAttachment.lifetime = .keepAlways
+        add(listAttachment)
+
+        XCTAssertTrue(row.waitForExistence(timeout: 4))
+        row.swipeRight()
+        let swipeButton = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH 'MobileComputerCaffeineSwipe-'")
+        ).firstMatch
+        XCTAssertTrue(swipeButton.waitForExistence(timeout: 3))
+
+        let swipeAttachment = XCTAttachment(screenshot: app.screenshot())
+        swipeAttachment.name = "ios-keep-mac-awake-swipe-action"
+        swipeAttachment.lifetime = .keepAlways
+        add(swipeAttachment)
+
+        tap(swipeButton, in: app)
         let didDisableCaffeine = await server.waitForRequest(
             method: "caffeine.set",
             minimumCount: 2
         )
         XCTAssertTrue(didDisableCaffeine)
-        XCTAssertEqual(await server.caffeineSetValues(), [true, false])
+        let caffeineSetValues = await server.caffeineSetValues()
+        XCTAssertEqual(caffeineSetValues, [true, false])
+        // The cup disappears once the Mac confirms keep-awake is off.
+        XCTAssertTrue(indicator.waitForNonExistence(timeout: 4))
     }
 
     @MainActor
@@ -1650,6 +1933,48 @@ final class cmuxUITests: XCTestCase {
 
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "workspace-mac-picker-computer-copy"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
+    func testComputerOrderListsSiblingBuildsSeparately() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_SORT": "computerPriority",
+        ])
+        defer { app.terminate() }
+
+        let filterButton = app.buttons["MobileWorkspaceFilterMenu"]
+        XCTAssertTrue(filterButton.waitForExistence(timeout: 8))
+        tap(filterButton, in: app)
+
+        let editOrder = app.descendants(matching: .any)[
+            "MobileWorkspaceSortEditOrder"
+        ]
+        XCTAssertTrue(editOrder.waitForExistence(timeout: 3))
+        tap(editOrder, in: app)
+
+        let nightlyRow = app.descendants(matching: .any).matching(
+            identifier: "MobileWorkspaceComputerOrderRow-preview-macbook-pro\u{1F}nightly"
+        ).firstMatch
+        let stableRow = app.descendants(matching: .any).matching(
+            identifier: "MobileWorkspaceComputerOrderRow-preview-macbook-pro\u{1F}stable"
+        ).firstMatch
+        let nightlyLabel = app.staticTexts.matching(NSPredicate(
+            format: "label == %@", "Nightly"
+        )).firstMatch
+        let stableLabel = app.staticTexts.matching(NSPredicate(
+            format: "label == %@", "Stable"
+        )).firstMatch
+        XCTAssertTrue(nightlyRow.waitForExistence(timeout: 5))
+        XCTAssertTrue(stableRow.waitForExistence(timeout: 5))
+        XCTAssertTrue(nightlyLabel.waitForExistence(timeout: 5))
+        XCTAssertTrue(stableLabel.waitForExistence(timeout: 5))
+        XCTAssertNotEqual(nightlyRow.frame, stableRow.frame)
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "computer-order-sibling-builds"
         attachment.lifetime = .keepAlways
         add(attachment)
     }
@@ -1779,7 +2104,7 @@ final class cmuxUITests: XCTestCase {
         let selectedProbeID =
             "MobileWorkspaceListPreviewSelection-workspace-mixed-alpha-inactive"
         let computerOrderTileID = "MobileWorkspaceSortTile-computerPriority"
-        let computerOrderTileLabel = "Computer Order"
+        let computerOrderTileLabel = "Custom Order"
         let recentTileID = "MobileWorkspaceSortTile-recentActivity"
         let recentTileLabel = "Recent Activity"
         let automaticTileID = "MobileWorkspaceSortTile-automatic"
@@ -1869,7 +2194,7 @@ final class cmuxUITests: XCTestCase {
         ]
         guard let computerFrames = orderedFrames(
             computerOrder,
-            state: "Computer Order"
+            state: "Custom Order"
         ) else { return }
         XCTAssertFalse(element(alphaAnchorID).exists)
         XCTAssertFalse(element(betaAnchorID).exists)
@@ -2790,7 +3115,7 @@ final class cmuxUITests: XCTestCase {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "60",
-            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_LIVE_UPDATES": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_LIVE_UPDATES": "sessions",
         ])
         defer { app.terminate() }
 
@@ -3571,6 +3896,51 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testPrimaryTabsPreserveWorkspaceNavigationAcrossSupportedOSVersions() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS": "1",
+        ])
+        defer { app.terminate() }
+
+        let workspaceRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
+        XCTAssertTrue(workspaceRow.waitForExistence(timeout: 8))
+        let workspaces = app.tabBars.buttons["Workspaces"]
+        let notifications = app.tabBars.buttons["Notifications"]
+        XCTAssertTrue(workspaces.waitForExistence(timeout: 3))
+        XCTAssertTrue(notifications.waitForExistence(timeout: 3))
+
+        notifications.tap()
+        XCTAssertTrue(app.staticTexts["Notification feed fixture"].waitForExistence(timeout: 3))
+        XCTAssertTrue(notifications.isSelected)
+        workspaces.tap()
+        XCTAssertTrue(workspaceRow.waitForExistence(timeout: 3))
+        XCTAssertTrue(workspaces.isSelected)
+
+        workspaceRow.tap()
+        let detail = app.descendants(matching: .any)["FixtureWorkspaceDetail"]
+        XCTAssertTrue(detail.waitForExistence(timeout: 3))
+        XCTAssertFalse(workspaces.isHittable, "Detail must hide the primary tab bar on every supported OS")
+        let detailScreenshot = XCTAttachment(screenshot: app.screenshot())
+        detailScreenshot.name = "primary-tabs-hidden-in-workspace"
+        detailScreenshot.lifetime = .keepAlways
+        add(detailScreenshot)
+
+        // iOS 17 can report an invalid navigation-bar ancestor frame even
+        // while Back is visible. The shared helper taps its measured frame;
+        // the assertions below still require a real pop and usable tabs.
+        tap(app.buttons["MobileWorkspaceBackButton"], in: app)
+        XCTAssertTrue(workspaceRow.waitForExistence(timeout: 3))
+        XCTAssertTrue(waitForHittable(notifications, timeout: 3))
+
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "primary-tabs-os-compatibility"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
+    @MainActor
     func testSearchRemainsStableAcrossPrimaryRoots() throws {
         guard #available(iOS 26.0, *) else {
             throw XCTSkip("The detached workspace search control requires iOS 26.")
@@ -3663,7 +4033,9 @@ final class cmuxUITests: XCTestCase {
         let mainRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
         XCTAssertTrue(waitForHittable(docsRow, timeout: 3))
         XCTAssertTrue(waitForNotHittable(mainRow, timeout: 3))
-        tap(docsRow, in: app)
+        // Tap the result with search still active. The generic tap helper
+        // submits the keyboard's Search action first, which changes tabs.
+        docsRow.tap()
 
         let workspaceDetail = app.descendants(matching: .any)["FixtureWorkspaceDetail"]
         XCTAssertTrue(workspaceDetail.waitForExistence(timeout: 3))
@@ -3768,22 +4140,24 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(feed.waitForExistence(timeout: 8))
 
         let matchingRow = app.descendants(matching: .any)[
-            "MobileNotificationFeedRow-macbook-tests-passed"
+            "MobileNotificationFeedRow-macbook-legacy-tests-passed"
         ]
         let nonmatchingRow = app.descendants(matching: .any)[
-            "MobileNotificationFeedRow-studio-codex-approval"
+            "MobileNotificationFeedRow-studio-legacy-codex-approval"
         ]
         let readRow = app.descendants(matching: .any)[
-            "MobileNotificationFeedRow-studio-localization-complete"
+            "MobileNotificationFeedRow-studio-legacy-localization-complete"
         ]
         XCTAssertTrue(waitForHittable(matchingRow, timeout: 3))
         XCTAssertTrue(waitForHittable(nonmatchingRow, timeout: 3))
         XCTAssertTrue(waitForHittable(readRow, timeout: 3))
 
-        let unreadFilter = app.descendants(matching: .any)["MobileNotificationFeedFilterUnread"]
-        XCTAssertTrue(waitForHittable(unreadFilter, timeout: 3))
-        unreadFilter.tap()
-        XCTAssertTrue(unreadFilter.isSelected)
+        let filterMenu = app.buttons["MobileNotificationFeedFilterMenu"]
+        XCTAssertTrue(waitForHittable(filterMenu, timeout: 3))
+        filterMenu.tap()
+        let unreadOption = app.buttons["Unread"]
+        XCTAssertTrue(unreadOption.waitForExistence(timeout: 3))
+        unreadOption.tap()
         XCTAssertTrue(waitForNotHittable(readRow, timeout: 3))
 
         let searchButton = app.tabBars.buttons
@@ -3791,7 +4165,7 @@ final class cmuxUITests: XCTestCase {
             .firstMatch
         XCTAssertTrue(searchButton.waitForExistence(timeout: 3))
         tap(searchButton, in: app)
-        XCTAssertTrue(unreadFilter.isSelected)
+        // The unread filter chosen in the menu must survive the tab switch.
         XCTAssertTrue(waitForNotHittable(readRow, timeout: 3))
 
         let searchField = app.searchFields["Search notifications"]
@@ -3809,6 +4183,97 @@ final class cmuxUITests: XCTestCase {
         ]
         XCTAssertTrue(workspaceDestination.waitForExistence(timeout: 3))
         XCTAssertTrue(app.navigationBars["Release"].waitForExistence(timeout: 3))
+
+        let systemBack = app.navigationBars.buttons.firstMatch
+        XCTAssertTrue(waitForHittable(systemBack, timeout: 3))
+        systemBack.tap()
+        XCTAssertTrue(waitForHittable(searchButton, timeout: 3))
+        XCTAssertGreaterThan(searchButton.frame.midY, app.frame.midY)
+        tap(searchButton, in: app)
+        XCTAssertTrue(waitForHittable(searchField, timeout: 3))
+        XCTAssertEqual(searchField.value as? String, "Tests passed")
+        XCTAssertTrue(waitForNotHittable(matchingRow, timeout: 3))
+        XCTAssertTrue(waitForNotHittable(nonmatchingRow, timeout: 3))
+        XCTAssertGreaterThan(searchField.frame.midY, app.frame.midY)
+    }
+
+    @MainActor
+    func testNotificationSearchStaysAtBottomAfterOpeningWorkspaceAndReturningTwice() throws {
+        try verifyNotificationSearchReturn(switchFromWorkspaceSearch: false)
+    }
+
+    @MainActor
+    func testNotificationSearchStaysAtBottomAfterSwitchingFromWorkspaceSearch() throws {
+        try verifyNotificationSearchReturn(switchFromWorkspaceSearch: true)
+    }
+
+    @MainActor
+    private func verifyNotificationSearchReturn(switchFromWorkspaceSearch: Bool) throws {
+        guard #available(iOS 26.0, *) else {
+            throw XCTSkip("The bottom search control requires iOS 26.")
+        }
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+        let feed = app.descendants(matching: .any)["MobileNotificationFeed"]
+        XCTAssertTrue(feed.waitForExistence(timeout: 8))
+        let searchButton = app.tabBars.buttons["Search"]
+        XCTAssertTrue(waitForHittable(searchButton, timeout: 3))
+        if switchFromWorkspaceSearch {
+            tap(app.tabBars.buttons["Workspaces"], in: app)
+            tap(searchButton, in: app)
+            let workspaceField = app.searchFields["Search workspaces"]
+            XCTAssertTrue(waitForHittable(workspaceField, timeout: 3))
+            XCTAssertGreaterThan(workspaceField.frame.midY, app.frame.midY)
+            app.buttons["Close"].tap()
+            tap(app.tabBars.buttons["Notifications"], in: app)
+        }
+        tap(searchButton, in: app)
+        let searchField = app.searchFields["Search notifications"]
+        XCTAssertTrue(waitForHittable(searchField, timeout: 3))
+        searchField.typeText("Tests passed")
+        let matchingRow = app.descendants(matching: .any)["MobileNotificationFeedRow-macbook-legacy-tests-passed"]
+        XCTAssertTrue(waitForHittable(matchingRow, timeout: 3))
+        let initialFrame = searchField.frame
+        XCTAssertGreaterThan(initialFrame.midY, app.frame.midY)
+
+        func capture(_ name: String) {
+            let screenshot = XCTAttachment(screenshot: app.screenshot())
+            screenshot.name = name
+            screenshot.lifetime = .keepAlways
+            add(screenshot)
+            let hierarchy = XCTAttachment(string: app.debugDescription)
+            hierarchy.name = name + "-hierarchy"
+            hierarchy.lifetime = .keepAlways
+            add(hierarchy)
+        }
+        capture("notification-search-before-open")
+        for cycle in 1...2 {
+            matchingRow.tap()
+            let detail = app.descendants(matching: .any)["MobileNotificationFeedPreviewWorkspaceDestination"]
+            XCTAssertTrue(detail.waitForExistence(timeout: 5))
+            capture("notification-search-workspace-\(cycle)")
+            let back = app.navigationBars.buttons.firstMatch
+            XCTAssertTrue(waitForHittable(back, timeout: 3))
+            back.tap()
+            XCTAssertTrue(waitForHittable(searchButton, timeout: 5))
+            capture("notification-search-after-back-\(cycle)")
+            XCTAssertGreaterThan(searchButton.frame.midY, app.frame.midY)
+            XCTAssertFalse(app.navigationBars.buttons["Search"].exists,
+                "Returning must not add a second Search control to the top toolbar")
+            if searchField.exists && searchField.isHittable {
+                XCTAssertGreaterThan(searchField.frame.midY, app.frame.midY)
+            }
+            XCTAssertTrue(waitForHittable(matchingRow, timeout: 3))
+            tap(searchButton, in: app)
+            XCTAssertTrue(waitForHittable(searchField, timeout: 5))
+            capture("notification-search-reopened-\(cycle)")
+            XCTAssertEqual(searchField.value as? String, "Tests passed")
+            XCTAssertGreaterThan(searchField.frame.midY, app.frame.midY)
+            XCTAssertEqual(searchField.frame.minY, initialFrame.minY, accuracy: 4)
+            XCTAssertEqual(searchField.frame.height, initialFrame.height, accuracy: 4)
+        }
     }
 
     @MainActor
@@ -3900,7 +4365,7 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    func testDiagnosticsLogLabelsAndIconsPresentTheShareSheet() throws {
+    func testDiagnosticsExportPresentsTheShareSheet() throws {
         let app = launchApp(
             mockData: false,
             environment: ["CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1"]
@@ -3911,35 +4376,161 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(settings.waitForExistence(timeout: 8))
         tap(settings, in: app)
 
-        let appLog = app.buttons["MobileSettingsShareAppLog"]
-        let networkLog = app.buttons["MobileSettingsShareNetworkLog"]
-        for _ in 0..<8 where !appLog.isHittable || !networkLog.isHittable {
+        let exportLogs = app.buttons["MobileSettingsExportLogs"]
+        for _ in 0..<8 where !exportLogs.isHittable {
             app.swipeUp(velocity: .slow)
         }
-        XCTAssertTrue(appLog.waitForExistence(timeout: 4))
-        XCTAssertTrue(networkLog.waitForExistence(timeout: 4))
-        XCTAssertTrue(appLog.isHittable)
-        XCTAssertTrue(networkLog.isHittable)
+        XCTAssertTrue(exportLogs.waitForExistence(timeout: 4))
+        XCTAssertTrue(exportLogs.isHittable)
+        XCTAssertTrue(app.switches["MobileIrohVerboseLogToggle"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.buttons["MobileSettingsClearLogs"].waitForExistence(timeout: 4))
+        XCTAssertFalse(app.buttons["MobileSettingsShareAppLog"].exists)
+        XCTAssertFalse(app.buttons["MobileSettingsShareNetworkLog"].exists)
+        XCTAssertFalse(app.buttons["MobileIrohShareVerboseLog"].exists)
+        XCTAssertFalse(app.buttons["MobileIrohShareDiagnosticReport"].exists)
 
-        func assertShareSheetAfterTap(
-            _ element: XCUIElement,
-            at offset: CGVector,
-            name: String
-        ) {
-            element.coordinate(withNormalizedOffset: offset).tap()
-            let copy = app.buttons["Copy"]
-            XCTAssertTrue(
-                copy.waitForExistence(timeout: 4),
-                "Tapping the diagnostics \(name) must present the share sheet."
-            )
+        exportLogs.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let activityList = app.otherElements["ActivityListView"]
+        let shareSheetPresented = activityList.waitForExistence(timeout: 4)
+            || app.sheets.firstMatch.waitForExistence(timeout: 4)
+        XCTAssertTrue(
+            shareSheetPresented,
+            "Tapping Export Logs must present the share sheet."
+        )
+        if app.buttons["Cancel"].exists {
             app.buttons["Cancel"].tap()
-            XCTAssertTrue(element.waitForExistence(timeout: 2))
+        } else if activityList.exists {
+            activityList.swipeDown()
+        } else {
+            app.sheets.firstMatch.swipeDown()
         }
+        XCTAssertTrue(exportLogs.waitForExistence(timeout: 2))
+    }
 
-        assertShareSheetAfterTap(appLog, at: CGVector(dx: 0.1, dy: 0.5), name: "app-log icon")
-        assertShareSheetAfterTap(appLog, at: CGVector(dx: 0.5, dy: 0.5), name: "app-log label")
-        assertShareSheetAfterTap(networkLog, at: CGVector(dx: 0.1, dy: 0.5), name: "network-log icon")
-        assertShareSheetAfterTap(networkLog, at: CGVector(dx: 0.5, dy: 0.5), name: "network-log label")
+    @MainActor
+    func testNotificationHistoryKeepsOrdinaryRowTrailingAlignment() throws {
+        // Measure rendered glyphs, not List's full-width accessibility hit
+        // targets. Both variants mount the same production row and fixture.
+        for contentSize in ["UICTContentSizeCategoryL", "UICTContentSizeCategoryXXXL"] {
+            var ordinaryTimestamp: CGRect?
+            for grouped in [false, true] {
+                let app = launchApp(mockData: false, environment: [
+                    "CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1",
+                    "CMUX_UITEST_NOTIFICATION_FEED_GROUP_PREVIEW": grouped ? "1" : "0",
+                ], launchArguments: ["-UIPreferredContentSizeCategoryName", contentSize])
+                defer { app.terminate() }
+
+                let parent = app.buttons["MobileNotificationFeedRow-studio-legacy-codex-approval"]
+                XCTAssertTrue(parent.waitForExistence(timeout: 10))
+                let screenshot = app.screenshot()
+                let attachment = XCTAttachment(screenshot: screenshot)
+                attachment.name = "Notification alignment, \(contentSize), grouped=\(grouped)"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+
+                let request = VNRecognizeTextRequest()
+                request.recognitionLevel = .accurate
+                request.recognitionLanguages = ["en-US"]
+                let image = try XCTUnwrap(screenshot.image.cgImage)
+                try VNImageRequestHandler(cgImage: image).perform([request])
+                let observations = request.results ?? []
+
+                func renderedFrame(matching pattern: String) throws -> CGRect {
+                    for observation in observations {
+                        guard let text = observation.topCandidates(1).first,
+                              let range = text.string.range(of: pattern, options: .regularExpression),
+                              let bounds = try text.boundingBox(for: range)?.boundingBox else { continue }
+                        let frame = CGRect(
+                            x: app.frame.minX + bounds.minX * app.frame.width,
+                            y: app.frame.minY + (1 - bounds.maxY) * app.frame.height,
+                            width: bounds.width * app.frame.width,
+                            height: bounds.height * app.frame.height
+                        )
+                        if parent.frame.contains(CGPoint(x: frame.midX, y: frame.midY)) { return frame }
+                    }
+                    XCTFail("Missing rendered text matching \(pattern): \(observations.compactMap { $0.topCandidates(1).first?.string })")
+                    return .zero
+                }
+
+                let timestamp = try renderedFrame(matching: #"\d+\s+\w+\.?\s+ago"#)
+                let computer = try renderedFrame(matching: "Studio")
+                XCTAssertEqual(computer.maxX, timestamp.maxX, accuracy: 3,
+                               "Computer metadata must stay trailing even when it wraps below the source")
+                if grouped {
+                    XCTAssertEqual(timestamp.maxX, try XCTUnwrap(ordinaryTimestamp).maxX, accuracy: 3,
+                                   "Grouping must not take width away from the ordinary row's timestamp")
+                    let toggle = app.buttons["MobileNotificationFeedGroupToggle-codex-approval"]
+                    XCTAssertTrue(toggle.exists)
+                    XCTAssertGreaterThanOrEqual(toggle.frame.minY, parent.frame.maxY - 1,
+                                                "The disclosure belongs below the full-width row content")
+                    XCTAssertGreaterThanOrEqual(toggle.frame.width, 44)
+                    XCTAssertGreaterThanOrEqual(toggle.frame.height, 44)
+                    toggle.tap()
+                    XCTAssertTrue(app.buttons["MobileNotificationFeedRow-studio-legacy-group-title-only"]
+                        .waitForExistence(timeout: 5))
+                    XCTAssertTrue((parent.value as? String)?.hasPrefix("Unread") == true,
+                                  "Expanding history must not open or mark the latest notification read")
+                } else {
+                    ordinaryTimestamp = timestamp
+                }
+            }
+        }
+    }
+
+    @MainActor
+    func testNotificationHistoryUsesSeparateNestedRows() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1",
+            "CMUX_UITEST_NOTIFICATION_FEED_GROUP_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        let parentID = "MobileNotificationFeedRow-studio-legacy-codex-approval"
+        let childID = "MobileNotificationFeedRow-studio-legacy-group-title-only"
+        let parent = app.buttons[parentID]
+        let child = app.buttons[childID]
+        let toggle = app.buttons["MobileNotificationFeedGroupToggle-codex-approval"]
+        XCTAssertTrue(parent.waitForExistence(timeout: 10))
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+        XCTAssertFalse(child.exists)
+        let collapsed = XCTAttachment(screenshot: app.screenshot())
+        collapsed.name = "Notification history, collapsed"
+        collapsed.lifetime = .keepAlways
+        add(collapsed)
+
+        toggle.tap()
+        XCTAssertTrue(child.waitForExistence(timeout: 5))
+        let parentCell = app.cells.containing(.button, identifier: parentID).firstMatch
+        let childCell = app.cells.containing(.button, identifier: childID).firstMatch
+        XCTAssertTrue(parentCell.exists)
+        XCTAssertTrue(childCell.exists)
+        XCTAssertGreaterThanOrEqual(childCell.frame.minY, parentCell.frame.maxY - 1,
+                                    "History must be separate list rows, not content inside the parent cell")
+        // Native List rows expose full-width accessibility hit targets even
+        // when their content is indented. Capture the visual indentation;
+        // cell separation above verifies the independent-row structure.
+        let expanded = XCTAttachment(screenshot: app.screenshot())
+        expanded.name = "Notification history, expanded"
+        expanded.lifetime = .keepAlways
+        add(expanded)
+
+        // A partial swipe reveals the action without invoking the row's
+        // separately supported full-swipe shortcut.
+        let swipeStart = childCell.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5))
+        let swipeEnd = childCell.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.5))
+        swipeStart.press(forDuration: 0.05, thenDragTo: swipeEnd)
+        let markRead = app.buttons["MobileNotificationFeedMarkReadSwipe-studio-legacy-group-title-only"]
+        XCTAssertTrue(markRead.waitForExistence(timeout: 3))
+        markRead.tap()
+        let readState = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value BEGINSWITH %@", "Read"), object: child
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [readState], timeout: 5), .completed)
+        XCTAssertTrue((parent.value as? String)?.hasPrefix("Unread") == true)
+
+        toggle.tap()
+        XCTAssertTrue(child.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(parent.exists)
     }
 
     @MainActor
@@ -3971,23 +4562,24 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Notification feed"].exists)
         XCTAssertFalse(app.staticTexts["Context"].exists)
         XCTAssertFalse(app.staticTexts["Opens in"].exists)
-        XCTAssertLessThanOrEqual(approvalTitle.frame.maxY, approvalWorkspace.frame.minY)
-        XCTAssertLessThanOrEqual(approvalWorkspace.frame.minY - approvalTitle.frame.maxY, 6)
-        XCTAssertEqual(approvalWorkspace.frame.midY, approvalComputer.frame.midY, accuracy: 2)
-        XCTAssertLessThanOrEqual(approvalWorkspace.frame.maxY, approvalBody.frame.minY)
-        XCTAssertGreaterThanOrEqual(approvalWorkspace.frame.height, approvalComputer.frame.height)
+        // Workspace-first anatomy: the workspace is the headline, the
+        // notification title sits below it beside the computer name.
+        XCTAssertLessThanOrEqual(approvalWorkspace.frame.maxY, approvalTitle.frame.minY)
+        XCTAssertLessThanOrEqual(approvalTitle.frame.minY - approvalWorkspace.frame.maxY, 6)
+        XCTAssertEqual(approvalTitle.frame.midY, approvalComputer.frame.midY, accuracy: 2)
+        XCTAssertLessThanOrEqual(approvalTitle.frame.maxY, approvalBody.frame.minY)
 
         XCTAssertLessThanOrEqual(approvalRow.frame.height, 135)
+        XCTAssertEqual(approvalRow.label, "cmux iOS")
         let approvalValue = try XCTUnwrap(approvalRow.value as? String)
-        let workspaceRange = try XCTUnwrap(approvalValue.range(of: "cmux iOS"))
+        let sourceRange = try XCTUnwrap(approvalValue.range(of: "From: Codex needs approval"))
         let bodyRange = try XCTUnwrap(approvalValue.range(of: "The feed is ready"))
-        let computerRange = try XCTUnwrap(approvalValue.range(of: "Studio"))
-        XCTAssertTrue(approvalValue.contains("Workspace: cmux iOS"))
-        XCTAssertTrue(approvalValue.contains("Computer: Studio"))
+        let computerRange = try XCTUnwrap(approvalValue.range(of: "Computer: Studio"))
+        XCTAssertFalse(approvalValue.contains("Workspace:"))
         XCTAssertFalse(approvalValue.contains("Context:"))
         XCTAssertFalse(approvalValue.contains("Pane:"))
         XCTAssertFalse(approvalValue.contains("Notification feed"))
-        XCTAssertLessThan(workspaceRange.lowerBound, bodyRange.lowerBound)
+        XCTAssertLessThan(sourceRange.lowerBound, bodyRange.lowerBound)
         XCTAssertLessThan(bodyRange.lowerBound, computerRange.lowerBound)
 
         let unavailableRow = app.descendants(matching: .any)[
@@ -3995,13 +4587,17 @@ final class cmuxUITests: XCTestCase {
         ]
         XCTAssertTrue(unavailableRow.waitForExistence(timeout: 3))
         let unavailableValue = try XCTUnwrap(unavailableRow.value as? String)
-        XCTAssertTrue(unavailableValue.contains("Workspace: Cloud Builder"))
+        XCTAssertEqual(unavailableRow.label, "Cloud Builder")
+        XCTAssertTrue(unavailableValue.contains("From: Input needed"))
         XCTAssertTrue(unavailableValue.contains("Computer: Build Mac · Unavailable"))
         XCTAssertFalse(unavailableValue.contains("Pane:"))
 
-        let unreadFilter = app.descendants(matching: .any)["MobileNotificationFeedFilterUnread"]
-        XCTAssertTrue(unreadFilter.waitForExistence(timeout: 3))
-        unreadFilter.tap()
+        let filterMenu = app.buttons["MobileNotificationFeedFilterMenu"]
+        XCTAssertTrue(filterMenu.waitForExistence(timeout: 3))
+        filterMenu.tap()
+        let unreadOption = app.buttons["Unread"]
+        XCTAssertTrue(unreadOption.waitForExistence(timeout: 3))
+        unreadOption.tap()
 
         XCTAssertTrue(approvalRow.waitForExistence(timeout: 3))
         approvalRow.swipeRight()
@@ -4010,9 +4606,10 @@ final class cmuxUITests: XCTestCase {
         markRead.tap()
         XCTAssertTrue(approvalRow.waitForNonExistence(timeout: 3))
 
-        let allFilter = app.descendants(matching: .any)["MobileNotificationFeedFilterAll"]
-        XCTAssertTrue(allFilter.waitForExistence(timeout: 3))
-        allFilter.tap()
+        filterMenu.tap()
+        let allOption = app.buttons["All Notifications"]
+        XCTAssertTrue(allOption.waitForExistence(timeout: 3))
+        allOption.tap()
 
         let completedRow = app.descendants(matching: .any)["MobileNotificationFeedRow-macbook-tests-passed"]
         XCTAssertTrue(completedRow.waitForExistence(timeout: 3))
@@ -4065,7 +4662,19 @@ final class cmuxUITests: XCTestCase {
 
         let markAllRead = app.buttons["MobileNotificationFeedMarkAllRead"]
         XCTAssertTrue(markAllRead.waitForExistence(timeout: 3))
+
+        // Mark-all-read is gated behind a confirmation alert. Cancel first to
+        // prove the gate protects the unread state, then confirm.
         markAllRead.tap()
+        let markAllReadAlert = app.alerts["Mark all notifications as read?"]
+        XCTAssertTrue(markAllReadAlert.waitForExistence(timeout: 3))
+        markAllReadAlert.buttons["Cancel"].tap()
+        XCTAssertTrue(markAllReadAlert.waitForNonExistence(timeout: 3))
+        XCTAssertTrue(markAllRead.waitForExistence(timeout: 3))
+
+        markAllRead.tap()
+        XCTAssertTrue(markAllReadAlert.waitForExistence(timeout: 3))
+        markAllReadAlert.buttons["Mark All Read"].tap()
         XCTAssertTrue(markAllRead.waitForNonExistence(timeout: 3))
 
         let workspacesTab = app.tabBars.buttons["Workspaces"]
@@ -4165,7 +4774,7 @@ final class cmuxUITests: XCTestCase {
             XCTAssertTrue(submittedCommand.waitForExistence(timeout: 4))
             XCTAssertEqual(
                 submittedCommand.label,
-                "codex -m 'gpt-5.5' -- \"$CMUX_TASK_PROMPT\""
+                "codex -c model_reasoning_effort='medium' -m 'gpt-5.5' -- \"$CMUX_TASK_PROMPT\""
             )
 
             app.terminate()
@@ -4205,6 +4814,62 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(
             submittedCommand.label,
             "claude --model 'backend-next-999' -- \"$CMUX_TASK_PROMPT\""
+        )
+    }
+
+    /// Effort choices belong to the selected model, stay visible beside the
+    /// model control, and must be replaced when the model changes.
+    @MainActor
+    func testTaskComposerEffortPickerUsesSelectedModelCatalog() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(taskComposerPrompt(in: app).waitForExistence(timeout: 8))
+        selectTaskComposerAgent(named: "Codex", in: app)
+
+        let model = app.buttons["MobileTaskComposerModelPill"]
+        XCTAssertTrue(model.waitForExistence(timeout: 4))
+        tap(model, in: app)
+        tapMenuItem(app.buttons["GPT-5.5"], in: app)
+
+        let effort = app.buttons["MobileTaskComposerEffortPill"]
+        XCTAssertTrue(effort.waitForExistence(timeout: 3))
+        XCTAssertEqual(effort.value as? String, "Medium")
+        XCTAssertLessThan(model.frame.midX, effort.frame.midX)
+        XCTAssertLessThan(
+            effort.frame.midX,
+            app.buttons["MobileTaskComposerSubmitButton"].frame.midX
+        )
+
+        tap(effort, in: app)
+        XCTAssertTrue(app.buttons["High"].waitForExistence(timeout: 2))
+        tapMenuItem(app.buttons["High"], in: app)
+        XCTAssertEqual(effort.value as? String, "High")
+
+        tap(model, in: app)
+        tapMenuItem(app.buttons["GPT-5.5 Mini"], in: app)
+        XCTAssertEqual(effort.value as? String, "Low")
+        let proof = XCTAttachment(screenshot: app.screenshot())
+        proof.name = "Native task composer model and effort pickers"
+        proof.lifetime = .keepAlways
+        add(proof)
+        tap(effort, in: app)
+        XCTAssertTrue(app.buttons["Low"].waitForExistence(timeout: 2))
+        XCTAssertFalse(app.buttons["High"].exists)
+        tapMenuItem(app.buttons["Low"], in: app)
+
+        try typeText("Use the exact model effort", into: taskComposerPrompt(in: app), in: app)
+        let submit = app.buttons["MobileTaskComposerSubmitButton"]
+        expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: submit)
+        waitForExpectations(timeout: 3)
+        tap(submit, in: app)
+        let submittedCommand = app.staticTexts["MobileTaskComposerSubmittedInitialCommand"]
+        XCTAssertTrue(submittedCommand.waitForExistence(timeout: 4))
+        XCTAssertEqual(
+            submittedCommand.label,
+            "codex -c model_reasoning_effort='low' -m 'gpt-5.5-mini' -- \"$CMUX_TASK_PROMPT\""
         )
     }
 
@@ -4493,10 +5158,11 @@ final class cmuxUITests: XCTestCase {
         }
     }
 
-    /// The Composer pill scroller must clip between its neighboring controls;
-    /// it must not underlap them to render a blur or fade at either edge.
+    /// The Composer pill scroller must keep readable intrinsic widths while
+    /// staying between its neighboring fixed controls. Its UIKit-owned alpha
+    /// mask dissolves pills at both viewport edges on every iOS version.
     @MainActor
-    func testTaskComposerComposerPillScrollerUsesHardEdges() throws {
+    func testTaskComposerComposerPillScrollerUsesScrollEdgeEffect() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
         ])
@@ -4512,15 +5178,19 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(scroller.waitForExistence(timeout: 3))
         XCTAssertTrue(submit.waitForExistence(timeout: 3))
 
-        XCTAssertGreaterThanOrEqual(
+        let attachmentButton = app.buttons["MobileTaskComposerAttachmentButton"]
+        let leadingFixedControl = attachmentButton.exists ? attachmentButton : options
+        XCTAssertEqual(
             scroller.frame.minX,
-            options.frame.maxX,
-            "The scroller must begin after the fixed options control"
+            leadingFixedControl.frame.maxX,
+            accuracy: 1,
+            "The scroller must start flush at the leading control edge"
         )
-        XCTAssertLessThanOrEqual(
+        XCTAssertEqual(
             scroller.frame.maxX,
             submit.frame.minX,
-            "The scroller must end before the fixed submit control"
+            accuracy: 1,
+            "The scroller must end flush at the trailing control edge"
         )
 
         let agentPill = app.buttons["MobileTaskComposerAgentPill"]
@@ -4532,22 +5202,24 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(modelPill.waitForExistence(timeout: 3))
         tap(modelPill, in: app)
         tapMenuItem(app.buttons["Claude Opus 4.8"], in: app)
-        XCTAssertGreaterThanOrEqual(scroller.frame.minX, options.frame.maxX)
-        XCTAssertLessThanOrEqual(scroller.frame.maxX, submit.frame.minX)
+        XCTAssertEqual(scroller.frame.minX, leadingFixedControl.frame.maxX, accuracy: 1)
+        XCTAssertEqual(scroller.frame.maxX, submit.frame.minX, accuracy: 1)
         XCTAssertGreaterThanOrEqual(modelPill.frame.minX, scroller.frame.minX)
-        XCTAssertLessThanOrEqual(
-            modelPill.frame.maxX,
-            scroller.frame.maxX,
-            "A long selected model must compress inside the pill viewport"
+        XCTAssertGreaterThan(
+            modelPill.frame.width,
+            120,
+            "A long selected model must keep enough width to show its label"
         )
-        XCTAssertLessThanOrEqual(
-            modelPill.frame.maxX,
-            submit.frame.minX,
-            "The selected model must never extend beneath Submit"
+        let modelMidXBeforeScroll = modelPill.frame.midX
+        scroller.swipeLeft()
+        XCTAssertLessThan(
+            modelPill.frame.midX,
+            modelMidXBeforeScroll,
+            "Overflowing picker pills must move together inside the scroller"
         )
 
         let attachment = XCTAttachment(screenshot: app.screenshot())
-        attachment.name = "task-composer-hard-scroll-edges"
+        attachment.name = "task-composer-scroll-edge-effect"
         attachment.lifetime = .keepAlways
         add(attachment)
     }
@@ -4846,20 +5518,29 @@ final class cmuxUITests: XCTestCase {
         } else {
             leadingFixedControl = options
         }
-        XCTAssertGreaterThanOrEqual(
+        XCTAssertEqual(
             scroller.frame.minX,
             leadingFixedControl.frame.maxX,
-            "The pill viewport must begin after the fixed leading controls"
+            accuracy: 1,
+            "The pill viewport must start flush at the leading control edge"
         )
-        XCTAssertLessThanOrEqual(
+        XCTAssertEqual(
             scroller.frame.maxX,
             create.frame.minX,
-            "The pill viewport must end before the fixed submit control"
+            accuracy: 1,
+            "The pill viewport must end flush at the submit control edge"
         )
 
-        XCTAssertGreaterThanOrEqual(model.frame.midX, scroller.frame.minX)
-        XCTAssertLessThanOrEqual(model.frame.maxX, scroller.frame.maxX)
-        XCTAssertLessThanOrEqual(model.frame.maxX, create.frame.minX)
+        XCTAssertLessThan(
+            model.frame.minX,
+            scroller.frame.maxX,
+            "The selected model must intersect the bounded pill viewport"
+        )
+        XCTAssertGreaterThan(
+            model.frame.maxX,
+            scroller.frame.minX,
+            "The selected model must intersect the bounded pill viewport"
+        )
         XCTAssertTrue(model.isHittable)
 
         let navigationBar = app.navigationBars.firstMatch
@@ -4890,7 +5571,7 @@ final class cmuxUITests: XCTestCase {
     }
 
     /// The fully populated production row must group its two leading utilities
-    /// while only the provider/model viewport absorbs width pressure.
+    /// while the pill viewport stays between both edge controls.
     @MainActor
     func testTaskComposerAccessibilityXXXLKeepsAttachmentAndEdgeControlsVisible() throws {
         let app = launchApp(
@@ -4937,8 +5618,8 @@ final class cmuxUITests: XCTestCase {
             1,
             "Task Options and Add Attachment should read as one compact utility group"
         )
-        XCTAssertGreaterThanOrEqual(scroller.frame.minX - attachment.frame.maxX, 9)
-        XCTAssertGreaterThanOrEqual(submit.frame.minX - scroller.frame.maxX, 9)
+        XCTAssertEqual(scroller.frame.minX, attachment.frame.maxX, accuracy: 1)
+        XCTAssertEqual(scroller.frame.maxX, submit.frame.minX, accuracy: 1)
         XCTAssertGreaterThan(scroller.frame.width, 0)
 
         print(
@@ -5557,7 +6238,7 @@ final class cmuxUITests: XCTestCase {
         try typeText("mobile-root", into: search, in: app)
         XCTAssertTrue(
             app.staticTexts[
-                "Search checks indexed folders across mounted volumes. Browse to reach unindexed or restricted locations."
+                "Search checks the Mac’s indexed folders and scans its home folder live. Browse to reach restricted locations."
             ].waitForExistence(timeout: 3)
         )
         let root = app.buttons["mobile-root"]
@@ -5575,9 +6256,10 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(selectedPath.label, "/Users/ui/mobile-root/Sources")
     }
 
-    /// Empty search is a real filesystem browser. Hidden folders, packages,
-    /// symlinked directories, root navigation, and current-folder selection
-    /// must all remain available instead of collapsing to recent suggestions.
+    /// The picker is a real drill-down filesystem browser. Hidden folders,
+    /// packages, symlinked directories, back navigation up the hierarchy, the
+    /// locations root, and current-folder selection must all remain available
+    /// instead of collapsing to recent suggestions.
     @MainActor
     func testTaskComposerDirectoryBrowserShowsEveryDirectoryKindAndSelectsCurrentFolder() throws {
         let app = launchApp(mockData: false, environment: [
@@ -5586,15 +6268,37 @@ final class cmuxUITests: XCTestCase {
         ])
         defer { app.terminate() }
 
-        XCTAssertTrue(
-            app.descendants(matching: .any)["MobileTaskDirectoryBrowseCurrent"]
-                .waitForExistence(timeout: 8)
-        )
-        XCTAssertTrue(app.buttons["MobileTaskDirectoryBrowseComputer"].exists)
-        XCTAssertTrue(app.buttons[".hidden"].exists)
+        let hidden = app.buttons[".hidden"]
+        XCTAssertTrue(hidden.waitForExistence(timeout: 8))
         XCTAssertTrue(app.buttons["Projects.app"].exists)
         XCTAssertTrue(app.buttons["mobile-link"].exists)
 
+        // Recently used directories surface as quick chips under the search
+        // bar, and tapping one browses into that folder.
+        let recentChip = app.buttons["MobileTaskDirectoryRecent0"]
+        XCTAssertTrue(recentChip.exists)
+        let chipName = recentChip.label
+        XCTAssertTrue(["recent-alpha", "recent-beta"].contains(chipName))
+        tap(recentChip, in: app)
+        XCTAssertTrue(app.navigationBars[chipName].waitForExistence(timeout: 4))
+        tap(app.navigationBars.buttons["ui"], in: app)
+        XCTAssertTrue(hidden.waitForExistence(timeout: 4))
+
+        tap(app.buttons["mobile-root"], in: app)
+        XCTAssertTrue(app.buttons["Sources"].waitForExistence(timeout: 4))
+
+        // The standard back button walks up to the parent folder.
+        tap(app.navigationBars.buttons["ui"], in: app)
+        XCTAssertTrue(hidden.waitForExistence(timeout: 4))
+
+        // One more level up is the picker root with the browse locations.
+        tap(app.navigationBars.buttons["Choose Folder"], in: app)
+        XCTAssertTrue(app.buttons["MobileTaskDirectoryBrowseHome"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.buttons["MobileTaskDirectoryBrowseComputer"].exists)
+
+        // Drill back down from Home and choose the project folder itself.
+        tap(app.buttons["MobileTaskDirectoryBrowseHome"], in: app)
+        XCTAssertTrue(hidden.waitForExistence(timeout: 4))
         tap(app.buttons["mobile-root"], in: app)
         XCTAssertTrue(app.buttons["Sources"].waitForExistence(timeout: 4))
         tap(app.buttons["MobileTaskDirectoryBrowseUseCurrent"], in: app)
@@ -5618,7 +6322,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Couldn’t Open Folder"].waitForExistence(timeout: 8))
         let permissionCopy = app.staticTexts.matching(NSPredicate(
             format: "label == %@",
-            "The Mac could not list this folder. If this is a protected folder such as Downloads, allow cmux access in Mac System Settings › Privacy & Security › Files & Folders, then retry."
+            "The Mac could not list this folder. cmux may not have permission to read it yet. Allow access in Mac System Settings › Privacy & Security › Files & Folders, or grant cmux Full Disk Access, then retry."
         )).firstMatch
         XCTAssertTrue(permissionCopy.waitForExistence(timeout: 3))
     }
@@ -5633,29 +6337,30 @@ final class cmuxUITests: XCTestCase {
         ])
         defer { app.terminate() }
 
+        XCTAssertTrue(taskComposerPrompt(in: app).waitForExistence(timeout: 8))
+        openTaskComposerOptions(in: app)
         let directory = app.buttons["MobileTaskComposerDirectory"]
         XCTAssertTrue(directory.waitForExistence(timeout: 8))
         tap(directory, in: app)
 
         let firstFolder = app.buttons["folder-00"]
         let lastFolder = app.buttons["folder-49"]
-        let parentFolder = app.buttons["MobileTaskDirectoryBrowseParent"]
+        let cancel = app.buttons["MobileTaskDirectoryPickerCancel"]
         XCTAssertTrue(firstFolder.waitForExistence(timeout: 8))
-        XCTAssertTrue(parentFolder.isHittable)
+        XCTAssertTrue(cancel.isHittable)
 
         for _ in 0..<8 where !lastFolder.isHittable {
             app.swipeUp(velocity: .fast)
         }
         XCTAssertTrue(lastFolder.isHittable)
-        XCTAssertTrue(parentFolder.isHittable)
 
-        let cancel = app.buttons["MobileTaskDirectoryPickerCancel"]
         XCTAssertTrue(cancel.isHittable)
         tap(cancel, in: app)
         XCTAssertFalse(cancel.waitForExistence(timeout: 3))
     }
 
-    /// A failed append must leave page 1 interactive, and retry must request
+    /// The next page loads automatically when the listing tail appears. A
+    /// failed append must leave page 1 interactive, and retry must request
     /// the exact failed page without replacing the successful snapshot.
     @MainActor
     func testTaskComposerDirectoryPaginationRecoveryPreservesPageOneAndRetriesPageTwo() throws {
@@ -5671,13 +6376,8 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(unreadableFolder.exists)
         XCTAssertFalse(unreadableFolder.isEnabled)
 
-        let showMore = app.buttons["MobileTaskDirectoryBrowseMore"]
-        XCTAssertTrue(showMore.waitForExistence(timeout: 3))
-        XCTAssertTrue(showMore.isHittable)
-        let showMoreFrame = showMore.frame
-        XCTAssertGreaterThanOrEqual(showMoreFrame.height, 44)
-        tap(showMore, in: app)
-
+        // Page 2 is requested automatically and fails once, leaving page 1
+        // intact behind an inline retry affordance.
         let retry = app.buttons["TaskComposerDirectoryBrowseRetry"]
         XCTAssertTrue(retry.waitForExistence(timeout: 4))
         XCTAssertTrue(pageOneFolder.exists)
@@ -5686,8 +6386,6 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(app.buttons["z-second-page-folder"].exists)
 
         XCTAssertTrue(retry.isHittable)
-        let retryFrame = retry.frame
-        XCTAssertGreaterThanOrEqual(retryFrame.height, 44)
         let hasAppendFailureTitle = app.staticTexts["Couldn’t Load More Folders"].exists
         tap(retry, in: app)
         XCTAssertTrue(app.buttons["z-second-page-folder"].waitForExistence(timeout: 4))
@@ -5695,7 +6393,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(retry.waitForExistence(timeout: 1))
         XCTAssertTrue(
             hasAppendFailureTitle,
-            "Expected the page-2 failure title. Show More frame: \(showMoreFrame); Retry frame: \(retryFrame)"
+            "Expected the page-2 failure title after the automatic append failed."
         )
     }
 
@@ -5952,6 +6650,77 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(
             prompt.waitForNonExistence(timeout: 4),
             "The composer must dismiss after the retry succeeds"
+        )
+    }
+
+    /// Regression: the floating New Task button must not track the keyboard's
+    /// safe-area inset. The composer sheet auto-focuses its prompt, and that
+    /// sheet keyboard used to shrink the tab scaffold underneath it, dragging
+    /// the bottom-anchored compose button toward mid-screen. The shift showed
+    /// through during sheet dismissal and stranded the button mid-screen
+    /// whenever the keyboard-hide update was missed.
+    @MainActor
+    func testTaskComposerButtonIgnoresComposerKeyboardInset() async throws {
+        guard #available(iOS 26.0, *) else {
+            throw XCTSkip("The floating compose control requires iOS 26.")
+        }
+        let server = try MobileSyncMockHostServer(
+            supportsManualAttachTicket: true,
+            workspaceCreateSelectsCreatedWorkspace: false
+        )
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedAppViaManualPairing(port: port)
+        defer { app.terminate() }
+
+        let backButton = app.buttons["MobileWorkspaceBackButton"]
+        XCTAssertTrue(backButton.waitForExistence(timeout: 4))
+        tap(backButton, in: app)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
+                .waitForExistence(timeout: 4)
+        )
+
+        let composerButton = app.buttons["MobileTaskComposerButton"]
+        XCTAssertTrue(composerButton.waitForExistence(timeout: 4))
+        guard let restingFrame = waitForUsableFrame(of: composerButton, timeout: 3) else {
+            XCTFail("New Task button had no usable frame before the composer opened")
+            return
+        }
+        tap(composerButton, in: app)
+
+        let prompt = taskComposerPrompt(in: app)
+        XCTAssertTrue(prompt.waitForExistence(timeout: 4))
+        XCTAssertTrue(
+            waitForKeyboardFocus(of: prompt, timeout: 3),
+            "Opening New Task must focus the prompt without an extra tap."
+        )
+        XCTAssertTrue(
+            waitForSoftwareKeyboardKeyPlane(in: app, minimumOverlap: 120, timeout: 3) != nil,
+            "Opening New Task must raise the software keyboard without an extra tap."
+        )
+
+        // The button sits behind the sheet but stays in the element tree; the
+        // sheet keyboard must not have dragged it up.
+        guard let coveredFrame = waitForUsableFrame(of: composerButton, timeout: 3) else {
+            XCTFail("New Task button left the element tree while the composer was presented")
+            return
+        }
+        XCTAssertEqual(
+            coveredFrame.midY, restingFrame.midY, accuracy: 2,
+            "New Task moved from \(restingFrame) to \(coveredFrame) while the composer keyboard was up"
+        )
+
+        tap(app.buttons["MobileTaskComposerCancelButton"], in: app)
+        XCTAssertTrue(prompt.waitForNonExistence(timeout: 4))
+        guard let settledFrame = waitForUsableFrame(of: composerButton, timeout: 3) else {
+            XCTFail("New Task button had no usable frame after the composer dismissed")
+            return
+        }
+        XCTAssertEqual(
+            settledFrame.midY, restingFrame.midY, accuracy: 2,
+            "New Task must settle back to \(restingFrame), got \(settledFrame)"
         )
     }
 
@@ -6218,6 +6987,42 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [normalSend], timeout: 4), .completed)
     }
 
+    /// The terminal keyboard toggle and the composer attachment control share
+    /// the same leading guide, so the two bottom-dock controls read as one
+    /// aligned column when the keyboard is visible.
+    @MainActor
+    func testTerminalKeyboardToggleAlignsWithComposerAttachment() throws {
+        // Use the deterministic workspace-detail fixture instead of a mock
+        // network attach, so this geometry assertion is isolated from pairing
+        // and simulator loopback timing.
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_DETAIL_DELAYED_TERMINAL": "1",
+            "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 12))
+        let composerField = app.descendants(matching: .any)[Composer.field]
+        XCTAssertTrue(composerField.waitForExistence(timeout: 8))
+        composerField.tap()
+        XCTAssertTrue(
+            app.keyboards.firstMatch.waitForExistence(timeout: 8),
+            "Keyboard must be visible before checking the terminal accessory control"
+        )
+
+        let keyboardToggle = app.buttons["terminal.inputAccessory.hideKeyboard"]
+        let attachment = app.descendants(matching: .any)[Composer.attachButton]
+        XCTAssertTrue(keyboardToggle.waitForExistence(timeout: 8))
+        XCTAssertTrue(attachment.waitForExistence(timeout: 8))
+
+        XCTAssertEqual(
+            keyboardToggle.frame.minX,
+            attachment.frame.minX,
+            accuracy: 1,
+            "Terminal keyboard toggle and composer attachment must share the leading guide"
+        )
+    }
+
     /// Freeze fuzzing for the keyboard + layout interactions, modeled on
     /// `testFastPinchZoomDoesNotHangOrCorrupt`. The user report: "Sometimes the
     /// terminal on iOS freezes; we should do some fuzzing around here." The
@@ -6442,6 +7247,28 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceTitleMenuShowsRenameAlongsideCustomize() async throws {
+        let server = try MobileSyncMockHostServer(advertisesWorkspaceMetadata: true)
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        try openSelectedWorkspaceIfNeeded(app)
+        XCTAssertTrue(app.buttons["MobileWorkspaceTitleMenu"].waitForExistence(timeout: 4))
+
+        tapCompactToolbarTitleMenu(app.buttons["MobileWorkspaceTitleMenu"], in: app)
+        XCTAssertTrue(
+            app.buttons["MobileWorkspaceTitleCustomizeMenuItem"].waitForExistence(timeout: 4),
+            "A metadata-capable host must offer Customize Workspace in the title menu."
+        )
+        XCTAssertTrue(
+            app.buttons["MobileWorkspaceTitleRenameMenuItem"].exists,
+            "The title menu must offer Rename Workspace alongside Customize, matching the row context menu."
+        )
+        dismissOpenMenu(in: app)
+    }
+
+    @MainActor
     func testWorkspaceDetailToolbarSurvivesDelayedTerminalLifecycle() throws {
         let app = launchWorkspaceDetailDelayedTerminalPreviewApp()
         let backButton = app.buttons["MobileWorkspaceBackButton"]
@@ -6489,35 +7316,8 @@ final class cmuxUITests: XCTestCase {
             titleMenu: titleMenu,
             terminalDropdown: terminalDropdown,
             in: app,
-            context: "long workspace title without chat toggle"
+            context: "long workspace title"
         )
-        XCTAssertFalse(app.buttons["MobileWorkspaceAgentChatButton"].exists)
-        assertToolbarOverflowButtonDoesNotExist(in: app)
-        tap(terminalDropdown, in: app)
-        assertTerminalMenuItemExists("terminal-delayed", in: app)
-    }
-
-    @MainActor
-    func testWorkspaceDetailToolbarKeepsTerminalPickerVisibleWithLongTitleAndChatToggle() throws {
-        let app = launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [
-            "CMUX_UITEST_WORKSPACE_DETAIL_LONG_TITLE": "1",
-            "CMUX_UITEST_WORKSPACE_DETAIL_CHAT_TOGGLE": "1",
-        ])
-        let backButton = app.buttons["MobileWorkspaceBackButton"]
-        let titleMenu = workspaceTitleElement(in: app)
-        let chatButton = app.buttons["MobileWorkspaceAgentChatButton"]
-        let terminalDropdown = app.buttons["MobileTerminalDropdown"]
-
-        RunLoop.current.run(until: Date().addingTimeInterval(2.5))
-        assertWorkspaceToolbarVisible(
-            backButton: backButton,
-            titleMenu: titleMenu,
-            terminalDropdown: terminalDropdown,
-            in: app,
-            context: "long workspace title with chat toggle"
-        )
-        XCTAssertTrue(chatButton.waitForExistence(timeout: 4))
-        XCTAssertTrue(chatButton.isHittable)
         assertToolbarOverflowButtonDoesNotExist(in: app)
         tap(terminalDropdown, in: app)
         assertTerminalMenuItemExists("terminal-delayed", in: app)
@@ -6877,6 +7677,149 @@ final class cmuxUITests: XCTestCase {
         }
     }
 
+    /// Uses the real input responder and RPC transport. The mock host echoes only
+    /// bytes it receives, so a composer draft or local echo cannot pass this test.
+    @MainActor
+    func testWorkspaceListTerminalInputRoundTripAndScrollback() async throws {
+        let history = (1...120).map { String(format: "history line %03d", $0) }
+        let server = try MobileSyncMockHostServer(
+            defaultTerminalLines: history,
+            echoesTerminalInput: true
+        )
+        let port = try await server.start()
+        defer { server.stop() }
+        XCUIDevice.shared.orientation = .portrait
+        let app = launchApp(mockData: true, environment: [
+            "CMUX_UITEST_ATTACH_URL": try attachURL(port: port).absoluteString,
+            "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "0",
+        ])
+        defer { app.terminate() }
+
+        func capture(_ name: String) {
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+
+        func visibleTerminalText() throws -> String {
+            let image = try XCTUnwrap(
+                app.otherElements["MobileTerminalSurface"].screenshot().image.cgImage
+            )
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = .accurate
+            request.recognitionLanguages = ["en-US"]
+            try VNImageRequestHandler(cgImage: image).perform([request])
+            return (request.results ?? []).compactMap {
+                $0.topCandidates(1).first?.string
+            }.joined(separator: "\n")
+        }
+
+        waitForWorkspaceShell(in: app)
+        grantNotificationAuthorizationIfRequested()
+        let workspaceRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
+        XCTAssertTrue(workspaceRow.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.descendants(matching: .any)["MobileWorkspaceRow-workspace-docs"].exists)
+        capture("ios18-01-workspace-list")
+        try openSelectedWorkspaceIfNeeded(app)
+
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+        capture("ios18-02-terminal-history")
+        surface.tap()
+        _ = waitForDock(in: app, describe: "direct terminal responder before input") {
+            $0["proxyFirstResponder"] == "1"
+                && $0["inputRequested"] == "terminal"
+                && $0["inputActual"] == "terminal"
+        }
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 8))
+        let marker = "ios18 input verified"
+        app.typeText(marker + "\n")
+        let received = await server.waitForTerminalInput(marker + "\r", timeout: 12)
+        XCTAssertTrue(received, "Direct terminal keyboard bytes must reach the host exactly once and in order")
+        let requests = await server.terminalInputReceipt()
+        XCTAssertFalse(requests.isEmpty)
+        XCTAssertTrue(requests.allSatisfy {
+            $0.workspaceID == "workspace-main" && $0.terminalID == "terminal-build"
+        }, "Every input chunk must target the visible terminal")
+        XCTAssertEqual(requests.map(\.text).joined(), marker + "\r")
+        let receipt = XCTAttachment(string: requests.map {
+            "terminal.input workspace=\($0.workspaceID) surface=\($0.terminalID) text=\(String(reflecting: $0.text))"
+        }.joined(separator: "\n"))
+        receipt.name = "ios18-terminal-input-host-receipt"
+        receipt.lifetime = .keepAlways
+        add(receipt)
+
+        // Ask the mock host to expose the echoed bytes on the next authoritative
+        // replay, then use the user-visible reconnect action to fetch that replay.
+        let replayLines = history + ["echo: " + marker]
+        let nextSubscription = await server.prepareTerminalReconnect(lines: replayLines)
+        tapCompactToolbarTitleMenu(app.buttons["MobileWorkspaceTitleMenu"], in: app)
+        tapMenuItem(app.buttons["MobileWorkspaceTitleReconnectMenuItem"], in: app)
+        let reconnected = await server.waitForRequest(
+            method: "mobile.events.subscribe",
+            minimumCount: nextSubscription,
+            timeout: 15
+        )
+        XCTAssertTrue(
+            reconnected,
+            "Reconnect must resubscribe before asserting the host echo"
+        )
+        assertTerminalRow(history.count, label: "echo: " + marker, in: app)
+        capture("ios18-03-terminal-input-echo-keyboard")
+        app.buttons["terminal.inputAccessory.hideKeyboard"].tap()
+        if app.keyboards.firstMatch.exists {
+            _ = waitForKeyboardDismissal(in: app)
+        }
+        let bottom = waitForDock(in: app, describe: "terminal history at bottom") {
+            $0["scrollAtBottom"] == "1" && (Int($0["scrollTotal"] ?? "") ?? 0) > 100
+        }
+        let bottomOffset = try XCTUnwrap(Int(bottom["scrollOffset"] ?? ""))
+        var bottomText = ""
+        let echoOCRDeadline = Date().addingTimeInterval(10)
+        while Date() < echoOCRDeadline {
+            bottomText = (try? visibleTerminalText()) ?? ""
+            if bottomText.localizedCaseInsensitiveContains(marker) { break }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+        let echoOCR = XCTAttachment(string: "OCR after host echo replay: \(bottomText)")
+        echoOCR.name = "ios18-terminal-echo-ocr-diagnostic"
+        echoOCR.lifetime = .keepAlways
+        add(echoOCR)
+        capture("ios18-04-terminal-input-echo")
+
+        if app.buttons["terminal.inputAccessory.hideKeyboard"].exists {
+            app.buttons["terminal.inputAccessory.hideKeyboard"].tap()
+            _ = waitForKeyboardDismissal(in: app)
+        }
+        surface.swipeDown(velocity: .slow)
+        surface.swipeDown(velocity: .slow)
+        _ = waitForDock(in: app, describe: "drag moves the primary terminal into scrollback") {
+            guard let offset = Int($0["scrollOffset"] ?? "") else { return false }
+            return $0["scrollAtBottom"] == "0" && offset != bottomOffset
+        }
+        let scrolledText = try visibleTerminalText()
+        XCTAssertTrue(scrolledText.contains("history"), "Scrolled pixels must contain terminal history. OCR: \(scrolledText)")
+        XCTAssertNotEqual(scrolledText, bottomText, "Scrolling must change the rendered terminal viewport")
+        capture("ios18-05-terminal-scrollback")
+
+        // Primary scrollback is local. An alternate-screen application receives
+        // wheel events at the host, so check this path separately.
+        try await switchToTUITerminal(in: app, server: server)
+        assertTerminalRow(0, label: "LAZYGIT", in: app)
+        capture("ios18-06-alternate-terminal")
+        await server.resetTerminalScrollRequests()
+        surface.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.70)).press(
+            forDuration: 0.05,
+            thenDragTo: surface.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)),
+            withVelocity: .slow,
+            thenHoldForDuration: 0.5
+        )
+        let forwarded = await server.waitForTerminalScrollRequest(timeout: 5)
+        XCTAssertTrue(forwarded, "Alternate terminal drag must reach the host as mobile.terminal.scroll")
+        capture("ios18-07-alternate-terminal-after-scroll")
+    }
+
     @MainActor
     func testTerminalReplayRendersGhosttyText() async throws {
         let server = try MobileSyncMockHostServer()
@@ -6894,1061 +7837,40 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    func testInlineWorkspaceTitleMenuShowsWorkspaceActions() throws {
-        let app = launchAgentChatInlinePreviewApp()
-        let titleMenu = app.buttons["MobileWorkspaceTitleMenu"]
-        let backButton = app.buttons["MobileWorkspaceBackButton"]
-        let chatToggle = app.buttons["AgentChatInlinePreviewChatToggle"]
-        let surfacePicker = app.buttons["AgentChatInlinePreviewTerminalPicker"]
-        XCTAssertTrue(titleMenu.waitForExistence(timeout: 8))
-        XCTAssertTrue(backButton.waitForExistence(timeout: 4))
-        XCTAssertTrue(chatToggle.waitForExistence(timeout: 4))
-        XCTAssertTrue(surfacePicker.waitForExistence(timeout: 4))
-        XCTAssertTrue(
-            waitForCompactToolbarHeightsToMatch(
-                titleMenu: titleMenu,
-                backButton: backButton,
-                surfacePicker: surfacePicker,
-                tolerance: 2,
-                timeout: 4
-            )
-        )
-        XCTAssertTrue(
-            waitForWorkspaceTitleCenteredAndSeparated(
-                titleMenu: titleMenu,
-                backButton: backButton,
-                trailingControl: chatToggle,
-                in: app,
-                timeout: 4
-            )
-        )
+    func testOpenTerminalCatchesUpAfterReconnect() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
 
-        tapCompactToolbarTitleMenu(titleMenu, in: app)
+        let app = try launchConnectedApp(port: port)
+        defer { app.terminate() }
+        assertTerminalRow(0, label: "$ cmux ios status", in: app)
 
-        XCTAssertTrue(app.buttons["MobileWorkspaceTitleRenameMenuItem"].waitForExistence(timeout: 4))
-        XCTAssertTrue(app.buttons["MobileWorkspaceTitleReadStateMenuItem"].exists)
-        XCTAssertFalse(app.buttons["MobileNewTerminalMenuItem"].exists)
-    }
+        let before = XCTAttachment(screenshot: app.screenshot())
+        before.name = "terminal-before-reconnect"
+        before.lifetime = .keepAlways
+        add(before)
 
-    @MainActor
-    func testInlineWorkspaceTitleKeepsCompactHeightWithTallGlyphs() throws {
-        let app = launchAgentChatInlinePreviewApp(environment: [
-            "CMUX_UITEST_INLINE_WORKSPACE_TITLE": "✳️ Claude Code",
-            "CMUX_UITEST_INLINE_WORKSPACE_SUBTITLE": "🧑🏽‍💻 Claude Code",
-        ])
-        let titleMenu = app.buttons["MobileWorkspaceTitleMenu"]
-        let backButton = app.buttons["MobileWorkspaceBackButton"]
-        let surfacePicker = app.buttons["AgentChatInlinePreviewTerminalPicker"]
+        // The connection remains healthy, but its visible contents are stale.
+        // Exercise the actual session menu action without leaving the terminal.
+        let nextSubscription = await server.prepareTerminalReconnect(
+            lines: ["output generated during reconnect", "same terminal, current output"]
+        )
+        tapCompactToolbarTitleMenu(app.buttons["MobileWorkspaceTitleMenu"], in: app)
+        tapMenuItem(app.buttons["MobileWorkspaceTitleReconnectMenuItem"], in: app)
+        let reconnected = await server.waitForRequest(
+            method: "mobile.events.subscribe",
+            minimumCount: nextSubscription,
+            timeout: 20
+        )
+        XCTAssertTrue(reconnected, "The open terminal must reconnect to its host")
+        assertTerminalRow(0, label: "output generated during reconnect", in: app)
+        assertTerminalRow(1, label: "same terminal, current output", in: app)
 
-        XCTAssertTrue(titleMenu.waitForExistence(timeout: 8))
-        XCTAssertTrue(backButton.waitForExistence(timeout: 4))
-        XCTAssertTrue(surfacePicker.waitForExistence(timeout: 4))
-
-        XCTAssertTrue(
-            waitForCompactToolbarHeightsToMatch(
-                titleMenu: titleMenu,
-                backButton: backButton,
-                surfacePicker: surfacePicker,
-                tolerance: 2,
-                timeout: 4
-            )
-        )
-
-        let screenshotAttachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-        screenshotAttachment.name = "inline-title-tall-glyph-compact-height"
-        screenshotAttachment.lifetime = .keepAlways
-        add(screenshotAttachment)
-
-        tapCompactToolbarTitleMenu(titleMenu, in: app)
-        XCTAssertTrue(app.buttons["MobileWorkspaceTitleRenameMenuItem"].waitForExistence(timeout: 4))
-        XCTAssertFalse(app.buttons["MobileNewTerminalMenuItem"].exists)
-    }
-
-    /// A typed missing-session response from a live Mac must not be flattened
-    /// into a reachability diagnosis when an attachment opens from chat.
-    @MainActor
-    func testAgentChatMissingAttachmentSessionDoesNotClaimMacUnreachable() throws {
-        let app = launchAgentChatPreviewApp(environment: [
-            "CMUX_UITEST_MOCK_DATA": "1",
-            "CMUX_UITEST_AGENT_CHAT_ARTIFACT_FAILURE": "session_not_found",
-        ])
-        let table = app.tables["ChatTranscriptTableView"]
-        _ = try scrollToRichAgentChatFixtureRegion(table: table, app: app)
-        let attachment = app.buttons["ChatAttachmentButton"]
-        XCTAssertTrue(attachment.waitForExistence(timeout: 4))
-        XCTAssertEqual(attachment.label, "ci-failure.png")
-        guard scrollTranscript(table, toReveal: attachment, timeout: 10) else {
-            XCTFail("Missing attachment never became visible")
-            return
-        }
-
-        tap(attachment, in: app)
-
-        XCTAssertTrue(app.staticTexts["Session not found"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.staticTexts["Mac unreachable"].exists)
-    }
-
-    /// A live Mac that cannot find the referenced path must identify the stale
-    /// file instead of blaming the connection used by the rest of the app.
-    @MainActor
-    func testAgentChatMissingAttachmentFileReportsFileNotFound() throws {
-        let app = launchAgentChatPreviewApp(environment: [
-            "CMUX_UITEST_MOCK_DATA": "1",
-            "CMUX_UITEST_AGENT_CHAT_ARTIFACT_FAILURE": "file_not_found",
-        ])
-        let table = app.tables["ChatTranscriptTableView"]
-        _ = try scrollToRichAgentChatFixtureRegion(table: table, app: app)
-        let attachment = app.buttons["ChatAttachmentButton"]
-        XCTAssertTrue(attachment.waitForExistence(timeout: 4))
-        XCTAssertEqual(attachment.label, "ci-failure.png")
-        guard scrollTranscript(table, toReveal: attachment, timeout: 10) else {
-            XCTFail("Missing attachment never became visible")
-            return
-        }
-
-        tap(attachment, in: app)
-
-        XCTAssertTrue(app.staticTexts["File not found"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["The file is no longer available on your Mac."].exists)
-        XCTAssertFalse(app.staticTexts["Mac unreachable"].exists)
-    }
-
-    /// Regression for WhatsApp-style chat keyboard tracking: focusing the chat
-    /// composer must translate the actual transcript table frame upward with the
-    /// composer while preserving the table's own bottom-visible content. The table
-    /// stays full height behind a keyboard-owned clip view, so the bottom content
-    /// remains visible and keyboard motion clips only from the top.
-    @MainActor
-    func testAgentChatTranscriptKeepsTopEdgeVisibleWithKeyboardAcrossScrollPositions() throws {
-        do {
-            let app = launchAgentChatInlinePreviewApp()
-            let table = app.tables["ChatTranscriptTableView"]
-            XCTAssertTrue(table.waitForExistence(timeout: 8))
-            let composerBar = app.otherElements["ChatComposerBar"]
-            XCTAssertTrue(composerBar.waitForExistence(timeout: 8))
-            let composerField = chatComposerField(in: app)
-            XCTAssertTrue(composerField.waitForExistence(timeout: 8))
-            assertChatComposerControlsVisible(in: app)
-            let loadedMetrics = try waitForTranscriptMetrics(table, timeout: 8) {
-                $0.frameHeight > 240 && $0.frameMaxY > 300 && $0.contentHeight > $0.boundsHeight * 1.6
-            }
-            try scrollTranscript(table, direction: .up, timeout: 8) {
-                $0.distanceFromBottom < 60
-            }
-            try assertChatKeyboardTracking(
-                table: table,
-                composerBar: composerBar,
-                composerField: composerField,
-                app: app,
-                baselineMaxY: loadedMetrics.frameMaxY,
-                scrollPosition: "bottom"
-            )
-        }
-
-        do {
-            let app = launchAgentChatInlinePreviewApp()
-            let table = app.tables["ChatTranscriptTableView"]
-            XCTAssertTrue(table.waitForExistence(timeout: 8))
-            let composerBar = app.otherElements["ChatComposerBar"]
-            XCTAssertTrue(composerBar.waitForExistence(timeout: 8))
-            let composerField = chatComposerField(in: app)
-            XCTAssertTrue(composerField.waitForExistence(timeout: 8))
-            let loadedMetrics = try waitForTranscriptMetrics(table, timeout: 8) {
-                $0.frameHeight > 240 && $0.frameMaxY > 300 && $0.contentHeight > $0.boundsHeight * 1.6
-            }
-            // Move away from the live tail before focusing the field. This is the
-            // reported case: a long transcript with the current bottom content not
-            // visible, then the keyboard appears.
-            try scrollTranscript(table, direction: .down, timeout: 6) {
-                $0.distanceFromBottom > 120 && $0.offsetY > 80
-            }
-            try assertChatKeyboardTracking(
-                table: table,
-                composerBar: composerBar,
-                composerField: composerField,
-                app: app,
-                baselineMaxY: loadedMetrics.frameMaxY,
-                scrollPosition: "middle"
-            )
-        }
-
-        do {
-            let app = launchAgentChatInlinePreviewApp()
-            let table = app.tables["ChatTranscriptTableView"]
-            XCTAssertTrue(table.waitForExistence(timeout: 8))
-            let composerBar = app.otherElements["ChatComposerBar"]
-            XCTAssertTrue(composerBar.waitForExistence(timeout: 8))
-            let composerField = chatComposerField(in: app)
-            XCTAssertTrue(composerField.waitForExistence(timeout: 8))
-            let loadedMetrics = try waitForTranscriptMetrics(table, timeout: 8) {
-                $0.frameHeight > 240 && $0.frameMaxY > 300 && $0.contentHeight > $0.boundsHeight * 1.6
-            }
-            try scrollTranscript(table, direction: .down, timeout: 8) {
-                $0.offsetY < 80 && $0.contentHeight > $0.boundsHeight * 1.6
-            }
-            try assertChatKeyboardTracking(
-                table: table,
-                composerBar: composerBar,
-                composerField: composerField,
-                app: app,
-                baselineMaxY: loadedMetrics.frameMaxY,
-                scrollPosition: "top"
-            )
-        }
-    }
-
-    @MainActor
-    func testAgentChatMiddleKeyboardVideoEvidence() throws {
-        let app = launchAgentChatInlinePreviewApp(environment: [
-            "CMUX_UITEST_CHAT_AUTOFOCUS_DELAY": "14.0",
-            "CMUX_UITEST_CHAT_AUTO_DISMISS_DELAY": "1.25",
-        ])
-        let table = app.tables["ChatTranscriptTableView"]
-        XCTAssertTrue(table.waitForExistence(timeout: 8))
-        let composerBar = app.otherElements["ChatComposerBar"]
-        XCTAssertTrue(composerBar.waitForExistence(timeout: 8))
-
-        let loadedMetrics = try waitForTranscriptMetrics(table, timeout: 8) {
-            $0.frameHeight > 240 && $0.frameMaxY > 300 && $0.contentHeight > $0.boundsHeight * 1.6
-        }
-        try scrollTranscript(table, direction: .down, timeout: 5) {
-            $0.distanceFromBottom > 180 && $0.offsetY > 100
-        }
-        let beforeKeyboard = try waitForTranscriptMetrics(table, timeout: 2) {
-            abs($0.frameMaxY - loadedMetrics.frameMaxY) < 4 && $0.keyboardOverlap == 0
-        }
-
-        let animationSamples = sampleKeyboardEvidenceFrames(
-            table: table,
-            composerBar: composerBar,
-            duration: 8.0,
-            frameCapturePrefix: "middle"
-        )
-        guard let maxOverlapIndex = animationSamples.indices.max(by: {
-            animationSamples[$0].metrics.keyboardOverlap < animationSamples[$1].metrics.keyboardOverlap
-        }) else {
-            XCTFail("Video evidence setup did not collect keyboard animation samples")
-            return
-        }
-        let keyboardUp = animationSamples[maxOverlapIndex].metrics
-        let keyboardDown = animationSamples.suffix(from: maxOverlapIndex).reversed().first {
-            $0.metrics.keyboardOverlap == 0
-                && abs($0.metrics.frameMaxY - beforeKeyboard.frameMaxY) < 6
-        }?.metrics
-
-        assertChatKeyboardAnimationStayedAttached(
-            animationSamples,
-            scrollPosition: "middle video evidence"
-        )
-        assertChatKeyboardVisibleBottomStayedPinned(
-            animationSamples,
-            baselineVisibleBottomY: beforeKeyboard.visibleBottomY,
-            scrollPosition: "middle video evidence"
-        )
-        assertChatKeyboardEvidenceCapturedIntermediateMotion(
-            animationSamples,
-            scrollPosition: "middle video evidence"
-        )
-        XCTAssertGreaterThan(
-            keyboardUp.keyboardOverlap,
-            120,
-            "Video evidence setup must capture the keyboard-up state. samples=\(animationSamples)"
-        )
-        XCTAssertEqual(
-            keyboardUp.presentationFrameMaxY,
-            keyboardUp.effectiveFrameMaxY,
-            accuracy: 4,
-            "Video evidence setup must clip the visible transcript bottom to the keyboard top with the keyboard up. \(keyboardUp)"
-        )
-        XCTAssertGreaterThan(
-            keyboardUp.presentationFrameMaxY,
-            keyboardUp.composerPresentationMinY + 24,
-            "Video evidence setup must have visible transcript content underneath the composer chrome with the keyboard up. \(keyboardUp)"
-        )
-        XCTAssertEqual(
-            keyboardUp.visibleBottomY,
-            beforeKeyboard.visibleBottomY,
-            accuracy: 36,
-            "Video evidence setup must preserve the same visible bottom content while the keyboard opens. before=\(beforeKeyboard) after=\(keyboardUp)"
-        )
-        guard let keyboardDown else {
-            XCTFail("Video evidence setup must capture the keyboard returning down. samples=\(animationSamples)")
-            return
-        }
-        XCTAssertEqual(
-            keyboardDown.visibleBottomY,
-            beforeKeyboard.visibleBottomY,
-            accuracy: 36,
-            "Video evidence setup must preserve visible bottom content while the keyboard hides. before=\(beforeKeyboard) after=\(keyboardDown)"
-        )
-    }
-
-    @MainActor
-    func testAgentChatMiddleKeyboardInterruptedShowDismissVideoEvidence() throws {
-        let app = launchAgentChatInlinePreviewApp(environment: [
-            "CMUX_UITEST_CHAT_AUTOFOCUS_DELAY": "14.0",
-            "CMUX_UITEST_CHAT_AUTO_DISMISS_DELAY": "0.18",
-        ])
-        let table = app.tables["ChatTranscriptTableView"]
-        XCTAssertTrue(table.waitForExistence(timeout: 8))
-        let composerBar = app.otherElements["ChatComposerBar"]
-        XCTAssertTrue(composerBar.waitForExistence(timeout: 8))
-
-        let loadedMetrics = try waitForTranscriptMetrics(table, timeout: 8) {
-            $0.frameHeight > 240 && $0.frameMaxY > 300 && $0.contentHeight > $0.boundsHeight * 1.6
-        }
-        try scrollTranscript(table, direction: .down, timeout: 5) {
-            $0.distanceFromBottom > 180 && $0.offsetY > 100
-        }
-        let beforeKeyboard = try waitForTranscriptMetrics(table, timeout: 2) {
-            abs($0.frameMaxY - loadedMetrics.frameMaxY) < 4 && $0.keyboardOverlap == 0
-        }
-
-        let animationSamples = sampleKeyboardEvidenceFrames(
-            table: table,
-            composerBar: composerBar,
-            duration: 8.0,
-            frameCapturePrefix: "middle-show-dismiss"
-        )
-        let maxKeyboardEvents = animationSamples.map(\.metrics.keyboardEvents).max() ?? 0
-        XCTAssertGreaterThanOrEqual(
-            maxKeyboardEvents,
-            2,
-            "Interrupted show-dismiss evidence must capture both show and dismiss transitions. samples=\(animationSamples)"
-        )
-        assertChatKeyboardAnimationStayedAttached(
-            animationSamples,
-            scrollPosition: "middle interrupted show-dismiss video evidence"
-        )
-        assertChatKeyboardVisibleBottomStayedPinned(
-            animationSamples,
-            baselineVisibleBottomY: beforeKeyboard.visibleBottomY,
-            scrollPosition: "middle interrupted show-dismiss video evidence"
-        )
-        assertChatKeyboardMotionCapturedIntermediateSteps(
-            animationSamples,
-            scrollPosition: "middle interrupted show-dismiss video evidence",
-            minimumDistinctFrameBuckets: 2
-        )
-        let maxVisibleMotion = animationSamples
-            .map { activeKeyboardPresentationMotion($0.metrics) }
-            .max() ?? 0
-        XCTAssertGreaterThan(
-            maxVisibleMotion,
-            80,
-            "Interrupted show-dismiss must capture partially visible keyboard motion, not only down state. samples=\(animationSamples)"
-        )
-        guard let keyboardDown = animationSamples.last?.metrics,
-              isKeyboardDownClipSettled(keyboardDown),
-              abs(keyboardDown.frameMaxY - beforeKeyboard.frameMaxY) < 8 else {
-            XCTFail("Interrupted show-dismiss evidence must end with the keyboard down. samples=\(animationSamples)")
-            return
-        }
-        XCTAssertEqual(
-            keyboardDown.visibleBottomY,
-            beforeKeyboard.visibleBottomY,
-            accuracy: 36,
-            "Interrupted show-dismiss must preserve visible bottom content. before=\(beforeKeyboard) down=\(keyboardDown)"
-        )
-    }
-
-    @MainActor
-    func testAgentChatMiddleKeyboardInterruptedRefocusVideoEvidence() throws {
-        let app = launchAgentChatInlinePreviewApp(environment: [
-            "CMUX_UITEST_CHAT_AUTOFOCUS_DELAY": "14.0",
-            "CMUX_UITEST_CHAT_AUTO_DISMISS_DELAY": "1.05",
-            "CMUX_UITEST_CHAT_AUTO_REFOCUS_AFTER_DISMISS_DELAY": "0.18",
-        ])
-        let table = app.tables["ChatTranscriptTableView"]
-        XCTAssertTrue(table.waitForExistence(timeout: 8))
-        let composerBar = app.otherElements["ChatComposerBar"]
-        XCTAssertTrue(composerBar.waitForExistence(timeout: 8))
-
-        let loadedMetrics = try waitForTranscriptMetrics(table, timeout: 8) {
-            $0.frameHeight > 240 && $0.frameMaxY > 300 && $0.contentHeight > $0.boundsHeight * 1.6
-        }
-        try scrollTranscript(table, direction: .down, timeout: 5) {
-            $0.distanceFromBottom > 180 && $0.offsetY > 100
-        }
-        let beforeKeyboard = try waitForTranscriptMetrics(table, timeout: 2) {
-            abs($0.frameMaxY - loadedMetrics.frameMaxY) < 4 && $0.keyboardOverlap == 0
-        }
-
-        let animationSamples = sampleKeyboardEvidenceFrames(
-            table: table,
-            composerBar: composerBar,
-            duration: 8.0,
-            frameCapturePrefix: "middle-interrupt"
-        )
-        let maxKeyboardEvents = animationSamples.map(\.metrics.keyboardEvents).max() ?? 0
-        XCTAssertGreaterThanOrEqual(
-            maxKeyboardEvents,
-            3,
-            "Interrupted refocus evidence must capture show, hide, and refocus keyboard transitions. samples=\(animationSamples)"
-        )
-        assertChatKeyboardAnimationStayedAttached(
-            animationSamples,
-            scrollPosition: "middle interrupted refocus video evidence"
-        )
-        assertChatKeyboardVisibleBottomStayedPinned(
-            animationSamples,
-            baselineVisibleBottomY: beforeKeyboard.visibleBottomY,
-            scrollPosition: "middle interrupted refocus video evidence"
-        )
-        assertChatKeyboardEvidenceCapturedIntermediateMotion(
-            animationSamples,
-            scrollPosition: "middle interrupted refocus video evidence"
-        )
-        assertChatKeyboardMotionHasNoLargeSnap(
-            animationSamples,
-            scrollPosition: "middle interrupted refocus video evidence"
-        )
-        assertChatKeyboardMotionCapturedIntermediateSteps(
-            animationSamples,
-            scrollPosition: "middle interrupted refocus video evidence",
-            minimumVisibleMotion: 48,
-            minimumDistinctFrameBuckets: 2
-        )
-        guard let keyboardUp = animationSamples.reversed().first(where: { $0.metrics.keyboardOverlap > 120 })?.metrics else {
-            XCTFail("Interrupted refocus evidence must end with the keyboard visible. samples=\(animationSamples)")
-            return
-        }
-        XCTAssertEqual(
-            keyboardUp.visibleBottomY,
-            beforeKeyboard.visibleBottomY,
-            accuracy: 36,
-            "Interrupted refocus must preserve the same visible bottom content. before=\(beforeKeyboard) after=\(keyboardUp)"
-        )
-    }
-
-    @MainActor
-    func testAgentChatMiddleKeyboardToggleVideoEvidence() throws {
-        for refocusCase in [
-            (delay: 0.08, prefix: "toggle-interrupt-edge", label: "middle edge interrupted hide-refocus"),
-            (delay: 0.16, prefix: "toggle-interrupt-early", label: "middle early interrupted hide-refocus"),
-            (delay: 0.24, prefix: "toggle-interrupt-mid", label: "middle interrupted hide-refocus"),
-            (delay: 0.32, prefix: "toggle-interrupt-late", label: "middle late interrupted hide-refocus"),
-            (delay: 0.44, prefix: "toggle-after-settle", label: "middle settled hide-refocus"),
-        ] {
-            let app = launchAgentChatInlinePreviewApp(environment: [
-                "CMUX_UITEST_CHAT_AUTOFOCUS_DELAY": "14.0",
-                "CMUX_UITEST_CHAT_AUTO_DISMISS_DELAY": "1.05",
-                "CMUX_UITEST_CHAT_AUTO_REFOCUS_AFTER_DISMISS_DELAY": String(refocusCase.delay),
-            ])
-            let table = app.tables["ChatTranscriptTableView"]
-            XCTAssertTrue(table.waitForExistence(timeout: 8))
-            let composerBar = app.otherElements["ChatComposerBar"]
-            XCTAssertTrue(composerBar.waitForExistence(timeout: 8))
-
-            let loadedMetrics = try waitForTranscriptMetrics(table, timeout: 8) {
-                $0.frameHeight > 240 && $0.frameMaxY > 300 && $0.contentHeight > $0.boundsHeight * 1.6
-            }
-            try scrollTranscript(table, direction: .down, timeout: 5) {
-                $0.distanceFromBottom > 180 && $0.offsetY > 100
-            }
-            let beforeKeyboard = try waitForTranscriptMetrics(table, timeout: 2) {
-                abs($0.frameMaxY - loadedMetrics.frameMaxY) < 4 && $0.keyboardOverlap == 0
-            }
-
-            let interruptedSamples = sampleKeyboardEvidenceFrames(
-                table: table,
-                composerBar: composerBar,
-                duration: 8.0,
-                frameCapturePrefix: refocusCase.prefix
-            )
-            let maxKeyboardEvents = interruptedSamples.map(\.metrics.keyboardEvents).max() ?? 0
-            XCTAssertGreaterThanOrEqual(
-                maxKeyboardEvents,
-                3,
-                "\(refocusCase.label) evidence must capture show, hide, and refocus keyboard transitions. samples=\(interruptedSamples)"
-            )
-            assertChatKeyboardAnimationStayedAttached(
-                interruptedSamples,
-                scrollPosition: refocusCase.label
-            )
-            assertChatKeyboardVisibleBottomStayedPinned(
-                interruptedSamples,
-                baselineVisibleBottomY: beforeKeyboard.visibleBottomY,
-                scrollPosition: refocusCase.label
-            )
-            assertChatKeyboardMotionHasNoLargeSnap(
-                interruptedSamples,
-                scrollPosition: refocusCase.label
-            )
-            assertChatKeyboardMotionCapturedIntermediateSteps(
-                interruptedSamples,
-                scrollPosition: refocusCase.label,
-                minimumDistinctFrameBuckets: 2
-            )
-            guard let refocused = interruptedSamples.last?.metrics,
-                  isKeyboardUpClipSettled(refocused) else {
-                XCTFail("\(refocusCase.label) evidence must end with the keyboard visible. samples=\(interruptedSamples)")
-                return
-            }
-            XCTAssertEqual(
-                refocused.visibleBottomY,
-                beforeKeyboard.visibleBottomY,
-                accuracy: 36,
-                "\(refocusCase.label) must preserve visible bottom content. before=\(beforeKeyboard) refocused=\(refocused)"
-            )
-        }
-    }
-
-    @MainActor
-    func testAgentChatMiddleKeyboardUserTapToggleVideoEvidence() throws {
-        for refocusCase in [
-            (delay: 0.10, prefix: "tap-toggle-early", label: "middle user-tap early hide-refocus"),
-            (delay: 0.22, prefix: "tap-toggle-mid", label: "middle user-tap mid hide-refocus"),
-            (delay: 0.34, prefix: "tap-toggle-late", label: "middle user-tap late hide-refocus"),
-        ] {
-            let app = launchAgentChatInlinePreviewApp()
-            let table = app.tables["ChatTranscriptTableView"]
-            XCTAssertTrue(table.waitForExistence(timeout: 8))
-            let composerBar = app.otherElements["ChatComposerBar"]
-            XCTAssertTrue(composerBar.waitForExistence(timeout: 8))
-            let composerField = chatComposerField(in: app)
-            XCTAssertTrue(composerField.waitForExistence(timeout: 8))
-
-            let loadedMetrics = try waitForTranscriptMetrics(table, timeout: 8) {
-                $0.frameHeight > 240 && $0.frameMaxY > 300 && $0.contentHeight > $0.boundsHeight * 1.6
-            }
-            try scrollTranscript(table, direction: .down, timeout: 5) {
-                $0.distanceFromBottom > 180 && $0.offsetY > 100
-            }
-            let beforeKeyboard = try waitForTranscriptMetrics(table, timeout: 2) {
-                abs($0.frameMaxY - loadedMetrics.frameMaxY) < 4 && $0.keyboardOverlap == 0
-            }
-
-            let samples = sampleKeyboardEvidenceFrames(
-                table: table,
-                composerBar: composerBar,
-                duration: 5.0,
-                frameCapturePrefix: refocusCase.prefix,
-                scheduledActions: [
-                    TimedKeyboardAction(delay: 0.08) {
-                        _ = self.tapChatComposerField(composerField, composerBar: composerBar, in: app)
-                    },
-                    TimedKeyboardAction(delay: 1.10) {
-                        self.tapChatTranscriptOnceForDismiss(in: app, table: table)
-                    },
-                    TimedKeyboardAction(delay: 1.10 + refocusCase.delay) {
-                        _ = self.tapChatComposerField(composerField, composerBar: composerBar, in: app)
-                    },
-                ]
-            )
-            let maxKeyboardEvents = samples.map(\.metrics.keyboardEvents).max() ?? 0
-            XCTAssertGreaterThanOrEqual(
-                maxKeyboardEvents,
-                3,
-                "\(refocusCase.label) evidence must capture show, user tap-dismiss, and user refocus transitions. samples=\(samples)"
-            )
-            assertChatKeyboardAnimationStayedAttached(
-                samples,
-                scrollPosition: refocusCase.label
-            )
-            assertChatKeyboardVisibleBottomStayedPinned(
-                samples,
-                baselineVisibleBottomY: beforeKeyboard.visibleBottomY,
-                scrollPosition: refocusCase.label
-            )
-            assertChatKeyboardMotionHasNoLargeSnap(
-                samples,
-                scrollPosition: refocusCase.label
-            )
-            // XCUI taps synchronize on app idleness, so this user-driven path
-            // intentionally asserts the observed transition events and final
-            // attachment/pinning. Dense in-flight frames come from the external
-            // simulator recording used for dogfood evidence.
-            guard let refocused = samples.last?.metrics,
-                  isKeyboardUpClipSettled(refocused) else {
-                XCTFail("\(refocusCase.label) evidence must end with the keyboard visible. samples=\(samples)")
-                return
-            }
-            XCTAssertEqual(
-                refocused.visibleBottomY,
-                beforeKeyboard.visibleBottomY,
-                accuracy: 36,
-                "\(refocusCase.label) must preserve visible bottom content. before=\(beforeKeyboard) refocused=\(refocused)"
-            )
-        }
-    }
-
-    @MainActor
-    func testAgentChatTopScrollEdgeUnderlapsNavigationBarEvidence() throws {
-        guard #available(iOS 26.0, *) else {
-            throw XCTSkip("Top scroll-edge underlap uses iOS 26 content scroll view registration.")
-        }
-
-        let app = launchAgentChatInlinePreviewApp()
-        let table = app.tables["ChatTranscriptTableView"]
-        XCTAssertTrue(table.waitForExistence(timeout: 8))
-        let navigationBar = app.navigationBars.firstMatch
-        XCTAssertTrue(navigationBar.waitForExistence(timeout: 8))
-
-        let loadedMetrics = try waitForTranscriptMetrics(table, timeout: 8) {
-            $0.frameHeight > 240 && $0.contentHeight > $0.boundsHeight * 1.6
-        }
-        let navigationFrame = navigationBar.frame
-        XCTAssertLessThan(
-            loadedMetrics.frameMinY,
-            navigationFrame.maxY - 8,
-            "The chat transcript table must extend under the navigation bar so the native top scroll-edge effect can blend content into the toolbar. metrics=\(loadedMetrics) navigationBar=\(navigationFrame)"
-        )
-
-        captureKeyboardEvidenceFrame(
-            prefix: "top-edge-loaded",
-            index: 0,
-            startedAt: Date(),
-            metrics: loadedMetrics
-        )
-        // Drive the transcript to the very top with XCUI scrolling (the chat
-        // transcript loads anchored at the bottom; there is no app-side
-        // initial-scroll seam in production source). Then re-read once the
-        // momentum settles so the precise top-edge assertions run on a stable
-        // frame.
-        try scrollTranscript(table, direction: .down, timeout: 10) {
-            abs($0.visibleTopY) <= 3
-                && $0.adjustedTopInset > 20
-                && $0.contentHeight > $0.boundsHeight * 1.6
-        }
-        let topMetrics = try waitForTranscriptMetrics(table, timeout: 4) {
-            abs($0.visibleTopY) <= 3
-                && $0.adjustedTopInset > 20
-                && $0.contentHeight > $0.boundsHeight * 1.6
-        }
-        XCTAssertTrue(
-            topMetrics.topContentScrollViewRegistered,
-            "When the keyboard is not active, the chat transcript should remain registered as the navigation bar's top content scroll view so the normal top underlap effect works. metrics=\(topMetrics)"
-        )
-        XCTAssertEqual(
-            topMetrics.offsetY,
-            -topMetrics.adjustedTopInset,
-            accuracy: 3,
-            "At the beginning of the chat, UIKit's adjusted top inset must reserve the navigation chrome while the table frame still underlaps it. metrics=\(topMetrics)"
-        )
-        let todayHeader = app.staticTexts["ChatDateHeader"].firstMatch
-        XCTAssertTrue(todayHeader.waitForExistence(timeout: 2))
-        XCTAssertGreaterThanOrEqual(
-            todayHeader.frame.minY,
-            navigationFrame.maxY - 4,
-            "The Today header must be visible below the navigation controls at top scroll. today=\(todayHeader.frame) navigationBar=\(navigationFrame)"
-        )
-        XCTAssertLessThanOrEqual(
-            todayHeader.frame.minY,
-            navigationFrame.maxY + 72,
-            "The Today header should sit near the navigation chrome; a larger gap means top chrome spacing was applied as real content padding. today=\(todayHeader.frame) navigationBar=\(navigationFrame) metrics=\(topMetrics)"
-        )
-        captureTopScrollEdgeEvidenceFrames(table: table, prefix: "top-edge")
-    }
-
-    @MainActor
-    func testAgentChatScrollToBottomButtonClearsFloatingComposer() throws {
-        let app = launchAgentChatInlinePreviewApp()
-        let table = app.tables["ChatTranscriptTableView"]
-        XCTAssertTrue(table.waitForExistence(timeout: 8))
-        let composerBar = app.otherElements["ChatComposerBar"]
-        XCTAssertTrue(composerBar.waitForExistence(timeout: 8))
-
-        try scrollTranscript(table, direction: .down, timeout: 6) {
-            $0.distanceFromBottom > 180 && $0.contentHeight > $0.boundsHeight * 1.6
-        }
-
-        let button = app.buttons["ChatScrollToBottomButton"]
-        XCTAssertTrue(button.waitForExistence(timeout: 4))
-        XCTAssertLessThanOrEqual(
-            button.frame.maxY,
-            composerBar.frame.minY - 6,
-            "The scroll-to-bottom button must float above the glass composer, not underneath it. button=\(button.frame) composer=\(composerBar.frame)"
-        )
-        XCTAssertTrue(button.isHittable)
-        button.tap()
-        _ = try waitForTranscriptMetrics(table, timeout: 4) {
-            $0.distanceFromBottom < 60
-        }
-    }
-
-    @MainActor
-    func testAgentChatTranscriptFastSwipeEvidence() throws {
-        let app = launchAgentChatInlinePreviewApp(environment: [
-            "CMUX_UITEST_CHAT_INITIAL_SCROLL": "middle",
-        ])
-        let table = app.tables["ChatTranscriptTableView"]
-        XCTAssertTrue(table.waitForExistence(timeout: 8))
-
-        let before = try waitForTranscriptMetrics(table, timeout: 8) {
-            $0.frameHeight > 240
-                && $0.contentHeight > $0.boundsHeight * 1.6
-                && $0.offsetY > 80
-                && $0.distanceFromBottom > 220
-        }
-        captureKeyboardEvidenceFrame(
-            prefix: "scroll-deceleration-before",
-            index: 0,
-            startedAt: Date(),
-            metrics: before
-        )
-
-        table.swipeUp(velocity: .fast)
-        let afterSwipe = try waitForTranscriptMetrics(table, timeout: 1.5) {
-            $0.offsetY > before.offsetY + 40
-        }
-        captureKeyboardEvidenceFrame(
-            prefix: "scroll-deceleration-after",
-            index: 0,
-            startedAt: Date(),
-            metrics: afterSwipe
-        )
-        XCTAssertGreaterThan(
-            afterSwipe.offsetY,
-            before.offsetY + 40,
-            "A fast transcript swipe should move through the chat history instead of being swallowed by parent gesture handling. before=\(before) after=\(afterSwipe)"
-        )
-        XCTAssertGreaterThan(
-            afterSwipe.distanceFromBottom,
-            80,
-            "A single fast swipe from the middle fixture must not snap to the live bottom. before=\(before) after=\(afterSwipe)"
-        )
-    }
-
-    @MainActor
-    func testAgentChatDetailControlsPreserveTranscriptScrollPosition() throws {
-        let app = launchAgentChatInlinePreviewApp()
-        let table = app.tables["ChatTranscriptTableView"]
-        XCTAssertTrue(table.waitForExistence(timeout: 8))
-        _ = try waitForTranscriptMetrics(table, timeout: 8) {
-            $0.frameHeight > 240 && $0.contentHeight > $0.boundsHeight * 1.6
-        }
-
-        try assertDetailControlPreservesTranscriptPosition(
-            buttonID: "ChatToolUseToggle-msg-fixture-4",
-            table: table,
-            app: app
-        )
-        try assertDetailControlPreservesTranscriptPosition(
-            buttonID: "ChatTerminalToggle-msg-fixture-6",
-            table: table,
-            app: app
-        )
-    }
-
-    @MainActor
-    func testAgentChatBottomScrollEdgeUnderlapsDeviceBottom() throws {
-        guard #available(iOS 26.0, *) else {
-            throw XCTSkip("Bottom scroll-edge underlap uses iOS 26 edge effects.")
-        }
-
-        let app = launchAgentChatInlinePreviewApp()
-        let table = app.tables["ChatTranscriptTableView"]
-        XCTAssertTrue(table.waitForExistence(timeout: 8))
-        let composerBar = app.otherElements["ChatComposerBar"]
-        XCTAssertTrue(composerBar.waitForExistence(timeout: 8))
-        let composerField = chatComposerField(in: app)
-        XCTAssertTrue(composerField.waitForExistence(timeout: 8))
-        dismissChatKeyboard(in: app, table: table)
-
-        let metrics = try waitForTranscriptMetrics(table, timeout: 8) {
-            $0.frameHeight > 240
-                && $0.contentHeight > $0.boundsHeight * 1.6
-                && $0.composerOverlayBottomInset > 40
-                && self.isKeyboardDownClipSettled($0)
-                && !$0.scrollTracking
-                && !$0.scrollDragging
-                && !$0.scrollDecelerating
-        }
-        let windowFrame = app.windows.firstMatch.frame
-        XCTAssertGreaterThanOrEqual(
-            metrics.frameMaxY,
-            windowFrame.maxY - 2,
-            "The transcript table must physically extend to the device bottom so the bottom scroll-edge effect can continue through the safe area. metrics=\(metrics) window=\(windowFrame)"
-        )
-        XCTAssertGreaterThanOrEqual(
-            metrics.presentationFrameMaxY,
-            windowFrame.maxY - 2,
-            "The rendered transcript clip must also reach the device bottom when the keyboard is down. Clipping at the composer top hides the iOS 26 bottom underlap even when the table frame is full height. metrics=\(metrics) window=\(windowFrame)"
-        )
-        XCTAssertLessThanOrEqual(
-            composerBar.frame.maxY,
-            metrics.frameMaxY - 20,
-            "The transcript table should underlap the device bottom independently; the floating composer must keep its original safe-area position instead of following the table underlap. composer=\(composerBar.frame) metrics=\(metrics) window=\(windowFrame)"
-        )
-        XCTAssertEqual(
-            metrics.frameMaxY - metrics.composerOverlayBottomInset,
-            composerBar.frame.minY,
-            accuracy: 8,
-            "The transcript bottom inset must cover the whole obscured region from the underlapped table bottom to the floating composer's top. metrics=\(metrics) composer=\(composerBar.frame)"
-        )
-        XCTAssertEqual(
-            metrics.adjustedBottomInset,
-            metrics.composerOverlayBottomInset,
-            accuracy: 4,
-            "The adjusted transcript inset must equal the physical composer clearance. A larger value double-counts the device bottom safe area. metrics=\(metrics) composer=\(composerBar.frame)"
-        )
-
-        let richMetrics = try scrollToRichAgentChatFixtureRegion(table: table, app: app)
-        let animationSamples = focusTextInputAndSampleTranscriptAnimation(
-            composerField,
-            table: table,
-            composerBar: composerBar,
-            in: app,
-            frameCapturePrefix: "bottom-edge-rich-keyboard"
-        )
-        assertChatKeyboardAnimationStayedAttached(
-            animationSamples,
-            scrollPosition: "bottom edge rich transcript"
-        )
-        let afterKeyboard = try waitForTranscriptMetrics(table, timeout: 6) {
-            $0.keyboardOverlap > 120
-                && $0.bottomEdgeEffectSoft
-                && $0.bottomEdgeElementContainerRegistered
-                && $0.topContentScrollViewRegistered
-                && self.isKeyboardUpClipSettled($0)
-        }
-        guard let keyboardSnapshot = softwareKeyboardSnapshotAfterFocus(
-            in: app,
-            overlap: afterKeyboard.keyboardOverlap
-        ) else {
-            return
-        }
-        let keyboardFrame = keyboardSnapshot.frame
-        let underlapCellFrame = try waitForTranscriptCellUnderlappingBottomChrome(
-            table: table,
-            composerBar: composerBar,
-            keyboardFrame: keyboardFrame
-        )
-        let keyboardUpAttachment = XCTAttachment(
-            string: "rich=\(richMetrics)\nafter=\(afterKeyboard)\nkeyboard=\(keyboardSnapshot)\nunderlapCellFrame=\(underlapCellFrame)\nsamples=\(animationSamples)"
-        )
-        keyboardUpAttachment.name = "bottom-edge-rich-keyboard-up-metrics"
-        keyboardUpAttachment.lifetime = .keepAlways
-        add(keyboardUpAttachment)
-        let screenshotAttachment = XCTAttachment(screenshot: app.screenshot())
-        screenshotAttachment.name = "bottom-edge-rich-keyboard-up-screenshot"
-        screenshotAttachment.lifetime = .keepAlways
-        add(screenshotAttachment)
-        XCTAssertLessThanOrEqual(
-            afterKeyboard.presentationFrameMaxY,
-            keyboardFrame.minY + 2,
-            "Keyboard-up bottom scroll-edge verification must not let transcript rows render under the keyboard key plane. after=\(afterKeyboard) keyboard=\(keyboardFrame) underlapCell=\(underlapCellFrame)"
-        )
-        XCTAssertGreaterThanOrEqual(
-            afterKeyboard.presentationFrameMaxY,
-            keyboardFrame.minY - 16,
-            "Keyboard-up bottom scroll-edge verification must keep transcript clipping visually adjacent to the keyboard so live rows continue underneath the shortcut/composer chrome instead of ending at a hard composer-top edge. after=\(afterKeyboard) keyboard=\(keyboardFrame) underlapCell=\(underlapCellFrame)"
-        )
-        XCTAssertGreaterThan(
-            afterKeyboard.presentationFrameMaxY,
-            afterKeyboard.composerPresentationMinY + 24,
-            "Keyboard-up transcript clipping must extend below the composer top. Clipping flush to the composer recreates the hard horizontal edge above bottom chrome. after=\(afterKeyboard) keyboard=\(keyboardFrame) underlapCell=\(underlapCellFrame)"
-        )
-        XCTAssertEqual(
-            afterKeyboard.adjustedBottomInset,
-            afterKeyboard.composerOverlayBottomInset + afterKeyboard.keyboardOverlap,
-            accuracy: 6,
-            "Keyboard-up transcript inset must equal composer overlay plus real keyboard overlap. after=\(afterKeyboard)"
-        )
-    }
-
-    @MainActor
-    private func assertChatComposerControlsVisible(
-        in app: XCUIApplication,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) {
-        let attach = app.descendants(matching: .any)["ChatComposerAttach"]
-        XCTAssertTrue(
-            attach.waitForExistence(timeout: 4),
-            "GUI chat composer should expose the shared attachment control.",
-            file: file,
-            line: line
-        )
-        let mic = app.descendants(matching: .any)["ChatComposerMic"]
-        XCTAssertTrue(
-            mic.waitForExistence(timeout: 4),
-            "GUI chat composer should expose the shared audio/dictation control beside attachment.",
-            file: file,
-            line: line
-        )
-    }
-
-    @MainActor
-    private func assertChatKeyboardTracking(
-        table: XCUIElement,
-        composerBar: XCUIElement,
-        composerField: XCUIElement,
-        app: XCUIApplication,
-        baselineMaxY: CGFloat,
-        scrollPosition: String,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) throws {
-        dismissChatKeyboard(in: app, table: table)
-        let beforeKeyboard = try waitForTranscriptMetrics(table, timeout: 4) {
-            abs($0.frameMaxY - baselineMaxY) < 4 && $0.frameHeight > 240
-        }
-        let animationSamples = focusTextInputAndSampleTranscriptAnimation(
-            composerField,
-            table: table,
-            composerBar: composerBar,
-            in: app
-        )
-        assertChatKeyboardAnimationStayedAttached(
-            animationSamples,
-            scrollPosition: scrollPosition,
-            file: file,
-            line: line
-        )
-        if beforeKeyboard.distanceFromBottom <= 40 {
-            assertChatKeyboardVisibleBottomStayedPinned(
-                animationSamples,
-                baselineVisibleBottomY: beforeKeyboard.visibleBottomY,
-                scrollPosition: scrollPosition,
-                file: file,
-                line: line
-            )
-        }
-        let afterKeyboard = try waitForTranscriptMetrics(table, timeout: 6) {
-            $0.keyboardOverlap > 120
-                && $0.presentationFrameMaxY < beforeKeyboard.presentationFrameMaxY - 120
-                && self.isKeyboardUpClipSettled($0)
-        }
-        let metricsAttachment = XCTAttachment(
-            string: "scrollPosition=\(scrollPosition)\nbefore=\(beforeKeyboard)\nafter=\(afterKeyboard)"
-        )
-        metricsAttachment.name = "keyboard-top-edge-metrics-\(scrollPosition)"
-        metricsAttachment.lifetime = .keepAlways
-        add(metricsAttachment)
-        let screenshotAttachment = XCTAttachment(screenshot: app.screenshot())
-        screenshotAttachment.name = "keyboard-top-edge-screenshot-\(scrollPosition)"
-        screenshotAttachment.lifetime = .keepAlways
-        add(screenshotAttachment)
-        XCTAssertTrue(
-            afterKeyboard.topEdgeEffectSoft,
-            "Chat transcript must keep the iOS 26 top scroll-edge effect while the keyboard clips the transcript from \(scrollPosition). The keyboard may move the viewport, but it must not remove the top fade under the navigation chrome. before=\(beforeKeyboard) after=\(afterKeyboard)",
-            file: file,
-            line: line
-        )
-        XCTAssertTrue(
-            afterKeyboard.topContentScrollViewRegistered,
-            "Chat transcript must keep driving the navigation bar's top content scroll view while the keyboard clips the transcript from \(scrollPosition). Deregistering it removes the top scroll-edge treatment shown in the keyboard repro. before=\(beforeKeyboard) after=\(afterKeyboard)",
-            file: file,
-            line: line
-        )
-        XCTAssertTrue(
-            afterKeyboard.bottomEdgeEffectSoft,
-            "Chat transcript must keep the soft bottom scroll-edge effect while the keyboard is up from \(scrollPosition), so bottom chrome blends instead of drawing a hard separator. before=\(beforeKeyboard) after=\(afterKeyboard)",
-            file: file,
-            line: line
-        )
-        XCTAssertTrue(
-            afterKeyboard.bottomEdgeElementContainerRegistered,
-            "The keyboard-up shortcut row and input bar must remain registered as the bottom scroll-edge element container. Missing registration leaves a hard line between the transcript and bottom chrome. before=\(beforeKeyboard) after=\(afterKeyboard)",
-            file: file,
-            line: line
-        )
-        XCTAssertEqual(
-            afterKeyboard.frameMinY,
-            beforeKeyboard.frameMinY,
-            accuracy: 4,
-            "Chat transcript UITableView top must stay at the visible nav underlap while the keyboard is up from \(scrollPosition). Moving the table to a negative Y keeps the flags enabled but renders the native top edge blur offscreen. before=\(beforeKeyboard) after=\(afterKeyboard)",
-            file: file,
-            line: line
-        )
-        let keyboardFrame = keyboardFrameAfterFocus(
-            in: app,
-            overlap: afterKeyboard.keyboardOverlap,
-            file: file,
-            line: line
-        )
-        guard let composerBarFrame = waitForUsableFrame(of: composerBar, timeout: 2) else {
-            XCTFail("Chat composer bar frame unavailable after keyboard opens from \(scrollPosition)", file: file, line: line)
-            return
-        }
-        guard let composerFieldFrame = waitForUsableFrame(of: composerField, timeout: 2) else {
-            XCTFail("Chat composer field frame unavailable after keyboard opens from \(scrollPosition)", file: file, line: line)
-            return
-        }
-
-        XCTAssertLessThan(
-            afterKeyboard.presentationFrameMaxY,
-            beforeKeyboard.presentationFrameMaxY - 120,
-            "Chat transcript visible clipped bottom must move up with the keyboard from \(scrollPosition). The table frame itself stays at the top so the native top scroll-edge blur remains visible. before=\(beforeKeyboard) after=\(afterKeyboard) keyboard=\(keyboardFrame)",
-            file: file,
-            line: line
-        )
-        XCTAssertEqual(
-            afterKeyboard.frameHeight,
-            beforeKeyboard.frameHeight,
-            accuracy: 8,
-            "Chat transcript UITableView keeps its full viewport height while the keyboard-owned clip view hides content from the top. before=\(beforeKeyboard) after=\(afterKeyboard)",
-            file: file,
-            line: line
-        )
-        XCTAssertLessThanOrEqual(
-            afterKeyboard.presentationFrameMaxY,
-            keyboardFrame.minY + 8,
-            "Transcript clipping should stop at the keyboard top from \(scrollPosition), not at the composer top or below the keyboard. after=\(afterKeyboard) keyboard=\(keyboardFrame)",
-            file: file,
-            line: line
-        )
-        XCTAssertGreaterThanOrEqual(
-            afterKeyboard.presentationFrameMaxY,
-            keyboardFrame.minY - 8,
-            "Transcript clipping should reach the keyboard-adjacent region from \(scrollPosition) so bottom chrome overlays live transcript content. after=\(afterKeyboard) keyboard=\(keyboardFrame)",
-            file: file,
-            line: line
-        )
-        XCTAssertLessThanOrEqual(
-            composerBarFrame.maxY,
-            keyboardFrame.minY + 2,
-            "Chat composer bar must stay above the keyboard from \(scrollPosition). composer=\(composerBarFrame) keyboard=\(keyboardFrame)",
-            file: file,
-            line: line
-        )
-        XCTAssertGreaterThan(
-            afterKeyboard.presentationFrameMaxY,
-            afterKeyboard.composerPresentationMinY + 24,
-            "Transcript table effective visible bottom must extend underneath the visible composer host from \(scrollPosition). Stopping flush at the composer top leaves the hard horizontal cut line. after=\(afterKeyboard) composer=\(composerBarFrame) keyboard=\(keyboardFrame)",
-            file: file,
-            line: line
-        )
-        XCTAssertEqual(
-            afterKeyboard.adjustedBottomInset,
-            afterKeyboard.composerOverlayBottomInset + afterKeyboard.keyboardOverlap,
-            accuracy: 6,
-            "Keyboard-up transcript inset must include the keyboard-clipped viewport below the composer. Otherwise bottom-pinned state can report success while the newest content is hidden. after=\(afterKeyboard)",
-            file: file,
-            line: line
-        )
-        XCTAssertGreaterThan(
-            composerBarFrame.height,
-            52,
-            "Chat composer bar must retain usable height after keyboard opens from \(scrollPosition). composer=\(composerBarFrame)",
-            file: file,
-            line: line
-        )
-        XCTAssertLessThanOrEqual(
-            composerFieldFrame.maxY,
-            keyboardFrame.minY - 4,
-            "Chat composer field must stay visibly above the keyboard from \(scrollPosition). field=\(composerFieldFrame) keyboard=\(keyboardFrame)",
-            file: file,
-            line: line
-        )
-        XCTAssertGreaterThan(
-            composerFieldFrame.height,
-            18,
-            "Chat composer field must retain a usable text-entry frame after keyboard opens from \(scrollPosition). field=\(composerFieldFrame)",
-            file: file,
-            line: line
-        )
-        if beforeKeyboard.distanceFromBottom <= 40 {
-            XCTAssertLessThanOrEqual(
-                afterKeyboard.distanceFromBottom,
-                44,
-                "Bottom-pinned transcript should remain bottom-pinned while the keyboard opens. before=\(beforeKeyboard) after=\(afterKeyboard)",
-                file: file,
-                line: line
-            )
-        }
+        let after = XCTAttachment(screenshot: app.screenshot())
+        after.name = "terminal-updated-after-reconnect"
+        after.lifetime = .keepAlways
+        add(after)
     }
 
     @MainActor
@@ -8174,37 +8096,6 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchAgentChatPreviewApp(environment: [String: String] = [:]) -> XCUIApplication {
-        var launchEnvironment = [
-            "CMUX_UITEST_AGENT_CHAT_PREVIEW": "1",
-        ]
-        for (key, value) in environment {
-            launchEnvironment[key] = value
-        }
-        let app = launchApp(mockData: false, environment: launchEnvironment)
-        XCTAssertTrue(app.tables["ChatTranscriptTableView"].waitForExistence(timeout: 8))
-        return app
-    }
-
-    @MainActor
-    private func launchAgentChatInlinePreviewApp(environment: [String: String] = [:]) -> XCUIApplication {
-        var launchEnvironment = [
-            "CMUX_UITEST_AGENT_CHAT_INLINE_PREVIEW": "1",
-        ]
-        for (key, value) in environment {
-            launchEnvironment[key] = value
-        }
-        let app = launchApp(mockData: false, environment: launchEnvironment)
-        let table = app.tables["ChatTranscriptTableView"]
-        XCTAssertTrue(table.waitForExistence(timeout: 8))
-        XCTAssertTrue(
-            settleChatPreviewKeyboardDown(in: app, table: table),
-            "Chat preview must start keyboard-down before keyboard evidence is collected. metrics=\(String(describing: transcriptMetrics(from: table)))"
-        )
-        return app
-    }
-
-    @MainActor
     private func launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [String: String] = [:]) -> XCUIApplication {
         var launchEnvironment = [
             "CMUX_UITEST_WORKSPACE_DETAIL_DELAYED_TERMINAL": "1",
@@ -8281,6 +8172,11 @@ final class cmuxUITests: XCTestCase {
     @MainActor
     private func openSelectedWorkspaceIfNeeded(_ app: XCUIApplication) throws {
         grantNotificationAuthorizationIfRequested()
+        let whatsNewContinue = app.buttons["MobileWhatsNewSheet"].firstMatch
+        if whatsNewContinue.waitForExistence(timeout: 4) {
+            tap(whatsNewContinue, in: app)
+            XCTAssertTrue(whatsNewContinue.waitForNonExistence(timeout: 4))
+        }
         if app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8) {
             return
         }
@@ -8745,8 +8641,11 @@ final class cmuxUITests: XCTestCase {
             XCTFail("Element has no usable frame: \(element.debugDescription)", file: file, line: line)
             return
         }
-        app.coordinate(withNormalizedOffset: .zero)
-            .withOffset(CGVector(dx: frame.midX, dy: frame.midY))
+        // iOS 17 may expose a valid screen frame while reporting the toolbar
+        // ancestor as non-hittable. Resolve the tap through the element's own
+        // coordinate space so SwiftUI's toolbar hit target receives the event.
+        element.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: frame.width / 2, dy: frame.height / 2))
             .tap()
     }
 
@@ -8784,19 +8683,6 @@ final class cmuxUITests: XCTestCase {
             file: file,
             line: line
         )
-    }
-
-    @MainActor
-    private func chatComposerField(in app: XCUIApplication) -> XCUIElement {
-        let textField = app.textFields["ChatComposerField"]
-        if textField.exists {
-            return textField
-        }
-        let textView = app.textViews["ChatComposerField"]
-        if textView.exists {
-            return textView
-        }
-        return app.descendants(matching: .any)["ChatComposerField"]
     }
 
     @MainActor
@@ -9121,125 +9007,6 @@ final class cmuxUITests: XCTestCase {
         return false
     }
 
-    private struct ChatTranscriptMetrics: CustomStringConvertible {
-        let frameMinY: CGFloat
-        let frameMaxY: CGFloat
-        let frameHeight: CGFloat
-        let presentationFrameMaxY: CGFloat
-        let boundsHeight: CGFloat
-        let offsetY: CGFloat
-        let adjustedTopInset: CGFloat
-        let adjustedBottomInset: CGFloat
-        let visibleTopY: CGFloat
-        let visibleBottomY: CGFloat
-        let contentHeight: CGFloat
-        let distanceFromBottom: CGFloat
-        let keyboardEvents: Int
-        let keyboardOverlap: CGFloat
-        let keyboardTargetOverlap: CGFloat
-        let composerMinY: CGFloat
-        let composerPresentationMinY: CGFloat
-        let presentationGap: CGFloat
-        let topChromeOverlayInset: CGFloat
-        let composerOverlayBottomInset: CGFloat
-        let keyboardAnimationActive: Bool
-        let keyboardAnimationProgress: CGFloat
-        let keyboardTransitionDuration: TimeInterval
-        let maxAnimationPresentationGap: CGFloat
-        let keyboardAnimationSamples: Int
-        let topEdgeEffectSoft: Bool
-        let bottomEdgeEffectSoft: Bool
-        let topContentScrollViewRegistered: Bool
-        let bottomEdgeElementContainerRegistered: Bool
-        let scrollTracking: Bool
-        let scrollDragging: Bool
-        let scrollDecelerating: Bool
-
-        var description: String {
-            "frameMinY=\(frameMinY), frameMaxY=\(frameMaxY), frameHeight=\(frameHeight), presentationFrameMaxY=\(presentationFrameMaxY), boundsHeight=\(boundsHeight), offsetY=\(offsetY), adjustedTopInset=\(adjustedTopInset), adjustedBottomInset=\(adjustedBottomInset), visibleTopY=\(visibleTopY), visibleBottomY=\(visibleBottomY), contentHeight=\(contentHeight), distanceFromBottom=\(distanceFromBottom), keyboardEvents=\(keyboardEvents), keyboardOverlap=\(keyboardOverlap), keyboardTargetOverlap=\(keyboardTargetOverlap), composerMinY=\(composerMinY), composerPresentationMinY=\(composerPresentationMinY), presentationGap=\(presentationGap), topChromeOverlayInset=\(topChromeOverlayInset), composerOverlayBottomInset=\(composerOverlayBottomInset), keyboardAnimationActive=\(keyboardAnimationActive), keyboardAnimationProgress=\(keyboardAnimationProgress), keyboardTransitionDuration=\(keyboardTransitionDuration), maxAnimationPresentationGap=\(maxAnimationPresentationGap), keyboardAnimationSamples=\(keyboardAnimationSamples), topEdgeEffectSoft=\(topEdgeEffectSoft), bottomEdgeEffectSoft=\(bottomEdgeEffectSoft), topContentScrollViewRegistered=\(topContentScrollViewRegistered), bottomEdgeElementContainerRegistered=\(bottomEdgeElementContainerRegistered), scrollTracking=\(scrollTracking), scrollDragging=\(scrollDragging), scrollDecelerating=\(scrollDecelerating)"
-        }
-
-        var effectiveFrameMaxY: CGFloat {
-            if keyboardOverlap > 0.5 {
-                return frameMaxY - keyboardOverlap
-            }
-            return frameMaxY
-        }
-
-        init?(_ rawValue: String) {
-            var values: [String: CGFloat] = [:]
-            for pair in rawValue.split(separator: ";") {
-                let parts = pair.split(separator: "=", maxSplits: 1)
-                guard parts.count == 2,
-                      let value = Double(parts[1]) else {
-                    continue
-                }
-                values[String(parts[0])] = CGFloat(value)
-            }
-            guard let frameMinY = values["frameMinY"],
-                  let frameMaxY = values["frameMaxY"],
-                  let frameHeight = values["frameHeight"],
-                  let boundsHeight = values["boundsHeight"],
-                  let offsetY = values["offsetY"],
-                  let visibleBottomY = values["visibleBottomY"],
-                  let contentHeight = values["contentHeight"],
-                  let distanceFromBottom = values["distanceFromBottom"] else {
-                return nil
-            }
-            self.frameMinY = frameMinY
-            self.frameMaxY = frameMaxY
-            self.frameHeight = frameHeight
-            self.presentationFrameMaxY = values["presentationFrameMaxY"] ?? frameMaxY
-            self.boundsHeight = boundsHeight
-            self.offsetY = offsetY
-            self.adjustedTopInset = values["adjustedTopInset"] ?? 0
-            self.adjustedBottomInset = values["adjustedBottomInset"] ?? 0
-            self.visibleTopY = values["visibleTopY"] ?? offsetY
-            self.visibleBottomY = visibleBottomY
-            self.contentHeight = contentHeight
-            self.distanceFromBottom = distanceFromBottom
-            self.keyboardEvents = Int(values["keyboardEvents"] ?? 0)
-            self.keyboardOverlap = values["keyboardOverlap"] ?? 0
-            self.keyboardTargetOverlap = values["keyboardTargetOverlap"] ?? self.keyboardOverlap
-            self.composerMinY = values["composerMinY"] ?? frameMaxY
-            self.composerPresentationMinY = values["composerPresentationMinY"] ?? self.composerMinY
-            self.presentationGap = values["presentationGap"] ?? 0
-            self.topChromeOverlayInset = values["topChromeOverlayInset"] ?? 0
-            self.composerOverlayBottomInset = values["composerOverlayBottomInset"] ?? 0
-            self.keyboardAnimationActive = (values["keyboardAnimationActive"] ?? 0) >= 0.5
-            self.keyboardAnimationProgress = values["keyboardAnimationProgress"] ?? 1
-            self.keyboardTransitionDuration = TimeInterval(values["keyboardTransitionDuration"] ?? 0)
-            self.maxAnimationPresentationGap = values["maxAnimationPresentationGap"] ?? 0
-            self.keyboardAnimationSamples = Int(values["keyboardAnimationSamples"] ?? 0)
-            self.topEdgeEffectSoft = (values["topEdgeEffectSoft"] ?? 0) >= 0.5
-            self.bottomEdgeEffectSoft = (values["bottomEdgeEffectSoft"] ?? 0) >= 0.5
-            self.topContentScrollViewRegistered = (values["topContentScrollViewRegistered"] ?? 0) >= 0.5
-            self.bottomEdgeElementContainerRegistered = (values["bottomEdgeElementContainerRegistered"] ?? 0) >= 0.5
-            self.scrollTracking = (values["scrollTracking"] ?? 0) >= 0.5
-            self.scrollDragging = (values["scrollDragging"] ?? 0) >= 0.5
-            self.scrollDecelerating = (values["scrollDecelerating"] ?? 0) >= 0.5
-        }
-    }
-
-    private struct ChatKeyboardAnimationSample: CustomStringConvertible {
-        let elapsed: TimeInterval
-        let metrics: ChatTranscriptMetrics
-        let composerFrame: CGRect?
-
-        var visiblePresentationGap: CGFloat? {
-            max(0, metrics.presentationGap)
-        }
-
-        var description: String {
-            "elapsed=\(elapsed), metrics={\(metrics)}, composerFrame=\(String(describing: composerFrame)), visiblePresentationGap=\(String(describing: visiblePresentationGap))"
-        }
-    }
-
-    private struct TimedKeyboardAction {
-        let delay: TimeInterval
-        let action: @MainActor () -> Void
-    }
-
     private struct SoftwareKeyboardSnapshot: CustomStringConvertible {
         let frame: CGRect
         let overlap: CGFloat
@@ -9251,401 +9018,8 @@ final class cmuxUITests: XCTestCase {
         }
     }
 
-    @MainActor
-    private func focusTextInputAndSampleTranscriptAnimation(
-        _ element: XCUIElement,
-        table: XCUIElement,
-        composerBar: XCUIElement,
-        in app: XCUIApplication,
-        frameCapturePrefix: String? = nil
-    ) -> [ChatKeyboardAnimationSample] {
-        var samples: [ChatKeyboardAnimationSample] = []
-        for _ in 0..<4 {
-            if !focusTextInput(element, in: app) {
-                _ = tapChatComposerField(element, composerBar: composerBar, in: app)
-            }
-            let deadline = Date().addingTimeInterval(1.1)
-            let captureStart = Date()
-            var nextCaptureTime = captureStart
-            var frameIndex = 0
-            var sawKeyboardTransition = false
-            while Date() < deadline {
-                if let metrics = transcriptMetrics(from: table) {
-                    if let frameCapturePrefix, Date() >= nextCaptureTime {
-                        captureKeyboardEvidenceFrame(
-                            prefix: frameCapturePrefix,
-                            index: frameIndex,
-                            startedAt: captureStart,
-                            metrics: metrics
-                        )
-                        frameIndex += 1
-                        nextCaptureTime = Date().addingTimeInterval(0.06)
-                    }
-                    let elapsed = Date().timeIntervalSince(captureStart)
-                    samples.append(ChatKeyboardAnimationSample(
-                        elapsed: elapsed,
-                        metrics: metrics,
-                        composerFrame: usableFrameNow(of: composerBar)
-                    ))
-                    sawKeyboardTransition = sawKeyboardTransition
-                        || metrics.keyboardAnimationActive
-                        || metrics.keyboardOverlap > 0
-                }
-                RunLoop.current.run(until: Date().addingTimeInterval(0.02))
-            }
-            if sawKeyboardTransition {
-                return samples
-            }
-        }
-        return samples
-    }
-
-    @MainActor
-    private func sampleKeyboardEvidenceFrames(
-        table: XCUIElement,
-        composerBar: XCUIElement,
-        duration: TimeInterval,
-        frameCapturePrefix: String,
-        scheduledActions: [TimedKeyboardAction] = []
-    ) -> [ChatKeyboardAnimationSample] {
-        var samples: [ChatKeyboardAnimationSample] = []
-        let captureStart = Date()
-        let deadline = captureStart.addingTimeInterval(duration)
-        var nextCaptureTime = captureStart
-        var frameIndex = 0
-        var nextActionIndex = 0
-        while Date() < deadline {
-            let elapsed = Date().timeIntervalSince(captureStart)
-            while nextActionIndex < scheduledActions.count,
-                  elapsed >= scheduledActions[nextActionIndex].delay {
-                scheduledActions[nextActionIndex].action()
-                nextActionIndex += 1
-            }
-            if let metrics = transcriptMetrics(from: table) {
-                if Date() >= nextCaptureTime {
-                    captureKeyboardEvidenceFrame(
-                        prefix: frameCapturePrefix,
-                        index: frameIndex,
-                        startedAt: captureStart,
-                        metrics: metrics
-                    )
-                    frameIndex += 1
-                    nextCaptureTime = Date().addingTimeInterval(0.08)
-                }
-                samples.append(ChatKeyboardAnimationSample(
-                    elapsed: elapsed,
-                    metrics: metrics,
-                    composerFrame: usableFrameNow(of: composerBar)
-                ))
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
-        }
-        return samples
-    }
-
-    @MainActor
-    private func captureKeyboardEvidenceFrame(
-        prefix: String,
-        index: Int,
-        startedAt: Date,
-        metrics: ChatTranscriptMetrics
-    ) {
-        let elapsedMS = Int(Date().timeIntervalSince(startedAt) * 1000)
-        let basename = String(
-            format: "%@-%03d-%04dms-overlap%03.0f-gap%03.0f",
-            prefix,
-            index,
-            elapsedMS,
-            max(0, metrics.keyboardOverlap),
-            max(0, metrics.presentationGap)
-        )
-        let screenshot = XCUIScreen.main.screenshot()
-        let screenshotAttachment = XCTAttachment(screenshot: screenshot)
-        screenshotAttachment.name = basename
-        screenshotAttachment.lifetime = .keepAlways
-        add(screenshotAttachment)
-
-        let metricsAttachment = XCTAttachment(string: metrics.description)
-        metricsAttachment.name = "\(basename).metrics"
-        metricsAttachment.lifetime = .keepAlways
-        add(metricsAttachment)
-    }
-
-    @MainActor
-    private func captureTopScrollEdgeEvidenceFrames(table: XCUIElement, prefix: String) {
-        let captureStart = Date()
-        for index in 0..<8 {
-            if let metrics = transcriptMetrics(from: table) {
-                captureKeyboardEvidenceFrame(
-                    prefix: prefix,
-                    index: index,
-                    startedAt: captureStart,
-                    metrics: metrics
-                )
-            }
-            if index.isMultiple(of: 2) {
-                table.swipeUp(velocity: .slow)
-            } else {
-                table.swipeDown(velocity: .slow)
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.08))
-        }
-    }
-
-    @MainActor
-    private func assertChatKeyboardAnimationStayedAttached(
-        _ samples: [ChatKeyboardAnimationSample],
-        scrollPosition: String,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) {
-        guard let measured = samples.reversed().first(where: {
-            isChatKeyboardVisiblyMoving($0.metrics)
-        }) else {
-            XCTFail(
-                "Expected keyboard tracking metrics after focusing from \(scrollPosition). Samples: \(samples)",
-                file: file,
-                line: line
-            )
-            return
-        }
-        let activeVisibleGaps = samples
-            .filter { isChatKeyboardVisiblyMoving($0.metrics) }
-            .compactMap(\.visiblePresentationGap)
-            .map { max(0, $0) }
-        if let maxVisibleGap = activeVisibleGaps.max() {
-            XCTAssertLessThanOrEqual(
-                maxVisibleGap,
-                8,
-                "Visible transcript table bottom must stay attached to the visible composer during keyboard animation from \(scrollPosition). maxVisibleGap=\(maxVisibleGap) samples=\(samples)",
-                file: file,
-                line: line
-            )
-        }
-        if measured.metrics.keyboardAnimationSamples > 0 {
-            XCTAssertLessThanOrEqual(
-                measured.metrics.maxAnimationPresentationGap,
-                8,
-                "Transcript table presentation bottom must stay attached to the composer during keyboard animation from \(scrollPosition). Metrics: \(measured)",
-                file: file,
-                line: line
-            )
-        } else {
-            XCTAssertLessThanOrEqual(
-                measured.metrics.presentationGap,
-                8,
-                "Transcript table bottom must stay attached to the composer after keyboard transition from \(scrollPosition). Metrics: \(measured)",
-                file: file,
-                line: line
-            )
-        }
-    }
-
-    @MainActor
-    private func assertChatKeyboardVisibleBottomStayedPinned(
-        _ samples: [ChatKeyboardAnimationSample],
-        baselineVisibleBottomY: CGFloat,
-        scrollPosition: String,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) {
-        let movingSamples = samples.filter {
-            isChatKeyboardVisiblyMoving($0.metrics)
-        }
-        guard !movingSamples.isEmpty else {
-            XCTFail(
-                "Keyboard evidence for \(scrollPosition) must include moving samples before visible-bottom pinning can be evaluated. samples=\(samples)",
-                file: file,
-                line: line
-            )
-            return
-        }
-        let largestDeviation = movingSamples
-            .map { abs($0.metrics.visibleBottomY - baselineVisibleBottomY) }
-            .max() ?? 0
-        XCTAssertLessThanOrEqual(
-            largestDeviation,
-            36,
-            "Visible bottom content must stay pinned while keyboard animates from \(scrollPosition). largestDeviation=\(largestDeviation) baselineVisibleBottomY=\(baselineVisibleBottomY) samples=\(samples)",
-            file: file,
-            line: line
-        )
-    }
-
-    @MainActor
-    private func assertChatKeyboardMotionHasNoLargeSnap(
-        _ samples: [ChatKeyboardAnimationSample],
-        scrollPosition: String,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) {
-        let movingSamples = samples.filter {
-            isChatKeyboardVisiblyMoving($0.metrics)
-        }
-        guard movingSamples.count >= 2 else { return }
-        let frameYs = movingSamples.map(\.metrics.presentationFrameMaxY)
-        guard let minFrameY = frameYs.min(), let maxFrameY = frameYs.max() else { return }
-        let totalMotion = maxFrameY - minFrameY
-        guard totalMotion > 80 else { return }
-        let transitionLegs = Dictionary(grouping: movingSamples, by: { $0.metrics.keyboardEvents })
-            .values
-        for leg in transitionLegs {
-            let orderedLeg = leg.sorted { $0.elapsed < $1.elapsed }
-            let legFrameYs = orderedLeg.map(\.metrics.presentationFrameMaxY)
-            let distinctFrameBuckets = Set(legFrameYs.map { Int(($0 / 8).rounded()) })
-            guard distinctFrameBuckets.count >= 3,
-                  let legMinFrameY = legFrameYs.min(),
-                  let legMaxFrameY = legFrameYs.max()
-            else {
-                continue
-            }
-            let legTotalMotion = legMaxFrameY - legMinFrameY
-            guard legTotalMotion > 80 else { continue }
-            for (previous, next) in zip(orderedLeg, orderedLeg.dropFirst()) {
-                let elapsedGap = max(next.elapsed - previous.elapsed, 1.0 / 120.0)
-                guard elapsedGap <= 0.12 else { continue }
-                let duration = max(
-                    max(previous.metrics.keyboardTransitionDuration, next.metrics.keyboardTransitionDuration),
-                    1.0 / 60.0
-                )
-                let expectedStep = (legTotalMotion / CGFloat(duration)) * CGFloat(elapsedGap)
-                let allowedStep = min(legTotalMotion * 0.95, max(72, expectedStep * 2.5 + 32))
-                let step = abs(next.metrics.presentationFrameMaxY - previous.metrics.presentationFrameMaxY)
-                XCTAssertLessThanOrEqual(
-                    step,
-                    allowedStep,
-                    "Keyboard tracking should not snap between sampled presentation frames during \(scrollPosition). event=\(previous.metrics.keyboardEvents) step=\(step) allowedStep=\(allowedStep) elapsedGap=\(elapsedGap) totalMotion=\(legTotalMotion) samples=\(samples)",
-                    file: file,
-                    line: line
-                )
-            }
-        }
-    }
-
-    @MainActor
-    private func assertChatKeyboardMotionCapturedIntermediateSteps(
-        _ samples: [ChatKeyboardAnimationSample],
-        scrollPosition: String,
-        minimumVisibleMotion: CGFloat = 80,
-        minimumDistinctFrameBuckets: Int = 3,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) {
-        let movingSamples = samples.filter {
-            isChatKeyboardVisiblyMoving($0.metrics)
-        }
-        let frameYs = movingSamples.map(\.metrics.presentationFrameMaxY)
-        guard let minY = frameYs.min(), let maxY = frameYs.max() else {
-            XCTFail(
-                "Keyboard tracking evidence must include moving transcript frames during \(scrollPosition). samples=\(samples)",
-                file: file,
-                line: line
-            )
-            return
-        }
-        let motion = maxY - minY
-        XCTAssertGreaterThan(
-            motion,
-            minimumVisibleMotion,
-            "Keyboard tracking evidence should capture visible transcript movement during \(scrollPosition), not only settled endpoints. frames=\(frameYs) samples=\(samples)",
-            file: file,
-            line: line
-        )
-        guard motion > minimumVisibleMotion else {
-            return
-        }
-        let distinctFrameBuckets = Set(frameYs.map { Int(($0 / 8).rounded()) })
-        XCTAssertGreaterThanOrEqual(
-            distinctFrameBuckets.count,
-            minimumDistinctFrameBuckets,
-            "Keyboard tracking evidence should include multiple partial transcript positions during \(scrollPosition), not only endpoints. frames=\(frameYs) samples=\(samples)",
-            file: file,
-            line: line
-        )
-    }
-
-    @MainActor
-    private func assertChatKeyboardEvidenceCapturedIntermediateMotion(
-        _ samples: [ChatKeyboardAnimationSample],
-        scrollPosition: String,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) {
-        let capturedPresentationMotion = samples.contains {
-            isChatKeyboardVisiblyMoving($0.metrics)
-                && activeKeyboardPresentationMotion($0.metrics) > 8
-        }
-        XCTAssertTrue(
-            capturedPresentationMotion,
-            "Keyboard evidence for \(scrollPosition) must include at least one in-flight presentation frame, not only settled states. samples=\(samples)",
-            file: file,
-            line: line
-        )
-    }
-
-    private func isChatKeyboardVisiblyMoving(_ metrics: ChatTranscriptMetrics) -> Bool {
-        metrics.keyboardAnimationActive
-            || metrics.keyboardOverlap > 0
-    }
-
-    private func activeKeyboardPresentationMotion(_ metrics: ChatTranscriptMetrics) -> CGFloat {
-        guard isChatKeyboardVisiblyMoving(metrics) else { return 0 }
-        return abs(metrics.presentationFrameMaxY - metrics.effectiveFrameMaxY)
-    }
-
-    private func isKeyboardUpClipSettled(_ metrics: ChatTranscriptMetrics) -> Bool {
-        metrics.keyboardOverlap > 120
-            && metrics.presentationFrameMaxY < metrics.frameMaxY - 80
-            && metrics.presentationFrameMaxY > metrics.composerPresentationMinY + 24
-    }
-
-    private func isKeyboardDownClipSettled(_ metrics: ChatTranscriptMetrics) -> Bool {
-        abs(metrics.keyboardOverlap) <= 0.5
-            && metrics.presentationFrameMaxY >= metrics.frameMaxY - 6
-    }
-
     private struct TranscriptMetricsWaitError: Error, CustomStringConvertible {
         let description: String
-    }
-
-    @MainActor
-    private func waitForTranscriptMetrics(
-        _ table: XCUIElement,
-        timeout: TimeInterval,
-        matching predicate: @escaping (ChatTranscriptMetrics) -> Bool,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) throws -> ChatTranscriptMetrics {
-        var lastRawValue = ""
-        var lastMetrics: ChatTranscriptMetrics?
-        let expectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate { object, _ in
-                guard let element = object as? XCUIElement else {
-                    return false
-                }
-                guard let metrics = self.transcriptMetrics(from: element) else {
-                    lastRawValue = String(describing: element.value)
-                    return false
-                }
-                lastRawValue = String(describing: element.value)
-                lastMetrics = metrics
-                return predicate(metrics)
-            },
-            object: table
-        )
-        let result = XCTWaiter.wait(for: [expectation], timeout: timeout)
-        guard result == .completed, let metrics = lastMetrics else {
-            let message = "Timed out waiting for transcript metrics. Last metrics: \(String(describing: lastMetrics)); raw: \(lastRawValue)"
-            XCTFail(message, file: file, line: line)
-            throw TranscriptMetricsWaitError(description: message)
-        }
-        return metrics
-    }
-
-    @MainActor
-    private func transcriptMetrics(from table: XCUIElement) -> ChatTranscriptMetrics? {
-        guard let rawValue = table.value as? String else { return nil }
-        return ChatTranscriptMetrics(rawValue)
     }
 
     @MainActor
@@ -9660,131 +9034,6 @@ final class cmuxUITests: XCTestCase {
             return nil
         }
         return frame
-    }
-
-    @MainActor
-    private func scrollTranscript(
-        _ table: XCUIElement,
-        toReveal element: XCUIElement,
-        timeout: TimeInterval
-    ) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if element.isHittable {
-                return true
-            }
-            let previousMetrics = transcriptMetrics(from: table)
-            let previousFrame = usableFrameNow(of: element)
-            table.swipeDown(velocity: .slow)
-            let progress = XCTNSPredicateExpectation(
-                predicate: NSPredicate { object, _ in
-                    guard let table = object as? XCUIElement else { return false }
-                    if element.isHittable {
-                        return true
-                    }
-                    if let previousMetrics,
-                       let currentMetrics = self.transcriptMetrics(from: table),
-                       abs(currentMetrics.offsetY - previousMetrics.offsetY) > 1 {
-                        return true
-                    }
-                    if let previousFrame,
-                       let currentFrame = self.usableFrameNow(of: element),
-                       abs(currentFrame.minY - previousFrame.minY) > 1 {
-                        return true
-                    }
-                    return false
-                },
-                object: table
-            )
-            let remaining = max(0, deadline.timeIntervalSinceNow)
-            _ = XCTWaiter.wait(for: [progress], timeout: min(1, remaining))
-        }
-        return element.isHittable
-    }
-
-    @MainActor
-    private func scrollToRichAgentChatFixtureRegion(
-        table: XCUIElement,
-        app: XCUIApplication,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) throws -> ChatTranscriptMetrics {
-        let imageAttachment = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "label CONTAINS %@", "ci-failure.png"))
-            .firstMatch
-        let cardElements = [
-            app.buttons["ChatQuestionOption0"],
-            app.buttons["ChatPermissionApprove"],
-            app.buttons["ChatToolUseToggle-msg-fixture-4"],
-            app.buttons["ChatTerminalToggle-msg-fixture-6"],
-        ]
-        let deadline = Date().addingTimeInterval(10)
-        var lastMetrics: ChatTranscriptMetrics?
-
-        while Date() < deadline {
-            if let metrics = transcriptMetrics(from: table) {
-                lastMetrics = metrics
-            }
-            if imageAttachment.exists,
-               cardElements.contains(where: { $0.exists }),
-               let metrics = lastMetrics,
-               metrics.contentHeight > metrics.boundsHeight * 1.6 {
-                let attachment = XCTAttachment(screenshot: app.screenshot())
-                attachment.name = "rich-agent-chat-fixture-region"
-                attachment.lifetime = .keepAlways
-                add(attachment)
-                return metrics
-            }
-            table.swipeDown(velocity: .slow)
-            RunLoop.current.run(until: Date().addingTimeInterval(0.12))
-        }
-
-        let message = "Timed out scrolling to rich agent-chat fixture content. imageExists=\(imageAttachment.exists), cardExists=\(cardElements.contains(where: { $0.exists })), lastMetrics=\(String(describing: lastMetrics))"
-        XCTFail(message, file: file, line: line)
-        throw TranscriptMetricsWaitError(description: message)
-    }
-
-    @MainActor
-    private func waitForTranscriptCellUnderlappingBottomChrome(
-        table: XCUIElement,
-        composerBar: XCUIElement,
-        keyboardFrame: CGRect,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) throws -> CGRect {
-        let deadline = Date().addingTimeInterval(14)
-        var lastCellFrames: [CGRect] = []
-        while Date() < deadline {
-            guard let composerFrame = usableFrameNow(of: composerBar) else {
-                RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-                continue
-            }
-            let underlapRegion = composerFrame.intersection(CGRect(
-                x: composerFrame.minX,
-                y: composerFrame.minY,
-                width: composerFrame.width,
-                height: max(0, keyboardFrame.minY - composerFrame.minY)
-            ))
-            let cells = table.cells.allElementsBoundByIndex
-            lastCellFrames = cells.suffix(10).compactMap { cell in
-                usableFrameNow(of: cell)
-            }
-            if let frame = lastCellFrames.first(where: { cellFrame in
-                let overlap = cellFrame.intersection(underlapRegion)
-                return !overlap.isNull
-                    && !overlap.isEmpty
-                    && overlap.height >= 12
-                    && overlap.width >= min(80, underlapRegion.width * 0.25)
-            }) {
-                return frame
-            }
-            table.swipeDown(velocity: .slow)
-            RunLoop.current.run(until: Date().addingTimeInterval(0.12))
-        }
-
-        let message = "Expected a real transcript cell to underlap the keyboard-up shortcut/composer chrome. keyboard=\(keyboardFrame), composer=\(String(describing: usableFrameNow(of: composerBar))), lastCellFrames=\(lastCellFrames)"
-        XCTFail(message, file: file, line: line)
-        throw TranscriptMetricsWaitError(description: message)
     }
 
     @MainActor
@@ -9855,110 +9104,6 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    @discardableResult
-    private func scrollTranscript(
-        _ table: XCUIElement,
-        direction: TranscriptScrollDirection,
-        timeout: TimeInterval,
-        until predicate: @escaping (ChatTranscriptMetrics) -> Bool,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) throws -> ChatTranscriptMetrics? {
-        let deadline = Date().addingTimeInterval(timeout)
-        var lastMetrics: ChatTranscriptMetrics?
-        while Date() < deadline {
-            if let metrics = transcriptMetrics(from: table) {
-                lastMetrics = metrics
-                if predicate(metrics) {
-                    return metrics
-                }
-            }
-            switch direction {
-            case .up:
-                table.swipeUp(velocity: .fast)
-            case .down:
-                table.swipeDown(velocity: .fast)
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
-            if let metrics = transcriptMetrics(from: table) {
-                lastMetrics = metrics
-                if predicate(metrics) {
-                    return metrics
-                }
-            }
-        }
-        if let metrics = transcriptMetrics(from: table), predicate(metrics) {
-            return metrics
-        }
-        XCTFail(
-            "Timed out scrolling transcript \(direction). Last metrics: \(String(describing: transcriptMetrics(from: table) ?? lastMetrics))",
-            file: file,
-            line: line
-        )
-        return lastMetrics
-    }
-
-    @MainActor
-    private func assertDetailControlPreservesTranscriptPosition(
-        buttonID: String,
-        table: XCUIElement,
-        app: XCUIApplication,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) throws {
-        let button = app.buttons[buttonID]
-        let deadline = Date().addingTimeInterval(8)
-        while Date() < deadline, !button.isHittable {
-            table.swipeDown(velocity: .fast)
-            RunLoop.current.run(until: Date().addingTimeInterval(0.12))
-        }
-        XCTAssertTrue(button.isHittable, "Expected detail control \(buttonID) to become hittable", file: file, line: line)
-
-        let before = try waitForTranscriptMetrics(
-            table,
-            timeout: 4,
-            matching: { $0.distanceFromBottom > 180 && $0.contentHeight > $0.boundsHeight * 1.4 },
-            file: file,
-            line: line
-        )
-        button.tap()
-        let sheet = app.descendants(matching: .any)["ChatBlockDetailSheet"]
-        XCTAssertTrue(sheet.waitForExistence(timeout: 4), "Expected \(buttonID) to open the detail sheet", file: file, line: line)
-        let copyAllButton = app.buttons["ChatBlockDetailCopyAllButton"]
-        XCTAssertTrue(copyAllButton.waitForExistence(timeout: 4), "Expected detail sheet Copy All button", file: file, line: line)
-        XCTAssertTrue(copyAllButton.isEnabled, "Expected detail sheet Copy All button to be enabled", file: file, line: line)
-        XCTAssertEqual(copyAllButton.label, "Copy All", "Copy All must stay a text-only toolbar button", file: file, line: line)
-        copyAllButton.tap()
-        XCTAssertEqual(copyAllButton.label, "Copy All", "Copy All must not change into a copied checkmark state", file: file, line: line)
-        XCTAssertFalse(app.buttons["Copied"].exists, "Copy All must not be replaced by a Copied checkmark button", file: file, line: line)
-        let after = try waitForTranscriptMetrics(
-            table,
-            timeout: 4,
-            matching: { $0.distanceFromBottom > 120 },
-            file: file,
-            line: line
-        )
-        XCTAssertLessThanOrEqual(
-            abs(after.visibleTopY - before.visibleTopY),
-            120,
-            "Tapping \(buttonID) must preserve the visible transcript region instead of jumping. before=\(before) after=\(after)",
-            file: file,
-            line: line
-        )
-        XCTAssertGreaterThan(
-            after.distanceFromBottom,
-            120,
-            "Tapping \(buttonID) must leave the transcript away from the live tail. before=\(before) after=\(after)",
-            file: file,
-            line: line
-        )
-        let doneButton = app.buttons["ChatBlockDetailDoneButton"]
-        XCTAssertTrue(doneButton.waitForExistence(timeout: 4), "Expected detail sheet Done button", file: file, line: line)
-        doneButton.tap()
-        XCTAssertTrue(sheet.waitForNonExistence(timeout: 2), "Expected detail sheet to dismiss", file: file, line: line)
-    }
-
-    @MainActor
     private func focusTextInput(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
         for _ in 0..<4 {
             if let frame = waitForUsableFrame(of: element, timeout: 1) {
@@ -9982,63 +9127,6 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func settleChatPreviewKeyboardDown(in app: XCUIApplication, table: XCUIElement) -> Bool {
-        let deadline = Date().addingTimeInterval(4)
-        var didRequestDismiss = false
-        while Date() < deadline {
-            if let metrics = transcriptMetrics(from: table),
-               isKeyboardDownClipSettled(metrics) {
-                return true
-            }
-            if !didRequestDismiss {
-                didRequestDismiss = true
-                if app.keyboards.firstMatch.exists {
-                    tapChatTranscriptOnceForDismiss(in: app, table: table)
-                    dismissKeyboard(in: app)
-                }
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
-        return false
-    }
-
-    @MainActor
-    private func tapChatTranscriptOnceForDismiss(in app: XCUIApplication, table: XCUIElement) {
-        if let frame = usableFrameNow(of: table) {
-            let visibleTranscriptY = min(
-                frame.maxY - 36,
-                max(frame.minY + 24, frame.maxY - min(140, frame.height * 0.35))
-            )
-            app.coordinate(withNormalizedOffset: .zero)
-                .withOffset(CGVector(dx: frame.midX, dy: visibleTranscriptY))
-                .tap()
-        } else {
-            table.tap()
-        }
-    }
-
-    @MainActor
-    private func tapChatComposerField(
-        _ element: XCUIElement,
-        composerBar: XCUIElement,
-        in app: XCUIApplication
-    ) -> Bool {
-        if tapTextInputOnce(element, in: app) {
-            return true
-        }
-        if let barFrame = usableFrameNow(of: composerBar) {
-            app.coordinate(withNormalizedOffset: .zero)
-                .withOffset(CGVector(
-                    dx: barFrame.midX,
-                    dy: barFrame.maxY - min(50, barFrame.height * 0.45)
-                ))
-                .tap()
-            return true
-        }
-        return tapTextInputOnce(element, in: app)
-    }
-
-    @MainActor
     private func tapTextInputOnce(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
         if element.isHittable {
             element.tap()
@@ -10053,24 +9141,6 @@ final class cmuxUITests: XCTestCase {
         guard element.exists else { return false }
         element.tap()
         return true
-    }
-
-    @MainActor
-    private func dismissChatKeyboard(in app: XCUIApplication, table: XCUIElement) {
-        guard app.keyboards.firstMatch.exists else { return }
-        if let frame = waitForUsableFrame(of: table, timeout: 1) {
-            let visibleTranscriptY = min(
-                frame.maxY - 36,
-                max(frame.minY + 24, frame.maxY - min(140, frame.height * 0.35))
-            )
-            app.coordinate(withNormalizedOffset: .zero)
-                .withOffset(CGVector(dx: frame.midX, dy: visibleTranscriptY))
-                .tap()
-            if waitForKeyboardDismissal(in: app) {
-                return
-            }
-        }
-        dismissKeyboard(in: app)
     }
 
     @MainActor
@@ -10322,17 +9392,25 @@ final class cmuxUITests: XCTestCase {
             )
             return
         }
+        // Blank rows below the content absorb the keyboard before the render
+        // slides (`keyboardSlack`), so the render's bottom edge legitimately
+        // sits `slack` above the dock top: a mostly-empty screen stays
+        // top-pinned and the keyboard covers only blank rows. The seam
+        // contract is therefore gap == slack (and slack == 0 whenever content
+        // reaches the composer bar, restoring the strict glue).
+        let slack = dock["keyboardSlack"].flatMap(Double.init) ?? 0
         let twoPhysicalPixels = 2 / screenScale
-        XCTAssertLessThanOrEqual(
+        XCTAssertEqual(
             currentGap,
-            twoPhysicalPixels,
-            "The rendered terminal edge detached from the dock for \(context). dock=\(dock)",
+            slack,
+            accuracy: twoPhysicalPixels,
+            "The rendered terminal edge detached from the dock beyond the blank-space slack for \(context). dock=\(dock)",
             file: file,
             line: line
         )
         XCTAssertLessThanOrEqual(
             maximumGap,
-            twoPhysicalPixels,
+            slack + twoPhysicalPixels,
             "The rendered terminal edge detached from the dock during \(context). dock=\(dock)",
             file: file,
             line: line
@@ -10340,8 +9418,9 @@ final class cmuxUITests: XCTestCase {
     }
 
     /// Verify the built app's two-part keyboard contract at steady state:
-    /// the OS-selected geometry source resolves to the real software-keyboard edge,
-    /// and the visible composer/toolbar stack resolves to that same target.
+    /// the notification-derived dock target resolves to the real
+    /// software-keyboard edge, and the visible composer/toolbar stack resolves
+    /// to that same target.
     @MainActor
     private func assertTerminalDockPinnedToSoftwareKeyboard(
         _ dock: [String: String],
@@ -10351,7 +9430,7 @@ final class cmuxUITests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        guard let source = dock["keyboardDockSource"],
+        guard let targetTop = dock["keyboardDockTargetTop"].flatMap(Double.init),
               let composerMinY = dock["composerMinY"].flatMap(Double.init),
               let composerMaxY = dock["composerMaxY"].flatMap(Double.init),
               let toolbarMaxY = dock["toolbarMaxY"].flatMap(Double.init) else {
@@ -10364,59 +9443,41 @@ final class cmuxUITests: XCTestCase {
         }
 
         let dockEdge = composerMaxY - composerMinY > 0.5 ? composerMaxY : toolbarMaxY
-        let targetTop: Double
-        switch source {
-        case "notification":
-            guard let notificationTop = dock["keyboardDockTargetTop"].flatMap(Double.init) else {
-                XCTFail(
-                    "Missing notification keyboard target for \(context). dock=\(dock)",
-                    file: file,
-                    line: line
-                )
-                return
-            }
-            targetTop = notificationTop
-        case "layoutGuide":
-            guard let guideTop = dock["keyboardGuideTop"].flatMap(Double.init) else {
-                XCTFail(
-                    "Missing keyboard-guide target for \(context). dock=\(dock)",
-                    file: file,
-                    line: line
-                )
-                return
-            }
-            targetTop = guideTop
-        default:
-            XCTFail(
-                "Unknown keyboard dock source for \(context). dock=\(dock)",
-                file: file,
-                line: line
-            )
-            return
-        }
         XCTAssertEqual(
             dockEdge,
             targetTop,
             accuracy: 1,
-            "Dock must terminate at its selected keyboard target for \(context). dock=\(dock)",
+            "Dock must terminate at its keyboard target for \(context). dock=\(dock)",
             file: file,
             line: line
         )
-        XCTAssertEqual(
-            Double(surface.frame.minY) + targetTop,
-            Double(keyboard.frame.minY),
-            accuracy: 2,
-            "Selected keyboard geometry must resolve to the visible keyboard edge for "
-                + "\(context). keyboard=\(keyboard) surface=\(surface.frame) dock=\(dock)",
+        // The dock seats on UIKit's notification frame, which includes the
+        // accessory chrome ABOVE the key plane (autocorrect / inline-autofill
+        // bar); the XCUI keyboard element covers only the keys. Assert the dock
+        // sits inside that chrome band: never below the key plane (covering
+        // keys), never floating more than one accessory bar above it.
+        let dockEdgeInWindow = Double(surface.frame.minY) + targetTop
+        let chromeAboveKeys = Double(keyboard.frame.minY) - dockEdgeInWindow
+        XCTAssertGreaterThanOrEqual(
+            chromeAboveKeys,
+            -2,
+            "Dock must not cover the key plane for \(context). "
+                + "keyboard=\(keyboard) surface=\(surface.frame) dock=\(dock)",
             file: file,
             line: line
         )
-        assertTerminalRenderBottomAttachedToViewport(
-            dock,
-            context: context,
+        XCTAssertLessThanOrEqual(
+            chromeAboveKeys,
+            60,
+            "Dock floated above the keyboard's accessory chrome for \(context). "
+                + "keyboard=\(keyboard) surface=\(surface.frame) dock=\(dock)",
             file: file,
             line: line
         )
+        // The render's settled attachment is asserted at echo-settled
+        // checkpoints, not here: mid-transition the render may intentionally
+        // hold while blank rows absorb the keyboard intrusion, and the fresh
+        // grid arrives with the Mac's viewport echo a round-trip later.
     }
 
     /// Repeatedly open and close the composer via the toolbar compose button and assert
@@ -10789,7 +9850,11 @@ final class cmuxUITests: XCTestCase {
         let port = try await server.start()
         defer { server.stop() }
 
-        let app = try launchConnectedApp(port: port)
+        // Legacy ships as the default; this suite regression-tests the rebuilt
+        // path that stays reachable behind the rebuild-revert kill switch.
+        let app = try launchConnectedApp(port: port, environment: [
+            "CMUX_UITEST_FORCE_REBUILD_KEYBOARD_DOCK": "1",
+        ])
         let surface = app.otherElements["MobileTerminalSurface"]
         XCTAssertTrue(surface.waitForExistence(timeout: 8))
 
@@ -10874,8 +9939,15 @@ final class cmuxUITests: XCTestCase {
 
         hideKeyboardButton.tap()
         XCTAssertTrue(waitForKeyboardDismissal(in: app))
+        // The render refills the grown viewport only after the Mac's grid echo
+        // lands, so the settle wait includes the render attachment instead of
+        // asserting it against a pre-echo snapshot.
         let hiddenDock = waitForDock(in: app, describe: "keyboard-hidden terminal presentation settled") {
-            $0["keyboardUp"] == "0" && $0["keyboardTransitionID"] == "-1"
+            guard $0["keyboardUp"] == "0",
+                  $0["keyboardTransitionID"] == "-1",
+                  let renderMaxY = Int($0["renderMaxY"] ?? ""),
+                  let viewportHeight = Int($0["viewportHeight"] ?? "") else { return false }
+            return abs(renderMaxY - viewportHeight) <= 2
         }
         assertTerminalPresentationPinnedToDock(
             hiddenDock,
@@ -10898,7 +9970,11 @@ final class cmuxUITests: XCTestCase {
         let port = try await server.start()
         defer { server.stop() }
 
-        let app = try launchConnectedApp(port: port)
+        // Legacy ships as the default; this suite regression-tests the rebuilt
+        // path that stays reachable behind the rebuild-revert kill switch.
+        let app = try launchConnectedApp(port: port, environment: [
+            "CMUX_UITEST_FORCE_REBUILD_KEYBOARD_DOCK": "1",
+        ])
         let surface = app.otherElements["MobileTerminalSurface"]
         XCTAssertTrue(surface.waitForExistence(timeout: 8))
 
@@ -10947,18 +10023,18 @@ final class cmuxUITests: XCTestCase {
         }
     }
 
-    /// iOS 27 falls back to notification-driven keyboard geometry because its
-    /// keyboard layout guide can remain seated at the screen bottom. Force that
-    /// runtime policy on the CI simulator and prove the visible dock follows the
-    /// real software-keyboard edge through the production composer path.
+    /// The rebuilt notification-driven dock stays reachable on iOS ≤26 behind
+    /// the rebuild-revert kill switch. Force it and prove the visible dock
+    /// follows the real software-keyboard edge through the production
+    /// composer path.
     @MainActor
-    func testIOS27KeyboardDockWorkaroundPinsComposerToKeyboard() async throws {
+    func testNotificationKeyboardDockPinsComposerToKeyboard() async throws {
         let server = try MobileSyncMockHostServer()
         let port = try await server.start()
         defer { server.stop() }
 
         let app = try launchConnectedApp(port: port, environment: [
-            "CMUX_UITEST_FORCE_IOS27_KEYBOARD_DOCK": "1",
+            "CMUX_UITEST_FORCE_REBUILD_KEYBOARD_DOCK": "1",
         ])
         let surface = app.otherElements["MobileTerminalSurface"]
         XCTAssertTrue(surface.waitForExistence(timeout: 8))
@@ -10972,7 +10048,7 @@ final class cmuxUITests: XCTestCase {
             minimumOverlap: 120,
             timeout: 4
         ) else { return }
-        let dock = waitForDock(in: app, describe: "iOS 27 notification fallback tracks keyboard") {
+        let dock = waitForDock(in: app, describe: "notification dock tracks keyboard") {
             $0["keyboardDockSource"] == "notification"
                 && ($0["keyboardHeight"].flatMap(Double.init) ?? 0) > 120
         }
@@ -10981,7 +10057,7 @@ final class cmuxUITests: XCTestCase {
               let composerMinY = dock["composerMinY"].flatMap(Double.init),
               let composerMaxY = dock["composerMaxY"].flatMap(Double.init),
               let toolbarMaxY = dock["toolbarMaxY"].flatMap(Double.init) else {
-            XCTFail("Missing iOS 27 keyboard-dock fallback geometry. dock=\(dock)")
+            XCTFail("Missing notification keyboard-dock geometry. dock=\(dock)")
             return
         }
 
@@ -10990,17 +10066,296 @@ final class cmuxUITests: XCTestCase {
             dockEdge,
             dockTargetTop,
             accuracy: 1,
-            "The iOS 27 fallback must terminate the dock at its notification-derived target. dock=\(dock)"
+            "The dock must terminate at its notification-derived target. dock=\(dock)"
+        )
+        // The notification frame includes accessory chrome above the XCUI key
+        // plane; the dock must sit inside that band (see
+        // assertTerminalDockPinnedToSoftwareKeyboard).
+        let dockEdgeInWindow = Double(surface.frame.minY) + dockTargetTop
+        let chromeAboveKeys = Double(keyboard.frame.minY) - dockEdgeInWindow
+        XCTAssertGreaterThanOrEqual(
+            chromeAboveKeys,
+            -2,
+            "The notification dock must not cover the key plane. keyboard=\(keyboard) dock=\(dock)"
+        )
+        XCTAssertLessThanOrEqual(
+            chromeAboveKeys,
+            60,
+            "The notification dock floated above the keyboard chrome. keyboard=\(keyboard) dock=\(dock)"
+        )
+        // The keyboard-up grid arrives with the Mac's viewport echo; wait for
+        // the settled render before asserting its attachment.
+        let settledDock = waitForDock(in: app, describe: "grid echo settled the keyboard-up render") {
+            guard let renderMaxY = Int($0["renderMaxY"] ?? ""),
+                  let viewportHeight = Int($0["viewportHeight"] ?? "") else { return false }
+            return abs(renderMaxY - viewportHeight) <= 2
+        }
+        assertTerminalRenderBottomAttachedToViewport(
+            settledDock,
+            context: "notification keyboard dock"
+        )
+    }
+
+    /// iOS 27's keyboard seat trusts only `keyboardWillChangeFrame`
+    /// payloads: the layout guide lies at the screen bottom there (#9958)
+    /// and frames outside the will transaction misreport (#10518), so the
+    /// dock seats from the will constant, rebases interrupted legs from
+    /// live presentation frames (#10006), and never reseats from did frames
+    /// or steady-state re-derivations. The DEBUG force runs that exact path
+    /// on any simulator OS. Regression: the guide-locked rewrite routed
+    /// iOS 27 to a seat that consumed the full notification stream, so a
+    /// misreported frame hopped a perfectly settled composer bar after
+    /// every keyboard toggle.
+    @MainActor
+    func testIOS27WillOnlySeatKeepsDockSettledAcrossKeyboardToggles() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port, environment: [
+            "CMUX_UITEST_FORCE_IOS27_KEYBOARD_SEAT": "1",
+        ])
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        let composerField = app.descendants(matching: .any)[Composer.field]
+        XCTAssertTrue(composerField.waitForExistence(timeout: 4))
+        composerField.tap()
+
+        guard let keyboard = waitForSoftwareKeyboardKeyPlane(
+            in: app,
+            minimumOverlap: 120,
+            timeout: 4
+        ) else { return }
+        // Red until the force exists: an app that ignores the env falls back
+        // to its default seat and never reports the will-only contract.
+        let dock = waitForDock(in: app, describe: "will-only iOS 27 keyboard seat is active") {
+            $0["keyboardDockSource"] == "notification" && $0["keyboardSeatWillOnly"] == "1"
+        }
+        assertTerminalDockPinnedToSoftwareKeyboard(
+            dock,
+            surface: surface,
+            keyboard: keyboard,
+            context: "iOS 27 will-only seat"
+        )
+        assertTerminalPresentationPinnedToDock(
+            dock,
+            context: "iOS 27 will-only seat"
+        )
+
+        // A settled dock must stay put: no did-frame reseat or steady-state
+        // re-derivation may move the composer bar once the keyboard stops.
+        // Poll over a bounded window and require EVERY sample at the settled
+        // edge, so a transient hop between two single samples cannot pass.
+        guard let settledTop = dock["keyboardDockTargetTop"].flatMap(Double.init) else {
+            XCTFail("Missing dock edge metric on the will-only seat. dock=\(dock)")
+            return
+        }
+        for sample in 1...5 {
+            try await Task.sleep(for: .milliseconds(300))
+            let laterDock = surfaceDock(in: app)
+            guard let laterTop = laterDock["keyboardDockTargetTop"].flatMap(Double.init) else {
+                XCTFail("Missing dock edge metric on stability sample \(sample). dock=\(laterDock)")
+                return
+            }
+            XCTAssertEqual(
+                laterTop,
+                settledTop,
+                accuracy: 1,
+                "A settled will-only dock moved without a will notification (sample \(sample)). dock=\(laterDock)"
+            )
+        }
+
+        // Rapid reversals ride the interrupted-leg rebase: the dock and the
+        // terminal presentation stay one unit through every cycle.
+        let hideKeyboardButton = app.buttons["terminal.inputAccessory.hideKeyboard"]
+        XCTAssertTrue(hideKeyboardButton.waitForExistence(timeout: 4))
+        for cycle in 1...6 {
+            hideKeyboardButton.tap()
+            surface.tap()
+            guard let cycleKeyboard = waitForSoftwareKeyboardKeyPlane(
+                in: app,
+                minimumOverlap: 120,
+                timeout: 4
+            ) else { return }
+            let cycleDock = surfaceDock(in: app)
+            assertTerminalDockPinnedToSoftwareKeyboard(
+                cycleDock,
+                surface: surface,
+                keyboard: cycleKeyboard,
+                context: "will-only reversal \(cycle)"
+            )
+            assertTerminalPresentationPinnedToDock(
+                cycleDock,
+                context: "will-only reversal \(cycle)"
+            )
+        }
+    }
+
+    /// The legacy (notification+transform) keyboard dock path is the shipping
+    /// default on every OS. Launch with no overrides and prove the default
+    /// path selects legacy and the visible dock follows the real
+    /// software-keyboard edge through the production composer path.
+    @MainActor
+    func testLegacyKeyboardDockPinsComposerToKeyboard() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        let composerField = app.descendants(matching: .any)[Composer.field]
+        XCTAssertTrue(composerField.waitForExistence(timeout: 4))
+        composerField.tap()
+
+        guard let keyboard = waitForSoftwareKeyboardKeyPlane(
+            in: app,
+            minimumOverlap: 120,
+            timeout: 4
+        ) else { return }
+        // The default seat is the system guide on iOS <= 26 and the
+        // notification constant on iOS 27 (where the guide can lie at the
+        // screen bottom); the runner shares the simulator's OS version.
+        let expectedDefaultSeat = ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27
+            ? "notification"
+            : "layoutGuide"
+        let dock = waitForDock(in: app, describe: "default dock tracks keyboard") {
+            $0["keyboardDockSource"] == expectedDefaultSeat
+                && ($0["keyboardHeight"].flatMap(Double.init) ?? 0) > 120
+        }
+        assertTerminalDockPinnedToSoftwareKeyboard(
+            dock,
+            surface: surface,
+            keyboard: keyboard,
+            context: "legacy keyboard dock"
+        )
+        assertTerminalPresentationPinnedToDock(
+            dock,
+            context: "legacy keyboard dock"
+        )
+    }
+
+    /// A keyboard toggle must not reshape the terminal surface or its grid:
+    /// the hosting bounds, the grid viewport, and the render size are
+    /// keyboard-invariant by contract (the render slides on the dock; nothing
+    /// resizes). Regression: SwiftUI's keyboard safe area shaved the
+    /// home-indicator band off the surface on every toggle, which resized the
+    /// shared PTY grid, re-measured the blank band mid-leg, and retargeted the
+    /// render after the keyboard had already settled (a visible one-band
+    /// shift on every toggle).
+    @MainActor
+    func testKeyboardToggleKeepsTerminalSurfaceGeometryInvariant() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        let baseline = waitForDock(in: app, describe: "settled keyboard-down geometry") {
+            (Int($0["boundsHeight"] ?? "") ?? 0) > 0
+                && (Int($0["viewportHeight"] ?? "") ?? 0) > 0
+                && (Int($0["renderHeight"] ?? "") ?? 0) > 0
+        }
+        guard let baselineBounds = Int(baseline["boundsHeight"] ?? ""),
+              let baselineViewport = Int(baseline["viewportHeight"] ?? ""),
+              let baselineRender = Int(baseline["renderHeight"] ?? "") else {
+            XCTFail("Missing baseline surface geometry. dock=\(baseline)")
+            return
+        }
+
+        let composerField = app.descendants(matching: .any)[Composer.field]
+        XCTAssertTrue(composerField.waitForExistence(timeout: 4))
+        composerField.tap()
+
+        guard waitForSoftwareKeyboardKeyPlane(
+            in: app,
+            minimumOverlap: 120,
+            timeout: 4
+        ) != nil else { return }
+        let up = waitForDock(in: app, describe: "keyboard-up geometry") {
+            ($0["keyboardHeight"].flatMap(Double.init) ?? 0) > 120
+        }
+        XCTAssertEqual(
+            Int(up["boundsHeight"] ?? ""),
+            baselineBounds,
+            "The keyboard must not reshape the terminal surface. up=\(up) baseline=\(baseline)"
         )
         XCTAssertEqual(
-            Double(surface.frame.minY) + dockTargetTop,
-            Double(keyboard.frame.minY),
-            accuracy: 2,
-            "The iOS 27 fallback must pin the composer to the visible software keyboard. keyboard=\(keyboard) dock=\(dock)"
+            Int(up["viewportHeight"] ?? ""),
+            baselineViewport,
+            "The keyboard must not resize the grid viewport. up=\(up) baseline=\(baseline)"
         )
-        assertTerminalRenderBottomAttachedToViewport(
+        XCTAssertEqual(
+            Int(up["renderHeight"] ?? ""),
+            baselineRender,
+            "The keyboard must not resize the render. up=\(up) baseline=\(baseline)"
+        )
+
+        dismissKeyboard(in: app)
+        let down = waitForDock(in: app, describe: "keyboard-down geometry restored") {
+            ($0["keyboardHeight"].flatMap(Double.init) ?? 1) < 1
+        }
+        XCTAssertEqual(
+            Int(down["boundsHeight"] ?? ""),
+            baselineBounds,
+            "Dismissal must return the identical surface bounds. down=\(down) baseline=\(baseline)"
+        )
+        XCTAssertEqual(
+            Int(down["viewportHeight"] ?? ""),
+            baselineViewport,
+            "Dismissal must return the identical grid viewport. down=\(down) baseline=\(baseline)"
+        )
+        XCTAssertEqual(
+            Int(down["renderHeight"] ?? ""),
+            baselineRender,
+            "Dismissal must return the identical render size. down=\(down) baseline=\(baseline)"
+        )
+    }
+
+    /// The Settings > Developer "Rebuilt Keyboard Pinning" toggle persists
+    /// `cmux.mobile.debug.forceRebuildKeyboardDock.v1` and the terminal host
+    /// snapshots it at mount. Drive the same defaults key through the launch
+    /// argument domain and prove it selects the rebuilt dock path end to end,
+    /// with the dock still pinned to the real software-keyboard edge.
+    @MainActor
+    func testRebuildKeyboardDockDebugSettingSelectsRebuildPath() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(
+            port: port,
+            launchArguments: ["-cmux.mobile.debug.forceRebuildKeyboardDock.v1", "1"]
+        )
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        let composerField = app.descendants(matching: .any)[Composer.field]
+        XCTAssertTrue(composerField.waitForExistence(timeout: 4))
+        composerField.tap()
+
+        guard let keyboard = waitForSoftwareKeyboardKeyPlane(
+            in: app,
+            minimumOverlap: 120,
+            timeout: 4
+        ) else { return }
+        let dock = waitForDock(in: app, describe: "debug-setting dock tracks keyboard") {
+            $0["keyboardDockSource"] == "notification"
+                && ($0["keyboardHeight"].flatMap(Double.init) ?? 0) > 120
+        }
+        assertTerminalDockPinnedToSoftwareKeyboard(
             dock,
-            context: "iOS 27 notification fallback"
+            surface: surface,
+            keyboard: keyboard,
+            context: "debug-setting rebuilt keyboard dock"
+        )
+        assertTerminalPresentationPinnedToDock(
+            dock,
+            context: "debug-setting rebuilt keyboard dock"
         )
     }
 
@@ -11049,6 +10404,12 @@ private enum MockColorBands {
 }
 
 private final class MobileSyncMockHostServer: @unchecked Sendable {
+    struct TerminalInputRequest: Sendable {
+        let workspaceID: String
+        let terminalID: String
+        let text: String
+    }
+
     struct WorkspaceCreateRequest: Sendable {
         let title: String?
         let workingDirectory: String?
@@ -11078,8 +10439,11 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private let supportsManualAttachTicket: Bool
     private let workspaceCreateSelectsCreatedWorkspace: Bool
     private let holdsTerminalPasteResponse: Bool
+    private let echoesTerminalInput: Bool
+    private var terminalInputRequests: [TerminalInputRequest] = []
     private let rejectsTerminalPaste: Bool
     private let advertisesTaskAttachments: Bool
+    private let advertisesWorkspaceMetadata: Bool
     private let advertisesCaffeineControl: Bool
     private let taskModelsByProvider: [String: [(id: String, displayName: String)]]
     private let holdsTaskModelResponse: Bool
@@ -11093,6 +10457,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private var eventSubscriptionStreamIDsByConnection:
         [ObjectIdentifier: Set<String>] = [:]
     private var replayCounts: [String: Int] = [:]
+    private var terminalLinesOnNextSubscription: [String]?
     private var terminalScrollRequestsReceived = 0
     private var streamOffset: UInt64 = 1
     private var terminalPasteRequestReached = false
@@ -11163,8 +10528,10 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         supportsManualAttachTicket: Bool = false,
         workspaceCreateSelectsCreatedWorkspace: Bool = true,
         holdsTerminalPasteResponse: Bool = false,
+        echoesTerminalInput: Bool = false,
         rejectsTerminalPaste: Bool = false,
         advertisesTaskAttachments: Bool = false,
+        advertisesWorkspaceMetadata: Bool = false,
         advertisesCaffeineControl: Bool = false,
         taskModelsByProvider: [String: [(id: String, displayName: String)]] = [:],
         holdsTaskModelResponse: Bool = false,
@@ -11175,8 +10542,10 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         self.supportsManualAttachTicket = supportsManualAttachTicket
         self.workspaceCreateSelectsCreatedWorkspace = workspaceCreateSelectsCreatedWorkspace
         self.holdsTerminalPasteResponse = holdsTerminalPasteResponse
+        self.echoesTerminalInput = echoesTerminalInput
         self.rejectsTerminalPaste = rejectsTerminalPaste
         self.advertisesTaskAttachments = advertisesTaskAttachments
+        self.advertisesWorkspaceMetadata = advertisesWorkspaceMetadata
         self.advertisesCaffeineControl = advertisesCaffeineControl
         self.taskModelsByProvider = taskModelsByProvider
         self.holdsTaskModelResponse = holdsTaskModelResponse
@@ -11231,6 +10600,16 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
                 connection.cancel()
             }
             self.connections.removeAll()
+        }
+    }
+
+    func prepareTerminalReconnect(lines: [String]) async -> Int {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                self.terminalLinesOnNextSubscription = lines
+                let nextSubscription = self.requestCountsByMethod["mobile.events.subscribe", default: 0] + 1
+                continuation.resume(returning: nextSubscription)
+            }
         }
     }
 
@@ -11359,6 +10738,23 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
                 continuation.resume(returning: description.isEmpty ? "none" : description)
             }
         }
+    }
+
+    func terminalInputReceipt() async -> [TerminalInputRequest] {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                continuation.resume(returning: self.terminalInputRequests)
+            }
+        }
+    }
+
+    func waitForTerminalInput(_ expected: String, timeout: TimeInterval) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if await terminalInputReceipt().map(\.text).joined() == expected { return true }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        return await terminalInputReceipt().map(\.text).joined() == expected
     }
 
     func waitForTerminalScrollRequest(timeout: TimeInterval) async -> Bool {
@@ -11638,6 +11034,13 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         case "terminal.create":
             result = createTerminalResult(params: params)
         case "mobile.events.subscribe":
+            if let lines = terminalLinesOnNextSubscription {
+                terminalLinesOnNextSubscription = nil
+                if let workspaceIndex = workspaces.firstIndex(where: { $0.id == selectedWorkspaceID }),
+                   let terminalIndex = workspaces[workspaceIndex].terminals.firstIndex(where: { $0.id == selectedTerminalID }) {
+                    workspaces[workspaceIndex].terminals[terminalIndex].lines = lines
+                }
+            }
             let streamID = params["stream_id"] as? String ?? "events"
             let alreadySubscribed = eventSubscriptionStreamIDsByConnection[
                 connectionID,
@@ -11694,6 +11097,32 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             ]
         case "mobile.terminal.replay", "terminal.replay":
             result = terminalReplayResult(params: params)
+        case "terminal.input":
+            if echoesTerminalInput {
+                guard let workspaceID = params["workspace_id"] as? String,
+                      let terminalID = params["surface_id"] as? String,
+                      let text = params["text"] as? String,
+                      let workspaceIndex = workspaces.firstIndex(where: { $0.id == workspaceID }),
+                      let terminalIndex = workspaces[workspaceIndex].terminals.firstIndex(where: { $0.id == terminalID }) else {
+                    throw serverError("Terminal input must name an existing workspace and terminal and contain text.")
+                }
+                terminalInputRequests.append(TerminalInputRequest(
+                    workspaceID: workspaceID, terminalID: terminalID, text: text
+                ))
+                let typed = terminalInputRequests.filter {
+                    $0.workspaceID == workspaceID && $0.terminalID == terminalID
+                }.map(\.text).joined()
+                // Preserve history and replace only the host's echoed command.
+                // The client gets this text only through a subsequent replay.
+                var lines = workspaces[workspaceIndex].terminals[terminalIndex].lines
+                if lines.last?.hasPrefix("echo: ") == true { lines.removeLast() }
+                lines.append("echo: " + typed.trimmingCharacters(in: .newlines))
+                workspaces[workspaceIndex].terminals[terminalIndex].lines = lines
+                streamOffset += 1
+                result = ["terminal_seq": streamOffset]
+            } else {
+                result = [:]
+            }
         case "mobile.terminal.scroll":
             terminalScrollRequestsReceived += 1
             result = [:]
@@ -11730,6 +11159,9 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         if advertisesTaskAttachments {
             capabilities.append("task.attachments.v1")
         }
+        if advertisesWorkspaceMetadata {
+            capabilities.append("workspace.metadata.v1")
+        }
         if advertisesCaffeineControl {
             capabilities.append("caffeine.control.v1")
         }
@@ -11740,6 +11172,10 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             "mac_device_id": "ui-test-mac",
             "mac_display_name": "UI Test Mac",
             "mac_instance_tag": macInstanceTag,
+            "mac_client_namespace": macInstanceTag == "dev"
+                ? "mac:com.cmuxterm.app.debug"
+                : "mac:com.cmuxterm.app.debug.\(macInstanceTag)",
+            "mac_app_version": "0.64.23",
             "routes": [],
             "terminal_fidelity": "render_grid",
             "capabilities": capabilities,
@@ -11878,7 +11314,11 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             "workspace_id": workspaceID,
             "surface_id": terminal.id,
             "seq": streamOffset,
-            "data_b64": bytes.base64EncodedString(),
+            // This is the complete terminal contents, not an incremental byte
+            // tail. Match the host's VT snapshot fallback so replay replaces
+            // the mounted renderer instead of appending a second transcript.
+            "snapshot_format": "ghostty.active.vt",
+            "snapshot_data_b64": bytes.base64EncodedString(),
             "columns": 80,
             "rows": 24,
         ]
@@ -12154,8 +11594,8 @@ private final class AgentModelsCatalogHTTPServer: @unchecked Sendable {
 
 /// Maps the XCUITest bundle back to the target app's tagged DEBUG build scope.
 /// Tagged builds override the test bundle identifier with the app identifier;
-/// ordinary UI tests retain their reserved `uitests` identifier and map to the
-/// production policy's `dev` fallback.
+/// Ordinary UI tests retain their reserved `uitests` identifier and map to the
+/// development policy's `dev` fallback.
 private func mockHostInstanceTag(
     testBundleIdentifier: String? = Bundle(for: cmuxUITests.self).bundleIdentifier
 ) -> String {

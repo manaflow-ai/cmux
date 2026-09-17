@@ -19,7 +19,7 @@ import Testing
 /// after the capture block must be replayed exactly once after pane state.
 @MainActor
 @Suite struct RemoteTmuxPaneSeedTransportTests {
-    @Test func peerDetachReplaysEveryRecordedSizeClaimInStableOrder() throws {
+    @Test(.timeLimit(.minutes(1))) func peerDetachReplaysEveryRecordedSizeClaimInStableOrder() async throws {
         let fixture = attachedConnection()
         defer { fixture.close() }
 
@@ -30,16 +30,17 @@ import Testing
         ]
         fixture.connection.sentWindowSizes = fixture.connection.lastWindowSizes
         fixture.connection.windowClaimParityRearmsSpent = [3: 1, 9: 3]
-        _ = fixture.pipe.fileHandleForReading.availableData
-
         fixture.connection.handleMessageForTesting(
             .clientDetached(client: "/dev/pts/22")
         )
 
-        let commands = String(
-            decoding: fixture.pipe.fileHandleForReading.availableData,
-            as: UTF8.self
-        )
+        // Closing queues EOF after every command write, without blocking the main actor.
+        fixture.writer.close()
+        var commandBytes = Data()
+        for try await byte in fixture.pipe.fileHandleForReading.bytes {
+            commandBytes.append(byte)
+        }
+        let commands = String(decoding: commandBytes, as: UTF8.self)
         let envelope = try #require(commands.range(of: "refresh-client -C 242x62"))
         let window3 = try #require(
             commands.range(of: "refresh-client -C '@3:180x50'")
@@ -1789,7 +1790,9 @@ import Testing
 
         if condition() { return }
         GhosttyApp.shared.scheduleTick()
-        for await _ in events where !condition() {}
+        for await _ in events {
+            if condition() { return }
+        }
     }
 
     private func readTerminalText(

@@ -239,6 +239,6 @@ struct FocusHistoryScopeTests {
         restored.restoreSessionSnapshot(snapshot)
 
         let restoredWorkspace = try #require(restored.tabs.first)
-        #expect(restoredWorkspace.dockSplit.focusHistoryIncludesPanesAndTabs)
+        #expect(restoredWorkspace.requiredDockSplitForTesting.focusHistoryIncludesPanesAndTabs)
     }
 }

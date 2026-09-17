@@ -33,8 +33,11 @@ public protocol CmxIrohSettingsControlling: AnyObject {
     /// Persists one device-local custom private-path configuration.
     func upsertIrohCustomPrivatePath(_ path: CmxIrohCustomPrivatePathDraft) async throws
 
-    /// Removes this device's custom private paths for one Mac.
-    func removeIrohCustomPrivatePath(macDeviceID: String) async throws
+    /// Removes this device's custom private paths for one Mac app instance.
+    func removeIrohCustomPrivatePath(
+        macDeviceID: String,
+        instanceTag: String?
+    ) async throws
 
     /// Restores the active networking choices to their safe defaults without
     /// deleting saved relay definitions or private addresses.
@@ -76,7 +79,10 @@ public extension CmxIrohSettingsControlling {
         throw CmxIrohSettingsControlError.unsupported
     }
 
-    func removeIrohCustomPrivatePath(macDeviceID: String) async throws {
+    func removeIrohCustomPrivatePath(
+        macDeviceID: String,
+        instanceTag: String?
+    ) async throws {
         throw CmxIrohSettingsControlError.unsupported
     }
 

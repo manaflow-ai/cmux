@@ -10,12 +10,16 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::Mutex;
 use tokio_tungstenite::tungstenite::Message as TungsteniteMessage;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::handshake::client::Request as ClientRequest;
+use tokio_tungstenite::tungstenite::http::header::{HeaderValue, USER_AGENT};
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async_with_config};
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, client_async_tls_with_config};
 use url::Url;
 
 use crate::link::{FrameLink, LinkError};
 use crate::observability::{TransportPathKind, TransportPathSnapshot, TransportSnapshot};
+use crate::provider::dial::{DialedStream, Dialer, OsTcpDialer};
 use crate::provider::{
     CarrierEvidence, ConnectRequest, LinkGroup, LinkRequest, ProviderCapabilities, ProviderError,
     SupportedClientAuthModes, TransportProvider, sanitized_route,
@@ -114,14 +118,57 @@ where
     }
 }
 
+/// The `User-Agent` every direct WebSocket dial carries. Hosted ingress in front of
+/// cmux Cloud machines (CloudFront on the branded machine domain) refuses upgrades
+/// that omit the header, and tungstenite sends none by default. No `Origin` is set:
+/// the daemon rejects browser-style upgrades that carry one.
+pub const CLIENT_USER_AGENT: &str = concat!("cmux-tui/", env!("CARGO_PKG_VERSION"));
+
+/// Builds the upgrade request for a direct dial, preserving the endpoint's query
+/// (route tokens and lane parameters live there).
+pub fn client_request(endpoint: &Url) -> Result<ClientRequest, LinkError> {
+    let mut request = endpoint
+        .as_str()
+        .into_client_request()
+        .map_err(|error| LinkError::Transport(error.to_string()))?;
+    request.headers_mut().insert(USER_AGENT, HeaderValue::from_static(CLIENT_USER_AGENT));
+    Ok(request)
+}
+
+/// The link type every direct dial produces, whatever carried the bytes.
+pub type DialedWebSocketLink = TungsteniteWebSocketLink<MaybeTlsStream<DialedStream>>;
+
+/// Dial a direct WebSocket route over the operating system's TCP stack.
 pub async fn connect_websocket(
     endpoint: &Url,
     maximum: usize,
-) -> Result<TungsteniteWebSocketLink<MaybeTlsStream<tokio::net::TcpStream>>, LinkError> {
+) -> Result<DialedWebSocketLink, LinkError> {
+    connect_websocket_via(endpoint, maximum, &OsTcpDialer).await
+}
+
+/// Dial a direct WebSocket route over whatever carrier `dialer` provides.
+///
+/// The dialer owns only the byte stream. TLS for `wss` and the WebSocket
+/// upgrade run above it exactly as they do over a kernel socket, so an
+/// in-process WireGuard tunnel and the operating system's TCP stack produce the
+/// same link.
+pub async fn connect_websocket_via(
+    endpoint: &Url,
+    maximum: usize,
+    dialer: &dyn Dialer,
+) -> Result<DialedWebSocketLink, LinkError> {
     let description = sanitized_route(endpoint);
+    let host = endpoint
+        .host_str()
+        .ok_or_else(|| LinkError::Transport("WebSocket route has no host".into()))?;
+    let port = endpoint
+        .port_or_known_default()
+        .ok_or_else(|| LinkError::Transport("WebSocket route has no port".into()))?;
     let config =
         WebSocketConfig::default().max_message_size(Some(maximum)).max_frame_size(Some(maximum));
-    let (socket, _) = connect_async_with_config(endpoint.as_str(), Some(config), true)
+    let request = client_request(endpoint)?;
+    let stream = dialer.dial(host, port).await?;
+    let (socket, _) = client_async_tls_with_config(request, stream, Some(config), None)
         .await
         .map_err(|error| LinkError::Transport(error.to_string()))?;
     Ok(TungsteniteWebSocketLink::new(description, maximum, socket))
@@ -202,11 +249,38 @@ fn ensure_size(actual: usize, maximum: usize) -> Result<(), LinkError> {
 #[derive(Debug, Clone)]
 pub struct DirectWebSocketProvider {
     maximum: usize,
+    dialer: Arc<dyn Dialer>,
+    carrier_auth: bool,
 }
 
 impl DirectWebSocketProvider {
+    /// Dial over the operating system's TCP stack.
     pub fn new(maximum: usize) -> Self {
-        Self { maximum }
+        Self::with_dialer(maximum, Arc::new(OsTcpDialer))
+    }
+
+    /// Dial over a caller-supplied carrier, such as an in-process WireGuard
+    /// tunnel. The route, TLS, and upgrade are unchanged.
+    pub fn with_dialer(maximum: usize, dialer: Arc<dyn Dialer>) -> Self {
+        Self { maximum, dialer, carrier_auth: false }
+    }
+
+    /// Offer carrier authentication on `ws`/`wss` routes: the daemon behind the
+    /// route is expected to serve a trusted-network listener (a cmux Cloud
+    /// machine reached over the owner's private network), so the client dials
+    /// without an enrollment or invitation. A daemon whose listener is not
+    /// trusted rejects the handshake; nothing is weakened on the client side.
+    pub fn with_carrier_auth(mut self, carrier_auth: bool) -> Self {
+        self.carrier_auth = carrier_auth;
+        self
+    }
+
+    pub fn carrier_auth(&self) -> bool {
+        self.carrier_auth
+    }
+
+    pub fn dialer(&self) -> &Arc<dyn Dialer> {
+        &self.dialer
     }
 }
 
@@ -221,7 +295,11 @@ impl TransportProvider for DirectWebSocketProvider {
     }
 
     fn supported_client_auth(&self) -> SupportedClientAuthModes {
-        SupportedClientAuthModes::DeviceOnly
+        if self.carrier_auth {
+            SupportedClientAuthModes::DeviceOrCarrier
+        } else {
+            SupportedClientAuthModes::DeviceOnly
+        }
     }
 
     async fn connect(&self, request: ConnectRequest) -> Result<Arc<dyn LinkGroup>, ProviderError> {
@@ -242,6 +320,7 @@ impl TransportProvider for DirectWebSocketProvider {
             description,
             evidence,
             maximum: self.maximum,
+            dialer: Arc::clone(&self.dialer),
             closed: AtomicBool::new(false),
         }))
     }
@@ -253,6 +332,7 @@ struct WebSocketLinkGroup {
     description: String,
     evidence: CarrierEvidence,
     maximum: usize,
+    dialer: Arc<dyn Dialer>,
     closed: AtomicBool,
 }
 
@@ -295,7 +375,7 @@ impl LinkGroup for WebSocketLinkGroup {
             ("cmux_lane", request.lane.to_string()),
             ("cmux_generation", request.generation.to_string()),
         ]);
-        let link = connect_websocket(&endpoint, self.maximum).await?;
+        let link = connect_websocket_via(&endpoint, self.maximum, self.dialer.as_ref()).await?;
         Ok(Box::new(link))
     }
 
@@ -307,6 +387,22 @@ impl LinkGroup for WebSocketLinkGroup {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn client_request_sets_user_agent_and_keeps_the_query() {
+        let endpoint = Url::parse(
+            "wss://machine-1337.vm.cmux.sh/v1/link?bl_preview_token=t&cmux_lane=control",
+        )
+        .unwrap();
+        let request = client_request(&endpoint).unwrap();
+        assert_eq!(
+            request.headers().get("user-agent").and_then(|value| value.to_str().ok()),
+            Some(CLIENT_USER_AGENT)
+        );
+        assert!(request.headers().get("origin").is_none());
+        assert_eq!(request.uri().query(), Some("bl_preview_token=t&cmux_lane=control"));
+        assert_eq!(request.uri().host(), Some("machine-1337.vm.cmux.sh"));
+    }
+
     use std::collections::BTreeMap;
 
     use cmux_remote_protocol::{LanePolicy, SessionId};

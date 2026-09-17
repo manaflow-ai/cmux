@@ -558,7 +558,7 @@ final class WorkspaceRemoteBadgeTruthTests: XCTestCase {
         let terminal = try XCTUnwrap(sourceWorkspace.panels[surfaceId] as? TerminalPanel)
 
         let destinationWorkspace = Workspace()
-        let dock = destinationWorkspace.dockSplit
+        let dock = destinationWorkspace.requiredDockSplitForTesting
         defer { dock.closeAllPanels() }
         let dockPane = try XCTUnwrap(dock.bonsplitController.allPaneIds.first)
         let detached = try XCTUnwrap(sourceWorkspace.detachSurface(panelId: surfaceId))
