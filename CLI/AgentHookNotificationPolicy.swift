@@ -121,7 +121,8 @@ enum AgentHookNotificationClassifier {
         displayName: String,
         signal: String,
         message: String,
-        isFallback: Bool
+        isFallback: Bool,
+        neutralErrorBody: String? = nil
     ) -> AgentHookNotificationSummary {
         let lower = "\(signal) \(message)".lowercased()
         if lower.contains("permission") || lower.contains("approve") || lower.contains("approval") || lower.contains("permission_prompt") {
@@ -138,10 +139,10 @@ enum AgentHookNotificationClassifier {
         }
         if lower.contains("error") || lower.contains("failed") || lower.contains("failure") || lower.contains("exception") {
             let body = message.isEmpty
-                ? String.localizedStringWithFormat(
+                ? (neutralErrorBody ?? String.localizedStringWithFormat(
                     String(localized: "agent.generic.notification.body.reportedError", defaultValue: "%@ reported an error"),
                     displayName
-                )
+                ))
                 : message
             return AgentHookNotificationSummary(
                 subtitle: String(localized: "agent.generic.notification.subtitle.error", defaultValue: "Error"),

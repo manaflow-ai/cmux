@@ -11,45 +11,86 @@ extension CmuxTuiSurfaceProvider {
     /// attach stream.
     func materializeManualMirrorTerminal(
         _ resource: SurfaceResource,
+        remoteTabID: String? = nil,
         at destination: SurfaceDestination,
-        focus: Bool
+        focus: Bool,
+        adopting reservation: CloudTerminalPaneReservation? = nil
     ) async throws -> CloudManualMirrorMaterialization {
+        try catalog.validateOwnership(of: [resource.id], at: destination)
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else {
             throw ProviderError.machineAsleep(machineID)
         }
-        let remoteSurfaceID = try await resolveSurfaceIDForMaterialization(
+        let correlationID = UUID().uuidString.lowercased()
+        try catalog.validateOwnership(of: [resource.id], at: destination)
+        // A pool terminal opened into a mirrored workspace takes its tab there, not in
+        // whichever workspace the daemon happens to focus.
+        let resolved = try await resolveSurfaceIDForMaterialization(
             terminalID: resource.id.key,
             socketPath: connected.socketPath,
-            link: link
+            link: link,
+            requiresExistingView: remoteTabID != nil,
+            correlationID: correlationID,
+            // A newly-created terminal carries the workspace selected by the
+            // creation request even before its first tab receipt arrives. Keep
+            // that identity ahead of the local binding or daemon focus so a
+            // missing tab_id cannot redirect projection to another workspace.
+            preferredWorkspaceID: resource.remoteWorkspace?.id
+                ?? catalog.cloudPlacementCoordinator.boundRemoteWorkspaceID(
+                    forLocalWorkspace: destination.workspaceID, on: machine
+                )
         )
 
         let session = CloudTuiManualMirrorSession(
             machineID: machineID,
             terminalID: resource.id.key,
-            remoteSurfaceID: remoteSurfaceID,
-            initiallyClaimsGeometry: focus,
+            remoteSurfaceID: resolved.surfaceID,
+            operations: links.operations,
+            correlationID: correlationID,
             onNeedsReconnect: { [weak self] in
                 self?.scheduleRefresh()
             }
         )
         let inputRouter = session.inputRouter
         do {
-            let created = try SurfacePaneFactory.makeCloudManualMirrorPane(
-                at: destination,
-                focus: focus,
-                onInput: { input in inputRouter.send(input) },
-                keyNameResolver: { RemoteTmuxKeyName(inputEvent: $0)?.value },
-                onResize: { [weak session] sample in
-                    session?.apply(size: sample)
-                },
-                onRuntimeReady: { [weak session] in
-                    session?.runtimeReady()
-                },
-                onFocus: { [weak session] in
-                    session?.claimGeometry()
+            try catalog.validateOwnership(of: [resource.id], at: destination)
+            let created: (workspaceID: UUID, panelID: UUID, surface: TerminalSurface)
+            if let reservation {
+                // The user's pane already exists; bind the attachment to it. A pane
+                // closed while the daemon created the terminal ends this request
+                // without a replacement pane, like closing any pending pane.
+                guard let workspace = Workspace.liveWorkspace(id: reservation.workspaceID),
+                      let adopted = workspace.adoptReservedCloudTerminalPane(
+                          reservation,
+                          onResize: { [weak session] sample in session?.apply(size: sample) },
+                          onRuntimeReady: { [weak session] in session?.runtimeReady() },
+                          onFocus: { [weak session] in session?.claimGeometry() },
+                          attachment: session.attachmentStatus
+                      ) else {
+                    throw CancellationError()
                 }
-            )
+                created = adopted
+                reservation.inputRelay.attach(inputRouter)
+                // The card's grace counts from the moment the pane appeared.
+                session.startPresentationEpisode(elapsed: reservation.elapsed)
+            } else {
+                created = try SurfacePaneFactory.makeCloudManualMirrorPane(
+                    at: destination,
+                    focus: focus,
+                    onInput: { input in inputRouter.send(input) },
+                    keyNameResolver: { RemoteTmuxKeyName(inputEvent: $0)?.value },
+                    onResize: { [weak session] sample in
+                        session?.apply(size: sample)
+                    },
+                    onRuntimeReady: { [weak session] in
+                        session?.runtimeReady()
+                    },
+                    onFocus: { [weak session] in
+                        session?.claimGeometry()
+                    },
+                    attachment: session.attachmentStatus
+                )
+            }
             session.bind(surface: created.surface)
             // Preserve the workspace's existing notification-dismissal hook
             // while re-claiming geometry when this pane receives explicit
@@ -66,7 +107,8 @@ extension CmuxTuiSurfaceProvider {
                 workspaceID: created.workspaceID,
                 panelID: created.panelID,
                 surface: created.surface,
-                session: session
+                session: session,
+                remotePlacement: resolved.placement
             )
         } catch {
             session.stop()
@@ -74,48 +116,63 @@ extension CmuxTuiSurfaceProvider {
         }
     }
 
-    /// Resolves the daemon-local surface needed by a byte attachment. A live terminal with
-    /// zero remote views intentionally resolves to `surface:null`; create one unfocused remote
-    /// tab in the daemon's focused pane before resolving again. The operation is retried once
-    /// after the projection to cover the commit-to-snapshot handoff without ever selecting a
-    /// stale numeric id.
+    /// Resolves the daemon-local surface needed by a byte attachment.
+    ///
+    /// A live terminal with zero remote views resolves to `noPlacement`; one
+    /// unfocused remote tab is projected before resolving again. A daemon that
+    /// does not answer in time is retried on the bounded materialize schedule
+    /// and then reported as "did not answer", never as "not created": the
+    /// terminal keeps running on the machine either way.
     private func resolveSurfaceIDForMaterialization(
         terminalID: String,
         socketPath: String,
-        link: CloudMachineLink
-    ) async throws -> UInt64 {
-        switch await Self.resolveModernSurfaceID(
-            terminalID: terminalID,
-            socketPath: socketPath,
-            link: link
-        ) {
-        case let .resolved(surfaceID):
-            return surfaceID
-        case .unsupported:
-            if let surfaceID = await Self.resolveSurfaceID(
-                terminalID: terminalID,
-                socketPath: socketPath,
-                link: link
-            ) {
-                return surfaceID
+        link: CloudMachineLink,
+        requiresExistingView: Bool,
+        correlationID: String,
+        preferredWorkspaceID: String? = nil
+    ) async throws -> (surfaceID: UInt64, placement: SurfaceRemotePlacement?) {
+        let resolver = CloudTerminalAttachmentResolver(machineID: machineID, commandRunner: link, socketPath: socketPath, correlationID: correlationID)
+        var failures = 0
+        var lastReason = ""
+        var lastFailure = CloudTuiSurfaceIDResolution.Failure.notReady
+        var projectedPlacement: SurfaceRemotePlacement?
+        while true {
+            try Task.checkCancellation()
+            var resolution = await resolver.resolve(terminalID: terminalID)
+            attachmentLog.resolution(machineID: machineID, terminalID: terminalID, attempt: failures + 1, outcome: resolution)
+            if resolution == .noPlacement {
+                guard !requiresExistingView else { throw ProviderError.terminalNotCreated(terminalID) }
+                let projected = try await ensureRemoteTerminalView(
+                    terminalID: terminalID,
+                    socketPath: socketPath,
+                    link: link,
+                    preferredWorkspaceID: preferredWorkspaceID
+                )
+                projectedPlacement = projected
+                attachmentLog.projection(machineID: machineID, terminalID: terminalID, placement: projected)
+                resolution = await resolver.resolve(terminalID: terminalID)
+                attachmentLog.resolution(machineID: machineID, terminalID: terminalID, attempt: failures + 1, outcome: resolution)
             }
-            throw ProviderError.terminalNotCreated(terminalID)
-        case .failed:
-            throw ProviderError.terminalNotCreated(terminalID)
-        case .noPlacement:
-            try await ensureRemoteTerminalView(
-                terminalID: terminalID,
-                socketPath: socketPath,
-                link: link
-            )
-            if case let .resolved(surfaceID) = await Self.resolveModernSurfaceID(
-                terminalID: terminalID,
-                socketPath: socketPath,
-                link: link
-            ) {
-                return surfaceID
+            // Initial and post-projection answers share the same lifecycle/error handling.
+            switch resolution {
+            case let .resolved(surfaceID):
+                return (surfaceID, projectedPlacement)
+            case .exited:
+                // The remote shell already ended, including during projection.
+                throw ProviderError.terminalExited(terminalID)
+            case .noPlacement:
+                lastReason = "the projected view did not resolve"
+                lastFailure = .notReady
+            case let .retryable(reason, failure):
+                lastReason = reason
+                lastFailure = failure
             }
-            throw ProviderError.terminalNotCreated(terminalID)
+            failures += 1
+            guard let delay = CloudTerminalAttachmentRetryPolicy.materialize.boundedDelay(afterFailures: failures) else {
+                attachmentLog.giveUp(machineID: machineID, terminalID: terminalID, attempts: failures, reason: lastReason)
+                throw ProviderError.terminalAttachTimedOut(terminalID: terminalID, failure: lastFailure)
+            }
+            try await attachmentClock.sleep(for: delay)
         }
     }
 
@@ -125,95 +182,28 @@ extension CmuxTuiSurfaceProvider {
     private func ensureRemoteTerminalView(
         terminalID: String,
         socketPath: String,
-        link: CloudMachineLink
-    ) async throws {
+        link: CloudMachineLink,
+        preferredWorkspaceID: String? = nil
+    ) async throws -> SurfaceRemotePlacement {
+        // Attachment needs one backing tab per terminal, irrespective of which local
+        // pane opens first. Each accepted pane then submits its bound destination via
+        // the catalog's shared placement lane.
         let key = socketPath + "\u{0}" + terminalID
-        if let task = remoteTerminalProjectionTasks[key] {
-            try await task.value
-            return
-        }
-        let task = Task<Void, Error> { @MainActor [weak self] in
-            guard let self else {
-                throw ProviderError.terminalNotCreated(terminalID)
+        if let task = remoteTerminalProjectionTasks[key] { return try await task.value }
+        let task = Task<SurfaceRemotePlacement, Error> { @MainActor [weak self] in
+            guard let self else { throw ProviderError.terminalNotCreated(terminalID) }
+            let snapshot = try await link.run(arguments: CloudTuiCommandLine.snapshotArguments(socketPath: socketPath))
+            guard let destination = await CmuxTuiSnapshotParser.terminalProjectionTarget(from: snapshot, preferringWorkspace: preferredWorkspaceID) else {
+                throw ProviderError.noWorkspaceOnMachine(self.machineID)
             }
-            try await self.createRemoteTerminalView(
-                terminalID: terminalID,
-                socketPath: socketPath,
-                link: link
+            return try await self.ensureTerminalAttachment(
+                SurfaceResourceID(machine: self.machine, kind: .terminal, key: terminalID),
+                preferringRemoteWorkspace: destination.target.workspaceID
             )
         }
         remoteTerminalProjectionTasks[key] = task
         defer { remoteTerminalProjectionTasks[key] = nil }
-        try await task.value
-    }
-
-    /// Adds one daemon-side tab view for a zero-view terminal. The destination is read from a
-    /// fresh public snapshot immediately before the mutation, so a cached sidebar tree cannot
-    /// send the terminal to a pane that was closed or moved in the meantime.
-    private func createRemoteTerminalView(
-        terminalID: String,
-        socketPath: String,
-        link: CloudMachineLink
-    ) async throws {
-        // Reuse one idempotency key across the bounded revision retry. If the
-        // daemon applied the mutation but the CLI lost its response, a retry
-        // replays the original result instead of creating another tab.
-        let idempotencyKey = "cmux-cloud-projection-\(UUID().uuidString.lowercased())"
-        var revisionRetry = false
-        while true {
-            try Task.checkCancellation()
-            // The first resolver result may have raced another opener. Re-check the
-            // authoritative mapping before mutating topology so two local projections do
-            // not create duplicate daemon tabs for the same zero-view terminal.
-            switch await Self.resolveModernSurfaceID(
-                terminalID: terminalID,
-                socketPath: socketPath,
-                link: link
-            ) {
-            case .resolved:
-                return
-            case .failed, .unsupported:
-                // This helper is reached only after a modern resolver reported no placement;
-                // a generation change or malformed response is fail-closed.
-                throw ProviderError.terminalNotCreated(terminalID)
-            case .noPlacement:
-                break
-            }
-            let snapshotData = try await link.run(
-                arguments: CloudTuiCommandLine.snapshotArguments(socketPath: socketPath)
-            )
-            try Task.checkCancellation()
-            guard let projection = await CmuxTuiSnapshotParser.terminalProjectionTarget(from: snapshotData)
-            else {
-                throw ProviderError.terminalNotCreated(terminalID)
-            }
-            let arguments = CloudTuiCommandLine.projectTerminalArguments(
-                socketPath: socketPath,
-                terminalID: terminalID,
-                target: projection.target,
-                expectedRevision: projection.revision,
-                idempotencyKey: idempotencyKey
-            )
-            try Task.checkCancellation()
-            do {
-                _ = try await link.run(arguments: arguments)
-                return
-            } catch {
-                guard !revisionRetry,
-                      projection.revision != nil,
-                      Self.isRevisionConflict(error) else {
-                    throw error
-                }
-                revisionRetry = true
-            }
-        }
-    }
-
-    nonisolated private static func isRevisionConflict(_ error: Error) -> Bool {
-        let text = CloudMachineLink.errorText(error).lowercased()
-        return text.contains("revision conflict")
-            || text.contains("revision_conflict")
-            || text.contains("stale revision")
+        return try await task.value
     }
 
     /// Refreshes attachment identities and repairs a backing placement that
@@ -225,11 +215,9 @@ extension CmuxTuiSurfaceProvider {
         socketPath: String,
         link: CloudMachineLink
     ) async -> [String: CloudTuiSurfaceIDResolution] {
-        var resolutions = await Self.resolveSurfaceIDs(
-            terminalIDs: Set(sessions.map(\.terminalID)),
-            socketPath: socketPath,
-            link: link
-        )
+        let resolver = CloudTerminalAttachmentResolver(machineID: machineID, commandRunner: link, socketPath: socketPath)
+        let sessionsByTerminal = Dictionary(grouping: sessions, by: \.terminalID)
+        var resolutions = await resolver.resolve(terminalIDs: Set(sessionsByTerminal.keys))
         let terminalsWithoutPlacement: Set<String> = Set(
             sessions.compactMap { session in
                 guard resolutions[session.terminalID] == .noPlacement else { return nil }
@@ -238,204 +226,121 @@ extension CmuxTuiSurfaceProvider {
         )
         for terminalID in terminalsWithoutPlacement {
             guard !Task.isCancelled else { break }
-            for session in sessions where session.terminalID == terminalID {
+            if let state = cloudState {
+                let resourceID = SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID)
+                guard catalog.projections(of: resourceID).contains(where: {
+                    catalog.cloudWorkspaceProjectionCoordinator.retainsProjection($0, in: state)
+                }) else { continue }
+            }
+            for session in sessionsByTerminal[terminalID] ?? [] {
                 session.markSurfaceResolutionUnavailable()
             }
-            do {
-                try await ensureRemoteTerminalView(
+            await catalog.cloudPlacementCoordinator.repairPlacement(
+                for: SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID),
+                catalog: catalog
+            ) { preferredWorkspaceID in
+                try await self.ensureRemoteTerminalView(
                     terminalID: terminalID,
                     socketPath: socketPath,
-                    link: link
+                    link: link,
+                    preferredWorkspaceID: preferredWorkspaceID
                 )
-                resolutions[terminalID] = await Self.resolveModernSurfaceID(
-                    terminalID: terminalID,
-                    socketPath: socketPath,
-                    link: link
-                )
-            } catch {
-                resolutions[terminalID] = .failed
             }
+            resolutions[terminalID] = await resolver.resolve(terminalID: terminalID)
         }
         return resolutions
     }
 
-    /// Replaces a restored placeholder projection with a native manual pane.
-    func reprojectManualMirror(
-        resource: SurfaceResource,
-        projection: SurfaceProjection,
-        paneID: String,
-        generation: UInt64
-    ) async {
-        guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() else { return }
-        do {
-            let materialized = try await materializeManualMirrorTerminal(
-                resource,
-                at: .tab(workspaceID: projection.workspaceID, paneID: paneID, index: nil),
-                focus: false
-            )
-            guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() else {
-                SurfacePaneFactory.close(panelID: materialized.panelID, in: materialized.workspaceID)
-                return
-            }
-            materializedPanels.insert(materialized.panelID)
-            catalog.endProjections(panelID: projection.panelID)
-            catalog.record(SurfaceProjection(
-                resource: resource.id,
-                workspaceID: materialized.workspaceID,
-                panelID: materialized.panelID
-            ))
-            SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
-        } catch {
-            materializedPanels.remove(projection.panelID)
-        }
-    }
-
-    /// Resolves one terminal for materialization, using the legacy tree only
-    /// when the daemon explicitly reports that the private resolver is not
-    /// supported. Other failures fail closed to prevent stale-id routing.
-#if compiler(>=6.2)
-    @concurrent
-#else
-    @Sendable
-#endif
-    nonisolated static func resolveSurfaceID(
-        terminalID: String,
-        socketPath: String,
-        link: CloudMachineLink
-    ) async -> UInt64? {
-        switch await resolveModernSurfaceID(
-            terminalID: terminalID,
-            socketPath: socketPath,
-            link: link
-        ) {
-        case let .resolved(surfaceID):
-            return surfaceID
-        case .unsupported:
-            let parser = CloudTuiLegacySnapshotParser()
-            guard let tree = try? await link.run(
-                arguments: CloudTuiCommandLine.legacyListWorkspacesArguments(socketPath: socketPath)
-            ) else { return nil }
-            return parser.surfaceID(from: tree, terminalID: terminalID)
-        case .noPlacement, .failed:
-            return nil
-        }
-    }
-
-    /// Resolves the private command without touching MainActor state or
-    /// performing a compatibility-tree traversal.
-#if compiler(>=6.2)
-    @concurrent
-#else
-    @Sendable
-#endif
-    nonisolated static func resolveModernSurfaceID(
-        terminalID: String,
-        socketPath: String,
-        link: CloudMachineLink
-    ) async -> CloudTuiSurfaceIDResolution {
-        guard let arguments = CloudTuiCommandLine.resolveTerminalArguments(
-            socketPath: socketPath,
-            terminalID: terminalID
-        ) else { return .failed }
-        let parser = CloudTuiLegacySnapshotParser()
-        do {
-            let resolved = try await link.run(arguments: arguments)
-            switch parser.resolvedSurface(from: resolved) {
-            case let .surface(surfaceID):
-                return .resolved(surfaceID)
-            case .noPlacement:
-                return .noPlacement
-            case .malformed:
-                return .failed
-            }
-        } catch {
-            if isExplicitUnsupportedResolverError(error) {
-                return .unsupported
-            }
-            // A pre-protocol-9 daemon has no generation-aware resolver. Probe
-            // the authoritative identify response before allowing the legacy
-            // tree fallback; all other failures remain fail-closed.
-            guard let identifyArguments = CloudTuiCommandLine.identifyArguments(socketPath: socketPath),
-                  let identify = try? await link.run(arguments: identifyArguments),
-                  let protocolVersion = parser.protocolVersion(from: identify) else {
-                return .failed
-            }
-            return protocolVersion < 9 ? .unsupported : .failed
-        }
-    }
-
-    /// Resolves a set of terminal IDs with one modern request per ID and at
-    /// most one legacy tree fallback. The compatibility parser performs one
-    /// O(N) traversal for all unresolved IDs.
-#if compiler(>=6.2)
-    @concurrent
-#else
-    @Sendable
-#endif
-    nonisolated static func resolveSurfaceIDs(
-        terminalIDs: Set<String>,
-        socketPath: String,
-        link: CloudMachineLink
-    ) async -> [String: CloudTuiSurfaceIDResolution] {
-        guard !terminalIDs.isEmpty else { return [:] }
-        var results: [String: CloudTuiSurfaceIDResolution] = [:]
-        var legacyIDs: Set<String> = []
-        for terminalID in terminalIDs {
-            let result = await resolveModernSurfaceID(
-                terminalID: terminalID,
-                socketPath: socketPath,
-                link: link
-            )
-            results[terminalID] = result
-            if result == .unsupported {
-                legacyIDs.insert(terminalID)
-            }
-        }
-        if !legacyIDs.isEmpty,
-           let tree = try? await link.run(
-               arguments: CloudTuiCommandLine.legacyListWorkspacesArguments(socketPath: socketPath)
-           ) {
-            let parser = CloudTuiLegacySnapshotParser()
-            let legacy = parser.surfaceIDs(from: tree, terminalIDs: legacyIDs)
-            for terminalID in legacyIDs {
-                results[terminalID] = legacy[terminalID].map(CloudTuiSurfaceIDResolution.resolved)
-                    ?? .failed
-            }
-        }
-        return results
-    }
-
-    /// Whether the daemon's answer means "this resolver cannot serve me",
-    /// which sends the caller to the compatibility tree instead of failing
-    /// closed.
+    /// Attaches a reserved pane to `resource` and keeps trying until it works.
     ///
-    /// Two answers qualify. `operation.unsupported` is a daemon that predates
-    /// the resolver. `invalid_terminal_id` is an id-space mismatch:
-    /// `resolve-terminal` takes a *terminal host* id (UUIDv4 hex, per
-    /// spec/sdk-schema.json), while everything the app holds is a public
-    /// `term_…` resource id whose hex is not a UUIDv4 and which no command maps
-    /// to a host id. So the modern resolver can never answer for the ids this
-    /// app has, and treating that as a hard failure made every cloud terminal
-    /// fail with "cmux-tui did not report the new terminal". The compatibility
-    /// tree does carry the mapping (`terminal_resource_id` beside `surface`),
-    /// so the fallback is the path that actually resolves.
-    nonisolated static func isExplicitUnsupportedResolverError(_ error: Error) -> Bool {
-        guard case let CloudMachineLink.LinkError.exited(_, output) = error else { return false }
-        let lines = output.split(whereSeparator: \.isNewline)
-        for line in lines {
-            guard let data = String(line).data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-            else { continue }
-            if object["code"] as? String == "operation.unsupported"
-                || object["error_code"] as? String == "operation.unsupported" {
-                return true
-            }
-            let detailError = (object["details"] as? [String: Any])?["error"] as? String
-            if object["message"] as? String == "invalid_terminal_id"
-                || detailError == "invalid_terminal_id" {
-                return true
+    /// Used for restored panes and for a Cloud workspace opened as a whole: the
+    /// projection is already recorded on the reserved pane, so the layout is
+    /// complete before any machine round trip, and every pane attaches in
+    /// parallel. A failure is transient by default (the link is still coming up
+    /// after a relaunch, the daemon's ordered lane is busy): the loop waits on
+    /// the background backoff and tries again, and only after several rounds
+    /// does the pane show Reconnect, which restarts the loop at once. Closing
+    /// the pane cancels the loop; a terminal that exited is reported as such.
+    func attachReservedTerminalPane(
+        _ reservation: CloudTerminalPaneReservation,
+        resource: SurfaceResource,
+        remoteTabID: String?
+    ) {
+        let panelID = reservation.panelID
+        materializedPanels.insert(panelID)
+        restoredAttachTasks[panelID]?.cancel()
+        let generation = lifecycleGeneration
+        reservation.retry = { [weak self] in
+            guard let self else { return }
+            self.restoredAttachTasks[panelID]?.cancel()
+            self.attachReservedTerminalPane(reservation, resource: resource, remoteTabID: remoteTabID)
+        }
+        reservation.cancel = { [weak self] in
+            guard let self else { return }
+            self.restoredAttachTasks.removeValue(forKey: panelID)?.cancel()
+            self.materializedPanels.remove(panelID)
+        }
+        restoredAttachTasks[panelID] = Task { @MainActor [weak self] in
+            var failures = 0
+            while !Task.isCancelled {
+                guard let self, self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog(),
+                      let workspace = Workspace.liveWorkspace(id: reservation.workspaceID),
+                      workspace.cloudPendingCreations[panelID] === reservation else { return }
+                let destination = SurfaceDestination.tab(
+                    workspaceID: reservation.workspaceID,
+                    paneID: SurfacePaneFactory.paneID(ofPanel: panelID, in: reservation.workspaceID) ?? "",
+                    index: nil
+                )
+                do {
+                    let materialized = try await self.materializeManualMirrorTerminal(
+                        resource,
+                        remoteTabID: remoteTabID,
+                        at: destination,
+                        focus: false,
+                        adopting: reservation
+                    )
+                    guard !Task.isCancelled, self.isCurrentLifecycleGeneration(generation) else {
+                        self.manualMirrorSessions.removeValue(forKey: materialized.panelID)?.stop()
+                        return
+                    }
+                    if let placement = materialized.remotePlacement {
+                        self.catalog.cloudPlacementCoordinator.confirmPlacement(placement, on: self.machine)
+                        if let current = self.catalog.projection(forPanel: panelID) {
+                            self.catalog.setRemotePlacement(for: current, placement: placement)
+                        }
+                    }
+                    workspace.completeReservedCloudTerminalPane(reservation, adoptedPanelID: materialized.panelID)
+                    self.restoredAttachTasks[panelID] = nil
+                    return
+                } catch is CancellationError {
+                    return
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    if let providerError = error as? CmuxTuiSurfaceProvider.ProviderError,
+                       case .terminalExited = providerError {
+                        // The shell ended while the pane was waiting: the pane
+                        // closes the way an exited local terminal does.
+                        self.restoredAttachTasks[panelID] = nil
+                        workspace.cancelReservedCloudTerminalPane(panelID: panelID)
+                        SurfacePaneFactory.closeExited(panelID: panelID, in: reservation.workspaceID)
+                        return
+                    }
+                    failures += 1
+                    self.attachmentLog.giveUp(
+                        machineID: self.machineID, terminalID: resource.id.key,
+                        attempts: failures, reason: CloudMachineLink.errorText(error)
+                    )
+                    if failures >= Self.reservedAttachFailuresBeforeReporting {
+                        workspace.failReservedCloudTerminalPane(reservation, error: error)
+                    }
+                    let delay = CloudTerminalAttachmentRetryPolicy.background.cappedDelay(afterFailures: failures)
+                    do { try await self.attachmentClock.sleep(for: delay) } catch { return }
+                }
             }
         }
-        return false
     }
+
+    /// Rounds of the background backoff (1 s, 2 s, 4 s, 8 s: about fifteen
+    /// seconds) a restored pane may fail before it explains itself with Reconnect.
+    static let reservedAttachFailuresBeforeReporting = 4
 }

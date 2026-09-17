@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0d60b5c04eb89444ff0b4a9354896f2ae81a2bf4c953aacadd12e2907c6d84a8. */
+/* cmux-tui mux protocol 12, IR d9db9b34a8e4f367ce1aae230fcd188796903d6adf169f9675872a48d9fd1f25. */
 
 
 import type * as T from "./types.js";
@@ -403,6 +403,11 @@ export interface ListWorkspacesRequest extends CmuxRequestBase {
 export type ListWorkspacesResult = T.Tree;
 
 /** Protocol v12; authority: control. */
+export interface MachineListeningTcpRequest extends CmuxRequestBase {
+  cmd: "machine-listening-tcp";
+}
+
+/** Protocol v12; authority: control. */
 export interface MachineUsageRequest extends CmuxRequestBase {
   cmd: "machine-usage";
 }
@@ -543,6 +548,23 @@ export interface PaneNeighborRequest extends CmuxRequestBase {
   "dir": T.PaneDirection;
   "pane": T.Id;
 }
+
+/** Protocol v12; authority: control. */
+export interface PasteImageRequest extends CmuxRequestBase {
+  cmd: "paste-image";
+  "data"?: (string) | null;
+  "lease": string;
+  "mime"?: (string) | null;
+  "offset"?: (bigint) | null;
+  "op": string;
+  "size"?: (bigint) | null;
+  "surface": T.Id;
+  "terminal_id": string;
+  "upload_id": string;
+}
+export type PasteImageResult = {
+  "accepted": boolean;
+};
 
 /** Protocol v6; authority: control. */
 export interface PingRequest extends CmuxRequestBase {
@@ -987,6 +1009,7 @@ export type CmuxRequest =
   | ListClientsRequest
   | ListTerminalsRequest
   | ListWorkspacesRequest
+  | MachineListeningTcpRequest
   | MachineUsageRequest
   | MarkWorkspacesProviderManagedRequest
   | MintTerminalRendererRequest
@@ -1003,6 +1026,7 @@ export type CmuxRequest =
   | NotifyRequest
   | PairingResponseRequest
   | PaneNeighborRequest
+  | PasteImageRequest
   | PingRequest
   | ProcessInfoRequest
   | PutFrontendProjectionRequest
@@ -1396,6 +1420,14 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "machine-listening-tcp": {
+    request: MachineListeningTcpRequest;
+    result: T.MachineListeningTcpResult;
+    authority: "control";
+    since: 12;
+    capability: "machine-listening-tcp-v1";
+    stream: null;
+  };
   "machine-usage": {
     request: MachineUsageRequest;
     result: T.MachineUsageResult;
@@ -1522,6 +1554,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "paste-image": {
+    request: PasteImageRequest;
+    result: PasteImageResult;
+    authority: "control";
+    since: 12;
+    capability: "terminal-image-paste-v1";
     stream: null;
   };
   "ping": {
