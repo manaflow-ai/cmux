@@ -3188,6 +3188,15 @@ Protocol v7 adds `mode`. `mode:"bytes"`, including the default when the field is
 
 Servers advertising the `attach-initial-size` capability accept paired `cols` and `rows`. The pair records the attaching client's initial viewer-size claim before initial state is generated. Supplying only one dimension is an error. Clients must not send either field to a server that omits the capability, including an older protocol-v7 server.
 
+Servers advertising `attach-identity-v1` accept paired `expected_generation`
+and `expected_terminal_id`. Both must match before any stream or lease is
+created. With this pair, clients may omit `surface`: the daemon resolves the
+public terminal ID in the same attachment operation. The first `vt-state`
+identifies its numeric surface. Clients must wait for the successful attach
+response and lease before sending input. Creation receipts keep their existing
+shape; their generation and terminal ID provide the identity fence. Older
+servers require the existing separate surface-resolution path.
+
 When both peers negotiate `view-attachment-lease-v1` through `identify` and
 `set-client-info`, the response includes an opaque `lease`. The lease names
 this exact connection-local attach stream. Use it with
@@ -3201,7 +3210,9 @@ Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `surface` | `Id` | required | Must identify a live PTY or negotiated browser surface |
+| `surface` | `Id` | required unless identity pair supplied | Must identify a live PTY or negotiated browser surface |
+| `expected_generation` | `string` | default null | `attach-identity-v1`; paired with `expected_terminal_id` |
+| `expected_terminal_id` | `string` | default null | Public terminal ID, validated against the live surface |
 | `mode` | `string` | default `"bytes"` | Protocol 7: `"bytes"` or `"render"` |
 | `cols` | `uint16` | default null | `attach-initial-size` capability; paired with `rows`, clamped to at least 1 |
 | `rows` | `uint16` | default null | `attach-initial-size` capability; paired with `cols`, clamped to at least 1 |
