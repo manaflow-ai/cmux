@@ -165,6 +165,9 @@ struct MarkdownPanelView: View {
                 MarkdownFormattingToolbar { action in
                     panel.rendererSession.format(action.rawValue)
                 }
+                MarkdownTableToolbar { action in
+                    panel.rendererSession.format(action.rawValue)
+                }
             }
             markdownModeButton
             MarkdownPanelToolbar(

@@ -111,15 +111,6 @@ struct MarkdownFormattingToolbar: View {
             toolbarButton(.numberedList)
             toolbarButton(.quote)
             toolbarButton(.codeBlock)
-            Divider().frame(height: 16)
-            toolbarButton(.insertTable)
-            toolbarButton(.tableAddRowBefore)
-            toolbarButton(.tableAddRowAfter)
-            toolbarButton(.tableAddColumnBefore)
-            toolbarButton(.tableAddColumnAfter)
-            toolbarButton(.tableDeleteRow)
-            toolbarButton(.tableDeleteColumn)
-            toolbarButton(.tableToggleHeader)
         }
     }
 

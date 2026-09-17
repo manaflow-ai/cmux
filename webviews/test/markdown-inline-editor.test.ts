@@ -23,7 +23,7 @@ afterEach(() => {
 function editor(markdown: string) {
   const dom = new JSDOM(html, { runScripts: "outside-only", url: "file:///tmp/demo.md" });
   documents.push(dom);
-  const messages: Array<{ action?: string; markdown?: string }> = [];
+  const messages: Array<{ action?: string; href?: string; markdown?: string }> = [];
   const frames: FrameRequestCallback[] = [];
   const window = dom.window;
   Object.assign(window.document, { elementFromPoint: () => null });
@@ -44,7 +44,7 @@ function editor(markdown: string) {
   api.__cmuxSetMarkdownEditing(true);
   const content = window.document.getElementById("content")!;
   return {
-    api, content, window,
+    api, content, window, messages,
     edits: () => messages.filter((message) => message.action === "editMarkdown"),
     input() { content.dispatchEvent(new window.Event("input", { bubbles: true })); },
     frame() { frames.splice(0).forEach((callback) => callback(0)); },
@@ -164,6 +164,7 @@ test("link menu opens links in cmux and edits the URL and label", () => {
   expect(menu.textContent).toContain("Open in cmux");
   (menu.querySelector("button") as HTMLButtonElement).click();
   expect(page.edits()).toHaveLength(0);
+  expect(page.messages.at(-1)).toEqual({ action: "openMarkdownLink", href: "https://example.com/old" });
 
   anchor.dispatchEvent(new page.window.MouseEvent("click", { bubbles: true, cancelable: true }));
   const editMenu = page.window.document.querySelector(".cmux-link-menu")!;
