@@ -1,10 +1,10 @@
-import { MagicLinkSignIn, StackHandler } from "@stackframe/stack";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
 import { stackServerApp } from "../../lib/stack";
 import { CliAuthConfirmation, type CliAuthIdentityMessages } from "../cli-auth-confirmation";
+import { ClientMagicLinkSignIn, ClientStackHandler } from "../stack-handler-client";
 import { preferredLocaleFromAcceptLanguage } from "../../../i18n/accept-language";
 import { loadMessages } from "../../../i18n/messages";
 
@@ -46,7 +46,6 @@ export default async function StackHandlerPage(
         isCliAuthConfirmation={stack.length === 1 && stack[0] === "cli-auth-confirm"}
         isCoderouterSignIn={isCoderouterSignIn}
         identityMessages={identityMessages}
-        params={props.params}
       />
     </Suspense>
   );
@@ -56,12 +55,10 @@ function StackHandlerContent({
   isCliAuthConfirmation,
   isCoderouterSignIn,
   identityMessages,
-  params,
 }: {
   isCliAuthConfirmation: boolean;
   isCoderouterSignIn: boolean;
   identityMessages: CliAuthIdentityMessages | null;
-  params: Promise<{ stack: string[] }>;
 }) {
   if (isCliAuthConfirmation) {
     return (
@@ -86,12 +83,12 @@ function StackHandlerContent({
           <p className="mb-6 text-sm leading-6 text-[#6f6a61]">
             use your cmux account email. we’ll send a one-time code.
           </p>
-          <MagicLinkSignIn />
+          <ClientMagicLinkSignIn />
         </section>
       </main>
     );
   }
-  return <StackHandler fullPage app={stackServerApp} params={params} />;
+  return <ClientStackHandler />;
 }
 
 function StackHandlerLoading() {
