@@ -1260,10 +1260,6 @@ impl Inner {
             return;
         }
         let fail = |code: &str, message: &str| send_pty_error(context, &pty_id, code, message);
-        let reservation_owner = OpeningOwner {
-            owner: TransportOwner::from_context(context),
-            attempt_id: cancellation.attempt_id(),
-        };
         let reservation_result = {
             let _state = self.tunnel_state.lock().expect("tunnel state lock");
             let mut opening = self.opening_state.lock().expect("opening state lock");
