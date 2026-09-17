@@ -544,7 +544,8 @@ enum CloudTreeNodeBuilder {
         snapshot: SurfaceCatalogSnapshot,
         localWorkspaces: [CloudTreeLocalWorkspace],
         unreadTerminalIDs: [String: Set<String>] = [:],
-        includeLocalMachine: Bool = CloudTreeNodeBuilder.includesLocalMachine
+        includeLocalMachine: Bool = CloudTreeNodeBuilder.includesLocalMachine,
+        supportsCloudBrowser: Bool = true
     ) -> [CloudTreeNode] {
         let projectionIndex = LocalProjectionIndex(snapshot: snapshot, unreadTerminalIDs: unreadTerminalIDs)
         var nodes: [CloudTreeNode] = []
@@ -576,7 +577,9 @@ enum CloudTreeNodeBuilder {
                     machine: .cloud(machine.id),
                     info: info,
                     snapshot: snapshot,
-                    projectionIndex: projectionIndex
+                    projectionIndex: projectionIndex,
+                    supportsCloudBrowser: supportsCloudBrowser,
+                    supportsPorts: machine.capabilities.ports
                 )
             ))
         }
@@ -589,6 +592,7 @@ enum CloudTreeNodeBuilder {
                 provider: "",
                 image: info.image ?? "",
                 isDesktop: info.hasDesktop,
+                capabilities: VMCapabilities(snapshot: false, restore: false, fork: false, ports: false),
                 activity: MachineSnapshotBuilder.activity(fromStatus: info.status),
                 createdAt: nil,
                 label: info.name == id ? nil : info.name
@@ -600,7 +604,13 @@ enum CloudTreeNodeBuilder {
                     machine: info.id,
                     info: info,
                     snapshot: snapshot,
-                    projectionIndex: projectionIndex
+                    projectionIndex: projectionIndex,
+                    supportsCloudBrowser: supportsCloudBrowser,
+                    // A catalog-only machine has no current VM capability
+                    // snapshot. Fail closed until the fleet list supplies one;
+                    // stale catalog data must not advertise a port action that
+                    // the provider may reject.
+                    supportsPorts: false
                 )
             ))
         }
@@ -773,16 +783,32 @@ enum CloudTreeNodeBuilder {
         machine: SurfaceMachineID,
         info: SurfaceMachineInfo?,
         snapshot: SurfaceCatalogSnapshot,
-        projectionIndex: LocalProjectionIndex
+        projectionIndex: LocalProjectionIndex,
+        supportsCloudBrowser: Bool,
+        supportsPorts: Bool
     ) -> [CloudTreeNode] {
         // The catalog has not registered this machine yet: nothing to expand.
         guard let info else {
             return [placeholder(machine, text: String(localized: "cloudTree.placeholder.connecting", defaultValue: "Connecting…"), style: .connecting)]
         }
         var children: [CloudTreeNode] = []
-        let resources = snapshot.resources(on: machine)
+        let resources = snapshot.resources(on: machine).filter { resource in
+            if resource.id.isForwardedPort {
+                return supportsCloudBrowser && supportsPorts
+            }
+            if resource.kind == .browser || resource.kind == .display {
+                return supportsCloudBrowser
+            }
+            return true
+        }
         let terminals = resources.filter { $0.kind == .terminal }
-        let displays = CloudMachineSurfacePresentation.displays(resources: resources, info: info)
+        // `displays` can synthesize a desktop from machine metadata. That is
+        // useful only when the signed Network Extension can carry the browser
+        // surface; otherwise synthesis would reintroduce the unsupported row
+        // after the resource filter above.
+        let displays = supportsCloudBrowser
+            ? CloudMachineSurfacePresentation.displays(resources: resources, info: info)
+            : []
 
         switch info.linkState {
         case .asleep:
@@ -815,7 +841,7 @@ enum CloudTreeNodeBuilder {
                 let right = ($1.id.forwardedPort ?? $1.port ?? 0, $1.id.key)
                 return left.0 != right.0 ? left.0 < right.0 : left.1 < right.1
             }
-        do {
+        if supportsCloudBrowser && supportsPorts {
             children.append(CloudTreeNode(
                 id: nodeID(portsGroup: machine),
                 kind: .portsGroup(machine: machine),

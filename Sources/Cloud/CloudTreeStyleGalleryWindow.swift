@@ -117,6 +117,7 @@ private struct CloudTreeStyleGalleryColumn: View {
                     refresh: { Task { await CmuxTuiSurfaceProviderRegistry.shared.refresh(force: true) } }
                 ),
                 expansionStore: expansionStore,
+                supportsCloudBrowser: true,
                 style: style
             )
         }

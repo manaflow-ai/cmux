@@ -226,12 +226,17 @@ struct CLISocketPathResolver {
 
     /// Resolves a socket using one ordered, liveness-aware discovery pass.
     ///
-    /// Explicit flag and environment paths are deliberately returned verbatim and are
-    /// never probed or rerouted. Implicit discovery only selects a path after a real
-    /// non-blocking connect succeeds; a stale socket file is never handed to the client.
+    /// Explicit flag paths are deliberately returned verbatim and are never probed or
+    /// rerouted. Ordinary environment paths keep that same compatibility behavior. A
+    /// side-effecting caller such as `vpn` passes an implicit source with
+    /// `allowCrossVariantFallback` disabled, which limits discovery to this build's
+    /// own socket and marker files. Implicit discovery only selects a path after a
+    /// real non-blocking connect succeeds; a stale socket file is never handed to the
+    /// client.
     func resolve(
         requestedPath: String,
-        source: CLISocketPathSource
+        source: CLISocketPathSource,
+        allowCrossVariantFallback: Bool = true
     ) -> CLISocketPathResolution {
         guard source == .implicitDefault else {
             return CLISocketPathResolution(
@@ -242,7 +247,10 @@ struct CLISocketPathResolver {
             )
         }
 
-        let candidates = Self.dedupe(candidatePaths(requestedPath: requestedPath))
+        let candidates = Self.dedupe(candidatePaths(
+            requestedPath: requestedPath,
+            allowCrossVariantFallback: allowCrossVariantFallback
+        ))
         let selectedPath = candidates.first { path in
             canConnect(to: path)
         }
@@ -254,7 +262,10 @@ struct CLISocketPathResolver {
         )
     }
 
-    private func candidatePaths(requestedPath: String) -> [String] {
+    private func candidatePaths(
+        requestedPath: String,
+        allowCrossVariantFallback: Bool
+    ) -> [String] {
         var candidates: [String] = []
         let variant = SocketPathMarkerFiles.variant(bundleIdentifier: bundleIdentifier, environment: environment)
         let ownDefaultPath = resolvedDefaultSocketPath()
@@ -262,6 +273,28 @@ struct CLISocketPathResolver {
         // Keep the current variant first. For a tagged debug CLI this is the
         // tag-specific socket; for the stable CLI it is the primary stable socket.
         candidates.append(ownDefaultPath)
+
+        // Side-effecting build-scoped commands must never silently cross into
+        // another app when their own listener is unavailable. Explicit socket
+        // paths remain pinned by `resolve` above; this branch governs only
+        // implicit discovery. The caller can still opt into the historical
+        // cross-variant fallback for read-only/general CLI commands.
+        guard allowCrossVariantFallback else {
+            // A stable release may have moved to its user-scoped socket, and a
+            // tagged build may use a reload-managed/custom path. Keep those
+            // paths available only when this variant itself published them;
+            // never accept an arbitrary environment path in the strict mode.
+            let ownMarkers = readLastSocketPaths(
+                bundleIdentifier: bundleIdentifier,
+                environment: environment
+            )
+            candidates.append(contentsOf: ownMarkers)
+            if Self.pathsMatch(requestedPath, ownDefaultPath)
+                || ownMarkers.contains(where: { Self.pathsMatch($0, requestedPath) }) {
+                candidates.append(requestedPath)
+            }
+            return candidates
+        }
 
         // A dead dev socket must not strand ambient commands. The stable primary
         // socket is the deterministic machine-wide fallback before any marker.

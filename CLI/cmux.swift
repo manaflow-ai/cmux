@@ -5140,6 +5140,16 @@ struct CMUXCLI {
             return
         }
 
+        // `cmux vpn` talks to the selected app to mutate tunnel state. Running
+        // the CLI itself through sudo changes HOME/UID and can select a
+        // different socket, so fail with the actionable user-scoped command.
+        if command == "vpn", geteuid() == 0 {
+            throw CLIError(message: String(
+                localized: "cli.vpn.runAsUser",
+                defaultValue: "Run `cmux vpn` without `sudo`; cmux manages the required system approval itself."
+            ))
+        }
+
         // If the argument is a path (not a known command), open a workspace there.
         if shouldOpenAsPathArgument(command), explicitSocketPath == nil {
             try openPath(command)
@@ -5153,7 +5163,7 @@ struct CMUXCLI {
             bundleIdentifier: cliBundleIdentifier,
             environment: processEnv
         )
-        let socketPathSource: CLISocketPathSource
+        var socketPathSource: CLISocketPathSource
         if explicitSocketPath != nil {
             socketPathSource = .explicitFlag
         } else if envSocketPath != nil {
@@ -5174,9 +5184,17 @@ struct CMUXCLI {
             environment: processEnv,
             bundleIdentifier: cliBundleIdentifier
         )
+        // A terminal or tmux server can retain another build's socket path.
+        // VPN commands must resolve only this build's listener; explicit
+        // --socket remains an intentional escape hatch.
+        if command == "vpn",
+           socketPathSource == .environment {
+            socketPathSource = .implicitDefault
+        }
         let socketResolution = socketResolver.resolve(
             requestedPath: socketPath,
-            source: socketPathSource
+            source: socketPathSource,
+            allowCrossVariantFallback: command != "vpn"
         )
         if !socketResolution.hasLiveSocket,
            socketPathSource == .implicitDefault,
@@ -5460,7 +5478,8 @@ struct CMUXCLI {
                         resolvePath: {
                             socketResolver.resolve(
                                 requestedPath: socketPath,
-                                source: socketPathSource
+                                source: socketPathSource,
+                                allowCrossVariantFallback: command != "vpn"
                             ).selectedPath ?? socketPath
                         },
                         timeout: Self.restoreSocketStartupTimeoutSeconds

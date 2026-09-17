@@ -2400,6 +2400,96 @@ import Testing
         #expect(responder.receivedRequests.isEmpty)
     }
 
+    @Test func testVPNImplicitDiscoveryNeverFallsBackToAnotherVariant() throws {
+        let home = try makeTemporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let stableSocketPath = try stableSocketURL(home: home).path
+        let resolver = CLISocketPathResolver(
+            environment: [:],
+            bundleIdentifier: SocketPathMarkerFiles.nightlyBundleIdentifier,
+            currentUserID: getuid(),
+            inspectSocketPathEntry: { path in
+                path == stableSocketPath ? .socket(ownerUserID: getuid()) : .missing
+            },
+            socketAcceptsConnections: { $0 == stableSocketPath },
+            stateDirectory: CmuxStateDirectory.url(homeDirectory: home)
+        )
+
+        let resolution = resolver.resolve(
+            requestedPath: "/tmp/cmux-nightly.sock",
+            source: .implicitDefault,
+            allowCrossVariantFallback: false
+        )
+
+        #expect(resolution.candidatePaths == ["/tmp/cmux-nightly.sock"])
+        #expect(resolution.selectedPath == nil)
+        #expect(!resolution.hasLiveSocket)
+    }
+
+    @Test func testVPNResolutionIgnoresAnInheritedSocketFromAnotherVariant() throws {
+        let cliPath = try bundledCLIPath()
+        let tagSlug = "vpn-variant-" + UUID().uuidString.lowercased()
+        let home = try makeTemporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let stableSocketPath = try stableSocketURL(home: home).path
+        let nightlyBundleID = "com.cmuxterm.app.nightly." + tagSlug
+        let nightlySocketPath = "/tmp/cmux-nightly-" + tagSlug + ".sock"
+        let stableResponder = try UnixSocketResponder(
+            path: stableSocketPath,
+            response: try jsonResponse(result: [
+                "config_path": "stable.conf",
+                "config_present": false,
+                "interface_name": "cmux",
+                "interface_up": false,
+                "stale": false,
+            ])
+        )
+        defer { stableResponder.stop() }
+        let nightlyResponder = try UnixSocketResponder(
+            path: nightlySocketPath,
+            response: try jsonResponse(result: [
+                "config_path": "nightly.conf",
+                "config_present": false,
+                "interface_name": "cmux-nightly",
+                "interface_up": false,
+                "stale": false,
+            ])
+        )
+        defer { nightlyResponder.stop() }
+
+        let fakeCLIPath = try fakeTaggedBundledCLIPath(
+            sourceCLIPath: cliPath,
+            tagSlug: tagSlug,
+            bundleIdentifier: nightlyBundleID,
+            bundleName: "cmux NIGHTLY"
+        )
+        // This is the shape of a Nightly shell after a stable app (or a tmux
+        // server) left its CMUX_SOCKET_PATH behind. The CLI must resolve the
+        // Nightly listener before it sends a mutating-plane request.
+        let environment = [
+            "PATH": "/usr/bin:/bin",
+            "HOME": home.path,
+            "CFFIXED_USER_HOME": home.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUX_SOCKET_PATH": stableSocketPath,
+        ]
+        let result = runProcess(
+            executablePath: fakeCLIPath,
+            arguments: ["vpn", "status", "--json"],
+            environment: environment,
+            timeout: 10
+        )
+
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
+        XCTAssertTrue(
+            result.stdout.contains("cmux-nightly-"),
+            result.diagnostics
+        )
+        XCTAssertTrue(nightlyResponder.receivedRequests.count >= 1, result.diagnostics)
+        XCTAssertTrue(stableResponder.receivedRequests.isEmpty, result.diagnostics)
+    }
+
     @Test func testExplicitStableSocketEnvironmentIsNeverReroutedByTaggedCLI() throws {
         let cliPath = try bundledCLIPath()
         let tagSlug = "cli-explicit-stable-\(UUID().uuidString.lowercased())"

@@ -158,7 +158,7 @@ struct CloudPortOpenRegressionTests {
             "resource:port-vm/browser/port:3000",
             "resource:port-vm/browser/port:8000",
         ])
-        #expect(byID["machine:port-vm/ws/ws_app/resource:port-vm/browser/port:8000"] != nil)
+        #expect(byID["machine:port-vm/ws/ws_app/resource:port-vm/browser/port:8000/tab:tab_port_8000"] != nil)
         #expect(portsGroup.children.last?.dragResource?.id == port.id)
         #expect(SurfaceResourceID(machine: machine, kind: .browser, key: "port:08000").forwardedPort == nil)
 
@@ -237,7 +237,7 @@ struct CloudPortOpenRegressionTests {
         ))
         let portsGroup = try #require(tree.first { $0.id == "machine:port-vm/ports" })
         #expect(portsGroup.children.compactMap { $0.dragResource?.id } == [port.id])
-        let workspacePort = try #require(tree.first { $0.id == "machine:port-vm/ws/ws_app/resource:port-vm/browser/port:8000" })
+        let workspacePort = try #require(tree.first { $0.id == "machine:port-vm/ws/ws_app/resource:port-vm/browser/port:8000/tab:tab_port" })
         guard case .port = workspacePort.kind else {
             Issue.record("the workspace pointer should retain the port row kind")
             return

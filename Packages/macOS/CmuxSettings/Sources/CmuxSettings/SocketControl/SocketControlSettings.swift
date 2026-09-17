@@ -390,6 +390,12 @@ public struct SocketControlSettings {
         if inheritedBundleIdentifierConflicts(environment: environment, bundleIdentifier: bundleIdentifier) {
             return false
         }
+        // Nightly is a release channel even when a local dogfood build was
+        // compiled with DEBUG. Do not let a shell/tmux environment inherited
+        // from another app make its listener bind that app's socket.
+        if isNightlyBundleIdentifier(bundleIdentifier) {
+            return false
+        }
         if isDebugLikeBundleIdentifier(bundleIdentifier) || isStagingBundleIdentifier(bundleIdentifier) {
             return true
         }
@@ -424,6 +430,16 @@ public struct SocketControlSettings {
     public static func isTaggedDevBuild(bundleIdentifier: String? = Bundle.main.bundleIdentifier) -> Bool {
         guard let bundleIdentifier else { return false }
         return bundleIdentifier.hasPrefix("\(baseDebugBundleIdentifier).")
+    }
+
+    /// Returns whether a bundle identifier belongs to the Nightly release channel.
+    ///
+    /// - Parameter bundleIdentifier: The app bundle identifier to classify.
+    /// - Returns: `true` for the untagged Nightly bundle and its scoped variants.
+    public static func isNightlyBundleIdentifier(_ bundleIdentifier: String?) -> Bool {
+        guard let bundleIdentifier = normalizedBundleIdentifier(bundleIdentifier) else { return false }
+        return bundleIdentifier == SocketPathMarkerFiles.nightlyBundleIdentifier
+            || bundleIdentifier.hasPrefix("\(SocketPathMarkerFiles.nightlyBundleIdentifier).")
     }
 
     /// Whether the bundle identifier is a staging build identifier.
