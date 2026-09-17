@@ -17,7 +17,7 @@ public final class SSHPTYAttachSignalMonitor {
     public init(bridgeFD: Int32) throws {
         outputCancellation = try PipeCancellationSignal()
         let descriptor = try SSHPTYShutdownDescriptor(bridgeFD)
-        for number in [SIGHUP, SIGINT, SIGTERM] {
+        for number in [SIGHUP, SIGINT, SIGTERM, SIGQUIT] {
             var previous = sigaction()
             guard sigaction(number, nil, &previous) == 0 else {
                 cancel()
