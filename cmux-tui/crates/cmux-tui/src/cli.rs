@@ -896,4 +896,66 @@ mod tests {
         assert!(!is_remote_invocation(&strings(&["--session", "dev", "--", "remote", "connect",])));
         assert!(!is_remote_invocation(&strings(&["--", "remote", "connect"])));
     }
+
+    #[test]
+    fn shorthand_resource_paths_preserve_selectors_and_payloads() {
+        for (short, canonical) in [
+            (vec!["ws", "ls"], vec!["workspace", "list"]),
+            (vec!["ws", "new", "--name", "term"], vec!["workspace", "create", "--name", "term"]),
+            (vec!["pane", "split", "--down"], vec!["pane", "current", "split", "--down"]),
+            (vec!["ws", "name:ls", "win", "current", "p", "current", "get"], vec!["workspace", "name:ls", "screen", "current", "pane", "current", "show"]),
+            (vec!["term", "current", "write", "--text", "--json"], vec!["terminal", "current", "write", "--text=--json"]),
+            (vec!["term", "current", "write", "--text", "--help"], vec!["terminal", "current", "write", "--text=--help"]),
+            (vec!["ws", "current", "run", "--", "echo", "--json", "neww"], vec!["workspace", "current", "run", "--", "echo", "--json", "neww"]),
+        ] {
+            let plan = |args: Vec<&str>| {
+                let ParsedCommand::Command { global, plan: CommandPlan::Protocol(request) } =
+                    parse(&strings(&args)).unwrap() else { panic!("expected typed request") };
+                (global.output, request.operation.name().unwrap(), request.params)
+            };
+            assert_eq!(plan(short), plan(canonical));
+        }
+    }
+
+    #[test]
+    fn shorthand_tmux_commands_share_canonical_operations() {
+        for (short, canonical) in [
+            (vec!["ls"], vec!["session", "list"]),
+            (vec!["lsw"], vec!["screen", "list"]),
+            (vec!["lsp"], vec!["pane", "list"]),
+            (vec!["neww", "-n", "api"], vec!["screen", "create", "--name", "api"]),
+            (vec!["splitw", "-h"], vec!["pane", "current", "split", "--right"]),
+            (vec!["splitw"], vec!["pane", "current", "split", "--down"]),
+            (vec!["selectp", "-L"], vec!["pane", "current", "focus", "direction", "left"]),
+            (vec!["selectw", "-t", "api"], vec!["screen", "api", "focus"]),
+            (vec!["renamew", "-t", "api", "backend"], vec!["screen", "api", "rename", "--name", "backend"]),
+            (vec!["capturep"], vec!["terminal", "current", "screen", "read"]),
+            (vec!["send-keys", "C-c", "Enter"], vec!["terminal", "current", "keys", "ctrl+c", "enter"]),
+            (vec!["send-keys", "-l", "hello", "世界"], vec!["terminal", "current", "write", "--text", "hello世界"]),
+        ] {
+            let plan = |args: Vec<&str>| {
+                let ParsedCommand::Command { plan: CommandPlan::Protocol(request), .. } =
+                    parse(&strings(&args)).unwrap() else { panic!("expected typed request") };
+                (request.operation.name().unwrap(), request.params)
+            };
+            assert_eq!(plan(short), plan(canonical));
+        }
+    }
+
+    #[test]
+    fn shorthand_rejects_unsupported_or_conflicting_flags_before_execution() {
+        for args in [
+            vec!["splitw", "-h", "-v"],
+            vec!["splitw", "-d"],
+            vec!["selectp", "-L", "-R"],
+            vec!["neww", "-n", "one", "--name", "two"],
+            vec!["selectw", "-t"],
+            vec!["capturep", "-t", "one", "--target", "two"],
+            vec!["send-keys", "hello world"],
+            vec!["new-session"],
+        ] {
+            assert!(parse(&strings(&args)).is_err(), "accepted {args:?}");
+        }
+    }
+
 }
