@@ -12,7 +12,7 @@ const MAX_SAFE_UNSIGNED_INTEGER = 0xffff_ffff;
 
 const phases = new Set([
   "endpoint_start", "pairing", "transport_dial", "host_auth",
-  "rpc_ready", "recovery", "relay_policy", "discovery",
+  "rpc_ready", "recovery", "relay_policy", "discovery", "terminal_trace",
 ]);
 const outcomes = new Set(["success", "failure", "timeout", "cancelled", "abandoned"]);
 const failures = new Set([
@@ -32,6 +32,7 @@ const allowedPropertyKeys = new Set([
   "phase", "outcome", "duration_ms", "runtime_role", "user_usable",
   "failure", "transport", "platform", "client_channel", "app_version", "build_number",
   "bundle_identifier", "os_version", "device_model",
+  "trace_id", "operation", "terminal_phase",
 ]);
 
 export type MobileNetworkOutcome = {
@@ -50,6 +51,9 @@ export type MobileNetworkOutcome = {
   readonly bundleIdentifier?: string;
   readonly osVersion?: string;
   readonly deviceModel?: string;
+  readonly traceId?: string;
+  readonly operation?: string;
+  readonly terminalPhase?: string;
 };
 
 export function parseMobileNetworkOutcome(candidate: unknown): MobileNetworkOutcome | null {
@@ -68,7 +72,7 @@ export function parseMobileNetworkOutcome(candidate: unknown): MobileNetworkOutc
 }
 
 type CoreObservation = Pick<MobileNetworkOutcome, "phase" | "outcome" | "durationMs" | "userUsable" | "failure" | "transport">;
-type Metadata = Pick<MobileNetworkOutcome, "platform" | "clientChannel" | "appVersion" | "buildNumber" | "bundleIdentifier" | "osVersion" | "deviceModel">;
+type Metadata = Pick<MobileNetworkOutcome, "platform" | "clientChannel" | "appVersion" | "buildNumber" | "bundleIdentifier" | "osVersion" | "deviceModel" | "traceId" | "operation" | "terminalPhase">;
 
 function validTimestamp(value: unknown): value is string {
   return typeof value === "string"
@@ -109,7 +113,17 @@ function parseMetadata(properties: Record<string, unknown>): Metadata | null {
   const bundleIdentifier = optionalMachineString(properties.bundle_identifier);
   const osVersion = optionalMachineString(properties.os_version);
   const deviceModel = optionalMachineString(properties.device_model, true);
-  if ([platform, clientChannel, appVersion, buildNumber, bundleIdentifier, osVersion, deviceModel].includes(false)) return null;
+  const traceId = optionalTraceID(properties.trace_id);
+  const operation = optionalSetValue(properties.operation, new Set(["replay", "artifactScan", "artifactList"]));
+  const terminalPhase = optionalSetValue(properties.terminal_phase, new Set([
+    "applied", "failed", "discarded",
+  ]));
+  if ([platform, clientChannel, appVersion, buildNumber, bundleIdentifier, osVersion, deviceModel,
+    traceId, operation, terminalPhase].includes(false)) return null;
+  if (properties.phase === "terminal_trace"
+    && (typeof traceId !== "string" || typeof operation !== "string" || typeof terminalPhase !== "string")) {
+    return null;
+  }
   return {
     ...(platform === "ios" ? { platform } : {}),
     ...(typeof clientChannel === "string" ? { clientChannel } : {}),
@@ -118,6 +132,9 @@ function parseMetadata(properties: Record<string, unknown>): Metadata | null {
     ...(typeof bundleIdentifier === "string" ? { bundleIdentifier } : {}),
     ...(typeof osVersion === "string" ? { osVersion } : {}),
     ...(typeof deviceModel === "string" ? { deviceModel } : {}),
+    ...(typeof traceId === "string" ? { traceId } : {}),
+    ...(typeof operation === "string" ? { operation } : {}),
+    ...(typeof terminalPhase === "string" ? { terminalPhase } : {}),
   };
 }
 
@@ -147,6 +164,9 @@ export async function emitMobileNetworkOutcomes(
       "cmux.mobile.bundle_identifier": observation.bundleIdentifier,
       "cmux.mobile.os_version": observation.osVersion,
       "cmux.mobile.device_model": observation.deviceModel,
+      "cmux.mobile.trace_id": observation.traceId,
+      "cmux.mobile.operation": observation.operation,
+      "cmux.mobile.terminal_phase": observation.terminalPhase,
     },
     (span) => {
       if (observation.outcome === "failure" || observation.outcome === "timeout") {
@@ -184,4 +204,11 @@ function optionalMachineString(value: unknown, allowSpaces = false): string | un
   if (typeof value !== "string" || value.length === 0 || value.length > MAX_STRING_LENGTH) return false;
   const pattern = allowSpaces ? /^[A-Za-z0-9 .,_()+-]+$/ : /^[A-Za-z0-9._+-]+$/;
   return pattern.test(value) ? value : false;
+}
+
+function optionalTraceID(value: unknown): string | undefined | false {
+  if (value === undefined) return undefined;
+  return typeof value === "string" && /^[0-9a-f]{16}$/.test(value) && value !== "0000000000000000"
+    ? value
+    : false;
 }

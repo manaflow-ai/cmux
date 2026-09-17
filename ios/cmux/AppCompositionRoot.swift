@@ -85,6 +85,7 @@ final class AppCompositionRoot {
     /// authenticated web bridge into Axiom. Held separately from product
     /// analytics so network outcomes never enter PostHog.
     private let networkOutcomeReporter: MobileNetworkOutcomeReporter
+    private let terminalTraceReporter: MobileTerminalTraceReporter
 
     init(
         runtime: CMUXMobileRuntime,
@@ -152,10 +153,13 @@ final class AppCompositionRoot {
         self.analytics = analytics
         let networkOutcomeReporter = analytics.networkOutcomeReporter
         self.networkOutcomeReporter = networkOutcomeReporter
+        let terminalTraceReporter = analytics.terminalTraceReporter
+        self.terminalTraceReporter = terminalTraceReporter
         diagnosticLog.setEventTap { event in
             appLog.ingest(event)
             transportSentryReporter.ingest(event)
             networkOutcomeReporter.ingest(event)
+            terminalTraceReporter.ingest(event)
         }
         self.appLifecycleDiagnostics = MobileAppLifecycleDiagnostics(
             diagnosticLog: diagnosticLog
@@ -436,9 +440,11 @@ final class AppCompositionRoot {
             }
             // Force a flush before the OS may suspend us, so queued events survive.
             let networkOutcomeReporter = self.networkOutcomeReporter
+            let terminalTraceReporter = self.terminalTraceReporter
             Task {
                 await emitter.flush()
                 await networkOutcomeReporter.flush()
+                await terminalTraceReporter.flush()
             }
         @unknown default:
             break

@@ -14912,6 +14912,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             replayBarrierToken: replayBarrierTokenForRequest
         )
         let diagnosticStartedAt = appDiagnosticNow()
+        let terminalTraceID = DiagnosticTerminalTraceID()
+        recordTerminalTrace(
+            operation: .replay,
+            phase: .started,
+            traceID: terminalTraceID,
+            surfaceID: surfaceID
+        )
         recordAppEvent(
             .terminalReplayStarted,
             correlationID: surfaceID
@@ -14957,11 +14964,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         ? MobileTerminalScrollbackPreference.resolve()
                         : 0
                 }
+                params["trace_id"] = terminalTraceID.stringValue
                 let request = try MobileCoreRPCClient.requestData(
                     method: "mobile.terminal.replay",
                     params: params
                 )
-                replayResult = .success(try await client.sendRequest(request))
+                self?.recordTerminalTrace(
+                    operation: .replay,
+                    phase: .requestSent,
+                    traceID: terminalTraceID,
+                    surfaceID: surfaceID,
+                    startedAt: diagnosticStartedAt
+                )
+                let response = try await client.sendRequest(request)
+                self?.recordTerminalTrace(
+                    operation: .replay,
+                    phase: .responseReceived,
+                    traceID: terminalTraceID,
+                    surfaceID: surfaceID,
+                    startedAt: diagnosticStartedAt,
+                    detail: response.count
+                )
+                replayResult = .success(response)
             } catch {
                 replayResult = .failure(error)
             }
@@ -14984,8 +15008,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // suspension point, so every staleness guard below already
                 // observes post-decode state.
                 let decoded = await Self.decodeTerminalReplayResponseOffMain(data)
+                self.recordTerminalTrace(
+                    operation: .replay,
+                    phase: .decoded,
+                    traceID: terminalTraceID,
+                    surfaceID: surfaceID,
+                    startedAt: diagnosticStartedAt,
+                    detail: data.count
+                )
                 guard self.terminalReplayRequestIDsInFlightBySurfaceID[surfaceID] == replayRequestID else {
                     MobileDebugLog.anchormux("CMUX_REPLAY stale_request surface=\(surfaceID)")
+                    self.recordTerminalTrace(
+                        operation: .replay,
+                        phase: .discarded,
+                        traceID: terminalTraceID,
+                        surfaceID: surfaceID,
+                        startedAt: diagnosticStartedAt
+                    )
                     return
                 }
                 guard self.remoteClient === client else {
@@ -15119,6 +15158,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         startedAt: diagnosticStartedAt,
                         count: renderGrid.rowSpans.count
                     )
+                    self.recordTerminalTrace(
+                        operation: .replay,
+                        phase: .applied,
+                        traceID: terminalTraceID,
+                        surfaceID: surfaceID,
+                        startedAt: diagnosticStartedAt,
+                        detail: renderGrid.rowSpans.count
+                    )
                     return
                 }
                 guard let deliverBytes, !deliverBytes.isEmpty else {
@@ -15148,6 +15195,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         surfaceID: surfaceID,
                         token: replayBarrierTokenForRequest,
                         reason: "empty"
+                    )
+                    self.recordTerminalTrace(
+                        operation: .replay,
+                        phase: .failed,
+                        traceID: terminalTraceID,
+                        surfaceID: surfaceID,
+                        startedAt: diagnosticStartedAt
                     )
                     return
                 }
@@ -15195,6 +15249,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     failure: accepted ? nil : .protocolViolation,
                     count: accepted ? deliverBytes.count : nil
                 )
+                self.recordTerminalTrace(
+                    operation: .replay,
+                    phase: accepted ? .applied : .failed,
+                    traceID: terminalTraceID,
+                    surfaceID: surfaceID,
+                    startedAt: diagnosticStartedAt,
+                    detail: accepted ? deliverBytes.count : nil
+                )
             case .failure(let error):
                 guard self.terminalReplayRequestIDsInFlightBySurfaceID[surfaceID] == replayRequestID else {
                     MobileDebugLog.anchormux("CMUX_REPLAY stale_request_failed surface=\(surfaceID)")
@@ -15214,6 +15276,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         correlationID: surfaceID,
                         startedAt: diagnosticStartedAt,
                         failure: DiagnosticFailureKind.classify(error)
+                    )
+                    self.recordTerminalTrace(
+                        operation: .replay,
+                        phase: .failed,
+                        traceID: terminalTraceID,
+                        surfaceID: surfaceID,
+                        startedAt: diagnosticStartedAt
                     )
                 }
                 guard self.remoteClient === client else {

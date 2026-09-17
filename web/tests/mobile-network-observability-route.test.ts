@@ -96,6 +96,28 @@ describe("iOS mobile network observability route", () => {
     expect(flushTimeouts).toEqual([1_000]);
   });
 
+  test("accepts a bounded terminal trace correlation", async () => {
+    const response = await POST(outcomeRequest([
+      outcome({
+        phase: "terminal_trace",
+        outcome: "success",
+        duration_ms: 12_300,
+        trace_id: "0000000000001234",
+        operation: "replay",
+        terminal_phase: "applied",
+      }),
+    ]));
+
+    expect(response.status).toBe(200);
+    expect(emitted[0]?.batch[0]).toMatchObject({
+      phase: "terminal_trace",
+      traceId: "0000000000001234",
+      operation: "replay",
+      terminalPhase: "applied",
+      durationMs: 12_300,
+    });
+  });
+
   test("rejects a mismatched stable event code and name", async () => {
     const response = await POST(outcomeRequest([
       outcome({ phase: "transport_dial", outcome: "bogus", duration_ms: 10 }),

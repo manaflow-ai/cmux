@@ -15546,6 +15546,24 @@ class TerminalController {
     }
 
     func v2MobileTerminalReplay(params: [String: Any]) -> V2CallResult {
+        let traceID = v2String(params, "trace_id")
+            .flatMap(DiagnosticTerminalTraceID.init(stringValue:))
+        let traceStartedAt = DispatchTime.now().uptimeNanoseconds
+        func recordTrace(_ event: String) {
+            guard let traceID else { return }
+            let elapsed = (DispatchTime.now().uptimeNanoseconds - traceStartedAt) / 1_000_000
+            MobileHostIrxRuntime.journal.record(
+                "terminal-trace",
+                event,
+                [
+                    "trace_id": traceID.stringValue,
+                    "operation": "replay",
+                    "elapsed_ms": String(elapsed),
+                ]
+            )
+        }
+        recordTrace("host_received")
+        defer { recordTrace("host_response_ready") }
         if let error = mobileWorkspaceIDValidationError(params: params) {
             return error
         }
@@ -15702,6 +15720,7 @@ class TerminalController {
                 payload["data_b64"] = data.base64EncodedString()
             }
         }
+        recordTrace("host_capture_finished")
         return .ok(payload)
     }
 

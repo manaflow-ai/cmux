@@ -153,4 +153,84 @@ private struct NetworkOutcomeTestConsent: AnalyticsConsentProviding {
         ))
         #expect(properties == nil)
     }
+
+    @Test func slowTerminalTraceIncludesCorrelationAndFastTraceIsSampledOut() async {
+        let uploader = RecordingAnalyticsUploader()
+        let emitter = AnalyticsEmitter(
+            uploader: uploader,
+            consent: NetworkOutcomeTestConsent(isTelemetryEnabled: true),
+            anonymousID: "local-install"
+        )
+        let reporter = MobileTerminalTraceReporter(emitter: emitter)
+        let trace = DiagnosticTerminalTraceID(rawValue: 0x1234)
+        reporter.ingest(DiagnosticEvent(
+            code: .terminalTrace,
+            tNanos: 1_000_000_000,
+            a: DiagnosticTerminalTraceOperation.replay.rawValue,
+            b: DiagnosticTerminalTracePhase.started.rawValue,
+            traceID: trace.rawValue
+        ))
+        reporter.ingest(DiagnosticEvent(
+            code: .terminalTrace,
+            tNanos: 2_500_000_000,
+            a: DiagnosticTerminalTraceOperation.replay.rawValue,
+            b: DiagnosticTerminalTracePhase.applied.rawValue,
+            traceID: trace.rawValue
+        ))
+        let fastTrace = DiagnosticTerminalTraceID(rawValue: 0x5678)
+        reporter.ingest(DiagnosticEvent(
+            code: .terminalTrace,
+            tNanos: 3_000_000_000,
+            a: DiagnosticTerminalTraceOperation.replay.rawValue,
+            b: DiagnosticTerminalTracePhase.started.rawValue,
+            traceID: fastTrace.rawValue
+        ))
+        reporter.ingest(DiagnosticEvent(
+            code: .terminalTrace,
+            tNanos: 3_100_000_000,
+            a: DiagnosticTerminalTraceOperation.replay.rawValue,
+            b: DiagnosticTerminalTracePhase.applied.rawValue,
+            traceID: fastTrace.rawValue
+        ))
+        await reporter.flush()
+
+        let values = await uploader.uploadedEvents
+        #expect(values.count == 1)
+        #expect(values.first?.properties["phase"] == .string("terminal_trace"))
+        #expect(values.first?.properties["trace_id"] == .string("0000000000001234"))
+        #expect(values.first?.properties["operation"] == .string("replay"))
+        #expect(values.first?.properties["duration_ms"] == .int(1_500))
+    }
+
+    @Test func terminalTraceAxiomSummariesAreRateLimited() async {
+        let uploader = RecordingAnalyticsUploader()
+        let emitter = AnalyticsEmitter(
+            uploader: uploader,
+            consent: NetworkOutcomeTestConsent(isTelemetryEnabled: true),
+            anonymousID: "local-install"
+        )
+        let reporter = MobileTerminalTraceReporter(emitter: emitter)
+
+        for index in 0..<31 {
+            let trace = DiagnosticTerminalTraceID(rawValue: UInt64(index + 1))
+            let started = UInt64(1_000_000_000 + index * 1_100_000_000)
+            reporter.ingest(DiagnosticEvent(
+                code: .terminalTrace,
+                tNanos: started,
+                a: DiagnosticTerminalTraceOperation.replay.rawValue,
+                b: DiagnosticTerminalTracePhase.started.rawValue,
+                traceID: trace.rawValue
+            ))
+            reporter.ingest(DiagnosticEvent(
+                code: .terminalTrace,
+                tNanos: started + 1_000_000_000,
+                a: DiagnosticTerminalTraceOperation.replay.rawValue,
+                b: DiagnosticTerminalTracePhase.applied.rawValue,
+                traceID: trace.rawValue
+            ))
+        }
+        await reporter.flush()
+
+        #expect((await uploader.uploadedEvents).count == 30)
+    }
 }
