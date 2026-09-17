@@ -1377,7 +1377,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 // the local banners for those rows go with them.
                 guard let store = AppDelegate.shared?.notificationStore else { return }
                 let removedIDs = Set(ids)
-                for notification in store.notifications where notification.correlationKey.map { CloudNotificationCorrelation.matches($0, machineID: machineID, notificationIDs: removedIDs) } == true {
+                for notification in store.notifications where notification.correlationKey.map({ CloudNotificationCorrelation.matches($0, machineID: machineID, notificationIDs: removedIDs) }) == true {
                     store.remove(id: notification.id)
                 }
             }
