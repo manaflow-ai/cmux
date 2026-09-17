@@ -7,8 +7,8 @@ import OSLog
 private let phoneReplyLog = Logger(subsystem: "dev.cmux", category: "phone-reply-inbox")
 
 /// One phone inline-notification reply parked in the presence worker
-/// (`workers/presence/src/replies.ts`). The optional encrypted fields allow
-/// replies parked by older clients to drain during the migration.
+/// (`workers/presence/src/replies.ts`). This client reads only the encrypted
+/// inbox. Pre-release plaintext replies are intentionally unsupported.
 struct PhoneReplyRecord: Decodable, Equatable, Sendable {
     let replyId: String
     let macDeviceId: String

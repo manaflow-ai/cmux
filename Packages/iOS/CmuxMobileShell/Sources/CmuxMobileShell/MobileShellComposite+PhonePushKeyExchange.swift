@@ -10,44 +10,43 @@ private let phonePushKeyExchangeLog = Logger(
 
 @MainActor
 extension MobileShellComposite {
-    /// Runs only after the caller has passed the existing authenticated Mac
-    /// identity gate. Hooke owns descriptor creation and persistence.
+    /// Starts optional push setup after attachment. Only the owned task waits
+    /// for key exchange; terminal readiness never depends on push support.
     func exchangePhonePushKeyIfConfigured(
         client: MobileCoreRPCClient,
         status: MobileHostStatusResponse
-    ) async {
-        guard status.capabilities.contains(Self.phonePushKeyExchangeCapability),
-              phonePushKeyExchangeHooks != nil,
+    ) {
+        phonePushKeyExchangeRetryTask?.cancel()
+        phonePushKeyExchangeRetryTask = nil
+        guard status.capabilities.contains(Self.phonePushKeyExchangeCapability) else {
+            diagnosticLog?.recordAppEvent(.pushKeyExchangeUnsupported, failure: .unsupportedRoute)
+            return
+        }
+        guard phonePushKeyExchangeHooks != nil,
               let accountID = identityProvider?.currentUserID,
+              !accountID.isEmpty,
               let macDeviceID = status.macDeviceID,
               let macInstanceTag = status.macInstanceTag,
               let macBuildID = status.macClientNamespace else {
+            diagnosticLog?.recordAppEvent(.pushKeyExchangeContextMissing, failure: .credentialUnavailable)
             return
         }
-        phonePushKeyExchangeRetryTask?.cancel()
-        phonePushKeyExchangeRetryTask = nil
-        let exchanged = await performPhonePushKeyExchange(
-            client: client,
-            accountID: accountID,
-            macDeviceID: macDeviceID,
-            macInstanceTag: macInstanceTag,
-            macBuildID: macBuildID
-        )
-        guard !exchanged, !Task.isCancelled else { return }
         phonePushKeyExchangeRetryTask = Task { @MainActor [weak self, client] in
-            for retry in 0..<4 {
-                try? await Task.sleep(for: .seconds(8 * (1 << retry)))
-                guard !Task.isCancelled, let self else { return }
-                let exchanged = await self.performPhonePushKeyExchange(
-                    client: client,
-                    accountID: accountID,
-                    macDeviceID: macDeviceID,
-                    macInstanceTag: macInstanceTag,
-                    macBuildID: macBuildID
-                )
-                if exchanged { return }
+            guard !Task.isCancelled, let self else { return }
+            let exchanged = await self.performPhonePushKeyExchange(
+                client: client,
+                accountID: accountID,
+                macDeviceID: macDeviceID,
+                macInstanceTag: macInstanceTag,
+                macBuildID: macBuildID
+            )
+            guard !Task.isCancelled, self.identityProvider?.currentUserID == accountID else { return }
+            if exchanged {
+                self.diagnosticLog?.recordAppEvent(.pushKeyExchangeSucceeded)
+            } else {
+                self.diagnosticLog?.recordAppEvent(.pushKeyExchangeFailed, failure: .unknown)
+                phonePushKeyExchangeLog.error("key exchange failed; reopen the app to retry secure push setup")
             }
-            phonePushKeyExchangeLog.error("key exchange retries exhausted; reconnect or retry pairing to recover")
         }
     }
 
@@ -60,14 +59,15 @@ extension MobileShellComposite {
     ) async -> Bool {
         guard let hooks = phonePushKeyExchangeHooks else { return false }
         for attempt in 0..<3 {
-            guard !Task.isCancelled else { return false }
+            guard !Task.isCancelled, identityProvider?.currentUserID == accountID else { return false }
             do {
                 let exchange = try await client.exchangePhonePushKey(
                     hooks: hooks,
                     clientID: clientID
                 )
                 let response = exchange.response
-                guard identityProvider?.currentUserID == accountID,
+                guard !Task.isCancelled,
+                      identityProvider?.currentUserID == accountID,
                       response.accountID == accountID,
                       response.macDeviceID == macDeviceID,
                       response.macInstanceTag == macInstanceTag,
@@ -87,8 +87,9 @@ extension MobileShellComposite {
                 await hooks.pinPeerDescriptor(response.descriptor, context)
                 return true
             } catch {
+                guard !Task.isCancelled else { return false }
                 phonePushKeyExchangeLog.error(
-                    "key exchange failed attempt=\(attempt + 1, privacy: .public) error=\(String(describing: error), privacy: .public)"
+                    "key exchange failed attempt=\(attempt + 1, privacy: .public)"
                 )
                 guard attempt < 2 else { return false }
                 try? await Task.sleep(for: .seconds(1 << attempt))

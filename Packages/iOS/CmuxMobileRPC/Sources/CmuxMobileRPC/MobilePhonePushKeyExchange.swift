@@ -78,7 +78,10 @@ public extension MobileCoreRPCClient {
             method: "phone_push.keys.exchange",
             params: try Self.jsonObject(request)
         )
-        let responseData = try await sendRequest(requestData)
+        let responseData = try await sendRequest(
+            requestData,
+            timeoutNanoseconds: 3_000_000_000
+        )
         let response = try JSONDecoder().decode(
             MobilePhonePushKeyExchangeResponse.self,
             from: responseData

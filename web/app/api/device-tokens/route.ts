@@ -9,7 +9,7 @@ import { deviceTokens } from "../../../db/schema";
 import { resolveApnsProviderConfiguration } from "../../../services/apns/config";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
 import { unauthorized, verifyRequest } from "../../../services/vms/auth";
-import { withApnsApiRoute } from "../../../services/apns/routeHandler";
+import { recordApnsEncryptionKeyRejection, withApnsApiRoute } from "../../../services/apns/routeHandler";
 import { enforceNativeIngressRateLimit } from "../../../services/nativeIngressRateLimit";
 import { authProviderErrorResponse } from "../../../services/vms/authErrors";
 import {
@@ -270,7 +270,8 @@ function parseRegistrationInput(
   if (platform !== "ios") return { ok: false, response: jsonResponse({ error: "invalid_platform" }, 400) };
   const pushKeys = parsePushKeyFields(installationId, pushKeyId, pushPublicKey);
   if (!pushKeys) {
-    return { ok: false, response: jsonResponse({ error: "invalid_push_key" }, 400) };
+    recordApnsEncryptionKeyRejection();
+    return { ok: false, response: jsonResponse({ error: "invalid_push_key", action: "complete_secure_pairing" }, 400) };
   }
   return { ok: true, value: { deviceToken, bundle, platform, ...pushKeys } };
 }
@@ -280,9 +281,6 @@ function parsePushKeyFields(
   pushKeyId: string,
   pushPublicKey: string,
 ): Pick<RegistrationInput, "installationId" | "pushKeyId" | "pushPublicKey" | "isLegacy"> | null {
-  if (!installationId && !pushKeyId && !pushPublicKey) {
-    return { installationId: "legacy", pushKeyId: "legacy", pushPublicKey: "", isLegacy: true };
-  }
   if (!SAFE_INSTALLATION_ID.test(installationId) || !SAFE_KEY_ID.test(pushKeyId) || !BASE64_KEY.test(pushPublicKey)) {
     return null;
   }

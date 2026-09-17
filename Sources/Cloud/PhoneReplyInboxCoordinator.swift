@@ -232,27 +232,12 @@ final class PhoneReplyInboxCoordinator {
     }
 
     private func decrypt(_ reply: PhoneReplyRecord, accountID: String?) -> DecryptOutcome {
-        if let encryptedPayload = reply.encryptedPayload {
-            return decrypt(
-                reply,
-                encryptedPayload: encryptedPayload,
-                accountID: accountID
-            )
-        }
-        guard let accountID,
-              let workspaceId = reply.workspaceId,
-              let surfaceId = reply.surfaceId,
-              let text = reply.text else { return .permanentFailure }
-        return .success(DecryptedReply(
-            replyId: reply.replyId,
-            accountID: accountID,
-            issuedAtEpochSeconds: Double(reply.createdAtMs) / 1000,
-            expiresAtEpochSeconds: Double(reply.expiresAtMs) / 1000,
-            workspaceId: workspaceId,
-            surfaceId: surfaceId,
-            retargetsToLiveSurfaceOwner: reply.retargetsToLiveSurfaceOwner,
-            text: text
-        ))
+        guard let encryptedPayload = reply.encryptedPayload else { return .permanentFailure }
+        return decrypt(
+            reply,
+            encryptedPayload: encryptedPayload,
+            accountID: accountID
+        )
     }
 
     private func decrypt(

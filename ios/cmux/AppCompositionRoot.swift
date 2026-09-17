@@ -232,7 +232,8 @@ final class AppCompositionRoot {
             replyRelay: SystemReplyRelayClient(
                 serviceBaseURL: replyRelayBaseURL,
                 accessToken: { try? await replyRelayAccessToken() },
-                keychainAccessGroup: auth.keychainAccessGroup
+                keychainAccessGroup: auth.keychainAccessGroup,
+                diagnosticLog: diagnosticLog
             ),
             authenticatedAccountID: { auth.coordinator.currentUser?.id }
         )

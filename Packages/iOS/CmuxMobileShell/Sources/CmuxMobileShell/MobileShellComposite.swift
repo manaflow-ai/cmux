@@ -10447,7 +10447,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         lastError = MobileShellConnectionError.invalidResponse
                         continue routeLoop
                     }
-                    await exchangePhonePushKeyIfConfigured(client: client, status: status)
                     diagnosticLog?.record(DiagnosticEvent(
                         .hostAuthenticated,
                         surface: DiagnosticCorrelation().handle(for: resolvedTicket.macDeviceID),
@@ -10656,6 +10655,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         )
                     }
                     diagnosticLog?.record(DiagnosticEvent(.pairOk))
+                    exchangePhonePushKeyIfConfigured(client: client, status: status)
                     if workspaceListRequest.isScoped {
                         scheduleFullWorkspaceListRefreshIfAvailable(
                             client: client,

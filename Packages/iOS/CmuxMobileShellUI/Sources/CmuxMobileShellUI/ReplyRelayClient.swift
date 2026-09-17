@@ -81,6 +81,7 @@ public struct SystemReplyRelayClient: ReplyRelaying {
     private let serviceBaseURL: URL?
     private let accessToken: @Sendable () async -> String?
     private let keychainAccessGroup: String?
+    private let diagnosticLog: DiagnosticLog?
     private let session: URLSession
     private let now: @Sendable () -> Date
     private let envelopeCache = ReplyEnvelopeCache()
@@ -97,12 +98,14 @@ public struct SystemReplyRelayClient: ReplyRelaying {
         serviceBaseURL: URL?,
         accessToken: @escaping @Sendable () async -> String?,
         keychainAccessGroup: String? = nil,
+        diagnosticLog: DiagnosticLog? = nil,
         session: URLSession = .shared,
         now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.serviceBaseURL = serviceBaseURL
         self.accessToken = accessToken
         self.keychainAccessGroup = keychainAccessGroup
+        self.diagnosticLog = diagnosticLog
         self.session = session
         self.now = now
     }
@@ -114,15 +117,24 @@ public struct SystemReplyRelayClient: ReplyRelaying {
                   url: serviceBaseURL,
                   resolvingAgainstBaseURL: false
               ) else { return false }
-        guard let token = await accessToken(), !token.isEmpty else { return false }
         comps.path = (comps.path.hasSuffix("/") ? String(comps.path.dropLast()) : comps.path)
             + "/v1/replies/e2e"
         guard let url = comps.url else { return false }
+        // Pre-release notifications lack this context and are intentionally
+        // unsupported. Never downgrade a reply to the plaintext endpoint.
+        guard let accountID = reply.accountID, !accountID.isEmpty,
+              let macInstallationID = reply.macInstallationID, !macInstallationID.isEmpty,
+              let macBuildID = reply.macBuildID, !macBuildID.isEmpty else {
+            diagnosticLog?.recordAppEvent(.pushReplyContextMissing, failure: .credentialUnavailable)
+            return false
+        }
         guard let identity = try? PhonePushKeyStore.current(
             bundleID: Bundle.main.bundleIdentifier ?? "cmux",
             accessGroup: keychainAccessGroup
-        ), let accountID = reply.accountID, !accountID.isEmpty else { return false }
-        guard let macInstallationID = reply.macInstallationID, !macInstallationID.isEmpty else { return false }
+        ) else {
+            diagnosticLog?.recordAppEvent(.pushReplyKeyMissing, failure: .credentialUnavailable)
+            return false
+        }
         let tuple = PhonePushDeviceTuple(
             accountID: accountID,
             teamID: nil,
@@ -130,10 +142,12 @@ public struct SystemReplyRelayClient: ReplyRelaying {
             iosInstallationID: identity.installationID,
             macDeviceID: reply.macDeviceId,
             macInstanceTag: reply.macInstanceTag,
-            macBuildID: reply.macBuildID
+            macBuildID: macBuildID
         )
-        guard reply.macBuildID != nil,
-              let peer = PhonePushPeerKeyStore.pinnedDescriptor(for: tuple) else { return false }
+        guard let peer = PhonePushPeerKeyStore.pinnedDescriptor(for: tuple) else {
+            diagnosticLog?.recordAppEvent(.pushReplyKeyMissing, failure: .credentialUnavailable)
+            return false
+        }
         let issuedAt = now().timeIntervalSince1970
         let plaintext: [String: Any] = [
             "replyId": reply.replyId,
@@ -157,7 +171,10 @@ public struct SystemReplyRelayClient: ReplyRelaying {
                   senderPrivateKey: identity.privateKey,
                   installationID: macInstallationID
               ),
-              let candidateData = try? JSONEncoder().encode(candidate) else { return false }
+              let candidateData = try? JSONEncoder().encode(candidate) else {
+            diagnosticLog?.recordAppEvent(.pushReplyEncryptionFailed, failure: .secureChannelFailed)
+            return false
+        }
         let encryptedData = await envelopeCache.valueOrInsert(
             for: "\(reply.replyId)|\(peer.keyID)",
             candidate: candidateData
@@ -168,6 +185,7 @@ public struct SystemReplyRelayClient: ReplyRelaying {
             "encryptedPayload": try! JSONSerialization.jsonObject(with: encryptedData),
         ]
         if let macInstanceTag = reply.macInstanceTag { body["macInstanceTag"] = macInstanceTag }
+        guard let token = await accessToken(), !token.isEmpty else { return false }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         // Comfortably inside the reply lane's background window, long enough
