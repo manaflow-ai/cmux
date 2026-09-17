@@ -264,6 +264,20 @@ struct PullRequestProbeServiceFetchTests {
         #expect(Set(summary?.checks.map(\.id) ?? []) == ["new", "other"])
     }
 
+    @Test func queuedRerunSupersedesOlderPassingAttemptBeforeItStarts() async throws {
+        var old = checkNode(id: "old")
+        old["databaseId"] = 1
+        var queued = checkNode(id: "queued")
+        queued["databaseId"] = 2
+        queued["status"] = "QUEUED"
+        queued["conclusion"] = NSNull()
+        queued["startedAt"] = NSNull()
+        PullRequestProbeStubURLProtocol.reset(stubs: [try checksStub(nodes: [queued, old])])
+        let summary = await makeService().fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "abc123")
+        #expect(summary?.status == .pending)
+        #expect(summary?.checks.map(\.id) == ["queued"])
+    }
+
     @Test func pushBetweenPagesDiscardsMixedCommitResults() async throws {
         PullRequestProbeStubURLProtocol.reset(stubs: [
             try checksStub(nodes: [checkNode()], cursor: "next"),

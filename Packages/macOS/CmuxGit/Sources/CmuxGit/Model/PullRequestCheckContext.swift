@@ -6,6 +6,7 @@ struct PullRequestCheckContext: Sendable {
     let check: PullRequestCheck
     let identity: PullRequestCheckIdentity
     let startedAt: String
+    let runNumber: Int64?
 
     init?(_ node: [String: Any]) {
         guard let id = node["id"] as? String else { return nil }
@@ -21,6 +22,7 @@ struct PullRequestCheckContext: Sendable {
                 workflow: workflow?["id"] as? String ?? "", event: run?["event"] as? String ?? ""
             )
             startedAt = node["startedAt"] as? String ?? ""
+            runNumber = (node["databaseId"] as? NSNumber)?.int64Value
             check = PullRequestCheck(
                 id: id, name: name,
                 status: PullRequestCheckStatus(checkRunStatus: status, conclusion: node["conclusion"] as? String),
@@ -30,6 +32,7 @@ struct PullRequestCheckContext: Sendable {
             guard let name = node["context"] as? String, let state = node["state"] as? String else { return nil }
             identity = PullRequestCheckIdentity(kind: "status", name: name, application: "", workflow: "", event: "")
             startedAt = node["createdAt"] as? String ?? ""
+            runNumber = nil
             let status: PullRequestCheckStatus
             switch state.lowercased() {
             case "success": status = .success
@@ -43,5 +46,14 @@ struct PullRequestCheckContext: Sendable {
             )
         default: return nil
         }
+    }
+
+    /// Check-run numbers preserve attempt order before a queued rerun starts.
+    /// Legacy status contexts use their creation timestamps.
+    func isNewer(than other: Self) -> Bool {
+        if let runNumber, let otherNumber = other.runNumber {
+            return runNumber > otherNumber
+        }
+        return startedAt > other.startedAt
     }
 }
