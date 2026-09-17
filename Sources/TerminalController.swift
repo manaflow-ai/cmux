@@ -4366,10 +4366,7 @@ class TerminalController {
             return v2Error(
                 id: id,
                 code: "vm_error",
-                message: String(
-                    localized: "socket.cloudVM.requestFailed",
-                    defaultValue: "The Cloud VM request failed. Retry, or check the machine's status with `cmux vm ls`."
-                ),
+                message: Self.cloudVMSafeErrorMessage(error),
                 data: Self.cloudVMBackendErrorData(error)
             )
         case nil:
@@ -4393,12 +4390,36 @@ class TerminalController {
         if let code = object?["error"] as? String, !code.isEmpty {
             payload["backend_code"] = code
         }
+        if let retryable = object?["retryable"] as? Bool {
+            payload["retryable"] = retryable
+        }
         // The server trace id (support reference) travels with the structured
         // error so the CLI and scripts can log it without parsing display text.
         if let traceID = object?["traceId"] as? String, !traceID.isEmpty {
             payload["trace_id"] = traceID
         }
         return payload
+    }
+
+    /// Surface only the server's public copy, never a raw response body or
+    /// provider diagnostics. Keep the support reference after sanitization.
+    private nonisolated static func cloudVMSafeErrorMessage(_ error: Error) -> String {
+        let fallback = String(
+            localized: "socket.cloudVM.requestFailed",
+            defaultValue: "The Cloud VM request failed. Retry, or check the machine's status with `cmux vm ls`."
+        )
+        guard case let VMClientError.httpStatus(_, body) = error,
+              let data = body.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return fallback }
+        let ui = object["ui"] as? [String: Any]
+        let raw = (ui?["message"] as? String) ?? (object["message"] as? String)
+        let safe = raw.map { CloudVMActionLauncher.sanitizedCloudVMStartOutput(String($0.prefix(1000))) }
+        var message = safe.flatMap { $0.isEmpty || $0 == CloudVMActionLauncher.hiddenOutputPlaceholder ? nil : $0 } ?? fallback
+        if let trace = object["traceId"] as? String,
+           trace.count == 32, trace.allSatisfy(\.isHexDigit) {
+            message += "\n" + cloudVMReferenceLine(traceId: trace)
+        }
+        return message
     }
 
     private nonisolated static func isCloudVMAuthenticationError(_ error: VMClientError) -> Bool {
