@@ -40,10 +40,11 @@ seamless upgrades, observability, security audit, and real end-to-end proof.
 - Actual server-process test passes: forged grant denied, valid reservation/pair
   accepted, unauthorized drain denied, readiness false during drain, established
   circuit still exchanges application data, clean exit after circuit closes.
-- Local `ops/azure/*.sh` files are UNTESTED superseded drafts, not deployed. They
-  still assume the old environment-based keys and timed restart. Replace with
+- The superseded Azure shell prototypes were moved to HQ task scratch, not
+  committed or deployed. They assumed old environment-based keys and timed
+  restarts. Production automation still needs
   generation-based provisioning, private management, mounted secrets, public TLS,
-  managed registry identity, and drain-to-zero before any invocation or commit.
+  managed registry identity, and drain-to-zero before invocation.
 - The supervisor must use restart-on-failure, not restart-always/unless-stopped:
   a clean exit after drain must stay stopped instead of resurrecting the old relay.
 - Current workspace verification: 20 Rust tests and strict Clippy pass, including
