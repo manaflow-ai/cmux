@@ -33,6 +33,17 @@ CMUX_DEV_TAG =
 // PresenceServiceConfiguration.resolvedServiceBaseURL.
 CMUX_PRESENCE_BASE_URL =
 
+// Auth-environment override, baked into the CMUXAuthEnvironment Info.plist key
+// so a normally-tapped dev device build (no shell env) can sign in against the
+// PRODUCTION Stack project and pair with a release (beta/stable) Mac — a
+// DEBUG build otherwise signs in to the development project, whose user ids
+// can never match a release Mac's QR account binding
+// (https://github.com/manaflow-ai/cmux/issues/7145). Empty by default
+// (DEBUG -> development, Release -> production). ios/scripts/reload.sh
+// --prod-auth sets it to "production". Keep the Info.plist key name in sync
+// with MobileAuthComposition.authEnvironmentInfoPlistKey.
+CMUX_IOS_AUTH_ENV =
+
 // ==========================================
 // Platform Configuration
 // ==========================================

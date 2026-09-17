@@ -262,13 +262,18 @@ extension TerminalSurface {
 
     /// Caps the surface grid to a paired iPhone's viewport.
     ///
-    /// - Returns: Whether the runtime surface size changed.
+    /// - Returns: The actual cell grid applied after capping to the Mac pane, or
+    ///   `nil` when no live runtime surface is available.
     @discardableResult
     @MainActor
-    public func applyMobileViewportLimit(columns: Int, rows: Int, reason: String) -> Bool {
+    public func applyMobileViewportLimit(
+        columns: Int,
+        rows: Int,
+        reason: String
+    ) -> (columns: Int, rows: Int)? {
         guard let surface = liveSurfaceForGhosttyAccess(reason: "applyMobileViewportLimit") else {
             paneHost.setMobileViewportBorder(size: nil, drawRight: false, drawBottom: false)
-            return false
+            return nil
         }
         let size = ghostty_surface_size(surface)
         let cellWidth = max(1, Int(size.cell_width_px))
@@ -294,6 +299,16 @@ extension TerminalSurface {
         let appliedWidth = min(targetWidth, baseWidth)
         let appliedHeight = min(targetHeight, baseHeight)
         let sizeChanged = appliedWidth != lastPixelWidth || appliedHeight != lastPixelHeight
+        let appliedColumns = cellCount(
+            pixelDimension: appliedWidth,
+            cellSize: cellWidth,
+            nonGridPixels: horizontalNonGridPixels
+        )
+        let appliedRows = cellCount(
+            pixelDimension: appliedHeight,
+            cellSize: cellHeight,
+            nonGridPixels: verticalNonGridPixels
+        )
         updateMobileViewportBorder(
             appliedWidth: appliedWidth,
             appliedHeight: appliedHeight,
@@ -310,12 +325,12 @@ extension TerminalSurface {
         )
         #endif
 
-        guard sizeChanged else { return false }
+        guard sizeChanged else { return (appliedColumns, appliedRows) }
         ghostty_surface_set_size(surface, appliedWidth, appliedHeight)
         lastPixelWidth = appliedWidth
         lastPixelHeight = appliedHeight
         ghostty_surface_refresh(surface)
-        return true
+        return (appliedColumns, appliedRows)
     }
 
     /// Removes the mobile viewport cap and restores the uncapped size.
@@ -401,6 +416,11 @@ extension TerminalSurface {
         let maxCells = max(1, (Int(UInt32.max) - clampedNonGridPixels) / clampedCellSize)
         let clampedCellCount = min(max(1, cellCount), maxCells)
         return UInt32(clampedCellCount * clampedCellSize + clampedNonGridPixels)
+    }
+
+    private func cellCount(pixelDimension: UInt32, cellSize: Int, nonGridPixels: Int) -> Int {
+        let gridPixels = max(0, Int(pixelDimension) - max(0, nonGridPixels))
+        return max(1, gridPixels / max(1, cellSize))
     }
 
     /// The current monospace cell size in points, or nil if the runtime

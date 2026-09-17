@@ -86,6 +86,7 @@ extension CMUXCLI {
                     .appendingPathComponent(".codex", isDirectory: true)
                     .path
         )
+        let homeDirectory = sessionsListExpandedPath(processEnv["HOME"] ?? NSHomeDirectory())
 
         let agentSpecs = sessionsListAgentSpecs()
         let selectedSpecs: [SessionListAgentSpec]
@@ -108,11 +109,12 @@ extension CMUXCLI {
             selectedSpecs = agentSpecs
         }
 
-        let sessionFilter = sessionsListNormalized(sessionRaw)
-        let workspaceFilter = sessionsListNormalized(workspaceRaw)
-        let surfaceFilter = sessionsListNormalized(surfaceRaw)
+        let sessionFilter = sessionsListNormalized(sessionRaw)?.lowercased()
+        let workspaceFilter = sessionsListNormalizedIDRef(workspaceRaw)?.lowercased()
+        let surfaceFilter = sessionsListNormalizedIDRef(surfaceRaw)?.lowercased()
         let cwdFilter = sessionsListNormalized(cwdRaw)?.lowercased()
         var codexIndexes: [String: CodexSessionListIndex] = [:]
+        let claudeTranscriptLookup = SessionsListClaudeTranscriptLookupCache(homeDirectory: homeDirectory)
         var entries: [SessionListEntry] = []
         var stores: [[String: Any]] = []
 
@@ -138,10 +140,17 @@ extension CMUXCLI {
             storePayload["session_count"] = store.sessions.count
             stores.append(storePayload)
 
-            for record in store.sessions.values {
-                guard sessionFilter == nil || record.sessionId == sessionFilter else { continue }
-                guard workspaceFilter == nil || record.workspaceId == workspaceFilter else { continue }
-                guard surfaceFilter == nil || record.surfaceId == surfaceFilter else { continue }
+            for rawRecord in store.sessions.values {
+                let record = spec.name == "claude"
+                    ? sessionsListResolvedClaudeWorkflowRecord(rawRecord, lookup: claudeTranscriptLookup)
+                    : rawRecord
+                let rawSessionId = rawRecord.sessionId.lowercased()
+                let resolvedSessionId = record.sessionId.lowercased()
+                guard sessionFilter == nil || rawSessionId == sessionFilter || resolvedSessionId == sessionFilter else {
+                    continue
+                }
+                guard workspaceFilter == nil || record.workspaceId.lowercased() == workspaceFilter else { continue }
+                guard surfaceFilter == nil || record.surfaceId.lowercased() == surfaceFilter else { continue }
                 if let cwdFilter {
                     let cwd = (record.cwd ?? "").lowercased()
                     let launchCwd = (record.launchCommand?.workingDirectory ?? "").lowercased()
@@ -159,6 +168,9 @@ extension CMUXCLI {
                     "updated_at": sessionsListTimestamp(record.updatedAt),
                     "updated_at_unix": record.updatedAt
                 ]
+                if rawRecord.sessionId != record.sessionId {
+                    payload["hook_session_id"] = rawRecord.sessionId
+                }
                 payload["cwd"] = record.cwd ?? NSNull()
                 payload["transcript_path"] = record.transcriptPath ?? NSNull()
                 payload["pid"] = record.pid ?? NSNull()
@@ -168,11 +180,19 @@ extension CMUXCLI {
                 payload["active_prompt_turn_id"] = record.activePromptTurnId ?? NSNull()
                 payload["launch_working_directory"] = record.launchCommand?.workingDirectory ?? NSNull()
                 payload["launch_arguments"] = record.launchCommand?.arguments ?? []
+                payload.merge(
+                    sessionsListForkDiagnostics(
+                        agent: spec.name,
+                        record: record,
+                        claudeTranscriptLookup: claudeTranscriptLookup
+                    ),
+                    uniquingKeysWith: { _, new in new }
+                )
 
                 let workspaceActive = store.activeSessionsByWorkspace[record.workspaceId]
                 let surfaceActive = store.activeSessionsBySurface[record.surfaceId]
-                payload["active_for_workspace"] = workspaceActive?.sessionId == record.sessionId
-                payload["active_for_surface"] = surfaceActive?.sessionId == record.sessionId
+                payload["active_for_workspace"] = workspaceActive?.sessionId == record.sessionId || workspaceActive?.sessionId == rawRecord.sessionId
+                payload["active_for_surface"] = surfaceActive?.sessionId == record.sessionId || surfaceActive?.sessionId == rawRecord.sessionId
                 payload["active_workspace_session_id"] = workspaceActive?.sessionId ?? NSNull()
                 payload["active_surface_session_id"] = surfaceActive?.sessionId ?? NSNull()
 
@@ -376,6 +396,13 @@ extension CMUXCLI {
             parts.append("codex_indexed=\(indexed)")
             parts.append("codex_transcript=\(transcript)")
         }
+        let forkCommandAvailable = ((payload["fork_command_available"] as? Bool) == true) ? "yes" : "no"
+        parts.append("fork_command=\(forkCommandAvailable)")
+        let forkSupported = ((payload["fork_supported"] as? Bool) == true) ? "yes" : "no"
+        parts.append("fork=\(forkSupported)")
+        if let pidExists = payload["stored_pid_exists"] as? Bool {
+            parts.append("pid_exists=\(pidExists ? "yes" : "no")")
+        }
         return parts.joined(separator: "  ")
     }
 
@@ -385,16 +412,27 @@ extension CMUXCLI {
         return formatter.string(from: Date(timeIntervalSince1970: value))
     }
 
-    private func sessionsListExpandedPath(_ value: String) -> String {
+    func sessionsListExpandedPath(_ value: String) -> String {
         NSString(string: value).expandingTildeInPath
     }
 
-    private func sessionsListNormalized(_ value: String?) -> String? {
+    func sessionsListNormalized(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
             return nil
         }
         return trimmed
+    }
+
+    private func sessionsListNormalizedIDRef(_ value: String?) -> String? {
+        guard let normalized = sessionsListNormalized(value) else { return nil }
+        if UUID(uuidString: normalized) != nil {
+            return normalized
+        }
+        if let uuid = sessionsListUUIDs(in: normalized).last {
+            return uuid
+        }
+        return normalized
     }
 
 }

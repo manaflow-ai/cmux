@@ -53,7 +53,7 @@ extension Workspace {
 
     static func openDockBrowserLinkInNewTabIfNeeded(panel: BrowserPanel, seed: BrowserNewTabNavigationSeed) -> Bool {
         guard let app = AppDelegate.shared else { return false }
-        if let dock = app.existingGlobalDock,
+        if let dock = app.windowDockContainingPanel(panel.id),
            dock.browserPanel(for: panel.id) === panel,
            let paneId = dock.paneId(forPanelId: panel.id) {
             return dock.newSurface(
@@ -77,10 +77,10 @@ extension AppDelegate {
     func closeFocusedDockPanelForCommand(preferredWindow: NSWindow?) -> Bool {
         guard let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow) else { return false }
         guard context.keyboardFocusCoordinator.activeRightSidebarMode == .dock else { return false }
-        if let globalDock = existingGlobalDock {
-            guard let panelId = globalDock.focusedPanelId else { return true }
-            if globalDock.closePanel(panelId, force: false) {
-                notificationStore?.clearNotifications(forTabId: globalDock.workspaceId, surfaceId: panelId)
+        if let windowDock = existingWindowDock(forWindowId: context.windowId) {
+            guard let panelId = windowDock.focusedPanelId else { return true }
+            if windowDock.closePanel(panelId, force: false) {
+                notificationStore?.clearNotifications(forTabId: windowDock.workspaceId, surfaceId: panelId)
             }
             return true
         }

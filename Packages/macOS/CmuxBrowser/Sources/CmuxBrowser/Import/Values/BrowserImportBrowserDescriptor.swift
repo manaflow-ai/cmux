@@ -110,7 +110,10 @@ public struct BrowserImportBrowserDescriptor: Hashable, Sendable {
             tier: 1,
             bundleIdentifiers: ["company.thebrowser.Browser", "company.thebrowser.arc"],
             appNames: ["Arc.app"],
-            dataRootRelativePaths: ["Library/Application Support/Arc"],
+            dataRootRelativePaths: [
+                "Library/Application Support/Arc/User Data",
+                "Library/Application Support/Arc",
+            ],
             dataArtifactRelativePaths: [],
             supportsDataOnlyDetection: true
         ),

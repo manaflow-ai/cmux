@@ -8,7 +8,11 @@ struct UserDefaultsSettingsStoreObservationTests {
     @Test func storageChangeObserverClassifiesDefaultsNotifications() async {
         let observedDefaults = UserDefaults(suiteName: "cmux.tests.\(UUID().uuidString)")!
         let otherDefaults = UserDefaults(suiteName: "cmux.tests.\(UUID().uuidString)")!
-        let storage = UserDefaultsSettingsStorage(defaults: observedDefaults)
+        let notificationCenter = NotificationCenter()
+        let storage = UserDefaultsSettingsStorage(
+            defaults: observedDefaults,
+            notificationCenter: notificationCenter
+        )
         let (stream, continuation) = AsyncStream<(Bool, Bool)>.makeStream(bufferingPolicy: .unbounded)
         let token = storage.addDidChangeObserver { isBackingDefaultsNotification, canCarryActiveMutationSource in
             continuation.yield((isBackingDefaultsNotification, canCarryActiveMutationSource))
@@ -18,9 +22,9 @@ struct UserDefaultsSettingsStoreObservationTests {
             continuation.finish()
         }
 
-        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: otherDefaults)
-        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: nil)
-        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: observedDefaults)
+        notificationCenter.post(name: UserDefaults.didChangeNotification, object: otherDefaults)
+        notificationCenter.post(name: UserDefaults.didChangeNotification, object: nil)
+        notificationCenter.post(name: UserDefaults.didChangeNotification, object: observedDefaults)
 
         var iterator = stream.makeAsyncIterator()
         let firstEvent = await iterator.next()

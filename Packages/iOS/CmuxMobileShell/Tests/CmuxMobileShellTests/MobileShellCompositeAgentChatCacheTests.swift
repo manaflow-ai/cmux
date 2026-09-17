@@ -25,12 +25,12 @@ import Testing
             terminalID: "terminal-removed"
         )
 
-        store.setWorkspacesForTesting([keptWorkspace, removedWorkspace])
+        store.replaceForegroundWorkspaceState([keptWorkspace, removedWorkspace])
         store.rememberChatSessions([session], workspaceID: keptWorkspace.id.rawValue)
         store.rememberChatSessions([session], workspaceID: removedWorkspace.id.rawValue)
         #expect(store.cachedChatSessions(workspaceID: removedWorkspace.id.rawValue).isEmpty == false)
 
-        store.setWorkspacesForTesting([keptWorkspace])
+        store.replaceForegroundWorkspaceState([keptWorkspace])
 
         #expect(store.cachedChatSessions(workspaceID: keptWorkspace.id.rawValue).isEmpty == false)
         #expect(store.cachedChatSessions(workspaceID: removedWorkspace.id.rawValue).isEmpty)

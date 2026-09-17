@@ -36,33 +36,11 @@ struct DeviceTreeView: View {
     /// actually removes. (Building from `deviceTreeDevices`, which prefers the team
     /// registry, would make Remove ineffective: a registry-backed row reappears on
     /// the next registry load.) Each is enriched with presence, live status, and how
-    /// many aggregated workspaces it contributes.
+    /// many aggregated workspaces it contributes. Built by the shared
+    /// ``MacComputerSnapshot/snapshots(from:)`` so the disconnected reconnect
+    /// list shows exactly the same computer set.
     private var computers: [MacComputerSnapshot] {
-        let colorIndex = store.machineColorIndex
-        // The PHONE's own per-Mac connection (foreground or live secondary) — the
-        // source of truth for the dot, distinct from presence.
-        let connectionStatuses = store.macConnectionStatuses
-        return store.displayPairedMacs.map { mac in
-            let aliases = store.pairedMacAliasIDs(for: mac.macDeviceID)
-            let summary = store.presenceSummary(for: mac.macDeviceID)
-            let presence: DeviceTreePresence? = summary
-                .map { $0.online ? .online : .offline(lastSeenAt: $0.lastSeenAt) }
-            return MacComputerSnapshot(
-                deviceId: mac.macDeviceID,
-                title: mac.resolvedName,
-                platform: "mac",
-                colorIndex: aliases.compactMap { colorIndex[$0] }.first,
-                customColor: mac.customColor,
-                customIcon: mac.customIcon,
-                connectionStatus: connectionStatuses[mac.macDeviceID],
-                presence: presence,
-                buildLabel: summary?.buildLabel,
-                routeDescription: CmxAttachRoute.deviceTreeRouteDescription(for: mac.routes),
-                lastSeenAt: mac.lastSeenAt,
-                workspaceCount: store.workspaceCount(for: mac.macDeviceID),
-                aliasIDs: aliases
-            )
-        }
+        MacComputerSnapshot.snapshots(from: store)
     }
 
     var body: some View {

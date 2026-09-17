@@ -55,6 +55,35 @@ public struct NotificationsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "notificationsSuppressOnlyFocusedSurface"
     )
 
+    /// Notify when an agent (e.g. Claude Code) is blocked waiting for the user's
+    /// permission to run a tool. On by default: this is the one alert the user
+    /// must act on to unblock the agent.
+    public let agentPermissionPrompt = DefaultsKey<Bool>(
+        id: "notifications.agentPermissionPrompt",
+        defaultValue: true,
+        userDefaultsKey: "notificationAgentPermissionPromptEnabled"
+    )
+
+    /// When to notify that an agent finished a turn. `whenIdle` (default)
+    /// suppresses the "done" notification while the agent still has a running
+    /// background task or a pending scheduled wakeup, so you are only pinged once
+    /// work truly drains. `always` notifies on every turn end; `never` never does.
+    /// Raw values: `whenIdle` | `always` | `never`.
+    public let agentTurnComplete = DefaultsKey<String>(
+        id: "notifications.agentTurnComplete",
+        defaultValue: "whenIdle",
+        userDefaultsKey: "notificationAgentTurnComplete"
+    )
+
+    /// Notify when an agent has been idle-waiting for input (~60s after a turn
+    /// ends). Suppressed while background work from the last turn is still
+    /// pending, so a running build or watcher does not trigger a false "waiting".
+    public let agentIdleReminder = DefaultsKey<Bool>(
+        id: "notifications.agentIdleReminder",
+        defaultValue: true,
+        userDefaultsKey: "notificationAgentIdleReminderEnabled"
+    )
+
     public let hooks = JSONKey<[String: String]>(
         id: "notifications.hooks",
         defaultValue: [:]

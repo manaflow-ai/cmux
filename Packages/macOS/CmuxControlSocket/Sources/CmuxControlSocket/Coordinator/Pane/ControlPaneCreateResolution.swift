@@ -33,6 +33,9 @@ public enum ControlPaneCreateResolution: Sendable, Equatable {
     /// Dock placement was requested while the Dock sidebar mode is unavailable.
     /// Carries the localized message produced by the app seam.
     case dockUnavailable(message: String)
+    /// Dock placement was requested with selectors that name different window
+    /// Docks. Carries the localized message produced by the app seam.
+    case dockConflictingRoutingSelectors(message: String)
     /// A browser split was requested while the cmux browser is disabled and an
     /// invalid URL was supplied (legacy `invalid_params` / "Invalid URL",
     /// `data: {"url": rawURL}`). Carries the raw URL string.

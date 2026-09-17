@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 use std::io::Write;
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use base64::Engine;
 use crossterm::event::{
@@ -23,8 +23,8 @@ use crossterm::terminal::{
 use crossterm::ExecutableCommand;
 use ghostty_vt::{KeyEncoder, RenderState, Screen};
 use mux_core::{
-    layout_screen, split_for_pane_edge, split_sides, MuxEvent, PaneId, Rect, SplitDir, SplitEdge,
-    SurfaceId, SurfaceKind, WorkspaceId,
+    directional_neighbor, layout_screen, split_for_pane_edge, split_sides, MuxEvent, PaneId, Rect,
+    SplitDir, SplitEdge, SurfaceId, SurfaceKind, WorkspaceId,
 };
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal as RatatuiTerminal;
@@ -125,10 +125,13 @@ pub struct PaneArea {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuAction {
     RenameWorkspace(WorkspaceId),
+    CopyWorkspaceId(WorkspaceId),
     CloseWorkspace(WorkspaceId),
     RenameScreen(mux_core::ScreenId),
     CloseScreen(mux_core::ScreenId),
     RenameTab(PaneId),
+    CopyTabId(PaneId),
+    CopyPaneId(PaneId),
     NewTab(PaneId),
     NewBrowserTab(PaneId),
     SplitRight(PaneId),
@@ -141,10 +144,13 @@ impl MenuAction {
     pub fn label(&self) -> &'static str {
         match self {
             MenuAction::RenameWorkspace(_) => "Rename workspace",
+            MenuAction::CopyWorkspaceId(_) => "Copy workspace id",
             MenuAction::CloseWorkspace(_) => "Close workspace",
             MenuAction::RenameScreen(_) => "Rename screen",
             MenuAction::CloseScreen(_) => "Close screen",
             MenuAction::RenameTab(_) => "Rename tab",
+            MenuAction::CopyTabId(_) => "Copy tab id",
+            MenuAction::CopyPaneId(_) => "Copy pane id",
             MenuAction::NewTab(_) => "New tab",
             MenuAction::NewBrowserTab(_) => "New browser tab",
             MenuAction::SplitRight(_) => "Split right",
@@ -227,6 +233,11 @@ pub struct Prompt {
     pub clear: Rect,
     pub ok: Rect,
     pub cancel: Rect,
+}
+
+pub struct Toast {
+    pub text: String,
+    deadline: Instant,
 }
 
 impl Prompt {
@@ -340,6 +351,7 @@ pub struct App {
     pub hover: Option<(u16, u16)>,
     pub menu: Option<ContextMenu>,
     pub prompt: Option<Prompt>,
+    pub toast: Option<Toast>,
     pub(crate) shake_frames: u8,
     pub selection: Option<Selection>,
     pub status_message: Option<String>,
@@ -535,6 +547,7 @@ pub fn run(session: Session, _session_label: String) -> anyhow::Result<()> {
         hover: None,
         menu: None,
         prompt: None,
+        toast: None,
         shake_frames: 0,
         selection: None,
         status_message: None,
@@ -579,7 +592,10 @@ impl App {
         while !self.quit {
             // Block for the first event, then drain whatever queued so a
             // torrent of pty output coalesces into one frame.
-            let timeout = if self.shake_frames > 0 || self.selection_auto_scroll_active() {
+            let timeout = if self.shake_frames > 0
+                || self.selection_auto_scroll_active()
+                || self.toast.is_some()
+            {
                 Duration::from_millis(30)
             } else {
                 Duration::from_millis(250)
@@ -590,6 +606,7 @@ impl App {
                 Err(RecvTimeoutError::Timeout) => {
                     needs_draw = self.shake_frames > 0;
                     needs_draw |= self.auto_scroll_selection_tick();
+                    needs_draw |= self.expire_toast();
                     None
                 }
                 Err(RecvTimeoutError::Disconnected) => break,
@@ -613,6 +630,7 @@ impl App {
             if self.quit {
                 break;
             }
+            needs_draw |= self.expire_toast();
             if needs_draw {
                 let size = terminal.size()?;
                 self.sync_layout((size.width, size.height));
@@ -1193,6 +1211,13 @@ impl App {
                     Some(Prompt::new("Rename workspace", buffer, PromptTarget::Workspace(id)));
             }
             MenuAction::CloseWorkspace(id) => self.session.close_workspace(id),
+            MenuAction::CopyWorkspaceId(id) => {
+                if let Some(short_id) =
+                    self.tree.workspaces.iter().find(|ws| ws.id == id).map(|ws| ws.short_id.clone())
+                {
+                    self.copy_short_id(short_id);
+                }
+            }
             MenuAction::RenameScreen(id) => {
                 let buffer = self
                     .tree
@@ -1206,6 +1231,21 @@ impl App {
             }
             MenuAction::CloseScreen(id) => self.session.close_screen(id),
             MenuAction::RenameTab(id) => self.open_rename_tab_prompt(Some(id)),
+            MenuAction::CopyTabId(id) => {
+                if let Some(short_id) = self
+                    .tree
+                    .pane(id)
+                    .and_then(|pane| pane.tabs.get(pane.active_tab))
+                    .map(|tab| tab.short_id.clone())
+                {
+                    self.copy_short_id(short_id);
+                }
+            }
+            MenuAction::CopyPaneId(id) => {
+                if let Some(short_id) = self.tree.pane(id).map(|pane| pane.short_id.clone()) {
+                    self.copy_short_id(short_id);
+                }
+            }
             MenuAction::NewTab(id) => self.session.new_tab(Some(id), None)?,
             MenuAction::NewBrowserTab(id) => self.open_browser_tab_prompt(Some(id)),
             MenuAction::SplitRight(id) => self.split_pane(id, SplitDir::Right)?,
@@ -1223,11 +1263,8 @@ impl App {
 
     fn move_focus(&self, dx: i32, dy: i32) {
         let Some(active) = self.active_pane() else { return };
-        // Re-derive the layout geometry from the frame's pane areas.
-        let layout = mux_core::LayoutResult {
-            panes: self.pane_areas.iter().map(|a| (a.pane, a.rect)).collect(),
-        };
-        if let Some(next) = layout.neighbor(active, dx, dy) {
+        let panes = self.pane_areas.iter().map(|a| (a.pane, a.rect)).collect::<Vec<_>>();
+        if let Some(next) = directional_neighbor(&panes, active, dx, dy) {
             self.session.focus_pane(next);
         }
     }
@@ -1313,10 +1350,14 @@ impl App {
     }
 
     fn tab_drop_target_at(&self, x: u16, y: u16) -> Option<(PaneId, usize)> {
-        let area =
-            self.pane_areas.iter().find(|area| area.bar.is_some_and(|bar| bar.contains(x, y)))?;
+        let area = self.pane_areas.iter().find(|area| {
+            area.bar.is_some_and(|bar| bar.contains(x, y)) || area.content.contains(x, y)
+        })?;
         let pane = self.tree.pane(area.pane)?;
         let len = pane.tabs.len();
+        if !area.bar.is_some_and(|bar| bar.contains(x, y)) {
+            return Some((area.pane, len));
+        }
         let mut tab_hits = self
             .hits
             .iter()
@@ -1727,10 +1768,32 @@ impl App {
         if text.is_empty() {
             return;
         }
+        self.copy_text_to_clipboard(&text);
+        self.show_toast("Copied".to_string());
+    }
+
+    fn copy_text_to_clipboard(&self, text: &str) {
         let encoded = base64::engine::general_purpose::STANDARD.encode(text.as_bytes());
         let mut stdout = std::io::stdout();
         let _ = write!(stdout, "\x1b]52;c;{encoded}\x07");
         let _ = stdout.flush();
+    }
+
+    fn copy_short_id(&mut self, short_id: String) {
+        self.copy_text_to_clipboard(&short_id);
+        self.show_toast(format!("Copied {short_id}"));
+    }
+
+    fn show_toast(&mut self, text: String) {
+        self.toast = Some(Toast { text, deadline: Instant::now() + Duration::from_millis(1500) });
+    }
+
+    fn expire_toast(&mut self) -> bool {
+        if self.toast.as_ref().is_some_and(|toast| Instant::now() >= toast.deadline) {
+            self.toast = None;
+            return true;
+        }
+        false
     }
 
     /// Shift a pane's tab bar left/right. The renderer clamps to the
@@ -1879,7 +1942,11 @@ impl App {
                 self.menu = Some(ContextMenu::at(
                     x,
                     y,
-                    vec![MenuAction::RenameWorkspace(id), MenuAction::CloseWorkspace(id)],
+                    vec![
+                        MenuAction::RenameWorkspace(id),
+                        MenuAction::CopyWorkspaceId(id),
+                        MenuAction::CloseWorkspace(id),
+                    ],
                 ));
                 return;
             }
@@ -1899,6 +1966,8 @@ impl App {
                 y,
                 vec![
                     MenuAction::RenameTab(area.pane),
+                    MenuAction::CopyTabId(area.pane),
+                    MenuAction::CopyPaneId(area.pane),
                     MenuAction::NewTab(area.pane),
                     MenuAction::NewBrowserTab(area.pane),
                     MenuAction::SplitRight(area.pane),

@@ -712,6 +712,149 @@ final class TerminalControllerSocketSecurityTests {
         }
     }
 
+    @Test func testV1PingRunsOnWorkerLaneAndStaysMainThreadCallable() async throws {
+        let socketPath = makeSocketPath("v1-ping")
+        let tabManager = TabManager()
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        // v1 `ping` sits on the worker lane
+        // (`ControlCommandExecutionPolicy(forV1Command:)`) but is
+        // mainThreadCallable, so in-process main-thread dispatch must answer
+        // inline instead of tripping the v1 invalid-dispatch guard.
+        XCTAssertEqual(TerminalController.shared.handleSocketLine("ping"), "PONG")
+        XCTAssertEqual(TerminalController.shared.handleSocketLine("PING"), "PONG")
+
+        // Worker-lane proof: this synchronous round-trip blocks the main
+        // thread in read() until the reply lands, so the reply can only
+        // arrive if the connection thread serves `ping` without a
+        // DispatchQueue.main.sync hop. A main-lane `ping` would deadlock here
+        // (main waits on the reply, the reply waits on main).
+        let responses = try sendCommands(["ping"], to: socketPath)
+        XCTAssertEqual(responses, ["PONG"])
+
+        // A main-lane v1 command still round-trips through the main hop. It
+        // must be sent off-main (async, like sendV2RequestAsync) so the main
+        // thread stays free to serve the command's DispatchQueue.main.sync.
+        let mainLane = try await sendV1CommandsAsync(["current_workspace"], to: socketPath)
+        XCTAssertEqual(mainLane.count, 1)
+        XCTAssertFalse(mainLane[0].isEmpty)
+    }
+
+    @Test func testSurfaceReadTextIsServicedOnTheWorkerLane() async throws {
+        let socketPath = makeSocketPath("v2-read-text-worker")
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+        // Release the focused terminal's Ghostty surface so the capture hop
+        // fails deterministically at the raw-snapshot read: the reply must be
+        // the legacy `internal_error` bytes. A worker-lane dispatch drift
+        // (policy lists the method but the worker switch case is missing)
+        // would instead answer the loud "has no worker handler" backstop, and
+        // a coordinator re-lift would answer method_not_found — both caught
+        // here.
+        let panel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        panel.surface.releaseSurfaceForTesting()
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        // surface.read_text is worker-lane and NOT mainThreadCallable: an
+        // in-process main-thread caller is rejected with invalid_dispatch
+        // instead of running the (possibly multi-MB) scrollback formatting
+        // inline on the main thread. A `read_text`'s reply cannot land while
+        // the main thread is wedged (its Ghostty capture legitimately takes
+        // one v2MainSync hop), so unlike the set_status worker-lane proof
+        // below this round-trip runs with the main actor free.
+        let inline = TerminalController.shared.handleSocketLine(
+            #"{"id":"rt-main","method":"surface.read_text","params":{}}"#
+        )
+        XCTAssertTrue(inline.contains("invalid_dispatch"), inline)
+        XCTAssertTrue(inline.contains("surface.read_text must run off the main thread"), inline)
+
+        // Worker-lane round-trip from a background sender (timeout-bounded by
+        // the await): byte-faithful legacy error for a released surface.
+        let envelope = try await sendV2RequestAsync(
+            method: "surface.read_text",
+            params: ["workspace_id": workspace.id.uuidString],
+            to: socketPath
+        )
+        XCTAssertEqual(envelope["ok"] as? Bool, false)
+        let error = try XCTUnwrap(envelope["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? String, "internal_error")
+        XCTAssertEqual(error["message"] as? String, "Failed to read terminal text")
+
+        // v1 twin: read_screen shares the capture-hop/format-off-main split
+        // and the not-mainThreadCallable policy.
+        let v1Inline = TerminalController.shared.handleSocketLine("read_screen")
+        XCTAssertEqual(v1Inline, "ERROR: read_screen must run off the main thread")
+        let v1Replies = try await sendV1CommandsAsync(["read_screen"], to: socketPath)
+        XCTAssertEqual(v1Replies, ["ERROR: Terminal surface not found"])
+    }
+
+    @Test func testV1SetStatusIsServicedOnWorkerLaneWhileMainThreadIsBlocked() throws {
+        let socketPath = makeSocketPath("v1-status-worker")
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        // Worker-lane proof for a migrated telemetry verb (tranche B1): the
+        // scoped set_status path is parse + TerminalMutationBus enqueue with
+        // zero v2MainSync hops, so its reply must arrive while this test
+        // wedges the main thread in the semaphore wait below. The verb is
+        // mainThreadCallable, so the round-trip has to be sent from a
+        // background queue — an in-process main-thread send would run inline
+        // and prove nothing. A regression that reroutes the verb to the main
+        // lane (or adds a main hop to the scoped path) turns this into a
+        // bounded timeout failure, not a deadlock, because the sender thread
+        // just parks in read() until then.
+        let command = "set_status build ok --tab=\(workspace.id.uuidString)"
+        let replyArrived = DispatchSemaphore(value: 0)
+        let replyBox = WorkerLaneReplyBox()
+        DispatchQueue.global(qos: .userInitiated).async {
+            replyBox.store(Result { try self.sendV1Commands([command], to: socketPath) })
+            replyArrived.signal()
+        }
+
+        let waited = replyArrived.wait(timeout: .now() + 5)
+        XCTAssertEqual(
+            waited == .success,
+            true,
+            "set_status must be serviced on the socket-worker lane; its reply did not arrive while the main thread was blocked"
+        )
+        XCTAssertEqual(try replyBox.take(), ["OK"])
+
+        // The mutation is bus-deferred and the main thread has been held by
+        // this test since before the send, so the reply necessarily preceded
+        // the apply; drain and verify the deferred write lands.
+        XCTAssertNil(workspace.statusEntries["build"])
+        TerminalMutationBus.shared.drainForTesting()
+        XCTAssertEqual(workspace.statusEntries["build"]?.value, "ok")
+    }
+
     private func assertHeartbeatResult(method: String, envelope: [String: Any], file: StaticString = #filePath, line: UInt = #line) throws {
         let result = try XCTUnwrap(envelope["result"] as? [String: Any], method, file: file, line: line)
         switch method {
@@ -1550,6 +1693,36 @@ final class TerminalControllerSocketSecurityTests {
         }
     }
 
+    /// v1 twin of `sendV2Request`: one connection, newline-delimited v1
+    /// commands, one reply line each. Nonisolated so `sendV1CommandsAsync`
+    /// can run it on a global queue while the main actor stays free.
+    private nonisolated func sendV1Commands(_ commands: [String], to socketPath: String) throws -> [String] {
+        let fd = try connect(to: socketPath)
+        defer { Darwin.close(fd) }
+        var responses: [String] = []
+        for command in commands {
+            try writeLine(command, to: fd)
+            responses.append(try readLine(from: fd))
+        }
+        return responses
+    }
+
+    /// v1 twin of `sendV2RequestAsync`: main-lane v1 commands need the main
+    /// thread free for their `DispatchQueue.main.sync` hop, so the blocking
+    /// socket round-trip runs on a global queue and the main-actor test
+    /// awaits the result.
+    private func sendV1CommandsAsync(_ commands: [String], to socketPath: String) async throws -> [String] {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    continuation.resume(returning: try self.sendV1Commands(commands, to: socketPath))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     private nonisolated func connect(to socketPath: String) throws -> Int32 {
         let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
@@ -1645,5 +1818,30 @@ final class TerminalControllerSocketSecurityTests {
             code: Int(errno),
             userInfo: [NSLocalizedDescriptionKey: "\(operation) failed: \(String(cString: strerror(errno)))"]
         )
+    }
+}
+
+/// Cross-thread reply capture for the worker-lane-while-main-blocked tests:
+/// the background sender stores exactly once before signaling its semaphore,
+/// and the main-actor test reads only after that signal. The lock makes the
+/// handoff explicit instead of relying on the semaphore's happens-before
+/// alone.
+private final class WorkerLaneReplyBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var result: Result<[String], Error>?
+
+    func store(_ result: Result<[String], Error>) {
+        lock.lock()
+        self.result = result
+        lock.unlock()
+    }
+
+    func take() throws -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let result else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(ETIMEDOUT))
+        }
+        return try result.get()
     }
 }

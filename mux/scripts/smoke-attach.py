@@ -198,7 +198,7 @@ def frame_region_text(frame, rect):
     lines = []
     for yy in range(y, y + height):
         line = "".join(chars[yy][x : x + width]) if 0 <= yy < len(chars) else ""
-        lines.append(line.rstrip())
+        lines.append(line.strip())
     return lines
 
 
@@ -208,17 +208,17 @@ def server_region_text(surface, width, height):
     out = []
     for row in range(height):
         line = lines[row] if row < len(lines) else ""
-        out.append((line + " " * width)[:width].rstrip())
+        out.append((line + " " * width)[:width].strip())
     return out
 
 
-def assert_client_matches_server(client):
+def client_server_mismatch(client):
     ws = rpc({"id": 1999, "cmd": "list-workspaces"})
     active_ws = next(w for w in ws["data"]["workspaces"] if w["active"])
     screen = next(s for s in active_ws["screens"] if s["active"])
-    pane_rects = layout_panes(screen["layout"], (22, 0, 78, 29))
+    pane_rects = layout_panes(screen["layout"], (22, 0, client.cols - 22, client.rows - 1))
     panes = {pane["id"]: pane for pane in screen["panes"]}
-    frame = render_client_frame(client.output)
+    frame = render_client_frame(client.output, client.rows, client.cols)
     for pane_id, rect in pane_rects.items():
         pane = panes.get(pane_id)
         if not pane or not pane["tabs"]:
@@ -229,14 +229,35 @@ def assert_client_matches_server(client):
             continue
         client_lines = frame_region_text(frame, (cx, cy, width, height))
         server_lines = server_region_text(tab["surface"], width, height)
-        assert client_lines == server_lines, {
-            "pane": pane_id,
-            "surface": tab["surface"],
-            "rect": (cx, cy, width, height),
-            "client": client_lines,
-            "server": server_lines,
-        }
-    return frame
+        if client_lines != server_lines:
+            return frame, {
+                "pane": pane_id,
+                "surface": tab["surface"],
+                "rect": (cx, cy, width, height),
+                "client": client_lines,
+                "server": server_lines,
+            }
+    return frame, None
+
+
+def assert_client_matches_server(client):
+    deadline = time.time() + 4.0
+    last_mismatch = None
+    stable_since = None
+    while True:
+        frame, mismatch = client_server_mismatch(client)
+        if mismatch is None:
+            return frame
+        key = json.dumps(mismatch, sort_keys=True)
+        now = time.time()
+        if key != last_mismatch:
+            last_mismatch = key
+            stable_since = now
+        if now >= deadline and stable_since is not None and now - stable_since >= 0.5:
+            raise AssertionError(mismatch)
+        if now >= deadline + 1.0:
+            raise AssertionError(mismatch)
+        client.drain(0.2)
 
 
 def active_surfaces():
@@ -266,12 +287,14 @@ def rpc(cmd):
 
 
 class Client:
-    def __init__(self):
+    def __init__(self, rows=30, cols=100):
+        self.rows = rows
+        self.cols = cols
         self.pid, self.fd = pty.fork()
         if self.pid == 0:
             os.environ["TERM"] = "xterm-256color"
             os.execv(BIN, [BIN, "attach", "--session", SESSION])
-        fcntl.ioctl(self.fd, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
+        fcntl.ioctl(self.fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
         os.kill(self.pid, signal.SIGWINCH)
         self.output = b""
 
@@ -313,7 +336,7 @@ class Client:
         os.write(self.fd, data)
 
     def force_redraw(self):
-        fcntl.ioctl(self.fd, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
+        fcntl.ioctl(self.fd, termios.TIOCSWINSZ, struct.pack("HHHH", self.rows, self.cols, 0, 0))
         os.kill(self.pid, signal.SIGWINCH)
 
     def detach(self):
@@ -378,6 +401,8 @@ try:
         time.sleep(0.03)
         c2.drain(0.2)
     c2.drain_until_quiet()
+    frame = render_client_frame(c2.output)
+    assert not reverse_percent_cells(frame), c2.output[storm_start:][-2000:]
 
     repaint = base64.b64encode(b"\x0c").decode()
     for surface in active_surfaces():
@@ -396,6 +421,35 @@ try:
 
     c2.detach()
     print("reattach replay + live stream ok")
+
+    c3 = Client(rows=60, cols=231)
+    c3.drain_until_quiet()
+    storm_start = len(c3.output)
+    for _ in range(4):
+        c3.send(b"\x1bn")
+        time.sleep(0.04)
+        c3.drain(0.1)
+    c3.send(b"\x02%")
+    time.sleep(0.04)
+    c3.drain(0.2)
+    c3.send(b"\x02t")
+    c3.drain_until_quiet()
+
+    repaint = base64.b64encode(b"\x0c").decode()
+    for surface in active_surfaces():
+        assert rpc({"id": 4000 + surface, "cmd": "send", "surface": surface, "bytes": repaint})[
+            "ok"
+        ]
+    c3.drain_until_quiet()
+    c3.force_redraw()
+    c3.drain_until_quiet()
+    frame = assert_client_matches_server(c3)
+    assert not reverse_percent_cells(frame), c3.output[storm_start:][-4000:]
+    print("231x60 mixed attach storm produced no reverse-video percent artifact")
+
+    c3.detach()
+    print("large attach storm ok")
+
 finally:
     server.terminate()
     server.wait(timeout=10)

@@ -36,6 +36,12 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     /// band and pins first responder so the keyboard hands over in place; when it
     /// flips off, the field is unmounted and the band collapses to zero height.
     var isComposerActive: Bool = false
+    /// The store's terminal-theme generation. The shell writes the synced theme
+    /// into `TerminalThemeStore` directly (it does not link GhosttyKit), so this
+    /// representable — which does — drives the live recolor: when the generation
+    /// advances, it rebuilds the runtime config and refreshes the mounted
+    /// surface's background/colors in place via `GhosttyRuntime.applyLiveThemeIfRunning()`.
+    var themeGeneration: UInt64 = 0
 
     func makeCoordinator() -> Coordinator {
         Coordinator(surfaceID: surfaceID, store: store)
@@ -79,6 +85,16 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // math reads this flag, so it must never depend on that ordering contract.
         view.setComposerActive(isComposerActive)
         context.coordinator.setComposerMounted(isComposerActive)
+        // The shared runtime is a process singleton; its config can carry a stale
+        // theme from before this connect. A freshly built surface reads its local
+        // background from the (current) theme store, but the renderer's default
+        // colors come from the runtime config, so rebuild it to the current theme
+        // when a theme has been applied. Records the generation so updateUIView
+        // does not re-apply the same one.
+        if themeGeneration > 0 {
+            GhosttyRuntime.applyLiveThemeIfRunning()
+        }
+        context.coordinator.lastAppliedThemeGeneration = themeGeneration
         return view
     }
 
@@ -93,6 +109,14 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         surfaceView.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         surfaceView.setComposerActive(isComposerActive)
         context.coordinator.setComposerMounted(isComposerActive)
+        // Live theme change: the shell bumped the generation after writing the new
+        // theme into TerminalThemeStore. Rebuild the runtime config and recolor
+        // the mounted surface(s) in place so the background follows the new theme
+        // even when the `.id()` remount reused this same view.
+        if themeGeneration != context.coordinator.lastAppliedThemeGeneration {
+            context.coordinator.lastAppliedThemeGeneration = themeGeneration
+            GhosttyRuntime.applyLiveThemeIfRunning()
+        }
         // A width change (rotation) is not a text change, so the field-content trigger
         // misses it. Re-measure the open composer here so the band height tracks the new
         // width's wrapping. No-op when closed or when the height is unchanged.
@@ -116,7 +140,17 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// dismantle; mounted/unmounted by ``setComposerMounted(_:)``.
         private var composerController: UIHostingController<TerminalComposerView>?
         private var composerMounted = false
+        /// The theme generation already pushed to the live runtime, so a repeated
+        /// `updateUIView` for the same generation does not rebuild the config again.
+        var lastAppliedThemeGeneration: UInt64 = 0
         private var activeViewportPolicy: MobileTerminalOutputViewportPolicy = .natural
+        /// Serializes the natural-grid viewport reports and their echoes. One
+        /// detached Task per report (the previous shape) let Task scheduling
+        /// scramble the send order AND let the echo of an old keyboard-up
+        /// report resolve after the newer keyboard-down echo, permanently
+        /// re-pinning the phone to the stale smaller grid (empty space above
+        /// the terminal). Built on attach, torn down on detach.
+        private var viewportReportScheduler: TerminalViewportReportScheduler?
         /// Bumped on every mount/unmount transition so a deferred close completion
         /// can tell whether it is still the latest transition. Guards the
         /// close-then-quickly-reopen race: an interrupted close animation still runs
@@ -134,6 +168,40 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             self.surfaceView = surfaceView
             guard let store else { return }
             let surfaceID = surfaceID
+            viewportReportScheduler = TerminalViewportReportScheduler(
+                send: { [weak self] report in
+                    guard let self, let store = self.store else { return nil }
+                    return await store.updateTerminalViewport(
+                        surfaceID: self.surfaceID,
+                        columns: report.columns,
+                        rows: report.rows
+                    )
+                },
+                apply: { [weak self, weak surfaceView] report, effectiveGrid in
+                    guard let self, let surfaceView else { return }
+                    guard let effectiveGrid else {
+                        // No effective grid came back (RPC timed out or
+                        // returned nil). Left unhandled, the render stays
+                        // pinned to the prior effective grid and looks like a
+                        // frozen / letterboxed terminal even though the main
+                        // thread is fine. Re-arm the report so a transient
+                        // drop self-heals (bounded inside the surface).
+                        MobileDebugLog.anchormux(
+                            "zoom.viewport.noEffective grid=\(report.columns)x\(report.rows)"
+                        )
+                        surfaceView.retryViewportReport()
+                        return
+                    }
+                    surfaceView.markViewportReportConfirmed()
+                    if case .remoteGrid = self.activeViewportPolicy {
+                        surfaceView.applyConfirmedViewSize(
+                            cols: effectiveGrid.columns,
+                            rows: effectiveGrid.rows,
+                            reportID: report.id
+                        )
+                    }
+                }
+            )
             // Drive every output chunk into the libghostty surface. Ending this
             // task terminates the stream, which unregisters the surface and
             // clears its viewport pin on the Mac (see `terminalOutputStream`).
@@ -209,6 +277,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             outputTask = nil
             liveFontTask?.cancel()
             liveFontTask = nil
+            viewportReportScheduler?.cancel()
+            viewportReportScheduler = nil
         }
 
         // MARK: - Composer band hosting
@@ -344,37 +414,18 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             }
         }
 
-        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize) {
+        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize, reportID: UInt64) {
             // Report our natural grid to the Mac. The output stream decides
             // whether the phone should keep that natural grid (primary screen)
             // or pin to the Mac grid (alternate-screen render-grid replay).
+            // The scheduler serializes the RPCs (send order = report order,
+            // so the PTY settles on the NEWEST grid) and drops echoes whose
+            // report was superseded while in flight; the surface additionally
+            // rejects any echo whose reportID is no longer the newest.
             guard size.columns > 0, size.rows > 0 else { return }
-            Task { @MainActor [weak self, weak surfaceView] in
-                guard let self, let store = self.store else { return }
-                guard let effectiveGrid = await store.updateTerminalViewport(
-                    surfaceID: self.surfaceID,
-                    columns: size.columns,
-                    rows: size.rows
-                ) else {
-                    // No effective grid came back (RPC timed out or returned
-                    // nil). Left unhandled, the render stays pinned to the prior
-                    // effective grid and looks like a frozen / letterboxed
-                    // terminal even though the main thread is fine. Re-arm the
-                    // report so a transient drop self-heals (bounded inside the
-                    // surface). Logged so the dogfood log still distinguishes
-                    // this from a true main-thread wedge.
-                    MobileDebugLog.anchormux("zoom.viewport.noEffective grid=\(size.columns)x\(size.rows)")
-                    surfaceView?.retryViewportReport()
-                    return
-                }
-                surfaceView?.markViewportReportConfirmed()
-                if case .remoteGrid = self.activeViewportPolicy {
-                    surfaceView?.applyConfirmedViewSize(
-                        cols: effectiveGrid.columns,
-                        rows: effectiveGrid.rows
-                    )
-                }
-            }
+            viewportReportScheduler?.submit(
+                .init(id: reportID, columns: size.columns, rows: size.rows)
+            )
         }
 
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int) {

@@ -1,17 +1,34 @@
+import CMUXMobileCore
 import SwiftUI
 
-/// The fixed Monokai-derived color palette for the mobile terminal surface.
+/// Colors derived from the active terminal theme for the SwiftUI chrome around
+/// the mobile terminal surface (toolbars, letterbox fill).
 ///
-/// These match the colors libghostty renders the terminal background/foreground
-/// with, so the SwiftUI chrome around the surface (toolbars, letterbox fill)
-/// blends with the live terminal instead of flashing a system color.
+/// These follow ``TerminalThemeStore/current`` so the chrome blends with the
+/// live terminal under any theme instead of flashing a hardcoded color. They
+/// fall back to Monokai when no theme has been supplied.
+///
+/// Main-actor isolated because it reads the `@MainActor` ``TerminalThemeStore``;
+/// every call site is a SwiftUI view body, which is already on the main actor.
+/// A caseless namespace `struct` (not an `enum`) so it is not a namespace-enum;
+/// it stays internal chrome, never instantiated.
+@MainActor
 struct TerminalPalette {
     private init() {}
 
-    /// Terminal background (`#272822`).
-    static let background = Color(red: 0x27 / 255.0, green: 0x28 / 255.0, blue: 0x22 / 255.0)
-    /// Terminal foreground (`#f8f8f2`).
-    static let foreground = Color(red: 0xf8 / 255.0, green: 0xf8 / 255.0, blue: 0xf2 / 255.0)
-    /// Dimmed terminal foreground (`#c8c8c0`).
-    static let dimForeground = Color(red: 0xc8 / 255.0, green: 0xc8 / 255.0, blue: 0xc0 / 255.0)
+    /// Terminal background, from the active theme.
+    static var background: Color { color(TerminalThemeStore.current.background) }
+    /// Terminal foreground, from the active theme.
+    static var foreground: Color { color(TerminalThemeStore.current.foreground) }
+    /// Dimmed terminal foreground, from the active theme.
+    static var dimForeground: Color { foreground.opacity(0.78) }
+
+    private static func color(_ hex: String) -> Color {
+        guard let rgb = TerminalTheme.rgbComponents(hex) else { return .black }
+        return Color(
+            red: Double(rgb.red) / 255.0,
+            green: Double(rgb.green) / 255.0,
+            blue: Double(rgb.blue) / 255.0
+        )
+    }
 }

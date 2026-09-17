@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxClientConfig
 import CmuxMobileAnalytics
 import CmuxMobileShellModel
 import Foundation
@@ -27,6 +28,16 @@ import UIKit
 public struct MobileAnalyticsComposition {
     /// The shared, injected analytics emitter.
     public let emitter: any AnalyticsEmitting
+    /// The typed feature-flag/config loader for Swift callers.
+    public let clientConfig: any ClientConfigLoading
+    /// The per-install anonymous id used for analytics and feature flag evaluation.
+    public let anonymousID: String
+    /// The default mobile evaluation context sent to `/api/client-config`.
+    public let clientConfigContext: ClientConfigEvaluationContext
+    /// A request for anonymous mobile flag evaluation.
+    public var anonymousClientConfigRequest: ClientConfigRequest {
+        ClientConfigRequest(distinctId: anonymousID, context: clientConfigContext)
+    }
     /// The session store + sessionizer the app shell drives on foreground/background.
     public let sessionStore: AnalyticsSessionStore
     /// The 30-minute-window sessionizer used with ``sessionStore``.
@@ -50,10 +61,11 @@ public struct MobileAnalyticsComposition {
         defaults: UserDefaults = .standard,
         session: URLSession? = nil
     ) {
+        let networkSession = session ?? Self.analyticsSession()
         let uploader = HTTPAnalyticsUploader(
             apiBaseURL: apiBaseURL,
             tokenProvider: AnalyticsTokenProviderBridge(tokenProvider: tokenProvider),
-            session: session ?? Self.analyticsSession()
+            session: networkSession
         )
         let consent = UserDefaultsAnalyticsConsentProvider(defaults: defaults)
         // Resolve the per-install id once, here, at the single point that owns
@@ -73,6 +85,13 @@ public struct MobileAnalyticsComposition {
             emitter.capture("ios_app_first_launch", ["client_id": .string(anonymousID)])
         }
         self.emitter = emitter
+        self.clientConfig = HTTPClientConfigLoader(apiBaseURL: apiBaseURL, session: networkSession)
+        self.anonymousID = anonymousID
+        self.clientConfigContext = ClientConfigEvaluationContext(
+            personProperties: Self.clientConfigDeviceProperties(anonymousID: anonymousID),
+            anonDistinctId: anonymousID,
+            evaluationContexts: ["mobile"]
+        )
         self.sessionStore = AnalyticsSessionStore(defaults: defaults)
     }
 
@@ -94,6 +113,27 @@ public struct MobileAnalyticsComposition {
     @MainActor private static func deviceSuperProperties(anonymousID: String) -> [String: AnalyticsValue] {
         let info = Bundle.main.infoDictionary
         var props: [String: AnalyticsValue] = ["client_id": .string(anonymousID)]
+        if let version = info?["CFBundleShortVersionString"] as? String {
+            props["app_version"] = .string(version)
+        }
+        if let build = info?["CFBundleVersion"] as? String {
+            props["build_number"] = .string(build)
+        }
+        #if canImport(UIKit)
+        props["os_version"] = .string(UIDevice.current.systemVersion)
+        props["device_model"] = .string(UIDevice.current.model)
+        #endif
+        return props
+    }
+
+    @MainActor private static func clientConfigDeviceProperties(
+        anonymousID: String
+    ) -> [String: ClientConfigJSONValue] {
+        let info = Bundle.main.infoDictionary
+        var props: [String: ClientConfigJSONValue] = [
+            "client_id": .string(anonymousID),
+            "platform": .string("ios"),
+        ]
         if let version = info?["CFBundleShortVersionString"] as? String {
             props["app_version"] = .string(version)
         }

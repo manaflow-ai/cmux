@@ -397,6 +397,11 @@ Måter å engasjere seg:
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
 
+<p>
+  <strong>WeChat:</strong> Skann QR-koden for å bli med i fellesskapet.<br />
+  <img src="./docs/assets/wechat-community-qr.jpg" alt="WeChat-QR-kode for å bli med i cmux-fellesskapet" width="240" />
+</p>
+
 ## Grunnleggerutgaven
 
 cmux er gratis, åpen kildekode, og vil alltid være det. Hvis du vil støtte utviklingen og få tidlig tilgang til det som kommer:

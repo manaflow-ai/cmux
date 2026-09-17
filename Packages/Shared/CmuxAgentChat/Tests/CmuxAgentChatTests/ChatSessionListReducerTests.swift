@@ -11,17 +11,18 @@ struct ChatSessionListReducerTests {
     private func descriptor(
         _ id: String,
         workspace: String = "ws-1",
-        state: ChatAgentState = ChatSessionListReducerTests.working
+        state: ChatAgentState = ChatSessionListReducerTests.working,
+        version: Int = 0
     ) -> ChatSessionDescriptor {
         ChatSessionDescriptor(
             id: id, agentKind: .claude, workspaceID: workspace,
-            terminalID: id, state: state
+            terminalID: id, state: state, version: version
         )
     }
 
     @Test("a descriptorChanged for a new session is appended (toggle appears live)")
     func appendsNewSession() {
-        let reducer = ChatSessionListReducer(workspaceID: "ws-1")
+        var reducer = ChatSessionListReducer(workspaceID: "ws-1")
         let frame = ChatSessionEventFrame(
             sessionID: "s1", event: .descriptorChanged(descriptor("s1"))
         )
@@ -32,7 +33,7 @@ struct ChatSessionListReducerTests {
 
     @Test("a descriptorChanged for an existing session replaces it in place")
     func replacesExisting() {
-        let reducer = ChatSessionListReducer(workspaceID: "ws-1")
+        var reducer = ChatSessionListReducer(workspaceID: "ws-1")
         let seed = [descriptor("s1", state: Self.working), descriptor("s2", state: .idle)]
         let frame = ChatSessionEventFrame(
             sessionID: "s1", event: .descriptorChanged(descriptor("s1", state: .needsInput(since: Self.t0)))
@@ -44,7 +45,7 @@ struct ChatSessionListReducerTests {
 
     @Test("a descriptorChanged for another workspace is ignored")
     func ignoresOtherWorkspace() {
-        let reducer = ChatSessionListReducer(workspaceID: "ws-1")
+        var reducer = ChatSessionListReducer(workspaceID: "ws-1")
         let frame = ChatSessionEventFrame(
             sessionID: "s9", event: .descriptorChanged(descriptor("s9", workspace: "ws-2"))
         )
@@ -53,7 +54,7 @@ struct ChatSessionListReducerTests {
 
     @Test("a nil-workspace reducer accepts every workspace")
     func nilWorkspaceAcceptsAll() {
-        let reducer = ChatSessionListReducer(workspaceID: nil)
+        var reducer = ChatSessionListReducer(workspaceID: nil)
         let frame = ChatSessionEventFrame(
             sessionID: "s9", event: .descriptorChanged(descriptor("s9", workspace: "ws-2"))
         )
@@ -62,7 +63,7 @@ struct ChatSessionListReducerTests {
 
     @Test("an unversioned stateChanged never mutates the list (descriptorChanged is authoritative)")
     func stateChangedIsNoOpForList() {
-        let reducer = ChatSessionListReducer(workspaceID: "ws-1")
+        var reducer = ChatSessionListReducer(workspaceID: "ws-1")
         let seed = [descriptor("s1", state: Self.working)]
         // The host pairs every transition with a versioned descriptorChanged, so
         // the bare stateChanged must not touch the list (it carries no version
@@ -73,7 +74,7 @@ struct ChatSessionListReducerTests {
 
     @Test("a reordered stateChanged cannot regress newer descriptor state (clobber guard)")
     func stateChangedDoesNotClobberNewerDescriptor() {
-        let reducer = ChatSessionListReducer(workspaceID: "ws-1")
+        var reducer = ChatSessionListReducer(workspaceID: "ws-1")
         func desc(_ state: ChatAgentState, _ version: Int) -> ChatSessionDescriptor {
             ChatSessionDescriptor(
                 id: "s1", agentKind: .codex, workspaceID: "ws-1",
@@ -94,14 +95,85 @@ struct ChatSessionListReducerTests {
 
     @Test("a stateChanged for an unknown session never inserts")
     func stateChangedNoInsert() {
-        let reducer = ChatSessionListReducer(workspaceID: "ws-1")
+        var reducer = ChatSessionListReducer(workspaceID: "ws-1")
         let frame = ChatSessionEventFrame(sessionID: "ghost", event: .stateChanged(Self.working))
         #expect(reducer.applying(frame, to: []).isEmpty)
     }
 
+    @Test("a sessionRemoved frame removes the matching row")
+    func sessionRemovedDeletesRow() {
+        var reducer = ChatSessionListReducer(workspaceID: "ws-1")
+        let seed = [descriptor("s1", version: 4), descriptor("s2")]
+        let frame = ChatSessionEventFrame(sessionID: "s1", event: .sessionRemoved(version: 5))
+        #expect(reducer.applying(frame, to: seed).map(\.id) == ["s2"])
+    }
+
+    @Test("a stale descriptor after sessionRemoved cannot resurrect the row")
+    func sessionRemovedTombstonesStaleDescriptor() {
+        var reducer = ChatSessionListReducer(workspaceID: "ws-1")
+        let seed = [descriptor("s1", version: 4)]
+        let removed = ChatSessionEventFrame(sessionID: "s1", event: .sessionRemoved(version: 5))
+        let stale = ChatSessionEventFrame(sessionID: "s1", event: .descriptorChanged(descriptor("s1", version: 4)))
+        let afterRemoval = reducer.applying(removed, to: seed)
+        #expect(afterRemoval.isEmpty)
+        #expect(reducer.applying(stale, to: afterRemoval).isEmpty)
+    }
+
+    @Test("a newer descriptor after sessionRemoved can re-add the row")
+    func newerDescriptorClearsRemovalTombstone() {
+        var reducer = ChatSessionListReducer(workspaceID: "ws-1")
+        let seed = [descriptor("s1", version: 4)]
+        let removed = ChatSessionEventFrame(sessionID: "s1", event: .sessionRemoved(version: 5))
+        let newer = ChatSessionEventFrame(sessionID: "s1", event: .descriptorChanged(descriptor("s1", version: 6)))
+        let afterRemoval = reducer.applying(removed, to: seed)
+        #expect(reducer.applying(newer, to: afterRemoval).map(\.id) == ["s1"])
+    }
+
+    @Test("an unversioned sessionRemoved deletes without permanently tombstoning")
+    func unversionedSessionRemovedDoesNotTombstoneFutureDescriptors() {
+        var reducer = ChatSessionListReducer(workspaceID: "ws-1")
+        let seed = [descriptor("s1", version: 4)]
+        let removed = ChatSessionEventFrame(sessionID: "s1", event: .sessionRemoved(version: Int.max))
+        let replacement = ChatSessionEventFrame(sessionID: "s1", event: .descriptorChanged(descriptor("s1", version: 4)))
+        let afterRemoval = reducer.applying(removed, to: seed)
+        #expect(afterRemoval.isEmpty)
+        #expect(reducer.applying(replacement, to: afterRemoval).map(\.id) == ["s1"])
+    }
+
+    @Test("a versioned sessionRemoved for an unknown row tombstones stale descriptors")
+    func unknownVersionedSessionRemovedTombstonesFutureStaleDescriptors() {
+        var reducer = ChatSessionListReducer(workspaceID: "ws-1")
+        let removed = ChatSessionEventFrame(sessionID: "s1", event: .sessionRemoved(version: 5))
+        let stale = ChatSessionEventFrame(
+            sessionID: "s1",
+            event: .descriptorChanged(descriptor("s1", version: 4))
+        )
+        let newer = ChatSessionEventFrame(
+            sessionID: "s1",
+            event: .descriptorChanged(descriptor("s1", version: 6))
+        )
+        let afterRemoval = reducer.applying(removed, to: [])
+        #expect(afterRemoval.isEmpty)
+        #expect(reducer.applying(stale, to: afterRemoval).isEmpty)
+        #expect(reducer.applying(newer, to: afterRemoval).map(\.id) == ["s1"])
+    }
+
+    @Test("an unversioned sessionRemoved for an unknown row does not tombstone future descriptors")
+    func unknownUnversionedSessionRemovedDoesNotTombstoneFutureDescriptors() {
+        var reducer = ChatSessionListReducer(workspaceID: "ws-1")
+        let removed = ChatSessionEventFrame(sessionID: "s1", event: .sessionRemoved(version: Int.max))
+        let descriptor = ChatSessionEventFrame(
+            sessionID: "s1",
+            event: .descriptorChanged(descriptor("s1", version: 4))
+        )
+        let afterRemoval = reducer.applying(removed, to: [])
+        #expect(afterRemoval.isEmpty)
+        #expect(reducer.applying(descriptor, to: afterRemoval).map(\.id) == ["s1"])
+    }
+
     @Test("transcript-content frames leave the list untouched")
     func ignoresContentFrames() {
-        let reducer = ChatSessionListReducer(workspaceID: "ws-1")
+        var reducer = ChatSessionListReducer(workspaceID: "ws-1")
         let seed = [descriptor("s1")]
         let frames: [ChatSessionEvent] = [.appended([]), .updated([]), .reset, .unknown("x")]
         for event in frames {
@@ -112,7 +184,7 @@ struct ChatSessionListReducerTests {
 
     @Test("a frame that races the seed converges (idempotent upsert)")
     func idempotentUpsert() {
-        let reducer = ChatSessionListReducer(workspaceID: "ws-1")
+        var reducer = ChatSessionListReducer(workspaceID: "ws-1")
         // The seed already contains s1; the racing descriptorChanged for the
         // same session must not duplicate it.
         let seed = [descriptor("s1", state: Self.working)]
@@ -124,7 +196,7 @@ struct ChatSessionListReducerTests {
 
     @Test("a lower-version descriptorChanged is dropped; a higher one applies")
     func versionGatedUpsert() {
-        let reducer = ChatSessionListReducer(workspaceID: "ws-1")
+        var reducer = ChatSessionListReducer(workspaceID: "ws-1")
         func desc(_ state: ChatAgentState, _ version: Int) -> ChatSessionDescriptor {
             ChatSessionDescriptor(
                 id: "s1", agentKind: .claude, workspaceID: "ws-1",

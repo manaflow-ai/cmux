@@ -25,6 +25,48 @@ Run package tests:
 swift test --package-path ios/cmuxPackage
 ```
 
+## Pairing a sideloaded dev build with a real (beta/stable) Mac
+
+A plain dev (DEBUG) build signs in to cmux's development Stack project. Stack
+user ids are per-project, so a dev build's user id can never match the
+production account binding (`ub`) a release Mac stamps into its pairing QR —
+pairing fails instantly, even with the same email on the same tailnet
+(https://github.com/manaflow-ai/cmux/issues/7145). To dogfood a device build
+against your real Mac, build with production auth:
+
+```bash
+ios/scripts/reload.sh --tag my-tag --device-only --prod-auth
+```
+
+What `--prod-auth` does:
+
+- Bakes `CMUXAuthEnvironment=production` into the app's Info.plist (via the
+  `CMUX_IOS_AUTH_ENV` build setting), so the build signs in against the
+  production Stack project and uses `https://cmux.com` for the device
+  registry/API and the magic-link callback.
+- Makes the presence worker follow the auth channel: the app resolves the
+  production presence instance (see `PresenceClient.productionServiceURL`) so
+  your real Macs appear in Computers. The worker URLs live only in Swift —
+  the script bakes no copy — and an explicit `CMUX_PRESENCE_BASE_URL` still
+  wins.
+- Skips the dogfood auto sign-in/auto-pair (those credentials belong to the
+  development Stack project). Sign in in-app with the same account as your
+  Mac.
+- On first launch after switching auth environments on the same install, the
+  app clears the previous environment's session/caches (tokens and user ids
+  are per-Stack-project), so you start signed out instead of restoring a
+  stale identity.
+
+Scan the Mac's pairing QR with the **in-app** scanner. The system Camera app
+routes release QR links (`cmux-ios://…`) to the beta/App Store app because
+pairing URL schemes are channel-specific; the in-app scanner accepts both
+schemes.
+
+Without the flag, the same override is available by bundling a
+`LocalConfig.plist` with an `AuthEnvironment` string of `production` (see
+`MobileAuthComposition`); a `LocalConfig.plist` entry wins over the baked
+Info.plist value.
+
 ## TestFlight beta (cloud lane)
 
 `ios/scripts/cloud-testflight.sh` is the turnkey lane for cutting a TestFlight

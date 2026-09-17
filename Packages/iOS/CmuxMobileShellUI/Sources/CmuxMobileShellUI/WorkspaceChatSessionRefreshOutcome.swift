@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import Foundation
 
 /// Result of refreshing a workspace's chat-session list.
 enum WorkspaceChatSessionRefreshOutcome: Equatable {
@@ -25,5 +26,58 @@ enum WorkspaceChatSessionRefreshOutcome: Equatable {
         case .authoritative:
             true
         }
+    }
+}
+
+extension ChatSessionEventFrame {
+    func shouldPullAuthoritativeSnapshotForIgnoredWorkspaceFrame(
+        workspaceID: String,
+        selectedTerminalID: String?,
+        cachedChatToggleTerminalID: String?
+    ) -> Bool {
+        guard case .descriptorChanged(let descriptor) = event,
+              descriptor.workspaceID != workspaceID,
+              let terminalID = descriptor.terminalID else {
+            return false
+        }
+        return terminalID == selectedTerminalID || terminalID == cachedChatToggleTerminalID
+    }
+}
+
+extension Collection where Element == ChatSessionDescriptor {
+    func replacementSessionIDForPinnedChat(
+        pinnedID: String,
+        cachedTerminalID: String?
+    ) -> String? {
+        let pinned = first { $0.id == pinnedID }
+        guard pinned == nil || pinned?.state == .ended else { return nil }
+        let terminalID = pinned?.terminalID ?? cachedTerminalID
+        guard let terminalID else { return nil }
+        return filter { $0.terminalID == terminalID && $0.id != pinnedID && $0.state != .ended }
+            .max { ($0.lastActivityAt ?? .distantPast) < ($1.lastActivityAt ?? .distantPast) }?
+            .id
+    }
+}
+
+extension Array where Element == ChatSessionDescriptor {
+    func preservingPinnedPendingAliasRemoval(
+        previous: [ChatSessionDescriptor],
+        frame: ChatSessionEventFrame,
+        pinnedID: String?,
+        cachedTerminalID: String?
+    ) -> [ChatSessionDescriptor] {
+        guard case .sessionRemoved = frame.event,
+              let pinnedID,
+              frame.sessionID == pinnedID,
+              pinnedID.hasPrefix("pending-claude-"),
+              !contains(where: { $0.id == pinnedID }),
+              replacementSessionIDForPinnedChat(
+                  pinnedID: pinnedID,
+                  cachedTerminalID: cachedTerminalID
+              ) == nil,
+              let pinned = previous.first(where: { $0.id == pinnedID }) else {
+            return self
+        }
+        return self + [pinned.withState(.ended)]
     }
 }

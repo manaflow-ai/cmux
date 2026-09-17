@@ -12,7 +12,53 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `541e5e89d`, which merges the render-grid span
+Current cmux pinned fork head: `cc31d54ee`, a merge of upstream
+`ghostty-org/ghostty` `main` (`d560c645`, 2026-07-03, ~271 first-parent
+commits) onto the previous pin `541e5e89d`. Published via
+manaflow-ai/ghostty#93.
+
+### Upstream TLDR (`541e5e89d..d560c645`)
+
+- Terminal: click/drag selection extracted into a `SelectionGesture` API with a
+  new `selection_changed` notification (`GHOSTTY_ACTION_SELECTION_CHANGED`
+  enum value added, additively); `click_events=2` support; OSC 7/9/1337
+  `pwd_changed` callback; glyph-protocol glossary; configurable default cursor
+  style/blink in libghostty-vt; prompt preservation on resize by default.
+- Correctness: fixes for `Surface.setSelection` use-after-free, resize/scrollback
+  wrap-count overflow, `resizeCols` cursor saturation, and utf-8 grapheme length
+  overflow.
+- macOS/platform: tab-bar appearance sync, macOS 27 beta tab-frame fix,
+  notification retain-cycle fix, kitty-graphics generation stamps; plus routine
+  i18n/colorscheme/dependency churn.
+
+### Conflict notes (`src/Surface.zig`, resolved in the merge)
+
+1. `mouseButtonCallback` link-click handling. Upstream refactored the
+   left-release block to hold the renderer lock for the whole block and to pass
+   a cached `release_pos` plus a `selection_gesture.left_click_dragged` guard.
+   Resolution keeps the fork's latched ctrl/super link-click semantics
+   (`link_click_active` / `link_press_over_link` / `armed_off_link`,
+   manaflow-ai/cmux#5128), drops the fork's now-double-locking
+   `renderer_state.mutex.lock()` (it would deadlock against the lock taken at
+   the top of the block), reuses upstream's `release_pos`, and AND-s in
+   upstream's `!left_click_dragged` guard.
+2. Selection tests. Upstream removed the `mouseSelection` helper in favor of the
+   new `SelectionGesture` API, so the fork's `testMouseSelection`-based
+   `"Surface: selection logic"` / `"Surface: rectangle selection logic"` tests
+   referenced deleted code. Those two tests were dropped; the fork-only
+   `"Surface: mouseLinkRefreshAllowedState honors ctrl/super under mouse
+   reporting"` test was kept (its target fn still exists).
+
+Verified: `CMUX_GHOSTTYKIT_NO_PREBUILT=1 ./scripts/ensure-ghosttykit.sh` built
+GhosttyKit cleanly from the merge; cmux's ghostty C ABI surface (51 called
+`ghostty_*` functions) is unchanged in `include/ghostty.h` across the range
+(only the additive `GHOSTTY_ACTION_SELECTION_CHANGED` enum value); tagged cmux
+reload `gtyup`. Prebuilt archive:
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-cc31d54eef285de2f73b17a2aeafc24904722131-crashsubdir-cmux-crash-v1
+
+### Previous pin
+
+Previous cmux pinned fork head: `541e5e89d`, which merges the render-grid span
 preservation head `1b454eb99` from manaflow-ai/ghostty#89 with the
 Arabic/Hebrew RTL shaping head `7a5179843` from manaflow-ai/ghostty#88.
 

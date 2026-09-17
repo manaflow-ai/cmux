@@ -202,7 +202,7 @@ import Testing
         // A workspace sync now reports only term-a (term-b was closed). Setting
         // `workspaces` is the single topology funnel; its `didSet` must prune the
         // staged bytes for the terminal that disappeared.
-        composite.setWorkspacesForTesting([
+        composite.replaceForegroundWorkspaceState([
             MobileWorkspacePreview(id: "ws-1", name: "ws", terminals: [Self.terminalA]),
         ])
 
@@ -219,7 +219,7 @@ import Testing
 
         // term-b moves to a second workspace; it is still in topology, so its
         // attachments survive.
-        composite.setWorkspacesForTesting([
+        composite.replaceForegroundWorkspaceState([
             MobileWorkspacePreview(id: "ws-1", name: "ws", terminals: [Self.terminalA]),
             MobileWorkspacePreview(id: "ws-2", name: "ws2", terminals: [Self.terminalB]),
         ])

@@ -397,6 +397,11 @@ cmux 免费且开源，并将一直如此。如果您想支持开发并提前体
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
 
+<p>
+  <strong>WeChat：</strong>扫描二维码加入社区。<br />
+  <img src="./docs/assets/wechat-community-qr.jpg" alt="用于加入 cmux 社区的 WeChat 二维码" width="240" />
+</p>
+
 ## Founder's Edition
 
 cmux 免费、开源，并将一直如此。如果您想支持开发并提前体验即将推出的功能：

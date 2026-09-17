@@ -12,6 +12,7 @@ mod agent;
 mod browser;
 mod model;
 mod mux;
+mod short_id;
 mod surface;
 
 pub mod layout;
@@ -19,10 +20,12 @@ pub mod server;
 
 pub use agent::{AgentEntry, AgentInfo, AgentSource, AgentState, AgentStateChange};
 pub use layout::{
-    layout_screen, split_for_pane_edge, split_sides, LayoutResult, Rect, SplitEdge, SplitResize,
+    directional_neighbor, layout_screen, split_for_pane_edge, split_sides, LayoutResult, Rect,
+    SplitEdge, SplitResize,
 };
 pub use model::{Node, Pane, Screen, State, Workspace};
 pub use mux::{Mux, MuxEvent};
+pub use short_id::assign_short_ids;
 pub use surface::{
     AttachFrame, AttachStream, BrowserFrame, BrowserSource, DefaultColors, Surface, SurfaceKind,
     SurfaceOptions,

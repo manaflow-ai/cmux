@@ -397,6 +397,11 @@ cmux безкоштовний та з відкритим кодом, і завж
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
 
+<p>
+  <strong>WeChat:</strong> відскануйте QR-код, щоб приєднатися до спільноти.<br />
+  <img src="./docs/assets/wechat-community-qr.jpg" alt="QR-код WeChat для приєднання до спільноти cmux" width="240" />
+</p>
+
 ## Founder's Edition
 
 cmux є безкоштовним, з відкритим кодом і завжди буде таким. Якщо ви хочете підтримати розробку та отримати ранній доступ до того, що буде далі:

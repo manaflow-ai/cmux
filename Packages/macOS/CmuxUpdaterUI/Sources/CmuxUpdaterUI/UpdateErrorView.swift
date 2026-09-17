@@ -13,8 +13,11 @@ struct UpdateErrorView: View {
     var body: some View {
         let title = UpdateStateModel.userFacingErrorTitle(for: error.error)
         let message = UpdateStateModel.userFacingErrorMessage(for: error.error)
-        let downloadURL = UpdateStateModel.manualDownloadURL(for: error.error)
-        let details = UpdateStateModel.errorDetails(
+        let downloadURL = UpdateManualDownloadRecovery().url(
+            for: error.error,
+            feedURLString: error.feedURLString
+        )
+        let details = UpdateErrorDetailsFormatter().details(
             for: error.error,
             technicalDetails: error.technicalDetails,
             feedURLString: error.feedURLString,

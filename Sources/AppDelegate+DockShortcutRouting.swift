@@ -8,8 +8,8 @@ import CmuxPanes
 /// so pressing e.g. Cmd+Shift+L while a Dock pane is focused spawned a browser in
 /// the main split tree instead of the Dock. Mirrors the existing focus-gated
 /// routing in `closeFocusedDockPanelForCommand` (`Workspace+DockBrowserLookup.swift`):
-/// the gate is `activeRightSidebarMode == .dock`, and the right-sidebar Dock is the
-/// app-wide Global Dock (`RightSidebarPanelView` always renders `app.globalDock`).
+/// the gate is `activeRightSidebarMode == .dock`, and the right-sidebar Dock is
+/// that window's own Dock (`RightSidebarPanelView` renders the per-window store).
 extension AppDelegate {
     /// The Dock store that should receive a creation/split shortcut when the Dock
     /// owns keyboard focus in `preferredWindow`, else `nil` (caller falls through
@@ -21,10 +21,11 @@ extension AppDelegate {
         guard context.keyboardFocusCoordinator.activeRightSidebarMode == .dock else {
             return nil
         }
-        if let globalDock = existingGlobalDock {
-            return globalDock
-        }
-        return context.tabManager.selectedWorkspace?.dockSplit
+        // Dock mode showing means the right sidebar rendered this window's own
+        // Dock (which created it), so this resolves the store already on screen.
+        // No workspace-Dock fallback: the sidebar never renders one, so routing
+        // a creation shortcut there would target an invisible tree.
+        return windowDock(forWindowId: context.windowId)
     }
 
     /// Creates a New Terminal / New Browser surface in the focused Dock pane.

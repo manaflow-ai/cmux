@@ -165,6 +165,23 @@ pub fn draw_menu(app: &mut App, frame: &mut Frame) {
     }
 }
 
+pub fn draw_toast(app: &App, frame: &mut Frame) {
+    let Some(toast) = app.toast.as_ref() else { return };
+    let area = app.content_area;
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    let label = format!(" {} ", toast.text);
+    let width = label_width(&label).min(area.width);
+    if width == 0 {
+        return;
+    }
+    let x = area.x + area.width.saturating_sub(width + 1);
+    let y = area.y + area.height.saturating_sub(2);
+    let style = Style::default().bg(Color::Indexed(240)).fg(Color::Indexed(255));
+    frame.buffer_mut().set_stringn(x, y, &label, width as usize, style);
+}
+
 fn set_cell(buf: &mut Buffer, x: u16, y: u16, symbol: &str, style: Style) {
     let cell = &mut buf[(x, y)];
     cell.reset();

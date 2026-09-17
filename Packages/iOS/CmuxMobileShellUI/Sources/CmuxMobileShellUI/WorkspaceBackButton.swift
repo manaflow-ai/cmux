@@ -14,8 +14,10 @@ struct WorkspaceBackButton: View {
         Button(action: action) {
             HStack(spacing: 5) {
                 Image(systemName: "chevron.backward")
-                    .fontWeight(.semibold)
+                    .font(.system(size: 17, weight: .semibold))
+                    .imageScale(.medium)
                     .foregroundStyle(.primary)
+                    .frame(width: 17, height: 22)
                 if unreadCount > 0 {
                     Text(countText)
                         // Smaller than the chevron, on a small mono circle.
@@ -27,7 +29,6 @@ struct WorkspaceBackButton: View {
                         .background(badgeFillColor, in: .circle)
                 }
             }
-            .contentShape(.rect)
         }
         .accessibilityLabel(accessibilityLabel)
         .accessibilityIdentifier("MobileWorkspaceBackButton")

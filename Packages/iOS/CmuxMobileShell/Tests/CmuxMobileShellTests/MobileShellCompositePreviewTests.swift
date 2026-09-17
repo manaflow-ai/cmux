@@ -46,7 +46,7 @@ import Testing
         store.connectPreviewHost()
         // Group sections are account-scoped: the previous account's group
         // names must not survive sign-out into the next session.
-        store.setWorkspacesForTesting(store.workspaces, groups: [
+        store.replaceForegroundWorkspaceState(store.workspaces, groups: [
             MobileWorkspaceGroupPreview(
                 id: "group-1",
                 name: "previous account group",
@@ -70,7 +70,7 @@ import Testing
         store.signIn()
         store.pairingCode = "debug"
         store.connectPreviewHost()
-        store.setWorkspacesForTesting([
+        store.replaceForegroundWorkspaceState([
             MobileWorkspacePreview(id: "ws-foreground", name: "Live", terminals: []),
         ])
         #expect(store.workspaces.map(\.id.rawValue) == ["ws-foreground"])

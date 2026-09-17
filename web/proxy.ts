@@ -2,6 +2,11 @@ import { type NextRequest, NextResponse } from "next/server";
 import createMiddleware from "next-intl/middleware";
 import { routing } from "./i18n/routing";
 import { isAgentPageVariantPath } from "./app/lib/agent-page-paths";
+import {
+  featureWorkflowContentLocales,
+  featureWorkflowDocRequestForPathname,
+} from "./i18n/locale-availability";
+import { buildAlternateLinkHeader } from "./i18n/seo";
 
 const intlMiddleware = createMiddleware(routing);
 
@@ -41,6 +46,20 @@ export default function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  const featureWorkflowDocRequest =
+    featureWorkflowDocRequestForPathname(pathname);
+  if (featureWorkflowDocRequest && !featureWorkflowDocRequest.locale) {
+    const url = request.nextUrl.clone();
+    url.pathname = `/en${featureWorkflowDocRequest.path}`;
+    const response = NextResponse.rewrite(url);
+    setFeatureWorkflowDocLinkHeader(
+      response,
+      request,
+      featureWorkflowDocRequest.path,
+    );
+    return response;
+  }
+
   // Legal pages are English-only. Redirect /<locale>/legal-page to /legal-page,
   // and skip next-intl for /legal-page so locale detection can't redirect back.
   const englishOnlyPages = new Set([
@@ -63,7 +82,35 @@ export default function middleware(request: NextRequest) {
     }
   }
 
-  return intlMiddleware(request);
+  const response = intlMiddleware(request);
+  if (featureWorkflowDocRequest) {
+    setFeatureWorkflowDocLinkHeader(
+      response,
+      request,
+      featureWorkflowDocRequest.path,
+    );
+  }
+
+  return response;
+}
+
+function setFeatureWorkflowDocLinkHeader(
+  response: NextResponse,
+  request: NextRequest,
+  path: string,
+) {
+  response.headers.set(
+    "Link",
+    buildAlternateLinkHeader(
+      requestOrigin(request),
+      path,
+      featureWorkflowContentLocales,
+    ),
+  );
+}
+
+function requestOrigin(request: NextRequest) {
+  return request.nextUrl.origin;
 }
 
 export const config = {

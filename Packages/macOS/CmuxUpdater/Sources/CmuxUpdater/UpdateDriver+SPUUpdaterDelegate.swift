@@ -18,8 +18,7 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
         // The feed URL is baked into Info.plist at build time:
         // - Stable releases use the stable appcast URL
         // - cmux NIGHTLY has the nightly appcast URL injected by CI
-        let infoFeedURL = Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String
-        let resolved = UpdateFeedResolver().resolve(infoFeedURL: infoFeedURL)
+        let resolved = UpdateFeedResolver().resolve(infoFeedURL: infoFeedURLProvider())
         log.append("update channel: \(resolved.isNightly ? "nightly" : "stable")")
         recordFeedURLString(resolved.url, usedFallback: resolved.usedFallback)
         return resolved.url

@@ -4,6 +4,8 @@ Dock is the cmux right sidebar rendered as a full panel container. It uses the *
 
 Dock is useful for project dashboards, git views, logs, queues, local services, test watchers, dev servers, custom TUIs, and reference web pages. Feed can be added as one optional terminal with `cmux feed tui --opentui`, but Dock is not limited to Feed.
 
+Every cmux window has its own independent Dock. Opening a new window seeds that window's Dock fresh from your Dock config (exactly like a fresh app launch), multiple windows can show their Docks side by side, and closing a window closes its Dock terminals and browsers with it.
+
 Each terminal command starts inside the terminal's non-interactive login shell. That keeps the user's normal PATH and toolchain setup without running prompt code before the TUI starts. When the command exits, Dock drops into an interactive login shell in the same section so the user can inspect, rerun, or exit.
 
 ## In-app panes (no config required)

@@ -153,7 +153,7 @@ public actor FixtureChatEventSource: ChatEventSource {
             break
         case .unknown:
             break
-        case .stateChanged, .descriptorChanged:
+        case .stateChanged, .descriptorChanged, .sessionRemoved:
             break
         }
         for continuation in continuations.values {

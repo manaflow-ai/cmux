@@ -142,8 +142,9 @@ extension ControlCommandCoordinator {
 
     /// The byte-faithful twin of `v2SurfaceResumeBindingPayload`: a `null` binding
     /// becomes JSON `null`, else the resume-binding object. Shared by `surface.list`
-    /// rows and the resume results.
-    func surfaceResumeBindingPayload(_ binding: ControlSurfaceResumeBinding?) -> JSONValue {
+    /// rows and the resume results. `nonisolated`: pure value mapping, used by
+    /// the worker-lane `surface.list` body's off-main payload shaping.
+    nonisolated func surfaceResumeBindingPayload(_ binding: ControlSurfaceResumeBinding?) -> JSONValue {
         guard let binding else { return .null }
         let environment: JSONValue = binding.environment.map { env in
             .object(env.mapValues { .string($0) })

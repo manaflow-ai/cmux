@@ -219,7 +219,7 @@ private final class UpdateRecorder: @unchecked Sendable {
     }
 }
 
-@Suite("RemoteProxyBroker")
+@Suite("RemoteProxyBroker", .serialized)
 struct RemoteProxyBrokerTests {
     private func makeConfiguration(destination: String = "test@example.invalid", localProxyPort: Int? = nil) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(

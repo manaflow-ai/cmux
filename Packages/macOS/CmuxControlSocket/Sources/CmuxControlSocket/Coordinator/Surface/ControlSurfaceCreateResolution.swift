@@ -25,6 +25,9 @@ public enum ControlSurfaceCreateResolution: Sendable, Equatable {
     /// Dock placement was requested while the Dock sidebar mode is unavailable
     /// (`invalid_params`, app-bundle-resolved message, `data: {"placement": "dock"}`).
     case dockUnavailable(message: String)
+    /// Dock placement was requested with selectors that name different window
+    /// Docks (`invalid_params`, app-bundle-resolved message).
+    case dockConflictingRoutingSelectors(message: String)
     /// The browser was disabled; carries the shared external-open outcome.
     case browserDisabled(ControlSurfaceBrowserDisabledOutcome)
     /// No workspace resolved (legacy `not_found` / "Workspace not found").

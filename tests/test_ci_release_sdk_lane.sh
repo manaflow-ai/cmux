@@ -44,7 +44,7 @@ require_job_contains \
 require_job_contains \
   "$CI_FILE" \
   "release-ghostty-cli-helper" \
-  'runs-on: ${{ vars.MACOS_RUNNER_15 || '\''blacksmith-6vcpu-macos-15'\'' }}' \
+  'runs-on: ${{ vars.MACOS_RUNNER_15 || '\''warp-macos-15-arm64-6x'\'' }}' \
   "CI must build the real Ghostty CLI helper on macOS 15"
 
 require_job_contains \

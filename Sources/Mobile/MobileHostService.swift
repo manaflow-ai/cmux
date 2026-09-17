@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxSettings
+import CmuxTerminalCore
 import CryptoKit
 import Foundation
 @preconcurrency import Network
@@ -302,10 +303,18 @@ final class MobileHostService {
     /// surface — see ``networkStatusResult(for:)`` for the verified-caller
     /// reply that carries it.
     nonisolated static func publicStatusPayload(routesPayload: [[String: Any]]) -> [String: Any] {
-        [
+        // The Mac's resolved terminal theme is caller-independent, so it rides
+        // the public payload (identity merges on top). `GhosttyConfig.load()`
+        // resolves named ghostty themes, cmux's managed defaults, and explicit
+        // color overrides into a complete effective palette; the phone applies
+        // it so its embedded terminal renders with the Mac's colors instead of
+        // the built-in Monokai default.
+        let theme = TerminalTheme(ghosttyConfig: GhosttyConfig.load())
+        return [
             "routes": routesPayload,
             "terminal_fidelity": "render_grid",
             "capabilities": mobileHostCapabilities,
+            "theme": theme.mobileHostJSONObject,
         ]
     }
 

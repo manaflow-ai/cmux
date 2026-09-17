@@ -31,9 +31,17 @@ struct AttemptUpdateCoordinator {
     private enum Phase: Equatable {
         /// Not coordinating an install.
         case inactive
-        /// A fresh check was requested. The prompt that was on screen when the user asked may be
-        /// stale, so ignore any lingering `.updateAvailable` until the check actually restarts.
+        /// A fresh check was requested but has not started running yet. The prompt that was on
+        /// screen when the user asked may be stale, and the restart deliberately passes through
+        /// `.idle` one or more times (once when ``UpdateController`` cancels the active prompt, and
+        /// again when Sparkle's `dismissUpdateInstallation` callback fires in response to the
+        /// dismissed prompt), so ignore every state here until the fresh check actually starts —
+        /// signalled unambiguously by `.checking`.
         case awaitingCheckRestart
+        /// The stale prompt has been dismissed, but Sparkle has not yet surfaced the fresh
+        /// `.checking` state. Duplicate idle notifications in this window are still part of the
+        /// restart path, not a user cancellation.
+        case awaitingCheckStart
         /// The check has restarted; install the next update it resolves.
         case awaitingResult
     }
@@ -75,13 +83,31 @@ struct AttemptUpdateCoordinator {
                 // Still the pre-request prompt (or a coalesced repeat of it); keep waiting for the
                 // fresh check to actually start before trusting an `.updateAvailable`.
                 return .none
-            case .idle, .checking, .downloading, .extracting, .installing, .permissionRequest:
-                // The check has restarted (or the stale prompt was cleared). Confirm whatever it
-                // resolves next.
+            case .idle:
+                // The stale prompt was cleared. Sparkle can emit another idle notification before
+                // the fresh check starts (#7235), so do not treat idle as cancellation yet.
+                phase = .awaitingCheckStart
+                return .none
+            case .checking, .downloading, .extracting, .installing, .permissionRequest:
+                // The check has restarted. Confirm whatever it resolves next.
                 phase = .awaitingResult
                 return .none
             case .notFound, .error:
                 // The fresh check ended without an update; stop coordinating.
+                phase = .inactive
+                return .none
+            }
+
+        case .awaitingCheckStart:
+            switch state {
+            case .idle, .updateAvailable:
+                // Duplicate idle/stale-available emissions can arrive while Sparkle is tearing
+                // down the dismissed prompt. Keep waiting for the fresh check to begin.
+                return .none
+            case .checking, .downloading, .extracting, .installing, .permissionRequest:
+                phase = .awaitingResult
+                return .none
+            case .notFound, .error:
                 phase = .inactive
                 return .none
             }

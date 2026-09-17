@@ -16,17 +16,31 @@ public struct AuthLaunchOptions: Equatable, Sendable {
     /// debug credentials (DEBUG / `CMUX_DEV_AUTH` builds).
     public let includesDevAuth: Bool
 
+    /// Whether launch must first drop the previous auth environment's local
+    /// state: the install's resolved Stack project changed since its last
+    /// launch (an iOS dev install rebuilt with `--prod-auth`, or back), so the
+    /// persisted tokens/user/teams belong to a different project and could
+    /// only fail validation or flash the wrong identity.
+    ///
+    /// Unlike ``clearAuthRequested`` — the UI-test end state, which clears and
+    /// stops (suppressing auto-login) — this clear runs BEFORE normal priming
+    /// and leaves the rest of launch intact, so DEBUG auto-login credentials
+    /// still sign in on the same launch.
+    public let clearStaleAuthOnLaunch: Bool
+
     /// Creates launch options.
     public init(
         clearAuthRequested: Bool,
         mockDataEnabled: Bool,
         environment: [String: String],
-        includesDevAuth: Bool
+        includesDevAuth: Bool,
+        clearStaleAuthOnLaunch: Bool = false
     ) {
         self.clearAuthRequested = clearAuthRequested
         self.mockDataEnabled = mockDataEnabled
         self.environment = environment
         self.includesDevAuth = includesDevAuth
+        self.clearStaleAuthOnLaunch = clearStaleAuthOnLaunch
     }
 
     /// Whether the coordinator should begin auto-login: credentials present and

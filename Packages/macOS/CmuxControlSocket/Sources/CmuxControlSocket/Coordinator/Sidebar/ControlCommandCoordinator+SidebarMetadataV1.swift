@@ -5,11 +5,26 @@ internal import Foundation
 /// their clears + listings), lifted byte-faithfully from the former
 /// `TerminalController` bodies. Parsing and reply formatting run here; live
 /// app reach goes through ``ControlSidebarContext``.
+///
+/// Every body is `nonisolated` (the socket dispatcher's v1 worker lane runs
+/// them on the connection thread): parse/validation/formatting run on the
+/// calling thread, deferred mutations go through the `nonisolated`
+/// `Schedule*` seam witnesses (mutation-bus enqueues), and each command
+/// crosses to the main actor at most once via
+/// ``ControlSidebarContext/controlSidebarOnMain(_:)`` for its synchronous
+/// resolution read/write. The seam is threaded as a parameter because the
+/// coordinator's `context` property is main-actor-isolated.
 extension ControlCommandCoordinator {
     // MARK: - Status / metadata entries
 
-    /// The shared `set_status`/`report_meta` upsert body.
-    func sidebarUpsertMetadata(_ args: String, missingError: String) -> String {
+    /// The shared `set_status`/`report_meta` upsert body: parse + validate on
+    /// the calling thread, then a bus enqueue; the `OK` reply is parse-only
+    /// (zero main hops, exactly the legacy deferred-mutation semantics).
+    nonisolated func sidebarUpsertMetadata(
+        _ args: String,
+        missingError: String,
+        context: (any ControlCommandContext)?
+    ) -> String {
         let parsed = sidebarParseOptionsNoStop(args)
         guard parsed.positional.count >= 2 else { return missingError }
 
@@ -65,7 +80,7 @@ extension ControlCommandCoordinator {
             return nil
         }()
 
-        sidebarContext?.controlSidebarScheduleStatusUpsert(
+        context?.controlSidebarScheduleStatusUpsert(
             target: target,
             key: key,
             value: value,
@@ -80,8 +95,13 @@ extension ControlCommandCoordinator {
         return "OK"
     }
 
-    /// The shared `clear_status`/`clear_meta` body.
-    func sidebarClearMetadata(_ args: String, usage: String) -> String {
+    /// The shared `clear_status`/`clear_meta` body (parse + bus enqueue; zero
+    /// main hops).
+    nonisolated func sidebarClearMetadata(
+        _ args: String,
+        usage: String,
+        context: (any ControlCommandContext)?
+    ) -> String {
         let parsed = sidebarParseOptions(args)
         guard let key = parsed.positional.first, parsed.positional.count == 1 else {
             return "ERROR: Missing metadata key — usage: \(usage)"
@@ -92,39 +112,50 @@ extension ControlCommandCoordinator {
             return targetResolution.error ?? "ERROR: No tab selected"
         }
 
-        sidebarContext?.controlSidebarScheduleStatusClear(target: target, key: key)
+        context?.controlSidebarScheduleStatusClear(target: target, key: key)
         return "OK"
     }
 
     /// `set_status` — upsert a status entry.
-    func sidebarSetStatus(_ args: String) -> String {
+    nonisolated func sidebarSetStatus(_ args: String, context: (any ControlCommandContext)?) -> String {
         sidebarUpsertMetadata(
             args,
-            missingError: "ERROR: Missing status key or value — usage: set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X]"
+            missingError: "ERROR: Missing status key or value — usage: set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X]",
+            context: context
         )
     }
 
     /// `report_meta` — upsert a metadata entry.
-    func sidebarReportMeta(_ args: String) -> String {
+    nonisolated func sidebarReportMeta(_ args: String, context: (any ControlCommandContext)?) -> String {
         sidebarUpsertMetadata(
             args,
-            missingError: "ERROR: Missing metadata key or value — usage: report_meta <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X]"
+            missingError: "ERROR: Missing metadata key or value — usage: report_meta <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X]",
+            context: context
         )
     }
 
     /// `clear_status` — remove a status entry.
-    func sidebarClearStatus(_ args: String) -> String {
-        sidebarClearMetadata(args, usage: "clear_status <key> [--tab=X]")
+    nonisolated func sidebarClearStatus(_ args: String, context: (any ControlCommandContext)?) -> String {
+        sidebarClearMetadata(args, usage: "clear_status <key> [--tab=X]", context: context)
     }
 
     /// `clear_meta` — remove a metadata entry.
-    func sidebarClearMeta(_ args: String) -> String {
-        sidebarClearMetadata(args, usage: "clear_meta <key> [--tab=X]")
+    nonisolated func sidebarClearMeta(_ args: String, context: (any ControlCommandContext)?) -> String {
+        sidebarClearMetadata(args, usage: "clear_meta <key> [--tab=X]", context: context)
     }
 
-    /// The shared `list_status`/`list_meta` body.
-    func sidebarListMetadata(_ args: String, emptyMessage: String) -> String {
-        guard let entries = sidebarContext?.controlSidebarStatusEntries(tabArg: sidebarParseOptions(args).options["tab"]) else {
+    /// The shared `list_status`/`list_meta` body: one main hop returns the
+    /// Sendable snapshots; line formatting runs on the calling thread.
+    nonisolated func sidebarListMetadata(
+        _ args: String,
+        emptyMessage: String,
+        context: (any ControlCommandContext)?
+    ) -> String {
+        let tabArg = sidebarParseOptions(args).options["tab"]
+        let snapshot = context.map { seam in
+            seam.controlSidebarOnMain { $0.controlSidebarStatusEntries(tabArg: tabArg) }
+        } ?? nil
+        guard let entries = snapshot else {
             return "ERROR: Tab not found"
         }
         if entries.isEmpty {
@@ -134,27 +165,39 @@ extension ControlCommandCoordinator {
     }
 
     /// `list_status` — list status entries.
-    func sidebarListStatus(_ args: String) -> String {
-        sidebarListMetadata(args, emptyMessage: "No status entries")
+    nonisolated func sidebarListStatus(_ args: String, context: (any ControlCommandContext)?) -> String {
+        sidebarListMetadata(args, emptyMessage: "No status entries", context: context)
     }
 
     /// `list_meta` — list metadata entries.
-    func sidebarListMeta(_ args: String) -> String {
-        sidebarListMetadata(args, emptyMessage: "No metadata entries")
+    nonisolated func sidebarListMeta(_ args: String, context: (any ControlCommandContext)?) -> String {
+        sidebarListMetadata(args, emptyMessage: "No metadata entries", context: context)
     }
 
     // MARK: - Metadata blocks
 
-    /// `report_meta_block` — upsert a markdown metadata block.
-    func sidebarReportMetaBlock(_ args: String) -> String {
-        guard sidebarContext?.controlSidebarTabManagerAvailable() ?? false else {
-            return "ERROR: TabManager not available"
-        }
+    /// The parse outcome of `report_meta_block`, computed off-main so the
+    /// single hop only selects the reply in the legacy error order.
+    private struct SidebarMetaBlockParse {
+        let error: String?
+        let key: String
+        let markdown: String
+        let priority: Int
+        let target: ControlSidebarTabTarget
 
+        static func failure(_ error: String) -> SidebarMetaBlockParse {
+            SidebarMetaBlockParse(error: error, key: "", markdown: "", priority: 0, target: .selected)
+        }
+    }
+
+    /// The byte-faithful parse head of `report_meta_block` (everything the
+    /// legacy body checked after its TabManager-availability guard, in the
+    /// same order).
+    private nonisolated func sidebarParseReportMetaBlock(_ args: String) -> SidebarMetaBlockParse {
         let parts = sidebarSplitMetadataBlockArgs(args)
         let parsed = sidebarParseOptionsNoStop(parts.optionsPart)
         guard let key = parsed.positional.first, !key.isEmpty else {
-            return "ERROR: Missing metadata block key — usage: report_meta_block <key> [--priority=N] [--tab=X] -- <markdown>"
+            return .failure("ERROR: Missing metadata block key — usage: report_meta_block <key> [--priority=N] [--tab=X] -- <markdown>")
         }
 
         let markdown: String
@@ -163,7 +206,7 @@ extension ControlCommandCoordinator {
         } else if parsed.positional.count >= 2 {
             markdown = parsed.positional.dropFirst().joined(separator: " ")
         } else {
-            return "ERROR: Missing metadata markdown — usage: report_meta_block <key> [--priority=N] [--tab=X] -- <markdown>"
+            return .failure("ERROR: Missing metadata markdown — usage: report_meta_block <key> [--priority=N] [--tab=X] -- <markdown>")
         }
 
         let normalizedMarkdown = markdown
@@ -173,13 +216,13 @@ extension ControlCommandCoordinator {
 
         let trimmedMarkdown = normalizedMarkdown.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedMarkdown.isEmpty else {
-            return "ERROR: Missing metadata markdown — usage: report_meta_block <key> [--priority=N] [--tab=X] -- <markdown>"
+            return .failure("ERROR: Missing metadata markdown — usage: report_meta_block <key> [--priority=N] [--tab=X] -- <markdown>")
         }
 
         let priority: Int
         if let rawPriority = sidebarNormalizedOptionValue(parsed.options["priority"]) {
             guard let parsedPriority = Int(rawPriority) else {
-                return "ERROR: Invalid metadata block priority '\(rawPriority)' — must be an integer"
+                return .failure("ERROR: Invalid metadata block priority '\(rawPriority)' — must be an integer")
             }
             priority = max(-9999, min(9999, parsedPriority))
         } else {
@@ -188,26 +231,58 @@ extension ControlCommandCoordinator {
 
         let targetResolution = sidebarParseMutationTabTarget(options: parsed.options)
         guard let target = targetResolution.target else {
-            return targetResolution.error ?? "ERROR: No tab selected"
+            return .failure(targetResolution.error ?? "ERROR: No tab selected")
         }
 
-        sidebarContext?.controlSidebarScheduleMetadataBlockUpsert(
-            target: target,
+        return SidebarMetaBlockParse(
+            error: nil,
             key: key,
             markdown: normalizedMarkdown,
-            priority: priority
+            priority: priority,
+            target: target
         )
-        return "OK"
     }
 
-    /// `clear_meta_block` — remove a metadata block.
-    func sidebarClearMetaBlock(_ args: String) -> String {
+    /// `report_meta_block` — upsert a markdown metadata block.
+    ///
+    /// The legacy body checks TabManager availability BEFORE any parse error,
+    /// so the reply is selected inside the single hop, over the precomputed
+    /// parse outcome, in that exact order (a request with a nil TabManager and
+    /// a parse error must still report "TabManager not available").
+    nonisolated func sidebarReportMetaBlock(_ args: String, context: (any ControlCommandContext)?) -> String {
+        let parse = sidebarParseReportMetaBlock(args)
+        guard let context else { return "ERROR: TabManager not available" }
+        return context.controlSidebarOnMain { seam in
+            guard seam.controlSidebarTabManagerAvailable() else {
+                return "ERROR: TabManager not available"
+            }
+            if let error = parse.error {
+                return error
+            }
+            seam.controlSidebarScheduleMetadataBlockUpsert(
+                target: parse.target,
+                key: parse.key,
+                markdown: parse.markdown,
+                priority: parse.priority
+            )
+            return "OK"
+        }
+    }
+
+    /// `clear_meta_block` — remove a metadata block. The removed-vs-key-not-
+    /// found reply distinction requires the synchronous resolution, so the
+    /// removal stays a single main hop.
+    nonisolated func sidebarClearMetaBlock(_ args: String, context: (any ControlCommandContext)?) -> String {
         let parsed = sidebarParseOptions(args)
         guard let key = parsed.positional.first, parsed.positional.count == 1 else {
             return "ERROR: Missing metadata block key — usage: clear_meta_block <key> [--tab=X]"
         }
 
-        switch sidebarContext?.controlSidebarClearMetadataBlock(tabArg: parsed.options["tab"], key: key) ?? .tabNotFound {
+        let tabArg = parsed.options["tab"]
+        let resolution = context.map { seam in
+            seam.controlSidebarOnMain { $0.controlSidebarClearMetadataBlock(tabArg: tabArg, key: key) }
+        } ?? .tabNotFound
+        switch resolution {
         case .tabNotFound:
             return parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
         case .removed:
@@ -217,9 +292,14 @@ extension ControlCommandCoordinator {
         }
     }
 
-    /// `list_meta_blocks` — list metadata blocks.
-    func sidebarListMetaBlocks(_ args: String) -> String {
-        guard let blocks = sidebarContext?.controlSidebarMetadataBlocks(tabArg: sidebarParseOptions(args).options["tab"]) else {
+    /// `list_meta_blocks` — list metadata blocks (one snapshot hop, format
+    /// off-main).
+    nonisolated func sidebarListMetaBlocks(_ args: String, context: (any ControlCommandContext)?) -> String {
+        let tabArg = sidebarParseOptions(args).options["tab"]
+        let snapshot = context.map { seam in
+            seam.controlSidebarOnMain { $0.controlSidebarMetadataBlocks(tabArg: tabArg) }
+        } ?? nil
+        guard let blocks = snapshot else {
             return "ERROR: Tab not found"
         }
         if blocks.isEmpty {
@@ -230,8 +310,9 @@ extension ControlCommandCoordinator {
 
     // MARK: - Agent PID / lifecycle
 
-    /// `set_agent_pid` — register an agent PID for stale-session detection.
-    func sidebarSetAgentPID(_ args: String) -> String {
+    /// `set_agent_pid` — register an agent PID for stale-session detection
+    /// (parse + bus enqueue; zero main hops).
+    nonisolated func sidebarSetAgentPID(_ args: String, context: (any ControlCommandContext)?) -> String {
         let parsed = sidebarParseOptions(args)
         let usage = "set_agent_pid <key> <pid> [--tab=<id>] [--panel=<id>]"
         guard parsed.positional.count >= 2,
@@ -247,7 +328,7 @@ extension ControlCommandCoordinator {
         if let error = panelResolution.error {
             return error
         }
-        sidebarContext?.controlSidebarScheduleAgentPIDRecord(
+        context?.controlSidebarScheduleAgentPIDRecord(
             target: target,
             key: key,
             pid: pid,
@@ -257,7 +338,11 @@ extension ControlCommandCoordinator {
     }
 
     /// `set_agent_lifecycle` — record a restorable agent session's lifecycle.
-    func sidebarSetAgentLifecycle(_ args: String) -> String {
+    /// The vault-registry allowlist check
+    /// (`controlSidebarIsAllowedAgentLifecycleKey`) owns this command's single
+    /// main hop app-side: it snapshots the tab/panel directory candidates on
+    /// main and runs the registry disk IO on the calling thread.
+    nonisolated func sidebarSetAgentLifecycle(_ args: String, context: (any ControlCommandContext)?) -> String {
         let parsed = sidebarParseOptions(args)
         let usage = "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>]"
         guard parsed.positional.count >= 2 else {
@@ -265,7 +350,7 @@ extension ControlCommandCoordinator {
         }
         let key = parsed.positional[0]
         let rawLifecycle = parsed.positional[1]
-        guard let lifecycleRawValue = sidebarContext?.controlSidebarParseAgentLifecycle(rawLifecycle) else {
+        guard let lifecycleRawValue = context?.controlSidebarParseAgentLifecycle(rawLifecycle) else {
             return "ERROR: Invalid agent lifecycle '\(parsed.positional[1])' — usage: \(usage)"
         }
         let targetResolution = sidebarParseMutationTabTarget(options: parsed.options)
@@ -276,14 +361,14 @@ extension ControlCommandCoordinator {
         if let error = panelResolution.error {
             return error
         }
-        guard sidebarContext?.controlSidebarIsAllowedAgentLifecycleKey(
+        guard context?.controlSidebarIsAllowedAgentLifecycleKey(
             key,
             target: target,
             panelID: panelResolution.panelId
         ) ?? false else {
             return "ERROR: Unsupported agent lifecycle key '\(key)'"
         }
-        sidebarContext?.controlSidebarScheduleAgentLifecycle(
+        context?.controlSidebarScheduleAgentLifecycle(
             target: target,
             key: key,
             lifecycleRawValue: lifecycleRawValue,
@@ -292,26 +377,30 @@ extension ControlCommandCoordinator {
         return "OK"
     }
 
-    /// `agent_hibernation` — the global hibernation toggle.
-    func sidebarAgentHibernation(_ args: String) -> String {
+    /// `agent_hibernation` — the global hibernation toggle (the seam witness
+    /// applies the settings write in its own single main hop so the change
+    /// notification still posts on the main thread and the reply stays
+    /// apply-then-reply, as the legacy body was).
+    nonisolated func sidebarAgentHibernation(_ args: String, context: (any ControlCommandContext)?) -> String {
         let parsed = sidebarParseOptions(args)
         let subcommand = parsed.positional.first?.lowercased()
         let usage = "agent_hibernation <on|off>"
 
         switch subcommand {
         case "on", "enable", "enabled", "true":
-            sidebarContext?.controlSidebarSetAgentHibernation(enabled: true)
+            context?.controlSidebarSetAgentHibernation(enabled: true)
             return "OK"
         case "off", "disable", "disabled", "false":
-            sidebarContext?.controlSidebarSetAgentHibernation(enabled: false)
+            context?.controlSidebarSetAgentHibernation(enabled: false)
             return "OK"
         default:
             return "ERROR: Usage: \(usage)"
         }
     }
 
-    /// `clear_agent_pid` — unregister an agent PID.
-    func sidebarClearAgentPID(_ args: String) -> String {
+    /// `clear_agent_pid` — unregister an agent PID (parse + bus enqueue; zero
+    /// main hops).
+    nonisolated func sidebarClearAgentPID(_ args: String, context: (any ControlCommandContext)?) -> String {
         let parsed = sidebarParseOptions(args)
         let usage = "clear_agent_pid <key> [--tab=<id>] [--panel=<id>] [--clear-status]"
         guard let key = parsed.positional.first else {
@@ -325,7 +414,7 @@ extension ControlCommandCoordinator {
         if let error = panelResolution.error {
             return error
         }
-        sidebarContext?.controlSidebarScheduleAgentPIDClear(
+        context?.controlSidebarScheduleAgentPIDClear(
             target: target,
             key: key,
             panelID: panelResolution.panelId,
@@ -336,40 +425,54 @@ extension ControlCommandCoordinator {
 
     // MARK: - Log / progress
 
-    /// `log` — append a sidebar log entry.
-    func sidebarAppendLog(_ args: String) -> String {
+    /// `log` — append a sidebar log entry. The tab-resolution reply
+    /// (`Tab not found` / `No tab selected`) requires the synchronous append
+    /// result, so the write is the command's single main hop; level
+    /// validation and message assembly run on the calling thread.
+    nonisolated func sidebarAppendLog(_ args: String, context: (any ControlCommandContext)?) -> String {
         let parsed = sidebarParseOptions(args)
         guard !parsed.positional.isEmpty else {
             return "ERROR: Missing message — usage: log [--level=X] [--source=X] [--tab=X] -- <message>"
         }
         let message = parsed.positional.joined(separator: " ")
         let levelStr = parsed.options["level"] ?? "info"
-        guard sidebarContext?.controlSidebarIsValidLogLevel(levelStr) ?? false else {
+        guard context?.controlSidebarIsValidLogLevel(levelStr) ?? false else {
             return "ERROR: Unknown log level '\(levelStr)' — use: info, progress, success, warning, error"
         }
         let source = parsed.options["source"]
+        let tabArg = parsed.options["tab"]
 
-        guard sidebarContext?.controlSidebarAppendLog(
-            tabArg: parsed.options["tab"],
-            message: message,
-            levelRawValue: levelStr,
-            source: source
-        ) ?? false else {
+        let appended = context.map { seam in
+            seam.controlSidebarOnMain {
+                $0.controlSidebarAppendLog(
+                    tabArg: tabArg,
+                    message: message,
+                    levelRawValue: levelStr,
+                    source: source
+                )
+            }
+        } ?? false
+        guard appended else {
             return parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
         }
         return "OK"
     }
 
-    /// `clear_log` — clear the sidebar log.
-    func sidebarClearLog(_ args: String) -> String {
-        guard sidebarContext?.controlSidebarClearLog(tabArg: sidebarParseOptions(args).options["tab"]) ?? false else {
+    /// `clear_log` — clear the sidebar log (one resolution hop).
+    nonisolated func sidebarClearLog(_ args: String, context: (any ControlCommandContext)?) -> String {
+        let tabArg = sidebarParseOptions(args).options["tab"]
+        let cleared = context.map { seam in
+            seam.controlSidebarOnMain { $0.controlSidebarClearLog(tabArg: tabArg) }
+        } ?? false
+        guard cleared else {
             return "ERROR: Tab not found"
         }
         return "OK"
     }
 
-    /// `list_log` — list sidebar log entries.
-    func sidebarListLog(_ args: String) -> String {
+    /// `list_log` — list sidebar log entries (limit parse, suffix slice, and
+    /// line formatting off-main around one snapshot hop).
+    nonisolated func sidebarListLog(_ args: String, context: (any ControlCommandContext)?) -> String {
         let parsed = sidebarParseOptions(args)
         var limit: Int?
         if let limitStr = parsed.options["limit"] {
@@ -382,7 +485,11 @@ extension ControlCommandCoordinator {
             limit = parsedLimit
         }
 
-        guard let allEntries = sidebarContext?.controlSidebarLogEntries(tabArg: parsed.options["tab"]) else {
+        let tabArg = parsed.options["tab"]
+        let snapshot = context.map { seam in
+            seam.controlSidebarOnMain { $0.controlSidebarLogEntries(tabArg: tabArg) }
+        } ?? nil
+        guard let allEntries = snapshot else {
             return parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
         }
         if allEntries.isEmpty {
@@ -403,8 +510,9 @@ extension ControlCommandCoordinator {
         }.joined(separator: "\n")
     }
 
-    /// `set_progress` — set the sidebar progress bar.
-    func sidebarSetProgress(_ args: String) -> String {
+    /// `set_progress` — set the sidebar progress bar (value parse/clamp
+    /// off-main, one resolution hop for the write).
+    nonisolated func sidebarSetProgress(_ args: String, context: (any ControlCommandContext)?) -> String {
         let parsed = sidebarParseOptions(args)
         guard let first = parsed.positional.first else {
             return "ERROR: Missing progress value — usage: set_progress <0.0-1.0> [--label=X] [--tab=X]"
@@ -414,20 +522,26 @@ extension ControlCommandCoordinator {
         }
         let clamped = min(1.0, max(0.0, value))
         let label = parsed.options["label"]
+        let tabArg = parsed.options["tab"]
 
-        guard sidebarContext?.controlSidebarSetProgress(
-            tabArg: parsed.options["tab"],
-            value: clamped,
-            label: label
-        ) ?? false else {
+        let applied = context.map { seam in
+            seam.controlSidebarOnMain {
+                $0.controlSidebarSetProgress(tabArg: tabArg, value: clamped, label: label)
+            }
+        } ?? false
+        guard applied else {
             return parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
         }
         return "OK"
     }
 
-    /// `clear_progress` — clear the sidebar progress bar.
-    func sidebarClearProgress(_ args: String) -> String {
-        guard sidebarContext?.controlSidebarClearProgress(tabArg: sidebarParseOptions(args).options["tab"]) ?? false else {
+    /// `clear_progress` — clear the sidebar progress bar (one resolution hop).
+    nonisolated func sidebarClearProgress(_ args: String, context: (any ControlCommandContext)?) -> String {
+        let tabArg = sidebarParseOptions(args).options["tab"]
+        let cleared = context.map { seam in
+            seam.controlSidebarOnMain { $0.controlSidebarClearProgress(tabArg: tabArg) }
+        } ?? false
+        guard cleared else {
             return "ERROR: Tab not found"
         }
         return "OK"

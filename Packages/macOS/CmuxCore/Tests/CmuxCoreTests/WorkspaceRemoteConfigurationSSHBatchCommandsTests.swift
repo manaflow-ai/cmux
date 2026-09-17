@@ -50,7 +50,7 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
         let arguments = configuration().daemonTransportArguments(remotePath: "/remote/cmuxd-remote")
         let expectedCommand = #"sh -c 'exec '"'"'/remote/cmuxd-remote'"'"' '"'"'serve'"'"' '"'"'--stdio'"'"''"#
         #expect(
-            arguments == ["-T"]
+            arguments == ["-T", "-o", "RemoteCommand=none"]
                 + expectedBatchArguments
                 + ["-o", "RequestTTY=no", "cmux-macmini", expectedCommand]
         )
@@ -64,7 +64,7 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
         ).daemonTransportArguments(remotePath: "/remote/cmuxd-remote")
         let expectedCommand = #"sh -c 'exec '"'"'/remote/cmuxd-remote'"'"' '"'"'serve'"'"' '"'"'--stdio'"'"' '"'"'--persistent'"'"' '"'"'--slot'"'"' '"'"'ws-1'"'"''"#
         #expect(
-            arguments == ["-T"]
+            arguments == ["-T", "-o", "RemoteCommand=none"]
                 + expectedBatchArguments
                 + ["-o", "RequestTTY=no", "cmux-macmini", expectedCommand]
         )
@@ -83,6 +83,7 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
         #expect(
             arguments == [
                 "-T",
+                "-o", "RemoteCommand=none",
                 "-o", "ConnectTimeout=6",
                 "-o", "ServerAliveInterval=20",
                 "-o", "ServerAliveCountMax=2",
@@ -97,6 +98,24 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
                 expectedCommand,
             ]
         )
+    }
+
+    /// The stdio daemon transport appends its own positional remote command,
+    /// which OpenSSH refuses while a host ssh_config `RemoteCommand` is in
+    /// effect ("Cannot execute command-line and remote command.", issue
+    /// #7246) — the argv must override it before the destination.
+    @Test("daemonTransportArguments override a host-configured RemoteCommand")
+    func daemonTransportArgumentsOverrideHostConfiguredRemoteCommand() {
+        let arguments = configuration().daemonTransportArguments(remotePath: "/remote/cmuxd-remote")
+        let overrideIndex = arguments.indices.dropLast().first {
+            arguments[$0] == "-o" && arguments[$0 + 1] == "RemoteCommand=none"
+        }
+        let destinationIndex = arguments.firstIndex(of: "cmux-macmini")
+        #expect(overrideIndex != nil)
+        #expect(destinationIndex != nil)
+        if let overrideIndex, let destinationIndex {
+            #expect(overrideIndex < destinationIndex)
+        }
     }
 
     @Test("daemonSocketForwardArguments shape")

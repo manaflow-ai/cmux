@@ -204,16 +204,32 @@ struct CLIRemoteShellStartupPerformanceTests {
     }
 
     private var fakeSSHScript: String {
+        // Mirrors OpenSSH RemoteCommand semantics: the first obtained value
+        // wins and `none` clears it (so the bootstrap install hop's
+        // `-o RemoteCommand=none` guard for issue #7246 falls through to the
+        // positional installer command, exactly like real ssh).
         """
         #!/bin/sh
         remote_command=
+        remote_command_seen=
         last=
         while [ "$#" -gt 0 ]; do
           if [ "$1" = "-o" ] && [ "$#" -gt 1 ]; then
             shift
-            case "$1" in RemoteCommand=*) remote_command="${1#RemoteCommand=}" ;; esac
+            case "$1" in
+              RemoteCommand=*)
+                if [ -z "$remote_command_seen" ]; then
+                  remote_command_seen=1
+                  remote_command="${1#RemoteCommand=}"
+                  [ "$remote_command" = none ] && remote_command=
+                fi ;;
+            esac
           elif [ "${1#RemoteCommand=}" != "$1" ]; then
-            remote_command="${1#RemoteCommand=}"
+            if [ -z "$remote_command_seen" ]; then
+              remote_command_seen=1
+              remote_command="${1#RemoteCommand=}"
+              [ "$remote_command" = none ] && remote_command=
+            fi
           fi
           last="$1"
           shift

@@ -31,6 +31,9 @@ sdk_rank() {
 BEST_DIR=""
 BEST_VER=""
 BEST_RANK=-1
+BETA_DIR=""
+BETA_VER=""
+BETA_RANK=-1
 while IFS= read -r app; do
   [ -n "$app" ] || continue
   dev="$app/Contents/Developer"
@@ -41,6 +44,20 @@ while IFS= read -r app; do
     echo "Ignoring $app with unparsable macOS SDK version: $sdk_ver" >&2
     continue
   fi
+  # Beta Xcodes (e.g. Xcode_27.0_Beta.app) otherwise outrank every stable
+  # release and put the gate on an SDK nothing ships with. Only select one
+  # when the image has no stable Xcode at all.
+  case "$(basename "$app")" in
+    *[Bb]eta*)
+      echo "Found $app -> macOS SDK $sdk_ver (rank $rank, beta)"
+      if [ "$rank" -ge "$BETA_RANK" ]; then
+        BETA_DIR="$dev"
+        BETA_VER="$sdk_ver"
+        BETA_RANK="$rank"
+      fi
+      continue
+      ;;
+  esac
   echo "Found $app -> macOS SDK $sdk_ver (rank $rank)"
   # `-ge` so among equal-SDK Xcodes the alphabetically-last (newest point
   # release, e.g. Xcode_26.3.app over Xcode_26.2.0.app) wins.
@@ -50,6 +67,13 @@ while IFS= read -r app; do
     BEST_RANK="$rank"
   fi
 done < <(find "$APPLICATIONS_DIR" -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null | sort)
+
+if [ -z "$BEST_DIR" ] && [ -n "$BETA_DIR" ]; then
+  echo "No stable Xcode found; falling back to beta: $BETA_DIR" >&2
+  BEST_DIR="$BETA_DIR"
+  BEST_VER="$BETA_VER"
+  BEST_RANK="$BETA_RANK"
+fi
 
 if [ -z "$BEST_DIR" ]; then
   echo "No Xcode.app found under $APPLICATIONS_DIR" >&2
