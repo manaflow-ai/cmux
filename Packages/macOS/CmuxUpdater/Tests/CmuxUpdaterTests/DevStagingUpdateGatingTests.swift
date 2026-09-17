@@ -52,6 +52,10 @@ import Testing
 
     @Test func doesNotClassifyPublicOrNightlyOrNilAsDevLike() {
         #expect(!UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app"))
+        #expect(!UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.nightly"))
+        // RC is on the public release train: it must keep auto-update on.
+        #expect(!UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.rc"))
+        #expect(!UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.rc.candidate1"))
         #expect(!UpdateController.isDevLikeBundleIdentifier(nil))
         // A look-alike that is neither the exact base id nor a dotted suffix must not match.
         #expect(!UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.debugger"))

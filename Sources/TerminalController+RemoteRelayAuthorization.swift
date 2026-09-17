@@ -3,16 +3,17 @@ import CmuxRemoteWorkspace
 import Foundation
 
 extension TerminalController {
-    nonisolated private struct RemoteRelayAuthorizationSnapshot: Sendable {
+    private struct RemoteRelayAuthorizationSnapshot: Sendable {
         let ownerWorkspaceID: UUID
         let relayTokenHex: String
+        let connectionID: UUID
         let surfaceIDs: Set<UUID>
     }
 
     /// Result returned by the single socket-ingress relay authorization gate.
     /// `errorResponse` is already encoded so both socket execution lanes return
     /// the same envelope without dispatching an unauthorized request.
-    nonisolated struct RemoteRelayAuthorizationResult: Sendable {
+    struct RemoteRelayAuthorizationResult: Sendable {
         let request: ControlRequest
         let errorResponse: String?
     }
@@ -35,6 +36,8 @@ extension TerminalController {
     /// Socket connections await the topology snapshot instead of blocking a worker.
     #if compiler(>=6.2)
     @concurrent
+    #else
+    @Sendable
     #endif
     nonisolated func authorizeRemoteRelayRequestAsync(
         _ request: ControlRequest
@@ -99,6 +102,11 @@ extension TerminalController {
                 message: "Relay request authentication failed"
             )
         }
+        guard foundationParams[WorkspaceRemoteRelayCommandRewriter.connectionIDKey] as? String
+                == snapshot.connectionID.uuidString else {
+            return deniedRemoteRelayRequest(request, code: "remote_relay_authentication_failed",
+                message: "Relay request authentication failed")
+        }
         switch RemoteRelayAuthorizationPolicy().validate(
             method: request.method,
             parameters: foundationParams,
@@ -135,6 +143,7 @@ extension TerminalController {
         guard let workspace = AppDelegate.shared?.workspaceFor(tabId: ownerWorkspaceID),
               let configuration = workspace.remoteConfiguration,
               configuration.ownerWorkspaceID == ownerWorkspaceID,
+              let connectionID = workspace.activeRemoteSessionControllerID,
               let relayToken = configuration.relayToken,
               !relayToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return nil
@@ -143,8 +152,11 @@ extension TerminalController {
         // surfaces and can be enumerated directly.  Remote tmux mirrors
         // own projected surfaces outside that index, so include their
         // published topology in the same linear snapshot.
-        var surfaceIDs = Set(workspace.panels.keys)
-        surfaceIDs.formUnion(workspace.surfaceIdToPanelId.keys.map(\.uuid))
+        // Only live remote terminal identities are relay-owned.  A remote
+        // workspace can also contain local/browser panels created by the user;
+        // container membership alone must never authorize local input, shell
+        // creation, or scrollback reads for those panels.
+        var surfaceIDs = workspace.activeRemoteTerminalSurfaceIds
         for mirror in workspace.remoteTmuxWindowMirrors.values {
             surfaceIDs.formUnion(mirror.surfaceIDsInLayoutOrder)
         }
@@ -154,6 +166,7 @@ extension TerminalController {
         return RemoteRelayAuthorizationSnapshot(
             ownerWorkspaceID: ownerWorkspaceID,
             relayTokenHex: relayToken,
+            connectionID: connectionID,
             surfaceIDs: surfaceIDs
         )
     }
@@ -171,6 +184,40 @@ extension TerminalController {
                 message: message
             )
         )
+    }
+
+    /// Revalidates the relay owner at the main-actor target-resolution boundary.
+    /// An ingress snapshot cannot grant authority after a surface becomes local.
+    func remoteRelayTargetIsCurrent(
+        routing: ControlRoutingSelectors,
+        workspace: Workspace,
+        surfaceID: UUID? = nil
+    ) -> Bool {
+        guard let owner = routing.remoteRelayOwnerWorkspaceID else { return true }
+        guard workspace.id == owner,
+              let configuration = workspace.remoteConfiguration,
+              configuration.ownerWorkspaceID == owner,
+              let connectionID = routing.remoteRelayConnectionID,
+              workspace.activeRemoteSessionControllerID == connectionID else { return false }
+        guard let surfaceID = surfaceID ?? routing.surfaceID else { return true }
+        return workspace.isRemoteTerminalContext(surfaceID)
+    }
+
+    /// Checks an ingress-authorized request again in the same main-actor turn
+    /// as its mutation. Controller retirement and live surface changes revoke it.
+    func controlRemoteRelayDispatchError(method: String, params: [String: JSONValue]) -> ControlCallResult? {
+        guard params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey] != nil else { return nil }
+        guard case .string(let ownerRaw)? = params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey],
+              let owner = UUID(uuidString: ownerRaw),
+              let snapshot = remoteRelayAuthorizationSnapshot(ownerWorkspaceID: owner),
+              params[WorkspaceRemoteRelayCommandRewriter.connectionIDKey] == .string(snapshot.connectionID.uuidString) else {
+            return .err(code: "remote_relay_authentication_failed", message: "Relay request authentication failed", data: nil)
+        }
+        switch RemoteRelayAuthorizationPolicy().validate(method: method,
+            parameters: params.mapValues(\.foundationObject), ownerWorkspaceID: owner, surfaceIDs: snapshot.surfaceIDs) {
+        case .allowed: return nil
+        case .denied(let code, let message): return .err(code: code, message: message, data: nil)
+        }
     }
 
 }

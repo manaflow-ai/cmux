@@ -9,30 +9,32 @@ extension MobileMacCompatPolicy {
         /// upward without listing each patch release; a bound scopes the
         /// tier to a range (equal min and max pinpoints one version).
         public let maxIOSVersion: MobileMacAppVersion?
-        /// The inclusive minimum stable-channel Mac marketing version. Nil
-        /// explicitly blocks stable Macs until a compatible release exists.
-        public let stableMinVersion: MobileMacAppVersion?
+        /// The inclusive minimum stable-channel Mac marketing version.
+        public let stableMinVersion: MobileMacAppVersion
         /// The minimum nightly-channel build; `nil` leaves nightly unconstrained.
         public let nightly: NightlyRequirement?
+        /// Requirements keyed by ``MobileBuildType.token``.
+        public let buildKinds: [String: Requirement]
 
         /// Creates one tier of the policy.
         ///
         /// - Parameters:
         ///   - minIOSVersion: The inclusive minimum iOS version of the tier.
         ///   - maxIOSVersion: The optional inclusive maximum iOS version.
-        ///   - stableMinVersion: The minimum stable-channel Mac version, or
-        ///     nil while no compatible stable release exists.
+        ///   - stableMinVersion: The minimum stable-channel Mac version.
         ///   - nightly: The minimum nightly-channel build, or `nil`.
         public init(
             minIOSVersion: MobileMacAppVersion,
             maxIOSVersion: MobileMacAppVersion? = nil,
-            stableMinVersion: MobileMacAppVersion? = nil,
-            nightly: NightlyRequirement?
+            stableMinVersion: MobileMacAppVersion,
+            nightly: NightlyRequirement?,
+            buildKinds: [String: Requirement] = [:]
         ) {
             self.minIOSVersion = minIOSVersion
             self.maxIOSVersion = maxIOSVersion
             self.stableMinVersion = stableMinVersion
             self.nightly = nightly
+            self.buildKinds = buildKinds
         }
     }
 }

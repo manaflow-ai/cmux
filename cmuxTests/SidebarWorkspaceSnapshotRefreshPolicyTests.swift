@@ -197,6 +197,7 @@ import Testing
             isPinned: isPinned,
             isMuted: false,
             customColorHex: customColorHex,
+            cloudWorkspaceLabel: nil,
             remoteWorkspaceSidebarText: nil,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: "",

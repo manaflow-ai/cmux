@@ -36,6 +36,7 @@ public struct CMUXMobileRootScene: View {
     private let auth: MobileAuthComposition
     private let reachability: any ReachabilityProviding
     private let analytics: any AnalyticsEmitting
+    private let terminalLatencyObserver: any MobileTerminalLatencyObserving
     package let signOutHook: MobileSignOutHook
     private let personalIrohRouteCatalog: MobileIrohRouteCatalog?
     private let personalIrohDiscovery: (any MobileIrohMacDiscovering)?
@@ -139,6 +140,7 @@ public struct CMUXMobileRootScene: View {
         auth: MobileAuthComposition,
         reachability: any ReachabilityProviding,
         analytics: any AnalyticsEmitting,
+        terminalLatencyObserver: any MobileTerminalLatencyObserving = NoopMobileTerminalLatencyObserver(),
         pushCoordinator: MobilePushCoordinator,
         displaySettings: MobileDisplaySettings,
         featureFlags: MobileFeatureFlags,
@@ -152,12 +154,14 @@ public struct CMUXMobileRootScene: View {
         buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy,
         signOutHook: MobileSignOutHook,
         diagnosticLog: DiagnosticLog,
-        appLog: AppLog? = nil
+        appLog: AppLog? = nil,
+        v2Configuration: MobileIrohV2Configuration? = nil
     ) {
         self.runtime = runtime
         self.auth = auth
         self.reachability = reachability
         self.analytics = analytics
+        self.terminalLatencyObserver = terminalLatencyObserver
         self.pushCoordinator = pushCoordinator
         self.displaySettings = displaySettings
         self.featureFlags = featureFlags
@@ -170,7 +174,7 @@ public struct CMUXMobileRootScene: View {
         self.personalIrohForget = personalIrohForget
         self.buildCompatibilityPolicy = buildCompatibilityPolicy
         self.signOutHook = signOutHook
-        self.pairedMacStore = Self.openPairedMacStore(diagnosticLog: diagnosticLog)
+        self.pairedMacStore = Self.openPairedMacStore(diagnosticLog: diagnosticLog, configuration: v2Configuration)
         self.draftStore = InMemoryTerminalDraftStore()
         self.diagnosticLog = diagnosticLog
         self.appLog = appLog
@@ -201,6 +205,7 @@ public struct CMUXMobileRootScene: View {
         self.auth = auth
         self.reachability = reachability
         self.analytics = analytics
+        self.terminalLatencyObserver = NoopMobileTerminalLatencyObserver()
         self.signOutHook = signOutHook
         self.personalIrohRouteCatalog = nil
         self.personalIrohDiscovery = nil
@@ -216,7 +221,7 @@ public struct CMUXMobileRootScene: View {
     #endif
 
     private static func openPairedMacStore(
-        diagnosticLog: DiagnosticLog?
+        diagnosticLog: DiagnosticLog?, configuration: MobileIrohV2Configuration? = nil
     ) -> (any MobilePairedMacStoring)? {
         do {
             #if DEBUG
@@ -239,8 +244,25 @@ public struct CMUXMobileRootScene: View {
                 return store
             }
             #endif
+            let support = configuration?.stateDirectory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            let environment = configuration?.environment ?? "development"
+            let directory = support.appendingPathComponent("cmux-iroh-v2", isDirectory: true)
+                .appendingPathComponent(Data(environment.utf8).base64EncodedString().replacingOccurrences(of: "/", with: "_"), isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            // Official builds previously kept saved Computers under cmux/. The
+            // app container supplies bundle isolation; user/team/build keys stay
+            // intact inside the imported rows. Dev stores have no trustworthy
+            // legacy environment label, so they must start their own partition.
+            let legacyURL: URL?
+            #if DEBUG
+            legacyURL = nil
+            #else
+            legacyURL = environment == "production" && MobileIOSBuildScope.current() == nil
+                ? support.appendingPathComponent("cmux/paired-macs.sqlite3") : nil
+            #endif
             let store = try MobilePairedMacStore(
-                migrateAppStoreRoutes: Bundle.main.bundleIdentifier == "com.cmux.app"
+                databaseURL: directory.appendingPathComponent("paired-macs.sqlite3"),
+                importingLegacyDatabaseURL: legacyURL
             )
             diagnosticLog?.recordAppEvent(.pairedMacStoreOpened)
             return store
@@ -266,28 +288,9 @@ public struct CMUXMobileRootScene: View {
     private func makeDeviceRegistry(
         pairedMacStore: (any MobilePairedMacStoring)?
     ) -> (any DeviceRegistryRefreshing)? {
-        let baseURL = auth.config.apiBaseURL
-        guard !baseURL.isEmpty, let appNamespace = auth.appNamespace else {
-            return nil
-        }
+        guard let personalIrohRouteCatalog else { return nil }
         let coordinator = auth.coordinator
-        let deviceWitness = DeviceRegistryService.currentDeviceWitness()
-        let teamRegistry = DeviceRegistryService(
-            apiBaseURL: baseURL,
-            deviceID: appNamespace.deviceRegistryDeviceID(
-                keychainAccessGroup: auth.keychainAccessGroup,
-                deviceWitness: deviceWitness,
-                evidence: MobileIrohRuntimeComposition.sameDeviceEvidenceProbe()
-            ),
-            tokenSource: DeviceRegistryService.TokenSource(
-                accessToken: { try? await coordinator.accessToken() },
-                refreshToken: { await coordinator.refreshToken() }
-            ),
-            teamIDProvider: { await coordinator.resolvedTeamID }
-        )
-        guard let personalIrohRouteCatalog else { return teamRegistry }
         return PersonalIrohDeviceRegistryDecorator(
-            base: teamRegistry,
             catalog: personalIrohRouteCatalog,
             knownRoutes: { macDeviceID, instanceTag in
                 guard let pairedMacStore else { return nil }
@@ -308,28 +311,6 @@ public struct CMUXMobileRootScene: View {
                     ).id == targetID
                 })?.routes
             }
-        )
-    }
-
-    /// Build the live presence subscription client (the `workers/presence`
-    /// Durable Object edge). `nil` when no service URL resolves for this build
-    /// (Release without an explicit override), which keeps presence entirely
-    /// off; auth mirrors `makeDeviceRegistry()` so the stream always carries
-    /// the current session and selected team.
-    @MainActor
-    private func makePresenceClient() -> PresenceClient? {
-        // Presence follows the resolved auth channel so each worker can verify
-        // the token. Build compatibility filters the returned Mac instances.
-        guard let baseURL = PresenceClient.resolvedServiceBaseURL(
-            isDevelopmentAuthChannel: auth.authEnvironment == .development
-        ) else { return nil }
-        let coordinator = auth.coordinator
-        return PresenceClient(
-            serviceBaseURL: baseURL,
-            tokenSource: PresenceTokenSource(
-                accessToken: { try? await coordinator.accessToken() }
-            ),
-            teamIDProvider: { await coordinator.resolvedTeamID }
         )
     }
 
@@ -355,43 +336,7 @@ public struct CMUXMobileRootScene: View {
             inner: buildCompatibilityPolicy.scoping(buildScopedStore),
             teamIDProvider: { await coordinator.resolvedTeamID }
         )
-        guard MobilePairedMacBackup.resolved().isEnabled,
-              let appNamespace = auth.appNamespace,
-              let baseURL = PresenceClient.resolvedServiceBaseURL(
-                  isDevelopmentAuthChannel: auth.authEnvironment == .development
-              ) else {
-            return scopedStore
-        }
-        let legacyScope = appNamespace.legacyBackupScope
-        let legacyClientScopeProvider: (@Sendable () async -> String?)?
-        if let legacyScope {
-            let legacyScopeHeader = legacyScope.headerValue
-            legacyClientScopeProvider = { @Sendable in legacyScopeHeader }
-        } else {
-            legacyClientScopeProvider = nil
-        }
-        let client = PairedMacBackupClient(
-            serviceBaseURL: baseURL,
-            tokenSource: PresenceTokenSource(
-                accessToken: { try? await coordinator.accessToken() },
-                currentUserID: { await coordinator.currentUser?.id }
-            ),
-            teamIDProvider: { await coordinator.resolvedTeamID },
-            clientScopeProvider: { appNamespace.serverScope },
-            legacyClientScopeProvider: legacyClientScopeProvider,
-            restoreRouteFilter: appNamespace.bundleIdentifier == "com.cmux.app"
-                ? { $0.kind == .tailscale }
-                : nil
-        )
-        return BackingUpPairedMacStore(
-            inner: scopedStore,
-            backup: client,
-            teamIDProvider: { await coordinator.resolvedTeamID },
-            restoreBoundary: restoreBoundary,
-            pendingDeleteStore: UserDefaultsPairedMacPendingDeleteStore(),
-            backupTeamStore: UserDefaultsPairedMacBackupTeamStore(),
-            diagnosticLog: diagnosticLog
-        )
+        return scopedStore
     }
 
     public var body: some View {
@@ -434,6 +379,8 @@ public struct CMUXMobileRootScene: View {
             TaskComposerAccessibilityPreviewView()
         } else if UITestConfig.notificationFeedPreviewEnabled {
             NotificationFeedPreviewView()
+        } else if UITestConfig.whatsNewPreviewEnabled {
+            MobileWhatsNewPreviewView()
         } else if UITestConfig.workspaceListLayoutPreviewEnabled {
             WorkspaceListLayoutPreviewView()
         } else if let recoveryStress = MobileRecoveryStressConfiguration.parse(arguments: ProcessInfo.processInfo.arguments) {
@@ -535,12 +482,13 @@ public struct CMUXMobileRootScene: View {
             deviceRegistry: deviceRegistry,
             personalIrohDiscovery: personalIrohDiscovery,
             personalIrohForget: resolvedPersonalIrohForget,
-            presence: makePresenceClient(),
+            presence: nil,
             identityProvider: identityProvider,
             teamIDProvider: { await coordinator.resolvedTeamID },
             reachability: reachability,
             hiddenMacStore: hiddenMacStore,
             analytics: analytics,
+            terminalLatencyObserver: terminalLatencyObserver,
             diagnosticLog: diagnosticLog,
             feedbackEmailSubmitter: feedbackEmailSubmitter,
             feedbackStampProvider: feedbackStampProvider,
@@ -561,7 +509,7 @@ public struct CMUXMobileRootScene: View {
         // never race the root view's async policy push and admit a Mac under
         // a stale floor. The root view still refreshes from the network and
         // pushes updates.
-        store.macCompatPolicy = macCompatCenter.policy
+        store.applyMacCompatibilityPolicy(macCompatCenter.policy)
         #endif
         return store
     }

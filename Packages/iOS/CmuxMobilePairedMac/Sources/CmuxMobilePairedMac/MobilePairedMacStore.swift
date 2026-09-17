@@ -22,7 +22,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
     static let routeRemovalWildcardEndpoint = "*"
 
     private let dbPath: String
-    private let migrateAppStoreRoutes: Bool
+    private let importingLegacyDatabaseURL: URL?
     // `nonisolated(unsafe)` only so the (Swift 6 nonisolated) `deinit` can close
     // the handle. Every other access goes through actor-isolated methods, and
     // the connection itself is opened `SQLITE_OPEN_FULLMUTEX`, so this is safe.
@@ -49,23 +49,20 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
     /// Open (creating if needed) the store at the given database URL.
     /// - Parameters:
     ///   - databaseURL: On-disk SQLite file location.
-    ///   - migrateAppStoreRoutes: Retire imported non-Tailscale routes once,
-    ///     before this App Store install discovers its own Iroh endpoints.
+    ///   - importingLegacyDatabaseURL: Optional same-installation saved-Mac database
+    ///     to import once. Callers must establish that both files belong to the
+    ///     same backend environment. The source stays unchanged.
     /// - Throws: ``MobilePairedMacStoreError`` if the connection cannot be opened.
-    public init(databaseURL: URL, migrateAppStoreRoutes: Bool = false) throws {
+    public init(databaseURL: URL, importingLegacyDatabaseURL: URL? = nil) throws {
         self.dbPath = databaseURL.path
-        self.migrateAppStoreRoutes = migrateAppStoreRoutes
+        self.importingLegacyDatabaseURL = importingLegacyDatabaseURL
         self.db = try Self.openConnection(path: databaseURL.path)
     }
 
     /// Open the store at ``defaultDatabaseURL(fileManager:)``.
-    /// - Parameter migrateAppStoreRoutes: Enable the App Store route migration.
     /// - Throws: ``MobilePairedMacStoreError`` if the connection cannot be opened.
-    public init(migrateAppStoreRoutes: Bool = false) throws {
-        try self.init(
-            databaseURL: Self.defaultDatabaseURL(),
-            migrateAppStoreRoutes: migrateAppStoreRoutes
-        )
+    public init() throws {
+        try self.init(databaseURL: Self.defaultDatabaseURL())
     }
 
     deinit {
@@ -83,7 +80,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
     /// Schema migration runs lazily on first store access via `ensureReady()`.
     private nonisolated static func openConnection(path: String) throws -> OpaquePointer {
         var handle: OpaquePointer?
-        let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX
+        let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX | SQLITE_OPEN_URI
         let rc = sqlite3_open_v2(path, &handle, flags, nil)
         guard rc == SQLITE_OK, let handle else {
             if let handle { sqlite3_close_v2(handle) }
@@ -105,55 +102,10 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
     private func ensureReady() throws {
         guard !didMigrate else { return }
         try runMigrations()
-        if migrateAppStoreRoutes {
-            try migrateAppStoreRoutesIfNeeded()
+        if let importingLegacyDatabaseURL {
+            try importLegacyDatabase(at: importingLegacyDatabaseURL)
         }
         didMigrate = true
-    }
-
-    /// Retire pre-App-Store reconnect routes once, before the first read or
-    /// write. The marker shares the transaction with the cleanup, so a crash
-    /// cannot mark an incomplete migration done or erase newly discovered
-    /// Iroh routes on a later launch. Existing Tailscale trust is not widened.
-    private func migrateAppStoreRoutesIfNeeded() throws {
-        try transaction {
-            try exec("""
-                CREATE TABLE IF NOT EXISTS paired_mac_route_migrations (
-                    name TEXT PRIMARY KEY NOT NULL
-                );
-            """)
-            try exec("""
-                DELETE FROM mac_routes
-                WHERE kind <> 'tailscale'
-                  AND NOT EXISTS (
-                    SELECT 1 FROM paired_mac_route_migrations
-                    WHERE name = 'app-store-tailscale-v1'
-                  );
-            """)
-            try exec("""
-                DELETE FROM paired_macs
-                WHERE NOT EXISTS (
-                    SELECT 1 FROM paired_mac_route_migrations
-                    WHERE name = 'app-store-tailscale-v1'
-                ) AND NOT EXISTS (
-                    SELECT 1 FROM mac_routes
-                    WHERE mac_routes.mac_device_id = paired_macs.mac_device_id
-                      AND mac_routes.owner_key = paired_macs.owner_key
-                );
-            """)
-            try exec("""
-                UPDATE paired_macs
-                SET connection_method = 'tailscale', direct_addresses = NULL
-                WHERE NOT EXISTS (
-                    SELECT 1 FROM paired_mac_route_migrations
-                    WHERE name = 'app-store-tailscale-v1'
-                );
-            """)
-            try exec("""
-                INSERT OR IGNORE INTO paired_mac_route_migrations(name)
-                VALUES ('app-store-tailscale-v1');
-            """)
-        }
     }
 
     private func runMigrations() throws {
@@ -826,7 +778,6 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             let removed = currentRoutes[removedIndex]
             var remaining = currentRoutes
             remaining.remove(at: removedIndex)
-            guard !remaining.isEmpty else { return }
 
             let encoded = try Self.encodeRouteEndpoint(removed)
             try exec("""
@@ -849,6 +800,25 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 ownerKey: ownerKey,
                 endpoint: removed.endpoint
             )
+            guard !remaining.isEmpty else {
+                try upsertMacRow(
+                    macDeviceID: macDeviceID,
+                    ownerKey: ownerKey,
+                    displayName: current.displayName,
+                    instanceTag: current.instanceTag,
+                    stackUserID: current.stackUserID,
+                    teamID: current.teamID,
+                    createdAt: current.createdAt,
+                    lastSeenAt: now,
+                    isActive: current.isActive
+                )
+                try exec(
+                    "DELETE FROM mac_routes WHERE mac_device_id = ? AND owner_key = ?;",
+                    binding: [.text(macDeviceID), .text(ownerKey)]
+                )
+                didWrite = true
+                return
+            }
             try upsertMacRow(
                 macDeviceID: macDeviceID,
                 ownerKey: ownerKey,
