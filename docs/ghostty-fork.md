@@ -12,8 +12,9 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `abd40f6e4`, reachable from fork `main`
-after Ghostty PR #211 was merged. It includes the incremental embedded
+The submodule pinned by this branch is `3a7fc9230`, on fork branch
+`issue-12753-hangul-filename-shaping` pending Ghostty PR #221. It includes the
+incremental embedded
 configuration propagation and Fish SSH feature-gating fixes described below,
 plus the renderer/API compatibility pin and the repeated word-selection drag
 anchor fix. Its tree includes the prior fork changes below, including tokened
@@ -25,14 +26,15 @@ visibility, and Hangul canonical font resolution.
 - Branch:
   - https://github.com/manaflow-ai/ghostty/tree/main
 - Commit:
-  - `abd40f6e4` (current fork main after Ghostty PR #211)
+  - `3a7fc9230` (issue-12753 Hangul shaping fix; pending PR #221)
 - Summary:
-  - Preserves incremental embedded configuration propagation and Fish SSH
-    feature gating, with the renderer/API compatibility pin and current
-    repeated word-selection drag-anchor behavior.
+  - Adds the NFD Hangul shaping fix on top of current fork main, preserving
+    incremental embedded configuration propagation and Fish SSH feature gating,
+    with the renderer/API compatibility pin and repeated word-selection drag
+    anchor behavior.
 - Verification:
-  - Universal ReleaseFast GhosttyKit build with native Sentry disabled.
-  - `tests/test_issue_8093_ghostty_ssh_binary_path.py` with Fish 4.6.0.
+  - Zig 0.16.0: 75/75 Hangul tests and 118/118 CoreText shaper tests passed
+    on macOS 26.5.1. The inherited fork CI skips tests outside ghostty-org.
 - Artifact:
   - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-abd40f6e472d57f2d4bb182004bb5f3fac8df961-crashsubdir-cmux-crash-sentry-off-noi18n-v2
   - SHA-256 `fdb0f7e844fa086a410f0b1df23badf2b0503c084e1c66c297e22930758b6971`
@@ -179,6 +181,27 @@ pinned in `scripts/ghosttykit-checksums.txt`.
     `af9f8f12e6f41ffe00b5b65f150bb887b19dc752e47d20d3c351696c803509af`,
     which is pinned in `scripts/ghosttykit-checksums.txt`.
 
+### Hangul shaping uses the resolved spelling
+
+- Issue: https://github.com/manaflow-ai/cmux/issues/12753
+- Commits:
+  - `452bc460c` (test: reproduce NFD Hangul fallback glyph mismatch)
+  - `3a7fc9230` (fix: shape NFD Hangul with the resolved syllable)
+- `RunIterator.resolveFontInfo` carries the canonical syllable together with
+  its resolved font index. Both CoreText and HarfBuzz receive that spelling,
+  preventing CoreText from returning jamo fallback glyph IDs that would be
+  rasterized with the selected, composed-only face.
+- Composition is limited to the existing modern L+V, L+V+T and LV+T cases
+  whose composed syllable resolves. Uncomposable clusters and per-jamo fallback
+  retain their existing path. Stored terminal cells and copy bytes are unchanged.
+- The regression uses a licensed, renamed D2Coding subset without jamo glyphs.
+  It checks glyph IDs, column positions, regular/bold styles, cursor boundaries,
+  and preserved NFD storage. Before the fix CoreText returns glyph 1942 where
+  the selected fixture face requires 218.
+- Conflict note: preserve the face/codepoint pairing if upstream restructures
+  run construction. Resolver-index equality alone does not detect this bug;
+  keep `src/font/shaper/hangul_test.zig` exercising actual shaping.
+
 ### Hangul NFC/NFD canonical font resolution
 
 - Pull request:
@@ -200,19 +223,18 @@ pinned in `scripts/ghosttykit-checksums.txt`.
     equivalent text.
   - `src/font/hangul.zig` implements the algorithmic Hangul canonical
     composition from The Unicode Standard ch. 3.12 (L+V, L+V+T, and LV+T
-    clusters over the modern jamo ranges). `RunIterator.indexForCell`
+    clusters over the modern jamo ranges). `RunIterator.resolveFontInfo`
     resolves the face through the composed codepoint first, so both
     encodings produce the identical resolver query.
-  - Terminal cell contents and shaper input are unchanged: copy/paste of NFD
-    text still returns the original NFD codepoints, and CoreText/HarfBuzz
-    compose the cluster during shaping when the face carries the precomposed
-    glyph.
+  - Terminal cell contents are unchanged: copy/paste returns the original NFD
+    codepoints. The follow-up above also composes shaping input; relying on
+    CoreText to compose after selecting a composed-only face caused #12753.
 - Conflict note:
   - Upstream tracks the same defect in
     https://github.com/ghostty-org/ghostty/discussions/4163. If upstream
     lands its own cluster-level or normalization-based resolution, prefer
     the upstream mechanism and drop `src/font/hangul.zig` plus the
-    `indexForCell` hook, keeping the `coretext.zig` regression test to prove
+    `resolveFontInfo` hook, keeping the resolver and shaping regression tests to prove
     the behavior survives the merge.
 - Fixes:
   - https://github.com/manaflow-ai/cmux/issues/9583
