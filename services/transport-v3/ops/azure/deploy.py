@@ -224,8 +224,10 @@ if __name__=='__main__':
     parser.add_argument('--receipt',required=True,type=Path)
     parser.add_argument('--control-url', help='HTTPS v3 control service URL; registers relay feed credentials')
     parser.add_argument('--control-token-file', type=Path, help='Stack admin bearer used with --control-url')
-    parser.add_argument('--control-team', default='transport-v3-ops', type=label)
+    parser.add_argument('--control-team', type=label, help='Stack team whose admin is allowed to register relays')
     ARGS=parser.parse_args()
     if bool(ARGS.control_url) != bool(ARGS.control_token_file):
         parser.error('--control-url and --control-token-file must be supplied together')
+    if ARGS.control_url and not ARGS.control_team:
+        parser.error('--control-team is required with --control-url')
     main()
