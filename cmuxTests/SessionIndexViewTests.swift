@@ -534,7 +534,7 @@ struct SessionIndexViewTests {
         #expect(entry.sessionId == sessionId)
         #expect(entry.title == "Index Cursor sessions in Vault")
         #expect(entry.fileURL == transcriptURL)
-        #expect(entry.resumeCommand == "'cursor-agent' '--resume' '\(sessionId)'")
+        #expect(entry.copyResumeCommand == "'cursor-agent' '--resume' '\(sessionId)'")
 
         let turns = try await SessionTranscriptLoader.load(entry: entry)
         #expect(turns.map(\.role) == [.user, .assistant])
