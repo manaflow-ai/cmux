@@ -61,8 +61,9 @@ application replay cursors and UI session continuity still require client tests.
 The relay emits private OpenMetrics at `/metrics`, health at `/healthz`, and
 readiness at `/readyz`. `manage.py status` queries them using Azure Run Command.
 Current gauges: active reservations, circuits (including pending negotiation),
-transport connections, readiness and seconds spent draining. Counters: accepted
-and denied permission requests, denied reservations, denied circuits. Metrics
+transport connections, readiness, seconds spent draining, last applied feed sequence
+and feed health. Counters: accepted and denied permission requests, denied
+reservations, denied circuits and feed failures. Metrics
 must not contain bearer grants, private keys, terminal content or user labels.
 
 `observe.py` associates each VM with one Azure Monitor data collection rule in
@@ -96,11 +97,11 @@ before records appear. Sources: [agent installation](https://learn.microsoft.com
 [Syslog collection](https://learn.microsoft.com/en-us/azure/azure-monitor/vm/data-collection-syslog),
 [scheduled query alerts](https://learn.microsoft.com/en-us/rest/api/monitor/scheduled-query-rules/create-or-update?view=rest-monitor-2021-08-01).
 
-Remaining before production: transport bytes and latency histograms, per-team
-quotas, notification routing, fault-drill evidence and a continuous authenticated
-synthetic probe. Additional alerts must cover no healthy serving generation,
-permission-denial spikes and certificate expiry. Readiness must never be inferred
-from VM provisioning alone.
+Remaining before production: transport byte and latency histograms, per-team quotas,
+notification routing, a non-empty-circuit handover drill and a continuous
+authenticated synthetic probe. Additional alerts must cover no healthy serving
+generation, permission-denial spikes and certificate expiry. Readiness must never
+be inferred from VM provisioning alone.
 
 ## Evidence
 
