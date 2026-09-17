@@ -233,7 +233,7 @@ struct CLISSHPTYAttachReplayBoundaryTests {
             _ = bridge.send(String(repeating: "x", count: 4 * 1024 * 1024))
         } body: { attach in
             try #require(waitUntil { isRawForwardingMode(fd: attach.slaveFD) })
-            try #require(waitUntil { attach.bufferedOutputBytes > 0 })
+            try #require(waitUntil { attach.hasBufferedOutput })
             try #require(kill(attach.process.processIdentifier, number) == 0)
             try #require(attach.waitForExit())
             #expect(attach.process.terminationStatus == 128 + number)

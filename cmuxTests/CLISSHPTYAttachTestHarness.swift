@@ -148,11 +148,10 @@ extension CLISSHPTYAttachReplayBoundaryTests {
         let stderr: Pipe
         let blockedOutput: Pipe?
 
-        var bufferedOutputBytes: Int32 {
-            guard let blockedOutput else { return 0 }
-            var count: Int32 = 0
-            _ = ioctl(blockedOutput.fileHandleForReading.fileDescriptor, FIONREAD, &count)
-            return count
+        var hasBufferedOutput: Bool {
+            guard let blockedOutput else { return false }
+            var ready = pollfd(fd: blockedOutput.fileHandleForReading.fileDescriptor, events: Int16(POLLIN), revents: 0)
+            return Darwin.poll(&ready, 1, 0) > 0 && ready.revents & Int16(POLLIN) != 0
         }
 
         /// Types into the CLI's terminal.
