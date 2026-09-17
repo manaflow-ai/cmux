@@ -11,9 +11,16 @@ if [[ -z "$previous_sha" ]] || ! git cat-file -e "${previous_sha}^{commit}" 2>/d
   exit 1
 fi
 
-# The web project reads these files outside its root during build generation.
+# Build for unknown web paths so a new production directory or configuration
+# file cannot silently skip deployment. Exclude only known non-build inputs.
 build_inputs=(
   "."
+  ":(exclude)tests/"
+  ":(exclude)e2e/"
+  ":(exclude)scripts/"
+  ":(exclude)README.md"
+  ":(exclude)AGENTS.md"
+  ":(exclude)CLAUDE.md"
   "../.vercelignore"
   "../CHANGELOG.md"
   "../config/iroh/managed-relay-catalog.json"

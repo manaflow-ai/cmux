@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0d60b5c04eb89444ff0b4a9354896f2ae81a2bf4c953aacadd12e2907c6d84a8. */
+/* cmux-tui mux protocol 12, IR d9db9b34a8e4f367ce1aae230fcd188796903d6adf169f9675872a48d9fd1f25. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -313,6 +313,10 @@ export type LivePane = {
   "name": (string) | null;
   "short_id"?: string;
   "tabs": Array<Tab>;
+};
+
+export type MachineListeningTcpResult = {
+  "stdout": string;
 };
 
 export type MachineUsage = {
@@ -668,12 +672,19 @@ export type Tab = {
   "title": string;
 };
 
+export type TerminalColorOverrides = {
+  "bg": (ColorHex) | null;
+  "cursor": (ColorHex) | null;
+  "fg": (ColorHex) | null;
+};
+
 export type TerminalColors = {
   "bg": (ColorHex) | null;
   "cursor"?: (ColorHex) | null;
   "cursor_blink"?: (boolean) | null;
   "cursor_style"?: (CursorStyle) | null;
   "fg": (ColorHex) | null;
+  "overrides"?: TerminalColorOverrides;
   "palette"?: Record<string, ColorHex>;
   "selection_bg": (ColorHex) | null;
   "selection_fg": (ColorHex) | null;

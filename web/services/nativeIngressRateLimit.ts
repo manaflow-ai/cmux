@@ -1,5 +1,6 @@
 import { checkRateLimit } from "@vercel/firewall";
 import { jsonResponse } from "./vms/routeHelpers";
+import { reportMissingRateLimitRule } from "./rateLimitObservability";
 
 /**
  * How long a throttled native client is told to wait. Long enough that an
@@ -30,7 +31,10 @@ export async function enforceNativeIngressRateLimit(input: {
 }): Promise<Response | null> {
   if (!(input.isVercel ?? process.env.VERCEL === "1")) return null;
   const ruleId = input.ruleId?.trim();
-  if (!ruleId) return null;
+  if (!ruleId) {
+    void reportMissingRateLimitRule({ route: input.route, reason: "unset" });
+    return null;
+  }
 
   let result: { rateLimited: boolean; error?: string | null };
   try {
@@ -58,9 +62,7 @@ export async function enforceNativeIngressRateLimit(input: {
     );
   }
   if (result.error === "not-found") {
-    console.warn("native ingress rate-limit rule not found; failing open", {
-      route: input.route,
-    });
+    void reportMissingRateLimitRule({ route: input.route, reason: "not-found" });
     return null;
   }
   if (result.error) {

@@ -473,6 +473,14 @@
           "default": true,
           "description": "When cmux is inactive, the first click can activate and focus the clicked pane."
         },
+        "paneResizeStepPixels": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200,
+          "default": 20,
+          "description": "Pixels moved per keypress when using pane-resize shortcuts.",
+          "descriptionKey": "schemaDescriptions.app.paneResizeStepPixels"
+        },
         "focusHistoryIncludesPanesAndTabs": {
           "type": "boolean",
           "default": false,
@@ -569,7 +577,7 @@
           "type": "boolean",
           "default": true,
           "descriptionKey": "schemaDescriptions.terminal.adaptiveDefaultTheme",
-          "description": "When true (the default), cmux supplies its managed light/dark palette only when the Ghostty config contains no directives. When false, an untouched Ghostty config uses Ghostty's fixed built-in palette. Any Ghostty directive suppresses the managed palette; Ghostty theme = light:X,dark:Y remains appearance-adaptive."
+          "description": "When true (the default), cmux supplies an appearance-adaptive default palette unless a Ghostty theme or terminal colors are configured. Font and other settings are preserved. When false, Ghostty uses its fixed built-in palette. Explicit themes and colors always take precedence, including theme = light:X,dark:Y."
         },
         "showScrollBar": {
           "type": "boolean",
@@ -1608,7 +1616,7 @@
     },
     "fileEditor": {
       "title": "fileEditor",
-      "description": "Built-in plain-text file editor settings.",
+      "description": "Built-in file editor settings.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -1617,6 +1625,38 @@
           "default": false,
           "description": "Wrap long lines at the editor's right edge instead of scrolling horizontally.",
           "descriptionKey": "schemaDescriptions.fileEditor.wordWrap"
+        },
+        "syntaxHighlighting": {
+          "type": "boolean",
+          "default": true,
+          "description": "Color source tokens in the built-in file editor.",
+          "descriptionKey": "schemaDescriptions.fileEditor.syntaxHighlighting"
+        },
+        "lineNumbers": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a line-number gutter in the built-in file editor.",
+          "descriptionKey": "schemaDescriptions.fileEditor.lineNumbers"
+        },
+        "indentGuides": {
+          "type": "boolean",
+          "default": true,
+          "description": "Draw vertical indent guides in the built-in file editor.",
+          "descriptionKey": "schemaDescriptions.fileEditor.indentGuides"
+        },
+        "currentLineHighlight": {
+          "type": "boolean",
+          "default": true,
+          "description": "Highlight the caret's line when the selection is empty.",
+          "descriptionKey": "schemaDescriptions.fileEditor.currentLineHighlight"
+        },
+        "tabWidth": {
+          "type": "integer",
+          "default": 4,
+          "minimum": 1,
+          "maximum": 8,
+          "description": "Columns per tab stop for indent guides.",
+          "descriptionKey": "schemaDescriptions.fileEditor.tabWidth"
         }
       }
     },
@@ -1680,6 +1720,8 @@
               "toggleSidebar",
               "newTab",
               "newBrowserWorkspace",
+              "newCloudWorkspace",
+              "newCloudMachine",
               "openFolder",
               "reopenPreviousSession",
               "goToWorkspace",
@@ -1760,6 +1802,10 @@
               "decreaseWorkspaceTerminalFontSize",
               "resetWorkspaceTerminalFontSize",
               "equalizeSplits",
+              "resize-pane-left",
+              "resize-pane-right",
+              "resize-pane-up",
+              "resize-pane-down",
               "splitBrowserRight",
               "splitBrowserDown",
               "toggleCanvasLayout",

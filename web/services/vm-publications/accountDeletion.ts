@@ -5,6 +5,7 @@ import * as Layer from "effect/Layer";
 
 import type { cloudDb } from "../../db/client";
 import {
+  cloudOrganizations,
   cloudVmDomains,
   cloudVmPublicationAuthCodes,
   cloudVmPublications,
@@ -153,6 +154,10 @@ export async function deleteVmPublicationRowsForAccountDeletion(
   await tx
     .delete(cloudVmPublications)
     .where(eq(cloudVmPublications.ownerUserId, userId));
+  await tx.delete(cloudOrganizations).where(eq(cloudOrganizations.scopeId, userId));
+  await tx.update(cloudOrganizations)
+    .set({ ownerUserId: sql<string>`'deleted-organization:' || ${cloudOrganizations.scopeId}` })
+    .where(eq(cloudOrganizations.ownerUserId, userId));
   await tx
     .update(cloudVmDomains)
     .set({
