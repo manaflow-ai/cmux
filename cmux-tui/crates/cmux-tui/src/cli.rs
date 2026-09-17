@@ -7,6 +7,7 @@
 mod command;
 mod lifecycle;
 mod raw;
+mod shorthand;
 mod wire;
 
 use std::borrow::Cow;
@@ -198,6 +199,7 @@ fn parse_command(
     global: GlobalArgs,
     command_args: Vec<String>,
 ) -> Result<ParsedCommand, UsageError> {
+    let command_args = shorthand::normalize(&command_args)?;
     if command_args.is_empty() {
         return Err(UsageError::new("missing resource scope; use --help to list scopes"));
     }
@@ -218,18 +220,14 @@ fn parse_command(
     if command_args[0] == "help" {
         return match command_args.get(1) {
             None => Ok(ParsedCommand::Help(None)),
-            Some(scope) if scope == "start" => Ok(ParsedCommand::Help(Some(scope.clone()))),
-            Some(scope) if PUBLIC_SCOPES.contains(&scope.as_str()) => {
-                Ok(ParsedCommand::Help(Some(scope.clone())))
+            Some(scope) if matches!(scope.as_str(), "start" | "shorthands") => Ok(ParsedCommand::Help(Some(scope.clone()))),
+            Some(scope) if PUBLIC_SCOPES.contains(&shorthand::scope(scope)) => {
+                Ok(ParsedCommand::Help(Some(shorthand::scope(scope).to_string())))
             }
             Some(scope) => Err(unknown_scope(scope)),
         };
     }
-    if command_args
-        .iter()
-        .take_while(|value| value.as_str() != "--")
-        .any(|value| matches!(value.as_str(), "-h" | "--help"))
-    {
+    if has_help_option(&command_args) {
         let words = command_args
             .iter()
             .take_while(|value| value.as_str() != "--")
@@ -366,11 +364,36 @@ fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), (UsageErr
             }
             _ => {
                 command.push(value.clone());
+                if option_takes_value(value) && let Some(next) = args.get(index + 1) {
+                    command.push(next.clone());
+                    index += 1;
+                }
                 index += 1;
             }
         }
     }
     Ok((global, command))
+}
+
+/// Option arity is shared with resource tokenization. Values such as --help or
+/// --json are payloads when owned by a preceding option, never global switches.
+fn option_takes_value(value: &str) -> bool {
+    shorthand::short_value_option(value)
+        || (value.starts_with("--")
+            && !value.contains('=')
+            && !matches!(value, "--help" | "--json" | "--jsonl" | "--quiet" | "--literal" | "--print")
+            && !command::is_boolean_flag(value.trim_start_matches("--")))
+}
+
+fn has_help_option(args: &[String]) -> bool {
+    let mut index = 0;
+    while index < args.len() {
+        let value = args[index].as_str();
+        if value == "--" { break; }
+        if matches!(value, "-h" | "--help") { return true; }
+        index += if option_takes_value(value) { 2 } else { 1 };
+    }
+    false
 }
 
 fn global_value(args: &[String], index: usize, flag: &str) -> Result<String, UsageError> {
@@ -410,6 +433,7 @@ fn scope_help_for(
     catalog: &'static crate::localization::Catalog,
 ) -> Cow<'static, str> {
     match scope {
+        "shorthands" => Cow::Owned(shorthand::help(&catalog.local_server)),
         "server" => Cow::Borrowed(catalog.local_server.help),
         "server start" => Cow::Borrowed(catalog.local_server.start_help),
         "server ensure" => Cow::Borrowed(catalog.local_server.ensure_help),
@@ -465,6 +489,7 @@ GLOBAL OPTIONS
 
 PROCESS HELP
   cmux help start
+  cmux help shorthands
   cmux attach --help
   cmux relay --help
   cmux wg hub --help
