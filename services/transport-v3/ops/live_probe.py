@@ -6,12 +6,16 @@ from pathlib import Path
 def b64(data): return base64.urlsafe_b64encode(data).rstrip(b'=')
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--relay',required=True);p.add_argument('--ssh',required=True);p.add_argument('--binary',required=True)
+    p.add_argument('--relay',required=True);p.add_argument('--ssh');p.add_argument('--local',action='store_true');p.add_argument('--binary',required=True)
     p.add_argument('--seed',required=True,type=Path);p.add_argument('--public-keys',required=True,type=Path);p.add_argument('--key-id',required=True)
     p.add_argument('--receipt',required=True,type=Path)
     args=p.parse_args()
     import shlex
-    proc=subprocess.Popen(['ssh','-o','BatchMode=yes',args.ssh,shlex.quote(args.binary)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,text=True)
+    if args.local:
+        proc=subprocess.Popen([args.binary],stdin=subprocess.PIPE,stdout=subprocess.PIPE,text=True)
+    else:
+        if not args.ssh: p.error('--ssh is required unless --local is set')
+        proc=subprocess.Popen(['ssh','-o','BatchMode=yes',args.ssh,shlex.quote(args.binary)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,text=True)
     try:
         if not select.select([proc.stdout],[],[],20)[0]: raise RuntimeError('probe identity timeout')
         peers=json.loads(proc.stdout.readline());stamp=int(time.time())
