@@ -34,6 +34,9 @@ public struct MobileAnalyticsComposition {
     public let anonymousID: String
     /// Important transport and backend outcomes sent to the authenticated Axiom bridge.
     public let networkOutcomeReporter: MobileNetworkOutcomeReporter
+    /// One app-open attempt from foreground through a usable terminal, sent to
+    /// PostHog and the authenticated Axiom bridge.
+    public let initialConnectionReporter: MobileInitialConnectionReporter
     /// Bounded terminal input-to-visible and render timing aggregates.
     public let terminalLatencyReporter: MobileTerminalLatencyReporter
     /// The network emitter owns the same consent provider and revocation
@@ -119,6 +122,10 @@ public struct MobileAnalyticsComposition {
         self.anonymousID = anonymousID
         self.networkOutcomeEmitter = networkOutcomeEmitter
         self.networkOutcomeReporter = MobileNetworkOutcomeReporter(emitter: networkOutcomeEmitter)
+        self.initialConnectionReporter = MobileInitialConnectionReporter(
+            productEmitter: emitter,
+            operationalEmitter: networkOutcomeEmitter
+        )
         self.terminalLatencyReporter = MobileTerminalLatencyReporter(
             emitter: networkOutcomeEmitter,
             consent: consent,

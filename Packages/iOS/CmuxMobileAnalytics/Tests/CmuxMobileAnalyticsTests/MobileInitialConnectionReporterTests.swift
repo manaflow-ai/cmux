@@ -16,23 +16,23 @@ private struct InitialConnectionTestConsent: AnalyticsConsentProviding {
         )
 
         reporter.ingest(DiagnosticEvent(
-            .appFeatureAction,
+            code: .appFeatureAction,
             tNanos: 1_000_000_000,
             a: DiagnosticAppEventKind.appForegrounded.rawValue
         ))
         reporter.ingest(DiagnosticEvent(
-            .appFeatureAction,
+            code: .appFeatureAction,
             tNanos: 2_000_000_000,
             a: DiagnosticAppEventKind.connectionStateChanged.rawValue,
             c: 1
         ))
         reporter.ingest(DiagnosticEvent(
-            .rpcReady,
+            code: .rpcReady,
             tNanos: 3_000_000_000,
             a: DiagnosticTransportKind.iroh.rawValue
         ))
         reporter.ingest(DiagnosticEvent(
-            .appFeatureAction,
+            code: .appFeatureAction,
             tNanos: 4_000_000_000,
             a: DiagnosticAppEventKind.terminalMounted.rawValue
         ))
@@ -59,39 +59,39 @@ private struct InitialConnectionTestConsent: AnalyticsConsentProviding {
         )
 
         reporter.ingest(DiagnosticEvent(
-            .appFeatureAction,
+            code: .appFeatureAction,
             tNanos: 1_000_000_000,
             a: DiagnosticAppEventKind.appForegrounded.rawValue
         ))
         reporter.ingest(DiagnosticEvent(
-            .appFeatureAction,
+            code: .appFeatureAction,
             tNanos: 2_000_000_000,
             a: DiagnosticAppEventKind.pairingStarted.rawValue
         ))
         reporter.ingest(DiagnosticEvent(
-            .appFeatureAction,
+            code: .appFeatureAction,
             tNanos: 3_000_000_000,
             a: DiagnosticAppEventKind.pairingFailed.rawValue,
             b: DiagnosticFailureKind.timedOut.rawValue
         ))
         reporter.ingest(DiagnosticEvent(
-            .appFeatureAction,
+            code: .appFeatureAction,
             tNanos: 4_000_000_000,
             a: DiagnosticAppEventKind.pairingStarted.rawValue
         ))
         reporter.ingest(DiagnosticEvent(
-            .appFeatureAction,
+            code: .appFeatureAction,
             tNanos: 5_000_000_000,
             a: DiagnosticAppEventKind.connectionStateChanged.rawValue,
             c: 1
         ))
         reporter.ingest(DiagnosticEvent(
-            .rpcReady,
+            code: .rpcReady,
             tNanos: 6_000_000_000,
             a: DiagnosticTransportKind.tailscale.rawValue
         ))
         reporter.ingest(DiagnosticEvent(
-            .appFeatureAction,
+            code: .appFeatureAction,
             tNanos: 7_000_000_000,
             a: DiagnosticAppEventKind.terminalMounted.rawValue
         ))
@@ -115,7 +115,7 @@ private struct InitialConnectionTestConsent: AnalyticsConsentProviding {
         )
 
         reporter.ingest(DiagnosticEvent(
-            .appFeatureAction,
+            code: .appFeatureAction,
             tNanos: 1_000_000_000,
             a: DiagnosticAppEventKind.appForegrounded.rawValue
         ))
@@ -127,33 +127,37 @@ private struct InitialConnectionTestConsent: AnalyticsConsentProviding {
         #expect(timeout?.properties["population"] == .string("cold_open"))
         #expect(timeout?.properties["user_usable"] == .bool(false))
 
-        reporter.ingest(DiagnosticEvent(
-            .appFeatureAction,
+        let reconnectReporter = MobileInitialConnectionReporter(
+            productEmitter: product,
+            operationalEmitter: operational
+        )
+        reconnectReporter.ingest(DiagnosticEvent(
+            code: .appFeatureAction,
             tNanos: 2_000_000_000,
             a: DiagnosticAppEventKind.connectionStateChanged.rawValue,
             c: 0
         ))
-        reporter.ingest(DiagnosticEvent(
-            .appFeatureAction,
+        reconnectReporter.ingest(DiagnosticEvent(
+            code: .appFeatureAction,
             tNanos: 3_000_000_000,
             a: DiagnosticAppEventKind.reconnectStarted.rawValue
         ))
-        reporter.ingest(DiagnosticEvent(
-            .appFeatureAction,
+        reconnectReporter.ingest(DiagnosticEvent(
+            code: .appFeatureAction,
             tNanos: 4_000_000_000,
             a: DiagnosticAppEventKind.connectionStateChanged.rawValue,
             c: 1
         ))
-        reporter.ingest(DiagnosticEvent(
-            .rpcReady,
+        reconnectReporter.ingest(DiagnosticEvent(
+            code: .rpcReady,
             tNanos: 5_000_000_000
         ))
-        reporter.ingest(DiagnosticEvent(
-            .appFeatureAction,
+        reconnectReporter.ingest(DiagnosticEvent(
+            code: .appFeatureAction,
             tNanos: 6_000_000_000,
             a: DiagnosticAppEventKind.terminalMounted.rawValue
         ))
-        await reporter.flush()
+        await reconnectReporter.flush()
 
         let productEvents = await productUploader.uploadedEvents
         let operationalEvents = await operationalUploader.uploadedEvents
@@ -182,7 +186,7 @@ private struct InitialConnectionTestConsent: AnalyticsConsentProviding {
             timeout: .milliseconds(1)
         )
         reporter.ingest(DiagnosticEvent(
-            .appFeatureAction,
+            code: .appFeatureAction,
             tNanos: 1,
             a: DiagnosticAppEventKind.appForegrounded.rawValue
         ))
