@@ -1141,8 +1141,23 @@ fn scan_registered_processes(
                     continue;
                 };
                 if let Some(scope_indexes) = file_markers.get(&marker) {
-                    for scope in scope_indexes {
-                        result.matches.insert((*scope, snapshot.identity));
+                    // A concurrent fork temporarily sees every CLOEXEC marker
+                    // in the parent until exec closes it. Only configure()'s
+                    // explicitly inherited descriptor grants scope ownership.
+                    let inheritable =
+                        std::fs::read_to_string(process.join("fdinfo").join(fd.to_string()))
+                            .ok()
+                            .and_then(|info| {
+                                info.lines().find_map(|line| {
+                                    line.strip_prefix("flags:")
+                                        .and_then(|value| u32::from_str_radix(value.trim(), 8).ok())
+                                })
+                            })
+                            .is_some_and(|flags| flags & libc::O_CLOEXEC as u32 == 0);
+                    if inheritable {
+                        for scope in scope_indexes {
+                            result.matches.insert((*scope, snapshot.identity));
+                        }
                     }
                 }
             }
