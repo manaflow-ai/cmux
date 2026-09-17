@@ -12256,13 +12256,15 @@ class TerminalController {
     /// and its terminate-later cleanup over the socket.
     ///
     /// The request is deliberately not made inside the synchronous socket
-    /// command frame: `NSApp.terminate` spins a nested run loop while the
-    /// delegate's `.terminateLater` cleanup runs, and a nested loop entered from
-    /// a main-queue block cannot drain main-actor tasks, so the cleanup (and its
-    /// watchdog) would never complete. Scheduling the terminate on the next
-    /// main run-loop turn keeps the socket reply immediate and the cleanup live.
+    /// command frame, and not from a main-queue dispatch block either:
+    /// `NSApp.terminate` spins a nested run loop while the delegate's
+    /// `.terminateLater` cleanup runs, and a nested loop entered while the main
+    /// dispatch queue is draining a block cannot run further main-queue blocks,
+    /// which is where main-actor tasks (the cleanup and its watchdog) execute.
+    /// A run-loop block runs from the run loop itself, exactly like a keyboard
+    /// Cmd+Q, so the nested loop keeps servicing the main queue.
     func requestApplicationQuit() -> String {
-        DispatchQueue.main.async {
+        RunLoop.main.perform(inModes: [.default, .modalPanel, .eventTracking]) {
             NSApp.terminate(nil)
         }
         return "OK"
