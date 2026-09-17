@@ -138,10 +138,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             try? FileManager.default.removeItem(at: root)
         }
 
-        // connectionCount 2: the deferred feed telemetry (the pre-fix regression this
-        // test guards against) arrives on a second socket connection, which must be
-        // accepted and drained for the feed.push absence assertion to be falsifiable.
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state, connectionCount: 2) { line in
+        // The deferred feed telemetry (the pre-fix regression this test guards
+        // against) arrives on a second socket connection, which must be accepted and
+        // drained for the feed.push absence assertion to be falsifiable. The mock
+        // server answers every connection the CLI opens, so that is covered.
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = self.jsonObject(line) else { return "OK" }
             guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
                 return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)

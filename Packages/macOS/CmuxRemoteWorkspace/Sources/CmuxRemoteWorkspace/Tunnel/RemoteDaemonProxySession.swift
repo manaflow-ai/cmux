@@ -43,7 +43,7 @@ final class RemoteDaemonProxySession: @unchecked Sendable {
     let id = UUID()
 
     private let connection: NWConnection
-    private let rpcClient: RemoteDaemonRPCClient
+    private let rpcClient: any RemoteDaemonTunnelRPCClient
     private let queue: DispatchQueue
     private let onClose: (UUID) -> Void
 
@@ -60,7 +60,7 @@ final class RemoteDaemonProxySession: @unchecked Sendable {
 
     init(
         connection: NWConnection,
-        rpcClient: RemoteDaemonRPCClient,
+        rpcClient: any RemoteDaemonTunnelRPCClient,
         queue: DispatchQueue,
         onClose: @escaping (UUID) -> Void
     ) {
@@ -317,7 +317,7 @@ final class RemoteDaemonProxySession: @unchecked Sendable {
             pendingRemoteHTTPHeaderBytes = Data()
             hasForwardedRemoteHTTPHeaders = false
             let targetHost = Self.normalizedProxyTargetHost(host)
-            let streamID = try rpcClient.openStream(host: targetHost, port: port)
+            let streamID = try rpcClient.openStream(host: targetHost, port: port, timeoutMs: 10_000)
             self.streamID = streamID
             try rpcClient.attachStream(streamID: streamID, queue: queue) { [weak self] event in
                 self?.handleRemoteStreamEvent(streamID: streamID, event: event)

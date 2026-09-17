@@ -2,7 +2,8 @@ import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
-import { BranchBasePicker, buildFlatRows, toCurrentOriginRelative, type BranchPickerPayload } from "../src/BranchBasePicker";
+import { BranchBasePicker, branchPickerStateKey, buildFlatRows, toCurrentOriginRelative, type BranchPickerPayload } from "../src/BranchBasePicker";
+import type { DiffTransport } from "../src/diff/transport";
 import { createDiffViewerLabelResolver } from "../src/labels";
 
 // Behavior coverage for the render cap (huge refs lists must not render every
@@ -74,6 +75,64 @@ test("base picker caps a huge remotes group and shows a type-to-filter affordanc
   expect(more).toBeTruthy();
   // 2304 - 8 visible = 2296 hidden.
   expect(more?.textContent).toContain("2296 more, type to filter");
+});
+
+test("switching repositories remounts the picker and ignores an older refs load", async () => {
+  dom = createDom();
+  installDomGlobals(dom);
+  const completions = new Map<string, (response: Response) => void>();
+  (globalThis as any).fetch = (input: RequestInfo | URL) => new Promise<Response>((resolve) => {
+    completions.set(String(input), resolve);
+  });
+  const first = { ...pickerPayload(0), repoRoot: "/tmp/first", capabilityToken: "first", refsURL: "/first" };
+  const second = { ...pickerPayload(0), repoRoot: "/tmp/second", capabilityToken: "second", refsURL: "/second" };
+  const render = (picker: BranchPickerPayload) => {
+    flushSync(() => {
+      root?.render(
+        <BranchBasePicker
+          key={branchPickerStateKey(picker)}
+          label={label}
+          onNavigate={() => {}}
+          picker={picker}
+        />,
+      );
+    });
+  };
+  root = createRoot(document.getElementById("root")!);
+  render(first);
+  document.querySelector<HTMLButtonElement>(".base-picker-button")?.click();
+  await waitFor(() => completions.has("/first"));
+
+  render(second);
+  document.querySelector<HTMLButtonElement>(".base-picker-button")?.click();
+  await waitFor(() => completions.has("/second"));
+  completions.get("/second")?.(new Response(JSON.stringify({
+    groups: [{ id: "suggested", label: "Suggested", rows: [{ ref: "second-ref", label: "second-ref" }] }],
+  }), { status: 200 }));
+  await waitFor(() => document.body.textContent?.includes("second-ref") === true);
+
+  let staleResponseRead = false;
+  const staleResponse = new Response(null, { status: 200 });
+  staleResponse.json = async () => {
+    staleResponseRead = true;
+    return {
+      groups: [{ id: "suggested", label: "Suggested", rows: [{ ref: "stale-ref", label: "stale-ref" }] }],
+    };
+  };
+  completions.get("/first")?.(staleResponse);
+  await waitFor(() => staleResponseRead);
+  expect(document.body.textContent).toContain("second-ref");
+  expect(document.body.textContent).not.toContain("stale-ref");
+
+  const changedBase = { ...second, currentRef: "new-base", refsURL: "/changed-base" };
+  render(changedBase);
+  document.querySelector<HTMLButtonElement>(".base-picker-button")?.click();
+  await waitFor(() => completions.has("/changed-base"));
+  completions.get("/changed-base")?.(new Response(JSON.stringify({
+    groups: [{ id: "suggested", label: "Suggested", rows: [{ ref: "new-base-ref", label: "new-base-ref" }] }],
+  }), { status: 200 }));
+  await waitFor(() => document.body.textContent?.includes("new-base-ref") === true);
+  expect(document.body.textContent).not.toContain("second-ref");
 });
 
 test("button renders the head -> base comparison with the base as the bold ref", () => {
@@ -200,6 +259,89 @@ test("selecting a ref navigates to a root-relative regenerate URL", async () => 
   expect(navigated.length).toBe(1);
   // Origin stripped, token/repo/group survive in the query, ref substituted.
   expect(navigated[0]).toBe("/__cmux_diff_viewer_branch?group=g&repo=%2Ftmp%2Fmock&token=abc&base=develop");
+});
+
+test("selecting the active base closes without regenerating the same URL", async () => {
+  dom = createDom();
+  installDomGlobals(dom);
+  const navigated: string[] = [];
+  const picker = pickerPayload(0);
+  const container = document.getElementById("root");
+  root = createRoot(container!);
+  flushSync(() => {
+    root?.render(<BranchBasePicker label={label} onNavigate={(url) => navigated.push(url)} picker={picker} />);
+  });
+
+  document.querySelector<HTMLButtonElement>(".base-picker-button")?.click();
+  await waitFor(() => rowCount() > 0);
+  flushSync(() => {
+    document.querySelector<HTMLElement>(".base-picker-row")?.dispatchEvent(
+      new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }),
+    );
+  });
+
+  expect(navigated).toEqual([]);
+  expect(document.querySelector(".base-picker-popover")).toBeNull();
+  expect(document.activeElement).toBe(document.querySelector(".base-picker-button"));
+});
+
+test("a failed branch regeneration leaves cached refs available for retry", async () => {
+  dom = createDom();
+  installDomGlobals(dom);
+  let changeAttempts = 0;
+  const navigated: string[] = [];
+  const transport: DiffTransport = {
+    request(command) {
+      if (command.method === "branchList") {
+        return Promise.resolve({
+          type: "branches",
+          value: {
+            groups: [{ id: "suggested", label: "Suggested", rows: [{ ref: "develop", label: "develop" }] }],
+          },
+        });
+      }
+      changeAttempts += 1;
+      return changeAttempts === 1
+        ? Promise.reject(new Error("temporary sidecar failure"))
+        : Promise.resolve({ type: "navigation", value: { url: "/retry-succeeded" } });
+    },
+    subscribe: () => () => {},
+    openResource: () => Promise.reject(new Error("unused")),
+    close: () => {},
+  };
+  const picker: BranchPickerPayload = {
+    ...pickerPayload(0),
+    groupId: "1234567890-group",
+    capabilityToken: "0123456789abcdef",
+  };
+  const container = document.getElementById("root");
+  root = createRoot(container!);
+  flushSync(() => {
+    root?.render(<BranchBasePicker label={label} onNavigate={(url) => navigated.push(url)} picker={picker} transport={transport} />);
+  });
+
+  document.querySelector<HTMLButtonElement>(".base-picker-button")?.click();
+  await waitFor(() => rowCount() === 1);
+  flushSync(() => {
+    document.querySelector<HTMLElement>(".base-picker-row")?.dispatchEvent(
+      new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }),
+    );
+  });
+  await waitFor(() => changeAttempts === 1);
+  await waitFor(() => rowCount() === 1);
+  expect(document.querySelector(".base-picker-status-error")?.textContent).toBe(
+    "Could not generate the diff. Choose a branch to retry.",
+  );
+  expect(document.activeElement).toBe(document.querySelector(".base-picker-input"));
+
+  flushSync(() => {
+    document.querySelector<HTMLElement>(".base-picker-row")?.dispatchEvent(
+      new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }),
+    );
+  });
+  await waitFor(() => navigated.length === 1);
+  expect(changeAttempts).toBe(2);
+  expect(navigated).toEqual(["/retry-succeeded"]);
 });
 
 function createDom(): JSDOM {

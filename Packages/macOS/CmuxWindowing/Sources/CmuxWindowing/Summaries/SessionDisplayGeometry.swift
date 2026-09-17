@@ -13,8 +13,9 @@ public struct SessionDisplayGeometry: Sendable {
     /// reassigns). The app target builds it from
     /// `CGDisplayCreateUUIDFromDisplayID` with an EDID-triple fallback; `nil` when
     /// neither is resolvable (e.g. some virtual/AirPlay displays), in which case
-    /// the display is excluded from any persisted configuration key. Used only
-    /// for per-monitor geometry memory, never for restore-time clamping.
+    /// the display is excluded from any persisted configuration key. Used for
+    /// per-monitor geometry memory and topology-change gates, never for choosing
+    /// the restore-time clamp target.
     public let stableID: String?
     /// The display's full frame in global screen coordinates.
     public let frame: CGRect

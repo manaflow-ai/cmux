@@ -13,7 +13,7 @@ extension TabManager {
 
     func updateWindowTitleForSelectedTab() {
         guard let selectedTabId,
-              let tab = tabs.first(where: { $0.id == selectedTabId }) else {
+              let tab = workspacesById[selectedTabId] else {
             updateWindowTitle(for: nil)
             return
         }
@@ -23,7 +23,7 @@ extension TabManager {
     func updateWindowTitle(for tab: Workspace?) {
         let title = windowTitle(for: tab)
         guard let targetWindow = window else { return }
-        targetWindow.title = title
+        windowTitleWriter.apply(title, to: targetWindow)
     }
 
     /// The name to display for `tab` across window chrome — the custom title
@@ -36,10 +36,32 @@ extension TabManager {
     /// `title` is merely seeded equal to the group name at creation and would
     /// otherwise drift when the group is renamed.
     func resolvedWorkspaceDisplayTitle(for tab: Workspace) -> String {
-        if let group = workspaceGroups.first(where: { $0.anchorWorkspaceId == tab.id }) {
-            return group.name
+        let anchorGroupName = workspaces.groupNamesByAnchorWorkspaceId[tab.id]
+        return resolvedWorkspaceDisplayTitle(for: tab, anchorGroupName: anchorGroupName)
+    }
+
+    func resolvedWorkspaceDisplayTitle(forWorkspaceId workspaceId: UUID) -> String? {
+        guard let workspace = workspacesById[workspaceId] else { return nil }
+        return resolvedWorkspaceDisplayTitle(for: workspace)
+    }
+
+    func resolvedWorkspaceDisplayTitles(for workspaceIds: Set<UUID>) -> [UUID: String] {
+        guard !workspaceIds.isEmpty else { return [:] }
+        let groupNamesByAnchorId = workspaces.groupNamesByAnchorWorkspaceId
+        var titles: [UUID: String] = [:]
+        titles.reserveCapacity(workspaceIds.count)
+        for workspaceId in workspaceIds {
+            guard let workspace = workspacesById[workspaceId] else { continue }
+            titles[workspaceId] = resolvedWorkspaceDisplayTitle(
+                for: workspace,
+                anchorGroupName: groupNamesByAnchorId[workspaceId]
+            )
         }
-        return tab.title
+        return titles
+    }
+
+    private func resolvedWorkspaceDisplayTitle(for workspace: Workspace, anchorGroupName: String?) -> String {
+        anchorGroupName ?? workspace.title
     }
 
     private func windowTitle(for tab: Workspace?) -> String {

@@ -32,6 +32,11 @@ final class AccessoryActionButton: UIButton {
         }
     }
 
+    /// Contrasting stroke used to distinguish the sticky modifier state.
+    var stickyLockBorderColor: UIColor = .white {
+        didSet { updateStickyLockBorder() }
+    }
+
     /// Width of the sticky-lock capsule border, matching the pre-26 flat stroke.
     private static let stickyLockBorderWidth: CGFloat = 2
 
@@ -63,7 +68,7 @@ final class AccessoryActionButton: UIButton {
         if isStickyLocked {
             layer.cornerRadius = bounds.height / 2
             layer.cornerCurve = .continuous
-            layer.borderColor = UIColor.white.cgColor
+            layer.borderColor = stickyLockBorderColor.cgColor
             layer.borderWidth = Self.stickyLockBorderWidth
         } else {
             layer.borderWidth = 0

@@ -32,12 +32,20 @@ export const FEATURE_FLAGS = {
     reviewBy: "2026-10-01",
     defaultWhenUnavailable: false,
   },
-  proCheckout: {
-    key: "pro-checkout-enabled-release",
+  iosArtifactChip: {
+    key: "ios-artifact-chip-enabled-release",
     owner: "lawrencecchen",
     description:
-      "Points the pricing page Pro CTA at /api/billing/checkout (Stack hosted purchase) instead of the download link. Off until prod Stripe Connect is live.",
-    reviewBy: "2026-10-01",
+      "Shows the integrated Terminal Files chip and its count scan in the iOS terminal toolbar.",
+    reviewBy: "2027-02-01",
+    defaultWhenUnavailable: true,
+  },
+  goPlan: {
+    key: "go-plan-enabled-release",
+    owner: "lawrencecchen",
+    description:
+      "Shows and sells the $10/month Go personal Cloud VM plan. Off until Go capacity and support are ready for public rollout.",
+    reviewBy: "2026-12-01",
     defaultWhenUnavailable: false,
   },
 } as const satisfies Record<string, FeatureFlagDefinition>;
