@@ -1,7 +1,7 @@
 import * as Effect from "effect/Effect";
 import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
-import { createAuroraOperatorPool } from "./aurora-operator.mjs";
+import { createPlanetScaleOperatorPool } from "./planetscale-operator.mjs";
 import { cleanupIrohChallenges, IrohChallengeCleanupError } from "./iroh-challenge-cleanup";
 import { loadTargetEnv, parseWebDirAndTarget } from "./projects.mjs";
 
@@ -10,7 +10,7 @@ const { webDir, project, rest } = parseWebDirAndTarget(process.argv.slice(2), us
 if (rest.some((arg: string) => arg !== "--apply")) throw new Error(usage);
 
 const program = Effect.acquireUseRelease(
-  Effect.try(() => createAuroraOperatorPool(webDir, loadTargetEnv(project), project.label)),
+  Effect.try(() => createPlanetScaleOperatorPool(webDir, loadTargetEnv(project), project.label)),
   (pool) => cleanupIrohChallenges(pool, { apply: rest.includes("--apply") }).pipe(
     Effect.tap((result) => Effect.sync(() => {
       console.log(JSON.stringify({ target: project.label, ...result }));
@@ -24,6 +24,6 @@ if (result._tag === "Failure") {
   const error = Cause.failureOption(result.cause);
   console.error(Option.isSome(error) && error.value instanceof IrohChallengeCleanupError
     ? error.value.message
-    : "Iroh challenge cleanup did not complete. Check operator AWS authentication and database access; committed batches are safe to rerun.");
+    : "Iroh challenge cleanup did not complete. Check PlanetScale authentication and database access; committed batches are safe to rerun.");
   process.exitCode = 1;
 }
