@@ -97,7 +97,7 @@ struct CloudSidebarPinGeometryTests {
         let unpinned = try render(cell, node: folder, fixture: fixture)
         folder.isPinned = true
         let pinned = try render(cell, node: folder, fixture: fixture)
-        let pixels = try #require(differenceBounds(unpinned, pinned))
+        let pixels = try #require(try differenceBounds(unpinned, pinned))
         let scale = CGFloat(pinned.pixelsWide) / cell.bounds.width
         let change = CGRect(x: pixels.minX / scale, y: pixels.minY / scale, width: pixels.width / scale, height: pixels.height / scale)
         // A leading pin shifts only the compact identity cluster. A trailing

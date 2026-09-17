@@ -109,8 +109,7 @@ extension MobileShellComposite {
         var routes = mac.routes
         routes.remove(at: removedRouteIndex)
         do {
-            if routes.isEmpty {
-                guard deleteComputerIfLastRoute else { return false }
+            if routes.isEmpty, deleteComputerIfLastRoute {
                 try await pairedMacStore.removeExactScope(
                     macDeviceID: mac.macDeviceID,
                     instanceTag: mac.instanceTag,

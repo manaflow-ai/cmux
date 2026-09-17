@@ -19,6 +19,8 @@ export type VMStatus = "creating" | "running" | "paused" | "destroyed";
 export type VMStats = {
   readonly state: "awake" | "asleep" | "unknown";
   readonly sampledAt: number;
+  /** Timestamp of the latest guest reporter sample, even when it is stale. */
+  readonly resourceSampledAt?: number;
   readonly cpus?: number;
   readonly cpuPercent?: number;
   readonly loadAverage1m?: number;
@@ -70,6 +72,8 @@ export type VMHandle = {
 
 export type CreateOptions = {
   image: string; // provider-specific template/snapshot identifier
+  /** Provider-enforced lifetime runtime allowance for this allocation. */
+  runtimeBudgetSeconds?: number;
   /** Human-facing machine label; providers may ignore this cosmetic field. */
   displayName?: string;
   /** Current prompt name, written into the guest rather than a shell environment. */
@@ -471,6 +475,7 @@ export interface VMProvider {
 
   pause(vmId: string): Promise<void>;
   resume(vmId: string): Promise<VMHandle>;
+  setRuntimeBudget?(vmId: string, remainingSeconds: number | null): Promise<void>;
 
   exec(vmId: string, command: string, opts?: ExecOptions): Promise<ExecResult>;
 

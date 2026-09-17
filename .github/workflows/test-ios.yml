@@ -34,7 +34,6 @@ on:
         options:
           - auto
           - blacksmith-6vcpu-macos-26
-          - macos-26
           - tart-ios
 
 permissions:

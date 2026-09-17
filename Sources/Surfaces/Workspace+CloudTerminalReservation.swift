@@ -19,7 +19,8 @@ extension Workspace {
         at destination: SurfaceDestination,
         focus: Bool
     ) -> CloudTerminalPaneReservation? {
-        guard !isRetiredFromOwningTabManager else { return nil }
+        guard !isRetiredFromOwningTabManager,
+              surfaceOwnershipPolicy.rejection(for: machine) == nil else { return nil }
         let relay = CloudOptimisticInputRelay()
         guard let panel = makeRemoteTmuxPanePanel(
             onInput: { input in relay.send(input) },
