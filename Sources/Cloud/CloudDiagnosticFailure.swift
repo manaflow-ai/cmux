@@ -71,6 +71,15 @@ enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
             }
         }
         if error is CloudMachineLinkManager.ManagerError { return .connectFailure(error) }
+        if let error = error as? SurfaceCatalogError {
+            switch error {
+            case .unknownResource, .destinationNotFound, .nothingToOpen: return .notFound
+            case .noProvider, .unavailable: return .network
+            case .ambiguousRemotePlacement: return .conflict
+            case .unsupported: return .unsupported
+            case .partialOperation: return .response
+            }
+        }
         if error is DecodingError { return .response }
         return .unknown
     }
