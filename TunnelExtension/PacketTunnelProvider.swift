@@ -63,7 +63,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             switch request {
             case .begin(let generation):
                 logger.info("startTunnel beginning generation \(generation, privacy: .public)")
-                self.startTunnel()
+                self.beginTunnelAdapterStart()
             case .coalesced(let generation, let waiterCount):
                 logger.info("startTunnel coalesced generation \(generation, privacy: .public), callbacks \(waiterCount, privacy: .public)")
             case .alreadyStarted(let generation):
@@ -74,7 +74,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     /// Starts WireGuard for the generation admitted by ``startGate``.
-    private func startTunnel() {
+    private func beginTunnelAdapterStart() {
         guard let providerProtocol = protocolConfiguration as? NETunnelProviderProtocol,
               let providerConfiguration = providerProtocol.providerConfiguration,
               let wgQuickConfig = providerConfiguration[CloudTunnelProviderConfigurationKeys.wgQuickConfig] as? String,
