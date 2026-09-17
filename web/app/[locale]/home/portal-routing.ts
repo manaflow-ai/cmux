@@ -1,11 +1,3 @@
-type PortalUser = {
-  readonly isAnonymous: boolean;
-};
-
-export function canEnterCloudPortal(user: PortalUser | null): user is PortalUser {
-  return user !== null && !user.isAnonymous;
-}
-
 export function resolveHomePortalPaths(portal?: string[]): {
   initialPath: string;
   returnPath: string;

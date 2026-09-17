@@ -70,20 +70,12 @@ struct ChatArtifactViewerPager: View {
             #if os(iOS)
             .chatArtifactFileActionPresentation(fileActionPresentationBinding)
             .alert(
-                String(
-                    localized: "chat.artifact.action_failed.title",
-                    defaultValue: "Couldn't complete action",
-                    bundle: .module
-                ),
+                fileActionFailurePresentation.title,
                 isPresented: fileActionErrorBinding
             ) {
                 Button(String(localized: "chat.artifact.ok", defaultValue: "OK", bundle: .module)) {}
             } message: {
-                Text(String(
-                    localized: "chat.artifact.action_failed.message",
-                    defaultValue: "Check the connection to your Mac and try again.",
-                    bundle: .module
-                ))
+                Text(fileActionFailurePresentation.message)
             }
             #endif
             .onChange(of: initialPath) { _, newPath in
@@ -128,6 +120,9 @@ struct ChatArtifactViewerPager: View {
                     zoomedPath = path
                 }
             },
+            onImageAction: { action, snapshot in
+                performFileAction(action, snapshot: snapshot)
+            },
             onDone: onDone
         )
     }
@@ -160,8 +155,19 @@ struct ChatArtifactViewerPager: View {
                     zoomedPath = snapshot.path
                 }
             },
+            onImageAction: imageActionPerformer(for: snapshot),
             onDone: onDone
         )
+    }
+
+    private func imageActionPerformer(
+        for snapshot: ChatArtifactViewerPageSnapshot
+    ) -> (@MainActor (ChatArtifactAction) -> Void)? {
+        #if os(iOS)
+        { action in performFileAction(action, snapshot: snapshot) }
+        #else
+        nil
+        #endif
     }
 
     private var selectionBinding: Binding<String> {
@@ -186,7 +192,7 @@ struct ChatArtifactViewerPager: View {
             prepareSave: { path in
                 Task { await model.prepareSave(for: path, loader: loader) }
             },
-            toggleSearch: model.toggleSearch,
+            toggleSearch: { path in model.toggleSearch(for: path, loader: loader) },
             toggleGoToLine: model.toggleGoToLine,
             requestTop: model.requestTop,
             requestBottom: model.requestBottom,
@@ -196,8 +202,34 @@ struct ChatArtifactViewerPager: View {
             notifyCopied: { toasts.present(.copied()) },
             notifyPathCopied: {
                 toasts.present(.copied(L10n.string("mobile.toast.pathCopied", defaultValue: "Path copied")))
-            }
+            },
+            performFileAction: performFileAction
         )
+    }
+
+    private func performFileAction(
+        _ action: ChatArtifactAction,
+        snapshot: ChatArtifactViewerPageSnapshot
+    ) {
+        switch action {
+        case .share:
+            Task { await model.prepareShare(for: snapshot.path, loader: loader) }
+        case .save:
+            Task { await model.prepareSave(for: snapshot.path, loader: loader) }
+        case .copyImage:
+            guard case .image(let data) = snapshot.state else { return }
+            UIPasteboard.general.image = UIImage(data: data)
+            loader.recordDiagnostic(.artifactCopied)
+            toasts.present(.copied())
+        case .copyContents:
+            UIPasteboard.general.string = snapshot.renderedText
+            loader.recordDiagnostic(.artifactCopied)
+            toasts.present(.copied())
+        case .copyPath:
+            UIPasteboard.general.string = snapshot.path
+            loader.recordDiagnostic(.artifactCopied)
+            toasts.present(.copied(L10n.string("mobile.toast.pathCopied", defaultValue: "Path copied")))
+        }
     }
 
     private var fileActionPresentationBinding: Binding<ChatArtifactFileActionPresentation?> {
@@ -220,6 +252,13 @@ struct ChatArtifactViewerPager: View {
                     && model.toolbarSnapshot.fileActionState.showsError
             },
             set: { model.setShowsFileActionError($0, for: path) }
+        )
+    }
+
+    private var fileActionFailurePresentation: ChatArtifactFailurePresentation {
+        ChatArtifactFailurePresentation(
+            error: model.toolbarSnapshot.fileActionState.failure ?? .loadFailed,
+            scope: scope
         )
     }
 

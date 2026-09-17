@@ -16,19 +16,29 @@ import {
 import { Link } from "@/i18n/navigation";
 import NextLink from "next/link";
 import { redirect } from "next/navigation";
-import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
+import { optionalDashboardUser } from "@/app/lib/dashboard-auth";
+import { Suspense } from "react";
 
-export const dynamic = "force-dynamic";
+export const instant = true;
 
-export default async function Home({ params }: { params: Promise<{ locale: string }> }) {
-  if (isStackConfigured()) {
-    const user = await getStackServerApp().getUser({ or: "return-null" });
-    if (user && !user.isAnonymous) {
-      const { locale } = await params;
-      redirect(locale === "en" ? "/home" : `/${locale}/home`);
-    }
+export default function Home({ params }: { params: Promise<{ locale: string }> }) {
+  return (
+    <>
+      <Suspense fallback={null}>
+        <SignedInHomeRedirect params={params} />
+      </Suspense>
+      <HomeContent />
+    </>
+  );
+}
+
+async function SignedInHomeRedirect({ params }: { params: Promise<{ locale: string }> }) {
+  const user = await optionalDashboardUser();
+  if (user) {
+    const { locale } = await params;
+    redirect(locale === "en" ? "/home" : `/${locale}/home`);
   }
-  return <HomeContent />;
+  return null;
 }
 
 function HomeContent() {

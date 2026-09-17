@@ -1,14 +1,16 @@
 import AppKit
+import CmuxFoundation
 
 @MainActor
 final class SidebarResizerCursorReleaseScheduler {
-    private var pendingTask: Task<Void, Never>?
-    private var generation: UInt64 = 0
+    private let scheduler: MainActorDeferredActionScheduler
+
+    init(clock: any Clock<Duration> = ContinuousClock()) {
+        scheduler = MainActorDeferredActionScheduler(clock: clock)
+    }
 
     func cancelPendingRelease() {
-        generation &+= 1
-        pendingTask?.cancel()
-        pendingTask = nil
+        scheduler.cancel()
     }
 
     func schedule(
@@ -16,22 +18,7 @@ final class SidebarResizerCursorReleaseScheduler {
         delay: Duration,
         release: @escaping @MainActor (Bool) -> Void
     ) {
-        cancelPendingRelease()
-
-        let scheduledGeneration = generation
-        pendingTask = Task { @MainActor [weak self] in
-            if delay > .zero {
-                do {
-                    try await Task.sleep(for: delay)
-                } catch {
-                    return
-                }
-            } else {
-                await Task.yield()
-                guard !Task.isCancelled else { return }
-            }
-            guard let self, generation == scheduledGeneration else { return }
-            pendingTask = nil
+        scheduler.schedule(after: delay, zeroDelayPolicy: .yieldOnce) {
             release(force)
         }
     }

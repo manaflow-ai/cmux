@@ -1,4 +1,5 @@
 import CmuxBrowser
+import CmuxFoundation
 import Foundation
 import WebKit
 
@@ -86,18 +87,18 @@ extension TerminalController {
                     switch result {
                     case .success(let image):
                         guard let data = self.v2PNGData(from: image) else {
-                            finish((webViewIdentifier, .failure(BrowserScreenshotError.invalidImageRepresentation.localizedDescription)))
+                            finish((
+                                webViewIdentifier,
+                                .failure(
+                                    code: "internal_error",
+                                    message: BrowserScreenshotError.invalidImageRepresentation.localizedDescription
+                                )
+                            ))
                             return
                         }
                         finish((webViewIdentifier, .success(data)))
-                    case .failure(let error as BrowserScreenshotError):
-                        if case .automationTimedOut = error {
-                            finish((webViewIdentifier, .timedOut))
-                        } else {
-                            finish((webViewIdentifier, .failure(error.localizedDescription)))
-                        }
                     case .failure(let error):
-                        finish((webViewIdentifier, .failure(error.localizedDescription)))
+                        finish((webViewIdentifier, .captureFailure(error)))
                     }
                 }
             }
@@ -134,10 +135,14 @@ extension TerminalController {
         browserPanel: BrowserPanel,
         surfaceId: UUID,
         expectedWebViewIdentifier: ObjectIdentifier,
-        channel: BrowserAutomationProbeChannel
+        channel: BrowserAutomationProbeChannel,
+        livenessTimeout: TimeInterval =
+            BrowserScreenshotTimingBudget().livenessProbeAllowance
     ) -> String {
         var recoveryTask: Task<Void, Never>?
-        let outcome: BrowserAutomationRecoveryOutcome? = socketAwaitCallback(timeout: 2.5) { finish in
+        let outcome: BrowserAutomationRecoveryOutcome? = socketAwaitCallback(
+            timeout: livenessTimeout
+        ) { finish in
             recoveryTask = Task { @MainActor in
                 guard !Task.isCancelled else {
                     finish(.cancelled)

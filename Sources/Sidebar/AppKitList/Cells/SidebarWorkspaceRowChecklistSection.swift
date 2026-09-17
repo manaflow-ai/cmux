@@ -304,6 +304,44 @@ final class SidebarRowChecklistSection: NSView {
         needsLayout = true
     }
 
+    func suspendPresentation(commitEdits: Bool) {
+        detachPresentation(commitEdits: commitEdits)?()
+    }
+
+    func detachPresentation(commitEdits: Bool) -> (@MainActor () -> Void)? {
+        var postUpdateActions: [@MainActor () -> Void] = []
+        if let addAction = addRow.detachPresentation(commitEdits: commitEdits) {
+            postUpdateActions.append(addAction)
+        }
+        for line in orderedLines {
+            if let action = line.detachPresentation(commitEdits: commitEdits) {
+                postUpdateActions.append(action)
+            }
+        }
+        summaryLine.resetForReuse()
+        if popoverPresenter.isShown {
+            popoverPresenter.close()
+        }
+        popoverPresenter.onExternalDismiss = nil
+        if let dismissAction = activePopoverDismissContext {
+            postUpdateActions.append(dismissAction)
+        }
+        activePopoverDismissContext = nil
+        awaitingPopoverDismissAck = false
+        pendingPopoverPresentation = false
+        lastAddFieldToken = 0
+        lastPopoverModel = nil
+        lastConfigureKey = nil
+        resetTransientChildren()
+        orderedItems.removeAll(keepingCapacity: true)
+        actions = nil
+        model = nil
+        guard !postUpdateActions.isEmpty else { return nil }
+        return {
+            for action in postUpdateActions { action() }
+        }
+    }
+
     // MARK: Checklist popover (popover style)
 
     private func reconcileChecklistPopover(
@@ -385,25 +423,7 @@ final class SidebarRowChecklistSection: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        guard window != nil else {
-            // Detached without a configure pass (workspace deleted, row
-            // unmounted, cell enqueued for reuse): the legacy host's
-            // dismantle closes the popover and writes presentation state
-            // back; leaving it armed re-presented on the row's return and
-            // kept actions targeting an unmounted row alive.
-            if popoverPresenter.isShown {
-                popoverPresenter.close()
-                activePopoverDismissContext?()
-            }
-            activePopoverDismissContext = nil
-            awaitingPopoverDismissAck = false
-            lastAddFieldToken = 0
-            lastPopoverModel = nil
-            pendingPopoverPresentation = false
-            lastConfigureKey = nil
-            return
-        }
-        if pendingPopoverPresentation {
+        if window != nil, pendingPopoverPresentation {
             needsLayout = true
         }
     }

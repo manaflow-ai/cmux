@@ -1,3 +1,4 @@
+import AppKit
 import CmuxPanes
 import Foundation
 
@@ -7,19 +8,24 @@ extension DockSplitStore: TerminalLinkOpenContainer {
     }
 
     func terminalLinkWorkingDirectory(for sourcePanelId: UUID) -> String? {
-        if let directory = detachedSurfaceTransfersByPanelId[sourcePanelId]?.directory,
-           !directory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return directory
-        }
-        guard let tabId = surfaceId(forPanelId: sourcePanelId),
-              let terminal = panel(for: tabId) as? TerminalPanel else {
+        guard let panelId = panelID(forTerminalLinkSourceID: sourcePanelId) else {
             return nil
         }
-        return terminal.requestedWorkingDirectory
+        return terminalWorkingDirectory(for: panelId)
     }
 
     func terminalLinkIsRemoteTerminal(_ sourcePanelId: UUID) -> Bool {
-        detachedSurfaceTransfersByPanelId[sourcePanelId]?.isRemoteTerminal == true
+        guard let panelId = panelID(forTerminalLinkSourceID: sourcePanelId) else {
+            return false
+        }
+        return detachedSurfaceTransfersByPanelId[panelId]?.isRemoteTerminal == true
+    }
+
+    func cloudTerminalLinkTarget(url: URL, sourcePanelId: UUID) -> CloudTerminalLinkTarget? {
+        guard let resource = SurfaceCatalog.shared.resource(forPanel: sourcePanelId),
+              let address = SurfaceCatalog.shared.machineInfo(for: resource.machine)?.privateAddress,
+              let target = CmuxTuiSurfaceProvider.cloudTerminalLinkTarget(url: url, resource: resource, privateAddress: address) else { return nil }
+        return target
     }
 
     func deferTerminalFileLinkOpen(
@@ -33,25 +39,38 @@ extension DockSplitStore: TerminalLinkOpenContainer {
     }
 
     func openTerminalBrowserLink(url: URL, sourcePanelId: UUID) -> Bool {
-        guard let sourcePane = paneId(forPanelId: sourcePanelId) else { return false }
+        guard let panelId = panelID(forTerminalLinkSourceID: sourcePanelId),
+              let sourcePane = paneId(forPanelId: panelId) else { return false }
         if let targetPane = BrowserRightSidePaneResolver().preferredPane(
             from: sourcePane,
             in: bonsplitController
         ) {
-            return newSurface(
+            noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
+            guard let panelId = newSurface(
                 kind: .browser,
                 inPane: targetPane,
                 url: url,
-                focus: true
-            ) != nil
+                focus: false
+            ) else { return false }
+            focusPanelFromDockInteraction(
+                panelId,
+                window: NSApp.keyWindow ?? NSApp.mainWindow
+            )
+            return true
         }
-        return newSplit(
+        noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
+        guard let panelId = newSplit(
             kind: .browser,
             orientation: .horizontal,
             insertFirst: false,
-            sourcePanelId: sourcePanelId,
+            sourcePanelId: panelId,
             url: url,
-            focus: true
-        ) != nil
+            focus: false
+        ) else { return false }
+        focusPanelFromDockInteraction(
+            panelId,
+            window: NSApp.keyWindow ?? NSApp.mainWindow
+        )
+        return true
     }
 }

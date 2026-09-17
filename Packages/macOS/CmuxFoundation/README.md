@@ -16,9 +16,24 @@ so call sites read naturally (`value.javaScriptStringLiteral`, not `f(value)`).
 - `String.javaScriptStringLiteral` — the string encoded as a quoted JavaScript string literal.
 - `SSHAgentSocketResolver` — OpenSSH option parsing and SSH agent socket path normalization.
 - `MoshTerminalCommandBuilder` — a pure Mosh startup-command builder with explicit SSH fallback.
+- `MoshRemoteIPMode` — the address-discovery mode selected for a Mosh connection.
 - `RemoteTmuxCommandBuilder` — shared remote `tmux` resolution and argv preservation.
 - `WorkspaceRemoteTerminalProfile` — durable shell-or-named-tmux terminal intent.
 - `WorkspaceRemoteTerminalTransport` — the persisted SSH-or-Mosh interactive terminal preference.
+- `SentryNoiseFilter` — shared classification for expected CLI socket lifecycle failures,
+  including structured `unavailable` replies and typed missing socket paths.
+- `CLISocketSentryPolicy`: trusted Codex sandbox provenance for CLI socket `EPERM` filtering.
+- `CmuxCodexConfigEditor` — pure install and uninstall transforms for cmux's Codex `config.toml` hooks.
+- `MainActorDeferredActionScheduler` — replaceable clock-driven main-actor work
+  whose queued actions cannot retain prior scheduled actions.
+- `MainActorCoalescingDeadlineTimer` — one persistent timer handle for hot,
+  synchronous streams of deadline updates.
+- `MainActorRepeatingActionScheduler` — one persistent timer handle for a
+  lifecycle-bound repeating main-actor action.
+- `MainActorTaskStore` — keyed replaceable task ownership that keeps task
+  handles out of captured SwiftUI value snapshots.
+- `FileDescriptorLimitController` — a synchronous startup policy that raises
+  inherited descriptor limits before workers and terminal children start.
 
 ## Usage
 
@@ -42,7 +57,9 @@ let command = MoshTerminalCommandBuilder(
     localMoshMissingMessage: "Mosh is unavailable locally; using SSH.",
     localMoshUnsupportedMessage: "Mosh is too old for shared SSH setup; using SSH.",
     remoteMoshMissingMessage: "mosh-server is unavailable remotely; using SSH.",
-    remoteMoshProbeFailedMessage: "Mosh capability check failed; using SSH."
+    remoteMoshProbeFailedMessage: "Mosh capability check failed; using SSH.",
+    remoteBootstrapInstallFailedMessage: "Remote bootstrap install failed; using SSH.",
+    remoteMoshAddressFallbackMessage: "Remote SSH address is unusable; using local Mosh resolution."
 ).command()
 ```
 
@@ -54,9 +71,34 @@ let profile = WorkspaceRemoteTerminalProfile(kind: .tmux, tmuxSessionName: "agen
 let remoteArguments = profile?.remoteCommandArguments
 ```
 
+Codex hook edits are pure transforms; callers own the file read/write boundary:
+
+```swift
+let editor = CmuxCodexConfigEditor()
+let result = editor.installingHooks(in: configContents, trustEntries: trustEntries)
+try result.content.write(to: configURL, atomically: true, encoding: .utf8)
+```
+
+CLI telemetry may suppress socket-connect `EPERM` only when the process
+environment contains a known restricted `CODEX_SANDBOX` value:
+
+```swift
+let policy = CLISocketSentryPolicy(environment: ProcessInfo.processInfo.environment)
+let isExpected = SentryNoiseFilter().isExpectedCLISocketTransportFailure(
+    stage: stage,
+    message: errorMessage,
+    allowSandboxPolicyDenial: policy.allowsSandboxPolicyDenial
+)
+```
+
+Pass structured `CLIError.v2Code` as `cliErrorCode` and a typed missing-path
+classification as `socketPathMissing` when those values are available; this avoids
+guessing lifecycle state from localized text. Missing, unknown, and unrestricted
+`CODEX_SANDBOX` values keep the error visible.
+
 ## Testing
 
-Everything here is a value transform, so tests need no app, no AppKit, and no user-owned state:
+Tests need no app, AppKit lifecycle, or user-owned state:
 
 ```swift
 import Testing
@@ -66,3 +108,89 @@ import CmuxFoundation
     #expect("hello".javaScriptStringLiteral == "\"hello\"")
 }
 ```
+
+File-descriptor tests inject both resource-limit operations so they never mutate
+the test runner's process-wide limit. `readLimit` supplies the current soft/hard
+pair, and `writeLimit` returns whether the requested pair was accepted:
+
+```swift
+import Darwin
+import Testing
+import CmuxFoundation
+
+@Test func raisesSoftLimitWithinHardLimit() {
+    var limits = rlimit()
+    limits.rlim_cur = 256
+    limits.rlim_max = 10_240
+    let controller = FileDescriptorLimitController(
+        readLimit: { limits },
+        writeLimit: { limits = $0; return true }
+    )
+    controller.raiseSoftLimitIfNeeded()
+    #expect(limits.rlim_cur == 10_240)
+    #expect(limits.rlim_max == 10_240)
+}
+```
+
+The Codex editor takes fixture strings, so its install/reinstall/uninstall behavior is
+covered without an app host or a user-owned `~/.codex` directory:
+
+```swift
+let editor = CmuxCodexConfigEditor()
+let installed = editor.installingHooks(in: fixture, trustEntries: entries)
+let restored = editor.uninstallingHooks(
+    from: installed.content,
+    removingHookTrustEntries: entries
+)
+```
+
+Deferred-action tests inject a controllable `Clock<Duration>` and advance it
+instead of waiting for wall time:
+
+```swift
+let scheduler = MainActorDeferredActionScheduler(clock: testClock)
+scheduler.schedule(after: .milliseconds(50)) {
+    receivedAction = true
+}
+```
+
+Hot repeating work keeps one timer handle and must be cancelled at its owner’s
+lifecycle boundary:
+
+```swift
+let ticker = MainActorRepeatingActionScheduler()
+ticker.startIfIdle(every: .milliseconds(16)) {
+    refreshPointerState()
+}
+ticker.cancel()
+```
+
+Replaceable async work uses a reference-owned task store. The store retains
+only weak task-owner references, so an operation that captures its owner cannot
+form an owner-to-task retain cycle:
+
+```swift
+let tasks = MainActorTaskStore<String>()
+tasks.replace("search", priority: .userInitiated) {
+    await rebuildSearchIndex()
+}
+```
+
+## SSH PTY attach primitives
+
+`SSHPTYTerminalInputMode(fileDescriptor:)` captures a borrowed PTY without
+changing it, enters disconnected/raw forwarding phases, and restores the original
+mode. The executable owns one instance per attach. `SSHPTYDaemonCompatibility`
+provides pure release admission; the executable supplies whether development
+fingerprints are allowed and formats localized rejection errors.
+
+`SSHPTYAttachSignalMonitor(bridgeFD:)` owns signal cancellation for one foreground
+attach. `SSHPTYOutputWriter(fileDescriptor:)` writes ordered output using
+nonblocking writes and a kernel wait that also observes that cancellation.
+Its original output flags are restored when the writer is released.
+
+Package tests instantiate terminal ownership with `openpty` descriptors, version
+policy with literal release identities, and output with an isolated `Pipe`; no
+app launch, user settings, or filesystem state is required. Process signal
+delivery and exact attach exit/restoration are additionally covered by the CLI
+integration tests.

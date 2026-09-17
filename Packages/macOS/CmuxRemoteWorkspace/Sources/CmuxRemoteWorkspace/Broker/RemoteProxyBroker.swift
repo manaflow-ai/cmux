@@ -26,9 +26,10 @@ internal import Foundation
 /// converted to milliseconds exactly).
 public final class RemoteProxyBroker: @unchecked Sendable {
     private final class Entry {
-        let configuration: WorkspaceRemoteConfiguration
+        var configuration: WorkspaceRemoteConfiguration
         var remotePath: String
         var tunnel: (any RemoteProxyTunneling)?
+        var tunnelGeneration: UUID?
         var endpoint: BrowserProxyEndpoint?
         var restartTask: Task<Void, Never>?
         var restartToken: UUID?
@@ -66,6 +67,12 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         self.tunnelProvider = tunnelProvider
         self.clock = clock
     }
+
+    /// Re-mints a managed Cloud VM daemon endpoint before a retry. Stored endpoints go stale
+    /// when the machine's preview rotates (sandbox recreation, preview re-creation); without a
+    /// refresh the broker would redial a dead URL on every backoff. Returning nil keeps the
+    /// current configuration for that attempt.
+    public var configurationRefresher: (@Sendable (WorkspaceRemoteConfiguration) async -> WorkspaceRemoteConfiguration?)?
 
     /// Subscribes to the shared tunnel for `configuration`; see
     /// ``RemoteProxyBrokering/acquire(configuration:remotePath:onUpdate:)``.
@@ -177,16 +184,93 @@ public final class RemoteProxyBroker: @unchecked Sendable {
             ptyLifecycleOwnership.acknowledge(lifecycleKey)
         }
     }
-    /// Claims a generation and enqueues retirement against its exact transport.
-    @discardableResult
-    public func acknowledgePTYLifecycleAfterWrapperEnd(sessionID: String, lifecycleID: String) -> Bool {
+
+    /// Returns the broker-owned transport attachment for a current generation.
+    public func currentPTYLifecycleOwner(
+        sessionID: String,
+        lifecycleID: String
+    ) -> RemotePTYLifecycleOwner? {
         let lifecycleKey = RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
-        let ownership = queue.sync {
-            ptyLifecycleOwnership.claimAfterWrapperEnd(lifecycleKey)
+        // Lifecycle ownership is part of the broker's existing queue-confined
+        // registry; this one-shot readiness lookup does not cross into UI work.
+        return queue.sync {
+            ptyLifecycleOwnership.currentOwner(lifecycleKey)
         }
-        guard let ownership else { return false }
+    }
+
+    /// Returns the broker owner that a wrapper-end callback must match.
+    ///
+    /// - Parameters:
+    ///   - sessionID: The persistent PTY session identifier.
+    ///   - lifecycleID: The wrapper lifecycle generation.
+    /// - Returns: The owner that must still match at claim time, or `nil` when
+    ///   the lifecycle is unknown.
+    public func ptyLifecycleOwnerForWrapperEnd(
+        sessionID: String,
+        lifecycleID: String
+    ) -> RemotePTYLifecycleWrapperEndOwner? {
+        let lifecycleKey = RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
+        return queue.sync {
+            ptyLifecycleOwnership.ownerForWrapperEnd(lifecycleKey)
+        }
+    }
+
+    /// Claims a generation and enqueues retirement against its exact ownership.
+    ///
+    /// - Parameters:
+    ///   - sessionID: The persistent PTY session identifier.
+    ///   - lifecycleID: The wrapper lifecycle generation.
+    /// - Returns: The exact retired ownership, or `nil` when it is unknown.
+    @discardableResult
+    public func claimPTYLifecycleAfterWrapperEnd(
+        sessionID: String,
+        lifecycleID: String
+    ) -> RemotePTYLifecycleWrapperEndClaim? {
+        claimPTYLifecycleAfterWrapperEnd(
+            sessionID: sessionID,
+            lifecycleID: lifecycleID,
+            expectedOwner: nil
+        )
+    }
+
+    /// Claims a generation only if its ownership still matches the caller's
+    /// already-validated transport and attachment.
+    ///
+    /// - Parameters:
+    ///   - sessionID: The persistent PTY session identifier.
+    ///   - lifecycleID: The wrapper lifecycle generation.
+    ///   - expectedOwner: The transport and attachment validated by the caller.
+    /// - Returns: The exact retired ownership, or `nil` if ownership changed.
+    @discardableResult
+    public func claimPTYLifecycleAfterWrapperEnd(
+        sessionID: String,
+        lifecycleID: String,
+        expectedOwner: RemotePTYLifecycleWrapperEndOwner
+    ) -> RemotePTYLifecycleWrapperEndClaim? {
+        claimPTYLifecycleAfterWrapperEnd(
+            sessionID: sessionID,
+            lifecycleID: lifecycleID,
+            expectedOwner: Optional(expectedOwner)
+        )
+    }
+
+    private func claimPTYLifecycleAfterWrapperEnd(
+        sessionID: String,
+        lifecycleID: String,
+        expectedOwner: RemotePTYLifecycleWrapperEndOwner?
+    ) -> RemotePTYLifecycleWrapperEndClaim? {
+        let lifecycleKey = RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
+        // Claiming must stay ordered with the broker's other queue-confined
+        // lifecycle mutations; cleanup is enqueued only after this sync returns.
+        let claim = queue.sync {
+            ptyLifecycleOwnership.claimAfterWrapperEnd(
+                lifecycleKey,
+                expectedOwner: expectedOwner
+            )
+        }
+        guard let claim else { return nil }
         queue.async { [weak self] in
-            guard let self, let entry = self.entries[ownership.transportKey] else { return }
+            guard let self, let entry = self.entries[claim.transportKey] else { return }
             if let tunnel = entry.tunnel {
                 _ = tunnel.acknowledgePTYLifecycleIfKnown(
                     sessionID: lifecycleKey.sessionID,
@@ -200,7 +284,19 @@ public final class RemoteProxyBroker: @unchecked Sendable {
                 entry.ptyLifecycleSnapshot = snapshot
             }
         }
-        return ownership.wasCurrent
+        return claim
+    }
+
+    /// Claims a generation and reports whether it was current.
+    @discardableResult
+    public func acknowledgePTYLifecycleAfterWrapperEnd(
+        sessionID: String,
+        lifecycleID: String
+    ) -> Bool {
+        claimPTYLifecycleAfterWrapperEnd(
+            sessionID: sessionID,
+            lifecycleID: lifecycleID
+        )?.wasCurrent == true
     }
 
     /// Resizes a PTY attachment through the ready tunnel.
@@ -341,6 +437,7 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         }
 
         do {
+            let tunnelGeneration = UUID()
             let tunnel = tunnelProvider.makeTunnel(
                 configuration: entry.configuration,
                 remotePath: entry.remotePath,
@@ -348,7 +445,11 @@ public final class RemoteProxyBroker: @unchecked Sendable {
             ) { [weak self] detail in
                 guard let self else { return }
                 self.queue.async {
-                    self.handleTunnelFailureLocked(key: key, detail: detail)
+                    self.handleTunnelFailureLocked(
+                        key: key,
+                        tunnelGeneration: tunnelGeneration,
+                        detail: detail
+                    )
                 }
             }
             if let snapshot = entry.ptyLifecycleSnapshot {
@@ -356,6 +457,7 @@ public final class RemoteProxyBroker: @unchecked Sendable {
             }
             try tunnel.start()
             entry.tunnel = tunnel
+            entry.tunnelGeneration = tunnelGeneration
             entry.ptyLifecycleSnapshot = nil
             let endpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: localPort)
             entry.endpoint = endpoint
@@ -370,8 +472,14 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         }
     }
 
-    private func handleTunnelFailureLocked(key: String, detail: String) {
-        guard let entry = entries[key], entry.tunnel != nil else { return }
+    private func handleTunnelFailureLocked(
+        key: String,
+        tunnelGeneration: UUID,
+        detail: String
+    ) {
+        guard let entry = entries[key],
+              entry.tunnel != nil,
+              entry.tunnelGeneration == tunnelGeneration else { return }
         stopEntryRuntimeLocked(entry, preservePTYLifecycle: true)
         let retryDelay = Self.retryDelay(baseDelay: 3.0, retry: entry.restartRetryCount + 1)
         notifyLocked(entry, update: .error("\(detail)\(Self.retrySuffix(delay: retryDelay))"))
@@ -416,6 +524,24 @@ public final class RemoteProxyBroker: @unchecked Sendable {
             return
         }
         notifyLocked(entry, update: .connecting)
+        if let refresher = configurationRefresher,
+           entry.configuration.managedCloudVMID != nil,
+           entry.configuration.daemonWebSocketEndpoint != nil {
+            let staleConfiguration = entry.configuration
+            Task { [weak self] in
+                let refreshed = await refresher(staleConfiguration)
+                guard let self else { return }
+                self.queue.async {
+                    guard let current = self.entries[key], current === entry else { return }
+                    guard current.tunnel == nil, current.restartTask == nil else { return }
+                    if let refreshed {
+                        current.configuration = refreshed
+                    }
+                    self.startEntryLocked(key: key, entry: current)
+                }
+            }
+            return
+        }
         startEntryLocked(key: key, entry: entry)
     }
 
@@ -442,6 +568,7 @@ public final class RemoteProxyBroker: @unchecked Sendable {
             entry.tunnel?.stop()
         }
         entry.tunnel = nil
+        entry.tunnelGeneration = nil
         entry.endpoint = nil
     }
 

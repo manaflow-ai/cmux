@@ -85,7 +85,7 @@ function PortalLoading() {
 }
 
 function PortalFrame() {
-  const t = useTranslations("dashboard.cloud");
+  const t = useTranslations("dashboard.cloudPortal");
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const machinesActive = pathname !== "/activity";
@@ -123,7 +123,7 @@ function PortalFrame() {
 }
 
 function MachinesView() {
-  const t = useTranslations("dashboard.cloud");
+  const t = useTranslations("dashboard.cloudPortal");
   const displayName = useContext(PortalIdentityContext);
   const queryClient = useQueryClient();
   const machines = useQuery({
@@ -172,7 +172,7 @@ function MachinesView() {
 }
 
 function MachineCard({ machine }: { machine: CloudMachine }) {
-  const t = useTranslations("dashboard.cloud");
+  const t = useTranslations("dashboard.cloudPortal");
   const locale = useLocale();
   const navigate = useNavigate();
   return (
@@ -204,7 +204,7 @@ function MachineCard({ machine }: { machine: CloudMachine }) {
 }
 
 function MachineView() {
-  const t = useTranslations("dashboard.cloud");
+  const t = useTranslations("dashboard.cloudPortal");
   const sessionStatus = useTranslations("dashboard.cloud.sessionStatus");
   const locale = useLocale();
   const queryClient = useQueryClient();
@@ -299,7 +299,7 @@ function MachineView() {
 }
 
 function ActivityView() {
-  const t = useTranslations("dashboard.cloud");
+  const t = useTranslations("dashboard.cloudPortal");
   const locale = useLocale();
   const machines = useQuery({ queryKey: machinesQueryKey, queryFn: listCloudMachines });
   const orderedMachines = [...(machines.data ?? [])].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
@@ -342,7 +342,7 @@ function sessionStatusDotClass(status: "running" | "detached" | "exited" | "clos
 }
 
 function EmptyMachines() {
-  const t = useTranslations("dashboard.cloud");
+  const t = useTranslations("dashboard.cloudPortal");
   return (
     <div className="rounded-xl border border-dashed border-border px-6 py-12 text-center">
       <div aria-hidden="true" className="mx-auto grid size-12 place-items-center rounded-xl bg-code-bg font-mono text-sm">$</div>
@@ -353,7 +353,7 @@ function EmptyMachines() {
 }
 
 function PortalError({ message, retry }: { message: string; retry?: () => unknown }) {
-  const t = useTranslations("dashboard.cloud");
+  const t = useTranslations("dashboard.cloudPortal");
   return (
     <div role="alert" className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-red-500/35 bg-red-500/8 px-4 py-3 text-sm text-red-700 dark:text-red-300">
       <span>{message}</span>

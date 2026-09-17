@@ -90,30 +90,61 @@ public struct CmxIrohSettingsSnapshot: Equatable, Sendable {
 
     /// A broker-authenticated Mac available for device-local path settings.
     public struct PrivateNetworkMac: Identifiable, Equatable, Sendable {
-        public let id: String
+        public var id: String {
+            CmxMacAppInstanceIdentity(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            ).id
+        }
+        public let macDeviceID: String
+        public let instanceTag: String?
         public let displayName: String
+        public let supportsPrivatePaths: Bool
 
-        public init(id: String, displayName: String) {
-            self.id = id
+        public init(
+            macDeviceID: String,
+            instanceTag: String? = nil,
+            displayName: String,
+            supportsPrivatePaths: Bool = false
+        ) {
+            let identity = CmxMacAppInstanceIdentity(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
+            self.macDeviceID = identity.macDeviceID
+            self.instanceTag = identity.instanceTag
             self.displayName = displayName
+            self.supportsPrivatePaths = supportsPrivatePaths
         }
     }
 
     /// One device-local, per-Mac custom private-path configuration.
     public struct CustomPrivateNetwork: Identifiable, Equatable, Sendable {
-        public var id: String { macDeviceID }
+        public var id: String {
+            CmxMacAppInstanceIdentity(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            ).id
+        }
         public let macDeviceID: String
+        public let instanceTag: String?
         public let macDisplayName: String
         public let addresses: [String]
         public let isEnabled: Bool
 
         public init(
             macDeviceID: String,
+            instanceTag: String? = nil,
             macDisplayName: String,
             addresses: [String],
             isEnabled: Bool
         ) {
-            self.macDeviceID = macDeviceID
+            let identity = CmxMacAppInstanceIdentity(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
+            self.macDeviceID = identity.macDeviceID
+            self.instanceTag = identity.instanceTag
             self.macDisplayName = macDisplayName
             self.addresses = addresses
             self.isEnabled = isEnabled
@@ -124,6 +155,8 @@ public struct CmxIrohSettingsSnapshot: Equatable, Sendable {
     /// Redacted selected-path attribution, independent from lifecycle status.
     public let selectedTransportPath: CmxIrohSelectedTransportPath
     public let preference: CmxIrohRelayPreferenceDraft
+    /// Device-local path constraint selected in Settings.
+    public let pathPreference: CmxIrohPathPreference
     public let managedRelays: [ManagedRelay]
     public let customRelays: [CustomRelay]
     public let privateNetworkMacs: [PrivateNetworkMac]
@@ -145,6 +178,7 @@ public struct CmxIrohSettingsSnapshot: Equatable, Sendable {
         runtimeStatus: RuntimeStatus,
         selectedTransportPath: CmxIrohSelectedTransportPath = .unavailable,
         preference: CmxIrohRelayPreferenceDraft,
+        pathPreference: CmxIrohPathPreference = .automatic,
         managedRelays: [ManagedRelay],
         customRelays: [CustomRelay],
         privateNetworkMacs: [PrivateNetworkMac] = [],
@@ -159,6 +193,7 @@ public struct CmxIrohSettingsSnapshot: Equatable, Sendable {
         self.runtimeStatus = runtimeStatus
         self.selectedTransportPath = selectedTransportPath
         self.preference = preference
+        self.pathPreference = pathPreference
         self.managedRelays = managedRelays
         self.customRelays = customRelays
         self.privateNetworkMacs = privateNetworkMacs

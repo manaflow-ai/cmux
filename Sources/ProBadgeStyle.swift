@@ -262,7 +262,7 @@ struct ProBadgeView: View {
             let foreground = ProBadgePalette.foreground(for: style)
             HStack(spacing: 0) {
                 Button {
-                    ProUpgradePresenter.present()
+                    ProUpgradePresenter.present(source: .sidebarBadge)
                 } label: {
                     ProBadgeContent(style: style)
                         .contentShape(Rectangle())
@@ -302,7 +302,7 @@ struct ProBadgeView: View {
                     isHovered = hovering
                 }
                 if hovering {
-                    ProUpgradePresenter.prefetch()
+                    ProUpgradePresenter.prefetch(source: .sidebarBadge)
                 }
             }
         }

@@ -20,12 +20,24 @@ public struct MobileClientIDRepository: Sendable {
 
     // UserDefaults is Apple-documented thread-safe; OK to hold nonisolated.
     private nonisolated(unsafe) let defaults: UserDefaults
+    private let dogfoodClientID: String?
 
     /// Create a repository backed by the given defaults store.
     /// - Parameter defaults: The persistence store for the client identifier.
     ///   Inject a suite-scoped `UserDefaults` in tests.
-    public init(defaults: UserDefaults) {
+    public init(
+        defaults: UserDefaults,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) {
         self.defaults = defaults
+        #if DEBUG
+        let candidate = environment["CMUX_DOGFOOD_CLIENT_ID"]
+        self.dogfoodClientID = candidate.flatMap {
+            UUID(uuidString: $0) == nil ? nil : $0
+        }
+        #else
+        self.dogfoodClientID = nil
+        #endif
     }
 
     /// The stable per-install client identifier.
@@ -46,6 +58,13 @@ public struct MobileClientIDRepository: Sendable {
     ///
     /// - Returns: A tuple of the stable `id` and whether it was just `created`.
     public func resolveClientID() -> (id: String, created: Bool) {
+        if let dogfoodClientID {
+            let existing = defaults.string(forKey: Self.defaultsKey)
+            if existing != dogfoodClientID {
+                defaults.set(dogfoodClientID, forKey: Self.defaultsKey)
+            }
+            return (dogfoodClientID, existing == nil)
+        }
         if let existing = defaults.string(forKey: Self.defaultsKey),
            UUID(uuidString: existing) != nil {
             return (existing, false)

@@ -15,9 +15,8 @@ private let macPairedMacPublishLog = Logger(subsystem: "com.cmuxterm.app", categ
 /// localhost and the presence `devices` projection isn't wired into the live iOS
 /// app yet, so neither delivers the Mac's route to the phone. The per-user
 /// `pairedMacs` backup IS reachable from the dev iOS build (it restores from it),
-/// so this bridges the gap until those pipelines work on dev. Tagged Mac builds
-/// publish directly into the matching tagged iOS partition; stable and untagged
-/// builds keep the legacy unscoped partition.
+/// so this bridges the gap until those pipelines work on dev. Every Mac build
+/// publishes into the exact iOS bundle target selected for pairing and pushes.
 ///
 /// Strictly DEV-gated and best-effort, mirroring ``PresenceHeartbeatClient``:
 /// a failure never disturbs the Mac, and Release builds never publish.
@@ -29,8 +28,10 @@ final class MacPairedMacBackupPublisher {
     static let defaultsKey = "macPairedMacSelfPublish"
 
     private let session: URLSession = .shared
+    private let retryAfterGate = CmxRetryAfterGate()
     private var auth: AuthCoordinator?
     private var observeTask: Task<Void, Never>?
+    private var defaultsObserver: NSObjectProtocol?
     /// The routes most recently published, so an unchanged status update (the
     /// common case) does not re-POST.
     private var lastPublishedRoutes: [CmxAttachRoute] = []
@@ -68,9 +69,27 @@ final class MacPairedMacBackupPublisher {
     func configure(auth: AuthCoordinator) {
         guard Self.isEnabled() else { return }
         self.auth = auth
-        // The iOS-pairing listener defaults ON in DEBUG builds (see
-        // MobileCatalogSection.iOSPairingHost), so an attach route comes up
-        // without a manual Settings toggle; we just observe and publish it.
+        if defaultsObserver == nil {
+            defaultsObserver = NotificationCenter.default.addObserver(
+                forName: UserDefaults.didChangeNotification,
+                object: UserDefaults.standard,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.evaluate()
+                }
+            }
+        }
+        evaluate()
+    }
+
+    private func evaluate() {
+        guard MobileHostService.isListeningEnabled else {
+            observeTask?.cancel()
+            observeTask = nil
+            lastPublishedRoutes = []
+            return
+        }
         startObserving()
     }
 
@@ -79,6 +98,10 @@ final class MacPairedMacBackupPublisher {
         observeTask = Task { @MainActor [weak self] in
             for await status in MobileHostService.shared.statusUpdates() {
                 guard let self, !Task.isCancelled else { break }
+                guard MobileHostService.isListeningEnabled else {
+                    self.lastPublishedRoutes = []
+                    continue
+                }
                 guard !status.routes.isEmpty, status.routes != self.lastPublishedRoutes else { continue }
                 await self.publish(routes: status.routes)
             }
@@ -86,12 +109,21 @@ final class MacPairedMacBackupPublisher {
     }
 
     private func publish(routes: [CmxAttachRoute]) async {
+        guard MobileHostService.isListeningEnabled else {
+            lastPublishedRoutes = []
+            return
+        }
+        guard (try? await retryAfterGate.wait()) != nil else { return }
         guard let auth, let baseURL = PresenceHeartbeatClient.resolvedServiceURL() else { return }
         let tokens: (accessToken: String, refreshToken: String)
         do {
             tokens = try await auth.currentTokens()
         } catch {
             return // not signed in -> nothing to publish
+        }
+        guard MobileHostService.isListeningEnabled else {
+            lastPublishedRoutes = []
+            return
         }
         let teamID = auth.resolvedTeamID
 
@@ -124,17 +156,30 @@ final class MacPairedMacBackupPublisher {
         ])
         guard let payload = try? JSONEncoder().encode(body) else { return }
 
+        guard let targetNamespace =
+            MobileIOSPairingTargetStore().selectedNamespace else {
+            return
+        }
         let req = Self.makeRequest(
             url: url,
             accessToken: tokens.accessToken,
             teamID: teamID,
-            instanceTag: MobileHostIdentity.instanceTag(),
+            targetNamespace: targetNamespace,
             payload: payload
         )
 
         do {
             let (_, response) = try await session.data(for: req)
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            guard let http = response as? HTTPURLResponse else { return }
+            if http.statusCode == 429 {
+                let seconds = CmxRetryAfterPolicy.seconds(
+                    from: http,
+                    defaultSeconds: CmxRetryAfterPolicy.defaultRateLimitSeconds
+                ) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+                await retryAfterGate.extend(by: seconds)
+                return
+            }
+            guard (200...299).contains(http.statusCode) else {
                 macPairedMacPublishLog.warning("self-publish failed: HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1)")
                 return
             }
@@ -145,14 +190,12 @@ final class MacPairedMacBackupPublisher {
         }
     }
 
-    /// Builds a self-publish request whose backup partition matches the tagged
-    /// iOS build. Stable/untagged instances omit the scope header and preserve
-    /// the legacy unscoped collection.
+    /// Builds a request for the exact iOS bundle selected by the user.
     nonisolated static func makeRequest(
         url: URL,
         accessToken: String,
         teamID: String?,
-        instanceTag: String,
+        targetNamespace: MobileIOSAppNamespace,
         payload: Data
     ) -> URLRequest {
         var request = URLRequest(url: url)
@@ -162,11 +205,19 @@ final class MacPairedMacBackupPublisher {
         if let teamID, !teamID.isEmpty {
             request.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
         }
-        if let clientScope = MobileIOSBuildScope(instanceTag)?.serializedScope {
-            request.setValue(clientScope, forHTTPHeaderField: "X-Cmux-Client-Scope")
-        }
+        request.setValue(
+            targetNamespace.serverScope,
+            forHTTPHeaderField: "X-Cmux-Client-Scope"
+        )
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         request.httpBody = payload
         return request
+    }
+
+    /// Republishes unchanged routes after the selected iOS target changes.
+    func pairingTargetDidChange(routes: [CmxAttachRoute]) {
+        lastPublishedRoutes = []
+        guard MobileHostService.isListeningEnabled, !routes.isEmpty else { return }
+        Task { await publish(routes: routes) }
     }
 }

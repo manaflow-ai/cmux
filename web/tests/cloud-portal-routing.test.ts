@@ -5,7 +5,6 @@ import { fileURLToPath } from "node:url";
 
 import { loadMessages } from "../i18n/messages";
 import {
-  canEnterCloudPortal,
   resolveHomePortalPaths,
 } from "../app/[locale]/home/portal-routing";
 
@@ -44,12 +43,6 @@ describe("authenticated cloud portal routing", () => {
     expect(portal).toContain("<Tabs.Tab");
   });
 
-  test("rejects signed-out and anonymous users at the home boundary", () => {
-    expect(canEnterCloudPortal(null)).toBeFalse();
-    expect(canEnterCloudPortal({ isAnonymous: true })).toBeFalse();
-    expect(canEnterCloudPortal({ isAnonymous: false })).toBeTrue();
-  });
-
   test("preserves supported portal subroutes through authentication", () => {
     expect(resolveHomePortalPaths()).toEqual({ initialPath: "/", returnPath: "/home" });
     expect(resolveHomePortalPaths(["activity"])).toEqual({
@@ -64,7 +57,7 @@ describe("authenticated cloud portal routing", () => {
 
   test("falls back to the complete English portal catalog for other locales", async () => {
     const messages = await loadMessages("fr");
-    const cloud = (messages.dashboard as { cloud: { title: string } }).cloud;
+    const cloud = (messages.dashboard as { cloudPortal: { title: string } }).cloudPortal;
 
     expect(cloud.title).toBe("Cloud workspace");
   });

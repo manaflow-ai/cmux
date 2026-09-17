@@ -4,6 +4,13 @@
 # the Durable Object migrations declared in wrangler.toml atomically with the code
 # upload, so the service's schema can never lag a deploy.
 #
+# The `target` input picks the worker: `prod` (default) deploys `cmux-presence`
+# on presence.cmux.dev; `dev` deploys the shared integration baseline
+# `cmux-presence-dev` from wrangler.dev.toml. Both use the repository's
+# Cloudflare secrets, so nobody needs a personal Cloudflare account membership
+# to keep the shared dev worker current. Per-developer isolated workers stay on
+# `scripts/deploy-dev.sh` (they need per-instance Stack secrets at creation).
+#
 # Required repository secrets (deploy job):
 #   CLOUDFLARE_API_TOKEN   API token with Workers Scripts:Edit on the account
 #   CLOUDFLARE_ACCOUNT_ID  the Cloudflare account id
@@ -16,6 +23,14 @@ name: presence
 
 on:
   workflow_dispatch:
+    inputs:
+      target:
+        description: "Worker to deploy"
+        type: choice
+        options:
+          - prod
+          - dev
+        default: prod
 
 permissions:
   contents: read
@@ -100,7 +115,17 @@ jobs:
           fi
 
       - name: Deploy (applies DO migrations atomically)
-        run: bunx wrangler deploy
+        # The target reaches the shell via env, never template interpolation
+        # (an API dispatch is not limited to the UI's choice list), and any
+        # value other than the two known targets fails closed instead of
+        # silently deploying production.
+        run: |
+          case "$DEPLOY_TARGET" in
+            dev) bunx wrangler deploy --config wrangler.dev.toml ;;
+            prod) bunx wrangler deploy ;;
+            *) echo "::error::Unsupported deployment target '$DEPLOY_TARGET'"; exit 1 ;;
+          esac
         env:
+          DEPLOY_TARGET: ${{ inputs.target }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

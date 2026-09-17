@@ -58,20 +58,35 @@ extension ControlCommandCoordinator {
     /// Builds one group's payload row (the legacy `v2WorkspaceGroupPayload`),
     /// minting the `workspace_group` / `workspace` refs from the snapshot ids.
     private func workspaceGroupPayload(_ group: ControlWorkspaceGroupSnapshot) -> JSONValue {
-        .object([
+        // Keep the established non-null id field for older control clients. A
+        // header-only group uses its stable group id as a wire placeholder;
+        // `is_empty` and the nullable typed snapshot distinguish it from a
+        // live workspace for new clients.
+        let wireAnchorWorkspaceID = group.anchorWorkspaceID ?? group.id
+        var payload: [String: JSONValue] = [
             "id": .string(group.id.uuidString),
             "ref": ref(.workspaceGroup, group.id),
             "name": .string(group.name),
             "is_collapsed": .bool(group.isCollapsed),
             "is_pinned": .bool(group.isPinned),
-            "anchor_workspace_id": .string(group.anchorWorkspaceID.uuidString),
+            "anchor_workspace_id": .string(wireAnchorWorkspaceID.uuidString),
             "anchor_workspace_ref": ref(.workspace, group.anchorWorkspaceID),
+            "is_empty": .bool(group.isEmpty),
             "custom_color": orNull(group.customColor),
             "icon_symbol": orNull(group.iconSymbol),
             "member_workspace_ids": .array(group.memberWorkspaceIDs.map { .string($0.uuidString) }),
             "member_workspace_refs": .array(group.memberWorkspaceIDs.map { ref(.workspace, $0) }),
             "member_count": .int(Int64(group.memberWorkspaceIDs.count)),
-        ])
+            "anchor_workspace_provenance": .string(group.anchorWorkspaceProvenance),
+            "anchor_workspace_is_generated": .bool(group.isGeneratedAnchor),
+        ]
+        if let externalID = group.externalID {
+            payload["external_id"] = .string(externalID)
+            // Keep the standard retry spelling visible in list responses so a
+            // client can persist either accepted request form.
+            payload["idempotency_key"] = .string(externalID)
+        }
+        return .object(payload)
     }
 
     // MARK: - List
@@ -98,6 +113,9 @@ extension ControlCommandCoordinator {
     func workspaceGroupCreate(_ params: [String: JSONValue]) -> ControlCallResult {
         let name = rawString(params, "name") ?? ""
         let cwd = rawString(params, "cwd")
+        let externalIDResult = workspaceGroupExternalID(params)
+        if let error = externalIDResult.error { return error }
+        let externalID = externalIDResult.value
 
         // child_workspace_ids accepts raw UUID strings AND v2 handle refs
         // (workspace:1, ws:1, etc.). An absent/null value means an explicit
@@ -139,7 +157,8 @@ extension ControlCommandCoordinator {
             routing: routingSelectors(params),
             name: name,
             cwd: cwd,
-            childWorkspaceIDs: parsedChildIDs
+            childWorkspaceIDs: parsedChildIDs,
+            externalID: externalID
         ) ?? .tabManagerUnavailable
 
         switch resolution {
@@ -160,7 +179,15 @@ extension ControlCommandCoordinator {
         case .notCreated:
             return .err(code: "not_created", message: "Group was not created", data: nil)
         case .created(let group):
-            return .ok(.object(["group": workspaceGroupPayload(group)]))
+            return .ok(.object([
+                "group": workspaceGroupPayload(group),
+                "created": .bool(true),
+            ]))
+        case .existing(let group):
+            return .ok(.object([
+                "group": workspaceGroupPayload(group),
+                "created": .bool(false),
+            ]))
         }
     }
 
@@ -420,7 +447,8 @@ extension ControlCommandCoordinator {
             allChildrenAreAnchors: "",
             workspaceIsOtherGroupAnchor: "",
             invalidReferenceWorkspace: "",
-            closeWorkspacesMustBeBoolean: ""
+            closeWorkspacesMustBeBoolean: "",
+            emptyPinnedCannotUngroup: ""
         )
     }
 
@@ -444,4 +472,5 @@ extension ControlCommandCoordinator {
         if case .null = value { return true }
         return false
     }
+
 }

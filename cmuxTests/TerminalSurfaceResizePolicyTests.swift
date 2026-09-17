@@ -4,6 +4,32 @@ import CmuxTerminal
 @Suite
 struct TerminalSurfaceResizePolicyTests {
     @Test
+    func stableGridPixelChurnIsCoalescedOutsideInteractiveResize() {
+        let coalesces = TerminalSurfaceResizeCoalescingPolicy(
+            windowLiveResizeActive: false,
+            interactiveGeometryResizeActive: false,
+            bypass: false,
+            surfaceKind: .processOwned
+        ).shouldCoalescePixelOnlyResize
+
+        #expect(coalesces)
+        #expect(
+            !TerminalSurface.shouldApplySurfacePixelSizeChange(
+                currentColumns: 80,
+                currentRows: 24,
+                currentWidthPx: 800,
+                currentHeightPx: 480,
+                currentCellWidthPx: 10,
+                currentCellHeightPx: 20,
+                targetWidthPx: 805,
+                targetHeightPx: 485,
+                coalescePixelOnlyResize: coalesces,
+                hasAppliedPixelSize: true
+            )
+        )
+    }
+
+    @Test
     func pixelOnlyResizeWithinExistingGridIsCoalesced() {
         #expect(
             !TerminalSurface.shouldApplySurfacePixelSizeChange(

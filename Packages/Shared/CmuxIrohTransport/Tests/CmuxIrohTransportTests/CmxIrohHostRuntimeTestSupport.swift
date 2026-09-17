@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CryptoKit
 import Foundation
+import Testing
 @testable import CmuxIrohTransport
 
 struct HostRuntimeFixture {
@@ -9,6 +10,7 @@ struct HostRuntimeFixture {
     let binding: CmxIrohBrokerBinding
     let discovery: CmxIrohDiscoveryResponse
     let managedRelays: Set<String>
+    let clientNamespace: CmxIrohMacBundleNamespace
     let configuration: CmxIrohHostRuntimeConfiguration
 
     init(
@@ -27,8 +29,14 @@ struct HostRuntimeFixture {
                 .joined()
         )
         managedRelays = Set(Self.relayURLs)
+        clientNamespace = try #require(
+            CmxIrohMacBundleNamespace(
+                bundleIdentifier: "com.cmuxterm.tests"
+            )
+        )
         binding = try Self.binding(
             endpointID: endpointID.endpointID,
+            lastSeenAt: now,
             publicHintObservedAt: publicHintLifetime == nil ? nil : now,
             publicHintExpiresAt: publicHintLifetime.map(now.addingTimeInterval)
         )
@@ -40,6 +48,7 @@ struct HostRuntimeFixture {
             accountID: "account-a",
             deviceID: binding.deviceID,
             appInstanceID: binding.appInstanceID,
+            clientNamespace: clientNamespace,
             tag: binding.tag,
             displayName: binding.displayName,
             identity: identity,
@@ -52,19 +61,21 @@ struct HostRuntimeFixture {
     func configuration(
         cachedHostPolicy: CmxIrohCachedHostPolicy? = nil,
         bindPolicy: CmxIrohEndpointBindPolicy = .ephemeral,
-        endpointRelayProfile: CmxIrohEndpointRelayProfile? = nil
+        endpointRelayProfile: CmxIrohEndpointRelayProfile? = nil,
+        managedRelayURLs: Set<String>? = nil
     ) -> CmxIrohHostRuntimeConfiguration {
         CmxIrohHostRuntimeConfiguration(
             accountID: configuration.accountID,
             deviceID: binding.deviceID,
             appInstanceID: binding.appInstanceID,
+            clientNamespace: clientNamespace,
             tag: binding.tag,
             displayName: binding.displayName,
             identity: identity,
             pairingEnabled: binding.pairingEnabled,
             capabilities: binding.capabilities,
             bindPolicy: bindPolicy,
-            managedRelayURLs: managedRelays,
+            managedRelayURLs: managedRelayURLs ?? managedRelays,
             endpointRelayProfile: endpointRelayProfile,
             cachedHostPolicy: cachedHostPolicy
         )
@@ -96,6 +107,7 @@ struct HostRuntimeFixture {
     static func binding(
         endpointID: String,
         bindingID: String = "123e4567-e89b-42d3-a456-426614174010",
+        lastSeenAt: Date = Date(timeIntervalSince1970: 1_800_000_000),
         publicHintObservedAt: Date? = nil,
         publicHintExpiresAt: Date? = nil
     ) throws -> CmxIrohBrokerBinding {
@@ -104,6 +116,7 @@ struct HostRuntimeFixture {
             from: bindingJSON(
                 endpointID: endpointID,
                 bindingID: bindingID,
+                lastSeenAt: lastSeenAt,
                 publicHintObservedAt: publicHintObservedAt,
                 publicHintExpiresAt: publicHintExpiresAt
             )
@@ -115,13 +128,14 @@ struct HostRuntimeFixture {
         relays: [String],
         overrideDeviceID: String? = nil,
         routeContractVersion: Int = 1,
-        lanGeneration: Int = 1
+        lanGeneration: Int = 1,
+        revision: UInt64? = nil
     ) throws -> CmxIrohDiscoveryResponse {
         var bindingObject = try JSONSerialization.jsonObject(
             with: JSONEncoder().encode(binding)
         ) as? [String: Any] ?? [:]
         bindingObject["device_id"] = overrideDeviceID ?? binding.deviceID
-        let object: [String: Any] = [
+        var object: [String: Any] = [
             "route_contract_version": routeContractVersion,
             "bindings": [bindingObject],
             "relay_fleet": relays,
@@ -139,6 +153,9 @@ struct HostRuntimeFixture {
                 ]],
             ],
         ]
+        if let revision {
+            object["revision"] = revision
+        }
         return try JSONDecoder().decode(
             CmxIrohDiscoveryResponse.self,
             from: JSONSerialization.data(withJSONObject: object)
@@ -149,6 +166,7 @@ struct HostRuntimeFixture {
         endpointID: String,
         bindingID: String = "123e4567-e89b-42d3-a456-426614174010",
         deviceID: String = "123e4567-e89b-42d3-a456-426614174011",
+        lastSeenAt: Date = Date(timeIntervalSince1970: 1_800_000_000),
         publicHintObservedAt: Date? = nil,
         publicHintExpiresAt: Date? = nil
     ) throws -> Data {
@@ -169,6 +187,7 @@ struct HostRuntimeFixture {
             "binding_id": bindingID,
             "device_id": deviceID,
             "app_instance_id": "123e4567-e89b-42d3-a456-426614174012",
+            "client_namespace": "mac:com.cmuxterm.tests",
             "tag": "cmux-ios-v0",
             "platform": "mac",
             "display_name": "Test Mac",
@@ -177,7 +196,7 @@ struct HostRuntimeFixture {
             "pairing_enabled": true,
             "capabilities": ["rpc", "multistream"],
             "path_hints": pathHints,
-            "last_seen_at": "2026-07-09T12:00:00.000Z",
+            "last_seen_at": ISO8601DateFormatter().string(from: lastSeenAt),
         ])
     }
 }

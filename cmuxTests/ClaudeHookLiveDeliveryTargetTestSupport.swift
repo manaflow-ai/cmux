@@ -7,6 +7,15 @@ import Foundation
 /// `agent.resolve_delivery_target` probes, plus process/session-store
 /// helpers. Kept out of the test suite file for the 500-line file budget.
 enum ClaudeHookLiveDeliveryHarness {
+    /// Wall-clock bound for one hook CLI invocation in these harnesses.
+    ///
+    /// A hook that prints its verdict and exits normally still needs a few
+    /// socket round-trips through a mock server scheduled on the test
+    /// process's global queues, and loaded CI runners have taken over ten
+    /// seconds for that. The CLI's own non-actionable client deadlines are
+    /// far shorter than this, so a hook that genuinely hangs still fails.
+    static let processWallBound: TimeInterval = 30
+
     struct Context {
         let cliPath: String
         let socketPath: String
@@ -22,23 +31,7 @@ enum ClaudeHookLiveDeliveryHarness {
         }
     }
 
-    final class ServerState: @unchecked Sendable {
-        private let lock = NSLock()
-        private var commands: [String] = []
 
-        func append(_ command: String) {
-            lock.lock()
-            commands.append(command)
-            lock.unlock()
-        }
-
-        func snapshot() -> [String] {
-            lock.lock()
-            let value = commands
-            lock.unlock()
-            return value
-        }
-    }
 
     struct ProcessRunResult {
         let status: Int32
@@ -85,7 +78,11 @@ enum ClaudeHookLiveDeliveryHarness {
         pidTarget: (workspaceId: String, surfaceId: String)?,
         surfaceTargets: [String: String] = [:],
         ttyRows: [(tty: String, workspaceId: String, surfaceId: String)] = [],
-        resolverMethodAvailable: Bool = true
+        resolverMethodAvailable: Bool = true,
+        acknowledgesPIDResolution: Bool = true,
+        resumeClearSucceeds: Bool = true,
+        resumeClearOwnsCheckpoint: Bool? = true,
+        hibernationSessionEndPreserved: Bool = false
     ) -> DispatchSemaphore {
         startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
             guard let payload = jsonObject(line),
@@ -103,11 +100,15 @@ enum ClaudeHookLiveDeliveryHarness {
                     guard let pidTarget else {
                         return v2Response(id: id, ok: false, error: ["code": "not_found", "message": "pid not owned by a live surface"])
                     }
-                    return v2Response(id: id, ok: true, result: [
+                    var result: [String: Any] = [
                         "workspace_id": pidTarget.workspaceId,
                         "surface_id": pidTarget.surfaceId,
                         "source": "pid",
-                    ])
+                    ]
+                    if acknowledgesPIDResolution {
+                        result["pid_resolution"] = params["pid_resolution"] as? String ?? "corroborated"
+                    }
+                    return v2Response(id: id, ok: true, result: result)
                 }
                 if let surfaceId = params["surface_id"] as? String,
                    let workspaceId = surfaceTargets[surfaceId] {
@@ -136,6 +137,28 @@ enum ClaudeHookLiveDeliveryHarness {
                 return v2Response(id: id, ok: true, result: [:])
             case "surface.resume.set":
                 return v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+            case "surface.resume.clear":
+                if resumeClearSucceeds {
+                    guard let resumeClearOwnsCheckpoint else {
+                        return v2Response(id: id, ok: true, result: [:])
+                    }
+                    return v2Response(
+                        id: id,
+                        ok: true,
+                        result: ["cleared": resumeClearOwnsCheckpoint]
+                    )
+                }
+                return v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "cleanup_failed", "message": "injected resume cleanup failure"]
+                )
+            case "agent.hibernation.session_end":
+                return v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["preserve": hibernationSessionEndPreserved]
+                )
             default:
                 return v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
             }
@@ -158,7 +181,10 @@ enum ClaudeHookLiveDeliveryHarness {
         workspaceId: String,
         surfaceId: String,
         cwd: String,
-        pid: Int? = nil
+        pid: Int? = nil,
+        pidStartSeconds: Int64? = nil,
+        pidStartMicroseconds: Int64? = nil,
+        priorProcessGenerations: [[String: Any]]? = nil
     ) throws {
         let now = Date().timeIntervalSince1970
         var record: [String: Any] = [
@@ -171,6 +197,9 @@ enum ClaudeHookLiveDeliveryHarness {
             "updatedAt": now,
         ]
         if let pid { record["pid"] = pid }
+        if let pidStartSeconds { record["pidStartSeconds"] = pidStartSeconds }
+        if let pidStartMicroseconds { record["pidStartMicroseconds"] = pidStartMicroseconds }
+        if let priorProcessGenerations { record["priorProcessGenerations"] = priorProcessGenerations }
         let store: [String: Any] = [
             "version": 1,
             "sessions": [sessionId: record],
@@ -180,6 +209,9 @@ enum ClaudeHookLiveDeliveryHarness {
     }
 
     static func sessionRecord(in storeURL: URL, sessionId: String) throws -> [String: Any]? {
+        // A hook that fails closed before its first accepted upsert never
+        // creates the store file; that is the strongest form of "no record".
+        guard FileManager.default.fileExists(atPath: storeURL.path) else { return nil }
         let saved = try JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any]
         let sessions = saved?["sessions"] as? [String: Any]
         return sessions?[sessionId] as? [String: Any]
@@ -202,6 +234,9 @@ enum ClaudeHookLiveDeliveryHarness {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
+        let exitSignal = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exitSignal.signal() }
+
         do {
             try process.run()
         } catch {
@@ -210,15 +245,10 @@ enum ClaudeHookLiveDeliveryHarness {
         stdinPipe.fileHandleForWriting.write(Data(standardInput.utf8))
         try? stdinPipe.fileHandleForWriting.close()
 
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
-        let timedOut = exitSignal.wait(timeout: .now() + 10) == .timedOut
+        let timedOut = exitSignal.wait(timeout: .now() + processWallBound) == .timedOut
         if timedOut {
             process.terminate()
-            if exitSignal.wait(timeout: .now() + 1) == .timedOut {
+            if exitSignal.wait(timeout: .now() + 1) == .timedOut, process.isRunning {
                 kill(process.processIdentifier, SIGKILL)
                 _ = exitSignal.wait(timeout: .now() + 1)
             }

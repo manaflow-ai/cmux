@@ -5,7 +5,7 @@ import PackageDescription
 let package = Package(
     name: "CmuxMobileToast",
     platforms: [
-        .iOS(.v18),
+        .iOS(.v17),
         .macOS(.v14),
     ],
     products: [
@@ -15,12 +15,14 @@ let package = Package(
         ),
     ],
     dependencies: [
+        .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../CmuxMobileSupport"),
     ],
     targets: [
         .target(
             name: "CmuxMobileToast",
             dependencies: [
+                "CMUXMobileCore",
                 "CmuxMobileSupport",
             ],
             swiftSettings: [

@@ -49,7 +49,7 @@ export function faqPage(qas: { question: string; answer: string }[]) {
   };
 }
 
-/** Build a schema.org Article for a blog post. Author defaults to cmux. */
+/** Build a schema.org Article for a blog post. */
 export function articleSchema(opts: {
   locale: string;
   path: string;
@@ -57,7 +57,10 @@ export function articleSchema(opts: {
   description: string;
   datePublished: string;
   dateModified?: string;
+  authorType?: "Organization" | "Person";
   authorName?: string;
+  authorUrl?: string;
+  authorImage?: string;
 }) {
   return {
     "@context": "https://schema.org",
@@ -67,7 +70,18 @@ export function articleSchema(opts: {
     image: localizedUrl(opts.locale, "/opengraph-image"),
     datePublished: opts.datePublished,
     ...(opts.dateModified ? { dateModified: opts.dateModified } : {}),
-    author: { "@type": "Organization", name: opts.authorName ?? "cmux" },
+    author: {
+      "@type": opts.authorType ?? "Organization",
+      name: opts.authorName ?? "cmux",
+      ...(opts.authorUrl ? { url: opts.authorUrl } : {}),
+      ...(opts.authorImage
+        ? {
+            image: opts.authorImage.startsWith("http")
+              ? opts.authorImage
+              : `${BASE}${opts.authorImage}`,
+          }
+        : {}),
+    },
     publisher: { "@type": "Organization", name: "cmux", url: BASE },
     mainEntityOfPage: localizedUrl(opts.locale, opts.path),
   };

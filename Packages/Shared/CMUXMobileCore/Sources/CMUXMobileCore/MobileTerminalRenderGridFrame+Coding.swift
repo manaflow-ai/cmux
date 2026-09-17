@@ -22,5 +22,11 @@ extension MobileTerminalRenderGridFrame {
         case terminalThemeRevision = "terminal_theme_revision"
         case scrollbackRows = "scrollback_rows"
         case scrollbackSpans = "scrollback_spans"
+        case anchor
+        case scrolledRows = "scrolled_rows"
+        case historyRows = "history_rows"
+        case deltaBaseHistoryRows = "delta_base_history_rows"
+        case deltaBaseRenderRevision = "delta_base_render_revision"
+        case rowSpaceRevision = "row_space_revision"
     }
 }

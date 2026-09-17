@@ -19,10 +19,30 @@ test("keeps relay catalog validation inside the Vercel project", () => {
   expect(existsSync(resolvedScript)).toBe(true);
 });
 
+test("builds the docs search index before Next captures public assets", () => {
+  const buildCommand = packageJSON.scripts["vercel-build"];
+  const searchIndexPosition = buildCommand.indexOf("build-docs-search.mjs");
+  const nextBuildPosition = buildCommand.indexOf("next build");
+
+  expect(searchIndexPosition).toBeGreaterThanOrEqual(0);
+  expect(nextBuildPosition).toBeGreaterThanOrEqual(0);
+  expect(searchIndexPosition).toBeLessThan(nextBuildPosition);
+});
+
 test("includes every dynamically read Open Graph asset in traced route output", () => {
   expect(nextConfig.outputFileTracingIncludes?.["**/opengraph-image"]).toEqual([
     "./app/lib/open-graph-fonts/**/*",
     "./app/**/assets/landing-image.png",
     "./public/logo.png",
+  ]);
+  expect(
+    nextConfig.outputFileTracingIncludes?.["**/browser-opengraph-image"],
+  ).toEqual(["./public/logo.png"]);
+});
+
+test("includes Cloud VM prompt templates in traced server output", () => {
+  expect(nextConfig.outputFileTracingIncludes?.["/*"]).toEqual([
+    "./services/vms/images/devbox/cmux-bashrc",
+    "./services/vms/images/devbox/cmux-prompt.bash",
   ]);
 });

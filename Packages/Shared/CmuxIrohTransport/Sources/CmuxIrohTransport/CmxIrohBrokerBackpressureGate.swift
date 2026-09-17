@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CryptoKit
 public import Foundation
 
@@ -87,8 +88,26 @@ public actor CmxIrohBrokerBackpressureGate {
     private static let maximumEncodedByteCount = 64 * 1_024
     private static let directClientAccountID = "cmux-direct-client"
 
+    /// Client-side minimum spacing between broker mutation attempts. One
+    /// registration attempt is a challenge plus a signed register leg, so a
+    /// wedged client retriggering activation in a tight loop can never send
+    /// more than `60 / defaultMutationMinimumSpacing` attempts per minute,
+    /// independent of any server rate limit.
+    public static let defaultMutationMinimumSpacing: TimeInterval = 2
+
+    /// Mutation buckets paced by the client-side spacing floor. Registration
+    /// is the write that creates broker state; read-style buckets stay
+    /// unpaced so an active runtime's discovery and credential refreshes are
+    /// never delayed behind it.
+    private static let pacedMutationOperations: Set<CmxIrohBrokerOperation> = [
+        .registration,
+    ]
+
     private let store: (any CmxIrohInstallStateStoring)?
     private let now: @Sendable () -> Date
+    private let sleep: @Sendable (TimeInterval) async throws -> Void
+    private let mutationMinimumSpacing: TimeInterval
+    private var nextMutationSlotAt: Date?
     private var floors: [Key: Floor]
     private var overflowFloor: Floor?
     private var owners: [Key: UUID] = [:]
@@ -97,10 +116,16 @@ public actor CmxIrohBrokerBackpressureGate {
     /// Creates a gate. Passing `nil` keeps all state in memory.
     public init(
         store: (any CmxIrohInstallStateStoring)? = nil,
-        now: @escaping @Sendable () -> Date = { Date() }
+        now: @escaping @Sendable () -> Date = { Date() },
+        mutationMinimumSpacing: TimeInterval = defaultMutationMinimumSpacing,
+        sleep: @escaping @Sendable (TimeInterval) async throws -> Void = {
+            try await Task<Never, Never>.sleep(for: .seconds($0))
+        }
     ) {
         self.store = store
         self.now = now
+        self.sleep = sleep
+        self.mutationMinimumSpacing = max(0, mutationMinimumSpacing)
         if let store {
             let loaded = Self.loadPersistedState(store: store, now: now())
             floors = loaded.floors
@@ -130,12 +155,40 @@ public actor CmxIrohBrokerBackpressureGate {
         let ownerID = UUID()
         try await acquire(key, ownerID: ownerID)
         defer { release(key, ownerID: ownerID) }
+        if Self.pacedMutationOperations.contains(operation) {
+            try await paceMutation()
+        }
         do {
             return try await body()
         } catch {
             recordDirective(from: error, key: key)
             throw error
         }
+    }
+
+    /// Reserves the next mutation slot and waits until it opens.
+    ///
+    /// The slot is claimed atomically before suspending, so concurrent
+    /// mutations line up 2 seconds apart instead of re-racing the same window,
+    /// and a frozen test clock cannot loop the wait. This delays a request
+    /// rather than failing it: a legitimate back-to-back re-activation (say a
+    /// sign-out immediately followed by a sign-in) waits out the spacing
+    /// instead of surfacing a new error. Cancellation propagates from the
+    /// injected sleep; an abandoned slot stays consumed, which only makes the
+    /// schedule more conservative.
+    private func paceMutation() async throws {
+        guard mutationMinimumSpacing > 0 else { return }
+        let current = now()
+        let slot: Date
+        if let nextMutationSlotAt, nextMutationSlotAt > current {
+            slot = nextMutationSlotAt
+        } else {
+            slot = current
+        }
+        nextMutationSlotAt = slot.addingTimeInterval(mutationMinimumSpacing)
+        let wait = slot.timeIntervalSince(current)
+        guard wait > 0 else { return }
+        try await sleep(wait)
     }
 
     /// Returns the active whole-second floor for an account operation.
@@ -233,8 +286,12 @@ public actor CmxIrohBrokerBackpressureGate {
         let remaining = Self.remainingSeconds(floor: floor, now: now())
         switch floor.errorKind {
         case let .brokerRateLimit(code):
+            // "cooldown:" marks a LOCAL fail-fast waiting out a prior 429;
+            // without it these are indistinguishable from real server
+            // rejections in journals (08-27: hundreds of countdown lines
+            // read as a server hammer that never happened).
             throw CmxIrohTrustBrokerClientError.rateLimited(
-                code: code,
+                code: "cooldown:" + (code ?? "rate_limited"),
                 retryAfterSeconds: remaining
             )
         case .cooldown:
@@ -286,7 +343,7 @@ public actor CmxIrohBrokerBackpressureGate {
         switch error as? CmxIrohTrustBrokerClientError {
         case let .rateLimited(code, retryAfterSeconds):
             directive = (
-                Self.boundedRetryAfter(retryAfterSeconds),
+                Self.normalizedRetryAfter(retryAfterSeconds),
                 .brokerRateLimit(code: code)
             )
         case let .rejected(statusCode, _) where statusCode == 429:
@@ -456,10 +513,7 @@ public actor CmxIrohBrokerBackpressureGate {
             && floor.retryAt.timeIntervalSince1970.isFinite
             && floor.recordedAt <= current
             && floor.retryAt > current
-            && floor.retryAt.timeIntervalSince(current)
-                <= TimeInterval(CmxIrohBrokerCooldown.maximumRetryAfterSeconds)
             && duration >= 1
-            && duration <= TimeInterval(CmxIrohBrokerCooldown.maximumRetryAfterSeconds)
     }
 
     private static func precedesForPersistence(
@@ -477,14 +531,11 @@ public actor CmxIrohBrokerBackpressureGate {
     private static func remainingSeconds(floor: Floor, now: Date) -> Int {
         let remaining = floor.retryAt.timeIntervalSince(now)
         let original = floor.retryAt.timeIntervalSince(floor.recordedAt)
-        return min(
-            CmxIrohBrokerCooldown.maximumRetryAfterSeconds,
-            max(1, Int(min(remaining, original).rounded(.up)))
-        )
+        return max(1, CmxRetryAfterPolicy.roundedUpSeconds(min(remaining, original)))
     }
 
-    private static func boundedRetryAfter(_ seconds: Int) -> Int {
-        min(CmxIrohBrokerCooldown.maximumRetryAfterSeconds, max(1, seconds))
+    private static func normalizedRetryAfter(_ seconds: Int) -> Int {
+        max(1, seconds)
     }
 
     private static func accountScope(_ accountID: String) -> String {

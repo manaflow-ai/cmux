@@ -47,17 +47,25 @@ func browserOmnibarNormalizedModifierFlags(_ flags: NSEvent.ModifierFlags) -> NS
         .subtracting([.numericPad, .function, .capsLock])
 }
 
+/// Policy decisions shared by the window and text-input shortcut routers.
+enum ShortcutRoutingPolicy {
+    /// Returns whether a key-down event has Option as its only primary modifier.
+    /// Shift may still be present; Command and Control opt the event out of the
+    /// Option-text routing policy.
+    static func isOptionOnly(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown else { return false }
+        let normalizedFlags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
+        return normalizedFlags.contains(.option)
+            && !normalizedFlags.contains(.command)
+            && !normalizedFlags.contains(.control)
+    }
+}
+
 func shortcutRoutingShouldBypassForPrintableOptionText(
     event: NSEvent,
     textInputCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.textInputCharacter(forKeyCode:modifierFlags:)
 ) -> Bool {
-    guard event.type == .keyDown else { return false }
-    let normalizedFlags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
-    guard normalizedFlags.contains(.option),
-          !normalizedFlags.contains(.command),
-          !normalizedFlags.contains(.control) else {
-        return false
-    }
+    guard ShortcutRoutingPolicy.isOptionOnly(event) else { return false }
 
     if shortcutRoutingTextIsPrintable(event.characters) {
         return true
@@ -85,7 +93,7 @@ func browserOmnibarShouldSubmitOnReturn(flags: NSEvent.ModifierFlags) -> Bool {
     return normalizedFlags == [] || normalizedFlags == [.shift]
 }
 
-func browserResponderHasMarkedText(_ responder: NSResponder?) -> Bool {
+func shortcutResponderHasMarkedText(_ responder: NSResponder?) -> Bool {
     guard let responder else { return false }
 
     // During IME composition, Return/Enter belongs to the text system so the
@@ -127,15 +135,16 @@ func shouldDispatchBrowserArrowViaFirstResponderKeyDown(
     guard (123...126).contains(keyCode) else { return false }
 
     let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
-
-    if normalizedFlags.isEmpty {
+    if normalizedFlags.isEmpty || normalizedFlags == [.shift] ||
+        normalizedFlags == [.option] || normalizedFlags == [.option, .shift] {
+        // Selection and word/paragraph navigation need WebKit's native defaults.
         return true
     }
-
-    // Keep modified arrow routing narrow to avoid stealing cmux shortcuts such
-    // as Cmd+Option+Arrow pane focus. Browser document editors own Cmd+Up/Down
-    // as trusted keyDown navigation to the start/end of the document.
-    return normalizedFlags == [.command] && (keyCode == 125 || keyCode == 126)
+    // Cmd+Option+Arrow remains reserved for cmux pane-focus shortcuts.
+    if normalizedFlags == [.command] {
+        return keyCode == 125 || keyCode == 126
+    }
+    return normalizedFlags == [.command, .shift]
 }
 
 func shouldDispatchBrowserOmnibarArrowViaFirstResponderKeyDown(
@@ -500,14 +509,16 @@ func focusedTerminalKeyRepairNeeded(
 func shouldRepairFocusedTerminalCommandEquivalentInputs(
     flags: NSEvent.ModifierFlags,
     responderIsWindow: Bool,
-    responderHasViableKeyRoutingOwner: Bool
+    responderHasViableKeyRoutingOwner: Bool,
+    responderMatchesPreferredKeyboardFocus: Bool
 ) -> Bool {
     let normalizedFlags = flags.intersection(.deviceIndependentFlagsMask)
     guard normalizedFlags.contains(.command) else { return false }
-    // Command shortcuts should only repair genuinely broken responder states.
-    // If another live view already owns first responder, let menu routing use
-    // that responder rather than retargeting to the selected terminal pane.
-    return responderIsWindow || !responderHasViableKeyRoutingOwner
+    // The caller filters foreign controls first. A live terminal responder is
+    // viable only for the pane whose preferred keyboard focus it matches.
+    return responderIsWindow
+        || !responderHasViableKeyRoutingOwner
+        || !responderMatchesPreferredKeyboardFocus
 }
 func shouldRouteTerminalFontZoomShortcutToGhostty(
     firstResponderIsGhostty: Bool,
@@ -946,8 +957,7 @@ func shouldSuppressWindowMoveForFolderDrag(window: NSWindow, event: NSEvent) -> 
         return false
     }
 
-    let contentPoint = contentView.convert(event.locationInWindow, from: nil)
-    let hitView = contentView.hitTest(contentPoint)
+    let hitView = contentView.cmuxHitTest(windowPoint: event.locationInWindow)
     return shouldSuppressWindowMoveForFolderDrag(hitView: hitView)
 }
 

@@ -5,7 +5,7 @@ import PackageDescription
 let package = Package(
     name: "CmuxMobileShell",
     platforms: [
-        .iOS(.v18),
+        .iOS(.v17),
         .macOS(.v14),
     ],
     products: [
@@ -21,7 +21,9 @@ let package = Package(
     dependencies: [
         .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../../Shared/CmuxAgentChat"),
+        .package(path: "../CmuxMobileChanges"),
         .package(path: "../CmuxMobileDiagnostics"),
+        .package(path: "../CmuxMobileBrowserStream"),
         .package(path: "../CmuxMobilePairedMac"),
         .package(path: "../CmuxMobileRPC"),
         .package(path: "../CmuxMobileShellModel"),
@@ -34,7 +36,9 @@ let package = Package(
             dependencies: [
                 "CMUXMobileCore",
                 "CmuxAgentChat",
+                "CmuxMobileChanges",
                 "CmuxMobileDiagnostics",
+                "CmuxMobileBrowserStream",
                 "CmuxMobilePairedMac",
                 "CmuxMobileRPC",
                 "CmuxMobileShellModel",
@@ -69,6 +73,8 @@ let package = Package(
                 "CmuxMobileShellReleaseGateSupport",
                 "CMUXMobileCore",
                 "CmuxAgentChat",
+                "CmuxMobileBrowserStream",
+                "CmuxMobileChanges",
                 "CmuxMobilePairedMac",
                 "CmuxMobileRPC",
                 "CmuxMobileShellModel",

@@ -155,10 +155,7 @@ final class SidebarRowChecklistItemLine: NSView {
         textLabel.isHidden = isEditing
         textClickOverlay.isHidden = isEditing
         guard isEditing else {
-            editField?.removeFromSuperview()
-            editField = nil
-            editFieldBridge = nil
-            editingItemId = nil
+            discardEditField()
             return
         }
         guard editField == nil || editingItemId != item.id else {
@@ -169,7 +166,7 @@ final class SidebarRowChecklistItemLine: NSView {
             editField?.caretColor = primary
             return
         }
-        editField?.removeFromSuperview()
+        discardEditField()
         // Fresh field per edit session (legacy recreates via view identity):
         // `FocusGrabbingTextField` takes first responder when it attaches to
         // the window, and select-all marks the edit variant.
@@ -348,10 +345,7 @@ final class SidebarRowChecklistItemLine: NSView {
     /// workspace.
     func resetForReuse() {
         guard item != nil || actions != nil || editField != nil else { return }
-        editField?.removeFromSuperview()
-        editField = nil
-        editFieldBridge = nil
-        editingItemId = nil
+        discardEditField()
         isEditing = false
         item = nil
         model = nil
@@ -362,6 +356,28 @@ final class SidebarRowChecklistItemLine: NSView {
         textClickOverlay.onClick = nil
         textLabel.stringValue = ""
         attachmentButton.resetForReuse()
+    }
+
+    /// Removes the editor immediately while deferring its pending model
+    /// mutation until the enclosing AppKit update has unwound.
+    func detachPresentation(commitEdits: Bool) -> (@MainActor () -> Void)? {
+        let postUpdateAction = commitEdits
+            ? editFieldBridge?.deferredEndEditingAction(text: editField?.stringValue ?? "")
+            : nil
+        // Only representable/controller teardown suppresses AppKit's normal
+        // focus-loss callback: the pending result was claimed above and must
+        // run after the enclosing update. Ordinary editor reconciliation
+        // keeps its delegate so switching items commits the previous draft.
+        editField?.delegate = nil
+        resetForReuse()
+        return postUpdateAction
+    }
+
+    private func discardEditField() {
+        editField?.removeFromSuperview()
+        editField = nil
+        editFieldBridge = nil
+        editingItemId = nil
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
