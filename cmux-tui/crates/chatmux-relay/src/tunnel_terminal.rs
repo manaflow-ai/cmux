@@ -48,6 +48,7 @@ use std::time::Duration;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use bytes::{Buf, BytesMut};
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -178,21 +179,20 @@ pub fn encode_pty_frame(bytes: &[u8]) -> Option<Vec<u8>> {
 /// length-prefixed stream that desynced once can never be trusted again, so
 /// the caller must close the connection.
 pub struct TunnelFrameDecoder {
-    buffer: Vec<u8>,
-    /// Bytes before this cursor have already been emitted. Keeping a cursor
-    /// avoids repeatedly shifting the whole buffer for a busy PTY stream.
-    cursor: usize,
+    buffer: BytesMut,
+    storage_capacity: usize,
     failed: bool,
     max_frame_bytes: usize,
 }
 
 impl TunnelFrameDecoder {
     pub fn new(max_frame_bytes: usize) -> TunnelFrameDecoder {
+        let max_frame_bytes = max_frame_bytes.clamp(1, MAX_TUNNEL_FRAME_BYTES);
         TunnelFrameDecoder {
-            buffer: Vec::new(),
-            cursor: 0,
+            storage_capacity: 0,
+            buffer: BytesMut::new(),
             failed: false,
-            max_frame_bytes: max_frame_bytes.clamp(1, MAX_TUNNEL_FRAME_BYTES),
+            max_frame_bytes,
         }
     }
 
@@ -201,15 +201,16 @@ impl TunnelFrameDecoder {
             return Err("decoder_poisoned");
         }
         self.buffer.extend_from_slice(chunk);
+        self.storage_capacity = self.storage_capacity.max(self.buffer.capacity());
         let mut frames = Vec::new();
-        while self.buffer.len().saturating_sub(self.cursor) >= HEADER_BYTES {
+        while self.buffer.len() >= HEADER_BYTES {
             let length = u32::from_be_bytes([
-                self.buffer[self.cursor],
-                self.buffer[self.cursor + 1],
-                self.buffer[self.cursor + 2],
-                self.buffer[self.cursor + 3],
+                self.buffer[0],
+                self.buffer[1],
+                self.buffer[2],
+                self.buffer[3],
             ]) as usize;
-            let kind = self.buffer[self.cursor + 4];
+            let kind = self.buffer[4];
             if length > self.max_frame_bytes {
                 self.failed = true;
                 return Err("frame_too_large");
@@ -218,17 +219,22 @@ impl TunnelFrameDecoder {
                 self.failed = true;
                 return Err("unknown_frame_kind");
             }
-            if self.buffer.len().saturating_sub(self.cursor) < HEADER_BYTES + length {
+            if self.buffer.len() < HEADER_BYTES + length {
                 break;
             }
-            let start = self.cursor + HEADER_BYTES;
-            let payload = self.buffer[start..start + length].to_vec();
-            self.cursor = start + length;
+            self.buffer.advance(HEADER_BYTES);
+            let payload = self.buffer.split_to(length).to_vec();
             frames.push(TunnelFrame { kind, payload });
         }
-        if self.cursor > 0 && (self.cursor >= 64 * 1024 || self.cursor * 2 >= self.buffer.len()) {
-            self.buffer.drain(..self.cursor);
-            self.cursor = 0;
+        // A single read may contain many frames. Keep the retained decoder
+        // storage bounded by one maximum-size frame plus its header instead
+        // of holding the capacity of that whole read forever.
+        let retained_limit = self.max_frame_bytes + HEADER_BYTES;
+        if self.storage_capacity > retained_limit && self.buffer.len() <= retained_limit {
+            let mut compacted = BytesMut::with_capacity(retained_limit);
+            compacted.extend_from_slice(&self.buffer);
+            self.storage_capacity = compacted.capacity();
+            self.buffer = compacted;
         }
         Ok(frames)
     }
@@ -1165,7 +1171,7 @@ mod tests {
             _cmux_tui: &CmuxTui,
             _session: &str,
             _socket_dir: &Path,
-            _cwd: &Path,
+            _cwd: &crate::pty::ResolvedCwd,
             _env: &HashMap<String, String>,
             _cancellation: CancellationToken,
         ) -> Result<EnsureDaemon, String> {
@@ -1464,6 +1470,36 @@ mod tests {
         assert_eq!(frames[0].kind, FRAME_KIND_CONTROL);
         assert_eq!(frames[1].kind, FRAME_KIND_PTY);
         assert_eq!(frames[1].payload, b"echo hi\r");
+    }
+
+    #[test]
+    fn decoder_handles_many_frames_without_retaining_batch_storage() {
+        const MAX_FRAME_BYTES: usize = 8;
+        const FRAME_COUNT: usize = 2_048;
+
+        let mut stream = Vec::with_capacity(FRAME_COUNT * (HEADER_BYTES + 1));
+        for index in 0..FRAME_COUNT {
+            stream.extend_from_slice(&encode_tunnel_frame(
+                if index % 2 == 0 { FRAME_KIND_CONTROL } else { FRAME_KIND_PTY },
+                &[index as u8],
+            ));
+        }
+
+        let mut decoder = TunnelFrameDecoder::new(MAX_FRAME_BYTES);
+        let frames = decoder.push(&stream).expect("clean stream");
+
+        assert_eq!(frames.len(), FRAME_COUNT);
+        assert!(frames.iter().enumerate().all(|(index, frame)| {
+            frame.kind == if index % 2 == 0 { FRAME_KIND_CONTROL } else { FRAME_KIND_PTY }
+                && frame.payload == [index as u8]
+        }));
+        assert!(decoder.buffer.is_empty());
+        assert!(
+            decoder.storage_capacity <= MAX_FRAME_BYTES + HEADER_BYTES,
+            "decoder retained {} bytes for a {} byte max frame",
+            decoder.storage_capacity,
+            MAX_FRAME_BYTES
+        );
     }
 
     #[test]
