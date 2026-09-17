@@ -1,0 +1,136 @@
+name: cmux events stress
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/cmux-events-stress.yml"
+      - "scripts/cmux-events-stress.py"
+      - "Sources/CmuxEvent*.swift"
+      - "Sources/CmuxSocketEventMapper.swift"
+      - "Sources/TerminalController.swift"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch or SHA to test
+        required: false
+        default: ""
+      runner:
+        description: macOS runner
+        required: false
+        default: warp-macos-15-arm64-6x
+        type: choice
+        options:
+          - warp-macos-15-arm64-6x
+          - depot-macos-latest
+      events:
+        description: Events to publish
+        required: false
+        default: "40000"
+      consumers:
+        description: Reconnecting consumers
+        required: false
+        default: "6"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  events-stress:
+    runs-on: ${{ inputs.runner || 'warp-macos-15-arm64-6x' }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      STRESS_TAG: ci-events-stress-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          submodules: recursive
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+          else
+            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort | tail -n 1 || true)"
+            if [ -n "$XCODE_APP" ]; then
+              XCODE_DIR="$XCODE_APP/Contents/Developer"
+            else
+              echo "No Xcode.app found under /Applications" >&2
+              exit 1
+            fi
+          fi
+          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$XCODE_DIR"
+          xcrun --sdk macosx --show-sdk-path
+
+      - name: Download pre-built GhosttyKit.xcframework
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Run cmux events stress harness
+        env:
+          STRESS_EVENTS: ${{ inputs.events || '40000' }}
+          STRESS_CONSUMERS: ${{ inputs.consumers || '6' }}
+        run: |
+          set -euo pipefail
+          mkdir -p stress-results
+          python3 scripts/cmux-events-stress.py \
+            --build \
+            --tag "$STRESS_TAG" \
+            --events "$STRESS_EVENTS" \
+            --consumers "$STRESS_CONSUMERS" \
+            --output stress-results/cmux-events-stress.json
+
+      - name: Write stress summary
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ ! -f stress-results/cmux-events-stress.json ]; then
+            echo "No cmux events stress summary was written." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+
+          result = json.loads(Path("stress-results/cmux-events-stress.json").read_text())
+          print("## cmux Events Stress")
+          print("")
+          print(f"- ok: `{result.get('ok')}`")
+          print(f"- events: `{result.get('event_count')}`")
+          print(f"- consumers: `{result.get('consumer_count')}`")
+          rss = result.get("rss") or {}
+          print(f"- RSS peak/end: `{rss.get('peak_kb')}` / `{rss.get('end_kb')}` KiB")
+          log = result.get("event_log") or {}
+          print(f"- event log current/rotated: `{log.get('current_bytes')}` / `{log.get('rotated_bytes')}` bytes")
+          gap = ((result.get("resume_gap") or {}).get("ack") or {}).get("resume") or {}
+          print(f"- resume gap: `{gap.get('gap')}` ({gap.get('gap_reason', 'none')})")
+          if result.get("error"):
+            print("")
+            print(f"Error: `{result['error']}`")
+          PY
+
+      - name: Upload stress results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-events-stress
+          path: stress-results/
+          if-no-files-found: ignore
+
+      - name: Cleanup tagged app
+        if: always()
+        run: |
+          pkill -f "cmux DEV ${STRESS_TAG}.app/Contents/MacOS/cmux DEV" || true
+          rm -f "/tmp/cmux-debug-${STRESS_TAG}.sock"
+          rm -f "/tmp/cmux-debug-${STRESS_TAG}.log"
+          rm -f "$HOME/Library/Application Support/cmux/cmuxd-dev-${STRESS_TAG}.sock"
