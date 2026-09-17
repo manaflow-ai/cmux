@@ -19,7 +19,8 @@ extension Workspace {
         at destination: SurfaceDestination,
         focus: Bool
     ) -> CloudTerminalPaneReservation? {
-        guard !isRetiredFromOwningTabManager else { return nil }
+        guard !isRetiredFromOwningTabManager,
+              surfaceOwnershipPolicy.rejection(for: machine) == nil else { return nil }
         let relay = CloudOptimisticInputRelay()
         guard let panel = makeRemoteTmuxPanePanel(
             onInput: { input in relay.send(input) },
@@ -96,11 +97,11 @@ extension Workspace {
     func failReservedCloudTerminalPane(_ reservation: CloudTerminalPaneReservation, error: Error) {
         guard cloudPendingCreations[reservation.panelID] === reservation else { return }
         setCloudManualMirrorTabLoading(panelID: reservation.panelID, false)
-        let failure = CloudPaneCreationFailure(machine: reservation.machine, error: error)
+        let failure = CloudPaneCreationFailure(machine: reservation.machine, error: error, context: CloudOperationContext.current)
         setCloudMaterializationFailure(
             surfaceID: reservation.panelID,
-            detail: "\(failure.errorText) \(failure.recoveryText)",
-            reference: nil
+            detail: failure.errorText,
+            reference: failure.copyableText
         )
     }
 
