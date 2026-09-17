@@ -325,6 +325,45 @@ struct ViewerNavigationTests {
     }
 
     @Test
+    func markdownViewerRestoresScrollPerProjectionIdentity() async throws {
+        let frame = NSRect(x: 0, y: 0, width: 720, height: 360)
+        let webView = MarkdownWebView(frame: frame, configuration: WKWebViewConfiguration())
+        let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = webView
+        window.orderFrontRegardless()
+        defer {
+            webView.navigationDelegate = nil
+            window.close()
+        }
+
+        let loadDelegate = ViewerNavigationShellLoadDelegate()
+        webView.navigationDelegate = loadDelegate
+        try await loadDelegate.load(
+            MarkdownViewerAssets.shared.shellHTML(isDark: true),
+            in: webView,
+            baseURL: FileManager.default.temporaryDirectory.appendingPathComponent("projection.md")
+        )
+
+        try await renderMarkdown(projectionMarkdown(key: "surface-a", label: "A"), in: webView)
+        let surfaceAScrollY = try await scrollToHeading("a-section-20", in: webView)
+        #expect(surfaceAScrollY > 500)
+
+        try await renderMarkdown(projectionMarkdown(key: "surface-b", label: "B"), in: webView)
+        let firstSurfaceBScrollY = try await currentScrollY(in: webView)
+        #expect(firstSurfaceBScrollY <= 2, "a newly selected projection should start at the top")
+
+        let surfaceBScrollY = try await scrollToHeading("b-section-30", in: webView)
+        #expect(surfaceBScrollY > surfaceAScrollY + 100)
+
+        try await renderMarkdown(projectionMarkdown(key: "surface-a", label: "A"), in: webView)
+        let restoredSurfaceAScrollY = try await currentScrollY(in: webView)
+        #expect(
+            abs(restoredSurfaceAScrollY - surfaceAScrollY) <= 8,
+            "returning to a projection should restore that projection's own scroll position"
+        )
+    }
+
+    @Test
     func markdownViewerHonorsConfiguredWhenClause() throws {
         let appDelegate = try #require(AppDelegate.shared)
         let originalStore = KeyboardShortcutSettings.settingsFileStore
@@ -388,6 +427,39 @@ struct ViewerNavigationTests {
         let data = try JSONSerialization.data(withJSONObject: [markdown])
         let literal = try #require(String(data: data, encoding: .utf8))
         _ = try await webView.evaluateJavaScript("window.__cmuxRenderMarkdown(\(literal)[0]);")
+    }
+
+    private func currentScrollY(in webView: WKWebView) async throws -> Double {
+        let value = try await webView.evaluateJavaScript(
+            "window.scrollY || (document.scrollingElement && document.scrollingElement.scrollTop) || 0"
+        )
+        return try #require((value as? NSNumber)?.doubleValue)
+    }
+
+    private func scrollToHeading(_ id: String, in webView: WKWebView) async throws -> Double {
+        let data = try JSONSerialization.data(withJSONObject: [id])
+        let literal = try #require(String(data: data, encoding: .utf8))
+        let value = try await webView.evaluateJavaScript(
+            """
+            (function(ids) {
+              var heading = document.getElementById(ids[0]);
+              if (!heading) { return -1; }
+              document.documentElement.style.scrollBehavior = 'auto';
+              window.scrollTo(0, heading.offsetTop - 48);
+              return window.scrollY || (document.scrollingElement && document.scrollingElement.scrollTop) || 0;
+            })(\(literal));
+            """
+        )
+        return try #require((value as? NSNumber)?.doubleValue)
+    }
+
+    private func projectionMarkdown(key: String, label: String) -> String {
+        let sections = (1...36).map { section in
+            "## \(label) Section \(section)\n\n" + (1...5).map { paragraph in
+                "Paragraph \(paragraph) for \(label) section \(section). This keeps each generated projection tall enough to have an independent viewport."
+            }.joined(separator: "\n\n")
+        }.joined(separator: "\n\n")
+        return "<!-- cmux-scroll-key: \(key) -->\n\n\(sections)"
     }
 
     private func scrollSmokeMarkdown() -> String {
