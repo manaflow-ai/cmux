@@ -40,7 +40,7 @@ extension MobileIrxRuntimeComposition {
     private func waitForRuntimeReadiness(
         for peerHex: String
     ) async throws -> (scope: AuthenticatedTeamScope, epoch: UInt64) {
-        if let ready = await runtimeReadinessState(for: peerHex) {
+        if let ready = runtimeReadinessState(for: peerHex) {
             return ready
         }
 
@@ -63,7 +63,7 @@ extension MobileIrxRuntimeComposition {
             group.cancelAll()
             return result
         }
-        guard becameReady, let ready = await runtimeReadinessState(for: peerHex) else {
+        guard becameReady, let ready = runtimeReadinessState(for: peerHex) else {
             throw CompositionError.notSignedIn
         }
         return ready
@@ -71,16 +71,14 @@ extension MobileIrxRuntimeComposition {
 
     private func runtimeReadinessState(
         for peerHex: String
-    ) async -> (scope: AuthenticatedTeamScope, epoch: UInt64)? {
+    ) -> (scope: AuthenticatedTeamScope, epoch: UInt64)? {
         guard let scope = activeScope, let cache, !cache.authorityRevoked else {
             return nil
         }
         switch dialIntentByPeer[peerHex] ?? .automatic {
         case .automatic:
-            guard let supervisor = endpointSupervisor,
-                  await supervisor.isHealthy() else {
-                return nil
-            }
+            // The supervisor binds or repairs its endpoint during dial.
+            guard endpointSupervisor != nil else { return nil }
         case .direct:
             guard identity != nil else { return nil }
         }
