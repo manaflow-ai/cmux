@@ -419,7 +419,7 @@ final class PostHogAnalytics: @unchecked Sendable {
         infoDictionary: [String: Any],
         flavor: BuildFlavor = BuildFlavor.current
     ) -> [String: Any] {
-        // `channel` answers "stable, NIGHTLY or DEV?" for every Mac event; the
+        // `channel` answers "stable, RC, NIGHTLY or DEV?" for every Mac event; the
         // web side carries the same value on checkout as `checkout_channel`.
         var properties: [String: Any] = ["channel": flavor.rawValue]
         if let value = infoDictionary["CFBundleShortVersionString"] as? String, !value.isEmpty {
