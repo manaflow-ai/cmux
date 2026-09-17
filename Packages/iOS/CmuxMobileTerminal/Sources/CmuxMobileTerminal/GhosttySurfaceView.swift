@@ -4318,6 +4318,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // dropping the request here. Ordinary and local-scroll submissions
         // remain pending and become eligible when the frozen replay is
         // revealed.
+        let outputPresentation = onOutputPresentation
+        onOutputPresentation = nil
         return enqueueRenderSubmission(
             RenderSubmission(
                 token: makeSurfaceOperationID(),
@@ -4326,7 +4328,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 surface: surface,
                 verifiedReplayRead: nil,
                 presentationRetryCount: presentationRetryCount,
-                outputPresentation: onOutputPresentation
+                outputPresentation: outputPresentation
             )
         )
     }

@@ -15,8 +15,7 @@ enum MobileHostIrxTerminalLaneServer {
         static let invalidInput: UInt64 = 5
     }
 
-    private static let maximumInputFrameByteCount = 16 * 1_024
-    private static let maximumInputBufferByteCount = 64 * 1_024
+    private static let maximumInputBufferByteCount = MobileTerminalInputFrame.maximumFrameBytes
 
     static func serve(
         resourceID: String,

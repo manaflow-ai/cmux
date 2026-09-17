@@ -72,6 +72,8 @@ extension GhosttySurfaceView {
         submission: VerifiedReplayRenderSubmission,
         generation: UInt64
     ) -> Bool {
+        let outputPresentation = read == nil ? nil : onOutputPresentation
+        onOutputPresentation = nil
         enqueueRenderSubmission(
             GhosttySurfaceView.RenderSubmission(
                 token: submission.token,
@@ -80,7 +82,7 @@ extension GhosttySurfaceView {
                 surface: submission.surface,
                 verifiedReplayRead: read,
                 presentationRetryCount: 0,
-                outputPresentation: read == nil ? nil : onOutputPresentation
+                outputPresentation: outputPresentation
             )
         )
     }
