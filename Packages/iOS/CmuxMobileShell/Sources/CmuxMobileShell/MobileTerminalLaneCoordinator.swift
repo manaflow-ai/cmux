@@ -99,18 +99,15 @@ actor MobileTerminalLaneCoordinator {
 
     private let provider: MobileTerminalLaneProvider?
     private let inputOnlyProvider: MobileTerminalLaneProvider?
-    private let latencyObserver: any MobileTerminalLatencyObserving
     private var entriesByKey: [LaneKey: Entry] = [:]
     private var focusedKeyBySurfaceID: [String: LaneKey] = [:]
 
     init(
         provider: MobileTerminalLaneProvider?,
-        inputOnlyProvider: MobileTerminalLaneProvider? = nil,
-        latencyObserver: any MobileTerminalLatencyObserving = NoopMobileTerminalLatencyObserver()
+        inputOnlyProvider: MobileTerminalLaneProvider? = nil
     ) {
         self.provider = provider
         self.inputOnlyProvider = inputOnlyProvider
-        self.latencyObserver = latencyObserver
     }
 
     func ensure(_ configuration: Configuration) async {
@@ -159,20 +156,13 @@ actor MobileTerminalLaneCoordinator {
               let lane = entry.lane else {
             return .unavailable
         }
-        let sequence = latencyObserver.inputStarted(
-            surfaceID: surfaceID,
-            byteCount: input.utf8.count
-        )
         do {
             try await lane.sendInput(input)
             guard let current = entriesByKey[key], current.id == entry.id else {
-                latencyObserver.inputFailed(surfaceID: surfaceID, sequence: sequence)
                 return .failed
             }
-            latencyObserver.inputSent(surfaceID: surfaceID, sequence: sequence)
             return .sent
         } catch {
-            latencyObserver.inputFailed(surfaceID: surfaceID, sequence: sequence)
             await fail(key: key, id: entry.id, lane: lane)
             return .failed
         }

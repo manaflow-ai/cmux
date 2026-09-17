@@ -1987,8 +1987,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             || runtime?.terminalInputLaneProvider != nil {
             self.terminalLaneCoordinator = MobileTerminalLaneCoordinator(
                 provider: runtime?.terminalLaneProvider,
-                inputOnlyProvider: runtime?.terminalInputLaneProvider,
-                latencyObserver: terminalLatencyObserver
+                inputOnlyProvider: runtime?.terminalInputLaneProvider
             )
         } else {
             self.terminalLaneCoordinator = nil
@@ -12788,6 +12787,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             return
         }
+        let inputSequence = terminalLatencyObserver.inputStarted(
+            surfaceID: terminalID.rawValue,
+            byteCount: text.utf8.count
+        )
         let generation = connectionGeneration
         if let terminalLaneCoordinator {
             let laneResult: MobileTerminalLaneCoordinator.InputResult
@@ -12816,6 +12819,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // belong to the previous connection.
                     guard generation == connectionGeneration,
                           client === remoteClient else {
+                        terminalLatencyObserver.inputFailed(
+                            surfaceID: terminalID.rawValue,
+                            sequence: inputSequence
+                        )
                         Self.stampTerminalInputSettlement(
                             latencyBatchNumber,
                             succeeded: false
@@ -12850,6 +12857,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             switch laneResult {
             case .sent:
+                terminalLatencyObserver.inputSent(
+                    surfaceID: terminalID.rawValue,
+                    sequence: inputSequence
+                )
                 Self.stampTerminalInputSettlement(latencyBatchNumber, succeeded: true)
                 finishRawTerminalSend(
                     sendStatusOperationID,
@@ -12858,6 +12869,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 )
                 return
             case .failed:
+                terminalLatencyObserver.inputFailed(
+                    surfaceID: terminalID.rawValue,
+                    sequence: inputSequence
+                )
                 mobileShellLog.error(
                     "independent terminal input failed surface=\(terminalID.rawValue, privacy: .public)"
                 )
@@ -12877,10 +12892,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             workspaceID: workspaceID,
             terminalID: terminalID
         )
-        let directInputSequence = terminalLatencyObserver.inputStarted(
-            surfaceID: terminalID.rawValue,
-            byteCount: text.utf8.count
-        )
+        let directInputSequence = inputSequence
         if activeRoute?.kind == .iroh,
            supportedHostCapabilities.contains(
                Self.terminalInputOrderedCapability
@@ -12979,11 +12991,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     params: params
                 )
             )
-            terminalLatencyObserver.inputSent(
-                surfaceID: terminalID.rawValue,
-                sequence: directInputSequence
-            )
             guard isCurrentRemoteOperation(client: client, generation: generation) else {
+                terminalLatencyObserver.inputFailed(
+                    surfaceID: terminalID.rawValue,
+                    sequence: directInputSequence
+                )
                 Self.stampTerminalInputSettlement(latencyBatchNumber, succeeded: false)
                 finishRawTerminalSend(
                     sendStatusOperationID,
@@ -12992,6 +13004,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 )
                 return
             }
+            terminalLatencyObserver.inputSent(
+                surfaceID: terminalID.rawValue,
+                sequence: directInputSequence
+            )
             handleTerminalInputResponse(responseData, surfaceID: terminalID.rawValue)
             Self.stampTerminalInputSettlement(latencyBatchNumber, succeeded: true)
             finishRawTerminalSend(

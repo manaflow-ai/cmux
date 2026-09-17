@@ -257,14 +257,14 @@ enum MobileHostIrxTerminalLaneServer {
             else { return false }
             switch surface.sendInputResult(input) {
             case .sent:
-                _ = MobileTerminalByteTee.shared.markInputReceived(surfaceID: surfaceID)
+                _ = MobileTerminalByteTee.shared.recordAcceptedInput(surfaceID: surfaceID, result: .sent)
                 // PTY output is observed by MobileTerminalByteTee, which
                 // schedules the normal render tick. A refresh here would
                 // emit a duplicate full frame before the echo and make every
                 // key compete with the output lane's replay fence.
                 return true
             case .queued:
-                _ = MobileTerminalByteTee.shared.markInputReceived(surfaceID: surfaceID)
+                _ = MobileTerminalByteTee.shared.recordAcceptedInput(surfaceID: surfaceID, result: .queued)
                 return true
             case .inputQueueFull, .surfaceUnavailable, .processExited:
                 return false

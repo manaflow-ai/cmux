@@ -6,6 +6,7 @@ import Foundation
 /// terminal path calls these methods for each input and delivered output, so
 /// they may only update bounded in-memory state. Implementations publish
 /// periodic aggregates through their existing telemetry queue.
+@MainActor
 public protocol MobileTerminalLatencyObserving: Sendable {
     func inputStarted(surfaceID: String, byteCount: Int) -> UInt64
     func inputSent(surfaceID: String, sequence: UInt64)

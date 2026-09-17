@@ -128,6 +128,18 @@ final class MobileTerminalByteTee {
         return state.inputSequence
     }
 
+    /// Records a mobile input only after the canonical terminal send accepts it.
+    /// All mobile host transports call this helper with their send result, so
+    /// rejected requests never advance the render-frame correlation sequence.
+    @discardableResult
+    func recordAcceptedInput(
+        surfaceID: UUID,
+        result: TerminalSurface.InputSendResult
+    ) -> UInt64? {
+        guard result.accepted else { return nil }
+        return markInputReceived(surfaceID: surfaceID)
+    }
+
     func currentInputSequence(surfaceID: UUID) -> UInt64? {
         statesBySurfaceID[surfaceID]?.inputSequence
     }
