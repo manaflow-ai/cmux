@@ -1,0 +1,63 @@
+name: Transport v3
+
+on:
+  pull_request:
+    paths:
+      - services/transport-v3/**
+      - .github/workflows/transport-v3.yml
+  push:
+    branches: [main]
+    paths:
+      - services/transport-v3/**
+      - .github/workflows/transport-v3.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: transport-v3-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  protocol:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: services/transport-v3
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24.21.0'
+      - name: Install Rust
+        run: rustup toolchain install 1.98.1 --profile minimal --component clippy --component rustfmt
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+      - run: cargo build -p cmux-v3-transport --example browser_fixture --locked
+      - name: Browser interoperability
+        working-directory: services/transport-v3/interop
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npm test
+
+  apple:
+    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: services/transport-v3
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Install Rust and Apple targets
+        run: rustup toolchain install 1.98.1 --profile minimal --target aarch64-apple-ios --target aarch64-apple-ios-sim
+      - run: cargo test --workspace --locked
+      - run: cargo build -p cmux-v3-transport --lib --target aarch64-apple-ios --locked
+      - run: cargo check -p cmux-v3-transport --target aarch64-apple-ios-sim --locked
