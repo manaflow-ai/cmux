@@ -6601,6 +6601,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            terminalPanel.surface.ioMode == .manualMirror,
            terminalPanel.hostedView.surfaceView.window !== window,
            case .surface = terminalPanel.hostedView.preferredPanelFocusIntentForActivation() {
+            captureCloudMountKeyRelease(window: window, event: event, view: terminalPanel.hostedView.surfaceView)
             terminalPanel.hostedView.surfaceView.keyDown(with: event)
             return true
         }
@@ -19288,6 +19289,10 @@ private extension NSWindow {
     }
 
     @objc func cmux_sendEvent(_ event: NSEvent) {
+        if event.type == .keyUp,
+           AppDelegate.shared?.forwardCloudMountKeyRelease(window: self, event: event) == true {
+            return
+        }
 #if DEBUG
         let typingTimingStart = event.type == .keyDown ? CmuxTypingTiming.start() : nil
         let phaseTotalStart = event.type == .keyDown ? ProcessInfo.processInfo.systemUptime : 0

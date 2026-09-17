@@ -1,6 +1,41 @@
 import AppKit
+import ObjectiveC
+
+/// A key routed before portal mount retains its pane as the release owner.
+/// Weak identities prevent a close or surface replacement from retargeting it.
+@MainActor
+private final class CloudMountKeyOwners {
+    static var associationKey: UInt8 = 0
+    final class Owner {
+        weak var view: GhosttyNSView?
+        weak var surface: TerminalSurface?
+        init(_ view: GhosttyNSView) { self.view = view; surface = view.terminalSurface }
+    }
+    var keys: [UInt16: Owner] = [:]
+}
 
 extension AppDelegate {
+    func captureCloudMountKeyRelease(window: NSWindow, event: NSEvent, view: GhosttyNSView) {
+        let owners: CloudMountKeyOwners
+        if let existing = objc_getAssociatedObject(window, &CloudMountKeyOwners.associationKey) as? CloudMountKeyOwners {
+            owners = existing
+        } else {
+            owners = CloudMountKeyOwners()
+            objc_setAssociatedObject(window, &CloudMountKeyOwners.associationKey, owners, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        }
+        owners.keys[event.keyCode] = CloudMountKeyOwners.Owner(view)
+    }
+
+    func forwardCloudMountKeyRelease(window: NSWindow, event: NSEvent) -> Bool {
+        guard event.type == .keyUp,
+              let owners = objc_getAssociatedObject(window, &CloudMountKeyOwners.associationKey) as? CloudMountKeyOwners,
+              let owner = owners.keys.removeValue(forKey: event.keyCode) else { return false }
+        if let view = owner.view, let surface = owner.surface, view.terminalSurface === surface {
+            view.keyUp(with: event)
+        }
+        return true
+    }
+
     var shortcutRoutingKeyWindow: NSWindow? {
 #if DEBUG
         if let window = debugShortcutRoutingFocusedWindowOverrideForTesting.window {
