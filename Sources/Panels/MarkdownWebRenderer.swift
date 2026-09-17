@@ -170,6 +170,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         var onMarkdownRendered: (() -> Void)?
         /// Fired after a rich edit serializes the DOM back to Markdown.
         var onMarkdownEdited: ((String) -> Void)?
+        var onRequestSave: (() -> Void)?
         var panelId: UUID = UUID()
         var workspaceId: UUID = UUID()
         var filePath: String = ""
@@ -181,7 +182,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private var lastFontSize: Double = MarkdownFontSizeSettings.defaultPointSize
         private var lastMaxContentWidth: Double = MarkdownMaxWidthSettings.defaultCSSPixels
         private var isEditing = false
-        private var lastEditedMarkdown: String?
+        private var appliedEditing: Bool?
         private var isLoaded = false
         private var isShellLoading = false
         private var webContentProcessRecoveryAttempts = 0
@@ -289,12 +290,31 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         /// the DOM, which preserves the caret, selection, and scroll position.
         func setEditing(_ editing: Bool) {
             isEditing = editing
-            guard let webView else { return }
+            guard isLoaded, let webView, appliedEditing != editing else { return }
+            appliedEditing = editing
             let value = editing ? "true" : "false"
             webView.evaluateJavaScript(
                 "window.__cmuxSetMarkdownEditing && window.__cmuxSetMarkdownEditing(\(value));",
                 completionHandler: nil
             )
+        }
+
+        /// Drains the page's pending input before an explicit save.
+        func flushInlineEdits() async -> String? {
+            guard isLoaded else { return nil }
+            guard let markdown = await evaluateString(
+                "window.__cmuxFlushMarkdownEdits && window.__cmuxFlushMarkdownEdits()"
+            ) else { return nil }
+            acceptInlineMarkdown(markdown)
+            return markdown
+        }
+
+        private func acceptInlineMarkdown(_ markdown: String) {
+            // Acknowledge the DOM snapshot before publishing it to SwiftUI.
+            // The following update therefore cannot render over the caret.
+            lastMarkdown = markdown
+            pendingMarkdown = markdown
+            onMarkdownEdited?(markdown)
         }
 
         /// Applies one formatting transaction to the current rich selection.
@@ -327,7 +347,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             cancelImageLoads()
             requestedLibs.removeAll()
             onMarkdownEdited = nil
-            lastEditedMarkdown = nil
+            onRequestSave = nil
+            appliedEditing = nil
         }
 
         func loadShell(theme: MarkdownWebTheme, initialMarkdown: String) {
@@ -337,7 +358,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             requestedLibs.removeAll()
             isLoaded = false
             isShellLoading = true
-            lastEditedMarkdown = nil
+            appliedEditing = nil
             let html = MarkdownViewerAssets.shared.shellHTML(isDark: theme.isDark)
             let baseURL = URL(fileURLWithPath: filePath)
 #if DEBUG
@@ -373,13 +394,6 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             if contentChanged {
                 webContentProcessRecoveryAttempts = 0
                 lastMarkdown = markdown
-                // The rich editor already mutated this DOM. Re-rendering the
-                // same snapshot would destroy the caret and selection on every
-                // keystroke, so acknowledge the SwiftUI update in place.
-                if isEditing, markdown == lastEditedMarkdown {
-                    lastEditedMarkdown = nil
-                    return
-                }
                 if isLoaded {
                     pushMarkdown(markdown)
                 } else if shellNeedsReload {
@@ -539,9 +553,12 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                         openMarkdownFile(resolved)
                     }
                 case "editMarkdown":
-                    guard isEditing, let markdown = body["markdown"] as? String else { return }
-                    lastEditedMarkdown = markdown
-                    onMarkdownEdited?(markdown)
+                    guard message.frameInfo.isMainFrame, isLoaded,
+                          let markdown = body["markdown"] as? String else { return }
+                    acceptInlineMarkdown(markdown)
+                case "saveMarkdown":
+                    guard message.frameInfo.isMainFrame, isEditing else { return }
+                    onRequestSave?()
                 default:
                     break
                 }

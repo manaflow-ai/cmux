@@ -185,7 +185,7 @@ final class MarkdownPanelTests: XCTestCase {
 
     func testMarkdownInlineEditModeSharesThePanelDirtyBuffer() async throws {
         let directoryURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-markdown-inline-edit-(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-markdown-inline-edit-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         let fileURL = directoryURL.appendingPathComponent("README.md")
         try "# Original\n\nBody.\n".write(to: fileURL, atomically: true, encoding: .utf8)

@@ -471,6 +471,15 @@ final class MarkdownRendererSession {
         ownedCoordinator.setEditing(editing)
     }
 
+    var onRequestSave: (() -> Void)? {
+        get { ownedCoordinator.onRequestSave }
+        set { ownedCoordinator.onRequestSave = newValue }
+    }
+
+    func flushInlineEdits() async -> String? {
+        await ownedCoordinator.flushInlineEdits()
+    }
+
     func format(_ action: String) {
         ownedCoordinator.format(action)
     }

@@ -187,6 +187,9 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
             self?.replayPendingPreviewFocusAfterWindowAttach()
             self?.replayActiveFindAfterRender()
         }
+        rendererSession.onRequestSave = { [weak self] in
+            self?.saveTextContent()
+        }
     }
 
     func findNext() {
@@ -524,8 +527,20 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     @discardableResult
     func saveTextContent() -> Task<Void, Never>? {
+        if displayMode == .edit {
+            return Task { [weak self] in
+                guard let self, !self.isClosed else { return }
+                _ = await self.rendererSession.flushInlineEdits()
+                guard !self.isClosed else { return }
+                await self.saveCurrentBuffer()?.value
+            }
+        }
+        return saveCurrentBuffer()
+    }
+
+    private func saveCurrentBuffer() -> Task<Void, Never>? {
         guard !isSaving else { return nil }
-        let currentContent = textView?.string ?? textContent
+        let currentContent = displayMode == .text ? (textView?.string ?? textContent) : textContent
         guard currentContent != originalTextContent else {
             textContent = currentContent
             content = currentContent

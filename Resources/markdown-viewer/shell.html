@@ -444,12 +444,11 @@ html { scroll-behavior: smooth; }
     if (node.classList && node.classList.contains('cmux-code-copy-button')) { return ''; }
     if (node.classList && node.classList.contains('cmux-remote-image-placeholder')) { return ''; }
     var tag = node.tagName.toLowerCase();
-    if (tag === 'br') { return '\\n'; }
+    if (tag === 'br') { return '  \n'; }
     if (tag === 'img') {
-      var src = node.getAttribute('data-cmux-original-src') || node.getAttribute('src') || '';
-      if (!src && node.getAttribute('data-cmux-remote-src')) {
-        src = unescapeDataAttribute(node.getAttribute('data-cmux-remote-src'));
-      }
+      var src = node.getAttribute('data-cmux-original-src')
+        || unescapeDataAttribute(node.getAttribute('data-cmux-remote-src'))
+        || node.getAttribute('src') || '';
       if (src.indexOf('cmux-') === 0) { src = ''; }
       var alt = node.getAttribute('alt') || '';
       return src ? '![' + alt.replace(/([\[\]])/g, '\\$1') + '](' + src + ')' : '';
@@ -555,10 +554,23 @@ html { scroll-behavior: smooth; }
 
   function serializeBlocks(root) {
     var blocks = [];
-    Array.prototype.forEach.call(root.children || [], function(child) {
-      var value = serializeBlock(child).replace(/^\n+|\n+$/g, '');
+    var inline = '';
+    function flushInline() {
+      var value = inline.trim();
       if (value) { blocks.push(value); }
+      inline = '';
+    }
+    Array.prototype.forEach.call(root.childNodes || [], function(child) {
+      var tag = child.nodeType === Node.ELEMENT_NODE ? child.tagName.toLowerCase() : '';
+      if (/^(?:p|div|section|article|h[1-6]|ul|ol|pre|blockquote|table|hr|details)$/.test(tag)) {
+        flushInline();
+        var value = serializeBlock(child).replace(/^\n+|\n+$/g, '');
+        if (value) { blocks.push(value); }
+      } else {
+        inline += serializeInline(child);
+      }
     });
+    flushInline();
     return blocks.join('\n\n');
   }
 
@@ -582,18 +594,26 @@ html { scroll-behavior: smooth; }
   function scheduleMarkdownEditSerialization() {
     if (!markdownEditorEnabled || markdownEditSerializationPending) { return; }
     markdownEditSerializationPending = true;
-    window.requestAnimationFrame(function() {
-      markdownEditSerializationPending = false;
-      var markdown = serializeMarkdownDocument();
-      if (markdown === lastSerializedEdit) { return; }
+    window.requestAnimationFrame(flushMarkdownEdits);
+  }
+
+  function flushMarkdownEdits() {
+    if (!markdownEditSerializationPending) { return lastSerializedEdit; }
+    markdownEditSerializationPending = false;
+    var markdown = serializeMarkdownDocument();
+    if (markdown !== lastSerializedEdit) {
       lastSerializedEdit = markdown;
       try {
         window.webkit.messageHandlers.cmuxLib.postMessage({ action: 'editMarkdown', markdown: markdown });
       } catch (e) { /* no native bridge in previews */ }
-    });
+    }
+    return lastSerializedEdit;
   }
 
+  window.__cmuxFlushMarkdownEdits = flushMarkdownEdits;
   window.__cmuxSetMarkdownEditing = function(enabled) {
+    if (markdownEditorEnabled === !!enabled) { return; }
+    if (!enabled) { flushMarkdownEdits(); }
     markdownEditorEnabled = !!enabled;
     contentEl.setAttribute('contenteditable', markdownEditorEnabled ? 'true' : 'false');
     contentEl.setAttribute('role', markdownEditorEnabled ? 'textbox' : 'article');
@@ -601,7 +621,6 @@ html { scroll-behavior: smooth; }
     if (markdownEditorEnabled) {
       contentEl.spellcheck = false;
       configureEditorLockedBlocks();
-      lastSerializedEdit = serializeMarkdownDocument();
     }
   };
 
@@ -634,6 +653,14 @@ html { scroll-behavior: smooth; }
   contentEl.addEventListener('input', scheduleMarkdownEditSerialization);
   contentEl.addEventListener('keydown', function(ev) {
     if (!markdownEditorEnabled || !ev.metaKey || ev.altKey) { return; }
+    if (ev.key.toLowerCase() === 's' && !ev.shiftKey) {
+      ev.preventDefault();
+      flushMarkdownEdits();
+      try {
+        window.webkit.messageHandlers.cmuxLib.postMessage({ action: 'saveMarkdown' });
+      } catch (e) { /* no native bridge in previews */ }
+      return;
+    }
     var action = null;
     if (ev.key.toLowerCase() === 'b') { action = 'bold'; }
     if (ev.key.toLowerCase() === 'i') { action = 'italic'; }
@@ -2047,6 +2074,7 @@ html { scroll-behavior: smooth; }
       headingSlugCounts = Object.create(null);
       var documentParts = extractFrontmatter(md || '');
       currentFrontmatter = documentParts.frontmatter || '';
+      markdownEditSerializationPending = false;
       lastSerializedEdit = String(md || '');
       var html = renderFrontmatter(documentParts.frontmatter)
         + sanitizeRenderedHTML(marked.parse(documentParts.body || ''));

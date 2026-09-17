@@ -179,6 +179,7 @@ struct MarkdownPanelView: View {
         }
     }
 
+    @ViewBuilder
     private var markdownModeButton: some View {
         switch panel.displayMode {
         case .preview:
