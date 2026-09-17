@@ -212,6 +212,7 @@ describe("Iroh trust broker registration", () => {
     const result = await Effect.runPromise(fixture.broker.register(USER_A, request, NOW)) as {
       revision: number;
       binding: { endpoint_id: string };
+      minimum_publication_spacing_seconds: number;
       relay: { status: string; token: string };
       discovery_complete: boolean;
       discovery: {
@@ -220,6 +221,8 @@ describe("Iroh trust broker registration", () => {
       };
     };
     expect(result.binding.endpoint_id).toBe(fixture.endpointId);
+    // Server-owned publication policy travels with every registration.
+    expect(result.minimum_publication_spacing_seconds).toBe(60);
     expect(result.relay.status).toBe("issued");
     expect(result.discovery.revision).toBe(result.revision);
     expect(result.discovery_complete).toBe(true);
@@ -513,6 +516,15 @@ describe("Iroh trust broker registration", () => {
       changedFixture.broker.register(USER_A, changedRequest, NOW),
       "IrohForbiddenError",
     );
+  });
+
+  test("rejects a superseded signed challenge at the broker boundary", async () => {
+    const fixture = makeFixture();
+    const old = await fixture.signedRegistration();
+    const current = await fixture.signedRegistration();
+    await expectEffectFailure(fixture.broker.register(USER_A, old, NOW), "IrohNotFoundError");
+    const registered = await Effect.runPromise(fixture.broker.register(USER_A, current, NOW));
+    expect(registered).toHaveProperty("binding");
   });
 
   test("rejects expired and replayed challenges", async () => {
@@ -1943,7 +1955,12 @@ class MemoryRepository implements IrohRepositoryShape {
       expiresAt: input.expiresAt,
       consumedAt: null,
     };
-    this.challenges.push(challenge);
+    const otherSlots = this.challenges.filter((row) =>
+      row.userId !== challenge.userId
+      || row.clientNamespace !== challenge.clientNamespace
+      || row.deviceUuid !== challenge.deviceUuid
+      || row.tag !== challenge.tag);
+    this.challenges.splice(0, this.challenges.length, ...otherSlots, challenge);
     return Effect.succeed(challenge);
   }
 

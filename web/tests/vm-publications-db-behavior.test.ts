@@ -8,6 +8,9 @@ import {
 } from "bun:test";
 import { createHash, randomUUID } from "node:crypto";
 import * as Effect from "effect/Effect";
+import * as Statement from "@effect/sql/Statement";
+import { makePublicationAuthRepository } from "../services/vm-publications/authRepository";
+import { publicationDatabaseRuntime, closePublicationAuthDb } from "../services/vm-publications/database";
 import postgres, { type Sql } from "postgres";
 
 import { closeCloudDbForTests, cloudDb } from "../db/client";
@@ -141,6 +144,7 @@ beforeAll(async () => {
       return yield* CloudVmPublicationRepository;
     }).pipe(Effect.provide(CloudVmPublicationRepositoryLive)),
   );
+  repository = { ...repository, ...await (await publicationDatabaseRuntime()).runPromise(makePublicationAuthRepository) };
 });
 
 beforeEach(async () => {
@@ -165,10 +169,96 @@ beforeEach(async () => {
 
 afterAll(async () => {
   await closeCloudDbForTests();
+  await closePublicationAuthDb();
   await sql?.end({ timeout: 5 });
 });
 
 describe("Cloud VM publication persistence", () => {
+  dbTest("keeps the pending sign-in cap under simultaneous writers", async () => {
+    const repo = requiredRepository();
+    const sql = requiredSql();
+    const target = await createActivePublication({ suffix: "auth-concurrent-cap" });
+    const rows = Array.from({ length: MAX_PENDING_AUTH_TRANSACTIONS_PER_PUBLICATION - 1 }, (_, index) => ({
+      transaction_hash: createHash("sha256").update(`cap-seed-${index}`).digest("hex"),
+      publication_id: target.publication.id,
+      routing_revision: target.publication.routingRevision,
+      pkce_challenge: "P".repeat(43), state_hash: "a".repeat(64),
+      hostname: target.publication.hostname, return_path: "/", created_at: NOW,
+      expires_at: new Date(NOW.getTime() + 600_000),
+    }));
+    await sql`insert into cloud_vm_publication_auth_transactions ${sql(rows)}`;
+    let unlock!: () => void;
+    let locked!: () => void;
+    const ready = new Promise<void>(resolve => { locked = resolve; });
+    const release = new Promise<void>(resolve => { unlock = resolve; });
+    const lock = sql.begin(async tx => {
+      await tx`lock table cloud_vm_publication_auth_transactions in share mode`;
+      locked(); await release;
+    });
+    await ready;
+    const contenders = Promise.allSettled(Array.from({ length: 4 }, (_, index) => runRepository(repo.createAuthTransaction({
+      publicationId: target.publication.id, hostname: target.publication.hostname,
+      transactionHash: createHash("sha256").update(`cap-contender-${index}`).digest("hex"),
+      pkceChallenge: "P".repeat(43), stateHash: "b".repeat(64), returnPath: "/",
+      now: NOW, expiresAt: new Date(NOW.getTime() + 600_000),
+    }))));
+    try {
+      const deadline = Date.now() + 3000;
+      let waiting = 0;
+      while (waiting < 4 && Date.now() < deadline) {
+        const [row] = await sql`select count(*)::integer as waiting from pg_stat_activity
+          where datname=current_database() and application_name='cmux-publication-auth' and wait_event_type='Lock'`;
+        waiting = row.waiting;
+        if (waiting < 4) await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      expect(waiting).toBe(4);
+    } finally { unlock(); await lock; }
+    const results = await contenders;
+    expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+    for (const result of results) if (result.status === "rejected") {
+      expect(result.reason).toMatchObject({ _tag: "PublicationConflictError", reason: "auth_transaction_limit" });
+    }
+    const [count] = await sql`select count(*)::integer as total from cloud_vm_publication_auth_transactions where publication_id=${target.publication.id}`;
+    expect(count.total).toBe(MAX_PENDING_AUTH_TRANSACTIONS_PER_PUBLICATION);
+  });
+
+  dbTest("reads current publication and session together without admitting stale or foreign sessions", async () => {
+    const repo = requiredRepository();
+    const sql = requiredSql();
+    const target = await createActivePublication({ suffix: "request-context" });
+    const foreign = await createActivePublication({ suffix: "request-foreign" });
+    const tokenHash = createHash("sha256").update("request-session").digest("hex");
+    await sql`insert into cloud_vm_publication_sessions (
+      token_hash, publication_id, user_id, routing_revision, created_at, expires_at
+    ) values (${tokenHash}, ${target.publication.id}, ${target.publication.ownerUserId},
+      ${target.publication.routingRevision}, ${NOW}, ${new Date(NOW.getTime() + 60_000)})`;
+    const input = { providerTlsRuleId: "tls-rule-request-context", sessionTokenHash: tokenHash, now: NOW };
+    const statements: string[] = [];
+    const result = await runRepository(repo.findRequestContext(input).pipe(Statement.withTransformer(statement => Effect.sync(() => {
+      statements.push(statement.compile()[0]);
+      return statement;
+    }))));
+    expect(result?.publication.id).toBe(target.publication.id);
+    expect(result?.session?.tokenHash).toBe(tokenHash);
+    expect(statements).toHaveLength(1);
+    expect(statements[0]?.trim().toLowerCase().startsWith("select ")).toBe(true);
+    expect((await runRepository(repo.findRequestContext({ ...input, sessionTokenHash: null })))?.session).toBeNull();
+    expect((await runRepository(repo.findRequestContext({ ...input, now: new Date(NOW.getTime() + 60_000) })))?.session).toBeNull();
+    const wrongPublication = await runRepository(repo.findRequestContext({ ...input, providerTlsRuleId: foreign.publication.providerTlsRuleId! }));
+    expect(wrongPublication?.publication.id).toBe(foreign.publication.id);
+    expect(wrongPublication?.session).toBeNull();
+    await sql`update cloud_vm_publication_sessions set revoked_at=${NOW} where token_hash=${tokenHash}`;
+    expect((await runRepository(repo.findRequestContext(input)))?.session).toBeNull();
+    await sql`update cloud_vm_publication_sessions set revoked_at=null where token_hash=${tokenHash}`;
+    await sql`update cloud_vm_publications set routing_revision=routing_revision+1 where id=${target.publication.id}`;
+    expect((await runRepository(repo.findRequestContext(input)))?.session).toBeNull();
+    await sql`update cloud_vm_publications set state='disabled', disabled_at=${NOW} where id=${target.publication.id}`;
+    expect(await runRepository(repo.findRequestContext(input))).toBeNull();
+    await sql`update cloud_vm_publications set state='active', disabled_at=null where id=${target.publication.id}`;
+    await sql`update cloud_vms set status='destroyed' where id=${target.vm.id}`;
+    expect(await runRepository(repo.findRequestContext(input))).toBeNull();
+  });
+
   dbTest(
     "serializes bootstrap of the account-shared forward-auth resource",
     async () => {

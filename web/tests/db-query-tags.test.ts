@@ -54,3 +54,33 @@ describe("cloud db query tags", () => {
     expect(formatCloudDbQueryComment(undefined, undefined)).toBe("/*application='cmux-web',source='app'*/");
   });
 });
+
+describe("iroh route query tags", () => {
+  test("every broker operation maps to its route template", async () => {
+    const { irohRouteTemplate } = await import("../services/iroh/routeHandler");
+    expect(irohRouteTemplate("challenge")).toBe("/api/devices/iroh/challenge");
+    expect(irohRouteTemplate("register")).toBe("/api/devices/iroh/register");
+    expect(irohRouteTemplate("discover")).toBe("/api/devices/iroh");
+    expect(irohRouteTemplate("revoke")).toBe("/api/devices/iroh");
+    expect(irohRouteTemplate("endpoint_attestation")).toBe("/api/devices/iroh/endpoint-attestations");
+    expect(irohRouteTemplate("pair_grant")).toBe("/api/devices/iroh/pair-grants");
+    expect(irohRouteTemplate("relay_token")).toBe("/api/devices/iroh/relay-token");
+  });
+
+  test("handleIrohRoute runs its work inside the route's tag context", async () => {
+    const { handleTaggedIrohRoute } = await import("../services/iroh/routeHandler");
+    let seen: ReturnType<typeof currentCloudDbQueryTags>;
+    const response = await handleTaggedIrohRoute(
+      new Request("https://cmux.test/api/devices/iroh/register", { method: "POST" }),
+      "register",
+      {
+        verify: async () => {
+          seen = currentCloudDbQueryTags();
+          return null;
+        },
+      },
+    );
+    expect(response.status).toBe(401);
+    expect(seen).toEqual({ source: "app", route: "/api/devices/iroh/register" });
+  });
+});
