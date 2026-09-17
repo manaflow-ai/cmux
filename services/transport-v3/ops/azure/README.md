@@ -75,6 +75,9 @@ active inventory so planned retirements do not become missing-heartbeat alerts.
 `check_queries.py --receipt <observation-receipt>` tests healthy, missing, stale,
 failed, draining and resource-pressure cases in Azure's query engine without
 ingesting test events or firing alerts.
+Operator queries send `Cache-Control: no-store` because the [Logs API otherwise
+caches results for two minutes](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/api/cache).
+Ingestion delay still applies; always inspect the record timestamp.
 
 Staging uses a shared thirty-day Log Analytics workspace with a 1 GiB daily
 ingestion cap. Exhausting that cap stops collection until reset; the missing-data

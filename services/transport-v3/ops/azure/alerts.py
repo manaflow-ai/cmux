@@ -56,6 +56,8 @@ def query(workspace_id, kql):
         json.dump({'query': kql}, f); f.flush()
         return cli('rest', '--method', 'post', '--resource', 'https://api.loganalytics.io',
             '--url', f'https://api.loganalytics.azure.com/v1/workspaces/{workspace_id}/query',
+            # The Logs API caches responses for two minutes unless bypassed.
+            '--headers', 'Cache-Control=no-store',
             '--body', '@' + f.name)
 
 

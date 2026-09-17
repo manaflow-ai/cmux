@@ -172,8 +172,10 @@ seamless upgrades, observability, security audit, and real end-to-end proof.
 - Three scheduled queries cover missing/unhealthy reports, stalled drains and
   host memory/disk pressure. Queries were executed successfully before enabling
   the rules; a never-reporting inventory entry returns missing_heartbeat.
-  Notification routing is not configured. A monitoring outage drill is underway;
-  it has an independent twelve-minute automatic recovery timer.
+  Notification routing is not configured. Stopping East US reporting produced
+  a real cmux-v3-health alert at 2026-09-17T06:12:11Z. Reporting was restored
+  at 06:13:10Z. Fresh central records from both regions show readiness=1 after
+  restoration. Automatic alert resolution remains unverified.
 - The live relay continues exchanging authenticated QUIC messages while its
   telemetry timer is stopped. This is monitoring isolation evidence, not session
   handover or relay-upgrade proof. Receipts remain in HQ artifacts/transport-v3/
@@ -198,3 +200,16 @@ seamless upgrades, observability, security audit, and real end-to-end proof.
   circuits remain subject to grant expiration. Upgrade work must cover renewal
   during handover and demonstrate continuity across that deadline; the short
   relay-process drain test is insufficient evidence for long-lived sessions.
+
+- Azure alert-query behavior also passed with synthetic healthy, never-reporting,
+  stale, failed-scrape, not-ready, draining, disk-pressure and memory-pressure rows.
+  check_queries.py runs these cases in the real query engine without ingesting
+  records or firing alerts. Both unused Europe resource groups are deleted.
+- Disposable PostgreSQL test container and its exact two SSH tunnels are stopped.
+  Fleet lease 20260916220258-19123-14679 is released; acquire a new lease before
+  any further remote builds or probes. No production database was touched.
+
+- Operator log queries bypass Azure's documented two-minute response cache using
+  Cache-Control: no-store. Freshness still depends on ingestion; timestamps are
+  checked explicitly. The monitoring drill did not expose any public management
+  port, restart a relay, or send notifications to anyone.
