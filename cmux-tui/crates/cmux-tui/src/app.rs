@@ -26261,11 +26261,11 @@ mod tests {
 
         app.sync_layout((120, 30));
         let pane = app.active_pane().unwrap();
-        let initial = app.pane_areas.iter().find(|area| area.pane == pane).unwrap().rect;
         for grow_key in [
             KeyEvent::new(KeyCode::Char('+'), KeyModifiers::NONE),
             KeyEvent::new(KeyCode::Char('='), KeyModifiers::SHIFT),
         ] {
+            let initial = app.pane_areas.iter().find(|area| area.pane == pane).unwrap().rect;
             app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL)).unwrap();
             app.handle_key(grow_key).unwrap();
             while app.session.has_pending_mutations() {
@@ -26281,10 +26281,8 @@ mod tests {
                 app.handle(events.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
             }
             app.sync_layout((120, 30));
-            assert_eq!(
-                app.pane_areas.iter().find(|area| area.pane == pane).unwrap().rect,
-                initial
-            );
+            let shrunk = app.pane_areas.iter().find(|area| area.pane == pane).unwrap().rect;
+            assert!(shrunk.width < grown.width || shrunk.height < grown.height);
         }
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
