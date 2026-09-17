@@ -2,6 +2,7 @@ import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxAuthRuntime
+import CmuxPanes
 import Testing
 import SwiftUI
 
