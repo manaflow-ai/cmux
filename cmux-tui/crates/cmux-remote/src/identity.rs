@@ -83,6 +83,12 @@ impl EnrollmentInvitation {
         decode_key(&self.secret)
     }
 
+    /// The daemon key this invitation names, for pinning the Noise peer.
+    /// `from_uri` has already checked it against the fingerprint.
+    pub fn daemon_public_key_bytes(&self) -> Result<[u8; 32], IdentityError> {
+        decode_key(&self.daemon_public_key)
+    }
+
     pub fn to_uri(&self) -> Result<String, IdentityError> {
         validate_relay_access(&self.route_hints, &self.relay_access)?;
         let json = serde_json::to_vec(self).map_err(IdentityError::Json)?;

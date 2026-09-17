@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::fs;
+use std::future::Future;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -535,13 +536,23 @@ async fn run_client(
 
 async fn connect_first_available(
     options: &ClientRuntimeOptions,
+    shutdown: watch::Receiver<bool>,
+) -> anyhow::Result<(Arc<ClientConnection>, String)> {
+    let deadline_owner = InitialAttemptDeadlineOwner::default();
+    connect_first_available_with_deadline_owner(options, shutdown, &deadline_owner).await
+}
+
+async fn connect_first_available_with_deadline_owner(
+    options: &ClientRuntimeOptions,
     mut shutdown: watch::Receiver<bool>,
+    deadline_owner: &InitialAttemptDeadlineOwner,
 ) -> anyhow::Result<(Arc<ClientConnection>, String)> {
     let mut attempts = 0_u32;
     let mut delay = options.reconnect.initial_delay;
     loop {
         attempts = attempts.saturating_add(1);
-        let mut attempt = RuntimeInitialRouteAttempt { options, shutdown: shutdown.clone() };
+        let mut attempt =
+            RuntimeInitialRouteAttempt { options, shutdown: shutdown.clone(), deadline_owner };
         match select_initial_route(
             &options.routes,
             options.session,
@@ -569,6 +580,85 @@ async fn connect_first_available(
                 delay = (delay * 2).min(options.reconnect.maximum_delay);
             }
             Err(error) => return Err(error.error),
+        }
+    }
+}
+
+#[derive(Clone, Default)]
+struct InitialAttemptDeadlineOwner {
+    #[cfg(test)]
+    manual: Option<Arc<ManualInitialAttemptDeadlines>>,
+}
+
+impl InitialAttemptDeadlineOwner {
+    fn begin(&self, _endpoint: &Url, timeout: Duration) -> InitialAttemptDeadline {
+        #[cfg(test)]
+        if let Some(manual) = &self.manual {
+            let (expired, receiver) = watch::channel(false);
+            manual.deadlines.lock().unwrap().insert(_endpoint.as_str().to_owned(), expired);
+            return InitialAttemptDeadline::Manual(receiver);
+        }
+
+        InitialAttemptDeadline::Realtime(tokio::time::Instant::now() + timeout)
+    }
+
+    #[cfg(test)]
+    fn manual() -> Self {
+        Self { manual: Some(Arc::new(ManualInitialAttemptDeadlines::default())) }
+    }
+
+    #[cfg(test)]
+    fn expire(&self, endpoint: &Url) {
+        let manual = self.manual.as_ref().expect("deadline owner is not manual");
+        let expired = manual
+            .deadlines
+            .lock()
+            .unwrap()
+            .get(endpoint.as_str())
+            .cloned()
+            .expect("initial route did not create its deadline");
+        expired.send_replace(true);
+    }
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct ManualInitialAttemptDeadlines {
+    deadlines: std::sync::Mutex<BTreeMap<String, watch::Sender<bool>>>,
+}
+
+enum InitialAttemptDeadline {
+    Realtime(tokio::time::Instant),
+    #[cfg(test)]
+    Manual(watch::Receiver<bool>),
+}
+
+impl InitialAttemptDeadline {
+    async fn timeout<F>(&mut self, future: F) -> Result<F::Output, ()>
+    where
+        F: Future,
+    {
+        match self {
+            Self::Realtime(deadline) => {
+                tokio::time::timeout_at(*deadline, future).await.map_err(|_| ())
+            }
+            #[cfg(test)]
+            Self::Manual(expired) => {
+                tokio::pin!(future);
+                tokio::select! {
+                    result = &mut future => Ok(result),
+                    _ = wait_for_manual_deadline(expired) => Err(()),
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+async fn wait_for_manual_deadline(expired: &mut watch::Receiver<bool>) {
+    while !*expired.borrow() {
+        if expired.changed().await.is_err() {
+            std::future::pending::<()>().await;
         }
     }
 }
@@ -689,6 +779,7 @@ async fn select_initial_route<T: Send>(
 struct RuntimeInitialRouteAttempt<'a> {
     options: &'a ClientRuntimeOptions,
     shutdown: watch::Receiver<bool>,
+    deadline_owner: &'a InitialAttemptDeadlineOwner,
 }
 
 #[async_trait]
@@ -719,11 +810,10 @@ impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for RuntimeInitialRout
     ) -> Result<(Arc<ClientConnection>, String), InitialRouteAttemptError> {
         let display_endpoint = sanitized_route(&request.endpoint);
         let timeout = self.options.reconnect.attempt_timeout;
-        let deadline = tokio::time::Instant::now() + timeout;
+        let mut deadline = self.deadline_owner.begin(&request.endpoint, timeout);
         let mut shutdown = self.shutdown.clone();
         let group = tokio::select! {
-            result = tokio::time::timeout_at(
-                deadline,
+            result = deadline.timeout(
                 self.options
                     .providers
                     .connect(request, client_auth_kind(&self.options.auth)),
@@ -754,8 +844,7 @@ impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for RuntimeInitialRout
             ));
         let mut shutdown = self.shutdown.clone();
         let connection = tokio::select! {
-            result = tokio::time::timeout_at(
-                deadline,
+            result = deadline.timeout(
                 ClientConnection::connect_with_reconnect_groups(
                     group.clone(),
                     ClientConnectionConfig {
@@ -827,23 +916,46 @@ async fn bootstrap_initial_ssh_route(
     config.extra_args = ssh.extra_args.clone();
     config.auto_install = options.auto_install;
     config.timeout = options.attempt_timeout;
-    let bootstrap = SshBootstrapper::new(config)?;
-    tokio::select! {
-        result = tokio::time::timeout(options.attempt_timeout, async {
-            if upgrade {
-                bootstrap.install_verified().await?;
-                bootstrap
-                    .stop_daemon(&ssh.remote_session, ssh.remote_state_dir.as_deref())
-                    .await?;
-            } else {
-                bootstrap.ensure_installed().await?;
-            }
-            Ok::<(), BootstrapError>(())
-        }) => {
-            result.map_err(|_| BootstrapError::Timeout)??;
-            Ok(())
+    let (bootstrap, cancellation) = SshBootstrapper::new(config)?.with_cancellation();
+    let bootstrap_work = tokio::time::timeout(options.attempt_timeout, async {
+        if upgrade {
+            bootstrap.install_verified().await?;
+            bootstrap.stop_daemon(&ssh.remote_session, ssh.remote_state_dir.as_deref()).await?;
+        } else {
+            bootstrap.ensure_installed().await?;
         }
-        () = wait_for_shutdown_request(shutdown) => Err(anyhow!("SSH bootstrap interrupted")),
+        Ok::<(), BootstrapError>(())
+    });
+    wait_for_ssh_bootstrap_or_shutdown(bootstrap_work, cancellation.cancel_and_wait(), shutdown)
+        .await
+}
+
+async fn wait_for_ssh_bootstrap_or_shutdown(
+    bootstrap_work: impl Future<
+        Output = Result<Result<(), BootstrapError>, tokio::time::error::Elapsed>,
+    >,
+    cleanup: impl Future<Output = ()>,
+    shutdown: Option<watch::Receiver<bool>>,
+) -> anyhow::Result<()> {
+    tokio::pin!(bootstrap_work);
+    tokio::pin!(cleanup);
+    tokio::select! {
+        result = &mut bootstrap_work => {
+            match result {
+                Ok(result) => {
+                    result?;
+                    Ok(())
+                }
+                Err(_) => {
+                    cleanup.as_mut().await;
+                    Err(BootstrapError::Timeout.into())
+                }
+            }
+        }
+        () = wait_for_shutdown_request(shutdown) => {
+            cleanup.as_mut().await;
+            Err(anyhow!("SSH bootstrap interrupted"))
+        }
     }
 }
 
@@ -1654,6 +1766,7 @@ mod tests {
 
     struct HangingStartupProvider {
         calls: Arc<AtomicUsize>,
+        started: Arc<tokio::sync::Notify>,
     }
 
     #[async_trait]
@@ -1675,12 +1788,14 @@ mod tests {
             _request: ConnectRequest,
         ) -> Result<Arc<dyn LinkGroup>, ProviderError> {
             self.calls.fetch_add(1, Ordering::AcqRel);
+            self.started.notify_one();
             std::future::pending().await
         }
     }
 
     struct HangingOpenProvider {
         close_calls: Arc<AtomicUsize>,
+        started: Arc<tokio::sync::Notify>,
     }
 
     #[async_trait]
@@ -1701,12 +1816,16 @@ mod tests {
             &self,
             _request: ConnectRequest,
         ) -> Result<Arc<dyn LinkGroup>, ProviderError> {
-            Ok(Arc::new(HangingOpenGroup { close_calls: self.close_calls.clone() }))
+            Ok(Arc::new(HangingOpenGroup {
+                close_calls: self.close_calls.clone(),
+                started: self.started.clone(),
+            }))
         }
     }
 
     struct HangingOpenGroup {
         close_calls: Arc<AtomicUsize>,
+        started: Arc<tokio::sync::Notify>,
     }
 
     #[async_trait]
@@ -1727,6 +1846,7 @@ mod tests {
             &self,
             _request: cmux_remote::provider::LinkRequest,
         ) -> Result<Box<dyn cmux_remote::link::FrameLink>, ProviderError> {
+            self.started.notify_one();
             std::future::pending().await
         }
 
@@ -2181,6 +2301,53 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn ssh_bootstrap_shutdown_waits_for_owner_cleanup() {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            let (bootstrap_started_tx, bootstrap_started_rx) = tokio::sync::oneshot::channel();
+            let bootstrap_work = async move {
+                let _ = bootstrap_started_tx.send(());
+                std::future::pending::<
+                    Result<Result<(), BootstrapError>, tokio::time::error::Elapsed>,
+                >()
+                .await
+            };
+            let (cleanup_started_tx, cleanup_started_rx) = tokio::sync::oneshot::channel();
+            let (cleanup_release_tx, cleanup_release_rx) = tokio::sync::oneshot::channel();
+            let cleanup = async move {
+                let _ = cleanup_started_tx.send(());
+                let _ = cleanup_release_rx.await;
+            };
+            let (shutdown_tx, shutdown_rx) = watch::channel(false);
+            let mut lifecycle = Box::pin(wait_for_ssh_bootstrap_or_shutdown(
+                bootstrap_work,
+                cleanup,
+                Some(shutdown_rx),
+            ));
+
+            tokio::select! {
+                result = &mut lifecycle => panic!("SSH bootstrap ended before startup: {result:?}"),
+                result = bootstrap_started_rx => result.unwrap(),
+            }
+            shutdown_tx.send_replace(true);
+            tokio::select! {
+                result = &mut lifecycle => panic!("SSH bootstrap returned before cleanup: {result:?}"),
+                result = cleanup_started_rx => result.unwrap(),
+            }
+            tokio::select! {
+                biased;
+                result = &mut lifecycle => panic!("SSH bootstrap returned before cleanup release: {result:?}"),
+                _ = tokio::task::yield_now() => {}
+            }
+
+            cleanup_release_tx.send(()).unwrap();
+            let error = lifecycle.await.unwrap_err();
+            assert_eq!(error.to_string(), "SSH bootstrap interrupted");
+        })
+        .await
+        .expect("SSH bootstrap shutdown lifecycle did not complete");
+    }
+
     #[cfg(unix)]
     #[test]
     fn client_shutdown_cancels_reconnect_ssh_bootstrap_and_kills_child() {
@@ -2471,11 +2638,18 @@ mod tests {
         let server = serve_unix(daemon, &unix_path, MAX_CARRIER_FRAME_BYTES).await.unwrap();
 
         let calls = Arc::new(AtomicUsize::new(0));
+        let started = Arc::new(tokio::sync::Notify::new());
         let mut providers = cmux_remote::provider::ProviderRegistry::default();
-        providers.register(Arc::new(HangingStartupProvider { calls: calls.clone() })).unwrap();
+        providers
+            .register(Arc::new(HangingStartupProvider {
+                calls: calls.clone(),
+                started: started.clone(),
+            }))
+            .unwrap();
         providers.register(Arc::new(UnixProvider::new(MAX_CARRIER_FRAME_BYTES))).unwrap();
         let providers = Arc::new(providers);
-        let routes = [Url::parse("hanging-startup://daemon").unwrap(), unix_test_route(&unix_path)]
+        let hanging_route = Url::parse("hanging-startup://daemon").unwrap();
+        let routes = [hanging_route.clone(), unix_test_route(&unix_path)]
             .into_iter()
             .map(|route| {
                 ResolvedRouteCandidate::resolve(route, BTreeMap::new(), &providers).unwrap()
@@ -2488,14 +2662,26 @@ mod tests {
         options.reconnect.attempt_timeout = Duration::from_millis(20);
         options.reconnect.full_jitter = false;
         let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+        let deadline_owner = InitialAttemptDeadlineOwner::manual();
 
-        let (connection, selected) = tokio::time::timeout(
-            Duration::from_millis(500),
-            connect_first_available(&options, shutdown_rx),
-        )
-        .await
-        .expect("a stalled provider monopolized initial route selection")
-        .expect("the next initial route did not connect");
+        let ((connection, selected), ()) =
+            tokio::time::timeout(Duration::from_millis(500), async {
+                tokio::try_join!(
+                    connect_first_available_with_deadline_owner(
+                        &options,
+                        shutdown_rx,
+                        &deadline_owner,
+                    ),
+                    async {
+                        started.notified().await;
+                        deadline_owner.expire(&hanging_route);
+                        Ok::<(), anyhow::Error>(())
+                    },
+                )
+            })
+            .await
+            .expect("a stalled provider monopolized initial route selection")
+            .expect("the next initial route did not connect");
 
         assert_eq!(calls.load(Ordering::Acquire), 1);
         assert_eq!(selected, format!("unix://{}", unix_path.display()));
@@ -2515,13 +2701,18 @@ mod tests {
         let server = serve_unix(daemon, &unix_path, MAX_CARRIER_FRAME_BYTES).await.unwrap();
 
         let close_calls = Arc::new(AtomicUsize::new(0));
+        let started = Arc::new(tokio::sync::Notify::new());
         let mut providers = cmux_remote::provider::ProviderRegistry::default();
         providers
-            .register(Arc::new(HangingOpenProvider { close_calls: close_calls.clone() }))
+            .register(Arc::new(HangingOpenProvider {
+                close_calls: close_calls.clone(),
+                started: started.clone(),
+            }))
             .unwrap();
         providers.register(Arc::new(UnixProvider::new(MAX_CARRIER_FRAME_BYTES))).unwrap();
         let providers = Arc::new(providers);
-        let routes = [Url::parse("hanging-open://daemon").unwrap(), unix_test_route(&unix_path)]
+        let hanging_route = Url::parse("hanging-open://daemon").unwrap();
+        let routes = [hanging_route.clone(), unix_test_route(&unix_path)]
             .into_iter()
             .map(|route| {
                 ResolvedRouteCandidate::resolve(route, BTreeMap::new(), &providers).unwrap()
@@ -2534,14 +2725,26 @@ mod tests {
         options.reconnect.attempt_timeout = Duration::from_millis(20);
         options.reconnect.full_jitter = false;
         let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+        let deadline_owner = InitialAttemptDeadlineOwner::manual();
 
-        let (connection, selected) = tokio::time::timeout(
-            Duration::from_millis(500),
-            connect_first_available(&options, shutdown_rx),
-        )
-        .await
-        .expect("a stalled physical link monopolized initial route selection")
-        .expect("the next initial route did not connect");
+        let ((connection, selected), ()) =
+            tokio::time::timeout(Duration::from_millis(500), async {
+                tokio::try_join!(
+                    connect_first_available_with_deadline_owner(
+                        &options,
+                        shutdown_rx,
+                        &deadline_owner,
+                    ),
+                    async {
+                        started.notified().await;
+                        deadline_owner.expire(&hanging_route);
+                        Ok::<(), anyhow::Error>(())
+                    },
+                )
+            })
+            .await
+            .expect("a stalled physical link monopolized initial route selection")
+            .expect("the next initial route did not connect");
 
         assert_eq!(close_calls.load(Ordering::Acquire), 1);
         assert_eq!(selected, format!("unix://{}", unix_path.display()));

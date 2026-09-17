@@ -1,0 +1,51 @@
+name: CmuxRemote
+
+options:
+  bundleIdPrefix: dev.cmux.remote
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    # The Rust archive is a plain static library, so Swift reaches it through a
+    # bridging header rather than a module map.
+    SWIFT_OBJC_BRIDGING_HEADER: Sources/Bridging.h
+    HEADER_SEARCH_PATHS: $(SRCROOT)/../../crates/cmux-remote-mobile/include
+    # cargo writes per-target archives; pick the one matching what is being
+    # built so device and simulator can coexist.
+    LIBRARY_SEARCH_PATHS: >-
+      $(SRCROOT)/../../target/$(CMUX_RUST_TARGET)/$(CMUX_RUST_PROFILE)
+    OTHER_LDFLAGS: -lcmux_remote_mobile
+    CMUX_RUST_PROFILE: debug
+    CMUX_RUST_TARGET: aarch64-apple-ios
+    CMUX_RUST_TARGET[sdk=iphonesimulator*]: aarch64-apple-ios-sim
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+
+targets:
+  CmuxRemote:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: cmux remote
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        # Iroh dials peers on the local network before it needs a relay, and
+        # iOS refuses those sockets without a declared purpose.
+        NSLocalNetworkUsageDescription: >-
+          cmux connects directly to your computer on this network instead of
+          relaying through the internet.
+        NSBonjourServices:
+          - _cmux._udp
+    preBuildScripts:
+      - name: Build the Rust client
+        basedOnDependencyAnalysis: false
+        script: exec "$SRCROOT/scripts/build-rust.sh"
