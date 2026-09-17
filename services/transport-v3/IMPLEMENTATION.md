@@ -291,8 +291,29 @@ seamless upgrades, observability, security audit, and real end-to-end proof.
   shell did not support Bash process substitution. Job 78b261551930d1b98fb38905
   explicitly invokes Bash and is building all Apple slices from 2436efaa279.
   Its native artifact and five Swift adapter tests passed. The mobile RPC and
-  network packages compile; full Rust checks and artifact transfer are pending. Earlier local Swift test invocations
+  network packages compile. All 32 Rust tests and strict Clippy passed. The
+  returned archive SHA-256 was verified before extracting the native artifact. Earlier local Swift test invocations
   did not follow the fleet execution rule; no further local builds are used.
 - Added localized libp2p v3 labels to existing diagnostics/settings vocabulary.
   Labels contain no device identifiers. HIG writing page was requested but its
   content required JavaScript; no layout or interaction changes were designed.
+
+## Controller artifact and next Azure generation
+
+- Controller job 78b261551930d1b98fb38905 completed from source 2436efaa279.
+  Its archive digest is 278fc4e07237741657e6d685ed6232bd1037bad327471e57bf5fc6dbbe45ac11.
+  The archive's recorded command exit code is zero. Native transport tests use
+  generated Swift against the real Rust library, not mock native implementations.
+- The XCFramework contains macOS arm64/x86_64, iOS arm64, and iOS simulator
+  arm64. It is installed in the worktree's ignored Native directory. The controller
+  receipt and logs live under HQ artifacts/transport-v3/controller. This proves
+  packaging and macOS execution; no iPhone/simulator app runtime has been tested.
+- New ACR run ca2 succeeded for source 23b49a0e062a53660d268ad9b85317686a32ce8e:
+  cmuxv3relaystaging.azurecr.io/relay@sha256:d9c6db7d6b07e1437aa7e6ed759aa2e88f85fb44c6b632dee1f03ae1690df966.
+  The image has both abbreviated and full revision tags pointing to that digest.
+- Generation g0917b provisioning is running for East US and West US 2 with the
+  new image. Existing g0916a servers stay active. Do not drain/retire them before
+  new-generation public transport tests and application handover evidence exist.
+- The current source adds cache receipts and build preparation after the tested
+  controller revision. Shell/Python syntax, operation tests and workspace grouping
+  checks pass; the new cache-reuse path and full app builds remain unverified.
