@@ -110,7 +110,7 @@ function validateEncryptedRecipients(
     const tupleRecord = tuple as Record<string, unknown>;
     return tupleRecord.accountID === userID && tupleRecord.iosBuildID === targetNamespace.bundleId
       && tupleRecord.macDeviceID === payload.macDeviceId
-      && (tupleRecord.macInstanceTag ?? null) === payload.macInstanceTag;
+      && (tupleRecord.macInstanceTag ?? null) === (payload.macInstanceTag ?? null);
   });
   return matchesOwner
     ? null

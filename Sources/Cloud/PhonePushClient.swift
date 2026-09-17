@@ -102,9 +102,11 @@ final class PhonePushClient {
         let identity: AuthenticatedSessionIdentity
         let targetBundleIdentifier: String
         let expirationEpochSeconds: Int
+        let discoveryAttempts: Int
     }
     private var pendingRecipientPayloads: [PendingRecipientPayload] = []
     private static let maxPendingRecipientPayloads = 32
+    private static let maxRecipientDiscoveryAttempts = 3
     private var recipientRefreshTask: Task<Void, Never>?
     private var lastRecipientRefreshEpochSeconds = 0
     private var lastEncryptionUnavailableLogEpochSeconds = 0
@@ -504,9 +506,11 @@ final class PhonePushClient {
             guard let self else { return }
             defer { self.recipientRefreshTask = nil }
             guard let auth = self.auth else {
+                self.recipientRefreshTask = nil
                 return
             }
             await self.refreshPushRecipients(auth: auth)
+            self.recipientRefreshTask = nil
             self.retryPendingRecipientPayloads()
         }
     }
@@ -525,7 +529,8 @@ final class PhonePushClient {
                 payload: payload,
                 identity: identity,
                 targetBundleIdentifier: targetBundleIdentifier,
-                expirationEpochSeconds: clock.nowEpochSeconds + Self.eventTTLSeconds
+                expirationEpochSeconds: clock.nowEpochSeconds + Self.eventTTLSeconds,
+                discoveryAttempts: 0
             )
         )
         scheduleRecipientRefresh(force: true)
@@ -537,6 +542,7 @@ final class PhonePushClient {
         guard !pendingRecipientPayloads.isEmpty else { return }
         let pending = pendingRecipientPayloads
         pendingRecipientPayloads.removeAll(keepingCapacity: true)
+        var retry: [PendingRecipientPayload] = []
         for item in pending {
             guard clock.nowEpochSeconds < item.expirationEpochSeconds else {
                 phonePushLog.error("dropping expired push awaiting recipient-key discovery")
@@ -551,7 +557,19 @@ final class PhonePushClient {
                 targetBundleIdentifier: item.targetBundleIdentifier,
                 expirationEpochSeconds: item.expirationEpochSeconds
             ) else {
-                reportEncryptionUnavailable()
+                if item.discoveryAttempts + 1 < Self.maxRecipientDiscoveryAttempts {
+                    retry.append(
+                        PendingRecipientPayload(
+                            payload: item.payload,
+                            identity: item.identity,
+                            targetBundleIdentifier: item.targetBundleIdentifier,
+                            expirationEpochSeconds: item.expirationEpochSeconds,
+                            discoveryAttempts: item.discoveryAttempts + 1
+                        )
+                    )
+                } else {
+                    reportEncryptionUnavailable()
+                }
                 continue
             }
             deliveryQueue.retainOnly(
@@ -563,6 +581,10 @@ final class PhonePushClient {
                 pendingPayloadsByCorrelationID.removeValue(forKey: envelope.correlationID)
                 logQueueStage("recipient_refresh_queue_overflow", correlationID: envelope.correlationID)
             }
+        }
+        pendingRecipientPayloads.append(contentsOf: retry)
+        if !retry.isEmpty {
+            scheduleRecipientRefresh(force: true)
         }
     }
 
