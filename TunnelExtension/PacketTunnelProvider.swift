@@ -26,6 +26,7 @@ nonisolated private let logger = Logger(subsystem: "com.cmuxterm.app.tunnel", ca
 /// without a provisioning profile, and Xcode refuses to ad-hoc sign restricted
 /// entitlements.
 final class PacketTunnelProvider: NEPacketTunnelProvider {
+    private let startGate = CloudTunnelProviderStartGate()
     private let runtimeConfigurationRedactor = CloudTunnelRuntimeConfigurationRedactor()
     private lazy var adapter = WireGuardAdapter(with: self) { level, message in
         switch level {
@@ -38,18 +39,30 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 
     override func startTunnel(options: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
         logger.info("startTunnel requested by \(options == nil ? "the system" : "the cmux app", privacy: .public)")
+        let request = startGate.request(completion: completionHandler)
+        switch request {
+        case .begin(let generation):
+            logger.info("startTunnel beginning generation \(generation, privacy: .public)")
+        case .coalesced(let generation, let waiterCount):
+            logger.info("startTunnel coalesced generation \(generation, privacy: .public), callbacks \(waiterCount, privacy: .public)")
+            return
+        case .alreadyStarted(let generation):
+            logger.info("startTunnel replay accepted for running generation \(generation, privacy: .public)")
+            completionHandler(nil)
+            return
+        }
         guard let providerProtocol = protocolConfiguration as? NETunnelProviderProtocol,
               let providerConfiguration = providerProtocol.providerConfiguration,
               let wgQuickConfig = providerConfiguration[CloudTunnelProviderConfigurationKeys.wgQuickConfig] as? String,
               !wgQuickConfig.isEmpty else {
             logger.error("startTunnel: the saved VPN configuration carries no wg-quick config")
-            completionHandler(CloudTunnelProviderError.missingConfiguration)
+            finishStart(error: CloudTunnelProviderError.missingConfiguration)
             return
         }
         let schemaVersion = providerConfiguration[CloudTunnelProviderConfigurationKeys.schemaVersion] as? Int
         guard schemaVersion == CloudTunnelProviderConfigurationKeys.currentSchemaVersion else {
             logger.error("startTunnel: unsupported provider configuration schema \(schemaVersion.map(String.init) ?? "nil", privacy: .public)")
-            completionHandler(CloudTunnelProviderError.unsupportedSchema)
+            finishStart(error: CloudTunnelProviderError.unsupportedSchema)
             return
         }
 
@@ -60,36 +73,49 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             // Parse errors carry the offending value; the private key is one of
             // them, so log only which rule failed.
             logger.error("startTunnel: wg-quick config rejected (\(Self.caseName(of: error), privacy: .public))")
-            completionHandler(CloudTunnelProviderError.invalidConfiguration)
+            finishStart(error: CloudTunnelProviderError.invalidConfiguration)
             return
         }
 
-        adapter.start(tunnelConfiguration: tunnelConfiguration) { [adapter] adapterError in
+        adapter.start(tunnelConfiguration: tunnelConfiguration) { [weak self, adapter] adapterError in
+            guard let self else { return }
             guard let adapterError else {
                 logger.info("tunnel interface is \(adapter.interfaceName ?? "unknown", privacy: .public)")
-                completionHandler(nil)
+                self.finishStart(error: nil)
                 return
             }
             switch adapterError {
             case .cannotLocateTunnelFileDescriptor:
                 logger.error("startTunnel failed: no utun file descriptor")
-                completionHandler(CloudTunnelProviderError.couldNotDetermineFileDescriptor)
+                self.finishStart(error: CloudTunnelProviderError.couldNotDetermineFileDescriptor)
             case .dnsResolution(let failures):
                 // Endpoint hostnames only; never addresses inside the network.
                 let hosts = failures.map(\.address).joined(separator: ", ")
                 logger.error("startTunnel failed: endpoint DNS resolution failed for \(hosts, privacy: .public)")
-                completionHandler(CloudTunnelProviderError.dnsResolutionFailure)
+                self.finishStart(error: CloudTunnelProviderError.dnsResolutionFailure)
             case .setNetworkSettings(let error):
                 logger.error("startTunnel failed: setTunnelNetworkSettings: \(error.localizedDescription, privacy: .public)")
-                completionHandler(CloudTunnelProviderError.couldNotSetNetworkSettings)
+                self.finishStart(error: CloudTunnelProviderError.couldNotSetNetworkSettings)
             case .startWireGuardBackend(let code):
                 logger.error("startTunnel failed: wgTurnOn returned \(code, privacy: .public)")
-                completionHandler(CloudTunnelProviderError.couldNotStartBackend)
+                self.finishStart(error: CloudTunnelProviderError.couldNotStartBackend)
             case .invalidState:
-                logger.fault("startTunnel failed: adapter already started")
-                completionHandler(CloudTunnelProviderError.invalidState)
+                // A duplicate request is coalesced by startGate before it gets here.
+                // Preserve this as a real adapter failure if the adapter reports it
+                // for the generation that owns the start.
+                logger.error("startTunnel failed: adapter rejected generation as invalid state")
+                self.finishStart(error: CloudTunnelProviderError.invalidState)
             }
         }
+    }
+
+    private func finishStart(error: Error?) {
+        guard let result = startGate.finish(error: error) else {
+            logger.error("startTunnel completion arrived for an inactive generation")
+            return
+        }
+        logger.info("startTunnel finished generation \(result.generation, privacy: .public), success \(result.succeeded, privacy: .public), callbacks \(result.callbackCount, privacy: .public)")
+        result.completions.forEach { $0(error) }
     }
 
     override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {

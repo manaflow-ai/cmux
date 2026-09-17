@@ -14,8 +14,8 @@ struct CloudTunnelProviderStartGateTests {
         let gate = CloudTunnelProviderStartGate()
         var callbackResults: [String] = []
 
-        let first = gate.request { error in callbackResults.append(error.map(String.init(describing:)) ?? "success") }
-        let second = gate.request { error in callbackResults.append(error.map(String.init(describing:)) ?? "success") }
+        let first = gate.request { error in callbackResults.append(error == nil ? "success" : "failure") }
+        let second = gate.request { error in callbackResults.append(error == nil ? "success" : "failure") }
 
         #expect(first == .begin(generation: 1))
         #expect(second == .coalesced(generation: 1, waiterCount: 2))
@@ -27,9 +27,12 @@ struct CloudTunnelProviderStartGateTests {
         finish?.completions.forEach { $0(nil) }
         #expect(callbackResults == ["success", "success"])
 
-        let replay = gate.request { error in callbackResults.append(error.map(String.init(describing:)) ?? "success") }
+        let replayCompletion: CloudTunnelProviderStartGate.Completion = { error in
+            callbackResults.append(error == nil ? "success" : "failure")
+        }
+        let replay = gate.request(completion: replayCompletion)
         #expect(replay == .alreadyStarted(generation: 1))
-        callbackResults.append("success")
+        replayCompletion(nil)
         #expect(callbackResults == ["success", "success", "success"])
         #expect(gate.finish(error: nil) == nil)
     }
