@@ -9,7 +9,7 @@ struct TranscriptTextBudget: Sendable {
     /// Limit for message bodies, tool outputs, and diffs (~16KB).
     let maxBodyCharacters: Int
 
-    /// Limit for the expanded tool-input detail (~2KB).
+    /// Limit for tool-input detail (~2KB).
     let maxInputDetailCharacters: Int
 
     /// Limit for the argument excerpt inside a one-line tool summary.

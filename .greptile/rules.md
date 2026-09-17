@@ -12,7 +12,7 @@ Review production Swift and runtime changes for:
 - Fixed sleeps, delays, and polling used as hacky synchronization.
 - Legacy concurrency patterns where Swift concurrency is available.
 - Incorrect `@concurrent` or `nonisolated async` behavior.
-- Swift file sprawl and missing SwiftPM package boundaries for independently testable feature logic.
+- Missing SwiftPM package boundaries for independently testable feature logic.
 - Production logging that bypasses unified logging or leaks sensitive data.
 - User-facing text that is not fully internationalized across every supported app or web locale.
 - SwiftUI state and layout patterns that cause stale state, broad invalidation, or render-time mutation.
@@ -28,6 +28,7 @@ Review production Swift and runtime changes for:
 - Per-call allocating formatting (`String(format:)`, per-call formatters) on hot or concurrent paths instead of preallocated buffers or reused formatters.
 - Correctness-critical detection/identity derived from title/name heuristics or unreliable fallbacks instead of a single reliable source of truth.
 - Custom React composite UI built from raw elements when Base UI or an existing local component should own accessibility, focus, and keyboard behavior.
+- Remote CLI relay authorization (GHSA-9vmv-3hjw-j28c): the relay credential lives on the remote host, so flag any v2 method added to the relay allowlist without a per-method security analysis, any command-bearing param (`initial_command`, `command`, `tmux_start_command`, `pane_start_command`) accepted through the relay, new workspace/surface/tab ID param names missing from the scoped key sets, and any weakening of deny-by-default in `RemoteRelayCommandPolicy`.
 
 ## Runtime No Hacky Sleeps
 

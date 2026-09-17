@@ -1,9 +1,10 @@
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxFoundation
 
 /// Pure AppKit header bar with folder icon, path label, and hidden files toggle.
 final class FileExplorerHeaderView: NSView {
-    private let iconView = NSImageView()
+    private let iconView = CmuxResolvedIconImageView()
     private let pathLabel = NSTextField(labelWithString: "")
     private var heightConstraint: NSLayoutConstraint?
     private var displayPath = ""
@@ -20,7 +21,6 @@ final class FileExplorerHeaderView: NSView {
 
     private func setupViews() {
         iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconView.contentTintColor = .secondaryLabelColor
 
         pathLabel.translatesAutoresizingMaskIntoConstraints = false
         applyFonts()
@@ -38,12 +38,12 @@ final class FileExplorerHeaderView: NSView {
         NSLayoutConstraint.activate([
             heightConstraint,
 
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: RightSidebarChromeMetrics.contentIconLeadingPadding),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 14),
-            iconView.heightAnchor.constraint(equalToConstant: 14),
+            iconView.widthAnchor.constraint(equalToConstant: RightSidebarChromeMetrics.contentIconFrameSize),
+            iconView.heightAnchor.constraint(equalToConstant: RightSidebarChromeMetrics.contentIconFrameSize),
 
-            pathLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 4),
+            pathLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: RightSidebarChromeMetrics.contentIconTextSpacing),
             pathLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
             pathLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
         ])
@@ -69,15 +69,22 @@ final class FileExplorerHeaderView: NSView {
 
     private func applyHeaderState() {
         assert(Thread.isMainThread, "AppKit image updates must run on the main thread")
-        let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .regular)
         if let quickSearchQuery {
-            iconView.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)?
-                .withSymbolConfiguration(config)
+            iconView.apply(CmuxResolvedIconRequest(
+                source: .systemSymbol(name: "magnifyingglass", accessibilityDescription: nil),
+                size: NSSize(width: 14, height: 14),
+                tintColor: .secondaryLabelColor,
+                symbolWeight: .regular
+            ))
             pathLabel.stringValue = "/" + quickSearchQuery
             pathLabel.toolTip = pathLabel.stringValue
         } else {
-            iconView.image = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: nil)?
-                .withSymbolConfiguration(config)
+            iconView.apply(CmuxResolvedIconRequest(
+                source: .systemSymbol(name: "folder.fill", accessibilityDescription: nil),
+                size: NSSize(width: 14, height: 14),
+                tintColor: .secondaryLabelColor,
+                symbolWeight: .regular
+            ))
             pathLabel.stringValue = displayPath
             pathLabel.toolTip = displayPath
         }

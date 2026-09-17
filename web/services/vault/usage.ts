@@ -4,6 +4,19 @@ import { vaultSessions, vaultSnapshots, vaultUploadGrants } from "../../db/schem
 import { logVaultQuotaError } from "./logging";
 
 type VaultDb = ReturnType<typeof cloudDb>;
+const VAULT_QUOTA_LOCK_NAMESPACE = 9;
+
+export async function withVaultUserQuotaLock<T>(
+  db: VaultDb,
+  userId: string,
+  run: (db: VaultDb) => Promise<T>,
+): Promise<T> {
+  return await db.transaction(async (tx) => {
+    await tx.execute(sql`set local lock_timeout = '5s'`);
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${userId}, ${VAULT_QUOTA_LOCK_NAMESPACE}))`);
+    return await run(tx as unknown as VaultDb);
+  });
+}
 
 /**
  * Total compressed bytes a user currently has stored across all snapshots.
@@ -60,7 +73,13 @@ export async function getVaultPendingGrantBytes(
         total: sql<number>`coalesce(sum(${vaultUploadGrants.compressedSizeBytes}), 0)::double precision`,
       })
       .from(vaultUploadGrants)
-      .where(and(...conditions));
+      .where(and(
+        ...conditions,
+        sql`not exists (
+          select 1 from ${vaultSnapshots}
+          where ${vaultSnapshots.objectKey} = ${vaultUploadGrants.objectKey}
+        )`,
+      ));
     return row?.total ?? 0;
   } catch (error) {
     logVaultQuotaError("get_pending_grant_bytes", error);

@@ -6,9 +6,10 @@ Go remote daemon for `cmux ssh` bootstrap, capability negotiation, and remote pr
 
 1. `cmuxd-remote version`
 2. `cmuxd-remote serve --stdio`
-3. `cmuxd-remote serve --stdio --persistent --slot <slot>`
-4. `cmuxd-remote serve --ws --auth-lease-file <path> [--rpc-auth-lease-file <path>] [--listen 127.0.0.1:7777]`
-5. `cmuxd-remote cli <command> [args...]` — relay cmux commands to the local app over the reverse SSH forward
+3. `cmuxd-remote serve --stdio --persistent --slot <slot> [--persistent-lease-port <port>]`
+4. `cmuxd-remote serve --persistent-stop --slot <slot>` — internal authenticated slot teardown
+5. `cmuxd-remote serve --ws --auth-lease-file <path> [--rpc-auth-lease-file <path>] [--listen 127.0.0.1:7777]`
+6. `cmuxd-remote cli <command> [args...]` — relay cmux commands to the local app over the reverse SSH forward
 
 `serve --ws` is explicit opt-in for cloud VM images only. The normal `cmux ssh`
 code path uses `serve --stdio --persistent --slot <slot>` over an SSH exec
@@ -67,6 +68,7 @@ PTY lifecycle:
 3. `cmux ssh-session-list` calls `pty.list`; `cmux ssh-session-attach` creates a new local terminal whose startup script calls `ssh-pty-attach --require-existing`.
 4. `cmux ssh-session-cleanup` calls `pty.close` to terminate a persisted PTY session explicitly.
 5. Sessions with no attachments keep their last-known size and are reaped by the daemon idle TTL.
+6. Closing the owning workspace sends an authenticated slot-shutdown request, waits a bounded interval for the daemon lock to be released, and removes the relay's shell-state directory. As defense in depth, a daemon launched with `--persistent-lease-port` observes that exact `~/.cmux/relay/<port>.slot` lease, exits after the observed lease disappears and stdio disconnects, and removes the matching shell-state directory. Older callers that omit the flag retain the prior behavior without unsafe broad lease scanning.
 
 ## Cloud WebSocket PTY transport
 
@@ -150,6 +152,7 @@ Authenticated relay details:
 1. Each SSH workspace gets its own relay ID and relay token.
 2. The app runs a local loopback relay server that requires an HMAC-SHA256 challenge-response before forwarding a command to the real local Unix socket.
 3. The remote shell never gets direct access to the local app socket. It only gets the reverse-forwarded relay port plus `~/.cmux/relay/<port>.auth`, which is written with `0600` permissions and removed when the relay stops.
+4. Authentication is not authorization. `RemoteRelayCommandPolicy` rejects unlisted methods, command-bearing startup parameters, invalid selectors, and every parameter outside the selected method’s explicit schema. The app then verifies a request HMAC binding the originating workspace and active local SSH controller generation, and validates targets against its live remote terminal identities (`RemoteRelayAuthorizationPolicy`); aliases translate IDs but do not grant ownership. Local/browser panels in a remote workspace are excluded. Dispatch rechecks the controller generation and live ownership before acting; replacing or retiring the controller invalidates previously admitted requests. Input, split, close, scrollback, and selection reads also recheck the actual terminal target, and relay reads bypass cached topology responses. `surface.split` requires explicit workspace and surface UUIDs, permits terminal splits only, and rejects local startup overrides. `surface.create`, `pane.create`, `surface.respawn`, `surface.send_key`, workspace/window/group creation, and global listing/navigation methods are denied. `surface.resume.set` is the command-metadata exception: its separate authenticated persistent-SSH registration and approval checks remain required. Relay-side denials return `remote_relay_denied`; app-side ownership denials return `remote_relay_*_denied` without executing the requested operation.
 
 Integration additions for the relay path:
 
@@ -170,17 +173,10 @@ Environment fallbacks:
 
 **`new-workspace`**: The flag `--working-directory` was removed. It was accepted by the old relay but sent the wrong param name (`working_directory` instead of `cwd`), so the server silently ignored it. Use `--cwd` for the working directory. The flag `--command` is now supported: it sends the command text to the new workspace's default surface after creation.
 
+**Relay authorization (GHSA-9vmv-3hjw-j28c)**: the remote CLI exposes only the authorization allowlist, even if a command appears in its command table. `new-workspace`, `new-window`, `new-surface`, `new-pane`, `send-key`, global workspace/window listing, and focus/navigation commands are denied. Allowed surface operations require the explicit live remote target consumed by that handler; adding an unrelated owned selector does not authorize a request. Use `new-split` with the owning workspace and terminal surface IDs for a remote terminal split.
+
 **`send` / `send-key`**: The `--text` and `--key` flags were removed. Both commands now take their argument positionally, matching the Mac CLI convention: `cmux send "hello world"` and `cmux send-key ctrl+c`.
 
 **Window commands**: Prior to this release, `list-windows`, `current-window`, `new-window`, `focus-window`, and `close-window` used a v1 text protocol and returned plain-text responses (e.g. `window:abc123` per line). They now use v2 JSON-RPC and return JSON. Scripts parsing that output will need updating.
 
-Browser relay behavior:
-
-1. `cmux browser ...` inside an SSH session controls the local cmux browser through the authenticated relay, not a browser process inside the VM.
-2. The remote CLI supports the common automation commands: `open`, `navigate`, `back`, `forward`, `reload`, `get-url`, `snapshot`, `eval`, `wait`, `click`, `dblclick`, `hover`, `focus`, `check`, `uncheck`, `fill`, `type`, `press`, `select`, and `screenshot`.
-3. Commands that target an existing browser surface default to `CMUX_SURFACE_ID`; `open` defaults to `CMUX_WORKSPACE_ID` so agents can create a browser pane next to the active SSH terminal.
-
-Workspace group relay behavior:
-
-1. `cmux workspace group <sub>` (and the `cmux workspace-group <sub>` alias) maps to the `workspace.group.*` v2 methods, with the same subcommands and flags as the macOS CLI: `list`, `create`, `ungroup`, `delete`, `rename`, `collapse`, `expand`, `pin`, `unpin`, `add`, `remove`, `set-anchor`, `new-workspace`, `set-color`, `set-icon`, `move`, and `focus`.
-2. The group id comes from `--group <id>` or the first positional argument and accepts UUIDs or refs such as `workspace_group:1`. Like the macOS CLI, `add` and `set-anchor` require explicit `--group <id> --workspace <id>`.
+Browser and workspace group commands remain in the remote CLI command table for protocol compatibility, but all `browser.*` and `workspace.group.*` methods are denied through the reverse SSH relay. Their presence in the CLI help or command table does not grant access to local browser or workspace-group operations.
