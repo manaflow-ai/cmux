@@ -22,6 +22,9 @@ final class AppCompositionRoot {
     let runtime: CMUXMobileRuntime
     let auth: MobileAuthComposition
     let irx: MobileIrxRuntimeComposition
+    let v3: MobileV3RuntimeComposition?
+    let v3Discovery: MobileV3DiscoveryProvider?
+    let v3RouteCatalog: MobileIrohRouteCatalog?
     let irohSettingsController: any CmxIrohSettingsControlling
     let irxDiscovery: MobileIrxDiscoveryProvider
     /// One build-compatibility policy shared by discovery, persistence, and
@@ -90,6 +93,9 @@ final class AppCompositionRoot {
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
         irx: MobileIrxRuntimeComposition,
+        v3: MobileV3RuntimeComposition?,
+        v3Discovery: MobileV3DiscoveryProvider?,
+        v3RouteCatalog: MobileIrohRouteCatalog?,
         irxDiscovery: MobileIrxDiscoveryProvider,
         buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy,
         reachability: any ReachabilityProviding,
@@ -104,6 +110,9 @@ final class AppCompositionRoot {
         self.runtime = runtime
         self.auth = auth
         self.irx = irx
+        self.v3 = v3
+        self.v3Discovery = v3Discovery
+        self.v3RouteCatalog = v3RouteCatalog
         self.irohSettingsController = MobileIrxSettingsController(irx: irx, diagnosticLog: diagnosticLog)
         self.irxDiscovery = irxDiscovery
         self.buildCompatibilityPolicy = buildCompatibilityPolicy
