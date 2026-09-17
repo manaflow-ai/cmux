@@ -12,7 +12,7 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `e5a6849dc`, on fork branch
+The submodule pinned by this branch is `6f2701078`, on fork branch
 `issue-12753-hangul-filename-shaping` pending Ghostty PR #221. It includes the
 incremental embedded configuration propagation and Fish SSH feature-gating fixes described below,
 plus the renderer/API compatibility pin and the repeated word-selection drag
@@ -25,17 +25,23 @@ visibility, and Hangul canonical font resolution.
 - Branch:
   - https://github.com/manaflow-ai/ghostty/tree/issue-12753-hangul-filename-shaping
 - Commit:
-  - `e5a6849dc` (issue-12753 Hangul shaping fix and coverage; pending PR #221)
+  - `6f2701078` (issue-12753 Hangul shaping fix and coverage; pending PR #221)
 - Summary:
   - Adds the NFD Hangul shaping fix and jamo/style coverage on top of cmux's prior pin, preserving
     incremental embedded configuration propagation and Fish SSH feature gating,
     with the renderer/API compatibility pin and repeated word-selection drag
     anchor behavior.
 - Verification:
-  - Zig 0.16.0 on macOS 26.5.1: the composed-only Hangul filter passed 77
-    total tests and the jamo/style Hangul filter passed 76 total tests,
-    including dependency tests in both totals. The inherited fork CI skips
-    tests outside ghostty-org.
+  - Zig 0.16.0 on macOS 26.4, `-Dtest-filter=Hangul`: 78/78 with the CoreText
+    shaper and 77/77 with `-Dfont-backend=coretext_harfbuzz`. 73 of those run
+    regardless of the filter (a filter matching nothing still reports 73), so
+    the filter itself selects 5 tests; `-Dtest-filter=composedSyllable` adds
+    the 3 `hangul.zig` unit tests.
+  - Reverting only `src/font/shaper/run.zig` to the test-first commit turns 3
+    of them red under both shapers: CoreText `expected 218, found 1942` (the
+    Apple SD Gothic Neo glyph ID from the report), HarfBuzz `expected 218,
+    found 0` (`.notdef`). The inherited fork CI skips tests outside
+    ghostty-org, so these were run by hand on a leased fleet Mac.
 - Previous pin artifact (does not include the Hangul shaping fix):
   - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-abd40f6e472d57f2d4bb182004bb5f3fac8df961-crashsubdir-cmux-crash-sentry-off-noi18n-v2
   - SHA-256 `fdb0f7e844fa086a410f0b1df23badf2b0503c084e1c66c297e22930758b6971`
@@ -189,6 +195,7 @@ pinned in `scripts/ghosttykit-checksums.txt`.
   - `452bc460c` (test: reproduce NFD Hangul fallback glyph mismatch)
   - `3a7fc9230` (fix: shape NFD Hangul with the resolved syllable)
   - `e5a6849dc` (test: cover Hangul jamo fonts and style fallback)
+  - `6f2701078` (test: cover Hangul selection bounds, copy path, and uncomposable jamo)
 - `RunIterator.resolveFontInfo` carries the canonical syllable together with
   its resolved font index. Both CoreText and HarfBuzz receive that spelling,
   preventing CoreText from returning jamo fallback glyph IDs that would be
@@ -199,9 +206,22 @@ pinned in `scripts/ghosttykit-checksums.txt`.
 - The regression uses a licensed, renamed D2Coding subset without jamo glyphs.
   A similarly licensed Source Han Mono subset with direct jamo coverage exercises
   the jamo-capable and regular-style fallback cases.
-  It checks glyph IDs, column positions, regular/bold styles, cursor boundaries,
-  and preserved NFD storage. Before the fix CoreText returns glyph 1942 where
-  the selected fixture face requires 218.
+  It checks glyph IDs, column positions, regular/bold styles, cursor and
+  selection run breaks (including a selection bound on a wide syllable's spacer
+  tail), preserved NFD storage, and the copied line through `selectLine` +
+  `selectionString`. An archaic-vowel cluster, which has no precomposed
+  syllable, must keep the per-jamo path and shape to the selected face's own
+  replacement glyph. Before the fix CoreText returns glyph 1942 where the
+  selected fixture face requires 218, and HarfBuzz returns `.notdef`.
+- Why this lives in the run iterator: the CoreText shaper consumes the glyph
+  IDs of every `CTRun` without checking which font CoreText used, so any
+  codepoint the run's face lacks comes back as a substituted font's glyph ID
+  and is drawn with the wrong face. The run iterator is what guarantees every
+  codepoint it hands over is covered by the run's face; #185 broke that for
+  composable Hangul and this restores it. Hardening the shaper itself to reject
+  substituted runs is deliberately not part of this change: a false positive
+  would turn correct text into tofu for every font, which needs its own
+  validation.
 - Conflict note: preserve the face/codepoint pairing if upstream restructures
   run construction. Resolver-index equality alone does not detect this bug;
   keep `src/font/shaper/hangul_test.zig` exercising actual shaping.
