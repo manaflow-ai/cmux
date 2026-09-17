@@ -62,10 +62,11 @@ struct CloudTreeNodeActions {
         refresh: @escaping @MainActor () -> Void,
         refreshMachine: @escaping @MainActor (SurfaceMachineID) -> Void = { _ in }, operationController: CloudWorkspaceOperationController? = nil
     ) -> CloudTreeNodeActions {
-        let run: @MainActor (
+        @MainActor
+        func run(
             _ label: String,
-            _ operation: @MainActor (SurfaceCatalog) async throws -> Void
-        ) -> Task<Void, Never> = { label, operation in
+            _ operation: @escaping @MainActor (SurfaceCatalog) async throws -> Void
+        ) -> Task<Void, Never> {
             onWillMutate(label)
             return Task { @MainActor in
                 defer { onDidMutate() }
