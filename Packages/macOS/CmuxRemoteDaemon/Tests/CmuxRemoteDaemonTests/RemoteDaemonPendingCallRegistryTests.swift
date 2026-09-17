@@ -75,6 +75,18 @@ struct RemoteDaemonPendingCallRegistryTests {
         #expect(registry.register().id == 3)
     }
 
+    @Test("idle registration defers while another call is pending")
+    func idleRegistrationDefersForPendingCall() {
+        let registry = RemoteDaemonPendingCallRegistry()
+        let applicationCall = registry.register()
+
+        #expect(registry.registerIfIdle() == nil)
+
+        #expect(registry.resolve(id: applicationCall.id, payload: ["ok": true]))
+        _ = registry.wait(for: applicationCall, timeout: 1.0)
+        #expect(registry.registerIfIdle()?.id == 2)
+    }
+
     @Test("reset drops pending calls and restarts ids at 1")
     func resetRestartsIDs() {
         let registry = RemoteDaemonPendingCallRegistry()

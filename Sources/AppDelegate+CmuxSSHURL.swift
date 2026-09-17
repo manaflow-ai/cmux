@@ -207,7 +207,12 @@ struct TerminalDefaultFileOpenRequest: Equatable {
         }
 
         self.fileURL = standardizedURL
-        self.workingDirectory = standardizedURL.deletingLastPathComponent().path(percentEncoded: false)
+        // `path(percentEncoded:)` keeps a directory URL's trailing slash, so the parent of
+        // "/tmp/scripts/run.command" came back as "/tmp/scripts/". That string becomes the
+        // workspace's working directory, which the window title renders via {activeDirectory}
+        // and which directory comparisons match on, so the stray slash is user visible. `path`
+        // reports the same decoded path without it and still reports "/" for a file at the root.
+        self.workingDirectory = standardizedURL.deletingLastPathComponent().path
         self.initialInput = "\(Self.shellSingleQuoted(standardizedURL.path(percentEncoded: false)))\n"
     }
 
@@ -522,78 +527,6 @@ extension AppDelegate {
     }
 
     @discardableResult
-    private func handleCmuxNavigationURLRequest(_ request: CmuxNavigationURLRequest) -> Bool {
-        let workspaceId: UUID
-        switch request.target {
-        case .workspace(let id), .pane(let id, _), .surface(let id, _):
-            workspaceId = id
-        }
-
-        guard let context = mainWindowContexts.values.first(where: { context in
-            context.tabManager.tabs.contains(where: { $0.id == workspaceId })
-        }),
-              let workspace = context.tabManager.tabs.first(where: { $0.id == workspaceId }),
-              let window = context.window ?? windowForMainWindowId(context.windowId) else {
-#if DEBUG
-            cmuxDebugLog("navigationURL.notFound workspace=\(workspaceId.uuidString.prefix(8))")
-#endif
-            return false
-        }
-
-        let targetPanelId: UUID?
-        switch request.target {
-        case .workspace:
-            targetPanelId = nil
-        case .pane(_, let paneId):
-            guard let pane = workspace.bonsplitController.allPaneIds.first(where: { $0.id == paneId }) else {
-#if DEBUG
-                cmuxDebugLog(
-                    "navigationURL.notFound workspace=\(workspaceId.uuidString.prefix(8)) " +
-                    "pane=\(paneId.uuidString.prefix(8))"
-                )
-#endif
-                return false
-            }
-            let selectedTab = workspace.bonsplitController.selectedTab(inPane: pane)
-                ?? workspace.bonsplitController.tabs(inPane: pane).first
-            targetPanelId = selectedTab.flatMap { workspace.panelIdFromSurfaceId($0.id) }
-            if targetPanelId == nil {
-                workspace.bonsplitController.focusPane(pane)
-            }
-        case .surface(_, let surfaceId):
-            guard workspace.panels[surfaceId] != nil,
-                  workspace.surfaceIdFromPanelId(surfaceId) != nil else {
-#if DEBUG
-                cmuxDebugLog(
-                    "navigationURL.notFound workspace=\(workspaceId.uuidString.prefix(8)) " +
-                    "surface=\(surfaceId.uuidString.prefix(8))"
-                )
-#endif
-                return false
-            }
-            targetPanelId = surfaceId
-        }
-
-        prepareForExplicitOpenIntentAtStartup()
-        setActiveMainWindow(window)
-        _ = focusMainWindow(windowId: context.windowId)
-        context.tabManager.focusTab(
-            workspaceId,
-            surfaceId: targetPanelId,
-            suppressFlash: true
-        )
-
-#if DEBUG
-        let surface = targetPanelId.map { String($0.uuidString.prefix(8)) } ?? "nil"
-        cmuxDebugLog(
-            "navigationURL.focus workspace=\(workspaceId.uuidString.prefix(8)) " +
-            "surface=\(surface) window=\(context.windowId.uuidString.prefix(8))"
-        )
-#endif
-        return true
-    }
-
-    @discardableResult
     func handleCmuxSSHURLs(from urls: [URL]) -> Bool {
         var sshURLRequests: [CmuxSSHURLRequest] = []
         var sshURLParseErrors: [CmuxSSHURLParseError] = []
@@ -658,6 +591,23 @@ extension AppDelegate {
         let target = request.originalURL.host ?? request.originalURL.path
         cmuxDebugLog("sshURL.prompt target=\(target) destinationLength=\(request.destination.count) hasPort=\(request.port != nil)")
 #endif
+        // `DisableRemoteConnections` (MDM): refuse before the trust dialog and
+        // the window bootstrap. The CLI would fail closed downstream, but only
+        // with a generic exit-status alert.
+        guard ManagedRemoteConnectionsPolicy.isEnabled else {
+#if DEBUG
+            cmuxDebugLog("sshURL.blocked_managed_policy")
+#endif
+            let alert = NSAlert()
+            alert.messageText = ManagedRemoteConnectionsPolicy.disabledMessage
+            alert.informativeText = String(
+                localized: "managedPolicy.remoteConnections.sshURLRefused",
+                defaultValue: "cmux cannot open SSH links while remote connections are disabled by your organization's device policy."
+            )
+            alert.alertStyle = .informational
+            alert.runModal()
+            return
+        }
 
         deferInitialMainWindowBootstrapForExternalConfirmation()
         guard confirmCmuxSSHURLRequest(request) else {

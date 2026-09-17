@@ -52,6 +52,14 @@ public enum ControlPaneCreateResolution: Sendable, Equatable {
     /// URL opened externally (legacy `ok`, the external-open payload). Carries
     /// the resolved window (may be absent) and the opened URL string.
     case browserDisabledOpenedExternally(windowID: UUID?, url: String)
+    /// An explicit browser profile selector did not identify exactly one
+    /// profile. An empty candidate list means no profile matched; otherwise the
+    /// candidates share the requested display name.
+    case invalidBrowserProfile(
+        selector: String,
+        message: String,
+        candidates: [ControlPaneBrowserProfileCandidate]
+    )
     /// A TabManager resolved but no workspace did (legacy `not_found` /
     /// "Workspace not found", `data: nil`).
     case workspaceNotFound

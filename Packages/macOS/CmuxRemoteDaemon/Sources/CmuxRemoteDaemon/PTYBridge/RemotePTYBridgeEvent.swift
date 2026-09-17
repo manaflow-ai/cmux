@@ -7,6 +7,8 @@ public enum RemotePTYBridgeEvent: Sendable {
     case ready
     /// A chunk of PTY output bytes.
     case data(Data)
+    /// Cumulative ack for sequenced PTY input.
+    case inputAck(seq: UInt64)
     /// The remote PTY exited; no further events follow.
     case exit
     /// The attachment failed; the payload is the daemon's error text.

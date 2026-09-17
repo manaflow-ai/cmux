@@ -1,11 +1,9 @@
 internal import CmuxSettings
 internal import Foundation
 
-/// The workspace-group domain (`workspace.group.*`), lifted byte-faithfully from
-/// the former `TerminalController.v2WorkspaceGroup*` bodies. Each payload is
-/// built directly as a ``JSONValue`` (the typed twin of the legacy
-/// `[String: Any]` dictionaries); the resulting Foundation object is identical,
-/// so the encoded wire bytes match.
+/// The workspace-group control domain (`workspace.group.*`). Payloads use typed
+/// ``JSONValue`` dictionaries, and destructive or ambient-state behavior must
+/// be expressed explicitly at this boundary.
 extension ControlCommandCoordinator {
     /// Dispatches the workspace-group methods this coordinator owns; returns
     /// `nil` for anything else so the core `handle(_:)` can fall through. Some
@@ -60,20 +58,35 @@ extension ControlCommandCoordinator {
     /// Builds one group's payload row (the legacy `v2WorkspaceGroupPayload`),
     /// minting the `workspace_group` / `workspace` refs from the snapshot ids.
     private func workspaceGroupPayload(_ group: ControlWorkspaceGroupSnapshot) -> JSONValue {
-        .object([
+        // Keep the established non-null id field for older control clients. A
+        // header-only group uses its stable group id as a wire placeholder;
+        // `is_empty` and the nullable typed snapshot distinguish it from a
+        // live workspace for new clients.
+        let wireAnchorWorkspaceID = group.anchorWorkspaceID ?? group.id
+        var payload: [String: JSONValue] = [
             "id": .string(group.id.uuidString),
             "ref": ref(.workspaceGroup, group.id),
             "name": .string(group.name),
             "is_collapsed": .bool(group.isCollapsed),
             "is_pinned": .bool(group.isPinned),
-            "anchor_workspace_id": .string(group.anchorWorkspaceID.uuidString),
+            "anchor_workspace_id": .string(wireAnchorWorkspaceID.uuidString),
             "anchor_workspace_ref": ref(.workspace, group.anchorWorkspaceID),
+            "is_empty": .bool(group.isEmpty),
             "custom_color": orNull(group.customColor),
             "icon_symbol": orNull(group.iconSymbol),
             "member_workspace_ids": .array(group.memberWorkspaceIDs.map { .string($0.uuidString) }),
             "member_workspace_refs": .array(group.memberWorkspaceIDs.map { ref(.workspace, $0) }),
             "member_count": .int(Int64(group.memberWorkspaceIDs.count)),
-        ])
+            "anchor_workspace_provenance": .string(group.anchorWorkspaceProvenance),
+            "anchor_workspace_is_generated": .bool(group.isGeneratedAnchor),
+        ]
+        if let externalID = group.externalID {
+            payload["external_id"] = .string(externalID)
+            // Keep the standard retry spelling visible in list responses so a
+            // client can persist either accepted request form.
+            payload["idempotency_key"] = .string(externalID)
+        }
+        return .object(payload)
     }
 
     // MARK: - List
@@ -96,20 +109,20 @@ extension ControlCommandCoordinator {
 
     // MARK: - Create
 
-    /// `workspace.group.create` — create a group from explicit/derived children.
+    /// `workspace.group.create` — create a group from explicitly supplied children.
     func workspaceGroupCreate(_ params: [String: JSONValue]) -> ControlCallResult {
         let name = rawString(params, "name") ?? ""
         let cwd = rawString(params, "cwd")
+        let externalIDResult = workspaceGroupExternalID(params)
+        if let error = externalIDResult.error { return error }
+        let externalID = externalIDResult.value
 
         // child_workspace_ids accepts raw UUID strings AND v2 handle refs
-        // (workspace:1, ws:1, etc.). A `[String]` array is explicit; any other
-        // present-non-null shape is rejected; absent/null falls through to the
-        // app-side fallback selection.
+        // (workspace:1, ws:1, etc.). An absent/null value means an explicit
+        // empty list, so control-plane requests never capture ambient selection.
         let rawChildren: [String]
-        let childrenExplicit: Bool
         if let provided = stringArrayExact(params["child_workspace_ids"]) {
             rawChildren = provided
-            childrenExplicit = true
         } else if let value = params["child_workspace_ids"], !isNull(value) {
             return .err(
                 code: "invalid_params",
@@ -119,10 +132,7 @@ extension ControlCommandCoordinator {
                 ])
             )
         } else {
-            // Absent/null: let the app derive children from the active sidebar
-            // selection / caller workspace / focused workspace.
             rawChildren = []
-            childrenExplicit = false
         }
 
         var unresolved: [String] = []
@@ -148,7 +158,7 @@ extension ControlCommandCoordinator {
             name: name,
             cwd: cwd,
             childWorkspaceIDs: parsedChildIDs,
-            childrenExplicit: childrenExplicit
+            externalID: externalID
         ) ?? .tabManagerUnavailable
 
         switch resolution {
@@ -169,46 +179,19 @@ extension ControlCommandCoordinator {
         case .notCreated:
             return .err(code: "not_created", message: "Group was not created", data: nil)
         case .created(let group):
-            return .ok(.object(["group": workspaceGroupPayload(group)]))
-        }
-    }
-
-    // MARK: - Ungroup / Delete / Rename
-
-    /// `workspace.group.ungroup` — dissolve a group, keeping its workspaces.
-    func workspaceGroupUngroup(_ params: [String: JSONValue]) -> ControlCallResult {
-        guard let gid = uuid(params, "group_id") else {
-            return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
-        }
-        guard let found = context?.controlUngroupWorkspaceGroup(routing: routingSelectors(params), groupID: gid) else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
-        }
-        guard found else {
-            return .err(code: "not_found", message: "Group not found", data: .object([
-                "group_id": .string(gid.uuidString),
+            return .ok(.object([
+                "group": workspaceGroupPayload(group),
+                "created": .bool(true),
+            ]))
+        case .existing(let group):
+            return .ok(.object([
+                "group": workspaceGroupPayload(group),
+                "created": .bool(false),
             ]))
         }
-        return .ok(.object(["group_id": .string(gid.uuidString)]))
     }
 
-    /// `workspace.group.delete` — delete a group and close its workspaces.
-    func workspaceGroupDelete(_ params: [String: JSONValue]) -> ControlCallResult {
-        guard let gid = uuid(params, "group_id") else {
-            return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
-        }
-        guard let closedCount = context?.controlDeleteWorkspaceGroup(routing: routingSelectors(params), groupID: gid) else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
-        }
-        guard closedCount >= 0 else {
-            return .err(code: "not_found", message: "Group not found", data: .object([
-                "group_id": .string(gid.uuidString),
-            ]))
-        }
-        return .ok(.object([
-            "group_id": .string(gid.uuidString),
-            "closed_workspace_count": .int(Int64(closedCount)),
-        ]))
-    }
+    // MARK: - Rename
 
     /// `workspace.group.rename` — rename a group.
     func workspaceGroupRename(_ params: [String: JSONValue]) -> ControlCallResult {
@@ -459,11 +442,13 @@ extension ControlCommandCoordinator {
 
     /// The localized workspace-group error strings, resolved by the app
     /// conformance against the app bundle.
-    private func workspaceGroupStrings() -> ControlWorkspaceGroupStrings {
+    func workspaceGroupStrings() -> ControlWorkspaceGroupStrings {
         context?.controlWorkspaceGroupStrings() ?? ControlWorkspaceGroupStrings(
             allChildrenAreAnchors: "",
             workspaceIsOtherGroupAnchor: "",
-            invalidReferenceWorkspace: ""
+            invalidReferenceWorkspace: "",
+            closeWorkspacesMustBeBoolean: "",
+            emptyPinnedCannotUngroup: ""
         )
     }
 
@@ -487,4 +472,5 @@ extension ControlCommandCoordinator {
         if case .null = value { return true }
         return false
     }
+
 }

@@ -39,6 +39,10 @@ func (a Claude) Discover(env Environ) ([]Session, error) {
 		if entry.IsDir() {
 			return nil
 		}
+		if IsSymlinkEntry(entry) {
+			env.Warn("claude: skipping symlinked session %s", path)
+			return nil
+		}
 		if filepath.Ext(entry.Name()) != ".jsonl" {
 			return nil
 		}

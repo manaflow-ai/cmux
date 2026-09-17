@@ -15,7 +15,12 @@ let package = Package(
     ],
     targets: [
         .target(
+            name: "CmuxFoundationAtomicsC",
+            publicHeadersPath: "include"
+        ),
+        .target(
             name: "CmuxFoundation",
+            dependencies: ["CmuxFoundationAtomicsC"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),

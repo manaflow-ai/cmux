@@ -391,9 +391,17 @@ let sortKey: @Sendable (SyncWireRecord) -> Double = { DeviceSyncFacade.sortKey(f
 @Suite struct PairedMacMigrationTests {
     /// A minimal in-memory MobilePairedMacStoring double for the migration test.
     actor FakePairedStore: MobilePairedMacStoring {
+    func authorizeUserTailscaleRoutes(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?,
+        routes: [CmxAttachRoute]
+    ) async throws {}
+
         var macs: [MobilePairedMac]
         init(macs: [MobilePairedMac]) { self.macs = macs }
-        func upsert(macDeviceID: String, displayName: String?, routes: [CmxAttachRoute], markActive: Bool, stackUserID: String?, teamID: String?, now: Date) async throws {}
+        func upsert(macDeviceID: String, displayName: String?, routes: [CmxAttachRoute], instanceTag: String?, markActive: Bool, stackUserID: String?, teamID: String?, now: Date) async throws {}
         func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
             guard let stackUserID else { return macs }
             return macs.filter { $0.stackUserID == stackUserID }
