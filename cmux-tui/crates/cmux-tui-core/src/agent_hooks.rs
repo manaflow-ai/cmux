@@ -260,8 +260,7 @@ pub(crate) fn built_in_agent_producer_manifest() -> JournalProducerManifest {
 fn validate_agent_source(source: &str) -> anyhow::Result<()> {
     anyhow::ensure!(
         source != RESERVED_SOCKET_ADAPTER
-            &&
-        !source.is_empty()
+            && !source.is_empty()
             && source.len() <= MAX_AGENT_SOURCE_BYTES
             && source.bytes().all(|byte| {
                 byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-')
