@@ -112,7 +112,13 @@ final class CLISSHPTYAttachBridgeServer: @unchecked Sendable {
             if ready < 0, errno == EINTR { continue }
             guard ready > 0, pollFDs[1].revents == 0 else { return nil }
             let clientFD = Darwin.accept(listenerFD, nil, nil)
-            if clientFD >= 0 { return clientFD }
+            if clientFD >= 0 {
+                // Cancellation tests deliberately close the CLI while the script
+                // is writing; that failure must stop the script, not the test host.
+                var enabled: Int32 = 1
+                _ = setsockopt(clientFD, SOL_SOCKET, SO_NOSIGPIPE, &enabled, socklen_t(MemoryLayout<Int32>.size))
+                return clientFD
+            }
             if errno == EINTR || errno == ECONNABORTED { continue }
             return nil
         }
