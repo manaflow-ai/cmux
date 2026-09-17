@@ -5,6 +5,7 @@ import Foundation
 /// handshake tests assert on.
 struct CloudManualMirrorFixtureCommand: Sendable {
     let cmd: String
+    let inputBytes: Data?
     let id: UInt64
     let surface: UInt64?
     let capabilities: [String]
@@ -20,6 +21,7 @@ struct CloudManualMirrorFixtureCommand: Sendable {
     init?(_ object: [String: Any]) {
         guard let cmd = object["cmd"] as? String else { return nil }
         self.cmd = cmd
+        inputBytes = (object["bytes"] as? String).flatMap { Data(base64Encoded: $0) }
         id = (object["id"] as? NSNumber)?.uint64Value ?? 0
         surface = (object["surface"] as? NSNumber)?.uint64Value
         capabilities = object["capabilities"] as? [String] ?? []
