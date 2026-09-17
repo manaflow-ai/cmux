@@ -6738,7 +6738,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     @MainActor
     func shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(_ panelId: UUID) -> Bool {
         guard remoteConfiguration?.preserveAfterTerminalExit == true else { return false }
-        return activeRemoteTerminalSurfaceIds.contains(panelId) ||
+        return activeRemoteTerminalSurfaceIds.contains(panelId) || remoteDisconnectPlaceholderPanelIds.contains(panelId) ||
             endedPersistentRemotePTYAttachSurfaceIds.contains(panelId)
     }
 
@@ -8820,8 +8820,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         if initialCommand == nil, initialInput == nil, tmuxStartCommand == nil,
            remotePTYSessionID == nil, workingDirectory == nil,
            !suppressWorkspaceRemoteStartupCommand,
-           routeCloudPaneTerminalSplit(from: panelId, orientation: orientation, insertFirst: insertFirst, focus: focus) {
-            return .routedToRemote
+           SurfaceCatalog.shared.hasCloudProjection(panelID: panelId, workspaceID: id) {
+            return routeCloudPaneTerminalSplit(
+                from: panelId, orientation: orientation, insertFirst: insertFirst, focus: focus
+            ) ? .routedToRemote : .failed
         }
         guard let panel = newTerminalSplitLocal(
             from: panelId,
@@ -9144,8 +9146,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         if initialCommand == nil, tmuxStartCommand == nil, remotePTYSessionID == nil,
            workingDirectory == nil, initialInput == nil, startupRestoreAgent == nil,
            restoredSurfaceId == nil, !suppressWorkspaceRemoteStartupCommand,
-           routeCloudPaneTerminalTab(inPane: paneId, focus: focus ?? (bonsplitController.focusedPaneId == paneId)) {
-            return .routedToRemote
+           let selectedTab = bonsplitController.selectedTab(inPane: paneId),
+           let selectedPanelID = panelIdFromSurfaceId(selectedTab.id),
+           SurfaceCatalog.shared.hasCloudProjection(panelID: selectedPanelID, workspaceID: id) {
+            return routeCloudPaneTerminalTab(
+                inPane: paneId, focus: focus ?? (bonsplitController.focusedPaneId == paneId)
+            ) ? .routedToRemote : .failed
         }
         guard let panel = newTerminalSurfaceLocal(
             inPane: paneId,
