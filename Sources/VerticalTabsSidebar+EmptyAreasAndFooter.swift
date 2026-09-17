@@ -82,11 +82,20 @@ enum SidebarFooterControl: CaseIterable, Equatable {
 }
 
 enum SidebarFooterPresentationPolicy {
+    /// Minimal mode keeps only Upgrade on screen; hovering the footer row brings
+    /// the other controls back. An active update is also visible so an
+    /// explicit update attempt can report its progress without requiring the
+    /// pointer to already be over the footer.
     static func isVisible(
         _ control: SidebarFooterControl,
-        presentationMode: WorkspacePresentationModeSettings.Mode
+        presentationMode: WorkspacePresentationModeSettings.Mode,
+        isHovered: Bool = false,
+        isUpdateActive: Bool = false
     ) -> Bool {
-        presentationMode != .minimal || control == .upgrade
+        presentationMode != .minimal
+            || control == .upgrade
+            || isHovered
+            || (control == .update && isUpdateActive)
     }
 }
 
