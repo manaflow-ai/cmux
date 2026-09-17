@@ -6319,42 +6319,30 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         _ = try workspace.insertCloudManualMirrorPanel(
             panel, at: .workspace(id: workspace.id, placement: .tab), focus: true, isLoading: false
         )
-        focusHostedTerminalForRepairTesting(window: window, hostedView: panel.hostedView)
-        // Explicit input starts the runtime; a manual mirror has no child
-        // process or initial output to trigger background admission in this test.
-        panel.surface.attachToViewForInputDemand(panel.hostedView.surfaceView)
-        panel.surface.requestInputDemandSurfaceStartIfNeeded()
-        waitUntil(timeout: 2) { panel.surface.hasLiveSurface }
-        XCTAssertTrue(panel.surface.hasLiveSurface, "Manual surface must be live to observe actual key encoding")
-
-        // Reproduce the gap between the optimistic tab selection and its portal
-        // mounting in this window. The selected surface already owns the input.
+        // Keep the real manual pane unmounted and cold. Early typing must reach
+        // its actual input queue without depending on renderer availability.
         TerminalWindowPortalRegistry.detach(hostedView: panel.hostedView)
         panel.hostedView.removeFromSuperview()
         _ = window.makeFirstResponder(nil)
-        XCTAssertFalse(panel.hostedView.surfaceView.window === window)
+        let view = panel.hostedView.surfaceView
+        XCTAssertFalse(view.window === window)
+        XCTAssertFalse(panel.surface.hasLiveSurface)
+        XCTAssertTrue(panel.surface.canCreateRuntimeSurface)
         XCTAssertEqual(workspace.focusedTerminalInputTarget()?.0, panel.id)
 #if DEBUG
-        let probe = installFocusedTerminalRepairProbeForTesting(appDelegate: appDelegate, keyCode: 14)
-        defer { probe.restore() }
         let specification = try XCTUnwrap(SyntheticKeyEventFactory.parseShortcutCombo("e"))
         let event = try XCTUnwrap(SyntheticKeyEventFactory.keyEvent(
             specification: specification, keyDown: true, timestamp: ProcessInfo.processInfo.systemUptime
         ))
         window.sendEvent(event)
-        XCTAssertEqual(probe.forwardedKeyDownCount(), 1, "The first key must reach its selected pane exactly once before mount")
-        var releases = 0
-        let previousObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
-        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { event in
-            previousObserver?(event)
-            if event.action == GHOSTTY_ACTION_RELEASE, event.keycode == 14 { releases += 1 }
-        }
-        defer { GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousObserver }
+        XCTAssertEqual(view.debugPendingInputKeyEventsForTesting().map(\.type), [.keyDown])
+        XCTAssertEqual(view.debugPendingInputKeyEventsForTesting().map(\.keyCode), [14])
         let keyUp = try XCTUnwrap(SyntheticKeyEventFactory.keyEvent(
             specification: specification, keyDown: false, timestamp: ProcessInfo.processInfo.systemUptime
         ))
         window.sendEvent(keyUp)
-        XCTAssertEqual(releases, 1, "The release must reach the same unmounted pane exactly once")
+        XCTAssertEqual(view.debugPendingInputKeyEventsForTesting().map(\.type), [.keyDown, .keyUp])
+        XCTAssertEqual(view.debugPendingInputKeyEventsForTesting().map(\.keyCode), [14, 14])
 #endif
     }
 

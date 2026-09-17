@@ -4569,6 +4569,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         synchronizeGhosttyMouseSurfaceIdentity()
     }
 
+#if DEBUG
+    /// Event ownership at the cold-runtime boundary, without requiring a GPU
+    /// renderer in an app-host test. The live app verifies later byte delivery.
+    func debugPendingInputKeyEventsForTesting() -> [NSEvent] {
+        pendingInputReplayActions.compactMap { action in
+            switch action {
+            case .keyDown(let event), .keyUp(let event): return event
+            case .paste: return nil
+            }
+        }
+    }
+#endif
+
     private func queueExplicitKeyDownForInputDemand(_ event: NSEvent) {
         guard let owningSurface = terminalSurface else { return }
         guard pendingKeyDownActionCount < Self.maximumPendingExplicitKeyDownEvents,
