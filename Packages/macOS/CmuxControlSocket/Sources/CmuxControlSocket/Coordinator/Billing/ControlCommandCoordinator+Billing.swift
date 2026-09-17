@@ -11,7 +11,7 @@ extension ControlCommandCoordinator {
         context: (any ControlCommandContext)?
     ) -> ControlCallResult {
         let plan = string(params, "plan") ?? "pro"
-        guard plan == "pro" || plan == "team" else {
+        guard ["go", "pro", "max"].contains(plan) else {
             return .ok(.object([
                 "ok": .bool(false),
                 "error": .string("invalid_plan"),

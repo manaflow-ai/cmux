@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxIrohTransport
 import Foundation
 @preconcurrency import Network
 import Testing
@@ -10,6 +11,52 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct MobileHostAuthorizationTests {
+    @Test func authenticatedStatusRetriesUntilTheCurrentIdentityExists() throws {
+        MobileHostPublicStatusCache.removeAll()
+        defer { MobileHostPublicStatusCache.removeAll() }
+        guard case let .failure(error) = MobileHostPublicStatusCache.result(includeIdentity: true) else {
+            Issue.record("Authenticated status must wait for a device identity")
+            return
+        }
+        #expect(error.code == "unavailable")
+        let data = try #require(error.data as? [String: Any])
+        #expect(data["retryable"] as? Bool == true)
+        guard case .ok = MobileHostPublicStatusCache.result() else {
+            Issue.record("Public reachability remains available during identity setup")
+            return
+        }
+        MobileHostPublicStatusCache.updateV2DeviceID("current-device")
+        guard case let .ok(payload as [String: Any]) = MobileHostPublicStatusCache.result(includeIdentity: true) else {
+            Issue.record("Configured identity must be returned")
+            return
+        }
+        #expect(payload["mac_device_id"] as? String == "current-device")
+    }
+
+    @Test func olderPeerStatusKeepsItsDirectoryIdentityWithoutChangingV2Status() throws {
+        MobileHostPublicStatusCache.updateV2DeviceID("v2-team-installation")
+        defer { MobileHostPublicStatusCache.removeAll() }
+        guard case let .ok(older as [String: Any]) = MobileHostPublicStatusCache.result(
+            includeIdentity: true, deviceID: "existing-physical-mac"
+        ), case let .ok(modern as [String: Any]) = MobileHostPublicStatusCache.result(includeIdentity: true) else {
+            Issue.record("Both admitted protocols must receive a computer identity")
+            return
+        }
+        #expect(older["mac_device_id"] as? String == "existing-physical-mac")
+        #expect(modern["mac_device_id"] as? String == "v2-team-installation")
+        #expect(MobileHostPublicStatusCache.currentV2DeviceID() == "v2-team-installation")
+    }
+
+    @Test func stoppingHostStatusClearsIdentityAlongsideRoutes() {
+        MobileHostPublicStatusCache.updateV2DeviceID("previous-account-device")
+        MobileHostPublicStatusCache.removeAll()
+        #expect(MobileHostPublicStatusCache.currentV2DeviceID() == nil)
+        guard case .failure = MobileHostPublicStatusCache.result(includeIdentity: true) else {
+            Issue.record("A stopped host cannot publish its previous identity")
+            return
+        }
+    }
+
     @Test func testAttachTicketStoreKeepsMultipleTicketsForSameTerminal() throws {
         let store = MobileAttachTicketStore()
         let route = try CmxAttachRoute(
@@ -118,8 +165,12 @@ struct MobileHostAuthorizationTests {
     @Test func testLiveAuthorizationRejectsWorkspaceScopedAttachTokenForMacScopedMutations() async throws {
         let service = MobileHostService.shared
         service.debugConfigureAcceptedStackAuthTokenForTesting("cmux-dev-token")
-        service.debugSetListenerStateForTesting(generation: UUID(), usesEphemeralFallback: false, port: 61234)
-        defer { service.debugConfigureAcceptedStackAuthTokenForTesting(nil); service.debugSetListenerStateForTesting(generation: UUID(), usesEphemeralFallback: false, port: nil) }
+        MobileHostPublicStatusCache.update(routes: [try CmxAttachRoute(
+            id: "fixture", kind: .debugLoopback, endpoint: .hostPort(host: "127.0.0.1", port: 61234))])
+        defer {
+            service.debugConfigureAcceptedStackAuthTokenForTesting(nil)
+            MobileHostPublicStatusCache.removeAll()
+        }
         let payload = try await service.createAttachTicket(workspaceID: "workspace-main", terminalID: nil, ttl: 3600)
         let ticketPayload = try #require(payload["ticket"] as? [String: Any])
         let attachToken = try #require(ticketPayload["auth_token"] as? String)
@@ -144,7 +195,42 @@ struct MobileHostAuthorizationTests {
             #expect(error.code == "forbidden")
         }
     }
+    @Test func testAccountAuthorizedMacScopedMutationsSurviveMissingOrExpiredAttachTicket() async {
+        let service = MobileHostService.shared
+        service.debugConfigureAcceptedStackAuthTokenForTesting("cmux-dev-token")
+        defer { service.debugConfigureAcceptedStackAuthTokenForTesting(nil) }
+        guard MobileHostService.mobileHostCapabilities.contains(
+            "workspace.mutations.account_auth.v1"
+        ) else {
+            return #expect(
+                Bool(false),
+                "the host must advertise account-authorized workspace mutations"
+            )
+        }
+        let mutations: [(String, [String: Any])] = [
+            ("workspace.move", ["workspace_id": "workspace-main", "before_workspace_id": "workspace-next"]),
+            ("workspace.group.action", ["group_id": "group-main", "action": "rename"]),
+            ("workspace.group.create", [:]),
+            ("workspace.create", ["group_id": "group-main"]),
+        ]
+        for (method, params) in mutations {
+            for attachToken in [nil, "expired-or-unknown-token"] {
+                let request = MobileHostRPCRequest(
+                    id: method,
+                    method: method,
+                    params: params,
+                    auth: MobileHostRPCAuth(attachToken: attachToken, stackAccessToken: "cmux-dev-token")
+                )
+                let result = await service.debugAuthorizationError(for: request)
+                #expect(
+                    result == nil,
+                    "\(method) with \(attachToken == nil ? "no" : "a stale") attach token must be authorized by the Stack account gate"
+                )
+            }
+        }
+    }
     #endif
+
     @Test func testMobileHostRPCRejectsInvalidParamsShape() {
         let data = Data(#"{"id":"bad-params","method":"workspace.list","params":[]}"#.utf8)
         let result = MobileHostRPCEnvelope.decodeRequest(data)
@@ -171,13 +257,15 @@ struct MobileHostAuthorizationTests {
         }
         #expect(request.auth == nil)
     }
-    @Test func testMobileRouteResolverPrefersTailscaleMagicDNSBeforeIPv4Fallback() throws {
+    @Test func testMobileRouteResolverPublishesOnlyNumericTailscaleAddresses() throws {
         let resolver = MobileRouteResolver()
         let snapshot = resolver.routes(
             port: 61234,
             tailscaleHosts: [
                 "work-mac.tailnet.ts.net",
                 "100.71.210.41",
+                "fd7a:115c:a1e0::1234",
+                "203.0.113.10",
             ]
         )
         let tailscaleRoutes = snapshot.routes.filter { $0.kind == .tailscale }
@@ -185,16 +273,16 @@ struct MobileHostAuthorizationTests {
         #expect(tailscaleRoutes.first?.priority == 10)
         #expect(tailscaleRoutes.last?.priority == 20)
         if case let .hostPort(host, port) = tailscaleRoutes.first?.endpoint {
-            #expect(host == "work-mac.tailnet.ts.net")
-            #expect(port == 61234)
-        } else {
-            #expect(Bool(false), "Expected first Tailscale route to use a host/port endpoint")
-        }
-        if case let .hostPort(host, port) = tailscaleRoutes.last?.endpoint {
             #expect(host == "100.71.210.41")
             #expect(port == 61234)
         } else {
-            #expect(Bool(false), "Expected fallback Tailscale route to use a host/port endpoint")
+            #expect(Bool(false), "Expected first numeric Tailscale route")
+        }
+        if case let .hostPort(host, port) = tailscaleRoutes.last?.endpoint {
+            #expect(host == "fd7a:115c:a1e0::1234")
+            #expect(port == 61234)
+        } else {
+            #expect(Bool(false), "Expected IPv6 Tailscale route")
         }
     }
     @Test func testMobileRouteResolverImmediateSnapshotUsesNumericTailscaleFallbackWithoutDNS() throws {
@@ -227,12 +315,12 @@ struct MobileHostAuthorizationTests {
             }
         )
         let tailscaleRoutes = snapshot.routes.filter { $0.kind == .tailscale }
-        #expect(tailscaleRoutes.count == 2)
+        #expect(tailscaleRoutes.count == 1)
         if case let .hostPort(host, port) = tailscaleRoutes.first?.endpoint {
-            #expect(host == "work-mac.tailnet.ts.net")
+            #expect(host == "100.71.210.41")
             #expect(port == 61234)
         } else {
-            #expect(Bool(false), "Expected public status route to wait for MagicDNS")
+            #expect(Bool(false), "Expected public status to publish the numeric Tailscale route")
         }
     }
     @Test func testMobileRouteResolverRefreshesStalePublicStatusRoutes() async throws {
@@ -260,7 +348,7 @@ struct MobileHostAuthorizationTests {
         )
         let tailscaleRoutes = refreshed.routes.filter { $0.kind == .tailscale }
         if case let .hostPort(host, port) = tailscaleRoutes.first?.endpoint {
-            #expect(host == "new-mac.tailnet.ts.net")
+            #expect(host == "100.71.210.42")
             #expect(port == 61234)
         } else {
             #expect(Bool(false), "Expected stale public status routes to refresh")
@@ -288,7 +376,7 @@ struct MobileHostAuthorizationTests {
         )
         let tailscaleRoutes = refreshed.routes.filter { $0.kind == .tailscale }
         if case let .hostPort(host, port) = tailscaleRoutes.first?.endpoint {
-            #expect(host == "work-mac.tailnet.ts.net")
+            #expect(host == "100.71.210.41")
             #expect(port == 61234)
         } else {
             #expect(Bool(false), "Expected IP-only public status routes to retry MagicDNS resolution")
@@ -329,9 +417,9 @@ struct MobileHostAuthorizationTests {
         let snapshot = resolver.routes(port: 61234, immediateHosts: { [] })
         let tailscaleRoutes = snapshot.routes.filter { $0.kind == .tailscale }
         if case let .hostPort(host, _) = tailscaleRoutes.first?.endpoint {
-            #expect(host == "work-mac.tailnet.ts.net")
+            #expect(host == "100.71.210.41")
         } else {
-            #expect(Bool(false), "Expected callback refresh to populate the MagicDNS route")
+            #expect(Bool(false), "Expected callback refresh to populate the numeric route")
         }
     }
     @Test func testMobileAttachTicketCreateRequiresAuthorization() async {
@@ -384,6 +472,47 @@ struct MobileHostAuthorizationTests {
             id: "workspace-list",
             method: "workspace.list",
             params: [:],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+        let error = MobileHostService.ticketAuthorizationError(ticket: ticket, request: request)
+        #expect(error == nil)
+    }
+    @Test func testScopedAttachTicketAcceptsMacCaffeineControl() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
+        let requests: [(method: String, params: [String: Any])] = [
+            ("caffeine.status", [:]),
+            ("caffeine.set", ["enabled": true]),
+        ]
+        for (method, params) in requests {
+            let request = MobileHostRPCRequest(
+                id: method,
+                method: method,
+                params: params,
+                auth: MobileHostRPCAuth(
+                    attachToken: ticket.authToken,
+                    stackAccessToken: nil
+                )
+            )
+            let error = MobileHostService.ticketAuthorizationError(
+                ticket: ticket,
+                request: request
+            )
+            #expect(error == nil)
+        }
+    }
+    @Test func testAttachTicketAcceptsMacDirectoryListForPairedDevice() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
+        let request = MobileHostRPCRequest(
+            id: "directory-list",
+            method: "mobile.directory.list",
+            params: [
+                "path": "~",
+                "offset": 0,
+                "limit": 50,
+            ],
             auth: MobileHostRPCAuth(
                 attachToken: ticket.authToken,
                 stackAccessToken: nil
@@ -779,330 +908,6 @@ struct MobileHostAuthorizationTests {
         )
         terminalController.debugResetMobileViewportReportsForTesting()
     }
-    @Test func testMobileHostIgnoresStaleListenerStateCallbacks() {
-        let service = MobileHostService.shared
-        let currentGeneration = UUID()
-        let staleGeneration = UUID()
-        service.debugResetMobileLifecycleStateForTesting()
-        service.debugSetListenerStateForTesting(
-            generation: currentGeneration,
-            usesEphemeralFallback: true,
-            port: 61234
-        )
-        service.debugHandleListenerStateForTesting(
-            .failed(.posix(.ECONNRESET)),
-            generation: staleGeneration
-        )
-        #expect(service.debugListenerGenerationForTesting() == currentGeneration)
-        #expect(service.debugListenerUsesEphemeralFallbackForTesting())
-        #expect(service.debugListenerPortForTesting() == 61234)
-        service.debugHandleListenerStateForTesting(.cancelled, generation: staleGeneration)
-        #expect(service.debugListenerGenerationForTesting() == currentGeneration)
-        #expect(service.debugListenerUsesEphemeralFallbackForTesting())
-        #expect(service.debugListenerPortForTesting() == 61234)
-    }
-    @Test func testMobileHostWaitingListenerDoesNotPublishRoutes() {
-        let service = MobileHostService.shared
-        let generation = UUID()
-        service.stop()
-        service.debugResetMobileLifecycleStateForTesting()
-        service.debugSetListenerStateForTesting(
-            generation: generation,
-            usesEphemeralFallback: false,
-            port: 61234
-        )
-        service.debugHandleListenerStateForTesting(.waiting(.posix(.EADDRINUSE)), generation: generation)
-        let status = service.statusSnapshot()
-        #expect(!status.isRunning)
-        #expect(status.port == nil)
-        #expect(status.routes.isEmpty)
-        #expect(service.debugListenerPortForTesting() == nil)
-    }
-    @Test func testMobileHostConnectionClosesWhenFirstFrameTimesOut() async throws {
-        let connectionID = UUID()
-        let recorder = MobileHostConnectionCloseRecorder()
-        let connection = NWConnection(
-            host: NWEndpoint.Host("127.0.0.1"),
-            port: NWEndpoint.Port(rawValue: 9)!,
-            using: .tcp
-        )
-        let session = MobileHostConnection(
-            id: connectionID,
-            connection: connection,
-            firstFrameTimeoutNanoseconds: 1_000_000,
-            authorizeRequest: { _ in nil },
-            onAuthorizedRequest: { _ in },
-            handleRequest: { _ in .ok([:]) },
-            onClose: { id in
-                await recorder.record(id)
-            }
-        )
-        await session.debugStartFirstFrameTimeoutForTesting()
-        for _ in 0..<100 {
-            let recordedIDs = await recorder.recordedIDs()
-            if !recordedIDs.isEmpty {
-                break
-            }
-            try await Task.sleep(nanoseconds: 1_000_000)
-        }
-        let finalRecordedIDs = await recorder.recordedIDs()
-        #expect(finalRecordedIDs == [connectionID])
-    }
-    @Test func testMobileHostConnectionClosesWhenIdleAfterFirstFrame() async throws {
-        let connectionID = UUID()
-        let recorder = MobileHostConnectionCloseRecorder()
-        let connection = NWConnection(
-            host: NWEndpoint.Host("127.0.0.1"),
-            port: NWEndpoint.Port(rawValue: 9)!,
-            using: .tcp
-        )
-        let session = MobileHostConnection(
-            id: connectionID,
-            connection: connection,
-            idleTimeoutNanoseconds: 1_000_000,
-            authorizeRequest: { _ in nil },
-            onAuthorizedRequest: { _ in },
-            handleRequest: { _ in .ok([:]) },
-            onClose: { id in
-                await recorder.record(id)
-            }
-        )
-        await session.debugStartIdleTimeoutAfterFrameForTesting()
-        for _ in 0..<100 {
-            let recordedIDs = await recorder.recordedIDs()
-            if !recordedIDs.isEmpty {
-                break
-            }
-            try await Task.sleep(nanoseconds: 1_000_000)
-        }
-        let finalRecordedIDs = await recorder.recordedIDs()
-        #expect(finalRecordedIDs == [connectionID])
-    }
-    @Test func testMobileHostConnectionKeepsSubscribedEventStreamPastIdleTimeout() async throws {
-        let connectionID = UUID()
-        let recorder = MobileHostConnectionCloseRecorder()
-        let connection = NWConnection(
-            host: NWEndpoint.Host("127.0.0.1"),
-            port: NWEndpoint.Port(rawValue: 9)!,
-            using: .tcp
-        )
-        let session = MobileHostConnection(
-            id: connectionID,
-            connection: connection,
-            idleTimeoutNanoseconds: 1_000_000,
-            authorizeRequest: { _ in nil },
-            onAuthorizedRequest: { _ in },
-            handleRequest: { _ in .ok([:]) },
-            onClose: { id in
-                await recorder.record(id)
-            }
-        )
-        await session.subscribe(streamID: "events", topics: ["terminal.updated"])
-        await session.debugStartIdleTimeoutAfterFrameForTesting()
-        // An active subscription suppresses the idle-after-frame timeout: the
-        // arm path early-returns without scheduling any close. Awaiting an
-        // actor-isolated round-trip on the connection guarantees the arm call
-        // was fully processed and that the connection is still alive and
-        // subscribed, so the recorder reflects the final state with no
-        // wall-clock window to race.
-        #expect(await session.isSubscribed(to: "terminal.updated"))
-        let subscribedCloseIDs = await recorder.recordedIDs()
-        #expect(subscribedCloseIDs.isEmpty)
-        _ = await session.unsubscribe(streamID: "events")
-        for _ in 0..<100 {
-            let recordedIDs = await recorder.recordedIDs()
-            if !recordedIDs.isEmpty {
-                break
-            }
-            try await Task.sleep(nanoseconds: 1_000_000)
-        }
-        let finalRecordedIDs = await recorder.recordedIDs()
-        #expect(finalRecordedIDs == [connectionID])
-    }
-    @Test func testTerminalRenderObserverRetainsGhosttyDemandOnlyWithTerminalSubscriber() async throws {
-        let service = MobileHostService.shared
-        service.debugResetMobileLifecycleStateForTesting()
-        let observer = MobileTerminalRenderObserver.shared
-        observer.stop()
-        observer.start()
-        defer {
-            observer.stop()
-            service.debugResetMobileLifecycleStateForTesting()
-        }
-        await drainMobileHostMainQueue()
-        #expect(!MobileHostService.debugHasEventSubscribersForTesting(topic: "terminal.updated"))
-        #expect(!observer.debugIsRetainingNotificationDemandForTesting)
-        let session = MobileHostConnection(
-            id: UUID(),
-            connection: NWConnection(
-                host: NWEndpoint.Host("127.0.0.1"),
-                port: NWEndpoint.Port(rawValue: 9)!,
-                using: .tcp
-            ),
-            authorizeRequest: { _ in nil },
-            onAuthorizedRequest: { _ in },
-            handleRequest: { _ in .ok([:]) },
-            onClose: { _ in }
-        )
-        await session.subscribe(streamID: "events", topics: ["terminal.updated"])
-        await drainMobileHostMainQueue()
-        #expect(MobileHostService.debugHasEventSubscribersForTesting(topic: "terminal.updated"))
-        #expect(observer.debugIsRetainingNotificationDemandForTesting)
-        _ = await session.unsubscribe(streamID: "events")
-        await drainMobileHostMainQueue()
-        #expect(!MobileHostService.debugHasEventSubscribersForTesting(topic: "terminal.updated"))
-        #expect(!observer.debugIsRetainingNotificationDemandForTesting)
-    }
-    @Test func testMobileWorkspaceListHashIncludesDisplayedDirectories() {
-        let workspace = Workspace(
-            title: "Mobile",
-            workingDirectory: "/tmp/mobile-a",
-            portOrdinal: 0
-        )
-        let initial = MobileWorkspaceListObserver.summaryHashForTesting(
-            tabs: [workspace],
-            selectedTabID: workspace.id
-        )
-        workspace.currentDirectory = "/tmp/mobile-b"
-        let afterWorkspaceDirectory = MobileWorkspaceListObserver.summaryHashForTesting(
-            tabs: [workspace],
-            selectedTabID: workspace.id
-        )
-        #expect(initial != afterWorkspaceDirectory)
-        workspace.panelDirectories[UUID()] = "/tmp/mobile-terminal"
-        let afterTerminalDirectory = MobileWorkspaceListObserver.summaryHashForTesting(
-            tabs: [workspace],
-            selectedTabID: workspace.id
-        )
-        #expect(afterWorkspaceDirectory != afterTerminalDirectory)
-    }
-    @Test func testMobileHostConnectionDoesNotPersistUnauthorizedEventSubscription() async throws {
-        let connectionID = UUID()
-        let recorder = MobileHostConnectionCloseRecorder()
-        let socket = try MobileHostStartedTestSocket()
-        defer { socket.close() }
-        let session = MobileHostConnection(
-            id: connectionID,
-            connection: socket.connection,
-            idleTimeoutNanoseconds: 1_000_000,
-            authorizeRequest: { _ in
-                .failure(MobileHostRPCError(code: "unauthorized", message: "no"))
-            },
-            onAuthorizedRequest: { _ in },
-            handleRequest: { _ in .ok([:]) },
-            onClose: { id in
-                await recorder.record(id)
-            }
-        )
-        let frame = try MobileSyncFrameCodec.encodeFrame(
-            Data(#"{"id":"subscribe","method":"mobile.events.subscribe","params":{"stream_id":"events","topics":["terminal.updated"]}}"#.utf8)
-        )
-        await session.debugHandleReceiveDataForTesting(frame)
-        try await Task.sleep(nanoseconds: 25_000_000)
-        await session.debugStartIdleTimeoutAfterFrameForTesting()
-        for _ in 0..<100 {
-            let recordedIDs = await recorder.recordedIDs()
-            if !recordedIDs.isEmpty {
-                break
-            }
-            try await Task.sleep(nanoseconds: 1_000_000)
-        }
-        let finalRecordedIDs = await recorder.recordedIDs()
-        #expect(finalRecordedIDs == [connectionID])
-    }
-    @Test func testMobileHostConnectionStopsBatchedFrameProcessingAfterClose() async throws {
-        let connectionID = UUID()
-        let requestRecorder = MobileHostConnectionRequestRecorder()
-        let sessionBox = MobileHostConnectionBox()
-        // Deterministic ordering signals replace the former timing race: the
-        // first frame's authorize records and closes the session, then fulfills
-        // `firstRecorded`. The second frame's authorize blocks on `secondGate`
-        // (held until close is confirmed) instead of a fixed 100ms sleep, so the
-        // close provably lands before the second frame can proceed.
-        let firstRecorded = AsyncTestSignal()
-        let secondAuthorizeStarted = AsyncTestSignal()
-        let secondAuthorizeFinished = AsyncTestSignal()
-        let secondGate = SendableSemaphore(value: 0)
-        let connection = NWConnection(
-            host: NWEndpoint.Host("127.0.0.1"),
-            port: NWEndpoint.Port(rawValue: 9)!,
-            using: .tcp
-        )
-        let session = MobileHostConnection(
-            id: connectionID,
-            connection: connection,
-            authorizeRequest: { request in
-                if request.id as? String == "second" {
-                    secondAuthorizeStarted.fulfill()
-                    secondGate.wait()
-                    secondAuthorizeFinished.fulfill()
-                }
-                return nil
-            },
-            onAuthorizedRequest: { request in
-                await requestRecorder.record(request)
-                await sessionBox.close(reason: "test close after first batched frame")
-                firstRecorded.fulfill()
-            },
-            handleRequest: { _ in .ok([:]) },
-            onClose: { _ in }
-        )
-        await sessionBox.set(session)
-        let firstFrame = try MobileSyncFrameCodec.encodeFrame(
-            Data(#"{"id":"first","method":"workspace.list","params":{}}"#.utf8)
-        )
-        let secondFrame = try MobileSyncFrameCodec.encodeFrame(
-            Data(#"{"id":"second","method":"terminal.input","params":{"text":"should-not-run"}}"#.utf8)
-        )
-        var batch = Data()
-        batch.append(firstFrame)
-        batch.append(secondFrame)
-        await session.debugHandleReceiveDataForTesting(batch)
-        // Wait for the first frame to record and close the connection, then
-        // confirm the second frame's authorize is in flight before releasing it.
-        try await firstRecorded.wait()
-        try await secondAuthorizeStarted.wait()
-        secondGate.signal()
-        try await secondAuthorizeFinished.wait()
-        // After the second authorize returns, `respond` re-checks `isClosed`
-        // synchronously and drops the frame without recording it. An
-        // actor-isolated round-trip flushes that synchronous tail so the
-        // recorder reflects the final, settled state.
-        _ = await session.isSubscribed(to: "terminal.updated")
-        let recordedMethods = await requestRecorder.recordedMethods()
-        #expect(recordedMethods == ["workspace.list"])
-    }
-    // MARK: - Advertised mobile host capabilities
-    @Test func testMobileHostAdvertisesWorkspaceActionCapabilities() {
-        let capabilities = MobileHostService.mobileHostCapabilities
-        #expect(capabilities.contains("workspace.actions.v1"))
-        #expect(capabilities.contains("workspace.read_state.v1"))
-        #expect(capabilities.contains("workspace.close.v1"))
-        #expect(capabilities.contains("workspace.move.v1"))
-        #expect(capabilities.contains("workspace.group_actions.v1"))
-        #expect(capabilities.contains("terminal.render_grid.v1"))
-    }
-    // MARK: - Mobile workspace.action sub-action gate
-    @Test func testMobileWorkspaceActionGateAllowsOnlyPinNameAndReadStateActions() {
-        for action in ["pin", "unpin", "rename", "mark_read", "mark_unread", "PIN", "UnPin", "RENAME", "MARK_READ", "Mark_Unread"] {
-            #expect(
-                TerminalController.mobileAllowsWorkspaceAction(action),
-                "mobile workspace.action '\(action)' should be allowed"
-            )
-        }
-        for action in [
-            "move_up", "move-down", "move_top",
-            "close_others", "close_above", "close_below",
-            "set_color", "clear_color", "set_description", "clear_description",
-            "clear_name", "close", "self_destruct", "",
-        ] {
-            #expect(
-                !TerminalController.mobileAllowsWorkspaceAction(action),
-                "mobile workspace.action '\(action)' must be rejected"
-            )
-        }
-        #expect(!TerminalController.mobileAllowsWorkspaceAction(nil))
-    }
     private func scopedAttachTicket(workspaceID: String, terminalID: String?) throws -> CmxAttachTicket {
         let route = try CmxAttachRoute(id: "debug", kind: .debugLoopback, endpoint: .hostPort(host: "127.0.0.1", port: 58465))
         return try CmxAttachTicket(
@@ -1150,7 +955,7 @@ struct MobileHostAuthorizationTests {
             createdWorkspaceIDs: createdWorkspaceIDs
         )
     }
-    private func drainMobileHostMainQueue() async {
+    func drainMobileHostMainQueue() async {
         await withCheckedContinuation { continuation in
             DispatchQueue.main.async { continuation.resume() }
         }
@@ -1161,7 +966,7 @@ private enum MobileHostStartedTestSocketError: Error {
     case listenerNotReady
     case connectionNotReady
 }
-private final class MobileHostStartedTestSocket: @unchecked Sendable {
+final class MobileHostStartedTestSocket: @unchecked Sendable {
     let connection: NWConnection
     private let listener: NWListener
     private let queue: DispatchQueue
@@ -1212,7 +1017,7 @@ private final class MobileHostStartedTestSocket: @unchecked Sendable {
         listener.cancel()
     }
 }
-private actor MobileHostConnectionCloseRecorder {
+actor MobileHostConnectionCloseRecorder {
     private var ids: [UUID] = []
     func record(_ id: UUID) {
         ids.append(id)
@@ -1221,7 +1026,12 @@ private actor MobileHostConnectionCloseRecorder {
         ids
     }
 }
-private actor MobileHostConnectionRequestRecorder {
+actor MobileHostAuthorizationInvocationRecorder {
+    private var invocations = 0
+    func record() { invocations += 1 }
+    func count() -> Int { invocations }
+}
+actor MobileHostConnectionRequestRecorder {
     private var methods: [String] = []
     func record(_ request: MobileHostRPCRequest) {
         methods.append(request.method)
@@ -1230,7 +1040,7 @@ private actor MobileHostConnectionRequestRecorder {
         methods
     }
 }
-private actor MobileHostConnectionBox {
+actor MobileHostConnectionBox {
     private var session: MobileHostConnection?
     func set(_ session: MobileHostConnection) {
         self.session = session
@@ -1239,10 +1049,158 @@ private actor MobileHostConnectionBox {
         await session?.close(reason: reason)
     }
 }
+actor RecordingMobileHostByteTransport: CmxByteTransport {
+    private var sent: [Data] = []
+    private var closeCount = 0
+
+    func connect() async throws {}
+    func receive() async throws -> Data? { nil }
+    func send(_ data: Data) async throws { sent.append(data) }
+    func close() async { closeCount += 1 }
+
+    func waitForSentBufferCount(_ count: Int) async -> [Data] {
+        for _ in 0..<1_000 {
+            if sent.count >= count { return sent }
+            await Task.yield()
+        }
+        return sent
+    }
+
+    func observedCloseCount() -> Int { closeCount }
+}
+private enum TestMobileHostIndependentEventWriterError: Error {
+    case failed
+}
+actor TestMobileHostIndependentEventWriter: MobileHostIndependentEventWriting {
+    enum Behavior: Sendable {
+        case failAfterProbe
+        case blockAfterProbe
+    }
+
+    private let behavior: Behavior
+    private var sendCount = 0
+    private var closeCount = 0
+    private var blockedWaiter: CheckedContinuation<Void, any Error>?
+    private var blockedProbeWaiter: CheckedContinuation<Bool, Never>?
+    private let blockedStream: AsyncStream<Void>
+    private let blockedContinuation: AsyncStream<Void>.Continuation
+    private let blockedProbeStream: AsyncStream<Void>
+    private let blockedProbeContinuation: AsyncStream<Void>.Continuation
+
+    init(behavior: Behavior) {
+        self.behavior = behavior
+        let blocked = AsyncStream<Void>.makeStream()
+        blockedStream = blocked.stream
+        blockedContinuation = blocked.continuation
+        let blockedProbe = AsyncStream<Void>.makeStream()
+        blockedProbeStream = blockedProbe.stream
+        blockedProbeContinuation = blockedProbe.continuation
+    }
+
+    func probe(_: Data) async -> Bool {
+        if blockedWaiter != nil {
+            blockedProbeContinuation.yield(())
+            return await withCheckedContinuation { continuation in
+                blockedProbeWaiter = continuation
+            }
+        }
+        sendCount += 1
+        return true
+    }
+
+    func send(_: Data) async throws {
+        sendCount += 1
+        switch behavior {
+        case .failAfterProbe:
+            throw TestMobileHostIndependentEventWriterError.failed
+        case .blockAfterProbe:
+            blockedContinuation.yield(())
+            try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { continuation in
+                    blockedWaiter = continuation
+                }
+            } onCancel: {
+                Task { await self.cancelBlockedSend() }
+            }
+        }
+    }
+
+    func reset() async {
+        blockedWaiter?.resume(throwing: TestMobileHostIndependentEventWriterError.failed)
+        blockedWaiter = nil
+    }
+
+    func close() async {
+        closeCount += 1
+        blockedWaiter?.resume(throwing: CancellationError())
+        blockedWaiter = nil
+        blockedProbeWaiter?.resume(returning: false)
+        blockedProbeWaiter = nil
+    }
+
+    func blockedEvents() -> AsyncStream<Void> { blockedStream }
+    func blockedProbeEvents() -> AsyncStream<Void> { blockedProbeStream }
+    func observedSendCount() -> Int { sendCount }
+    func observedCloseCount() -> Int { closeCount }
+
+    func failBlockedSend() {
+        blockedWaiter?.resume(throwing: TestMobileHostIndependentEventWriterError.failed)
+        blockedWaiter = nil
+    }
+
+    func releaseBlockedProbe(result: Bool) {
+        blockedProbeWaiter?.resume(returning: result)
+        blockedProbeWaiter = nil
+    }
+
+    private func cancelBlockedSend() {
+        blockedWaiter?.resume(throwing: CancellationError())
+        blockedWaiter = nil
+    }
+}
+actor BlockingMobileHostIrohSendStream: CmxIrohSendStream {
+    private var sendWaiter: CheckedContinuation<Void, any Error>?
+    private var resetCodes: [UInt64] = []
+    private var wasReset = false
+
+    func send(_: Data) async throws {
+        guard !wasReset else {
+            throw TestMobileHostIndependentEventWriterError.failed
+        }
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                sendWaiter = continuation
+            }
+        } onCancel: {
+            Task { await self.cancelSend() }
+        }
+    }
+
+    func finish() async throws {}
+
+    func reset(errorCode: UInt64) async {
+        wasReset = true
+        resetCodes.append(errorCode)
+        sendWaiter?.resume(throwing: TestMobileHostIndependentEventWriterError.failed)
+        sendWaiter = nil
+    }
+
+    func setPriority(_: Int32) async throws {}
+    func observedResetCodes() -> [UInt64] { resetCodes }
+
+    private func cancelSend() {
+        sendWaiter?.resume(throwing: CancellationError())
+        sendWaiter = nil
+    }
+}
+actor ImmediateMobileHostIrohReceiveStream: CmxIrohReceiveStream {
+    func receive(maximumByteCount _: Int) -> Data? { nil }
+    func stop(errorCode _: UInt64) {}
+}
 private enum AsyncTestSignalError: Error {
     case timedOut
 }
-private final class AsyncTestSignal: @unchecked Sendable {
+final class AsyncTestSignal: @unchecked Sendable {
     private let condition = NSCondition()
     private var fulfilled = false
     func fulfill() {
@@ -1267,7 +1225,7 @@ private final class AsyncTestSignal: @unchecked Sendable {
         }
     }
 }
-private final class SendableSemaphore: @unchecked Sendable {
+final class SendableSemaphore: @unchecked Sendable {
     private let semaphore: DispatchSemaphore
     init(value: Int) {
         semaphore = DispatchSemaphore(value: value)

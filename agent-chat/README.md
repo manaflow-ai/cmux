@@ -1,6 +1,6 @@
 # cmux-agent-ui
 
-MVP of the "UI mode" for cmux: a web chat surface (initial composer + chat view) rendered in cmux's existing browser surface, backed by any coding agent CLI. No Swift changes; the app side is just `cmux browser open http://127.0.0.1:7739`.
+MVP of the "UI mode" for cmux: a web chat surface (initial composer + chat view) rendered in cmux's existing browser surface, backed by any coding agent CLI. In production cmux launches the sidecar on a discovered loopback port and opens the unguessable token-prefixed URL it reports.
 
 ## Run
 
@@ -8,13 +8,37 @@ Three entrypoints, all landing on the same server:
 
 - **CLI** (`cmux-chat`, symlinked into `~/.local/bin`): `cmux-chat` opens a composer as a new workspace tab; `cmux-chat -p codex fix the tests` starts the chat immediately; `--split` opens in the current workspace instead; `--no-open` prints the URL. It auto-starts the server if needed.
 - **Command palette**: `Cmd+Shift+P` → "New Agent Chat". Wired via `~/.config/cmux/cmux.json` (`actions.agent-chat` → `workspaceCommand` "Agent Chat" with a browser-surface layout), cmux's designed extension point, so no app build. When this productizes it becomes a built-in palette command in the cmux repo.
-- **Server** runs under launchd (`~/Library/LaunchAgents/com.cmux.agent-ui.plist`, KeepAlive) on http://127.0.0.1:7739. Remove with `launchctl bootout gui/501/com.cmux.agent-ui && rm ~/Library/LaunchAgents/com.cmux.agent-ui.plist`. Manual run: `bun server.ts`.
+- **Server** runs as a cmux sidecar. Manual dev run: `bun server.ts` (defaults to `http://127.0.0.1:7739` with no token). Production launchers set `CMUX_AGENT_CHAT_PORT=0`, `CMUX_AGENT_CHAT_TOKEN=<unguessable>`, and `CMUX_AGENT_CHAT_STATE_FILE=<path>`; after bind the server atomically writes `{"port":..., "pid":..., "protocolVersion":1}` so cmux can open `http://127.0.0.1:<port>/<token>/`.
 
-One page = one session: `/` is the composer, `/s/<id>` a chat. There is deliberately no in-page session list or header; each chat is its own cmux workspace tab (page title = first prompt), so cmux's sidebar is the session list.
+One page = one session: `/` is the composer, `/s/<id>` a chat. When `CMUX_AGENT_CHAT_TOKEN` or `--token` is configured, every HTTP route, static asset, API route, and WebSocket upgrade except `/healthz` must be under `/<token>/...`; missing or wrong tokens return 404. There is deliberately no in-page session list or header; each chat is its own cmux workspace tab (page title = first prompt), so cmux's sidebar is the session list.
+
+## Model catalog
+
+The sidecar fetches the model catalog from `https://cmux.dev/api/agent-models` (`CMUX_AGENT_MODELS_URL` overrides it for development), revalidates it with ETags after a one-hour TTL, and caches the last-good response at `~/.cache/cmux-agent-chat/models.json` for offline startup. Refreshes happen in the background; changed catalogs are pushed to open pages so model pickers update without reloading.
+
+Remote entries define the offered model order, labels, descriptions, defaults, context metadata, fast-mode support, and Claude minimum-version gates. Models reported only by the installed binary are appended. The built-in Claude and Gemini lists are used only until a remote payload has been fetched or loaded from disk. Model IDs are passed to provider CLIs verbatim, including remote-only IDs, so newly released models work without a sidecar update.
 
 ## Theming
 
-The server resolves the terminal's colors from `~/.config/ghostty/config` (theme file from `~/.config/ghostty/themes` or the cmux/Ghostty app bundle, explicit `background`/`foreground` overrides, `background-opacity`, blur) and injects them as CSS variables at serve time, so the page paints with the terminal background on first frame. The whole palette derives from bg/fg via `color-mix`, so light and dark themes both work; `/api/theme` exposes the resolved values. Splits opened by `cmux-chat --split` use `browser.open_split` with `transparent_background: true` plus `?transparent=1`, so the body is `rgba(bg, background-opacity)` and Ghostty transparency/blur shows through. Workspace-tab chats (palette, default CLI) are solid theme-bg because cmux workspace layout definitions don't carry a transparency flag yet; adding `transparent` to `CmuxSurfaceDefinition` in cmux would close that gap. Theme changes apply on page reload.
+The server resolves the terminal's colors from `~/.config/ghostty/config` (theme file from `~/.config/ghostty/themes` or the cmux/Ghostty app bundle, explicit `background`/`foreground` overrides, `palette = N=#rrggbb` ANSI colors, `selection-background`, `cursor-color`, `background-opacity`, blur) and injects them as CSS variables at serve time, so the page paints with the terminal background on first frame. Syntax highlighting maps token colors to the injected Ghostty ANSI palette (`--ansi-*`), so code colors track the active terminal theme without rebuilding the client bundle. `/api/theme` exposes the resolved values. Splits opened by `cmux-chat --split` use `browser.open_split` with `transparent_background: true` plus `?transparent=1`, so the body is `rgba(bg, background-opacity)` and Ghostty transparency/blur shows through. Workspace-tab chats (palette, default CLI) are solid theme-bg because cmux workspace layout definitions don't carry a transparency flag yet; adding `transparent` to `CmuxSurfaceDefinition` in cmux would close that gap. Theme changes apply live (the server watches the config and cmux pushes its resolved theme on reload/appearance changes). The accent color is picked hue-aware from the palette (blue/cyan/violet candidates first); set `agent-chat-accent = #rrggbb` in the ghostty config to override it explicitly.
+
+Agent-chat also reads optional font settings from `~/.config/cmux/cmux.json`:
+
+```json
+{
+  "agentChat": {
+    "fonts": {
+      "sansFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+      "baseSize": 14,
+      "monoFamily": "Berkeley Mono",
+      "codeSize": 12.5,
+      "codeLineHeight": 1.5
+    }
+  }
+}
+```
+
+Defaults: body text uses the system sans stack at `14px`; code uses Ghostty's `font-family` and `font-size` when resolvable, otherwise the built-in monospace stack at `12.5px`; code line-height defaults to `1.5`.
 
 Smoke test every provider end to end (spawns real agents):
 
@@ -31,7 +55,7 @@ picker and `Popover` for the working-directory editor and overflow menus.
 Base UI ships unstyled, so every part is themed with the resolved Ghostty
 colors. The server bundles `src/main.tsx` with `Bun.build` on startup and
 serves it as `/app.js`; the HTML shell injects the theme CSS variables and
-loads `/app.css`.
+loads `app.css` relative to the current sidecar prefix.
 
 ```
 browser surface (React app: src/*.tsx + Base UI)
@@ -93,17 +117,20 @@ keyboard handler both call the same `setOption` path:
 | shortcut | action |
 |----------|--------|
 | `Shift+Tab` | cycle mode-like option |
-| `Ctrl+P` | cycle model |
+| `Ctrl+Shift+M` | cycle model |
 | `Ctrl+Shift+P` | open model select |
-| `Ctrl+T` | cycle thinking/effort |
-| `Ctrl+F` | toggle fast mode |
-| `Ctrl+Shift+M` | toggle plan mode |
+| `Ctrl+Shift+T` | cycle thinking/effort |
+| `Ctrl+Shift+F` | toggle fast mode |
+| `Ctrl+Shift+L` | toggle plan mode |
 | `Esc` | interrupt running turn, else close popup/overlay |
 | `Ctrl+/` or `?` on an empty input | shortcut help overlay |
 | `ArrowDown` / `Ctrl+N` | next item while a `/`, `$`, or `@` popup is open |
 | `ArrowUp` / `Ctrl+P` | previous item while a `/`, `$`, or `@` popup is open |
 | `Enter` / `Tab` | accept the selected popup item |
 | `Ctrl+J` | insert newline by default; set `agentChat.keys.ctrlJ` to `"menu"` in `~/.config/cmux/cmux.json` to make it next-item while a popup is open |
+
+When focus is in a text input and no popup is open, plain `Ctrl+<letter>`
+combinations are left to the native macOS text editor bindings.
 
 Typing `@` at a token start opens the same popup UI for file references. The
 server lists git-tracked/untracked files for the cwd when possible and falls

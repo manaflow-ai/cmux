@@ -50,6 +50,18 @@ struct ControlCommandCoordinatorBillingTests {
         #expect(context.checkoutPlan == "pro")
     }
 
+    @Test @MainActor func checkoutAcceptsCurrentPersonalPlans() {
+        let context = FakeBillingControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        for plan in ["go", "pro", "max"] {
+            _ = coordinator.handleSocketWorkerV2(
+                ControlRequest(id: nil, method: "billing.checkout", params: ["plan": .string(plan)]),
+                context: context
+            )
+            #expect(context.checkoutPlan == plan)
+        }
+    }
+
     @Test @MainActor func checkoutRejectsUnknownPlanAsStructuredBillingState() {
         let context = FakeBillingControlCommandContext()
         let coordinator = ControlCommandCoordinator(context: context)

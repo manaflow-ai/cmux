@@ -1,5 +1,6 @@
 import CMUXAgentLaunch
 import CmuxAgentChat
+import CmuxFoundation
 import Foundation
 
 /// A coding-agent session discovered by observing the process table, with no
@@ -7,7 +8,7 @@ import Foundation
 /// comes from the agent's own argv, environment, or open transcript file, so a
 /// session launched through any indirection (a subrouter, a wrapper) is still
 /// found.
-nonisolated struct ObservedAgentSession: Sendable {
+struct ObservedAgentSession: Sendable {
     let sessionID: String
     let agentKind: ChatAgentKind
     let surfaceID: String
@@ -60,6 +61,13 @@ extension AgentChatSessionRegistry {
     /// Strips an agent-name prefix from prefixed workstream ids
     /// (`claude-<uuid>`); raw hook ids pass through.
     static func normalizedSessionID(_ id: String, source: String) -> String {
+        // Feed ingress uses a lossless v1 envelope so agent/session boundaries
+        // cannot be confused by hyphens. Decode it before the chat registry
+        // indexes records or consults the agent-owned hook store.
+        if let identifier = FeedWorkstreamIdentifier(rawValue: id),
+           identifier.agentID == source {
+            return identifier.sessionID
+        }
         let prefix = "\(source)-"
         if id.hasPrefix(prefix) {
             return String(id.dropFirst(prefix.count))
@@ -77,7 +85,7 @@ extension AgentChatSessionRegistry {
         switch event.hookEventName {
         case .sessionStart:
             return .idle
-        case .userPromptSubmit, .preToolUse, .postToolUse, .todoWrite:
+        case .userPromptSubmit, .preToolUse, .postToolUse, .postToolUseFailure, .todoWrite:
             if case .working = previous { return previous }
             return .working(since: event.receivedAt)
         case .preCompact, .postCompact:

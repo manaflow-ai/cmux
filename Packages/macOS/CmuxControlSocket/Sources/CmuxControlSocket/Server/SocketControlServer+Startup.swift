@@ -95,8 +95,11 @@ extension SocketControlServer {
         accessMode: SocketControlMode,
         preserveAcceptFailureStreak: Bool = false
     ) -> Bool {
+        configureConnectionAuthorization(accessMode: accessMode)
         let existing = withListenerState { state in
-            state.accessMode = accessMode
+            if state.accessMode != accessMode {
+                state.accessMode = accessMode
+            }
             return (
                 isRunning: state.isRunning,
                 socketPath: state.socketPath,
@@ -113,8 +116,16 @@ extension SocketControlServer {
             )
         }
 
+        if accessMode == .off {
+            stop()
+            return false
+        }
+
         if existing.isRunning && SocketControlSettings.pathsMatch(existing.socketPath, socketPath) {
-            applySocketPermissions()
+            guard applySocketPermissions() else {
+                stop()
+                return false
+            }
             return true
         }
 
@@ -148,6 +159,15 @@ extension SocketControlServer {
         var listenerActivated = false
         defer {
             if !listenerActivated {
+                if preserveAcceptFailureStreak {
+                    events.breadcrumb(
+                        "socket.listener.rearm.failed",
+                        socketListenerEventData(
+                            stage: "rearm_start",
+                            extra: ["preservedAcceptFailureStreak": 1]
+                        )
+                    )
+                }
                 if let activeBoundSocketPathIdentity,
                    listenerPolicy.shouldUnlinkSocketPathAfterListenerStop(
                        currentIdentity: transport.pathIdentity(at: activeSocketPath),
@@ -193,12 +213,45 @@ extension SocketControlServer {
             }
         }
 
-        var bindAttempt = acquireActiveSocketPathLock()
-            ?? transport.bindListenerSocket(
-                newServerSocket,
-                path: activeSocketPath,
-                canReplaceRefusedSocket: activeSocketPathCanReplaceRefusedSocket
-            )
+        func bindCurrentPath() -> SocketBindAttemptResult {
+            acquireActiveSocketPathLock()
+                ?? transport.bindListenerSocket(
+                    newServerSocket,
+                    path: activeSocketPath,
+                    canReplaceRefusedSocket: activeSocketPathCanReplaceRefusedSocket
+                )
+        }
+
+        /// A stale inode can be replaced between the lock probe and bind, and
+        /// a previous process may still be unwinding its descriptor close. Make
+        /// the bind lifecycle self-healing with a few immediate, lock-serialized
+        /// attempts before choosing a fallback or reporting failure. There is
+        /// no sleep on the app path: each retry reclaims the path through the
+        /// same lock/probe/bind primitive.
+        func bindCurrentPathWithRetry() -> SocketBindAttemptResult {
+            var attempt = bindCurrentPath()
+            for retryIndex in 1...2 {
+                guard case .failure(let failedPath, let failure) = attempt else {
+                    break
+                }
+                events.breadcrumb(
+                    "socket.listener.bind.retry",
+                    [
+                        "path": failedPath,
+                        "stage": failure.stage,
+                        "errno": Int(failure.errnoCode),
+                        "retry": retryIndex,
+                    ]
+                )
+                transport.releaseSocketPathLock(activeSocketPathLockFD)
+                activeSocketPathLockFD = -1
+                activeSocketPathCanReplaceRefusedSocket = false
+                attempt = bindCurrentPath()
+            }
+            return attempt
+        }
+
+        var bindAttempt = bindCurrentPathWithRetry()
         if case .failure(let failedPath, let bindFailure) = bindAttempt,
            let fallbackPath = listenerPolicy.fallbackSocketPathAfterBindFailure(
                requestedPath: failedPath,
@@ -222,12 +275,7 @@ extension SocketControlServer {
             withListenerState { state in
                 state.socketPath = activeSocketPath
             }
-            bindAttempt = acquireActiveSocketPathLock()
-                ?? transport.bindListenerSocket(
-                    newServerSocket,
-                    path: activeSocketPath,
-                    canReplaceRefusedSocket: activeSocketPathCanReplaceRefusedSocket
-                )
+            bindAttempt = bindCurrentPathWithRetry()
         }
 
         switch bindAttempt {
@@ -263,7 +311,10 @@ extension SocketControlServer {
             return false
         }
 
-        applySocketPermissions()
+        guard applySocketPermissions() else {
+            close(newServerSocket)
+            return false
+        }
 
         if let errnoCode = transport.configureNonBlocking(newServerSocket) {
             print("SocketControlServer: Failed to configure socket")
@@ -306,6 +357,7 @@ extension SocketControlServer {
             state.listenerStartInProgress = false
             return generation
         }
+        activateConnectionAuthorizations()
         acceptRecovery.withLock { recovery in
             recovery = AcceptRecoveryState(
                 generation: generation,
@@ -329,6 +381,18 @@ extension SocketControlServer {
                 "backlog": transport.listenBacklog,
             ]
         )
+        if preserveAcceptFailureStreak {
+            events.breadcrumb(
+                "socket.listener.rearm.completed",
+                socketListenerEventData(
+                    stage: "accept_rearm_complete",
+                    extra: [
+                        "generation": generation,
+                        "preservedAcceptFailureStreak": 1,
+                    ]
+                )
+            )
+        }
         events.listenerDidStart(activeSocketPath, generation)
 
         startSocketPathMonitor(path: activeSocketPath, generation: generation)
@@ -337,7 +401,8 @@ extension SocketControlServer {
     }
 
     /// Applies the access mode's file permissions to the current socket path.
-    func applySocketPermissions() {
+    @discardableResult
+    func applySocketPermissions() -> Bool {
         let (currentSocketPath, mode) = withListenerState { ($0.socketPath, $0.accessMode) }
         let permissions = mode_t(mode.socketFilePermissions)
         if chmod(currentSocketPath, permissions) != 0 {
@@ -353,7 +418,9 @@ extension SocketControlServer {
                     extra: ["permissions": String(permissions, radix: 8)]
                 )
             )
+            return false
         }
+        return true
     }
 
 }

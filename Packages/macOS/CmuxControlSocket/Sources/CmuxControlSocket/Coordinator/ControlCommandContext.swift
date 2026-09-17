@@ -20,8 +20,10 @@ public protocol ControlCommandContext:
     ControlNotificationContext,
     ControlLayoutContext,
     ControlWorkspaceGroupContext,
+    ControlWorkspaceTodoContext,
     ControlPaneContext,
     ControlCanvasContext,
+    ControlSimulatorContext,
     ControlMobileHostContext,
     ControlWorkspaceContext,
     ControlSurfaceContext,
@@ -32,6 +34,10 @@ public protocol ControlCommandContext:
     ControlSidebarContext,
     ControlBrowserPanelContext
 {
+    /// Revalidates relay provenance and live ownership immediately before an
+    /// in-process command acts. Local requests without relay provenance pass.
+    func controlRemoteRelayDispatchError(method: String, params: [String: JSONValue]) -> ControlCallResult?
+
     // MARK: Worker-lane resolution hop
 
     /// Runs a short closure synchronously on the main actor — the single hop
@@ -54,4 +60,12 @@ public protocol ControlCommandContext:
     nonisolated func controlResolveOnMain<T: Sendable>(
         _ body: @MainActor (any ControlCommandContext) -> T
     ) -> T
+}
+
+extension ControlCommandContext {
+    /// Contexts without a relay authority must fail closed for relayed requests.
+    public func controlRemoteRelayDispatchError(method: String, params: [String: JSONValue]) -> ControlCallResult? {
+        guard params["_cmux_remote_workspace_id"] != nil else { return nil }
+        return .err(code: "remote_relay_authentication_failed", message: "Relay request authentication failed", data: nil)
+    }
 }

@@ -51,18 +51,16 @@ actor BillingClient {
     }
 
     func checkout(plan: String) async -> JSONValue {
-        await redirect(path: "/api/billing/checkout", queryItems: [
-            URLQueryItem(name: "plan", value: plan),
-        ])
+        await redirect(path: "/api/billing/checkout", queryItems: [], jsonBody: ["plan": plan])
     }
 
     func portal() async -> JSONValue {
         await redirect(path: "/api/billing/portal", queryItems: [])
     }
 
-    private func redirect(path: String, queryItems: [URLQueryItem]) async -> JSONValue {
+    private func redirect(path: String, queryItems: [URLQueryItem], jsonBody: [String: String]? = nil) async -> JSONValue {
         do {
-            let (data, http) = try await request("GET", path: path, queryItems: queryItems, followsRedirects: false)
+            let (data, http) = try await request(jsonBody == nil ? "GET" : "POST", path: path, queryItems: queryItems, jsonBody: jsonBody, followsRedirects: false)
             if (300...399).contains(http.statusCode),
                let location = http.value(forHTTPHeaderField: "Location"),
                let url = URL(string: location, relativeTo: AuthEnvironment.apiBaseURL)?.absoluteURL {
@@ -70,9 +68,9 @@ actor BillingClient {
             }
             if (200...299).contains(http.statusCode),
                let object = try? decodeJSONObject(data),
-               let url = object["url"] as? String,
-               !url.isEmpty {
-                return .object(["ok": .bool(true), "source": .string(sourceOrigin), "url": .string(url)])
+               let rawURL = object["url"] as? String,
+               let url = URL(string: rawURL) {
+                return redirectPayload(url)
             }
             return failure("billing_unavailable", source: sourceOrigin, status: http.statusCode, body: data)
         } catch let error as BillingClientError {
@@ -86,6 +84,7 @@ actor BillingClient {
         _ method: String,
         path: String,
         queryItems: [URLQueryItem] = [],
+        jsonBody: [String: String]? = nil,
         followsRedirects: Bool
     ) async throws -> (Data, HTTPURLResponse) {
         let tokens = try await currentTokens()
@@ -103,6 +102,10 @@ actor BillingClient {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = 30
+        if let jsonBody {
+            request.httpBody = try JSONSerialization.data(withJSONObject: jsonBody)
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue(tokens.refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")

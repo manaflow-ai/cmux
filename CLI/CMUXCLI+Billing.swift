@@ -12,10 +12,10 @@ extension CMUXCLI {
           cmux billing status [--json]
               Print the live plan summary. --json prints the server JSON body.
 
-          cmux billing checkout [--plan pro|team] [--url | --open]
+          cmux billing checkout [--plan go|pro|max] [--url | --no-open | --open]
               Start checkout for the signed-in user. Default: --plan pro --open.
 
-          cmux billing portal [--url | --open]
+          cmux billing portal [--url | --no-open | --open]
               Open the Stripe customer portal for the signed-in user. Default: --open.
         """
 
@@ -45,17 +45,23 @@ extension CMUXCLI {
 
         case "checkout":
             let (planOpt, rem0) = parseOption(rest, name: "--plan")
-            let mode = try billingURLMode(rem0, command: "billing checkout")
+            let jsonOutput = globalJSONOutput || rem0.contains("--json")
+            let mode = try billingURLMode(rem0.filter { $0 != "--json" }, command: "billing checkout")
             let plan = (planOpt ?? "pro").lowercased()
-            guard plan == "pro" || plan == "team" else {
-                throw CLIError(message: "billing checkout: --plan must be pro or team.")
+            guard ["go", "pro", "max"].contains(plan) else {
+                throw CLIError(message: "billing checkout: --plan must be go, pro, or max.")
             }
             let response = try client.sendV2(
                 method: "billing.checkout",
                 params: ["plan": plan],
                 responseTimeout: 75
             )
-            try handleBillingURLResponse(response, mode: mode, noun: "checkout")
+            try handleBillingStructuredError(response)
+            if jsonOutput {
+                print(jsonString(response))
+            } else {
+                try handleBillingURLResponse(response, mode: mode, noun: "checkout")
+            }
 
         case "portal":
             let mode = try billingURLMode(rest, command: "billing portal")
@@ -82,7 +88,7 @@ extension CMUXCLI {
             switch arg {
             case "--open":
                 mode = .open
-            case "--url":
+            case "--url", "--no-open":
                 mode = .url
             default:
                 throw CLIError(message: "\(command): unknown argument '\(arg)'.\n\n\(Self.billingUsage)")
@@ -98,7 +104,7 @@ extension CMUXCLI {
     }
 
     private func printBillingStatus(_ plan: [String: Any], source: String?) {
-        let planId = billingString(plan["planId"]) ?? "free"
+        let planId = billingString(plan["subscriptionPlanId"]) ?? billingString(plan["planId"]) ?? "free"
         let teamPlanId = billingString(plan["teamPlanId"]) ?? "free"
         let planName = billingDisplayPlanName(planId: planId, isPro: billingBool(plan["isPro"]))
         let isPro = billingBool(plan["isPro"]) ?? false
@@ -179,8 +185,11 @@ extension CMUXCLI {
     }
 
     private func billingDisplayPlanName(planId: String, isPro: Bool?) -> String {
-        if isPro == true { return "Pro" }
         switch planId.lowercased() {
+        case "go":
+            return "Go"
+        case "max":
+            return "Max"
         case "pro":
             return "Pro"
         case "team":
@@ -188,7 +197,7 @@ extension CMUXCLI {
         case "free":
             return "Free"
         default:
-            return Self.sanitizeForTerminal(planId)
+            return isPro == true ? "Pro" : Self.sanitizeForTerminal(planId)
         }
     }
 

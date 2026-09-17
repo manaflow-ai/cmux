@@ -1,9 +1,10 @@
+import CMUXAgentLaunch
 import Darwin
 import Foundation
 import Testing
 
 @Suite struct ClaudeWrapperResumeEnvironmentTests {
-    @Test func bundledClaudeWrapperScrubsNestedSessionEnvironmentOnResume() throws {
+    @Test func bundledClaudeWrapperScrubsSessionIdentityAndPreservesTrustBypassOnResume() throws {
         let fileManager = FileManager.default
         let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let wrapperURL = repoRoot.appendingPathComponent("Resources/bin/cmux-claude-wrapper", isDirectory: false)
@@ -29,13 +30,17 @@ import Testing
         }
 
         let recordURL = sandbox.appendingPathComponent("record.txt", isDirectory: false)
+        let environmentPolicy = ClaudeSessionEnvironmentPolicy()
+        let sessionIdentityKeys = environmentPolicy.inheritedSessionIdentityKeys.sorted()
+        let trustBypassKeys = environmentPolicy.inheritedTrustBypassKeys.sorted()
+        let observedKeys = sessionIdentityKeys + trustBypassKeys
         try writeExecutable(
             binDir.appendingPathComponent("claude", isDirectory: false),
             """
             #!/usr/bin/env bash
             {
               printf 'argv=%s\\n' "$*"
-              for key in CLAUDECODE CLAUDE_CODE CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_PARENT_SESSION_ID CLAUDE_CODE_SESSION_ID CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_EXECPATH CLAUDE_CODE_SSE_PORT CLAUDE_CODE_USE_VERTEX; do
+              for key in \(observedKeys.joined(separator: " ")) CLAUDE_CODE_USE_VERTEX; do
                 if value="$(printenv "$key")"; then
                   printf '%s=%s\\n' "$key" "$value"
                 else
@@ -60,23 +65,19 @@ import Testing
         let process = Process()
         process.executableURL = wrapperURL
         process.arguments = ["--resume", "claude-session-123"]
-        process.environment = [
+        var environment = [
             "PATH": "\(binDir.path):/usr/bin:/bin",
             "HOME": homeDir.path,
             "TMPDIR": sandbox.path,
             "CMUX_SURFACE_ID": UUID().uuidString,
             "CMUX_SOCKET_PATH": socketURL.path,
             "CMUX_BUNDLED_CLI_PATH": fakeCmuxURL.path,
-            "CLAUDECODE": "1",
-            "CLAUDE_CODE": "1",
-            "CLAUDE_CODE_CHILD_SESSION": "parent-child",
-            "CLAUDE_CODE_PARENT_SESSION_ID": "parent-session",
-            "CLAUDE_CODE_SESSION_ID": "parent-session",
-            "CLAUDE_CODE_ENTRYPOINT": "cli",
-            "CLAUDE_CODE_EXECPATH": "/opt/homebrew/bin/claude",
-            "CLAUDE_CODE_SSE_PORT": "12345",
             "CLAUDE_CODE_USE_VERTEX": "1",
         ]
+        for key in observedKeys {
+            environment[key] = "inherited-parent-value"
+        }
+        process.environment = environment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
@@ -85,17 +86,11 @@ import Testing
         let recorded = try String(contentsOf: recordURL, encoding: .utf8)
         #expect(recorded.contains("--settings"), Comment(rawValue: recorded))
         #expect(recorded.contains("--resume claude-session-123"), Comment(rawValue: recorded))
-        for key in [
-            "CLAUDECODE",
-            "CLAUDE_CODE",
-            "CLAUDE_CODE_CHILD_SESSION",
-            "CLAUDE_CODE_PARENT_SESSION_ID",
-            "CLAUDE_CODE_SESSION_ID",
-            "CLAUDE_CODE_ENTRYPOINT",
-            "CLAUDE_CODE_EXECPATH",
-            "CLAUDE_CODE_SSE_PORT",
-        ] {
+        for key in sessionIdentityKeys {
             #expect(recorded.contains("\(key)=<unset>"), Comment(rawValue: recorded))
+        }
+        for key in trustBypassKeys {
+            #expect(recorded.contains("\(key)=inherited-parent-value"), Comment(rawValue: recorded))
         }
         #expect(recorded.contains("CLAUDE_CODE_USE_VERTEX=1"), Comment(rawValue: recorded))
     }

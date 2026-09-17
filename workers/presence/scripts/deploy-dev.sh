@@ -17,8 +17,9 @@ set -euo pipefail
 #   ./scripts/deploy-dev.sh <slug>     # explicit slug (e.g. a feature name)
 #
 # Required Stack config is read from the shell environment first, then from
-# .dev.vars: STACK_PROJECT_ID and STACK_PUBLISHABLE_CLIENT_KEY. STACK_API_URL is
-# optional and defaults in code to https://api.stack-auth.com.
+# .dev.vars: STACK_PROJECT_ID, STACK_PUBLISHABLE_CLIENT_KEY, and
+# CONNECTIVITY_INVALIDATION_SECRET. STACK_API_URL is optional and defaults in
+# code to https://api.stack-auth.com.
 #
 # Do NOT deploy the shared `cmux-presence-dev` from a feature branch: that single
 # instance is the integration baseline, and `wrangler deploy --name cmux-presence`
@@ -75,17 +76,20 @@ name="cmux-presence-dev-${slug}"
 stack_project_id="$(read_dev_value STACK_PROJECT_ID)"
 stack_client_key="$(read_dev_value STACK_PUBLISHABLE_CLIENT_KEY)"
 stack_api_url="$(read_dev_value STACK_API_URL)"
+connectivity_invalidation_secret="$(read_dev_value CONNECTIVITY_INVALIDATION_SECRET)"
 
-if [ -z "$stack_project_id" ] || [ -z "$stack_client_key" ]; then
+if [ -z "$stack_project_id" ] || [ -z "$stack_client_key" ] \
+  || [ "${#connectivity_invalidation_secret}" -lt 32 ]; then
   cat >&2 <<'EOF'
 error: missing Stack Auth config for the isolated worker.
 
 Set these in your shell or workers/presence/.dev.vars before deploying:
   STACK_PROJECT_ID=...
   STACK_PUBLISHABLE_CLIENT_KEY=...
+  CONNECTIVITY_INVALIDATION_SECRET=... # at least 32 random characters
 
 Without these Worker secrets, authenticated /v1 presence and paired-Mac backup
-routes fail closed with 401.
+routes or backend-only connectivity publication fail closed.
 EOF
   exit 1
 fi
@@ -103,6 +107,7 @@ fi
 echo "→ Provisioning Stack Auth secrets on ${name}"
 put_worker_secret STACK_PROJECT_ID "$stack_project_id"
 put_worker_secret STACK_PUBLISHABLE_CLIENT_KEY "$stack_client_key"
+put_worker_secret CONNECTIVITY_INVALIDATION_SECRET "$connectivity_invalidation_secret"
 if [ -n "$stack_api_url" ]; then
   put_worker_secret STACK_API_URL "$stack_api_url"
 fi
@@ -117,6 +122,10 @@ Point ALL your dev builds at it (Mac that heartbeats + the iPhone that
 subscribes/backs up must use the SAME worker), then reload:
 
   export CMUX_PRESENCE_BASE_URL=${url}
+
+Configure the web backend with the same publisher capability:
+
+  export CMUX_CONNECTIVITY_INVALIDATION_SECRET=<matching value>
 
 The reload scripts inject it into the tagged build, so a normally-tapped dev app
 uses your worker, not the shared one. Unset it to go back to the shared

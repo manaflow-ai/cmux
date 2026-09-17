@@ -8,7 +8,7 @@ import Network
 /// Loopback SOCKS5/HTTP-CONNECT proxy tunnel for one remote workspace: owns a
 /// `RemoteDaemonRPCClient`, a local `NWListener` bound to `127.0.0.1`, the
 /// per-connection ``RemoteDaemonProxySession``s, and any
-/// ``RemotePTYBridgeServer``s started through it.
+/// ``RemotePTYBridgeServer``s plus their logical lifecycle generations.
 ///
 /// Faithful lift of the legacy `WorkspaceRemoteDaemonProxyTunnel` (renamed;
 /// no runtime strings mention the type name).
@@ -27,16 +27,17 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
     private let remotePath: String
     private let localPort: Int
     private let strings: RemoteDaemonStrings
-    private let ptyBridgeStrings: any RemotePTYBridgeStrings
-    private let clock: any RemoteProxyRetryClock
+    let ptyBridgeStrings: any RemotePTYBridgeStrings
+    let clock: any RemoteProxyRetryClock
     private let onFatalError: (String) -> Void
-    private let queue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-tunnel.\(UUID().uuidString)", qos: .utility)
+    let queue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-tunnel.\(UUID().uuidString)", qos: .utility)
 
     private var listener: NWListener?
-    private var rpcClient: RemoteDaemonRPCClient?
+    var rpcClient: (any RemoteDaemonTunnelRPCClient)?
     private var sessions: [UUID: RemoteDaemonProxySession] = [:]
-    private var ptyBridgeServers: [UUID: RemotePTYBridgeServer] = [:]
-    private var isStopped = false
+    var ptyBridgeServers: [UUID: RemotePTYBridgeServerRecord] = [:]
+    var ptyLifecycleRegistry = RemotePTYLifecycleRegistry()
+    var isStopped = false
 
     /// Creates a tunnel for `configuration`.
     ///
@@ -85,7 +86,10 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
                     configuration: configuration,
                     remotePath: remotePath,
                     strings: strings,
-                    cliRequestHandler: Self.makeCLIRequestHandler(configuration: configuration)
+                    cliRequestHandler: Self.makeCLIRequestHandler(
+                        configuration: configuration,
+                        strings: strings
+                    )
                 ) { [weak self] detail in
                     guard let self else { return }
                     self.queue.async {
@@ -116,7 +120,7 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
                 listener.start(queue: queue)
             } catch {
                 capturedError = error
-                stopLocked(notify: false)
+                stopLocked(notify: false, preservePTYLifecycle: false)
             }
         }
         if let capturedError {
@@ -127,7 +131,23 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
     /// Stops the listener, all sessions, all PTY bridges, and the RPC client.
     public func stop() {
         queue.sync {
-            stopLocked(notify: false)
+            stopLocked(notify: false, preservePTYLifecycle: false)
+        }
+    }
+
+    /// Stops a replaceable runtime while retaining its logical PTY generations.
+    public func stopPreservingPTYLifecycle() -> RemotePTYLifecycleSnapshot {
+        queue.sync {
+            stopLocked(notify: false, preservePTYLifecycle: true)
+            return RemotePTYLifecycleSnapshot(registry: ptyLifecycleRegistry)
+        }
+    }
+
+    /// Restores logical PTY generations before this replacement runtime starts.
+    public func restorePTYLifecycle(_ snapshot: RemotePTYLifecycleSnapshot) {
+        queue.sync {
+            precondition(ptyBridgeServers.isEmpty)
+            ptyLifecycleRegistry = snapshot.registry
         }
     }
 
@@ -143,18 +163,6 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
                 ])
             }
             return try rpcClient.listPTY()
-        }
-    }
-
-    /// Closes a persistent PTY session on the daemon.
-    public func closePTY(sessionID: String) throws {
-        try queue.sync {
-            guard let rpcClient, !isStopped else {
-                throw NSError(domain: "cmux.remote.pty", code: 31, userInfo: [
-                    NSLocalizedDescriptionKey: "remote daemon tunnel is not ready",
-                ])
-            }
-            try rpcClient.closePTY(sessionID: sessionID)
         }
     }
 
@@ -192,36 +200,6 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
         }
     }
 
-    /// Starts a single-use loopback PTY bridge server for a terminal attach
-    /// and returns its endpoint.
-    public func startPTYBridge(sessionID: String, attachmentID: String, command: String?, requireExisting: Bool) throws -> RemotePTYBridgeServer.Endpoint {
-        try queue.sync {
-            guard let rpcClient, !isStopped else {
-                throw NSError(domain: "cmux.remote.pty", code: 33, userInfo: [
-                    NSLocalizedDescriptionKey: "remote daemon tunnel is not ready",
-                ])
-            }
-            let bridgeID = UUID()
-            let server = RemotePTYBridgeServer(
-                rpcClient: rpcClient,
-                sessionID: sessionID,
-                attachmentID: attachmentID,
-                command: command,
-                requireExisting: requireExisting,
-                strings: ptyBridgeStrings,
-                clock: clock
-            ) { [weak self] in
-                guard let self else { return }
-                self.queue.async {
-                    self.ptyBridgeServers.removeValue(forKey: bridgeID)
-                }
-            }
-            let endpoint = try server.start()
-            ptyBridgeServers[bridgeID] = server
-            return endpoint
-        }
-    }
-
     private func handleListenerStateLocked(_ state: NWListener.State) {
         guard !isStopped else { return }
         switch state {
@@ -256,14 +234,21 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
         session.start()
     }
 
-    private static func makeCLIRequestHandler(configuration: WorkspaceRemoteConfiguration) -> (@Sendable (Data) throws -> Data)? {
+    private static func makeCLIRequestHandler(
+        configuration: WorkspaceRemoteConfiguration,
+        strings: RemoteDaemonStrings
+    ) -> (@Sendable (Data) throws -> Data)? {
         guard let localSocketPath = configuration.localSocketPath?
             .trimmingCharacters(in: .whitespacesAndNewlines),
               !localSocketPath.isEmpty else {
             return nil
         }
         return { request in
-            switch validateCloudCLIRequest(request, ownerWorkspaceID: configuration.ownerWorkspaceID) {
+            switch validateCloudCLIRequest(
+                request,
+                ownerWorkspaceID: configuration.ownerWorkspaceID,
+                strings: strings
+            ) {
             case .forward(let forwardedRequest):
                 return try roundTripUnixSocket(socketPath: localSocketPath, request: forwardedRequest)
             case .reject(let response):
@@ -280,7 +265,11 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
     /// Validates VM-originated CLI bridge requests before they hit the local
     /// app socket. The websocket lease authenticates the daemon; this method
     /// keeps VM processes from becoming arbitrary local cmux socket clients.
-    internal static func validateCloudCLIRequest(_ request: Data, ownerWorkspaceID: UUID?) -> CloudCLIRequestValidation {
+    internal static func validateCloudCLIRequest(
+        _ request: Data,
+        ownerWorkspaceID: UUID?,
+        strings: RemoteDaemonStrings
+    ) -> CloudCLIRequestValidation {
         let requestLimitBytes = 64 * 1024
         guard request.count <= requestLimitBytes else {
             return .reject(cloudCLIErrorResponse(
@@ -352,6 +341,13 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
                 surfaceKey: "surface_id",
                 requireWorkspace: true,
                 requireSurface: true
+            )
+        case "notification.clear":
+            return validateCloudCLINotificationClear(
+                requestID: requestID,
+                params: params,
+                ownerWorkspaceID: ownerWorkspaceID,
+                strings: strings
             )
         default:
             return .reject(cloudCLIErrorResponse(
@@ -444,6 +440,138 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
             ))
         }
         return .forward(data + Data([0x0A]))
+    }
+
+    /// Cloud callers may retract only the surface-scoped notifications owned by
+    /// their VM workspace. Never forward the caller resolver or a workspace-wide
+    /// clear across the relay boundary: both would let a VM clear unrelated host
+    /// notifications.
+    private static func validateCloudCLINotificationClear(
+        requestID: Any?,
+        params: [String: Any],
+        ownerWorkspaceID: UUID,
+        strings: RemoteDaemonStrings
+    ) -> CloudCLIRequestValidation {
+        let hasNonNullValue: (String) -> Bool = { key in
+            guard let value = params[key] else { return false }
+            return !(value is NSNull)
+        }
+
+        let caller: Bool
+        if hasNonNullValue("caller") {
+            guard let decodedCaller = cloudCLIFlagValue(params["caller"]) else {
+                return .reject(cloudCLIErrorResponse(
+                    id: requestID,
+                    code: "invalid_params",
+                    message: strings.cloudNotificationClearCallerInvalid
+                ))
+            }
+            caller = decodedCaller
+        } else {
+            caller = false
+        }
+
+        let hasWorkspaceSelector = hasNonNullValue("workspace_id")
+            || hasNonNullValue("tab_id")
+        let hasSurfaceSelector = hasNonNullValue("surface_id")
+        let hasCallerOnlySelectors = [
+            "preferred_workspace_id",
+            "preferred_surface_id",
+            "caller_tty",
+            "prefer_tty",
+        ].contains(where: hasNonNullValue)
+
+        if !caller, hasCallerOnlySelectors {
+            return .reject(cloudCLIErrorResponse(
+                id: requestID,
+                code: "invalid_params",
+                message: strings.cloudNotificationClearCallerSelectorsRequireCaller
+            ))
+        }
+        if caller, hasWorkspaceSelector || hasSurfaceSelector {
+            return .reject(cloudCLIErrorResponse(
+                id: requestID,
+                code: "invalid_params",
+                message: strings.cloudNotificationClearCallerScopeConflict
+            ))
+        }
+
+        let workspaceValue: Any?
+        let surfaceValue: Any?
+        if caller {
+            workspaceValue = params["preferred_workspace_id"]
+            surfaceValue = params["preferred_surface_id"]
+        } else {
+            workspaceValue = hasNonNullValue("workspace_id")
+                ? params["workspace_id"]
+                : params["tab_id"]
+            surfaceValue = params["surface_id"]
+        }
+
+        guard let workspaceRaw = (workspaceValue as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              let requestedWorkspaceID = UUID(uuidString: workspaceRaw) else {
+            return .reject(cloudCLIErrorResponse(
+                id: requestID,
+                code: "invalid_params",
+                message: strings.cloudNotificationClearWorkspaceInvalid
+            ))
+        }
+        guard requestedWorkspaceID == ownerWorkspaceID else {
+            return .reject(cloudCLIErrorResponse(
+                id: requestID,
+                code: "remote_cli_workspace_denied",
+                message: strings.cloudNotificationClearWorkspaceDenied
+            ))
+        }
+        guard let surfaceRaw = (surfaceValue as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              let surfaceID = UUID(uuidString: surfaceRaw) else {
+            return .reject(cloudCLIErrorResponse(
+                id: requestID,
+                code: "invalid_params",
+                message: strings.cloudNotificationClearSurfaceInvalid
+            ))
+        }
+
+        let forwarded: [String: Any] = [
+            "id": requestID ?? NSNull(),
+            "method": "notification.clear",
+            "params": [
+                "workspace_id": requestedWorkspaceID.uuidString,
+                "surface_id": surfaceID.uuidString,
+            ],
+        ]
+        guard JSONSerialization.isValidJSONObject(forwarded),
+              let data = try? JSONSerialization.data(withJSONObject: forwarded, options: []) else {
+            return .reject(cloudCLIErrorResponse(
+                id: requestID,
+                code: "encode_error",
+                message: strings.cloudNotificationClearEncodingFailed
+            ))
+        }
+        return .forward(data + Data([0x0A]))
+    }
+
+    /// Decodes the same boolean spellings accepted by the local v2 parameter
+    /// parser, so relay validation cannot disagree with the coordinator about a
+    /// caller selector's meaning.
+    private static func cloudCLIFlagValue(_ value: Any?) -> Bool? {
+        if let value = value as? Bool {
+            return value
+        }
+        if let value = value as? NSNumber {
+            return value.boolValue
+        }
+        guard let value = value as? String else { return nil }
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "1", "true", "yes", "on":
+            return true
+        case "0", "false", "no", "off":
+            return false
+        default:
+            return nil
+        }
     }
 
     private static func cloudCLIErrorResponse(id: Any?, code: String, message: String) -> Data {
@@ -623,11 +751,11 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
 
     private func failLocked(_ detail: String) {
         guard !isStopped else { return }
-        stopLocked(notify: false)
+        stopLocked(notify: false, preservePTYLifecycle: true)
         onFatalError(detail)
     }
 
-    private func stopLocked(notify: Bool) {
+    private func stopLocked(notify: Bool, preservePTYLifecycle: Bool) {
         guard !isStopped else { return }
         isStopped = true
 
@@ -641,11 +769,18 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
         for session in activeSessions {
             session.stop()
         }
-        let activePTYBridges = ptyBridgeServers.values
+        let activePTYBridges = ptyBridgeServers
         ptyBridgeServers.removeAll()
-        for bridge in activePTYBridges {
-            bridge.stop()
+        for (bridgeID, record) in activePTYBridges {
+            let disposition = record.server.stopAndWaitForDisposition()
+            let lifecycleEnded = ptyLifecycleRegistry.bridgeStopped(
+                key: record.lifecycleKey,
+                bridgeID: bridgeID,
+                disposition: disposition
+            )
+            if lifecycleEnded { record.onLifecycleEnded() }
         }
+        if !preservePTYLifecycle { ptyLifecycleRegistry.removeAll() }
 
         rpcClient?.stop()
         rpcClient = nil
