@@ -256,8 +256,10 @@ extension TerminalController {
             let omnibarVisible = v2Bool(params, "show_omnibar") ?? true
             let transparentBackground = v2Bool(params, "transparent_background") ?? false
             let bypassRemoteProxy = v2Bool(params, "bypass_remote_proxy") ?? v2IsDiffViewerURL(url)
-            let preservesSourceSelection = useTerminalLinkBrowserPlacement
-                && BrowserLinkOpenSettings.terminalLinkBrowserPlacement() == .samePane
+            let browserPlacement = useTerminalLinkBrowserPlacement && requestedSurfaceId != nil
+                && requestedPaneId == nil && profileSelector == nil && url != nil
+                ? BrowserLinkOpenSettings.terminalLinkBrowserPlacement()
+                : .reuseOrSplit
             let request = BrowserSplitRequest(
                 url: url,
                 focus: focus,
@@ -267,12 +269,8 @@ extension TerminalController {
                 ),
                 transparentBackground: transparentBackground,
                 bypassRemoteProxy: bypassRemoteProxy,
-                selectWhenNotFocused: !preservesSourceSelection
+                selectWhenNotFocused: browserPlacement != .samePane
             )
-            let browserPlacement = useTerminalLinkBrowserPlacement && requestedSurfaceId != nil
-                && requestedPaneId == nil && profileSelector == nil && url != nil
-                ? BrowserLinkOpenSettings.terminalLinkBrowserPlacement()
-                : .reuseOrSplit
             guard let placement = container.openTerminalLink(
                 from: sourceSurfaceId,
                 request: request,
