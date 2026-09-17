@@ -22,8 +22,31 @@
       "title": "Potreban je cmux Pro",
       "message": "Cloud VM-ovi zahtijevaju cmux Pro plan.",
       "action": "Nadogradite na cmux Pro na {upgradeUrl} da biste kreirali Cloud VM-ove."
+    },
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "Mašine sa {memory} GiB zahtijevaju cmux {plan}. Vaš paket podržava do {max} GiB.",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "Nije moguće provjeriti veličinu RAM-a izvorne mašine.",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "Ova veličina mašine nije dostupna. Odaberite do {max} GiB.",
+      "action": "cmux vm new --size {max}g"
     }
-  },
+  ,
+    "goLimit": {
+      "savedMessage": "Go uključuje dvije sačuvane VM, uključujući pokrenutu VM.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "activeMessage": "Go omogućava jednu pokrenutu VM istovremeno.",
+      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "hoursMessage": "Go je potrošio 40 VM-sati za ovaj mjesec. Sačuvane VM bit će dostupne u sljedećem obračunskom periodu.",
+      "hoursAction": "cmux billing checkout --plan pro",
+      "shapeMessage": "Go podržava 2 vCPU, 4 GiB RAM-a i 16 GiB diska.",
+      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    }},
   "billingRecovery": {
     "message": "Ako smo pronašli nalog, provjerite e-poštu za sljedeće korake"
   },
@@ -357,6 +380,13 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "Podijeli s timom",
+      "makePrivate": "Učini privatnim",
+      "privateImportHint": "Novi računi su privatni. Podijelite račun da bude dostupan Cloud VM mašinama ovog tima.",
+      "description": "Dijeljeni računi dostupni su Cloud VM-ovima ovog tima. Privatni računi ostaju dostupni samo osobi koja ih je dodala.",
+      "cancelAction": "Otkaži"
     }
   },
   "community": {
@@ -980,10 +1010,10 @@
       "targetTitle": "Pogrešan prozor ili blokiran klik",
       "targetBody": "Ponovo pregledajte aplikaciju i izaberite element iz trenutnog stanja. Ako drugi prozor prekriva cilj, otkrijte željeni prozor i pregledajte ga prije ponavljanja. Ne koristite zastarjele koordinate ili indekse.",
       "productLink": "Pregled cmux Computer Use",
-    "copyTitle": "Kopiraj Computer Use prompt",
-    "copyPrompt": "Kopiraj prompt",
-    "copiedPrompt": "Kopirano",
-    "installPrompt": "Koristi vještinu $cmux-cua. Ako nedostaje, instaliraj je uobičajenim instalaterom. Ako nema dozvola, reci mi da otvorim cmux Postavke → Computer Use. Pregledaj prije rada i provjeri svaku promjenu.\n\nZadatak: [opišite zadatak ovdje]"
+      "copyTitle": "Kopiraj Computer Use prompt",
+      "copyPrompt": "Kopiraj prompt",
+      "copiedPrompt": "Kopirano",
+      "installPrompt": "Koristi vještinu $cmux-cua. Ako nedostaje, instaliraj je uobičajenim instalaterom. Ako nema dozvola, reci mi da otvorim cmux Postavke → Computer Use. Pregledaj prije rada i provjeri svaku promjenu.\n\nZadatak: [opišite zadatak ovdje]"
     },
     "remoteTmux": {
       "moshContrast": "Za roaming između mreža koristite cmux mosh-tmux. Otvara punopravni Mosh terminal spojen na imenovanu tmux sesiju; ne zamjenjuje izvorno preslikavanje radnih prostora, kartica i podjela koje pruža SSH tmux kontrolni režim."
@@ -1190,6 +1220,7 @@
           "globalFontMagnification": "Skalira cmux terminale, naslove kartica, bočne trake, postavke, preklapanja i app chrome za ovaj procenat. Renderovani sadržaj stranica u pregledniku nije uključen."
         },
         "terminal": {
+          "adaptiveDefaultTheme": "Kada je true (zadano), cmux koristi zadanu paletu koja prati izgled, osim ako su podešeni Ghostty tema ili boje terminala. Font i ostale postavke se zadržavaju. Kada je false, Ghostty koristi svoju fiksnu ugrađenu paletu. Izričito zadane teme i boje uvijek imaju prednost, uključujući theme = light:X,dark:Y.",
           "sessionContentMaxWidth": "Opcionalna maksimalna širina, u tačkama, za sadržaj terminala i ugrađenog razgovora s agentom. Postavite false za korištenje pune širine okna.",
           "sessionContentAlignment": "Horizontalni položaj sadržaja terminala i ugrađenog razgovora s agentom kada je sessionContentMaxWidth omogućen.",
           "copyOnSelect": "Kada je true, odabrani tekst terminala kopira se u sistemski međuspremnik kada se odabir potvrdi. Kada je false, cmux ne emitira Ghostty copy-on-select nadjačavanje; Ghostty konfiguracija i zadane vrijednosti kontrolišu ponašanje međuspremnika odabira.",

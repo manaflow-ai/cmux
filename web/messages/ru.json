@@ -22,8 +22,31 @@
       "title": "Требуется cmux Pro",
       "message": "Для Cloud VM требуется план cmux Pro.",
       "action": "Перейдите на cmux Pro на {upgradeUrl}, чтобы создавать Cloud VM."
+    },
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "Для машин с {memory} ГиБ нужен cmux {plan}. Ваш тариф поддерживает до {max} ГиБ.",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "Не удалось проверить объём ОЗУ исходной машины.",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "Этот размер машины недоступен. Выберите до {max} ГиБ.",
+      "action": "cmux vm new --size {max}g"
     }
-  },
+  ,
+    "goLimit": {
+      "savedMessage": "Go включает две сохранённые ВМ, в том числе работающую.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "activeMessage": "Go позволяет запускать одну ВМ одновременно.",
+      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "hoursMessage": "40 часов ВМ в Go на этот месяц израсходованы. Сохранённые ВМ будут доступны в следующем расчётном периоде.",
+      "hoursAction": "cmux billing checkout --plan pro",
+      "shapeMessage": "Go поддерживает 2 vCPU, 4 GiB ОЗУ и 16 GiB диска.",
+      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    }},
   "billingRecovery": {
     "message": "Если мы нашли аккаунт, проверьте электронную почту, чтобы узнать дальнейшие действия"
   },
@@ -357,6 +380,13 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "Поделиться с командой",
+      "makePrivate": "Сделать личным",
+      "privateImportHint": "Новые аккаунты являются личными. Поделитесь аккаунтом, чтобы он стал доступен облачным ВМ этой команды.",
+      "description": "Общие аккаунты доступны облачным ВМ этой команды. Личные аккаунты доступны только тому, кто их добавил.",
+      "cancelAction": "Отмена"
     }
   },
   "community": {
@@ -980,10 +1010,10 @@
       "targetTitle": "Выбрано другое окно или клик заблокирован",
       "targetBody": "Снова изучите приложение и выберите элемент из актуального состояния. Если другое окно перекрывает цель, покажите нужное окно и проверьте его перед повтором. Не используйте старые координаты и индексы.",
       "productLink": "Обзор cmux Computer Use",
-    "copyTitle": "Скопировать промпт Computer Use",
-    "copyPrompt": "Скопировать промпт",
-    "copiedPrompt": "Скопировано",
-    "installPrompt": "Используй навык $cmux-cua. Если его нет, установи обычным установщиком. При отсутствии разрешений попроси меня открыть настройки cmux → Computer Use. Проверяй цель до действия и каждое изменение после.\n\nЗадача: [опишите задачу здесь]"
+      "copyTitle": "Скопировать промпт Computer Use",
+      "copyPrompt": "Скопировать промпт",
+      "copiedPrompt": "Скопировано",
+      "installPrompt": "Используй навык $cmux-cua. Если его нет, установи обычным установщиком. При отсутствии разрешений попроси меня открыть настройки cmux → Computer Use. Проверяй цель до действия и каждое изменение после.\n\nЗадача: [опишите задачу здесь]"
     },
     "remoteTmux": {
       "moshContrast": "Для роуминга между сетями используйте cmux mosh-tmux. Он открывает полноценно интегрированный терминал Mosh, подключённый к именованному сеансу tmux; это не заменяет нативное зеркалирование рабочих пространств, вкладок и разделений в режиме управления tmux через SSH."
@@ -1190,6 +1220,7 @@
           "globalFontMagnification": "Масштабирует на этот процент принадлежащие cmux терминалы, заголовки вкладок, боковые панели, настройки, наложения и chrome приложения. Отрисованное содержимое страниц браузера не затрагивается."
         },
         "terminal": {
+          "adaptiveDefaultTheme": "При true (по умолчанию) cmux предоставляет стандартную палитру, зависящую от оформления, если не заданы тема Ghostty или цвета терминала. Шрифт и другие настройки сохраняются. При false Ghostty использует свою фиксированную встроенную палитру. Явно заданные темы и цвета всегда имеют приоритет, включая theme = light:X,dark:Y.",
           "sessionContentMaxWidth": "Необязательная максимальная ширина в пунктах для содержимого терминала и встроенного чата агента. Укажите false, чтобы использовать всю ширину панели.",
           "sessionContentAlignment": "Горизонтальное расположение содержимого терминала и встроенного чата агента при включённом sessionContentMaxWidth.",
           "copyOnSelect": "Если значение true, выбранный текст терминала копируется в системный буфер обмена после подтверждения выделения. Если значение false, cmux не выводит переопределение Ghostty copy-on-select; конфигурация и значения по умолчанию Ghostty управляют поведением буфера выделения.",
