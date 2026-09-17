@@ -23,8 +23,8 @@ final class CloudTreeCellView: NSTableCellView {
         identifier = Self.identifier
         displayHost.translatesAutoresizingMaskIntoConstraints = false
         addSubview(displayHost)
-        // The outline's `frameOfCell` already shifted this cell 2pt past the 16pt
-        // disclosure slot; the remaining 4pt completes `CloudTreeRowGrid.disclosureGap`.
+        // The outline and host share the compact disclosure gap rather than
+        // independently adding padding before the attention and identity slots.
         // Content pads its own trailing edge (`CloudTreeRowGrid.trailingPadding`).
         NSLayoutConstraint.activate([
             displayHost.leadingAnchor.constraint(
@@ -81,7 +81,7 @@ final class CloudTreeCellView: NSTableCellView {
             buttons.isHidden = false
             buttons.alphaValue = hovered ? 1 : 0
             buttonsLeadingConstraint?.isActive = true
-            // Cloud resources sit below the name; keep hover buttons on its line.
+            // Keep hover buttons on the name line above the resource summary.
             // Local and pending rows retain their preset alignment.
             let pinToNameLine = node.isMachineRow && (style.machineRowLayout == .twoLine || node.structureTag == "machine")
             buttonsTopConstraint?.constant = style.machineVerticalPadding + (style.machineBand ? 4 : 0)

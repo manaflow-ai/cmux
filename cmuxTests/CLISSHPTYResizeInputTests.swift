@@ -51,7 +51,7 @@ struct CLISSHPTYResizeInputTests {
                     id: id,
                     ok: true,
                     result: [
-                        "host": "127.0.0.1",
+                        "host": "127.0.0.1", "daemon_version": BundledCLITestSupport.appVersion,
                         "port": bridge.port,
                         "token": token,
                         "session_id": sessionId,
@@ -133,7 +133,7 @@ struct CLISSHPTYResizeInputTests {
                 process.terminate()
             }
         }
-        #expect(bridgeReady.wait(timeout: .now() + 5) == .success)
+        #expect(bridgeReady.wait(timeout: .now() + 5) == .success, Comment(rawValue: state.snapshot().joined(separator: "\n")))
 
         try setPTYSize(masterFD: masterFD, cols: 120, rows: 40)
         writeAll(fd: masterFD, data: Data("stty size\n".utf8))
@@ -382,7 +382,6 @@ struct CLISSHPTYResizeInputTests {
                 clientGroup.wait()
                 server.handled.signal()
             }
-
             while !server.isStopped {
                 var clientAddr = sockaddr_un()
                 var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
@@ -392,6 +391,9 @@ struct CLISSHPTYResizeInputTests {
                     }
                 }
                 if clientFD >= 0 {
+                    // Darwin inherits O_NONBLOCK; the line reader needs blocking reads.
+                    let clientFlags = fcntl(clientFD, F_GETFL, 0)
+                    _ = fcntl(clientFD, F_SETFL, clientFlags & ~O_NONBLOCK)
                     clientGroup.enter()
                     DispatchQueue.global(qos: .userInitiated).async {
                         defer {
@@ -402,7 +404,6 @@ struct CLISSHPTYResizeInputTests {
                     }
                     continue
                 }
-
                 if errno == EINTR {
                     continue
                 }
@@ -431,7 +432,6 @@ struct CLISSHPTYResizeInputTests {
                 state.append(line)
                 writeAll(fd: clientFD, data: handler(line))
             }
-
             let count = Darwin.read(clientFD, &buffer, buffer.count)
             if count > 0 {
                 pending.append(buffer, count: count)
