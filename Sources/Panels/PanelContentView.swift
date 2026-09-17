@@ -231,6 +231,10 @@ struct PanelContentView: View {
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
+        case .settings:
+            if let settingsPanel = panel as? SettingsPanel {
+                SettingsPanelView(panel: settingsPanel, appearance: appearance, onRequestPanelFocus: onRequestPanelFocus)
+            }
 
         }
     }
@@ -249,7 +253,7 @@ struct PanelContentView: View {
     private var shouldInstallPaneDropTarget: Bool {
         guard isVisibleInUI else { return false }
         switch panel.panelType {
-        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .simulator, .agentSession, .project, .extensionBrowser, .workspaceTodo, .notifications, .cloudVMLoading, .mobilePairing, .accountSignIn:
+        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .simulator, .agentSession, .project, .extensionBrowser, .workspaceTodo, .notifications, .cloudVMLoading, .mobilePairing, .accountSignIn, .settings:
             return true
         case .terminal, .browser:
             return false

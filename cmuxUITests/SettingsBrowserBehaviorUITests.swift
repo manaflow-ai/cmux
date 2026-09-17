@@ -48,6 +48,25 @@ final class SettingsBrowserBehaviorUITests: SettingsUITestCase {
         super.tearDown()
     }
 
+    func testCategoryHeaderStaysBelowTheTitlebar() {
+        let app = makeLaunchedApp()
+        let window = openSettings(app)
+        navigate(window, to: "Account")
+        navigate(window, to: "Browser")
+
+        let header = requireElement(
+            candidates: [window.staticTexts["SettingsBrowserSection"]],
+            timeout: 4.0,
+            description: "Browser category header"
+        )
+        let toolbar = window.toolbars.firstMatch
+        XCTAssertTrue(toolbar.exists)
+        XCTAssertTrue(poll(timeout: 3.0) {
+            header.frame.minY >= toolbar.frame.maxY
+        }, "The category header must not scroll behind the title bar")
+        XCTAssertFalse(window.buttons["SettingsBrowserImportChooseButton"].exists)
+    }
+
     // MARK: - TIER 1 (behavioral)
 
     /// Import Browser Data → **Choose…** opens the import wizard.
@@ -56,14 +75,14 @@ final class SettingsBrowserBehaviorUITests: SettingsUITestCase {
     /// something to import from (otherwise it would show the "No importable
     /// browsers found" alert). Opens Settings, scrolls to the Browser
     /// section, presses the Choose… button (`SettingsBrowserImportChooseButton`,
-    /// which exists in `BrowserSection.swift`), then asserts the import
+    /// which exists in `BrowserImportSection.swift`), then asserts the import
     /// wizard surface appears. The wizard's first-step `Next` button and the
     /// "Import Browser Data" window are the same elements
     /// `BrowserImportProfilesUITests` asserts on, so they are known to exist.
     func testImportChooseButtonOpensImportWizard() {
         let app = makeLaunchedAppWithImportFixture()
         let window = openSettings(app)
-        navigate(window, to: "Browser")
+        navigate(window, to: "Import Browser Data")
 
         let chooseButton = requireElement(
             candidates: [

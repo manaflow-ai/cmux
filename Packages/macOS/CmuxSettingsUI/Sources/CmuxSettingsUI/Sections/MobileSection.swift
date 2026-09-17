@@ -8,23 +8,13 @@ import SwiftUI
 /// connection/route diagnostics.
 @MainActor
 public struct MobileSection: View {
+    @State private var pageDrafts = SettingsPageDrafts()
     @State private var iOSPairingHost: DefaultsValueModel<Bool>
     @State private var port: DefaultsValueModel<Int>
     @State private var displayName: DefaultsValueModel<String>
     @State private var artifactFolderAccess: DefaultsValueModel<MobileArtifactFolderAccess>
     @State private var status: MobilePairingStatusModel
     @State private var phonePush: MobilePhonePushSettingsModel
-
-    /// The user's in-progress port edit, or `nil` when the field should track
-    /// the persisted value. Local so editing does not rebind the listener; only
-    /// the **Apply** button does, after checking the port is free. `nil` lets the
-    /// field reflect `port.current` once `DefaultsValueModel` has loaded the
-    /// saved value (it seeds the catalog default first, then yields the real one).
-    @State private var editedPort: Int?
-    /// Result of the most recent Apply, shown inline. Cleared when the edit changes.
-    @State private var applyResult: MobilePairingPortApplyResult?
-    /// Guards against overlapping Apply taps while a probe is in flight.
-    @State private var isApplying = false
 
     /// Whether an MDM configuration profile disables iOS remote control.
     /// Refreshed from ``ManagedDevicePolicy/changeSignals(notificationCenter:)``
@@ -46,6 +36,16 @@ public struct MobileSection: View {
     ///   - catalog: The settings catalog defining the mobile keys.
     ///   - hostActions: Host bridge for the pairing window, port apply, and the
     ///     live pairing status the package can't produce itself.
+    init(
+        defaultsStore: UserDefaultsSettingsStore,
+        catalog: SettingCatalog,
+        hostActions: SettingsHostActions,
+        pageDrafts: SettingsPageDrafts
+    ) {
+        self.init(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
+        _pageDrafts = State(initialValue: pageDrafts)
+    }
+
     public init(
         defaultsStore: UserDefaultsSettingsStore,
         catalog: SettingCatalog,
@@ -66,7 +66,7 @@ public struct MobileSection: View {
     /// The value shown in the field: the user's edit if any, otherwise the
     /// persisted port (which updates once it loads).
     private var draftPort: Int {
-        editedPort ?? port.current
+        pageDrafts.editedPort ?? port.current
     }
 
     /// Apply saves the preference; the live port is shown independently.
@@ -293,13 +293,13 @@ public struct MobileSection: View {
             HStack(spacing: 8) {
                 TextField(
                     "",
-                    value: Binding(get: { draftPort }, set: { editedPort = $0 }),
+                    value: Binding(get: { draftPort }, set: { pageDrafts.editedPort = $0 }),
                     format: .number.grouping(.never)
                 )
                 .textFieldStyle(.roundedBorder)
                 .multilineTextAlignment(.trailing)
                 .frame(width: 90)
-                .onChange(of: editedPort) { applyResult = nil }
+                .onChange(of: pageDrafts.editedPort) { pageDrafts.mobilePortApplyResult = nil }
                 .onSubmit { applyDraftPort() }
                 .accessibilityIdentifier("SettingsMobilePairingPortField")
 
@@ -308,7 +308,7 @@ public struct MobileSection: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .disabled(isApplying || !isDraftValid || draftPort == effectivePort)
+                .disabled(pageDrafts.isApplyingMobilePort || !isDraftValid || draftPort == effectivePort)
                 .accessibilityIdentifier("SettingsMobilePairingPortApplyButton")
             }
         }
@@ -316,15 +316,15 @@ public struct MobileSection: View {
 
     private func applyDraftPort() {
         let requested = draftPort
-        guard !isApplying, isDraftValid, requested != effectivePort else { return }
-        isApplying = true
+        guard !pageDrafts.isApplyingMobilePort, isDraftValid, requested != effectivePort else { return }
+        pageDrafts.isApplyingMobilePort = true
         Task {
             let result = await hostActions.applyMobilePairingPort(requested)
-            applyResult = result
+            pageDrafts.mobilePortApplyResult = result
             // Keep the field on the attempted value (with its warning) when the
             // port is in use; otherwise let it track the persisted value again.
-            if case .portInUse = result {} else { editedPort = nil }
-            isApplying = false
+            if case .portInUse = result {} else { pageDrafts.editedPort = nil }
+            pageDrafts.isApplyingMobilePort = false
         }
     }
 
@@ -351,7 +351,7 @@ public struct MobileSection: View {
                 )
                 .foregroundStyle(.secondary)
             }
-        } else if case let .portInUse(requested) = applyResult, iOSPairingHost.current {
+        } else if case let .portInUse(requested) = pageDrafts.mobilePortApplyResult, iOSPairingHost.current {
             // Only while pairing is on — toggling off stops the listener, which
             // would make "still listening on …" wrong.
             statusCaption {
@@ -364,7 +364,7 @@ public struct MobileSection: View {
                 )
                 .foregroundStyle(.orange)
             }
-        } else if case let .savedForLater(saved) = applyResult, status.current?.isRunning != true {
+        } else if case let .savedForLater(saved) = pageDrafts.mobilePortApplyResult, status.current?.isRunning != true {
             statusCaption {
                 Label(
                     String(localized: "settings.mobile.port.apply.saved", defaultValue: "Saved port \(saved). It takes effect the next time iOS Pairing starts."),

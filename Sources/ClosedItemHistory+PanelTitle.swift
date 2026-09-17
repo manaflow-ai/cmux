@@ -45,6 +45,7 @@ extension ClosedItemHistoryStore {
             return String(localized: "mobile.pairing.window.title", defaultValue: "Mobile Pairing")
         case .accountSignIn:
             return String(localized: "account.signIn.workspace.title", defaultValue: "Sign In")
+        case .settings: return String(localized: "settings.title", defaultValue: "Settings")
         }
     }
 }

@@ -9,13 +9,13 @@ import SwiftUI
 /// Show Search Suggestions, Browser Theme, Browser Memory Saver +
 /// Memory Saver Delay, Open Terminal Links / Intercept open,
 /// conditional Hosts editor and the External Patterns text editor, HTTP Hosts
-/// Allowed in Embedded Browser editor, URL Allowlist editor, Import Browser Data
-/// subsection, React Grab Version, Browsing History.
+/// Allowed in Embedded Browser editor, URL Allowlist editor, React Grab Version,
+/// and Browsing History.
 @MainActor
 public struct BrowserSection: View {
+    @State private var pageDrafts = SettingsPageDrafts()
     private let catalog: SettingCatalog
     private let hostActions: SettingsHostActions
-    private let importAnchorID: String?
 
     @State private var disabled: DefaultsValueModel<Bool>
     @State private var engine: DefaultsValueModel<BrowserSearchEngine>
@@ -33,16 +33,9 @@ public struct BrowserSection: View {
     @State private var external: DefaultsValueModel<String>
     @State private var httpAllowlist: DefaultsValueModel<String>
     @State private var urlAllowlist: DefaultsValueModel<String>
-    @State private var importHint: DefaultsValueModel<Bool>
     @State private var reactGrab: DefaultsValueModel<String>
 
     @State private var confirmClearHistory: Bool = false
-    @State private var httpAllowlistDraft: String = ""
-    @State private var httpAllowlistSyncedValue: String = ""
-    @State private var httpAllowlistLoaded: Bool = false
-    @State private var urlAllowlistDraft: String = ""
-    @State private var urlAllowlistSyncedValue: String = ""
-    @State private var urlAllowlistLoaded: Bool = false
 
     /// Whether management locks the embedded-browser disable (policy key
     /// enforced, or the user key itself forced). Refreshed from
@@ -59,15 +52,23 @@ public struct BrowserSection: View {
     /// managed note tracks `BrowserAllowLocalhost` / `BrowserAllowLocalFiles`.
     @State private var urlAllowlistPolicy = BrowserURLAllowlistPolicy()
 
-    public init(
+    init(
         defaultsStore: UserDefaultsSettingsStore,
         catalog: SettingCatalog,
         hostActions: SettingsHostActions,
-        importAnchorID: String? = nil
+        pageDrafts: SettingsPageDrafts
+    ) {
+        self.init(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
+        _pageDrafts = State(initialValue: pageDrafts)
+    }
+
+    public init(
+        defaultsStore: UserDefaultsSettingsStore,
+        catalog: SettingCatalog,
+        hostActions: SettingsHostActions
     ) {
         self.catalog = catalog
         self.hostActions = hostActions
-        self.importAnchorID = importAnchorID
         _disabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.disabled))
         _engine = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.defaultSearchEngine))
         _customName = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.customSearchEngineName))
@@ -84,7 +85,6 @@ public struct BrowserSection: View {
         _external = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.urlsToAlwaysOpenExternally))
         _httpAllowlist = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.insecureHttpHostsAllowedInEmbeddedBrowser))
         _urlAllowlist = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.urlAllowlist))
-        _importHint = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.showImportHintOnBlankTabs))
         _reactGrab = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.reactGrabVersion))
     }
 
@@ -107,7 +107,7 @@ public struct BrowserSection: View {
             Button(String(localized: "settings.browser.history.clearDialog.cancel", defaultValue: "Cancel"), role: .cancel) {}
         } message: {
             Text(String(localized: "settings.browser.history.clearDialog.message", defaultValue: "This removes visited-page suggestions from the browser omnibar."))
-        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, defaultZoom, discardEnabled, discardDelay, askWhereToSaveDownloads, openTermLinks, interceptOpen, hosts, external, httpAllowlist, urlAllowlist, importHint, reactGrab]) }
+        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, defaultZoom, discardEnabled, discardDelay, askWhereToSaveDownloads, openTermLinks, interceptOpen, hosts, external, httpAllowlist, urlAllowlist, reactGrab]) }
         .task {
             for await _ in ManagedDevicePolicy.changeSignals() {
                 browserManagedByPolicy = ManagedDevicePolicy().isBrowserDisableLocked(
@@ -118,12 +118,12 @@ public struct BrowserSection: View {
                 browserURLAllowlistManagedByPolicy = policy.isManaged
                 urlAllowlistPolicy = policy
                 if policy.isManaged || wasManaged {
-                    urlAllowlistDraft = effectiveURLAllowlistText(
+                    pageDrafts.urlAllowlistDraft = effectiveURLAllowlistText(
                         for: urlAllowlist,
                         policy: policy
                     )
-                    urlAllowlistSyncedValue = urlAllowlistDraft
-                    urlAllowlistLoaded = true
+                    pageDrafts.urlAllowlistSyncedValue = pageDrafts.urlAllowlistDraft
+                    pageDrafts.urlAllowlistLoaded = true
                 }
             }
         }
@@ -358,17 +358,6 @@ public struct BrowserSection: View {
 
             SettingsCardDivider()
 
-            // Import Browser Data subsection — tagged with the
-            // browserImport anchor id so sidebar deeplinks for that
-            // navigation target scroll the user to this inline block.
-            importBrowserDataBlock(
-                importHintModel: importHint,
-                onImport: { hostActions.openBrowserImportFlow() }
-            )
-            .id(importAnchorID ?? "section:browserImport.inline")
-            .settingsSearchHighlight([importAnchorID, "setting:browserImport:import-data"].compactMap { $0 })
-            SettingsCardDivider()
-
             // React Grab Version
             SettingsCardRow(
                 configurationReview: .json("browser.reactGrabVersion"),
@@ -434,7 +423,7 @@ public struct BrowserSection: View {
             Text(String(localized: "settings.browser.httpAllowlist.description", defaultValue: "Controls which HTTP (non-HTTPS) hosts can open in cmux without a warning prompt. Defaults include localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, and *.localtest.me. Remove entries to block them; reset to restore defaults."))
                 .cmuxFont(.caption)
                 .foregroundStyle(.secondary)
-            TextEditor(text: $httpAllowlistDraft)
+            TextEditor(text: $pageDrafts.httpAllowlistDraft)
                 .cmuxFont(size: 12, weight: .regular, design: .monospaced)
                 .frame(minHeight: 86)
                 .padding(6)
@@ -456,12 +445,12 @@ public struct BrowserSection: View {
                     Spacer(minLength: 0)
                     httpAllowlistResetButton(model: model)
                     Button(String(localized: "settings.browser.httpAllowlist.save", defaultValue: "Save")) {
-                        model.set(httpAllowlistDraft)
-                        httpAllowlistSyncedValue = httpAllowlistDraft
+                        model.set(pageDrafts.httpAllowlistDraft)
+                        pageDrafts.httpAllowlistSyncedValue = pageDrafts.httpAllowlistDraft
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
-                    .disabled(httpAllowlistDraft == model.current)
+                    .disabled(pageDrafts.httpAllowlistDraft == model.current)
                     .accessibilityIdentifier("SettingsBrowserHTTPAllowlistSaveButton")
                 }
 
@@ -473,12 +462,12 @@ public struct BrowserSection: View {
                         Spacer(minLength: 0)
                         httpAllowlistResetButton(model: model)
                         Button(String(localized: "settings.browser.httpAllowlist.save", defaultValue: "Save")) {
-                            model.set(httpAllowlistDraft)
-                            httpAllowlistSyncedValue = httpAllowlistDraft
+                            model.set(pageDrafts.httpAllowlistDraft)
+                            pageDrafts.httpAllowlistSyncedValue = pageDrafts.httpAllowlistDraft
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
-                        .disabled(httpAllowlistDraft == model.current)
+                        .disabled(pageDrafts.httpAllowlistDraft == model.current)
                         .accessibilityIdentifier("SettingsBrowserHTTPAllowlistSaveButton")
                     }
                 }
@@ -487,10 +476,10 @@ public struct BrowserSection: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .task {
-            if !httpAllowlistLoaded {
-                httpAllowlistDraft = model.current
-                httpAllowlistSyncedValue = model.current
-                httpAllowlistLoaded = true
+            if !pageDrafts.httpAllowlistLoaded {
+                pageDrafts.httpAllowlistDraft = model.current
+                pageDrafts.httpAllowlistSyncedValue = model.current
+                pageDrafts.httpAllowlistLoaded = true
             }
         }
         .onChange(of: model.current) { _, newValue in
@@ -498,24 +487,24 @@ public struct BrowserSection: View {
             // only refresh the draft when the user hasn't edited it
             // since the last sync. Otherwise keep their in-progress
             // edits intact across external store updates.
-            if !httpAllowlistLoaded {
-                httpAllowlistDraft = newValue
-                httpAllowlistSyncedValue = newValue
-                httpAllowlistLoaded = true
+            if !pageDrafts.httpAllowlistLoaded {
+                pageDrafts.httpAllowlistDraft = newValue
+                pageDrafts.httpAllowlistSyncedValue = newValue
+                pageDrafts.httpAllowlistLoaded = true
                 return
             }
-            if httpAllowlistDraft == httpAllowlistSyncedValue {
-                httpAllowlistDraft = newValue
+            if pageDrafts.httpAllowlistDraft == pageDrafts.httpAllowlistSyncedValue {
+                pageDrafts.httpAllowlistDraft = newValue
             }
-            httpAllowlistSyncedValue = newValue
+            pageDrafts.httpAllowlistSyncedValue = newValue
         }
     }
 
     private func httpAllowlistResetButton(model: DefaultsValueModel<String>) -> some View {
         Button(String(localized: "settings.browser.httpAllowlist.reset", defaultValue: "Reset to Defaults")) {
             model.reset()
-            httpAllowlistDraft = catalog.browser.insecureHttpHostsAllowedInEmbeddedBrowser.defaultValue
-            httpAllowlistSyncedValue = httpAllowlistDraft
+            pageDrafts.httpAllowlistDraft = catalog.browser.insecureHttpHostsAllowedInEmbeddedBrowser.defaultValue
+            pageDrafts.httpAllowlistSyncedValue = pageDrafts.httpAllowlistDraft
         }
         .buttonStyle(.bordered)
         .controlSize(.small)
@@ -545,7 +534,7 @@ public struct BrowserSection: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("SettingsBrowserURLAllowlistManagedNote")
             }
-            TextEditor(text: $urlAllowlistDraft)
+            TextEditor(text: $pageDrafts.urlAllowlistDraft)
                 .cmuxFont(size: 12, weight: .regular, design: .monospaced)
                 .frame(minHeight: 86)
                 .padding(6)
@@ -584,28 +573,28 @@ public struct BrowserSection: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .task {
-            if !urlAllowlistLoaded {
-                urlAllowlistDraft = effectiveURLAllowlistText(for: model)
-                urlAllowlistSyncedValue = urlAllowlistDraft
-                urlAllowlistLoaded = true
+            if !pageDrafts.urlAllowlistLoaded {
+                pageDrafts.urlAllowlistDraft = effectiveURLAllowlistText(for: model)
+                pageDrafts.urlAllowlistSyncedValue = pageDrafts.urlAllowlistDraft
+                pageDrafts.urlAllowlistLoaded = true
             }
         }
         .onChange(of: model.current) { _, newValue in
             if browserURLAllowlistManagedByPolicy {
-                urlAllowlistDraft = effectiveURLAllowlistText(for: model)
-                urlAllowlistSyncedValue = urlAllowlistDraft
+                pageDrafts.urlAllowlistDraft = effectiveURLAllowlistText(for: model)
+                pageDrafts.urlAllowlistSyncedValue = pageDrafts.urlAllowlistDraft
                 return
             }
-            if !urlAllowlistLoaded {
-                urlAllowlistDraft = newValue
-                urlAllowlistSyncedValue = newValue
-                urlAllowlistLoaded = true
+            if !pageDrafts.urlAllowlistLoaded {
+                pageDrafts.urlAllowlistDraft = newValue
+                pageDrafts.urlAllowlistSyncedValue = newValue
+                pageDrafts.urlAllowlistLoaded = true
                 return
             }
-            if urlAllowlistDraft == urlAllowlistSyncedValue {
-                urlAllowlistDraft = newValue
+            if pageDrafts.urlAllowlistDraft == pageDrafts.urlAllowlistSyncedValue {
+                pageDrafts.urlAllowlistDraft = newValue
             }
-            urlAllowlistSyncedValue = newValue
+            pageDrafts.urlAllowlistSyncedValue = newValue
         }
     }
 
@@ -654,7 +643,7 @@ public struct BrowserSection: View {
 
     private var urlAllowlistValidationMessage: String? {
         guard !browserURLAllowlistManagedByPolicy else { return nil }
-        let rules = urlAllowlistDraft
+        let rules = pageDrafts.urlAllowlistDraft
             .components(separatedBy: CharacterSet(charactersIn: ",;\n\r\t"))
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -669,12 +658,12 @@ public struct BrowserSection: View {
     private func urlAllowlistSaveButton(model: DefaultsValueModel<String>) -> some View {
         Button(String(localized: "settings.browser.urlAllowlist.save", defaultValue: "Save")) {
             guard !browserURLAllowlistManagedByPolicy else { return }
-            model.set(urlAllowlistDraft)
-            urlAllowlistSyncedValue = urlAllowlistDraft
+            model.set(pageDrafts.urlAllowlistDraft)
+            pageDrafts.urlAllowlistSyncedValue = pageDrafts.urlAllowlistDraft
         }
         .buttonStyle(.bordered)
         .controlSize(.small)
-        .disabled(browserURLAllowlistManagedByPolicy || urlAllowlistDraft == model.current)
+        .disabled(browserURLAllowlistManagedByPolicy || pageDrafts.urlAllowlistDraft == model.current)
         .accessibilityIdentifier("SettingsBrowserURLAllowlistSaveButton")
     }
 
@@ -682,8 +671,8 @@ public struct BrowserSection: View {
         Button(String(localized: "settings.browser.urlAllowlist.reset", defaultValue: "Reset to Defaults")) {
             guard !browserURLAllowlistManagedByPolicy else { return }
             model.reset()
-            urlAllowlistDraft = BrowserURLAllowlistPolicy.defaultAllowlistText
-            urlAllowlistSyncedValue = urlAllowlistDraft
+            pageDrafts.urlAllowlistDraft = BrowserURLAllowlistPolicy.defaultAllowlistText
+            pageDrafts.urlAllowlistSyncedValue = pageDrafts.urlAllowlistDraft
         }
         .buttonStyle(.bordered)
         .controlSize(.small)
@@ -692,65 +681,6 @@ public struct BrowserSection: View {
                 || model.current == BrowserURLAllowlistPolicy.defaultAllowlistText
         )
         .accessibilityIdentifier("SettingsBrowserURLAllowlistResetButton")
-    }
-
-    @ViewBuilder
-    private func importBrowserDataBlock(importHintModel: DefaultsValueModel<Bool>, onImport: @escaping () -> Void) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(String(localized: "settings.browser.import", defaultValue: "Import Browser Data"))
-                    .cmuxFont(size: 13, weight: .semibold)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(String(localized: "browser.import.hint.title", defaultValue: "Import browser data"))
-                        .cmuxFont(size: 12.5, weight: .semibold)
-                    Text(String(localized: "browser.import.hint.subtitle", defaultValue: "Import bookmarks, history, and cookies from Safari, Chrome, Firefox, Brave, Edge, or Arc. Already-imported entries are deduped automatically."))
-                        .cmuxFont(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityIdentifier("SettingsBrowserImportSummary")
-                    Text(String(localized: "browser.import.hint.settingsFootnote", defaultValue: "You can always find this in Settings > Browser."))
-                        .cmuxFont(size: 10.5)
-                        .foregroundStyle(.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color(nsColor: .controlBackgroundColor))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(Color(nsColor: .separatorColor).opacity(0.4), lineWidth: 1)
-                )
-            }
-            HStack(spacing: 8) {
-                Button(String(localized: "settings.browser.import.choose", defaultValue: "Choose…")) { onImport() }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .accessibilityIdentifier("SettingsBrowserImportChooseButton")
-                Button(String(localized: "settings.browser.import.refresh", defaultValue: "Refresh")) {}
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(true)
-            }
-            .accessibilityIdentifier("SettingsBrowserImportActions")
-            Toggle(
-                String(localized: "settings.browser.import.hint.show", defaultValue: "Show import hint on blank browser tabs"),
-                isOn: Binding(get: { importHintModel.current }, set: { importHintModel.set($0) })
-            )
-            .controlSize(.small)
-            .accessibilityIdentifier("SettingsBrowserImportHintToggle")
-            .settingsSearchAnchors(["setting:browserImport:import-hint"])
-            Text(String(localized: "settings.browser.import.hint.settingsNote", defaultValue: "Shown until you import or dismiss it on a blank tab."))
-                .cmuxFont(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .accessibilityIdentifier("SettingsBrowserImportSection")
     }
 
     private func browserThemeSubtitle(_ mode: BrowserThemeMode) -> String {

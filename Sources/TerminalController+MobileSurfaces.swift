@@ -42,6 +42,7 @@ extension TerminalController {
             return MobileSurfaceKind(rawValue: "mobilePairing")
         case .accountSignIn:
             return MobileSurfaceKind(rawValue: "accountSignIn")
+        case .settings: return MobileSurfaceKind(rawValue: "settings")
         }
     }
 

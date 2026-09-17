@@ -2312,7 +2312,7 @@ struct BrowserPanelView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Text(String(localized: "browser.import.hint.settingsFootnote", defaultValue: "You can always find this in Settings > Browser."))
+            Text(String(localized: "browser.import.hint.settingsFootnote", defaultValue: "You can always find this in Settings > Import Browser Data."))
                 .cmuxFont(size: 10.5)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)

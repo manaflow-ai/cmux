@@ -10,6 +10,24 @@ import Testing
 
 @MainActor
 struct CloudNightlyOverrideTests {
+    @Test func inspectorSearchMatchesTitleKeyAndDescriptionTokens() {
+        let matches: (String) -> Bool = { query in
+            InternalFlagRowSnapshot.matches(
+                query: query,
+                title: "Cloud Machines",
+                key: "cloud-machines-enabled-release",
+                description: "Enables attachments and background sync."
+            )
+        }
+        #expect(matches("CLOUD sync"))
+        #expect(matches("enabled-release"))
+        #expect(matches("machines attachments"))
+        #expect(!matches("cloud browser"))
+        #expect(matches(""))
+        #expect(InternalFlagRowSnapshot.matches(query: "resume", title: "Résumé", key: "test", description: ""))
+        #expect(InternalFlagRowSnapshot.matches(query: "résumé", title: "Resume", key: "test", description: ""))
+    }
+
     private let cloud = CmuxFeatureFlags.cloudMachinesFlag
     private let nightly = CmuxFeatureFlagOverrideCapability(
         bundleIdentifier: "com.cmuxterm.app.nightly", isDebugBuild: false

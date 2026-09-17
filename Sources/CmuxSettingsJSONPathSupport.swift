@@ -248,10 +248,8 @@ enum SidebarSettingsFileMapping {
     }
 
     static let booleanSettings: [BooleanSetting] = [
-        .init(
-            jsonKey: "hideAllDetails",
-            defaultsKey: sidebar.hideAllDetails.userDefaultsKey
-        ),
+        .init(jsonKey: "showCloudButton", defaultsKey: sidebar.showCloudButton.userDefaultsKey),
+        .init(jsonKey: "hideAllDetails", defaultsKey: sidebar.hideAllDetails.userDefaultsKey),
         .init(
             jsonKey: "wrapWorkspaceTitles",
             defaultsKey: SidebarWorkspaceTitleWrapSettings.key

@@ -104,6 +104,7 @@ struct SettingsRowAnchorResolutionTests {
         "notifications.unreadPaneRing",
         "sidebar.branchLayout",
         "sidebar.hideAllDetails",
+        "sidebar.showCloudButton",
         "sidebar.makePullRequestsClickable",
         "sidebar.openPortLinksInCmuxBrowser",
         "sidebar.openPullRequestLinksInCmuxBrowser",

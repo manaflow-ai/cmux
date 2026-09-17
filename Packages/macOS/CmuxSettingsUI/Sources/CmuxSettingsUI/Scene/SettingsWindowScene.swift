@@ -1,254 +1,197 @@
+import AppKit
 import CmuxSettings
 import SwiftUI
 
-/// Root view of the settings window, hosted in an AppKit-owned
-/// `NSWindow` by the app's `SettingsWindowFactory` (cmux issue
-/// #7777; a SwiftUI `Window` scene's `openWindow(id:)` could
-/// silently no-op and strand the open path).
-///
-/// Composes a single tall `ScrollView` of stacked sections — the
-/// legacy in-app layout — with a left sidebar that scrolls to a
-/// section's anchor on click. Owns the search query, the scroll
-/// proxy, and the section anchors.
+/// Where the Settings root is hosted. The window keeps AppKit's split view
+/// (full-height sidebar, toolbar toggle); a workspace pane draws a flat
+/// two-column layout in the pane's own chrome, with no window furniture.
+public enum SettingsRootPresentation: Sendable {
+    case window
+    case pane
+}
+
+/// Settings sidebar and its selected category page, hosted by the app's
+/// AppKit-owned Settings window or embedded in a workspace pane. Search
+/// results and external navigation share one path that selects a page
+/// before scrolling to its row.
 @MainActor
 public struct SettingsWindowRoot: View {
     let runtime: SettingsRuntime
     private let searchIndex: SettingsSearchIndex
-    /// Section a targeted show asked for, when the host knew it at window
-    /// creation. It is mounted first, and the restore navigation posted on
-    /// appear follows it instead of the persisted last-viewed section, so a
-    /// `cmux settings open <target>` never builds the previous pane.
-    let initialSection: SettingsSectionID?
-    /// Progressive mounting of the detail sections (cmux issue #12134):
-    /// the section the window opens on is built in the first layout pass,
-    /// the rest one per update pass. Window-scoped like the scroll state.
-    @State var mountModel: SettingsSectionMountModel
+    private let initialSection: SettingsSectionID?
+    private let presentation: SettingsRootPresentation
 
     static let selectedSectionDefaultsKey = "selectedSettingsSection"
     static let cloudMachinesBetaDefaultsKey = "cloud.beta.machines.enabled"
 
+    /// Creates a settings window's content.
+    ///
     /// - Parameters:
-    ///   - runtime: Catalog, stores, and host actions shared by every section.
-    ///   - initialSection: Section mounted in the first layout pass; `nil`
-    ///     restores the last-viewed section the sidebar persists.
-    ///   - mountModel: Mount model driving the progressive build. Supply one
-    ///     to steer or observe mounting from outside the view; by default one
-    ///     is built for `initialSection`.
-    public init(
-        runtime: SettingsRuntime,
-        initialSection: SettingsSectionID? = nil,
-        mountModel: SettingsSectionMountModel? = nil
-    ) {
+    ///   - runtime: Catalog, stores, and host actions shared by every page.
+    ///   - initialSection: Category rendered in the first layout pass. `nil`
+    ///     restores the category saved in the view's default AppStorage.
+    ///   - presentation: Window split view, or the flat pane layout.
+    public init(runtime: SettingsRuntime, initialSection: SettingsSectionID? = nil, presentation: SettingsRootPresentation = .window) {
         self.runtime = runtime
         self.searchIndex = runtime.searchIndex
         self.initialSection = initialSection
-        // The `@AppStorage` properties below read the same store; the restore
-        // target has to be known before the first body evaluation because
-        // that pass runs inside `NSWindow(contentViewController:)`.
-        let defaults = UserDefaults.standard
-        let restoredSection = defaults.string(forKey: Self.selectedSectionDefaultsKey)
-            .flatMap(SettingsSectionID.init(rawValue:)) ?? .account
-        let betaEnabled = defaults.object(forKey: Self.cloudMachinesBetaDefaultsKey) as? Bool
-            ?? BetaFeaturesCatalogSection().cloudMachines.defaultValue
-        let cloudAvailable = !ManagedDevicePolicy().isEnforced(.disableCloud)
-            && runtime.hostActions.isCloudMachinesAvailable
-            && betaEnabled
-        _mountModel = State(initialValue: mountModel ?? SettingsSectionMountModel(
-            initial: initialSection ?? restoredSection,
-            order: Self.mountOrder(cloudAvailable: cloudAvailable)
-        ))
+        self.presentation = presentation
     }
+
+    init(runtime: SettingsRuntime, initialSection: SettingsSectionID, pageDrafts: SettingsPageDrafts) {
+        self.init(runtime: runtime, initialSection: initialSection)
+        _pageDrafts = State(initialValue: pageDrafts)
+    }
+
+    @State var pageDrafts = SettingsPageDrafts()
+    @State private var initialNavigationPending = true
     @State private var cloudDisabledByPolicy = ManagedDevicePolicy().isEnforced(.disableCloud)
     @State private var cloudFeatureFlagRevision = 0
-    @State private var searchText: String = ""
-    // Legacy SettingsRootView persists two distinct pieces of state:
-    // `selectedSettingsSection` (the top-level section pane shown in
-    // the detail) and `selectedSettingsSidebarEntry` (the specific
-    // sidebar row that's highlighted — a section row, a setting hit
-    // from the search index, etc.). Keeping them separate matters
-    // because under search the user can click an individual setting
-    // hit and we still want the section pane to follow, but two
-    // sibling hits inside one section must each be selectable.
-    // @AppStorage (not @SceneStorage): the window is AppKit-hosted, so
-    // there is no SwiftUI scene to store into (cmux issue #7777).
-    @AppStorage(SettingsWindowRoot.selectedSectionDefaultsKey) private var selectedSectionRaw: String = SettingsSectionID.account.rawValue
-    @AppStorage("selectedSettingsSidebarEntry") private var selectedSidebarEntryID: String = "section:\(SettingsSectionID.account.rawValue)"
-    // Mirrors BetaFeaturesCatalogSection.cloudMachines so flipping the Beta
-    // Features toggle shows/hides the Cloud sidebar row without reopening
-    // Settings; the host folds in the remote rollout flag.
+    @State private var searchText = ""
+    // The page and the highlighted search result are distinct selections:
+    // sibling results can navigate to different rows on the same page.
+    @AppStorage(SettingsWindowRoot.selectedSectionDefaultsKey)
+    private var selectedSectionRaw = SettingsSectionID.account.rawValue
+    @AppStorage("selectedSettingsSidebarEntry")
+    private var selectedSidebarEntryID = "section:\(SettingsSectionID.account.rawValue)"
     @AppStorage(SettingsWindowRoot.cloudMachinesBetaDefaultsKey)
     private var cloudMachinesBetaEnabled = BetaFeaturesCatalogSection().cloudMachines.defaultValue
-    // Legacy `SettingsRootView` binds `NavigationSplitView`'s
-    // `columnVisibility` so the user can collapse the sidebar via the
-    // toolbar button (or the SidebarCommands menu) and have that state
-    // persist for the lifetime of the window. Without a binding,
-    // `NavigationSplitView` is locked to whatever its initial layout
-    // resolved to, which makes the chevron toggle a no-op in the
-    // package window. Keep this in @State (not @SceneStorage) because
-    // legacy stores it on the transient `SettingsDraftState`, not in
-    // SceneStorage.
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
-    // Mirrors legacy SettingsView.settingsNavigationGeneration. When
-    // multiple navigation requests fire in quick succession (e.g. the
-    // sidebar selection changes plus an external app.cmux.settings
-    // navigation post), each `proxy.scrollTo(...)` runs one main-actor
-    // hop later. Without a generation guard, a stale earlier request can
-    // win and snap the scroll back to a section the user has already
-    // moved past. The counter is incremented in `applyScrollNavigation`
-    // and re-checked inside the scheduled `Task { @MainActor in ... }`,
-    // so only the most recent request actually scrolls.
-    @State var settingsNavigationGeneration: Int = 0
-    // Drives the "flash the navigated-to row" affordance the legacy
-    // settings window had. When the user clicks a search hit, the target
-    // row pulses an accent border for a few seconds so the eye can find
-    // it after the scroll. `token` changes on every highlight so
-    // re-navigating to the same row restarts the pulse; `startedAt`
-    // seeds the row's `TimelineView` fade. Read by every
-    // `SettingsCardRow` through `\.settingsSearchHighlightState`.
+    @State private var navigationGeneration = 0
+    @State private var pageRevision = 0
+    @State private var scrollAnchorID: String?
     @State private var searchHighlight = SettingsSearchHighlightState(anchorID: nil, token: 0, startedAt: nil)
+
     var defaultsStore: UserDefaultsSettingsStore { runtime.userDefaultsStore }
     var jsonStore: JSONConfigStore { runtime.jsonStore }
     var secretStore: SecretFileStore { runtime.secretStore }
     var catalog: SettingCatalog { runtime.catalog }
     var hostActions: SettingsHostActions { runtime.hostActions }
     var accountFlow: AccountFlow? { runtime.accountFlow }
-    /// Whether the Cloud section (and its sidebar row) is offered at all. The
-    /// host owns the remote flag and managed-policy decision; this local value
-    /// keeps the section responsive to the Beta Features toggle as well.
+
     var isCloudSectionAvailable: Bool {
         _ = cloudFeatureFlagRevision
         return !cloudDisabledByPolicy && hostActions.isCloudMachinesAvailable && cloudMachinesBetaEnabled
     }
-    /// Resolves the selected section pane from the persisted raw value,
-    /// defaulting to ``SettingsSectionID/account`` when the stored value
-    /// is unrecognized (e.g., after dropping a case).
+
     private var selectedSection: SettingsSectionID {
-        SettingsSectionID(rawValue: selectedSectionRaw) ?? .account
+        let section = initialNavigationPending
+            ? initialSection ?? SettingsSectionID(rawValue: selectedSectionRaw) ?? .account
+            : SettingsSectionID(rawValue: selectedSectionRaw) ?? .account
+        return section == .cloudMachines && !isCloudSectionAvailable ? .account : section
     }
-    /// Whether the user currently has a non-empty search query. When
-    /// false the sidebar should track section selection only; when true
-    /// the per-entry selection survives.
-    private var isSearching: Bool { !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-    // Legacy uses a non-optional `Binding<String>` because a sidebar
-    // selection always points at *some* entry (section row or setting
-    // hit). Mirroring that here lets List's selection semantics behave
-    // identically — particularly that clicking the same row again
-    // doesn't transiently nil-out the selection and break SceneStorage
-    // round-trips.
-    private var sidebarSelectionBinding: Binding<String> {
-        Binding<String>(
-            get: { self.selectedSidebarEntryID },
-            set: { newValue in
-                self.selectSidebarEntry(newValue)
-            }
-        )
+
+    private var isSearching: Bool {
+        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
+
+    private var sidebarSelection: Binding<String> {
+        Binding(get: { selectedSidebarEntryID }, set: { selectSidebarEntry($0) })
+    }
+
     public var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            sidebar
-        } detail: {
-            detailScroll
+        hostLayout
+            .environment(\.settingsSearchIndex, searchIndex)
+            .environment(\.settingsSearchHighlightState, searchHighlight)
+            .settingsErrorAlert(log: runtime.errorLog)
+        .onAppear {
+            guard initialNavigationPending else { return }
+            let section = selectedSection
+            let restoredEntry = searchIndex.entries.first { $0.id == selectedSidebarEntryID }
+            let anchor = initialSection == nil && restoredEntry.map { parentSection(for: $0) } == section
+                ? restoredEntry?.anchorID ?? anchorID(for: section)
+                : anchorID(for: section)
+            postNavigationRequest(target: section, anchorID: anchor, highlight: false)
         }
-        .navigationSplitViewStyle(.balanced)
-        // Inject the built search index so each SettingsCardRow can map
-        // its declared cmux.json paths to scroll/highlight anchor ids,
-        // and publish the active highlight so the matching row pulses.
-        .environment(\.settingsSearchIndex, searchIndex)
-        .environment(\.settingsSearchHighlightState, searchHighlight)
-        // Legacy SettingsRootView pins the window minimum to
-        // SettingsWindowPresenter.minimumSize (820 x 540); mirror that
-        // so the package window can shrink to the same lower bound.
-        .frame(minWidth: 820, minHeight: 540)
-        .settingsErrorAlert(log: runtime.errorLog)
         .task {
             let signals = ManagedDevicePolicy.changeSignals()
             cloudDisabledByPolicy = ManagedDevicePolicy().isEnforced(.disableCloud)
-            // A profile installed before this window opened: the persisted
-            // selection may still point at the hidden Cloud section.
-            leaveCloudSectionIfDisabledByPolicy()
+            leaveUnavailableCloudPage()
             for await _ in signals {
                 cloudDisabledByPolicy = ManagedDevicePolicy().isEnforced(.disableCloud)
-                leaveCloudSectionIfDisabledByPolicy()
+                leaveUnavailableCloudPage()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: Self.navigationRequestName)) { notification in
             applyNavigationRequest(notification)
         }
         .onReceive(NotificationCenter.default.publisher(for: Self.sidebarToggleRequestName)) { _ in
-            // AppKit hosts this window, so SwiftUI's SidebarCommands cannot
-            // reach the split view; the host app routes its sidebar-toggle
-            // menu command here when the Settings window is key.
             columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
         }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("cmuxFeatureFlagsDidChange"))) { _ in
             cloudFeatureFlagRevision &+= 1
-            leaveCloudSectionIfDisabledByPolicy()
+            leaveUnavailableCloudPage()
+        }
+        .onChange(of: cloudMachinesBetaEnabled) { _, _ in
+            leaveUnavailableCloudPage()
         }
         .onChange(of: searchText) { _, newValue in
-            // Legacy SettingsRootView resyncs the sidebar entry to the
-            // section row whenever the search text is cleared, so
-            // typing then clearing doesn't leave a stale "deep" entry
-            // selected.
             guard newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-            selectedSidebarEntryID = sectionEntryID(for: selectedSection)
-        }
-    }
-    public static let navigationRequestName = Notification.Name("cmux.settings.navigate")
-    public static let sidebarToggleRequestName = Notification.Name("cmux.settings.toggleSidebar")
-
-    /// Legacy `SettingsRootView.onReceive` only updates the selection
-    /// state (sidebar entry + section pane) in response to an external
-    /// navigation request. The actual scroll-to is owned by
-    /// `SettingsView`, which listens to the same notification and
-    /// translates it into `proxy.scrollTo(...)` calls. The package
-    /// follows the same split: state changes happen here; the detail
-    /// scroll picks up the notification on its own and scrolls.
-    private func applyNavigationRequest(_ notification: Notification) {
-        guard
-            let rawValue = notification.userInfo?["target"] as? String,
-            let target = SettingsSectionID(rawValue: rawValue)
-        else { return }
-        // Legacy preserves the highlighted search hit when an external
-        // navigation request resolves to the same section the currently
-        // selected sidebar entry already lives in. Without this, typing
-        // a search query and clicking a setting hit would have the
-        // sidebar selection collapsed back to the section row whenever
-        // anyone (re)posted a navigation request to that section.
-        let selectedEntry = searchIndex.entries.first { $0.id == selectedSidebarEntryID }
-        let selectedEntryTarget = parentSection(for: selectedSidebarEntryID)
-        let shouldPreserveSearchSelection = isSearching
-            && selectedEntry != nil
-            && selectedEntryTarget == target
-        navigate(to: target, preferSectionSelection: !shouldPreserveSearchSelection)
-    }
-
-    /// Moves a selection that rests on an unavailable Cloud section to Account,
-    /// both at first render and on a transition.
-    private func leaveCloudSectionIfDisabledByPolicy() {
-        if !isCloudSectionAvailable {
-            // If the Cloud slot is the outstanding progressive mount, its
-            // intentionally empty content has no onAppear to advance the
-            // queue. Skip it explicitly so later sections still mount.
-            _ = mountModel.skip(.cloudMachines)
-        }
-        if !isCloudSectionAvailable && selectedSection == .cloudMachines {
-            navigate(to: .account)
-        }
-    }
-
-    private func isEntryVisible(_ entry: SettingsSearchIndex.Entry) -> Bool {
-        guard !isCloudSectionAvailable else { return true }
-        switch entry.kind {
-        case .section:
-            return entry.id != "section:\(SettingsSectionID.cloudMachines.rawValue)"
-        case .setting(let parent):
-            return parent != .cloudMachines
+            selectedSidebarEntryID = anchorID(for: selectedSection)
         }
     }
 
     @ViewBuilder
+    private var hostLayout: some View {
+        switch presentation {
+        case .window:
+            NavigationSplitView(columnVisibility: $columnVisibility) {
+                sidebar
+            } detail: {
+                detailPage
+            }
+            .navigationSplitViewStyle(.balanced)
+            .frame(minWidth: 820, minHeight: 540)
+        case .pane:
+            HStack(spacing: 0) {
+                paneSidebar
+                    .frame(width: 208)
+                Divider()
+                detailPage
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+
+    /// The embedded sidebar: a compact search field over plain category rows on
+    /// the same background as the page, separated only by a hairline seam.
+    private var paneSidebar: some View {
+        VStack(spacing: 0) {
+            SettingsPaneSearchField(text: $searchText)
+                .padding(.horizontal, 10)
+                .padding(.top, 10)
+                .padding(.bottom, 6)
+            ScrollView {
+                let matches = sidebarEntries(matching: searchText).filter { isEntryVisible($0) }
+                LazyVStack(alignment: .leading, spacing: 1) {
+                    if matches.isEmpty {
+                        Text(String(localized: "settings.search.noResults", defaultValue: "No Results"))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                    }
+                    ForEach(matches) { entry in
+                        SettingsPaneSidebarRow(
+                            title: entry.title,
+                            symbolName: entry.symbolName,
+                            subtitle: subtitle(for: entry),
+                            isSelected: entry.id == selectedSidebarEntryID
+                        ) {
+                            selectSidebarEntry(entry.id)
+                        }
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.bottom, 10)
+            }
+        }
+    }
+
+    public static let navigationRequestName = Notification.Name("cmux.settings.navigate")
+    public static let sidebarToggleRequestName = Notification.Name("cmux.settings.toggleSidebar")
+
     private var sidebar: some View {
-        List(selection: sidebarSelectionBinding) {
+        List(selection: sidebarSelection) {
             let matches = sidebarEntries(matching: searchText).filter { isEntryVisible($0) }
             if matches.isEmpty {
                 Text(String(localized: "settings.search.noResults", defaultValue: "No Results"))
@@ -270,253 +213,186 @@ public struct SettingsWindowRoot: View {
         .navigationSplitViewColumnWidth(210)
     }
 
-    func sidebarEntries(matching query: String) -> [SettingsSearchIndex.Entry] { searchIndex.match(query) }
+    func sidebarEntries(matching query: String) -> [SettingsSearchIndex.Entry] {
+        searchIndex.match(query)
+    }
 
-    /// Legacy `SettingsSearchEntry` populates `subtitle` with the
-    /// parent section's title for setting-type hits and `nil` for
-    /// section-type hits, so `SettingsSidebarEntryRow` renders the
-    /// section name underneath each search hit but keeps section
-    /// rows single-line. Mirror that here.
+    private func isEntryVisible(_ entry: SettingsSearchIndex.Entry) -> Bool {
+        isCloudSectionAvailable || parentSection(for: entry) != .cloudMachines
+    }
+
     private func subtitle(for entry: SettingsSearchIndex.Entry) -> String? {
         switch entry.kind {
-        case .section:
-            return nil
-        case .setting(let parent):
-            return parent.title
+        case .section: return nil
+        case .setting(let parent): return parent.title
         }
     }
 
-    /// Updates both the sidebar entry selection and the underlying
-    /// section pane based on the clicked sidebar row. Setting-hit
-    /// clicks keep the deep entry selected (so the row stays
-    /// highlighted) while still moving the detail pane to the parent
-    /// section.
-    ///
-    /// Mirrors legacy `SettingsRootView.selectSidebarEntry`: in
-    /// addition to updating selection state, it posts a settings
-    /// navigation notification so any external listeners (host-side
-    /// code, other windows) and the package's own detail scroll
-    /// receive a consistent stream of navigation events. The detail
-    /// scroll picks up the same notification and turns it into a
-    /// `proxy.scrollTo(...)` so every click — including repeat clicks
-    /// or sibling search hits — drives a scroll.
-    private func selectSidebarEntry(_ entryID: String) {
-        // Mirror legacy `SettingsRootView.selectSidebarEntry`: bail if
-        // the entry id doesn't resolve to a known search-index entry,
-        // so stale SceneStorage values or out-of-band selection writes
-        // can't corrupt the section pane. The lookup also resolves the
-        // entry's target section in one place rather than re-parsing
-        // the id string.
-        let index = searchIndex
-        guard let entry = index.entries.first(where: { $0.id == entryID }) else { return }
-        selectedSidebarEntryID = entry.id
-        let section = parentSection(for: entry)
-        if selectedSectionRaw != section.rawValue {
-            selectedSectionRaw = section.rawValue
-        }
-        postNavigationRequest(target: section, anchorID: entry.anchorID, highlight: isSearching)
-    }
-
-    /// Maps a resolved search-index entry to its target section,
-    /// matching legacy `SettingsSearchEntry.target` semantics. Section
-    /// entries decode their target from the canonical "section:<raw>"
-    /// id; setting entries carry their parent directly on the kind.
     private func parentSection(for entry: SettingsSearchIndex.Entry) -> SettingsSectionID {
         switch entry.kind {
         case .section:
-            return parentSection(for: entry.id)
+            return SettingsSectionID(rawValue: String(entry.id.dropFirst("section:".count))) ?? .account
         case .setting(let parent):
             return parent
         }
     }
 
-    /// Posts a `cmux.settings.navigate` notification with the same
-    /// userInfo shape legacy `SettingsNavigationRequest.post` uses,
-    /// so host-side listeners and the package's own detail scroll
-    /// receive a consistent stream of navigation events.
-    private func postNavigationRequest(
-        target: SettingsSectionID,
-        anchorID: String,
-        highlight: Bool
-    ) {
+    private func selectSidebarEntry(_ entryID: String) {
+        guard let entry = searchIndex.entries.first(where: { $0.id == entryID }), isEntryVisible(entry) else { return }
+        selectedSidebarEntryID = entry.id
+        postNavigationRequest(target: parentSection(for: entry), anchorID: entry.anchorID, highlight: isSearching)
+    }
+
+    private func postNavigationRequest(target: SettingsSectionID, anchorID: String, highlight: Bool) {
         NotificationCenter.default.post(
             name: Self.navigationRequestName,
             object: nil,
-            userInfo: [
-                "target": target.rawValue,
-                "anchor": anchorID,
-                "highlight": highlight
-            ]
+            userInfo: ["target": target.rawValue, "anchor": anchorID, "highlight": highlight]
         )
     }
 
-    /// Navigates from outside (e.g., a `cmux.settings.navigate`
-    /// notification) to a top-level section, also resetting the sidebar
-    /// row to that section's header row when `preferSectionSelection`
-    /// is true. Legacy passes `false` when the navigation request
-    /// arrives while the user is searching and the request target
-    /// matches the currently selected setting hit — so the highlighted
-    /// sidebar row stays put while the detail pane snaps to the
-    /// section.
-    private func navigate(to target: SettingsSectionID, preferSectionSelection: Bool = true) {
-        if selectedSectionRaw != target.rawValue { selectedSectionRaw = target.rawValue }
-        if preferSectionSelection {
-            let sectionEntry = sectionEntryID(for: target)
-            if selectedSidebarEntryID != sectionEntry { selectedSidebarEntryID = sectionEntry }
+    private func applyNavigationRequest(_ notification: Notification) {
+        guard let rawValue = notification.userInfo?["target"] as? String,
+              let requestedSection = SettingsSectionID(rawValue: rawValue) else { return }
+        let target = requestedSection == .cloudMachines && !isCloudSectionAvailable ? .account : requestedSection
+        let entry = searchIndex.entries.first { $0.id == selectedSidebarEntryID }
+        if !isSearching || entry.map({ parentSection(for: $0) }) != target {
+            selectedSidebarEntryID = anchorID(for: target)
         }
+        let anchor = target == requestedSection
+            ? (notification.userInfo?["anchor"] as? String) ?? anchorID(for: target)
+            : anchorID(for: target)
+        // Re-selecting a category resets its native scroll view to its
+        // natural top. Row navigation alone uses ScrollViewReader.
+        if !initialNavigationPending, target == selectedSection, anchor == anchorID(for: target) {
+            pageRevision &+= 1
+        }
+        selectedSectionRaw = target.rawValue
+        initialNavigationPending = false
+        scrollAnchorID = anchor
+        navigationGeneration &+= 1
+        let shouldHighlight = (notification.userInfo?["highlight"] as? Bool) ?? false
+        searchHighlight = SettingsSearchHighlightState(
+            anchorID: shouldHighlight ? anchor : nil,
+            token: navigationGeneration,
+            startedAt: shouldHighlight ? Date() : nil
+        )
     }
 
-    /// The canonical entry ID the search index uses for section header
-    /// rows ("section:<rawValue>"). Mirrors ``SettingsSearchIndex``'s
-    /// internal id scheme.
-    private func sectionEntryID(for section: SettingsSectionID) -> String {
-        "section:\(section.rawValue)"
+    private func leaveUnavailableCloudPage() {
+        guard !isCloudSectionAvailable, selectedSectionRaw == SettingsSectionID.cloudMachines.rawValue else { return }
+        postNavigationRequest(target: .account, anchorID: anchorID(for: .account), highlight: false)
     }
 
-    /// Decodes an entry ID back to the section pane that should be
-    /// scrolled into view. Section rows resolve to themselves; setting
-    /// hits resolve to their parent section.
-    private func parentSection(for entryID: String) -> SettingsSectionID {
-        if entryID.hasPrefix("section:") {
-            let raw = String(entryID.dropFirst("section:".count))
-            return SettingsSectionID(rawValue: raw) ?? .account
-        }
-        if let entry = searchIndex.entries.first(where: { $0.id == entryID }) {
-            if case .setting(let parent) = entry.kind { return parent }
-        }
-        return .account
-    }
-
-    @ViewBuilder
-    private var detailScroll: some View {
-        GeometryReader { _ in
-            ScrollViewReader { proxy in
-                ScrollView {
-                    // Eager VStack (not LazyVStack) on purpose: search
-                    // navigation must `scrollTo` any row, including ones in
-                    // a section currently off-screen. A LazyVStack only
-                    // registers a row's `.id` once its section is realized,
-                    // so `scrollTo(deepRow)` silently no-ops while that
-                    // section is scrolled away, stranding the user at the
-                    // top. Every mounted section keeps its anchors
-                    // addressable; sections still mounting (issue #12134)
-                    // hold a placeholder slot with the section anchor, and
-                    // navigation into one mounts it before scrolling.
-                    VStack(alignment: .leading, spacing: 14) {
-                        sectionStack(proxy: proxy)
-                    }
-                    // Legacy SettingsView only pads the inner VStack; it
-                    // does not pin maxWidth. Adding an outer frame would
-                    // change the alignment math the legacy layout assumes
-                    // (SettingsCard widths come from the ScrollView, not
-                    // from a parent VStack stretched to topLeading).
-                    .padding(.horizontal, 20)
-                    .padding(.top, 20)
-                    .padding(.bottom, 20)
+    private var detailPage: some View {
+        let section = selectedSection
+        return ScrollViewReader { proxy in
+            ScrollView {
+                // Eager within one page so all of its search anchors exist.
+                VStack(alignment: .leading, spacing: 14) {
+                    sectionPage(section)
                 }
-                .toggleStyle(.switch)
-                .onAppear {
-                    // Legacy SettingsView.onAppear scrolls to the restored
-                    // section so reopening the Settings window lands on
-                    // the last-viewed pane rather than always at Account.
-                    // Posting through the navigation notification keeps a
-                    // single scroll path (legacy `applySettingsNavigation`)
-                    // while restored setting hits resolve through the
-                    // immutable index. Fallback hits collapse to sections.
-                    // A targeted open restores to its target instead: the
-                    // host posts that same navigation one hop later, and
-                    // restoring the last-viewed pane first would mount it
-                    // for nothing (issue #12134).
-                    let section = initialSection ?? selectedSection
-                    let anchor: String
-                    if let initialSection {
-                        anchor = anchorID(for: initialSection)
-                    } else if selectedSidebarEntryID.isEmpty {
-                        anchor = sectionEntryID(for: section)
-                    } else {
-                        anchor = searchIndex.entries.first { $0.id == selectedSidebarEntryID }?.anchorID ?? selectedSidebarEntryID
-                    }
-                    postNavigationRequest(
-                        target: section,
-                        anchorID: anchor,
-                        highlight: false
-                    )
-                }
-                .onReceive(NotificationCenter.default.publisher(for: Self.navigationRequestName)) { notification in
-                    applyScrollNavigation(notification, proxy: proxy)
-                }
+                .id(anchorID(for: section))
+                .padding(20)
+                .onAppear { scrollToDestination(on: section, proxy: proxy) }
+            }
+            .toggleStyle(.switch)
+            .onChange(of: navigationGeneration) { _, _ in
+                scrollToDestination(on: section, proxy: proxy)
             }
         }
+        // A category owns its scroll view and controls. Replacing it resets
+        // scroll position and cancels the previous page's observation tasks.
+        .id("\(section.rawValue):\(pageRevision)")
     }
 
-    /// Mirrors legacy `SettingsView.applySettingsNavigation`: scrolls
-    /// to the section header first, then — when the navigation request
-    /// carries a deep anchor and `highlight` is set — scrolls that
-    /// specific anchor into the vertical center of the viewport.
-    ///
-    /// Section-level navigation posts (e.g. external `navigate(to:)`
-    /// calls that don't carry a meaningful highlight) only get the
-    /// section-top scroll, matching the legacy snap-to-top behavior.
-    ///
-    /// A monotonically increasing `settingsNavigationGeneration`
-    /// guards against stale scrolls when navigation requests pile up:
-    /// each call captures the current generation, increments it, and
-    /// the scheduled scroll only runs if the captured generation is
-    /// still the latest — otherwise an earlier request would clobber
-    /// the user's most recent navigation.
-    private func applyScrollNavigation(_ notification: Notification, proxy: ScrollViewProxy) {
-        guard
-            let rawValue = notification.userInfo?["target"] as? String,
-            let target = SettingsSectionID(rawValue: rawValue)
-        else { return }
-        let anchorID = (notification.userInfo?["anchor"] as? String) ?? self.anchorID(for: target)
-        let shouldHighlight = (notification.userInfo?["highlight"] as? Bool) ?? false
-        let sectionID = self.anchorID(for: target)
-        settingsNavigationGeneration += 1
-        let navigationGeneration = settingsNavigationGeneration
-        // Arm (or clear) the highlight before the scroll so the pulse is
-        // already live when the target lands in view. A section hit
-        // (anchorID == sectionID) highlights the section header; a row
-        // hit highlights that row. Mirrors legacy applySettingsNavigation.
-        if shouldHighlight {
-            searchHighlight = SettingsSearchHighlightState(
-                anchorID: anchorID,
-                token: searchHighlight.token + 1,
-                startedAt: Date()
+    private func scrollToDestination(on section: SettingsSectionID, proxy: ScrollViewProxy) {
+        guard section == selectedSection else { return }
+        let anchor = scrollAnchorID ?? anchorID(for: section)
+        guard anchor != anchorID(for: section) else { return }
+        proxy.scrollTo(anchor, anchor: .center)
+    }
+}
+
+/// One category row in the embedded sidebar: selection pill in the accent
+/// tint, a quiet hover wash, and the same glyph column as the window sidebar.
+private struct SettingsPaneSidebarRow: View {
+    let title: String
+    let symbolName: String
+    let subtitle: String?
+    let isSelected: Bool
+    let select: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: select) {
+            HStack(spacing: 9) {
+                Image(systemName: symbolName)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                    .frame(width: 18)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title)
+                        .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                        .lineLimit(1)
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, subtitle == nil ? 6 : 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(isSelected ? Color.accentColor.opacity(0.18) : (isHovered ? Color.primary.opacity(0.06) : Color.clear))
             )
-        } else {
-            searchHighlight = SettingsSearchHighlightState(
-                anchorID: nil,
-                token: searchHighlight.token,
-                startedAt: nil
-            )
+            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
-        // One scroll, one target. A section hit pins its header to the
-        // top; a row hit centers the row. Sections mount progressively
-        // (issue #12134): the pin keeps the viewport on this target while
-        // sections above it grow out of their placeholders, and a target
-        // that is still a placeholder is mounted now and scrolled to from
-        // its `onAppear`, once its row ids exist. For a mounted target the
-        // hop off the current update is a main-actor `Task` (not
-        // `DispatchQueue.main.async`, which package policy forbids): it
-        // lets the highlight-state mutation above commit before the scroll
-        // and is generation-guarded so a newer navigation still wins.
-        let anchor: UnitPoint = anchorID == sectionID ? .top : .center
-        let scrollTarget = SettingsSectionScrollTarget(
-            section: target,
-            anchorID: anchorID,
-            anchor: anchor,
-            generation: navigationGeneration
-        )
-        mountModel.pin(scrollTarget)
-        guard mountModel.ensureMounted(target) else {
-            mountModel.deferScroll(scrollTarget)
-            return
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .animation(.easeOut(duration: 0.1), value: isHovered)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+/// The embedded sidebar's search field: the real AppKit search field, so it
+/// gets the native rounded bezel, magnifier, clear button, and focus ring
+/// instead of a hand-drawn capsule.
+private struct SettingsPaneSearchField: NSViewRepresentable {
+    @Binding var text: String
+
+    func makeNSView(context: Context) -> NSSearchField {
+        let field = NSSearchField()
+        field.placeholderString = String(localized: "settings.search.prompt", defaultValue: "Search")
+        field.controlSize = .regular
+        field.font = .systemFont(ofSize: 13)
+        field.sendsSearchStringImmediately = true
+        field.sendsWholeSearchString = false
+        field.delegate = context.coordinator
+        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        return field
+    }
+
+    func updateNSView(_ field: NSSearchField, context: Context) {
+        if field.stringValue != text {
+            field.stringValue = text
         }
-        mountModel.cancelDeferredScroll()
-        Task { @MainActor in
-            guard navigationGeneration == settingsNavigationGeneration else { return }
-            proxy.scrollTo(anchorID, anchor: anchor)
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+
+    final class Coordinator: NSObject, NSSearchFieldDelegate {
+        @Binding var text: String
+        init(text: Binding<String>) { _text = text }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSSearchField else { return }
+            if text != field.stringValue { text = field.stringValue }
         }
     }
 }

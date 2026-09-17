@@ -5,6 +5,7 @@ import SwiftUI
 /// Automation settings, including socket access, agent integrations, and port ranges.
 @MainActor
 public struct AutomationSection: View {
+    @State private var pageDrafts = SettingsPageDrafts()
     private let catalog: SettingCatalog
     private let hostActions: any SettingsHostActions
 
@@ -25,7 +26,6 @@ public struct AutomationSection: View {
     @State private var kiroLevelModel: DefaultsValueModel<String>
     @State private var portBaseModel: DefaultsValueModel<Int>
     @State private var portRangeModel: DefaultsValueModel<Int>
-    @State private var socketPasswordDraft: String = ""
     @State private var socketPasswordStatus: SocketPasswordStatus?
     @State private var showOpenAccessConfirmation: Bool = false
     @State private var pendingOpenAccessMode: SocketControlMode?
@@ -34,6 +34,19 @@ public struct AutomationSection: View {
     private struct SocketPasswordStatus: Equatable {
         let message: String
         let isError: Bool
+    }
+
+    init(
+        defaultsStore: UserDefaultsSettingsStore,
+        jsonStore: JSONConfigStore,
+        secretStore: SecretFileStore,
+        catalog: SettingCatalog,
+        errorLog: SettingsErrorLog,
+        hostActions: any SettingsHostActions,
+        pageDrafts: SettingsPageDrafts
+    ) {
+        self.init(defaultsStore: defaultsStore, jsonStore: jsonStore, secretStore: secretStore, catalog: catalog, errorLog: errorLog, hostActions: hostActions)
+        _pageDrafts = State(initialValue: pageDrafts)
     }
 
     public init(
@@ -180,7 +193,7 @@ public struct AutomationSection: View {
                     HStack(spacing: 8) {
                         SecureField(
                             String(localized: "settings.automation.socketPassword.placeholder", defaultValue: "Password"),
-                            text: $socketPasswordDraft
+                            text: $pageDrafts.socketPasswordDraft
                         )
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 170)
@@ -193,7 +206,7 @@ public struct AutomationSection: View {
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
-                        .disabled(socketPasswordDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .disabled(pageDrafts.socketPasswordDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         if hasPassword {
                             Button(String(localized: "settings.automation.socketPassword.clear", defaultValue: "Clear")) {
                                 clearSocketPassword()
@@ -518,7 +531,7 @@ public struct AutomationSection: View {
     }
 
     private func saveSocketPassword() {
-        let trimmed = socketPasswordDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = pageDrafts.socketPasswordDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             socketPasswordStatus = SocketPasswordStatus(
                 message: String(localized: "settings.automation.socketPassword.empty", defaultValue: "Enter a password first."),
@@ -527,7 +540,7 @@ public struct AutomationSection: View {
             return
         }
         socketPasswordModel.set(trimmed)
-        socketPasswordDraft = ""
+        pageDrafts.socketPasswordDraft = ""
         socketPasswordStatus = SocketPasswordStatus(
             message: String(localized: "settings.automation.socketPassword.saved", defaultValue: "Saved."),
             isError: false
@@ -536,7 +549,7 @@ public struct AutomationSection: View {
 
     private func clearSocketPassword() {
         socketPasswordModel.reset()
-        socketPasswordDraft = ""
+        pageDrafts.socketPasswordDraft = ""
         socketPasswordStatus = SocketPasswordStatus(
             message: String(localized: "settings.automation.socketPassword.cleared", defaultValue: "Cleared."),
             isError: false

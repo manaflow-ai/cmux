@@ -28,6 +28,7 @@ import Testing
         .simulator: "simulator",
         .mobilePairing: "mobilePairing",
         .accountSignIn: "accountSignIn",
+        .settings: "settings",
     ]
 
     @Test func everyPanelTypeMapsToItsCanonicalWireKind() throws {

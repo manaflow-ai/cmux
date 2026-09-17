@@ -274,6 +274,23 @@ extension SettingsWindowSharedStateSuites {
             }
         }
 
+        @Test func synchronousFactoryReadinessSurvivesWindowConfiguration() {
+            withCleanSettingsWindows {
+                let presenter = SettingsWindowPresenter(windowFactory: { presenter in
+                    presenter.deliverPendingNavigationAfterContentAppears()
+                    return makeFactoryWindow()
+                })
+                #expect(presenter.show() == .presented)
+
+                let recorder = SettingsNavigationRecorder()
+                #expect(presenter.show(navigationTarget: .browserImport) == .presented)
+                recorder.stopObserving()
+
+                #expect(recorder.receivedTargets == [.browserImport])
+                #expect(presenter.consumePendingNavigationTarget() == nil)
+            }
+        }
+
         @Test func navigationStaysPendingForFreshWindowUntilContentConsumesIt() {
             withCleanSettingsWindows {
                 let presenter = SettingsWindowPresenter(windowFactory: { _ in makeFactoryWindow() })

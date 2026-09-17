@@ -235,6 +235,7 @@ extension Workspace {
             return "mobile_pairing"
         case .accountSignIn:
             return "account_sign_in"
+        case .settings: return "settings"
         }
     }
 }
