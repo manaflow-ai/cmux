@@ -142,6 +142,38 @@ struct AgentQuitTerminationCoordinator: Sendable {
                     )
                 }
             )
-        return didExit ? .exited : .survived
+        if didExit { return .exited }
+        // The escalation waiter answers false both for a real survivor and for
+        // signalled generations that did exit but whose late-child refresh was
+        // unavailable. Quit only cares about the exact generations it signalled,
+        // so decide by them: gone means exited; alive means SIGKILL now and one
+        // more bounded wait, because the waiter's own escalation never ran.
+        let alive = terminations.filter {
+            AgentPIDProcessIdentity(pid: pid_t($0.processID)) == $0.processIdentity
+        }
+        if alive.isEmpty { return .exited }
+        for termination in Set(alive.map(\.processGroupID)) where termination > 1 {
+            _ = kill(-termination, SIGKILL)
+        }
+        for termination in alive where termination.processGroupID <= 1 {
+            _ = kill(pid_t(termination.processID), SIGKILL)
+        }
+        let killed = await withTaskGroup(of: Bool?.self) { group in
+            group.addTask(priority: .userInitiated) {
+                await AgentHibernationController
+                    .waitForExactProcessGenerationsToExitWithoutTimeout(alive)
+            }
+            group.addTask(priority: .utility) {
+                try? await ContinuousClock().sleep(for: postKillExitPeriod)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first ?? false
+        }
+        if killed { return .exited }
+        return alive.allSatisfy {
+            AgentPIDProcessIdentity(pid: pid_t($0.processID)) != $0.processIdentity
+        } ? .exited : .survived
     }
 }
