@@ -74,6 +74,13 @@ jobs:
           ref: ${{ inputs.ref || github.ref }}
           submodules: recursive
 
+      # Self-hosted runners reuse their workspaces. The checkout action's
+      # cleanup is not sufficient when a previous job leaves generated source
+      # files behind, so make the ref boundary explicit before building.
+      - name: Remove stale checkout files
+        shell: bash
+        run: git clean -ffdx
+
       - name: Start timer
         id: t0
         run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"

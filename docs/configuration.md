@@ -75,7 +75,7 @@ Controls when cmux asks before quitting:
 - `dirty-only`: show it only when a workspace has a terminal or panel that reports close confirmation is needed.
 - `never`: quit immediately.
 
-Default: `always` for stable and nightly builds. DEV builds always behave as `never`, regardless of the file setting, so tagged development builds can be replaced without a full-screen quit dialog.
+Default: `always` for stable, nightly, and RC builds. DEV builds always behave as `never`, regardless of the file setting, so tagged development builds can be replaced without a full-screen quit dialog.
 
 The older boolean `app.warnBeforeQuit` still works as a fallback when `app.confirmQuit` is not set. `true` maps to `always`; `false` maps to `never`.
 
@@ -121,11 +121,9 @@ cmux uses a complete, de-duplicated descendant process tree. An incomplete
 listing is treated as unavailable and cannot authorize hibernation. Relative
 percentages (warning at 50% and critical at 70% of installed physical memory,
 with an optional 20%/10% available-memory corroboration) decide only when to
-show the warning and when to offer the idle-only pass. They are signals, not a
-memory ceiling or a limit on cmux.
+offer the idle-only pass. They are signals, not a memory ceiling or a limit on cmux.
 
-At warning or critical aggregate pressure, cmux posts a localized visible
-notification. While the same complete pressure remains through the existing
+While the same complete pressure remains through the existing
 confirmation window, cmux considers every currently eligible idle, non-visible
 agent through the ordinary lossless Agent Hibernation lifecycle. The scheduled
 routine pass retains its oldest-activity ordering; the pressure pass considers
@@ -168,6 +166,12 @@ The spinner is compositor-driven (a Core Animation transform run by the render s
 ## Workspace terminal font size shortcuts
 
 Cmd+Ctrl+= and Cmd+Ctrl+- increase or decrease every terminal in the selected workspace by one point. Cmd+Ctrl+0 resets them to the current Ghostty font size. Hidden, hibernated, and Dock terminals change with visible terminals, and newly created terminals inherit the workspace size. Rebind them with `shortcuts.bindings.increaseWorkspaceTerminalFontSize`, `shortcuts.bindings.decreaseWorkspaceTerminalFontSize`, and `shortcuts.bindings.resetWorkspaceTerminalFontSize`.
+
+## New Cloud Workspace shortcut and the plus-button menu
+
+Cmd+Y creates a workspace on the starred default Cloud machine. Cmd+Shift+Y opens the New Machine flow to provision a new machine and attach its first workspace. Rebind or unbind these shortcuts from Settings > Keyboard Shortcuts or with `shortcuts.bindings.newCloudWorkspace` and `shortcuts.bindings.newCloudMachine`. Both are inert unless Cloud Machines is enabled and the account is signed in.
+
+When `ui.newWorkspace.contextMenu` is not set, the plus-button menu lists `cmux.newWorkspace` (Cmd+N), `cmux.newCloudWorkspace` (Cmd+Y), `cmux.newCloudMachine` (Cmd+Shift+Y), `cmux.newTerminal` (Cmd+T), and `cmux.newBrowser` (Cmd+Shift+L). Each row shows its current shortcut, so a rebind in Settings or `cmux.json` appears the next time the menu opens; unbound and chord shortcuts show no hint. Cloud rows appear only when Cloud Machines is enabled. A configured menu keeps your order and still shows hints for built-in rows and for actions with a `shortcut`.
 
 ## `terminal.textBoxSubmitActions`
 

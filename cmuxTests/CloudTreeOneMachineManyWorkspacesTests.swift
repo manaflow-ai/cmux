@@ -244,7 +244,6 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             "machine:brave-otter/ws/ws_main",
             "machine:brave-otter/ws/ws_main/resource:brave-otter/terminal/term_1/tab:tab_term_1_0",
             "machine:brave-otter/ws/ws_main/resource:brave-otter/terminal/term_shared/tab:tab_term_shared_0",
-            "machine:brave-otter/ws/ws_main/resource:brave-otter/display/display:1",
             "machine:brave-otter/ws/ws_side",
             "machine:brave-otter/ws/ws_side/resource:brave-otter/terminal/term_2/tab:tab_term_2_0",
             "machine:brave-otter/ws/ws_side/resource:brave-otter/terminal/term_shared/tab:tab_term_shared_1",
@@ -279,7 +278,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         }
         #expect(mainCount == 2)
         #expect(sideCount == 2)
-        // The pinned display travels with its workspace's open/drag group; the implicit one does not.
+        // Only actual placements travel with a workspace's open/drag group.
         #expect(byID["machine:brave-otter/ws/ws_side"]?.dragGroup?.resources == [
             SurfaceResourceID(machine: machine, kind: .terminal, key: "term_2"), shared.id, desktop.id,
         ])
@@ -379,7 +378,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         let tree = rows(snapshot)
         let byID = Dictionary(tree.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let workspaceRow = try #require(byID["machine:brave-otter/ws/ws_main"])
-        #expect(workspaceRow.children.compactMap(terminalKey) == ["term_b", "term_a", "term_c"], "all tabs are sibling rows in layout order")
+        #expect(workspaceRow.children.compactMap(terminalKey) == ["term_a", "term_b", "term_c"], "all tabs are sibling rows in layout order")
         #expect(workspaceRow.children.allSatisfy { $0.children.isEmpty }, "terminal rows are leaves")
         guard case .workspace(_, _, let count, _, _) = workspaceRow.kind else {
             Issue.record("expected the workspace row"); return
@@ -409,7 +408,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         }
         let shownB = try tabRows(focused: "term_b")
         let shownC = try tabRows(focused: "term_c")
-        #expect(Set(shownB.map(\.id)) == Set(shownC.map(\.id)), "tab rows retain exact identities across selection changes")
+        #expect(shownB.map(\.id) == shownC.map(\.id), "tab rows retain exact identities across selection changes")
         #expect(shownB.allSatisfy { $0.children.isEmpty } && shownC.allSatisfy { $0.children.isEmpty })
     }
 
@@ -850,7 +849,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             "the machine lists it, so it exists — with nothing in it"
         )
         #expect(CloudTreeNodeBuilder.lookupRemoteWorkspace("scratch", on: machine, snapshot: snapshot) == .ambiguous([scratchA, scratchB]))
-        // The rows agree: both scratch workspaces show under the one machine, each empty.
-        #expect(rows(snapshot).filter { $0.structureTag == "workspace" }.map(\.children.count) == [0, 0])
+        // Empty daemon workspaces remain resolvable, but the Cloud sidebar omits them.
+        #expect(rows(snapshot).filter { $0.structureTag == "workspace" }.isEmpty)
     }
 }

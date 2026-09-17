@@ -1632,16 +1632,12 @@ actor RetryDelayRecorder {
             await PushRegistrationURLProtocol.script.requests.map(\.httpMethod)
                 == ["DELETE"]
         )
+        // Join the service's disable reconciliation task. Request observation
+        // only proves that DELETE started; the actor may still be committing
+        // the durable tombstone removal when the URL protocol records it.
+        await service.applyEnabledIntent(false, generation: 1)
         let reopenedStore = try PendingUnregisterStore(databaseURL: storeURL)
-        var cleanupFinished = false
-        for _ in 0..<1_000 {
-            if reopenedStore.batch(accountID: "account-a", limit: 2).isEmpty {
-                cleanupFinished = true
-                break
-            }
-            await Task.yield()
-        }
-        #expect(cleanupFinished)
+        #expect(reopenedStore.batch(accountID: "account-a", limit: 2).isEmpty)
     }
 
     @Test func successfulReassignmentClearsOldTombstoneWithoutLosingNewOwner() async throws {

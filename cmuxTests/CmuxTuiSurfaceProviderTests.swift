@@ -6,7 +6,6 @@ import Testing
 #elseif canImport(cmux)
 @testable import cmux
 #endif
-typealias CMUXCLI = CmuxTuiRemoteRouting
 /// The cmux-tui provider's pure parts: snapshot → resources, the argv it hands the
 /// client, the URLs it opens, and the client identity paths it shares with the CLI.
 @Suite struct CmuxTuiSurfaceProviderTests {
@@ -328,6 +327,37 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
         ) == .unavailable, "an exact terminal selector still requires a tab id")
     }
 
+    @Test func catalogNilViewsRetainLegacyPlacementSemantics() {
+        var resource = SurfaceResource(
+            id: SurfaceResourceID(machine: Self.machine, kind: .browser, key: "port-3000"),
+            title: "Port 3000", detail: nil, lifecycle: .running, agent: nil,
+            remoteWorkspace: nil, port: 3000, url: "http://localhost:3000"
+        )
+        let resolver = VMRemoteWorkspaceResolver()
+        let unplaced = TerminalController.surfaceResourcePayload(resource, projections: [])
+        if case .notFound = resolver.resolveVMRemoteView(in: unplaced, workspaceID: "ws_main") {} else {
+            Issue.record("a catalog port without modeled views is not an unknown pane")
+        }
+        resource.remoteWorkspace = SurfaceRemoteWorkspace(id: "ws_main", name: "main", index: 0, focused: false)
+        let legacy = TerminalController.surfaceResourcePayload(resource, projections: [])
+        if case .legacy = resolver.resolveVMRemoteView(in: legacy, workspaceID: "ws_main") {} else {
+            Issue.record("null views must preserve the catalog's legacy workspace edge")
+        }
+        resource.remoteViews = []
+        let detached = TerminalController.surfaceResourcePayload(resource, projections: [])
+        if case .notFound = resolver.resolveVMRemoteView(in: detached, workspaceID: "ws_main") {} else {
+            Issue.record("an authoritative empty view array overrides stale legacy placement")
+        }
+        let malformedValues: [Any] = ["invalid", [[:]] as [[String: Any]]]
+        for malformed in malformedValues {
+            var payload = legacy
+            payload["remote_views"] = malformed
+            if case .unavailable = resolver.resolveVMRemoteView(in: payload, workspaceID: "ws_main") {} else {
+                Issue.record("malformed view metadata must not authorize empty-workspace mutation")
+            }
+        }
+    }
+
     @Test func vmOpenWorkspaceSkipsAmbiguousAndExitedTerminalsWhenSafeCandidateExists() {
         let resources: [[String: Any]] = [
             [
@@ -392,38 +422,8 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
         #expect(CloudWorkspaceRenameService().remoteTarget(binding: nil, projectedResources: [build])?.remoteWorkspaceID == nil)
         #expect(CloudWorkspaceRenameService().remoteTarget(binding: nil, projectedResources: [])?.remoteWorkspaceID == nil)
 
-        // Legacy projection fallback drops the generated prefix; a bound workspace keeps
-        // an intentional prefix as part of the user's exact title.
-        #expect(CloudWorkspaceRenameService().remoteName(fromLocalTitle: "vivid-newt: api", machine: Self.machine) == "api")
-        #expect(CloudWorkspaceRenameService().remoteName(fromLocalTitle: "vivid-newt: api", machine: Self.machine, stripGeneratedPrefix: false) == "vivid-newt: api")
-        #expect(CloudWorkspaceRenameService().remoteName(fromLocalTitle: "api work", machine: Self.machine) == "api work")
-        #expect(CloudWorkspaceRenameService().remoteName(fromLocalTitle: "   ", machine: Self.machine) == nil)
-    }
-
-    @Test func cloudRenameRecognizesOnlyTheActualGeneratedWorkspaceTitle() {
-        #expect(
-            CloudWorkspaceRenameService().isGeneratedPrefixedTitle(
-                "vivid-newt: api",
-                machine: Self.machine,
-                remoteWorkspaceName: "api"
-            )
-        )
-        #expect(
-            !CloudWorkspaceRenameService().isGeneratedPrefixedTitle(
-                "vivid-newt: api",
-                machine: Self.machine,
-                remoteWorkspaceName: "other"
-            )
-        )
-        // A user-entered title with the same prefix is still exact when it does
-        // not match the name that generated the previous title.
-        #expect(
-            !CloudWorkspaceRenameService().isGeneratedPrefixedTitle(
-                "vivid-newt: api",
-                machine: Self.machine,
-                remoteWorkspaceName: "api work"
-            )
-        )
+        // Exact user payload preservation, including legacy bindings, is covered
+        // through the real submission path in cloudLegacyWorkspaceNameAdmission.
     }
 
     @Test func cloudTerminalRenameRejectsMismatchedLegacyWorkspaceFallback() throws {
@@ -602,6 +602,12 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
                 privateAddress: "fd98:deb9:4c94::8"
             ) == "https://[fd98:deb9:4c94::8]:8443/path"
         )
+        #expect(
+            CmuxTuiSurfaceProvider.privateBrowserURL(
+                "http://0.0.0.0:3000/path",
+                privateAddress: "10.16.4.9"
+            ) == "http://10.16.4.9:3000/path"
+        )
         #expect(CmuxTuiSurfaceProvider.privateBrowserURL("https://cmux.com", privateAddress: "10.0.0.2") == nil)
         #expect(
             CmuxTuiSurfaceProvider.privateDesktopURL(privateAddress: "10.16.4.9")
@@ -773,13 +779,13 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
         #expect(CmuxTuiSnapshotParser.state(fromSnapshot: conflictingAgents, machine: Self.machine) == nil)
 
         // A repeated tab reference in one terminal is harmless to identity, but
-        // it must not produce duplicate rename targets or duplicate tree rows.
+        // reverse tab edges still retain every distinct view.
         var repeatedReference = snapshot
         repeatedReference["terminals"] = [
             ["id": "term_build", "tab_ids": ["tab_1", "tab_1"], "title": "one", "lifecycle": "running"],
         ]
         let state = CmuxTuiSnapshotParser.state(fromSnapshot: repeatedReference, machine: Self.machine)
-        #expect(state?.terminals.first?.tabIDs == ["tab_1"])
+        #expect(state?.terminals.first?.tabIDs == ["tab_1", "tab_4"])
 
         // A tab that exists but claims another content identity is not a
         // recoverable placement error. Accepting it would route a rename to
@@ -798,13 +804,13 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
         #expect(CmuxTuiSnapshotParser.state(fromSnapshot: mismatchedBrowserTab, machine: Self.machine) == nil)
 
         // Older daemons encode an absent multi-tab relationship as JSON null.
-        // The singular tab_id remains enough to retain the placement.
+        // The singular hint is valid; reverse tab edges retain every view.
         var nullTabIDs = snapshot
         nullTabIDs["terminals"] = [
             ["id": "term_build", "tab_ids": NSNull(), "tab_id": "tab_1", "title": "build", "lifecycle": "running"],
         ]
         let nullTabIDsState = CmuxTuiSnapshotParser.state(fromSnapshot: nullTabIDs, machine: Self.machine)
-        #expect(nullTabIDsState?.terminals.first?.tabIDs == ["tab_1"])
+        #expect(nullTabIDsState?.terminals.first?.tabIDs == ["tab_1", "tab_4"])
     }
 
     @Test func synchronizableStateRejectsMissingGraphCollections() {
@@ -870,6 +876,29 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
             == ["--socket", "/tmp/s.sock", "--json", "workspace", "ws_1", "close"])
     }
 
+    @Test func workspaceCreationKeepsDaemonNamingAndExplicitEmptyReceivers() {
+        #expect(CloudTuiCommandLine.createWorkspaceArguments(socketPath: "/tmp/s.sock")
+            == ["--socket", "/tmp/s.sock", "--json", "workspace", "create"])
+        #expect(CloudTuiCommandLine.createWorkspaceArguments(socketPath: "/tmp/s.sock", name: "")
+            == ["--socket", "/tmp/s.sock", "--json", "workspace", "create"])
+        #expect(CloudTuiCommandLine.createWorkspaceArguments(socketPath: "/tmp/s.sock", name: "receiver", empty: true)
+            == ["--socket", "/tmp/s.sock", "--json", "workspace", "create", "--name", "receiver", "--empty"])
+    }
+
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func forcedRegistryRefreshCompletesAfterAnEmptyPass() async {
+        // A registry without a catalog/client makes performRefresh return immediately.
+        // A forced caller must still clear that completed flight; otherwise the old
+        // implementation re-entered its `while let refreshInFlight` loop forever and
+        // pinned the main actor at 100% CPU (the live `vm tree --refresh` repro).
+        let links = CloudMachineLinkManager(
+            clientURL: nil,
+            hostThemeColors: { nil }
+        )
+        let registry = CmuxTuiSurfaceProviderRegistry(links: links)
+        #expect(await registry.refresh(force: true) == false)
+    }
+
     @Test func headlessTerminalIOArgvFollowsTheCLIGrammar() {
         // Verified live against a machine: `write --text` types as-is (no newline),
         // `keys` takes bare key names, `screen read` / `screen wait --pattern` read back.
@@ -884,6 +913,24 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
         // No timeout (or a non-positive one) leaves the daemon default in charge.
         #expect(CloudTuiCommandLine.screenWaitArguments(socketPath: "/tmp/s.sock", terminalID: "term_1", pattern: "λ", timeoutMs: nil).contains("--timeout-ms") == false)
         #expect(CloudTuiCommandLine.screenWaitArguments(socketPath: "/tmp/s.sock", terminalID: "term_1", pattern: "λ", timeoutMs: 0).contains("--timeout-ms") == false)
+    }
+
+    @Test func terminalExitAndOutputArgvFollowTheCLIGrammar() {
+        // `terminal <id> process wait` is the exit fact behind `cmux vm terminal wait-exit`;
+        // `terminal <id> output read` is the retained log behind `cmux vm terminal output`.
+        #expect(CloudTuiCommandLine.processWaitArguments(socketPath: "/tmp/s.sock", terminalID: "term_1", timeoutMs: 45_000)
+            == ["--socket", "/tmp/s.sock", "--json", "terminal", "term_1", "process", "wait", "--timeout-ms", "45000"])
+        // No timeout (or a non-positive one) leaves the daemon default in charge.
+        #expect(CloudTuiCommandLine.processWaitArguments(socketPath: "/tmp/s.sock", terminalID: "term_1", timeoutMs: nil)
+            == ["--socket", "/tmp/s.sock", "--json", "terminal", "term_1", "process", "wait"])
+        #expect(CloudTuiCommandLine.processWaitArguments(socketPath: "/tmp/s.sock", terminalID: "term_1", timeoutMs: 0).contains("--timeout-ms") == false)
+        #expect(CloudTuiCommandLine.outputReadArguments(socketPath: "/tmp/s.sock", terminalID: "term_1", after: 1_024, maxBytes: 65_536)
+            == ["--socket", "/tmp/s.sock", "--json", "terminal", "term_1", "output", "read", "--after", "1024", "--max-bytes", "65536"])
+        // Offset 0 is a real cursor (read from the start); a zero byte cap is not a cap.
+        #expect(CloudTuiCommandLine.outputReadArguments(socketPath: "/tmp/s.sock", terminalID: "term_1", after: 0, maxBytes: 0)
+            == ["--socket", "/tmp/s.sock", "--json", "terminal", "term_1", "output", "read", "--after", "0"])
+        #expect(CloudTuiCommandLine.outputReadArguments(socketPath: "/tmp/s.sock", terminalID: "term_1", after: nil, maxBytes: nil)
+            == ["--socket", "/tmp/s.sock", "--json", "terminal", "term_1", "output", "read"])
     }
 
     @Test @MainActor func waitTimeoutNormalizesToTheDaemonDefaultAndClamps() {
@@ -1081,6 +1128,24 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
         #expect(String(decoding: data, as: UTF8.self) == "all of it")
     }
 
+    @Test func linkPipeDropsAnOversizedLineInsteadOfBufferingIt() async throws {
+        // The daemon caps a message at 4 MiB; a peer that withholds the newline must not
+        // pin Mac memory, and the line after the oversized one still arrives intact.
+        let pipe = Pipe()
+        let lines = CloudLinkPipe.lines(from: pipe.fileHandleForReading)
+        let writer = pipe.fileHandleForWriting
+        let chunk = Data(repeating: 0x41, count: 1024 * 1024)
+        let writeTask = Task.detached {
+            for _ in 0..<5 { writer.write(chunk) }
+            writer.write(Data("\nok\n".utf8))
+            try writer.close()
+        }
+        var received: [String] = []
+        for await line in lines { received.append(line) }
+        try await writeTask.value
+        #expect(received == ["ok"])
+    }
+
     @Test func linkFirstValueResolvesOnce() async {
         let socket = CloudLinkFirstValue<String>()
         async let awaited = socket.result
@@ -1091,6 +1156,12 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
         let eof = CloudLinkFirstValue<String>()
         eof.resolve(nil)
         #expect(await eof.result == nil, "finished without a value reads as nil")
+    }
+
+    @Test func linkCommandCarriesSecretInputThroughAPipe() async throws {
+        let link = CloudMachineLink(machineID: "test-machine", clientURL: URL(fileURLWithPath: "/bin/cat"), paths: CloudTuiClientPaths())
+        let payload = Data("private receiver wire\n".utf8)
+        #expect(try await link.run(arguments: [], input: payload) == payload)
     }
 
     @Test func cancellingLinkCommandStopsItsChildBeforeReturning() async throws {
@@ -1126,46 +1197,6 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
             Issue.record("a cancelled link command returned \(error) instead of CancellationError")
         }
         #expect(Darwin.kill(pid, 0) == -1 && errno == ESRCH, "the child must be reaped before run returns")
-    }
-
-    @Test func cancellingLinkConnectStopsItsChildBeforeReturning() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-cloud-connect-cancel-\(UUID().uuidString.lowercased())", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let pidFile = root.appendingPathComponent("link.pid")
-        let client = root.appendingPathComponent("fake-cmux-tui")
-        try """
-        #!/bin/sh
-        echo $$ > '\(pidFile.path)'
-        exec /bin/sleep 30
-        """.write(to: client, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: client.path)
-        let link = CloudMachineLink(
-            machineID: "test-machine",
-            clientURL: client,
-            paths: CloudTuiClientPaths(home: root)
-        )
-        let task = Task {
-            try await link.connect(route: "ws://10.0.0.1:1337/v1/link", session: "main")
-        }
-        for _ in 0..<200 where !FileManager.default.fileExists(atPath: pidFile.path) {
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        let pid = try #require(Int32(try String(contentsOf: pidFile, encoding: .utf8)
-            .trimmingCharacters(in: .whitespacesAndNewlines)))
-        defer { _ = Darwin.kill(pid, SIGKILL) }
-
-        task.cancel()
-        do {
-            _ = try await task.value
-            Issue.record("a cancelled link connect must throw")
-        } catch is CancellationError {
-            // Expected.
-        } catch {
-            Issue.record("a cancelled link connect returned \(error) instead of CancellationError")
-        }
-        #expect(Darwin.kill(pid, 0) == -1 && errno == ESRCH, "the link child must be reaped before connect returns")
     }
 
     @Test func linkClientExitingBeforeItsSocketLineReportsTheExitNotATimeout() async throws {
@@ -1570,7 +1601,7 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
 
         #expect(state.cursor == nil)
         #expect(state.syncMode == .snapshotOnly)
-        #expect(state.workspaces.map(\.id) == ["ws_api"])
+        #expect(state.workspaces.map(\.id) == ["ws_main", "ws_api"])
         #expect(CmuxTuiSnapshotParser.resources(from: state).contains { $0.id.key == "term_build" })
 
         var malformed = snapshot
@@ -2123,7 +2154,7 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
 
         let legacy = try JSONDecoder().decode(
             SurfaceResourceGroup.self,
-            from: Data(#"{"title":"api","resources":["vivid-newt/terminal/term_build"],"remoteWorkspaceID":"ws_api"}"#.utf8)
+            from: Data(#"{"title":"api","resources":[{"machine":{"cloud":{"_0":"vivid-newt"}},"kind":"terminal","key":"term_build"}],"remoteWorkspaceID":"ws_api"}"#.utf8)
         )
         #expect(legacy.placements.first?.remoteTabID == nil)
         #expect(legacy.placements.first?.remoteWorkspaceID == "ws_api")

@@ -198,7 +198,8 @@ extension TerminalController {
         if request.method == "agent.restore.release" {
             return await agentRestoreAdmissionReleaseResponse(request)
         }
-        if ControlCommandExecutionPolicy.servesFromPublishedReadSnapshot(method: request.method),
+        if request.params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey] == nil,
+           ControlCommandExecutionPolicy.servesFromPublishedReadSnapshot(method: request.method),
            let snapshotResult = socketReadSnapshotStore.response(
                 method: request.method,
                 params: request.params,
