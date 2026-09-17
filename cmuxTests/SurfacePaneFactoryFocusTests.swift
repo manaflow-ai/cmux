@@ -361,7 +361,8 @@ import SwiftUI
         window.isReleasedWhenClosed = false
         defer { window.close() }
         let content = try #require(window.contentView)
-        let root = try #require(content.superview)
+        let target = try #require(AppWindowChromeComposition().contentOverlayTargetResolver.installationTarget(for: window))
+        let root = target.container
         let source = NSView(frame: content.bounds)
         content.addSubview(source)
         let host = CloudPaneCreationFailurePresentation.NativeOverlay.AnchorView(frame: content.bounds)
