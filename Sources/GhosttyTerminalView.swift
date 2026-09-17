@@ -10432,7 +10432,7 @@ final class GhosttySurfaceScrollView: NSView {
         forceViewportSync: Bool? = nil,
         preservedReviewOriginY: CGFloat? = nil
     ) -> Bool {
-        let work = TerminalGeometryDiagnostics().begin(.layout, workspaceID: surfaceView.terminalSurface?.tabId)
+        let work = TerminalGeometryDiagnostics().begin(.layout, workspaceID: surfaceView.terminalSurface?.tabId, transition: TerminalGeometryDiagnostics().resizeTransition(in: window))
         defer { work.end() }
         clipsToBounds = true
         layer?.masksToBounds = true

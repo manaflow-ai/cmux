@@ -20,7 +20,7 @@ public struct TerminalWorkSentryContext: Sendable {
         }) == true else { return }
         var active: [UUID: Breadcrumb] = [:]
         var sawTerminalEvidence = false
-        for crumb in (event.breadcrumbs ?? []).suffix(100) {
+        for crumb in TerminalWorkSentryTimeline().breadcrumbs(in: event) {
             guard crumb.category == "terminal.work",
                   let timestamp = crumb.timestamp,
                   let captureTime = event.timestamp,

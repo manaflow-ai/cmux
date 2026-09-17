@@ -34,6 +34,13 @@ struct TerminalGeometryDiagnostics {
         )
     }
 
+    /// Only an active native window or owned divider drag establishes resize.
+    func resizeTransition(in window: NSWindow?) -> TerminalWorkContext.Transition {
+        guard let window else { return .unknown }
+        return window.inLiveResize || TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window)
+            ? .resize : .unknown
+    }
+
     func refresh(_ view: GhosttySurfaceScrollView, reason: String) {
         let work = begin(
             .rendererRefresh,
