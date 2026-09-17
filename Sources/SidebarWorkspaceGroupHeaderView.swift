@@ -19,6 +19,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.isCollapsed == rhs.isCollapsed &&
             lhs.isPinned == rhs.isPinned &&
             lhs.isAnchorActive == rhs.isAnchorActive &&
+            lhs.isMultiSelected == rhs.isMultiSelected &&
+            lhs.multiSelectionBackgroundStyle == rhs.multiSelectionBackgroundStyle &&
             lhs.memberCount == rhs.memberCount &&
             lhs.anchorUnreadCount == rhs.anchorUnreadCount &&
             lhs.canMarkRead == rhs.canMarkRead &&
@@ -50,6 +52,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let isCollapsed: Bool
     let isPinned: Bool
     let isAnchorActive: Bool
+    let isMultiSelected: Bool
+    let multiSelectionBackgroundStyle: SidebarWorkspaceRowBackgroundStyle
     let memberCount: Int
     let anchorUnreadCount: Int
     let canMarkRead: Bool
@@ -73,7 +77,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let bottomDropIndicatorVisible: Bool
     let onDragStart: () -> NSItemProvider
     let onToggleCollapsed: () -> Void
-    let onFocusAnchor: () -> Void
+    let onFocusAnchor: (NSEvent.ModifierFlags) -> Void
     let onTapPlus: () -> Void
     let onRunResolvedItem: (CmuxResolvedConfigMenuAction) -> Void
     let onRename: () -> Void
@@ -124,6 +128,13 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         String(localized: "workspaceGroup.pinned.tooltip", defaultValue: "Pinned group")
     }
 
+    private var multiSelectionBackgroundColor: Color {
+        guard let color = multiSelectionBackgroundStyle.color else {
+            return .clear
+        }
+        return Color(nsColor: color).opacity(multiSelectionBackgroundStyle.opacity)
+    }
+
     var body: some View {
 #if DEBUG
         let _ = { sidebarLazyContractProbe.groupHeaderRowBody?() }()
@@ -135,7 +146,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     pointSize: metrics.pinnedIconFontSize,
                     weight: .semibold
                 )
-                .foregroundStyle(Color.secondary.opacity(0.8))
+                .foregroundStyle(.secondary)
                 .frame(width: metrics.iconFrame, height: metrics.iconFrame)
                 .safeHelp(pinnedGroupTooltip)
                 .accessibilityLabel(Text(pinnedGroupTooltip))
@@ -189,7 +200,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
-            .onTapGesture { onFocusAnchor() }
+            .onTapGesture {
+                onFocusAnchor(NSApp.currentEvent?.modifierFlags ?? [])
+            }
             .accessibilityAddTraits(.isButton)
             .accessibilityLabel(Text(name))
             .accessibilityHint(Text(String(
@@ -270,9 +283,14 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         .background(
             isAnchorActive
                 ? Color.primary.opacity(0.08)
-                : Color.clear
+                : isMultiSelected
+                    ? multiSelectionBackgroundColor
+                    : Color.clear
         )
-        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+        .clipShape(RoundedRectangle(
+            cornerRadius: isMultiSelected && !isAnchorActive ? 6 : 4,
+            style: .continuous
+        ))
         .sidebarShortcutHintOverlay(
             text: shortcutHintPillText,
             emphasis: isAnchorActive ? 1.0 : 0.9,

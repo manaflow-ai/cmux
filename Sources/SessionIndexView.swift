@@ -10,9 +10,8 @@ import UniformTypeIdentifiers
 @MainActor
 enum SessionEntryResumeCoordinator {
     static func resume(_ entry: SessionEntry, tabManager: TabManager) {
-        guard let resumeCommand = entry.resumeCommandWithCwd else { return }
-        let inputWithReturn = resumeCommand + "\n"
-        let targetCwd = entry.resumeWorkingDirectory
+        guard let launch = entry.resumeLaunch else { return }
+        let targetCwd = launch.workingDirectory
 
         let selected = tabManager.selectedWorkspace
         let selectedTab = tabManager.selectedTabId.flatMap { id in
@@ -36,14 +35,16 @@ enum SessionEntryResumeCoordinator {
                 inPane: paneId,
                 focus: true,
                 workingDirectory: targetCwd,
-                initialInput: inputWithReturn
+                initialInput: launch.initialInput,
+                startupRestoreAgent: launch.startupRestoreAgent
             )
             return
         }
 
         _ = tabManager.requestAddWorkspace(
             workingDirectory: targetCwd,
-            initialTerminalInput: inputWithReturn
+            initialTerminalInput: launch.initialInput,
+            initialTerminalStartupRestoreAgent: launch.startupRestoreAgent
         )
     }
 }
@@ -56,9 +57,8 @@ struct SessionIndexView: View {
     @StateObject private var dragCoordinator = SessionDragCoordinator()
     /// Sections the user has explicitly collapsed (default is expanded).
     @State private var collapsedSections: Set<SectionKey> = []
-    /// Section whose "Show more" popover is currently open.
-    @State private var openPopoverSection: SectionKey?
-    @State private var previewEntry: SessionEntry?
+    /// Single source of truth for both Vault popover variants.
+    @State private var popoverIdentity: SessionIndexTablePopoverIdentity?
     let onResume: ((SessionEntry) -> Void)?
     /// Rows shown per section before "Show more" is tapped.
     private static let collapsedRowLimit = 5
@@ -192,66 +192,68 @@ struct SessionIndexView: View {
             await store.loadDirectorySnapshot(cwd: cwd)
         }
 
-        return ScrollView(.vertical) {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(sections.enumerated()), id: \.element.key) { index, section in
-                    // Drop above this row -> insert dragged section BEFORE this section's key.
-                    SectionReorderGap(
-                        beforeKey: section.key,
-                        isValidDrop: draggedKey == nil || draggedKey != section.key,
-                        actions: gapActions
-                    ).equatable()
-                    IndexSectionView(
-                        section: section,
-                        rowLimit: Self.collapsedRowLimit,
-                        isDragged: draggedKey == section.key,
-                        previewEntryId: previewEntry?.id,
-                        isCollapsed: Binding(
-                            get: { collapsedSections.contains(section.key) },
-                            set: { newValue in
-                                if newValue {
-                                    collapsedSections.insert(section.key)
-                                } else {
-                                    collapsedSections.remove(section.key)
-                                }
-                            }
-                        ),
-                        isPopoverOpen: Binding(
-                            get: { openPopoverSection == section.key },
-                            set: { newValue in
-                                openPopoverSection = newValue ? section.key : nil
-                            }
-                        ),
-                        actions: IndexSectionActions(
-                            onBeginDrag: { dragCoordinator.draggedKey = section.key },
-                            onPreviewEntry: { entry in
-                                previewEntry = entry
-                            },
-                            onDismissPreview: { id in
-                                if previewEntry?.id == id {
-                                    previewEntry = nil
-                                }
-                            },
-                            onResume: onResumeClosure,
-                            search: searchFn,
-                            loadSnapshot: loadSnapshotFn
-                        )
-                    ).equatable()
-                    let _ = index
-                }
-                // Trailing gap -> append.
-                SectionReorderGap(
-                    beforeKey: nil,
-                    isValidDrop: true,
+        let rows = sections.flatMap { section in
+            let sectionActions = IndexSectionActions(
+                onBeginDrag: { dragCoordinator.draggedKey = section.key },
+                onPreviewEntry: { entry in
+                    popoverIdentity = .transcript(section: section.key, entry: entry.id)
+                },
+                onDismissPreview: { id in
+                    if popoverIdentity == .transcript(section: section.key, entry: id) {
+                        popoverIdentity = nil
+                    }
+                },
+                onResume: onResumeClosure,
+                search: searchFn,
+                loadSnapshot: loadSnapshotFn
+            )
+            return [
+                SessionIndexTableRow.gap(
+                    beforeKey: section.key,
+                    isValidDrop: draggedKey == nil || draggedKey != section.key,
                     actions: gapActions
-                ).equatable()
-            }
-            .padding(.bottom, 8)
-        }
-        .modifier(ClearScrollBackground())
-        .background(
-            DragCancelMonitor(dragCoordinator: dragCoordinator)
-        )
+                ),
+                SessionIndexTableRow.section(
+                    section: section,
+                    rowLimit: Self.collapsedRowLimit,
+                    isDragged: draggedKey == section.key,
+                    popoverIdentity: popoverIdentity?.sectionKey == section.key
+                        ? popoverIdentity
+                        : nil,
+                    isCollapsed: collapsedSections.contains(section.key),
+                    actions: sectionActions,
+                    setCollapsed: { newValue in
+                        if newValue {
+                            collapsedSections.insert(section.key)
+                            if popoverIdentity?.sectionKey == section.key {
+                                popoverIdentity = nil
+                            }
+                        } else {
+                            collapsedSections.remove(section.key)
+                        }
+                    },
+                    setPopoverOpen: { newValue in
+                        if newValue {
+                            popoverIdentity = .section(section.key)
+                        } else if popoverIdentity == .section(section.key) {
+                            popoverIdentity = nil
+                        }
+                    }
+                ),
+            ]
+        } + [
+            SessionIndexTableRow.gap(
+                beforeKey: nil,
+                isValidDrop: true,
+                actions: gapActions
+            ),
+        ]
+
+        return SessionIndexTableView(rows: rows)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(
+                DragCancelMonitor(dragCoordinator: dragCoordinator)
+            )
     }
 }
 
@@ -342,7 +344,9 @@ struct SectionGapActions {
     let clearDraggedKey: @MainActor () -> Void
 }
 
-private struct IndexSectionView: View, Equatable {
+struct IndexSectionView: View, Equatable {
+    private static let popoverAnchorCoordinateSpace = "session-index-popover-anchor"
+
     let section: IndexSection
     let rowLimit: Int
     /// True iff this section is the one currently being dragged. Precomputed
@@ -351,7 +355,8 @@ private struct IndexSectionView: View, Equatable {
     let isDragged: Bool
     let previewEntryId: SessionEntry.ID?
     @Binding var isCollapsed: Bool
-    @Binding var isPopoverOpen: Bool
+    let onShowMore: () -> Void
+    let onPopoverAnchorChange: (SessionIndexTablePopoverIdentity, CGRect?) -> Void
     /// Value-type action bundle. See `IndexSectionActions`; replaces the
     /// earlier `store` / `dragCoordinator` class references so rows can't
     /// observe the store.
@@ -359,16 +364,15 @@ private struct IndexSectionView: View, Equatable {
 
     /// Skip body re-eval when this view's inputs are unchanged. `actions` is
     /// not comparable (closures) but is expected to be stable (closures
-    /// capture stable object references above the list boundary). Excluding
-    /// it from `==` is the core optimization that keeps LazyVStack's layout
-    /// cache from thrashing when unrelated store fields change.
+    /// capture stable object references above the table boundary). Excluding
+    /// it from `==` keeps a recycled cell's hosted graph stable when unrelated
+    /// store fields change.
     static func == (lhs: IndexSectionView, rhs: IndexSectionView) -> Bool {
         lhs.section == rhs.section
             && lhs.rowLimit == rhs.rowLimit
             && lhs.isDragged == rhs.isDragged
             && lhs.previewEntryId == rhs.previewEntryId
             && lhs.isCollapsed == rhs.isCollapsed
-            && lhs.isPopoverOpen == rhs.isPopoverOpen
     }
 
     var body: some View {
@@ -379,17 +383,25 @@ private struct IndexSectionView: View, Equatable {
                     SessionRow(
                         entry: entry,
                         isPreviewPresented: previewEntryId == entry.id,
-                        onPreviewPresentationChange: { isPresented in
-                            if isPresented {
-                                actions.onPreviewEntry(entry)
-                            } else {
-                                actions.onDismissPreview(entry.id)
-                            }
-                        },
+                        onPreview: { actions.onPreviewEntry(entry) },
                         onResume: actions.onResume
                     )
                         .equatable()
                         .id(entry.id)
+                        .onGeometryChange(for: CGRect.self) { proxy in
+                            proxy.frame(in: .named(Self.popoverAnchorCoordinateSpace))
+                        } action: { frame in
+                            onPopoverAnchorChange(
+                                .transcript(section: section.key, entry: entry.id),
+                                frame
+                            )
+                        }
+                        .onDisappear {
+                            onPopoverAnchorChange(
+                                .transcript(section: section.key, entry: entry.id),
+                                nil
+                            )
+                        }
                 }
                 if section.shouldOfferShowMore(rowLimit: rowLimit) {
                     showMoreButton
@@ -398,11 +410,12 @@ private struct IndexSectionView: View, Equatable {
             }
         }
         .opacity(isDragged ? 0.45 : 1.0)
+        .coordinateSpace(name: Self.popoverAnchorCoordinateSpace)
     }
 
     private var showMoreButton: some View {
         Button {
-            isPopoverOpen = true
+            onShowMore()
         } label: {
             Text(String(localized: "sessionIndex.section.showMore", defaultValue: "Show more"))
                 .cmuxFont(size: 12, weight: .medium)
@@ -414,15 +427,14 @@ private struct IndexSectionView: View, Equatable {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(
-            SectionPopoverHost(
-                isPresented: $isPopoverOpen,
-                section: section,
-                search: actions.search,
-                loadSnapshot: actions.loadSnapshot,
-                onResume: actions.onResume
-            )
-        )
+        .onGeometryChange(for: CGRect.self) { proxy in
+            proxy.frame(in: .named(Self.popoverAnchorCoordinateSpace))
+        } action: { frame in
+            onPopoverAnchorChange(.section(section.key), frame)
+        }
+        .onDisappear {
+            onPopoverAnchorChange(.section(section.key), nil)
+        }
     }
 
     private var sectionHeader: some View {
@@ -478,7 +490,7 @@ private struct IndexSectionView: View, Equatable {
     }
 }
 
-private struct SectionReorderGap: View, Equatable {
+struct SectionReorderGap: View, Equatable {
     /// Section the dragged item should land BEFORE if dropped here. `nil` for
     /// the trailing gap (drop appends to the end of persisted order).
     let beforeKey: SectionKey?
@@ -554,15 +566,15 @@ private struct SectionGapDropDelegate: DropDelegate {
 private struct SessionRow: View, Equatable {
     let entry: SessionEntry
     let isPreviewPresented: Bool
-    let onPreviewPresentationChange: (Bool) -> Void
+    let onPreview: () -> Void
     let onResume: ((SessionEntry) -> Void)?
     @State private var isHovered: Bool = false
 
     static func == (lhs: SessionRow, rhs: SessionRow) -> Bool {
         // Skip body re-eval during scroll when the entry is unchanged.
         // The closure isn't compared (it comes from stable parent state).
-        lhs.entry == rhs.entry &&
-            lhs.isPreviewPresented == rhs.isPreviewPresented
+        lhs.entry == rhs.entry
+            && lhs.isPreviewPresented == rhs.isPreviewPresented
     }
 
     var body: some View {
@@ -585,11 +597,10 @@ private struct SessionRow: View, Equatable {
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         .background(rowBackground)
-        .background(previewPopoverHost)
         .onHover { isHovered = $0 }
         .help(helpText)
         .onTapGesture(count: 2) {
-            onPreviewPresentationChange(true)
+            onPreview()
         }
         .onDrag {
             sessionDragItemProvider(for: entry)
@@ -607,19 +618,6 @@ private struct SessionRow: View, Equatable {
         }
         .contextMenu {
             sessionRowMenuItems(entry: entry, onResume: onResume)
-        }
-    }
-
-    @ViewBuilder
-    private var previewPopoverHost: some View {
-        if isPreviewPresented {
-            SessionTranscriptPopoverHost(
-                isPresented: Binding(
-                    get: { isPreviewPresented },
-                    set: { onPreviewPresentationChange($0) }
-                ),
-                entry: entry
-            )
         }
     }
 
@@ -685,18 +683,20 @@ private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) 
         }
         Divider()
         Button {
-            let pb = NSPasteboard.general
-            pb.clearContents()
-            pb.setString(url.path, forType: .string)
+            GhosttyApp.terminalPasteboard.writeString(
+                url.path,
+                to: .general
+            )
         } label: {
             Text(String(localized: "sessionIndex.row.copyPath", defaultValue: "Copy File Path"))
         }
     }
-    if let resumeCommand = entry.resumeCommand {
+    if let resumeCommand = entry.copyResumeCommand {
         Button {
-            let pb = NSPasteboard.general
-            pb.clearContents()
-            pb.setString(resumeCommand, forType: .string)
+            GhosttyApp.terminalPasteboard.writeString(
+                resumeCommand,
+                to: .general
+            )
         } label: {
             Text(String(localized: "sessionIndex.row.copyResume", defaultValue: "Copy Resume Command"))
         }
@@ -720,9 +720,9 @@ private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) 
 
 // MARK: - Session transcript preview
 
-private struct SessionTranscriptPreviewView: View {
+struct SessionTranscriptPreviewView: View {
     let entry: SessionEntry
-    @ObservedObject var sizeModel: SessionTranscriptPopoverSizeModel
+    let sizeModel: SessionTranscriptPopoverSizeModel
     let onResize: (CGSize) -> Void
     let onDismiss: () -> Void
 
@@ -858,27 +858,6 @@ private struct SessionTranscriptPreviewView: View {
             guard !Task.isCancelled else { return }
             loadState = .failed
         }
-    }
-}
-
-private enum SessionTranscriptPreviewLayout {
-    static let defaultSize = CGSize(width: 520, height: 500)
-    static let minSize = CGSize(width: 420, height: 320)
-    static let maxSize = CGSize(width: 920, height: 820)
-
-    static func clamped(_ size: CGSize) -> CGSize {
-        CGSize(
-            width: min(max(size.width, minSize.width), maxSize.width),
-            height: min(max(size.height, minSize.height), maxSize.height)
-        )
-    }
-}
-
-private final class SessionTranscriptPopoverSizeModel: ObservableObject {
-    @Published var size: CGSize
-
-    init(size: CGSize = SessionTranscriptPreviewLayout.defaultSize) {
-        self.size = size
     }
 }
 
@@ -1060,7 +1039,7 @@ private extension SessionEntry {
     }
 }
 
-private enum SessionTranscriptLoader {
+enum SessionTranscriptLoader {
     private static let streamChunkSize = 256 * 1024
     private static let maxPreviewRecordBytes = 2 * 1024 * 1024
     private static let maxPreviewTurns = 500
@@ -1311,8 +1290,11 @@ private enum SessionTranscriptLoader {
         var lineIndex = 0
         var didHitTurnLimit = false
         let agent = SessionAgent.registered(RegisteredSessionAgent(id: "antigravity"))
-
-        SessionIndexStore.forEachJSONLine(url: url, maxBytes: Int.max) { object in
+        let metrics = SessionIndexJSONLReader().fromTailPages(
+            url: url,
+            maxBytesPerPage: SessionIndexStore.antigravityHistoryByteCap,
+            maximumPageCount: SessionIndexStore.antigravityHistoryPreviewPageLimit
+        ) { object in
             defer { lineIndex += 1 }
             if Task.isCancelled { return true }
             guard turns.count < maxPreviewTurns else {
@@ -1329,9 +1311,10 @@ private enum SessionTranscriptLoader {
             turns.append(SessionTranscriptTurn(id: lineIndex, role: .user, text: text))
             return false
         }
-        if didHitTurnLimit {
+        if didHitTurnLimit || !metrics.didReachStart {
             appendTurnLimitMarker(to: &turns, id: lineIndex)
         }
+        turns.reverse()
         return coalesce(turns)
     }
 
@@ -1920,173 +1903,6 @@ private enum SessionTranscriptLoader {
     }
 }
 
-private struct SessionTranscriptPopoverHost: NSViewRepresentable {
-    @Binding var isPresented: Bool
-    let entry: SessionEntry
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(isPresented: $isPresented)
-    }
-
-    func makeNSView(context: Context) -> PopoverAnchorView {
-        let view = PopoverAnchorView()
-        view.translatesAutoresizingMaskIntoConstraints = false
-        context.coordinator.anchorView = view
-        view.onDidMoveToWindow = { [weak coordinator = context.coordinator] in
-            coordinator?.anchorDidMoveToWindow()
-        }
-        return view
-    }
-
-    func updateNSView(_ nsView: PopoverAnchorView, context: Context) {
-        let coordinator = context.coordinator
-        coordinator.anchorView = nsView
-        coordinator.update(entry: entry)
-        if isPresented {
-            coordinator.present()
-        } else {
-            coordinator.dismiss()
-        }
-    }
-
-    static func dismantleNSView(_ nsView: PopoverAnchorView, coordinator: Coordinator) {
-        nsView.onDidMoveToWindow = nil
-        coordinator.dismiss()
-    }
-
-    @MainActor
-    final class Coordinator: NSObject, NSPopoverDelegate {
-        @Binding var isPresented: Bool
-        weak var anchorView: NSView?
-
-        private let hostingController = NSHostingController(rootView: AnyView(EmptyView()))
-        private let visibleUpdateScheduler = CmuxPopoverVisibleUpdateScheduler()
-        private var popover: NSPopover?
-        private var currentEntry: SessionEntry?
-        private let sizeModel = SessionTranscriptPopoverSizeModel()
-        private var wantsPresentation = false
-
-        init(isPresented: Binding<Bool>) {
-            _isPresented = isPresented
-        }
-
-        func update(entry: SessionEntry) {
-            let shouldRefresh = currentEntry?.id != entry.id
-            currentEntry = entry
-            if shouldRefresh {
-                if popover?.isShown == true {
-                    scheduleVisibleRefresh()
-                } else {
-                    refreshContent()
-                }
-            }
-        }
-
-        private func scheduleVisibleRefresh() {
-            visibleUpdateScheduler.schedule { [weak self] in
-                guard let self, self.popover?.isShown == true else { return }
-                self.refreshContent()
-            }
-        }
-
-        func anchorDidMoveToWindow() {
-            guard anchorView?.window != nil else {
-                popover?.performClose(nil)
-                return
-            }
-            if wantsPresentation {
-                present()
-            }
-        }
-
-        func present() {
-            wantsPresentation = true
-            guard let anchorView, anchorView.window != nil else {
-                return
-            }
-            anchorView.superview?.layoutSubtreeIfNeeded()
-            let popover = popover ?? makePopover()
-            if !popover.isShown {
-                visibleUpdateScheduler.cancel()
-                refreshContent()
-                popover.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .maxX)
-            }
-        }
-
-        func dismiss() {
-            wantsPresentation = false
-            visibleUpdateScheduler.cancel()
-            popover?.performClose(nil)
-        }
-
-        func popoverDidClose(_ notification: Notification) {
-            visibleUpdateScheduler.cancel()
-            wantsPresentation = false
-            popover = nil
-            if isPresented {
-                isPresented = false
-            }
-        }
-
-        private func refreshContent() {
-            guard let entry = currentEntry else { return }
-            hostingController.rootView = AnyView(
-                SessionTranscriptPreviewView(
-                    entry: entry,
-                    sizeModel: sizeModel,
-                    onResize: { [weak self] proposedSize in
-                        self?.resize(to: proposedSize)
-                    }
-                ) { [weak self] in
-                    self?.closeFromContent()
-                }
-                .id(entry.id)
-            )
-            hostingController.view.invalidateIntrinsicContentSize()
-            hostingController.view.layoutSubtreeIfNeeded()
-            updatePopoverSize()
-        }
-
-        private func closeFromContent() {
-            isPresented = false
-            dismiss()
-        }
-
-        private func resize(to proposedSize: CGSize) {
-            sizeModel.size = SessionTranscriptPreviewLayout.clamped(proposedSize)
-            updatePopoverSize()
-        }
-
-        private func makePopover() -> NSPopover {
-            let popover = NSPopover()
-            popover.behavior = .transient
-            popover.animates = true
-            popover.contentViewController = hostingController
-            popover.contentSize = NSSize(width: sizeModel.size.width, height: sizeModel.size.height)
-            popover.delegate = self
-            self.popover = popover
-            return popover
-        }
-
-        private func updatePopoverSize() {
-            guard let popover else { return }
-            CmuxPopoverMutation.setContentSize(
-                NSSize(width: sizeModel.size.width, height: sizeModel.size.height),
-                on: popover
-            )
-        }
-    }
-}
-
-private final class PopoverAnchorView: NSView {
-    var onDidMoveToWindow: (() -> Void)?
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        onDidMoveToWindow?()
-    }
-}
-
 /// Invisible AppKit view that fires `onEscape` when Escape is pressed while
 /// the popover content is key. Lives in the popover's view tree so it inherits
 /// the popover's responder chain.
@@ -2154,11 +1970,10 @@ struct SectionPopoverView: View {
     @State private var hasMore: Bool = true
     @State private var isLoading: Bool = false
     @State private var activeQuery: String = ""
-    /// In-flight pagination task for the typed-query path. Reassigned by
-    /// `loadMore()`; the previous task is cancelled implicitly. The initial /
-    /// query-change load is owned by SwiftUI via `.task(id: query)` and
-    /// doesn't use this slot.
-    @State private var loadTask: Task<Void, Never>?
+    /// Owns the replaceable pagination task for the typed-query path. The
+    /// initial / query-change load is owned by SwiftUI via `.task(id: query)`
+    /// and doesn't use this store.
+    @State private var tasks = MainActorTaskStore<String>()
     @State private var errorMessages: [String] = []
     /// Full merged snapshot of the directory (empty-query directory scope
     /// only). When non-nil, `loadMore()` slices this array in memory
@@ -2294,12 +2109,9 @@ struct SectionPopoverView: View {
         // before the sleep completes, preventing an unnecessary search.
         .task(id: query) {
             // Any pagination task from the previous query lifecycle is now
-            // superseded. Cancel explicitly; reassigning `loadTask =
-            // Task { ... }` later doesn't cancel the previous handle on its
-            // own, so without this a stale page could still land and
+            // superseded. Cancel explicitly so a stale page cannot land and
             // append rows that don't match the new query.
-            loadTask?.cancel()
-            loadTask = nil
+            tasks.cancel("loadMore")
 
             if !searchFieldFocused {
                 searchFieldFocused = true
@@ -2369,11 +2181,10 @@ struct SectionPopoverView: View {
         }
         .onDisappear {
             // .task(id: query) auto-cancels on disappear, but the
-            // separate loadTask slot (used by loadMore) is ours to
-            // manage. Cancel it so a fetch in flight when the popover
-            // closes doesn't keep running to completion.
-            loadTask?.cancel()
-            loadTask = nil
+            // separate load-more slot is ours to manage. Cancel it so a fetch
+            // in flight when the popover closes doesn't keep running to
+            // completion.
+            tasks.cancel("loadMore")
             isLoading = false
         }
     }
@@ -2412,8 +2223,7 @@ struct SectionPopoverView: View {
         let search = self.search
         let query = activeQuery
         let offset = loaded.count
-        loadTask?.cancel()
-        loadTask = Task { @MainActor in
+        tasks.replaceOnMainActor("loadMore") {
             let outcome = await search(query, scope, offset, Self.pageSize)
             guard !Task.isCancelled else { return }
             applyOutcome(outcome, append: true)

@@ -441,7 +441,7 @@ final class TerminalBackendRemoteTmuxSurfaceBridge:
     }
 
     private func scheduleOutput(_ data: Data) {
-        let chunks = RemoteTmuxPaneSeed(reset: Data(), output: []).splitOutput(data)
+        let chunks = RemoteTmuxPaneSeed.boundedChunks(data)
         let scheduledEpoch = epoch
         schedule { [weak self] in
             guard let self else { return }
@@ -569,7 +569,7 @@ final class TerminalBackendRemoteTmuxSurfaceBridge:
     }
 
     private func appendBoundedOutput(_ data: Data, to output: inout [Data]) {
-        output.append(contentsOf: RemoteTmuxPaneSeed(reset: Data(), output: []).splitOutput(data))
+        output.append(contentsOf: RemoteTmuxPaneSeed.boundedChunks(data))
     }
 
     private func waitUntilReady() async throws {
@@ -695,13 +695,5 @@ private extension TerminalExternalRuntimeMutation {
         default:
             false
         }
-    }
-}
-
-private extension RemoteTmuxPaneSeed {
-    func splitOutput(_ data: Data) -> [Data] {
-        let split = RemoteTmuxPaneSeed(bytes: data)
-        if split.reset.isEmpty { return split.output }
-        return [split.reset] + split.output
     }
 }

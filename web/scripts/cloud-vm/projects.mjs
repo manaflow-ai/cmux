@@ -25,6 +25,11 @@ export const projects = {
 export const requiredRuntimeEnvKeys = [
   "AWS_REGION",
   "AWS_ROLE_ARN",
+  // The application can build without APNs credentials, but a promoted
+  // runtime cannot deliver the Push Alerts feature without the complete set.
+  "CMUX_APNS_KEY_ID",
+  "CMUX_APNS_KEY_P8",
+  "CMUX_APNS_TEAM_ID",
   "CMUX_DB_DRIVER",
   "CMUX_VM_CREATE_ENABLED",
   "CMUX_VM_DEFAULT_PROVIDER",

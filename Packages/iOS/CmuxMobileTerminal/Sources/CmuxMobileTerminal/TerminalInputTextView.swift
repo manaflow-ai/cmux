@@ -35,6 +35,7 @@ import UIKit
 /// be enabled: they require the field to retain the in-progress word, which is
 /// incompatible with forwarding every keystroke to a remote terminal.
 final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
+    var onFirstResponderChanged: ((Bool) -> Void)?
     var onText: ((String) -> Void)?
     var onBackspace: (() -> Void)?
     var onEscapeSequence: ((Data) -> Void)?
@@ -126,6 +127,24 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     lazy var tokenizer: any UITextInputTokenizer = UITextInputStringTokenizer(textInput: self)
 
     override var canBecomeFirstResponder: Bool { true }
+
+    override func becomeFirstResponder() -> Bool {
+        let wasFirstResponder = isFirstResponder
+        let succeeded = super.becomeFirstResponder()
+        if succeeded, !wasFirstResponder, isFirstResponder {
+            onFirstResponderChanged?(true)
+        }
+        return succeeded
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let wasFirstResponder = isFirstResponder
+        let succeeded = super.resignFirstResponder()
+        if succeeded, wasFirstResponder, !isFirstResponder {
+            onFirstResponderChanged?(false)
+        }
+        return succeeded
+    }
 
     /// Conforming to ``UITextInput`` would otherwise make this an accessibility
     /// element, which would shadow the real terminal surface's accessibility
@@ -320,9 +339,9 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     private lazy var terminalAccessoryToolbar: UIView = {
         let container = UIView()
         container.backgroundColor = .clear
-        // Placeholder height until the host positions the bar via
-        // `GhosttySurfaceView.bottomDockFrames()`; sized to the button-row strip so
-        // the pre-layout frame matches the reserved grid height.
+        // Placeholder height until the host activates its keyboard-guide constraints;
+        // sized to the button-row strip so the pre-layout frame matches the reserved
+        // grid height.
         container.frame = CGRect(x: 0, y: 0, width: 0, height: Self.dockedButtonRowHeight)
 
         let backgroundView = UIView()
@@ -402,16 +421,11 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         )
 
         // A short fixed-height strip pinned to the container's BOTTOM (minus
-        // ``dockedBottomPadding``) that holds the button row. The docked container
-        // can be TALLER than this strip, because the host
-        // (`GhosttySurfaceView.bottomDockFrames`) anchors the bar's TOP to the
-        // rendered terminal's bottom and its BOTTOM to the keyboard top, so a
-        // letterbox/resize that pushes the rendered terminal up grows the container
-        // upward. Bottom-pinning the controls keeps them glued to the keyboard top
-        // (the container's bottom edge) with the slack absorbed ABOVE them; a
-        // top-pin would let the controls ride UP off the keyboard whenever the
-        // terminal was letterboxed. `dockedBottomPadding` lifts the strip off the
-        // very bottom edge so the controls have breathing room.
+        // ``dockedBottomPadding``) that holds the button row. The host pins that
+        // bottom edge through the composer to `keyboardLayoutGuide.topAnchor`, so
+        // bottom-pinning the controls keeps them glued to the system keyboard edge.
+        // `dockedBottomPadding` lifts the strip off the very bottom edge so the
+        // controls have breathing room.
         let buttonRow = UILayoutGuide()
         container.addLayoutGuide(buttonRow)
 

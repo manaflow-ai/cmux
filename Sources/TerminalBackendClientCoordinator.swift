@@ -289,6 +289,7 @@ actor TerminalBackendClientCoordinator:
     private let readinessProvider: ReadinessProvider
     private let sessionFactory: SessionFactory
     private let reconnectPolicy: TerminalBackendReconnectPolicy
+    private let recoveryClock: any Clock<Duration>
     private let compatibilityReporter: CompatibilityReporter
     private let screenTextLimiter = TerminalBackendScreenTextLimiter()
 
@@ -311,6 +312,14 @@ actor TerminalBackendClientCoordinator:
     private struct RendererConfigurationResult: Sendable {
         let attachment: TerminalBackendRendererAttachment?
         let activation: TerminalBackendRendererActivation?
+    }
+
+    private struct RendererEventListener: Sendable {
+        let backendPresentationID: PresentationID
+        let authority: BackendAuthority
+        let subscriptionID: UUID
+        let session: any TerminalBackendSessionServing
+        let task: Task<Void, Never>
     }
 
     /// Exact canonical placement for a non-rendering terminal input owner.
@@ -384,6 +393,15 @@ actor TerminalBackendClientCoordinator:
     private var rendererPresentationOperationWaiters: [
         UUID: [CheckedContinuation<Void, Never>]
     ] = [:]
+    private var rendererPresentationOperationCountWaiters: [
+        UUID: [
+            UUID: (
+                expectedCount: Int,
+                continuation: CheckedContinuation<Void, any Error>
+            )
+        ]
+    ] = [:]
+    private var rendererEventListeners: [UUID: RendererEventListener] = [:]
     private var rendererContinuations: [
         UUID: AsyncStream<TerminalBackendRendererEvent>.Continuation
     ] = [:]
@@ -406,6 +424,9 @@ actor TerminalBackendClientCoordinator:
     private var frontendRecoveryStartCount = 0
     private let rendererWorkerExitMonitor: any TerminalBackendRendererWorkerExitMonitoring
     private var rendererWorkerExitLedger = TerminalBackendRendererWorkerExitLedger()
+    private var rendererWorkerExitCountWaiters: [
+        UUID: (expectedCount: Int, continuation: CheckedContinuation<Void, any Error>)
+    ] = [:]
     private let monotonicNowNanoseconds: @Sendable () -> UInt64
 
     private static let terminalInputOwnerTTLMilliseconds: UInt64 = 30_000
@@ -417,6 +438,7 @@ actor TerminalBackendClientCoordinator:
         runtimePaths: BackendServiceRuntimePaths,
         registrationIdentity: BackendClientRegistrationIdentity,
         reconnectPolicy: TerminalBackendReconnectPolicy = .appStartup,
+        recoveryClock: any Clock<Duration> = ContinuousClock(),
         rendererWorkerExitMonitor: any TerminalBackendRendererWorkerExitMonitoring =
             TerminalBackendRendererWorkerExitMonitor(),
         compatibilityReporter: @escaping CompatibilityReporter = { _ in }
@@ -437,6 +459,7 @@ actor TerminalBackendClientCoordinator:
             )
         }
         self.reconnectPolicy = reconnectPolicy
+        self.recoveryClock = recoveryClock
         self.rendererWorkerExitMonitor = rendererWorkerExitMonitor
         self.compatibilityReporter = compatibilityReporter
         monotonicNowNanoseconds = { DispatchTime.now().uptimeNanoseconds }
@@ -446,6 +469,7 @@ actor TerminalBackendClientCoordinator:
         readinessProvider: @escaping ReadinessProvider,
         sessionFactory: @escaping SessionFactory,
         reconnectPolicy: TerminalBackendReconnectPolicy = .immediate,
+        recoveryClock: any Clock<Duration> = ContinuousClock(),
         rendererWorkerExitMonitor: any TerminalBackendRendererWorkerExitMonitoring =
             TerminalBackendRendererWorkerExitMonitor(),
         monotonicNowNanoseconds: @escaping @Sendable () -> UInt64 = {
@@ -456,6 +480,7 @@ actor TerminalBackendClientCoordinator:
         self.readinessProvider = readinessProvider
         self.sessionFactory = sessionFactory
         self.reconnectPolicy = reconnectPolicy
+        self.recoveryClock = recoveryClock
         self.rendererWorkerExitMonitor = rendererWorkerExitMonitor
         self.monotonicNowNanoseconds = monotonicNowNanoseconds
         self.compatibilityReporter = compatibilityReporter
@@ -1739,6 +1764,20 @@ actor TerminalBackendClientCoordinator:
             outcome.install(response.state)
             outcome.selection = response.selection?.externalSelection
             outcome.selectionWasRead = true
+        case .toggleCopyMode:
+            let state = try await connection.session.terminalState(
+                surfaceID: binding.surfaceID
+            ).state
+            let operation: BackendTerminalCopyModeOperation = state.copyMode
+                ? .exit
+                : .enter
+            let response = try await connection.session.terminalCopyMode(
+                surfaceID: binding.surfaceID,
+                operation: operation,
+                adjustment: nil,
+                count: 1
+            )
+            outcome.install(response)
         case .copyMode(let operation, let adjustment, let count):
             let response = try await connection.session.terminalCopyMode(
                 surfaceID: binding.surfaceID,
@@ -2078,6 +2117,78 @@ actor TerminalBackendClientCoordinator:
         )
     }
 
+    private func installRendererEventListener(
+        presentationID: UUID,
+        workspaceID: WorkspaceID,
+        backendPresentationID: PresentationID,
+        connection: TerminalBackendConnectedSession
+    ) async throws {
+        if let current = rendererEventListeners[presentationID] {
+            if current.backendPresentationID == backendPresentationID,
+               current.authority == connection.readiness.authority {
+                return
+            }
+            await stopRendererEventListener(
+                presentationID: presentationID,
+                backendPresentationID: current.backendPresentationID
+            )
+        }
+
+        let subscription = await connection.session.rendererEventSubscription(
+            workspaceID: workspaceID,
+            presentationID: backendPresentationID,
+            bufferingCapacity: 256
+        )
+        guard connected?.readiness == connection.readiness,
+              !rendererRemovalRequests.contains(presentationID) else {
+            await connection.session.cancelRendererEventSubscription(
+                subscription.identifier
+            )
+            throw TerminalBackendClientError.presentationUnavailable
+        }
+
+        let task = Task { [weak self, events = subscription.events] in
+            for await event in events {
+                guard !Task.isCancelled else { return }
+                await self?.receivedRendererEvent(
+                    event,
+                    presentationID: presentationID,
+                    backendPresentationID: backendPresentationID,
+                    subscriptionID: subscription.identifier,
+                    connection: connection
+                )
+            }
+            guard !Task.isCancelled else { return }
+            await self?.rendererEventStreamEnded(
+                presentationID: presentationID,
+                backendPresentationID: backendPresentationID,
+                subscriptionID: subscription.identifier,
+                connection: connection
+            )
+        }
+        rendererEventListeners[presentationID] = RendererEventListener(
+            backendPresentationID: backendPresentationID,
+            authority: connection.readiness.authority,
+            subscriptionID: subscription.identifier,
+            session: connection.session,
+            task: task
+        )
+    }
+
+    private func stopRendererEventListener(
+        presentationID: UUID,
+        backendPresentationID: PresentationID? = nil
+    ) async {
+        guard let listener = rendererEventListeners[presentationID] else { return }
+        if let backendPresentationID,
+           listener.backendPresentationID != backendPresentationID {
+            return
+        }
+        rendererEventListeners.removeValue(forKey: presentationID)
+        listener.task.cancel()
+        await listener.session.cancelRendererEventSubscription(listener.subscriptionID)
+    }
+
     private func configureRenderer(
         _ descriptor: TerminalBackendPresentationDescriptor,
         binding: TerminalBackendTerminalBinding,
@@ -2114,6 +2225,10 @@ actor TerminalBackendClientCoordinator:
         } else {
             if let existing = rendererPresentations[descriptor.presentationID] {
                 try await awaitRendererWorkerExit(for: existing)
+                await stopRendererEventListener(
+                    presentationID: descriptor.presentationID,
+                    backendPresentationID: existing.backendID
+                )
                 removeRendererPresentationRecordIfCurrent(
                     presentationID: descriptor.presentationID,
                     record: existing
@@ -2138,6 +2253,20 @@ actor TerminalBackendClientCoordinator:
                 removalPending: false
             )
             openedNewPresentation = true
+        }
+
+        do {
+            try await installRendererEventListener(
+                presentationID: descriptor.presentationID,
+                workspaceID: binding.workspaceID,
+                backendPresentationID: record.backendID,
+                connection: connection
+            )
+        } catch {
+            if openedNewPresentation {
+                try? await connection.session.closePresentation(id: record.backendID)
+            }
+            throw error
         }
 
         let columns = descriptor.viewport.proposedColumns.flatMap(UInt16.init(exactly:))
@@ -2177,6 +2306,10 @@ actor TerminalBackendClientCoordinator:
             )
         } catch {
             if openedNewPresentation {
+                await stopRendererEventListener(
+                    presentationID: descriptor.presentationID,
+                    backendPresentationID: record.backendID
+                )
                 try? await connection.session.closePresentation(id: record.backendID)
             }
             throw error
@@ -2191,6 +2324,10 @@ actor TerminalBackendClientCoordinator:
             )
         } catch {
             if openedNewPresentation {
+                await stopRendererEventListener(
+                    presentationID: descriptor.presentationID,
+                    backendPresentationID: record.backendID
+                )
                 try? await connection.session.closePresentation(id: record.backendID)
             }
             throw error
@@ -2231,6 +2368,10 @@ actor TerminalBackendClientCoordinator:
         guard connection.readiness.authority.daemonInstanceID
                 == record.binding.authority.daemonInstanceID else {
             try await awaitRendererWorkerExit(for: record)
+            await stopRendererEventListener(
+                presentationID: presentationID,
+                backendPresentationID: record.backendID
+            )
             removeRendererPresentationRecordIfCurrent(
                 presentationID: presentationID,
                 record: record
@@ -2250,6 +2391,10 @@ actor TerminalBackendClientCoordinator:
         // flight.
         record.removalPending = true
         rendererPresentations[presentationID] = record
+        await stopRendererEventListener(
+            presentationID: presentationID,
+            backendPresentationID: record.backendID
+        )
         if (try? await connection.session.terminalControlProtocol()) == .leasedV9 {
             // Renderer presentations own geometry only. Input stays on the
             // surface's non-rendering stable owner across workspace switches.
@@ -2282,6 +2427,7 @@ actor TerminalBackendClientCoordinator:
         await withCheckedContinuation { continuation in
             rendererPresentationOperationWaiters[presentationID, default: []]
                 .append(continuation)
+            resolveRendererPresentationOperationCountWaiters(presentationID)
         }
     }
 
@@ -2294,6 +2440,7 @@ actor TerminalBackendClientCoordinator:
             } else {
                 rendererPresentationOperationWaiters[presentationID] = waiters
             }
+            resolveRendererPresentationOperationCountWaiters(presentationID)
             next.resume()
             return
         }
@@ -2346,6 +2493,7 @@ actor TerminalBackendClientCoordinator:
                 return nil
             case .unverifiable:
                 rendererWorkerExitLedger.remove(identity)
+                resolveRendererWorkerExitCountWaiters()
                 throw BackendProtocolError.peerIdentityMismatch
             }
         case .existing:
@@ -2353,6 +2501,7 @@ actor TerminalBackendClientCoordinator:
         case .conflict:
             throw BackendProtocolError.peerIdentityMismatch
         }
+        resolveRendererWorkerExitCountWaiters()
         return rendererWorkerIsLive(identity) ? identity : nil
     }
 
@@ -2434,7 +2583,9 @@ actor TerminalBackendClientCoordinator:
     private func rendererWorkerDidExit(
         _ identity: TerminalBackendRendererWorkerProcessIdentity
     ) {
-        _ = rendererWorkerExitLedger.markExited(identity)
+        if rendererWorkerExitLedger.markExited(identity) {
+            resolveRendererWorkerExitCountWaiters()
+        }
     }
 
     private func rendererWorkerIsLive(
@@ -2455,6 +2606,111 @@ actor TerminalBackendClientCoordinator:
 
     var debugRendererWorkerExitWaiterCount: Int {
         rendererWorkerExitLedger.activeFenceCount
+    }
+
+    func debugWaitForRendererWorkerExitWaiterCount(_ expectedCount: Int) async throws {
+        guard rendererWorkerExitLedger.activeFenceCount != expectedCount else { return }
+        let identifier = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Void, any Error>) in
+                if Task.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                } else if rendererWorkerExitLedger.activeFenceCount == expectedCount {
+                    continuation.resume()
+                } else {
+                    rendererWorkerExitCountWaiters[identifier] = (expectedCount, continuation)
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelRendererWorkerExitCountWaiter(identifier) }
+        }
+    }
+
+    func debugRendererPresentationOperationWaiterCount(
+        _ presentationID: UUID
+    ) -> Int {
+        rendererPresentationOperationWaiters[presentationID]?.count ?? 0
+    }
+
+    func debugWaitForRendererPresentationOperationWaiterCount(
+        _ expectedCount: Int,
+        presentationID: UUID
+    ) async throws {
+        guard rendererPresentationOperationWaiters[presentationID]?.count ?? 0
+            != expectedCount else { return }
+        let identifier = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Void, any Error>) in
+                let currentCount = rendererPresentationOperationWaiters[presentationID]?.count ?? 0
+                if Task.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                } else if currentCount == expectedCount {
+                    continuation.resume()
+                } else {
+                    rendererPresentationOperationCountWaiters[presentationID, default: [:]][
+                        identifier
+                    ] = (expectedCount, continuation)
+                }
+            }
+        } onCancel: {
+            Task {
+                await self.cancelRendererPresentationOperationCountWaiter(
+                    identifier,
+                    presentationID: presentationID
+                )
+            }
+        }
+    }
+
+    private func resolveRendererPresentationOperationCountWaiters(
+        _ presentationID: UUID
+    ) {
+        let currentCount = rendererPresentationOperationWaiters[presentationID]?.count ?? 0
+        guard let waiters = rendererPresentationOperationCountWaiters[presentationID] else {
+            return
+        }
+        let satisfied = waiters.compactMap { identifier, waiter in
+            waiter.expectedCount == currentCount ? identifier : nil
+        }
+        for identifier in satisfied {
+            rendererPresentationOperationCountWaiters[presentationID]?
+                .removeValue(forKey: identifier)?.continuation.resume()
+        }
+        if rendererPresentationOperationCountWaiters[presentationID]?.isEmpty == true {
+            rendererPresentationOperationCountWaiters.removeValue(forKey: presentationID)
+        }
+    }
+
+    private func resolveRendererWorkerExitCountWaiters() {
+        let currentCount = rendererWorkerExitLedger.activeFenceCount
+        let satisfied = rendererWorkerExitCountWaiters.filter {
+            $0.value.expectedCount == currentCount
+        }
+        for identifier in satisfied.keys {
+            rendererWorkerExitCountWaiters.removeValue(forKey: identifier)?
+                .continuation.resume()
+        }
+    }
+
+    private func cancelRendererPresentationOperationCountWaiter(
+        _ identifier: UUID,
+        presentationID: UUID
+    ) {
+        rendererPresentationOperationCountWaiters[presentationID]?
+            .removeValue(forKey: identifier)?.continuation.resume(
+                throwing: CancellationError()
+            )
+        if rendererPresentationOperationCountWaiters[presentationID]?.isEmpty == true {
+            rendererPresentationOperationCountWaiters.removeValue(forKey: presentationID)
+        }
+    }
+
+    private func cancelRendererWorkerExitCountWaiter(_ identifier: UUID) {
+        rendererWorkerExitCountWaiters.removeValue(forKey: identifier)?.continuation.resume(
+            throwing: CancellationError()
+        )
     }
 
     func debugRegisterRendererWorker(
@@ -3404,6 +3660,7 @@ actor TerminalBackendClientCoordinator:
         let supervisorID = UUID()
         connectionSupervisorID = supervisorID
         let recoveryCycleDelay = reconnectPolicy.recoveryCycleDelay
+        let recoveryClock = recoveryClock
         connectionSupervisorTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let step = await self?.beginConnectionSupervisorCycle(
@@ -3415,7 +3672,7 @@ actor TerminalBackendClientCoordinator:
                 case .retry:
                     do {
                         if recoveryCycleDelay > .zero {
-                            try await ContinuousClock().sleep(for: recoveryCycleDelay)
+                            try await recoveryClock.sleep(for: recoveryCycleDelay)
                         } else {
                             await Task.yield()
                         }
@@ -3665,11 +3922,13 @@ actor TerminalBackendClientCoordinator:
         let readinessProvider = readinessProvider
         let sessionFactory = sessionFactory
         let reconnectPolicy = reconnectPolicy
+        let recoveryClock = recoveryClock
         let task = Task {
             try await Self.connect(
                 readinessProvider: readinessProvider,
                 sessionFactory: sessionFactory,
-                reconnectPolicy: reconnectPolicy
+                reconnectPolicy: reconnectPolicy,
+                recoveryClock: recoveryClock
             )
         }
         connectionTask = task
@@ -3761,10 +4020,6 @@ actor TerminalBackendClientCoordinator:
                     if let snapshot = await connection.session.currentTerminalActivitySnapshot() {
                         await self.receivedActivitySnapshot(snapshot, from: connection)
                     }
-                case .rendererWorkerChanged(let changed):
-                    await self.receivedWorkerChanged(changed, from: connection)
-                case .rendererPresentationReady(let ready):
-                    await self.receivedPresentationReady(ready, from: connection)
                 case .disconnected:
                     await self.connectionDidEnd(connection, attemptID: attemptID)
                     return
@@ -3835,22 +4090,91 @@ actor TerminalBackendClientCoordinator:
         publishTopology(.delta(delta))
     }
 
+    private func receivedRendererEvent(
+        _ event: BackendRendererLifecycleEvent,
+        presentationID: UUID,
+        backendPresentationID: PresentationID,
+        subscriptionID: UUID,
+        connection: TerminalBackendConnectedSession
+    ) async {
+        guard !Task.isCancelled,
+              let listener = rendererEventListeners[presentationID],
+              listener.backendPresentationID == backendPresentationID,
+              listener.subscriptionID == subscriptionID else { return }
+        await acquireRendererPresentationOperation(presentationID)
+        defer { releaseRendererPresentationOperation(presentationID) }
+        guard !Task.isCancelled,
+              let currentListener = rendererEventListeners[presentationID],
+              currentListener.backendPresentationID == backendPresentationID,
+              currentListener.subscriptionID == subscriptionID,
+              connected?.readiness == connection.readiness,
+              let record = rendererPresentations[presentationID],
+              record.backendID == backendPresentationID,
+              !record.removalPending else { return }
+
+        switch event {
+        case .workerChanged(let changed):
+            await receivedWorkerChanged(
+                changed,
+                presentationID: presentationID,
+                record: record,
+                from: connection
+            )
+        case .presentationReady(let ready):
+            await receivedPresentationReady(
+                ready,
+                presentationID: presentationID,
+                record: record,
+                from: connection
+            )
+        case .configInvalidated(let invalidation):
+            await receivedRendererConfigInvalidation(
+                invalidation,
+                presentationID: presentationID,
+                record: record,
+                from: connection
+            )
+        }
+    }
+
+    private func rendererEventStreamEnded(
+        presentationID: UUID,
+        backendPresentationID: PresentationID,
+        subscriptionID: UUID,
+        connection: TerminalBackendConnectedSession
+    ) async {
+        guard let listener = rendererEventListeners[presentationID],
+              listener.backendPresentationID == backendPresentationID,
+              listener.subscriptionID == subscriptionID else { return }
+        rendererEventListeners.removeValue(forKey: presentationID)
+        await acquireRendererPresentationOperation(presentationID)
+        defer { releaseRendererPresentationOperation(presentationID) }
+        guard var record = rendererPresentations[presentationID],
+              record.backendID == backendPresentationID,
+              !record.removalPending else { return }
+        record.receipt = nil
+        record.ready = nil
+        record.workerIdentity = nil
+        rendererPresentations[presentationID] = record
+        guard connected?.readiness == connection.readiness else { return }
+        publishRenderer(.presentationInvalidated(presentationID: presentationID))
+    }
+
     private func receivedPresentationReady(
         _ ready: BackendRendererPresentationReady,
+        presentationID: UUID,
+        record original: RendererPresentationRecord,
         from connection: TerminalBackendConnectedSession
     ) async {
-        guard connected?.readiness == connection.readiness else { return }
-        guard let entry = rendererPresentations.first(where: { _, record in
-            guard !record.removalPending else { return false }
-            guard let receipt = record.receipt else { return false }
-            return receipt.presentationID == ready.presentationID
-                && receipt.workspaceID == ready.workspaceID
-                && receipt.rendererEpoch == ready.rendererEpoch
-                && receipt.terminalID == ready.terminalID
-                && receipt.terminalEpoch == ready.terminalEpoch
-                && receipt.rendererGeneration == ready.presentationGeneration
-        }) else { return }
-        var record = entry.value
+        guard connected?.readiness == connection.readiness,
+              let receipt = original.receipt,
+              receipt.presentationID == ready.presentationID,
+              receipt.workspaceID == ready.workspaceID,
+              receipt.rendererEpoch == ready.rendererEpoch,
+              receipt.terminalID == ready.terminalID,
+              receipt.terminalEpoch == ready.terminalEpoch,
+              receipt.rendererGeneration == ready.presentationGeneration else { return }
+        var record = original
         do {
             record.workerIdentity = try registerRendererWorker(
                 daemonInstanceID: record.binding.authority.daemonInstanceID.rawValue,
@@ -3863,11 +4187,11 @@ actor TerminalBackendClientCoordinator:
             return
         }
         record.ready = ready
-        rendererPresentations[entry.key] = record
+        rendererPresentations[presentationID] = record
         guard let attachment = try? rendererAttachment(record) else { return }
         publishRenderer(
             .presentationReady(
-                presentationID: entry.key,
+                presentationID: presentationID,
                 attachment: attachment
             )
         )
@@ -3884,9 +4208,12 @@ actor TerminalBackendClientCoordinator:
 
     private func receivedWorkerChanged(
         _ changed: BackendRendererWorkerChanged,
+        presentationID: UUID,
+        record original: RendererPresentationRecord,
         from connection: TerminalBackendConnectedSession
     ) async {
-        guard connected?.readiness == connection.readiness else { return }
+        guard connected?.readiness == connection.readiness,
+              original.binding.workspaceID == changed.workspaceID else { return }
         do {
             _ = try registerRendererWorker(
                 daemonInstanceID: connection.readiness.authority.daemonInstanceID.rawValue,
@@ -3898,19 +4225,46 @@ actor TerminalBackendClientCoordinator:
             await invalidate(connection)
             return
         }
-        for (identifier, var record) in rendererPresentations
-            where record.binding.workspaceID == changed.workspaceID {
-            guard let receipt = record.receipt else { continue }
+        var record = original
+        if let receipt = record.receipt {
             let priorWorkerDied = changed.priorRendererEpoch == receipt.rendererEpoch
                 && (changed.rendererEpoch != receipt.rendererEpoch
                     || changed.state != .ready)
             if priorWorkerDied {
                 record.receipt = nil
                 record.ready = nil
-                rendererPresentations[identifier] = record
+                record.workerIdentity = nil
+                rendererPresentations[presentationID] = record
             }
         }
-        publishRenderer(.workerChanged(changed))
+        publishRenderer(.workerChanged(
+            presentationID: presentationID,
+            change: changed
+        ))
+    }
+
+    private func receivedRendererConfigInvalidation(
+        _ invalidation: BackendRendererConfigInvalidated,
+        presentationID: UUID,
+        record original: RendererPresentationRecord,
+        from connection: TerminalBackendConnectedSession
+    ) async {
+        guard connected?.readiness == connection.readiness,
+              let receipt = original.receipt else { return }
+        if receipt.resolvedConfigRevision > invalidation.revision { return }
+        if receipt.resolvedConfigRevision == invalidation.revision {
+            guard receipt.resolvedConfigDigest == invalidation.digest else {
+                await invalidate(connection)
+                return
+            }
+            return
+        }
+        var record = original
+        record.receipt = nil
+        record.ready = nil
+        record.workerIdentity = nil
+        rendererPresentations[presentationID] = record
+        publishRenderer(.presentationInvalidated(presentationID: presentationID))
     }
 
     private func connectionDidEnd(
@@ -4007,7 +4361,8 @@ actor TerminalBackendClientCoordinator:
     private static func connect(
         readinessProvider: ReadinessProvider,
         sessionFactory: SessionFactory,
-        reconnectPolicy: TerminalBackendReconnectPolicy
+        reconnectPolicy: TerminalBackendReconnectPolicy,
+        recoveryClock: any Clock<Duration>
     ) async throws -> TerminalBackendConnectedSession {
         var nextDelayIndex = 0
         while true {
@@ -4045,7 +4400,7 @@ actor TerminalBackendClientCoordinator:
                 nextDelayIndex += 1
                 if delay > .zero {
                     // This is the retry policy's bounded, cancellable backoff.
-                    try await ContinuousClock().sleep(for: delay)
+                    try await recoveryClock.sleep(for: delay)
                 }
             }
         }

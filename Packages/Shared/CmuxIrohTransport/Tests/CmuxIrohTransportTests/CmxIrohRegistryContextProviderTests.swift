@@ -11,6 +11,127 @@ func opaqueProfileID(_ label: String) -> String {
 @Suite
 struct CmxIrohRegistryContextProviderTests {
     @Test
+    func authenticatedDirectPortsReplaceLegacyTailscaleTCPPorts() async throws {
+        let fixture = try RegistryFixture()
+        let profile = CmxIrohNetworkProfileKey.activeTailscaleTunnel
+        let expiresAt = fixture.now.addingTimeInterval(60)
+        let ipv4 = try CmxIrohPathHint(
+            kind: .directAddress,
+            value: "100.82.214.112:53646",
+            source: .tailscale,
+            privacyScope: .privateNetwork,
+            observedAt: fixture.now,
+            expiresAt: expiresAt,
+            networkProfile: profile
+        )
+        let ipv6 = try CmxIrohPathHint(
+            kind: .directAddress,
+            value: "[fd7a:115c:a1e0::4b36:d670]:53646",
+            source: .tailscale,
+            privacyScope: .privateNetwork,
+            observedAt: fixture.now,
+            expiresAt: expiresAt,
+            networkProfile: profile
+        )
+        let broker = TestIrohRegistryBroker(
+            discovery: try fixture.discovery(
+                targetHints: [],
+                targetDirectPorts: ["ipv4": 50_909, "ipv6": 54_750]
+            ),
+            pairGrantResponses: [try fixture.pairGrantResponse(
+                issuedAt: fixture.nowSeconds,
+                expiresAt: fixture.nowSeconds + 7 * 24 * 60 * 60
+            )]
+        )
+        let provider = CmxIrohRegistryContextProvider(
+            supervisor: try await fixture.activeSupervisor(),
+            broker: broker,
+            localBindingExpectation: try fixture.localExpectation(),
+            managedRelayURLs: [fixture.relayURL],
+            networkPathSnapshot: {
+                CmxIrohNetworkPathSnapshot(
+                    generation: 1,
+                    activeNetworkProfiles: [profile]
+                )
+            },
+            now: { fixture.now }
+        )
+
+        let context = try await provider.context(
+            for: fixture.request(hints: [ipv4, ipv6])
+        )
+
+        #expect(context.dialPlan.privateFallbackPaths.map(\.value) == [
+            "100.82.214.112:50909",
+            "[fd7a:115c:a1e0::4b36:d670]:54750",
+        ])
+    }
+
+    @Test
+    func missingStaleOrWrongFamilyPortsCannotAuthorizePrivatePortGuessing() async throws {
+        let fixture = try RegistryFixture()
+        let profile = CmxIrohNetworkProfileKey.activeTailscaleTunnel
+        let managedRelay = try CmxIrohPathHint(
+            kind: .relayURL,
+            value: fixture.relayURL,
+            source: .native,
+            privacyScope: .publicInternet
+        )
+        let tailscale = try CmxIrohPathHint(
+            kind: .directAddress,
+            value: "100.82.214.112:53646",
+            source: .tailscale,
+            privacyScope: .privateNetwork,
+            observedAt: fixture.now,
+            expiresAt: fixture.now.addingTimeInterval(60),
+            networkProfile: profile
+        )
+        let stale = fixture.now.addingTimeInterval(
+            -(CmxIrohPathHint.maximumPrivateHintTTL + 1)
+        )
+        let cases: [(String, [String: Int]?, Date?)] = [
+            ("missing", nil, nil),
+            ("wrong family", ["ipv6": 54_750], nil),
+            ("stale", ["ipv4": 50_909], stale),
+        ]
+
+        for (name, directPorts, lastSeenAt) in cases {
+            let broker = TestIrohRegistryBroker(
+                discovery: try fixture.discovery(
+                    targetHints: [],
+                    targetDirectPorts: directPorts,
+                    targetLastSeenAt: lastSeenAt
+                ),
+                pairGrantResponses: [try fixture.pairGrantResponse(
+                    issuedAt: fixture.nowSeconds,
+                    expiresAt: fixture.nowSeconds + 7 * 24 * 60 * 60
+                )]
+            )
+            let provider = CmxIrohRegistryContextProvider(
+                supervisor: try await fixture.activeSupervisor(),
+                broker: broker,
+                localBindingExpectation: try fixture.localExpectation(),
+                managedRelayURLs: [fixture.relayURL],
+                networkPathSnapshot: {
+                    CmxIrohNetworkPathSnapshot(
+                        generation: 1,
+                        activeNetworkProfiles: [profile]
+                    )
+                },
+                now: { fixture.now }
+            )
+
+            let context = try await provider.context(
+                for: fixture.request(hints: [managedRelay, tailscale])
+            )
+
+            #expect(context.dialPlan.publicPaths == [managedRelay], Comment(rawValue: name))
+            #expect(context.dialPlan.privateFallbackPaths.isEmpty, Comment(rawValue: name))
+            #expect(context.privateFallbackAuthorization == nil, Comment(rawValue: name))
+        }
+    }
+
+    @Test
     func bonjourFallbackAcceptsLegacyUppercaseDeviceUUID() async throws {
         let fixture = try RegistryFixture()
         let relay = try CmxIrohPathHint(
@@ -112,6 +233,7 @@ actor TestIrohRegistryBroker: CmxIrohRegistryServing {
 
     private var discoveryResponse: CmxIrohDiscoveryResponse
     private var responses: [CmxIrohPairGrantResponse]
+    private var discoveryRequests = 0
     private var pairGrantRequests: [PairGrantRequest] = []
     private let discoveryError: (any Error)?
     private let pairGrantError: (any Error)?
@@ -129,6 +251,7 @@ actor TestIrohRegistryBroker: CmxIrohRegistryServing {
     }
 
     func discover() throws -> CmxIrohDiscoveryResponse {
+        discoveryRequests += 1
         if let discoveryError { throw discoveryError }
         return discoveryResponse
     }
@@ -152,6 +275,10 @@ actor TestIrohRegistryBroker: CmxIrohRegistryServing {
 
     func observedPairGrantRequests() -> [PairGrantRequest] {
         pairGrantRequests
+    }
+
+    func discoveryRequestCount() -> Int {
+        discoveryRequests
     }
 
     func pairGrantRequestCount() -> Int {
@@ -235,19 +362,27 @@ enum TestNetworkPathStateError: Error {
 
 struct RegistryFixture: Sendable {
     let privateKey: Curve25519.Signing.PrivateKey
+    let acceptorSecretKey: Data
     let key: CmxIrohGrantVerificationKey
     let initiator: CmxIrohGrantPeer
     let acceptor: CmxIrohGrantPeer
-    let now = Date(timeIntervalSince1970: 1_800_000_000)
-    let nowSeconds: Int64 = 1_800_000_000
+    let now: Date
+    let nowSeconds: Int64
     let relayURL = "https://use1-1.relay.lawrence.cmux.iroh.link/"
 
-    init() throws {
+    init(
+        now: Date = Date(timeIntervalSince1970: 1_800_000_000),
+        initiatorSecretKey: Data = Data((0 ..< 32).map(UInt8.init)),
+        acceptorSecretKey: Data = Data(repeating: 9, count: 32)
+    ) throws {
+        self.now = now
+        self.acceptorSecretKey = acceptorSecretKey
+        nowSeconds = Int64(now.timeIntervalSince1970.rounded(.down))
         privateKey = try Curve25519.Signing.PrivateKey(
-            rawRepresentation: Data((0 ..< 32).map(UInt8.init))
+            rawRepresentation: initiatorSecretKey
         )
         let targetKey = try Curve25519.Signing.PrivateKey(
-            rawRepresentation: Data(repeating: 9, count: 32)
+            rawRepresentation: acceptorSecretKey
         )
         initiator = CmxIrohGrantPeer(
             bindingID: "123e4567-e89b-42d3-a456-426614174001",
@@ -343,8 +478,11 @@ struct RegistryFixture: Sendable {
 
     func discovery(
         targetHints: [CmxIrohPathHint],
+        targetDirectPorts: [String: Int]? = nil,
+        targetLastSeenAt: Date? = nil,
         relayFleet: [String]? = nil,
         localAppInstanceID: String = "123e4567-e89b-42d3-a456-426614174005",
+        targetBindingID: String? = nil,
         targetDeviceID: String? = nil,
         includeTarget: Bool = true
     ) throws -> CmxIrohDiscoveryResponse {
@@ -357,9 +495,9 @@ struct RegistryFixture: Sendable {
             ),
         ]
         if includeTarget {
-            bindings.append(try bindingObject(
+            var target = try bindingObject(
                 peer: CmxIrohGrantPeer(
-                    bindingID: acceptor.bindingID,
+                    bindingID: targetBindingID ?? acceptor.bindingID,
                     deviceID: targetDeviceID ?? acceptor.deviceID,
                     tag: acceptor.tag,
                     platform: acceptor.platform,
@@ -369,7 +507,16 @@ struct RegistryFixture: Sendable {
                 appInstanceID: "123e4567-e89b-42d3-a456-426614174006",
                 pairingEnabled: true,
                 hints: targetHints
-            ))
+            )
+            if let targetDirectPorts {
+                target["direct_ports"] = targetDirectPorts
+            }
+            if let targetLastSeenAt {
+                target["last_seen_at"] = ISO8601DateFormatter().string(
+                    from: targetLastSeenAt
+                )
+            }
+            bindings.append(target)
         }
         let object: [String: Any] = [
             "route_contract_version": 1,

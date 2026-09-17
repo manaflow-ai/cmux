@@ -3,6 +3,112 @@ import CmuxBrowser
 import WebKit
 
 extension BrowserPanel {
+    func setupSameDocumentNavigationMessageHandler(for webView: WKWebView) {
+        let observedWebViewInstanceID = webViewInstanceID
+        let handler = BrowserSameDocumentNavigationMessageHandler(
+            webView: webView,
+            onNavigation: { [weak self, weak webView] url in
+                guard let self, let webView,
+                      self.webView === webView,
+                      self.webViewInstanceID == observedWebViewInstanceID else {
+                    return
+                }
+                let displayURL = Self.remoteProxyDisplayURL(for: url) ?? url
+                self.automationNavigationCoordinator.didFinishSameDocumentNavigation(
+                    instanceID: observedWebViewInstanceID,
+                    url: displayURL
+                )
+            }
+        )
+        sameDocumentNavigationMessageHandler = handler
+        let userContentController = webView.configuration.userContentController
+        userContentController.removeScriptMessageHandler(
+            forName: BrowserSameDocumentNavigationMessageHandler.name,
+            contentWorld: BrowserSameDocumentNavigationMessageHandler.contentWorld
+        )
+        userContentController.add(
+            handler,
+            contentWorld: BrowserSameDocumentNavigationMessageHandler.contentWorld,
+            name: BrowserSameDocumentNavigationMessageHandler.name
+        )
+    }
+
+    func beginAutomationNavigation(
+        to targetURL: URL,
+        recordTypedNavigation: Bool
+    ) -> BrowserAutomationNavigationTicket {
+        let ticket = automationNavigationCoordinator.begin(
+            instanceID: webViewInstanceID,
+            targetURL: targetURL,
+            allowsSameDocumentCompletion: navigationDelegate?.activeErrorPageDisplayURL == nil
+        )
+        navigate(
+            to: targetURL,
+            recordTypedNavigation: recordTypedNavigation,
+            onNavigationStarted: { [weak self] navigation in
+                self?.automationNavigationCoordinator.didStart(
+                    ticket,
+                    navigationID: navigation.map { ObjectIdentifier($0) }
+                )
+            }
+        )
+        return ticket
+    }
+
+    func beginAutomationReloadFromCLI() -> (
+        ticket: BrowserAutomationNavigationTicket,
+        targetURL: URL
+    )? {
+        guard let targetURL = automationReloadTargetURL() else { return nil }
+        let ticket = automationNavigationCoordinator.begin(
+            instanceID: webViewInstanceID,
+            targetURL: targetURL
+        )
+        let navigationStarted: (WKNavigation?) -> Void = { [weak self] navigation in
+            self?.automationNavigationCoordinator.didStart(
+                ticket,
+                navigationID: navigation.map { ObjectIdentifier($0) }
+            )
+        }
+
+        switch navigationDelegate?.activeErrorPageRetryForAutomation() {
+        case .request(let request):
+            navigateWithoutInsecureHTTPPrompt(
+                request: request,
+                recordTypedNavigation: false,
+                onNavigationStarted: navigationStarted
+            )
+        case .urlOnly:
+            navigate(
+                to: targetURL,
+                recordTypedNavigation: false,
+                onNavigationStarted: navigationStarted
+            )
+        case .disabled:
+            navigationStarted(nil)
+        case nil:
+            if let navigation = reload() {
+                navigationStarted(navigation)
+            } else {
+                automationNavigationCoordinator.didReturnNoNavigation(
+                    ticket,
+                    hasCurrentHistoryItem: webView.backForwardList.currentItem != nil,
+                    isShowingNewTabPage: isShowingNewTabPage,
+                    waitsForDeferredNavigation: webView.isLoading ||
+                        isMainFrameProvisionalNavigationActive ||
+                        hasPendingRemoteNavigation
+                )
+            }
+        }
+        return (ticket, targetURL)
+    }
+
+    func finishAutomationNavigation(
+        _ ticket: BrowserAutomationNavigationTicket
+    ) async -> BrowserAutomationNavigationOutcome {
+        await automationNavigationCoordinator.wait(for: ticket)
+    }
+
     func registerBrowserAutomationInitScript(_ userScript: WKUserScript) -> Int {
         browserAutomationUserScripts.append(userScript)
         browserAutomationInitScriptCount += 1

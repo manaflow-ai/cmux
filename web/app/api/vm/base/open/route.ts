@@ -4,7 +4,6 @@ import {
 import { VmTimingRecorder } from "../../../../../services/vms/timings";
 import { runBaseRoute } from "../routeShared";
 
-export const dynamic = "force-dynamic";
 
 export async function POST(request: Request): Promise<Response> {
   return withAuthedVmApiRoute(

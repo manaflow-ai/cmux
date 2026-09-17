@@ -26,14 +26,15 @@ extension RemoteTmuxControlConnection {
 
     /// Registers a consumer's callbacks and returns a token to deregister them.
     ///
-    /// Multiple consumers (e.g. a mirrored workspace and a single-pane display
-    /// tab) can observe the same shared connection concurrently; every callback
+    /// Multiple mirrored workspaces can observe the same shared connection
+    /// concurrently; every callback
     /// fires for every event. Pass the returned token to ``removeObserver(_:)``
     /// when the consumer goes away.
     ///
     /// - Parameters:
     ///   - onPaneOutput: receives every `%output` (raw, octal-unescaped bytes).
-    ///   - onPaneSeed: receives one complete capture plus terminal-state seed.
+    ///   - onPaneSeed: receives an authoritative snapshot and its ordered live cutover.
+    ///   - onPaneSeedFailure: receives a failed authoritative seed attempt.
     ///   - onPaneCwd: receives a pane's working directory (`pane_current_path`),
     ///     both the initial value and live changes (see ``requestPanePath(paneId:)``
     ///     and ``subscribePanePath(paneId:)``).

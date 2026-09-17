@@ -262,8 +262,10 @@ import Testing
         // The current grammar version is not "newer", so it decodes normally
         // rather than tripping the unrecognized-version path.
         let decoded = try CmxAttachTicketInput.decode(
-            "cmux-ios://attach?v=\(CmxPairingQRCode.version)&r=100.64.0.5:58465"
+            "cmux-ios://attach?v=\(CmxPairingQRCode.version)&i="
+                + String(repeating: "c", count: 64)
         )
         #expect(decoded.routes.count == 1)
+        #expect(decoded.routes.first?.kind == .iroh)
     }
 }

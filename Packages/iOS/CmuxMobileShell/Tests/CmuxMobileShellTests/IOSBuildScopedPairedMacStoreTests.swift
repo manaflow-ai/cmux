@@ -420,4 +420,58 @@ import Testing
         #expect(MobileIOSBuildScope("Feature Tag")?.serializedScope == "ios:v2:RmVhdHVyZSBUYWc")
     }
 
+    /// Exact-scope removal must delete ONLY the requested team's row, never the
+    /// team-less fallback in the same build scope, all the way down the dev-build
+    /// store rail (`MobileMacCompatiblePairedMacStore` over
+    /// `IOSBuildScopedPairedMacStore`).
+    ///
+    /// `remove` intentionally clears BOTH the team row and its team-less fallback
+    /// (a Hide should drop every visible alias of a device). Forget targets one
+    /// exact owner, so it must not use that broad `remove`. Before the fix,
+    /// neither decorator overrode `removeExactScope`, so the protocol default
+    /// forwarded it to `remove`: the compat layer's default called its own
+    /// `remove`, which called the build-scope decorator's `remove`, which deletes
+    /// the team-less fallback alongside the team row. That erased a still-valid
+    /// team-less pairing when a co-located team pairing was forgotten.
+    @Test func exactScopeRemovalThroughCompatLayerKeepsTeamlessBuildScopeFallback() async throws {
+        let (inner, directory) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let scope = try #require(MobileIOSBuildScope("feature"))
+        let scoped = IOSBuildScopedPairedMacStore(inner: inner, scope: scope)
+        let stack = MobileMacBuildCompatibilityPolicy
+            .development(expectedInstanceTag: "feature")
+            .scoping(scoped)
+
+        // A team-scoped row for the device, written through the full rail.
+        try await stack.upsert(
+            macDeviceID: "mac-a", displayName: "Team", routes: [try route("10.0.0.1")],
+            instanceTag: "feature", markActive: false, stackUserID: "user-1",
+            teamID: "team-a", now: Date(timeIntervalSince1970: 2)
+        )
+        // A team-less fallback in the SAME build scope for the same device + tag,
+        // seeded raw so the team upsert's claim path doesn't fold it in.
+        try await inner.upsert(
+            macDeviceID: "mac-a", displayName: "Fallback", routes: [try route("10.0.0.2")],
+            instanceTag: "feature", markActive: false, stackUserID: "user-1",
+            teamID: "\u{1F}\(scope.serializedScope)", now: Date(timeIntervalSince1970: 1)
+        )
+
+        let scopedTeam = "team-a\u{1F}\(scope.serializedScope)"
+        let scopedTeamless = "\u{1F}\(scope.serializedScope)"
+        let before = try await inner.loadAll(stackUserID: "user-1", teamID: nil)
+        #expect(before.contains { $0.macDeviceID == "mac-a" && $0.teamID == scopedTeam })
+        #expect(before.contains { $0.macDeviceID == "mac-a" && $0.teamID == scopedTeamless })
+
+        try await stack.removeExactScope(
+            macDeviceID: "mac-a", instanceTag: "feature",
+            stackUserID: "user-1", teamID: "team-a"
+        )
+
+        let after = try await inner.loadAll(stackUserID: "user-1", teamID: nil)
+        // The exact team row is gone.
+        #expect(!after.contains { $0.macDeviceID == "mac-a" && $0.teamID == scopedTeam })
+        // The co-located team-less fallback survives an exact-scope team removal.
+        #expect(after.contains { $0.macDeviceID == "mac-a" && $0.teamID == scopedTeamless })
+    }
+
 }

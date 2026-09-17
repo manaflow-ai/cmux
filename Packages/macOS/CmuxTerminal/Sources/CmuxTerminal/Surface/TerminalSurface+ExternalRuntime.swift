@@ -1,7 +1,7 @@
-extension TerminalSurface {
+public extension TerminalSurface {
     /// The runtime's coherent cached state, or nil for embedded Ghostty.
     @MainActor
-    public var externalRuntimeSnapshot: TerminalExternalRuntimeSnapshot? {
+    var externalRuntimeSnapshot: TerminalExternalRuntimeSnapshot? {
         externalRuntime?.snapshot
     }
 
@@ -10,9 +10,9 @@ extension TerminalSurface {
     /// App-termination code must use this instead of ``teardownSurface()``.
     /// The lease is idempotent, so a later deinit remains safe.
     @MainActor
-    public func detachExternalPresentationPreservingCanonicalTerminal() {
+    func detachExternalPresentationPreservingCanonicalTerminal() {
         guard externalRuntime != nil else { return }
-        externalCanonicalCloseSuppressedForAppTermination = true
+        externalPresentationRetirementAuthorized = true
         externalPresentationLease?.detach()
         externalPresentationLease = nil
     }
@@ -23,20 +23,24 @@ extension TerminalSurface {
     /// when ``isExternallyManaged`` is true.
     @discardableResult
     @MainActor
-    public func sendExternalKeyEvent(
+    func sendExternalKeyEvent(
         _ event: TerminalExternalKeyEvent
     ) -> TerminalExternalIngressResult {
         guard let externalRuntime else { return .rejected(.unsupported) }
         guard event.key != 0 else { return .rejected(.unsupported) }
         didReceiveExplicitInput()
         hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
-        return externalRuntime.enqueue(.input(.key(event)))
+        let result = externalRuntime.enqueue(.input(.key(event)))
+        if result.accepted, event.action != .release {
+            didAcceptExplicitInput()
+        }
+        return result
     }
 
     /// Updates visual IME marked text without committing bytes to the PTY.
     @discardableResult
     @MainActor
-    public func setExternalPreedit(_ text: String?) -> TerminalExternalIngressResult {
+    func setExternalPreedit(_ text: String?) -> TerminalExternalIngressResult {
         guard let externalRuntime else { return .rejected(.unsupported) }
         return externalRuntime.enqueue(.preedit(
             text.flatMap { $0.isEmpty ? nil : .collapsedAtEnd($0) }
@@ -46,7 +50,7 @@ extension TerminalSurface {
     /// Updates rich AppKit IME state without committing bytes to the PTY.
     @discardableResult
     @MainActor
-    public func setExternalPreeditState(
+    func setExternalPreeditState(
         _ preedit: TerminalExternalPreedit?
     ) -> TerminalExternalIngressResult {
         guard let externalRuntime else { return .rejected(.unsupported) }
@@ -58,7 +62,7 @@ extension TerminalSurface {
     /// Routes a pointer event through the backend's canonical mouse encoder.
     @discardableResult
     @MainActor
-    public func sendExternalMouseEvent(
+    func sendExternalMouseEvent(
         _ event: TerminalExternalMouseEvent
     ) -> TerminalExternalIngressResult {
         guard let externalRuntime else { return .rejected(.unsupported) }
@@ -67,26 +71,32 @@ extension TerminalSurface {
 
     /// Refreshes the canonical selection asynchronously for clipboard reads.
     @MainActor
-    public func readExternalSelection() async -> TerminalExternalSelection? {
+    func readExternalSelection() async -> TerminalExternalSelection? {
         guard let externalRuntime else { return nil }
         return await externalRuntime.readSelection()
     }
 
     /// Starts bounded, demand-driven semantic reads for AppKit accessibility.
     @MainActor
-    public func enableExternalAccessibility() {
+    func enableExternalAccessibility() {
         externalRuntime?.enableAccessibility()
+    }
+
+    /// Releases one explicit accessibility observer.
+    @MainActor
+    func disableExternalAccessibility() {
+        externalRuntime?.disableAccessibility()
     }
 
     /// Streams revision changes for the daemon-owned accessibility projection.
     @MainActor
-    public func externalAccessibilitySnapshots() -> AsyncStream<TerminalAccessibilitySnapshot> {
+    func externalAccessibilitySnapshots() -> AsyncStream<TerminalAccessibilitySnapshot> {
         externalRuntime?.accessibilitySnapshots() ?? AsyncStream { $0.finish() }
     }
 
     /// Revalidates a projected OSC 8 link at the daemon revision fence.
     @MainActor
-    public func activateExternalAccessibilityLink(
+    func activateExternalAccessibilityLink(
         _ link: TerminalAccessibilityLink,
         snapshot: TerminalAccessibilitySnapshot
     ) async -> String? {
@@ -96,25 +106,27 @@ extension TerminalSurface {
 
     /// Resolves a command-click through the daemon's canonical OSC 8 state.
     @MainActor
-    public func activateExternalHyperlink(
+    func activateExternalHyperlink(
         at event: TerminalExternalMouseEvent
     ) async -> TerminalExternalHyperlinkHit? {
         guard let externalRuntime else { return nil }
         return await externalRuntime.activateHyperlink(at: event)
     }
 
+    /// Applies a selection mutation to the external runtime.
     @discardableResult
     @MainActor
-    public func mutateExternalSelection(
+    func mutateExternalSelection(
         _ operation: TerminalExternalSelectionOperation
     ) -> TerminalExternalIngressResult {
         guard let externalRuntime else { return .rejected(.unsupported) }
         return externalRuntime.enqueue(.selection(operation))
     }
 
+    /// Applies a copy-mode mutation to the external runtime.
     @discardableResult
     @MainActor
-    public func mutateExternalCopyMode(
+    func mutateExternalCopyMode(
         operation: TerminalExternalCopyModeOperation,
         adjustment: TerminalExternalCopyModeAdjustment? = nil,
         count: UInt32 = 1
@@ -125,9 +137,10 @@ extension TerminalSurface {
         )
     }
 
+    /// Scrolls the external runtime through its canonical mutation path.
     @discardableResult
     @MainActor
-    public func scrollExternalTerminal(
+    func scrollExternalTerminal(
         operation: TerminalExternalScrollOperation,
         amount: Int64? = nil
     ) -> TerminalExternalIngressResult {
@@ -136,13 +149,17 @@ extension TerminalSurface {
     }
 
     @MainActor
-    func enqueueExternalInput(_ input: TerminalExternalInput) -> TerminalExternalIngressResult? {
+    internal func enqueueExternalInput(_ input: TerminalExternalInput) -> TerminalExternalIngressResult? {
         guard let externalRuntime else { return nil }
         hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
-        return externalRuntime.enqueue(.input(input))
+        let result = externalRuntime.enqueue(.input(input))
+        if result.accepted {
+            didAcceptExplicitInput()
+        }
+        return result
     }
 
-    func inputSendResult(from result: TerminalExternalIngressResult) -> InputSendResult {
+    internal func inputSendResult(from result: TerminalExternalIngressResult) -> InputSendResult {
         switch result {
         case .accepted:
             return .queued
@@ -155,7 +172,7 @@ extension TerminalSurface {
         }
     }
 
-    func namedKeySendResult(from result: TerminalExternalIngressResult) -> NamedKeySendResult {
+    internal func namedKeySendResult(from result: TerminalExternalIngressResult) -> NamedKeySendResult {
         switch result {
         case .accepted:
             return .queued
@@ -169,7 +186,7 @@ extension TerminalSurface {
     }
 
     @MainActor
-    func externalViewport(
+    internal func externalViewport(
         width: Double,
         height: Double,
         xScale: Double,

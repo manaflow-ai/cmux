@@ -103,6 +103,23 @@
         }
       }
     },
+    "chat.artifact.copy_image": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy image"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像をコピー"
+          }
+        }
+      }
+    },
     "chat.artifact.copy_path": {
       "extractionState": "manual",
       "localizations": {

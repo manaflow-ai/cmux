@@ -1,0 +1,345 @@
+import CmuxTerminalBackend
+@testable import CmuxTerminalBackendHost
+import Foundation
+import Testing
+
+@Suite("Backend-only renderer worker transitions")
+struct BackendOnlyRendererWorkerTransitionTests {
+    private enum RefreshStep: Equatable {
+        case retiredIngress
+        case configured
+    }
+
+    @Test("same-epoch ready is normal readiness, not a restart")
+    func sameEpochReadyDoesNotRestart() {
+        #expect(backendOnlyRendererWorkerTransitionAction(
+            currentRendererEpoch: 7,
+            priorRendererEpoch: 7,
+            rendererEpoch: 7,
+            state: .ready
+        ) == .ignore)
+    }
+
+    @Test("replacement and unavailable workers restart the presentation")
+    func replacementAndUnavailableWorkersRestart() {
+        #expect(backendOnlyRendererWorkerTransitionAction(
+            currentRendererEpoch: 7,
+            priorRendererEpoch: 7,
+            rendererEpoch: 8,
+            state: .starting
+        ) == .restart)
+        #expect(backendOnlyRendererWorkerTransitionAction(
+            currentRendererEpoch: 7,
+            priorRendererEpoch: 7,
+            rendererEpoch: 7,
+            state: .backoff
+        ) == .restart)
+        #expect(backendOnlyRendererWorkerTransitionAction(
+            currentRendererEpoch: 7,
+            priorRendererEpoch: 6,
+            rendererEpoch: 7,
+            state: .ready
+        ) == .ignore)
+    }
+
+    @Test("authenticated replacement requires a fresh write-once receiver")
+    func replacementWorkerRequiresReceiverRotation() throws {
+        let daemonInstanceID = try #require(UUID(
+            uuidString: "10000000-0000-0000-0000-000000000001"
+        ))
+        let currentToken = BackendRendererProcessInstanceToken(
+            startTimeSeconds: 10,
+            startTimeMicroseconds: 20
+        )
+        let current = BackendOnlyRendererWorkerIdentity(
+            daemonInstanceID: daemonInstanceID,
+            rendererEpoch: 7,
+            processID: 41,
+            effectiveUserID: 501,
+            processInstanceToken: currentToken
+        )
+
+        #expect(!backendOnlyRendererWorkerRequiresReceiverRotation(
+            currentWorker: current,
+            daemonInstanceID: daemonInstanceID,
+            rendererEpoch: 7,
+            state: .ready,
+            processID: 41,
+            effectiveUserID: 501,
+            processInstanceToken: currentToken
+        ))
+        #expect(backendOnlyRendererWorkerRequiresReceiverRotation(
+            currentWorker: current,
+            daemonInstanceID: daemonInstanceID,
+            rendererEpoch: 8,
+            state: .ready,
+            processID: 42,
+            effectiveUserID: 501,
+            processInstanceToken: BackendRendererProcessInstanceToken(
+                startTimeSeconds: 11,
+                startTimeMicroseconds: 21
+            )
+        ))
+        #expect(backendOnlyRendererWorkerRequiresReceiverRotation(
+            currentWorker: current,
+            daemonInstanceID: daemonInstanceID,
+            rendererEpoch: 7,
+            state: .ready,
+            processID: 42,
+            effectiveUserID: 501,
+            processInstanceToken: currentToken
+        ))
+        #expect(backendOnlyRendererWorkerRequiresReceiverRotation(
+            currentWorker: current,
+            daemonInstanceID: daemonInstanceID,
+            rendererEpoch: 7,
+            state: .backoff,
+            processID: nil,
+            effectiveUserID: nil,
+            processInstanceToken: nil
+        ))
+        #expect(!backendOnlyRendererWorkerRequiresReceiverRotation(
+            currentWorker: nil,
+            daemonInstanceID: daemonInstanceID,
+            rendererEpoch: 8,
+            state: .starting,
+            processID: nil,
+            effectiveUserID: nil,
+            processInstanceToken: nil
+        ))
+    }
+
+    @MainActor
+    @Test("config refresh retires old ingress before awaiting reconfiguration")
+    func configRefreshRetiresIngressFirst() async throws {
+        let digest = try BackendRendererConfigDigest(
+            validating: String(repeating: "a", count: 64)
+        )
+        let invalidation = try BackendRendererConfigInvalidated(
+            revision: 2,
+            digest: digest,
+            reason: "default-colors-changed",
+            defaultColors: [:]
+        )
+        var steps: [RefreshStep] = []
+
+        let outcome = try await performBackendOnlyRendererConfigRefresh(
+            current: nil,
+            invalidation: invalidation,
+            retireIngress: {
+                steps.append(.retiredIngress)
+            },
+            configure: {
+                steps.append(.configured)
+                return BackendOnlyRendererConfigIdentity(revision: 2, digest: digest)
+            }
+        )
+
+        #expect(steps == [.retiredIngress, .configured])
+        #expect(outcome == .refreshed(
+            BackendOnlyRendererConfigIdentity(revision: 2, digest: digest)
+        ))
+    }
+
+    @MainActor
+    @Test("latest configure receipt coalesces queued config revisions")
+    func latestReceiptCoalescesQueuedInvalidations() async throws {
+        let secondDigest = try BackendRendererConfigDigest(
+            validating: String(repeating: "b", count: 64)
+        )
+        let thirdDigest = try BackendRendererConfigDigest(
+            validating: String(repeating: "c", count: 64)
+        )
+        let second = try BackendRendererConfigInvalidated(
+            revision: 2,
+            digest: secondDigest,
+            reason: "ghostty-config-reloaded",
+            defaultColors: [:]
+        )
+        let third = try BackendRendererConfigInvalidated(
+            revision: 3,
+            digest: thirdDigest,
+            reason: "ghostty-config-reloaded",
+            defaultColors: [:]
+        )
+        var refreshCount = 0
+
+        let first = try await performBackendOnlyRendererConfigRefresh(
+            current: BackendOnlyRendererConfigIdentity(
+                revision: 1,
+                digest: secondDigest
+            ),
+            invalidation: second,
+            retireIngress: {},
+            configure: {
+                refreshCount += 1
+                return BackendOnlyRendererConfigIdentity(
+                    revision: 3,
+                    digest: thirdDigest
+                )
+            }
+        )
+        let current = try #require(first.identity)
+        let coalesced = try await performBackendOnlyRendererConfigRefresh(
+            current: current,
+            invalidation: third,
+            retireIngress: {
+                Issue.record("coalesced invalidation retired ingress again")
+            },
+            configure: {
+                Issue.record("coalesced invalidation configured again")
+                return current
+            }
+        )
+
+        #expect(refreshCount == 1)
+        #expect(coalesced == .ignored)
+    }
+
+    @MainActor
+    @Test("config refresh rejects a receipt older than the invalidation")
+    func configRefreshRejectsStaleReceipt() async throws {
+        let digest = try BackendRendererConfigDigest(
+            validating: String(repeating: "d", count: 64)
+        )
+        let invalidation = try BackendRendererConfigInvalidated(
+            revision: 4,
+            digest: digest,
+            reason: "ghostty-config-reloaded",
+            defaultColors: [:]
+        )
+
+        await #expect(throws: BackendOnlyRendererConfigRefreshError.staleReceipt) {
+            _ = try await performBackendOnlyRendererConfigRefresh(
+                current: nil,
+                invalidation: invalidation,
+                retireIngress: {},
+                configure: {
+                    BackendOnlyRendererConfigIdentity(revision: 3, digest: digest)
+                }
+            )
+        }
+    }
+
+    @Test("config floor rejects an in-flight stale receipt after invalidation")
+    func configFloorRejectsInFlightStaleReceipt() throws {
+        let first = try BackendOnlyRendererConfigIdentity(
+            revision: 1,
+            digest: BackendRendererConfigDigest(
+                validating: String(repeating: "a", count: 64)
+            )
+        )
+        let second = try BackendOnlyRendererConfigIdentity(
+            revision: 2,
+            digest: BackendRendererConfigDigest(
+                validating: String(repeating: "b", count: 64)
+            )
+        )
+        let invalidation = try BackendRendererConfigInvalidated(
+            revision: second.revision,
+            digest: second.digest,
+            reason: "ghostty-config-reloaded",
+            defaultColors: [:]
+        )
+        var floor = BackendOnlyRendererConfigFloor()
+        try floor.accept(first)
+
+        #expect(try floor.record(invalidation))
+        #expect(try floor.satisfies(first) == false)
+        #expect(throws: BackendOnlyRendererConfigRefreshError.staleReceipt) {
+            try floor.accept(first)
+        }
+
+        try floor.accept(second)
+        #expect(try floor.satisfies(second))
+        #expect(floor.identity == second)
+    }
+
+    @Test("config floor rejects one revision with conflicting digests")
+    func configFloorRejectsConflictingDigest() throws {
+        let accepted = try BackendOnlyRendererConfigIdentity(
+            revision: 2,
+            digest: BackendRendererConfigDigest(
+                validating: String(repeating: "a", count: 64)
+            )
+        )
+        let invalidation = try BackendRendererConfigInvalidated(
+            revision: 2,
+            digest: BackendRendererConfigDigest(
+                validating: String(repeating: "b", count: 64)
+            ),
+            reason: "ghostty-config-reloaded",
+            defaultColors: [:]
+        )
+        var floor = BackendOnlyRendererConfigFloor()
+        try floor.accept(accepted)
+
+        #expect(throws: BackendOnlyRendererConfigRefreshError.inconsistentRevision) {
+            _ = try floor.record(invalidation)
+        }
+    }
+
+    @MainActor
+    @Test("renderer listener survives a coalesced false-event-true visibility burst")
+    func rendererListenerSurvivesCoalescedVisibility() async throws {
+        let events = AsyncStream<BackendRendererLifecycleEvent>.makeStream(
+            bufferingPolicy: .bufferingOldest(4)
+        )
+        let observations = AsyncStream<BackendRendererLifecycleEvent>.makeStream(
+            bufferingPolicy: .bufferingOldest(4)
+        )
+        let ended = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        var observationIterator = observations.stream.makeAsyncIterator()
+        var endedIterator = ended.stream.makeAsyncIterator()
+        let listener = BackendOnlyRendererEventListener()
+        listener.start(
+            events: events.stream,
+            receive: { event in
+                observations.continuation.yield(event)
+            },
+            onEnd: {
+                ended.continuation.yield(())
+            }
+        )
+
+        var visible = true
+        visible = false
+        let second = try configInvalidation(revision: 2, digestByte: "b")
+        events.continuation.yield(.configInvalidated(second))
+        guard case let .configInvalidated(hiddenEvent)? = await observationIterator.next() else {
+            Issue.record("listener stopped on the transient hidden state")
+            return
+        }
+        #expect(!visible)
+        #expect(hiddenEvent == second)
+
+        visible = true
+        let third = try configInvalidation(revision: 3, digestByte: "c")
+        events.continuation.yield(.configInvalidated(third))
+        guard case let .configInvalidated(visibleEvent)? = await observationIterator.next() else {
+            Issue.record("listener did not survive the re-show")
+            return
+        }
+        #expect(visible)
+        #expect(visibleEvent == third)
+        #expect(listener.isActive)
+
+        events.continuation.finish()
+        _ = await endedIterator.next()
+        #expect(!listener.isActive)
+    }
+
+    private func configInvalidation(
+        revision: UInt64,
+        digestByte: String
+    ) throws -> BackendRendererConfigInvalidated {
+        try BackendRendererConfigInvalidated(
+            revision: revision,
+            digest: BackendRendererConfigDigest(
+                validating: String(repeating: digestByte, count: 64)
+            ),
+            reason: "ghostty-config-reloaded",
+            defaultColors: [:]
+        )
+    }
+}

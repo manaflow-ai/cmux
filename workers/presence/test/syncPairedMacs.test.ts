@@ -223,7 +223,7 @@ describe("applyBackupOps", () => {
     const restored = (await listBackupSnapshot(storage, "user-1")).records[0];
     expect(restored?.instanceTag).toBe("feature-a");
     expect(restored?.routes).toEqual(tagged.routes);
-    expect(restored).toEqual(tagged);
+    expect(restored).toEqual({ ...tagged, serverUpdatedAtMs: expect.any(Number) });
   });
 
   it("lets a Mac publisher refresh only an unclaimed or same-tag authority tuple", async () => {
@@ -262,7 +262,7 @@ describe("applyBackupOps", () => {
     const retained = (await listBackupSnapshot(storage, "user-1")).records[0];
     expect(retained?.instanceTag).toBe("feature-b");
     expect(retained?.routes).toEqual(explicitB.routes);
-    expect(retained).toEqual(explicitB);
+    expect(retained).toEqual({ ...explicitB, serverUpdatedAtMs: expect.any(Number) });
   });
 
   it("preserves cross-tag host authority while applying active and customization metadata", async () => {
@@ -363,7 +363,7 @@ describe("applyBackupOps", () => {
       instanceTagWriteMode: "preserve",
     }], T0);
 
-    expect((await listBackupSnapshot(storage, "user-1")).records[0]).toEqual(incoming);
+    expect((await listBackupSnapshot(storage, "user-1")).records[0]).toEqual({ ...incoming, serverUpdatedAtMs: expect.any(Number) });
   });
 
   it("sanitizes direct writes, deltas, and legacy stored backup responses", async () => {

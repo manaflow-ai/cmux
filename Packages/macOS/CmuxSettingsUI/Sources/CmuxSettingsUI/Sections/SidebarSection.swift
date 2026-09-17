@@ -8,7 +8,7 @@ public struct SidebarSection: View {
     private let rightSidebarWidthSettings = RightSidebarWidthSettings()
     @State private var sidebarFont: SettingsFontSize
     @State private var fontSaveFailed = false
-    @State private var fontSaveTask: Task<Void, Never>?
+    @State private var tasks = MainActorTaskStore<String>()
     @State private var matchTerminal: DefaultsValueModel<Bool>
     @State var hideAll: DefaultsValueModel<Bool>
     @State private var wrapTitles: DefaultsValueModel<Bool>
@@ -104,8 +104,7 @@ public struct SidebarSection: View {
     /// rapid sequence of slider releases only reflects the latest value (the
     /// host serializes the underlying writes; this keeps the UI state in step).
     private func saveSidebarFontSize(_ points: Double) {
-        fontSaveTask?.cancel()
-        fontSaveTask = Task {
+        tasks.replaceOnMainActor("fontSave") {
             let saved = await hostActions.setSidebarFontSize(points)
             if !Task.isCancelled { fontSaveFailed = !saved }
         }
@@ -307,15 +306,15 @@ public struct SidebarSection: View {
             SettingsCardRow(
                 configurationReview: .json("sidebar.stackBranchDirectory"),
                 String(localized: "settings.app.stackBranchDirectory", defaultValue: "Stack Branch and Directory"),
-                subtitle: stackBranchDir.current
+                subtitle: SidebarCatalogSection.stacksBranchAndDirectory(vertical: branchVerticalLayout.current, explicit: stackBranchDir.current)
                     ? String(localized: "settings.app.stackBranchDirectory.subtitleOn", defaultValue: "Branch and directory render on separate lines.")
                     : String(localized: "settings.app.stackBranchDirectory.subtitleOff", defaultValue: "Branch and directory share a single line.")
             ) {
-                Toggle("", isOn: Binding(get: { stackBranchDir.current }, set: { stackBranchDir.set($0) }))
+                Toggle("", isOn: Binding(get: { SidebarCatalogSection.stacksBranchAndDirectory(vertical: branchVerticalLayout.current, explicit: stackBranchDir.current) }, set: { stackBranchDir.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
             }
-            .disabled(hideAll.current)
+            .disabled(hideAll.current || branchVerticalLayout.current)
             SettingsCardDivider()
 
             SettingsCardRow(

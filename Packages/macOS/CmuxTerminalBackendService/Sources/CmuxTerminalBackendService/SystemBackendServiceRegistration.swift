@@ -8,6 +8,22 @@ internal protocol BackendServiceLaunchControlling: Sendable {
     func loadedProgramURL(label: String) throws -> URL?
     func bootstrap(propertyListURL: URL) throws
     func bootout(label: String) throws
+    func bootoutExact(label: String, expectedProgramURL: URL) throws
+}
+
+internal extension BackendServiceLaunchControlling {
+    func bootoutExact(label: String, expectedProgramURL: URL) throws {
+        let actual = try loadedProgramURL(label: label)
+        guard actual?.standardizedFileURL
+            == expectedProgramURL.standardizedFileURL
+        else {
+            throw BackendServicePairError.loadedDescriptorChanged(
+                expected: expectedProgramURL,
+                actual: actual
+            )
+        }
+        try bootout(label: label)
+    }
 }
 
 internal struct BackendServiceCommandResult: Equatable, Sendable {
@@ -132,6 +148,24 @@ internal struct SystemBackendServiceLaunchController: BackendServiceLaunchContro
         }
     }
 
+    func bootoutExact(label: String, expectedProgramURL: URL) throws {
+        let actual = try loadedProgramURL(label: label)
+        guard actual?.standardizedFileURL == expectedProgramURL.standardizedFileURL else {
+            throw BackendServicePairError.loadedDescriptorChanged(
+                expected: expectedProgramURL,
+                actual: actual
+            )
+        }
+        let result = try run(["bootout", domainTarget(label)])
+        guard result.status == 0 else {
+            throw BackendServicePairError.launchControlFailed(
+                arguments: result.arguments,
+                status: result.status,
+                message: result.output
+            )
+        }
+    }
+
     private func domainTarget(_ label: String) -> String {
         "gui/\(userID)/\(label)"
     }
@@ -146,11 +180,14 @@ internal struct SystemBackendServiceLaunchController: BackendServiceLaunchContro
 }
 
 /// Installs an immutable pair and owns its per-user launchd descriptor.
-public actor SystemBackendServiceRegistration: BackendServiceRegistration {
+public actor SystemBackendServiceRegistration: BackendServiceRegistration,
+    BackendServiceHandoffRegistering
+{
     private let descriptor: BackendServiceDescriptor
     private let installer: BackendServicePairInstaller
     private let launchController: any BackendServiceLaunchControlling
     private let propertyListURL: URL
+    private let serviceControlLock: any BackendServiceHandoffLocking
 
     /// Creates the production per-user service adapter.
     public init(
@@ -168,7 +205,11 @@ public actor SystemBackendServiceRegistration: BackendServiceRegistration {
                 expectedUserID: userID
             ),
             propertyListURL: runtimePaths.launchAgentPropertyListURL,
-            launchController: SystemBackendServiceLaunchController(userID: userID)
+            launchController: SystemBackendServiceLaunchController(userID: userID),
+            serviceControlLock: SystemBackendServiceHandoffLock(
+                runtimePaths: runtimePaths,
+                expectedUserID: userID
+            )
         )
     }
 
@@ -176,12 +217,17 @@ public actor SystemBackendServiceRegistration: BackendServiceRegistration {
         descriptor: BackendServiceDescriptor,
         installer: BackendServicePairInstaller,
         propertyListURL: URL,
-        launchController: any BackendServiceLaunchControlling
+        launchController: any BackendServiceLaunchControlling,
+        serviceControlLock: (any BackendServiceHandoffLocking)? = nil
     ) {
         self.descriptor = descriptor
         self.installer = installer
         self.propertyListURL = propertyListURL
         self.launchController = launchController
+        self.serviceControlLock = serviceControlLock ?? SystemBackendServiceHandoffLock(
+            installationRootURL: installer.installationRootURL,
+            expectedUserID: installer.expectedUserID
+        )
     }
 
     public func prepareBundledPair() throws -> BackendServiceInstalledPair {
@@ -200,6 +246,96 @@ public actor SystemBackendServiceRegistration: BackendServiceRegistration {
             return nil
         }
         return try installer.validateInstalledBackend(at: program)
+    }
+
+    internal func activeHandoffDescriptor() throws -> BackendServiceHandoffLaunchDescriptor? {
+        guard let pair = try activeInstalledPair() else { return nil }
+        try validateLaunchAgentFile(propertyListURL)
+        let data = try Data(contentsOf: propertyListURL)
+        try validateLaunchAgentPayload(data, for: pair)
+        return BackendServiceHandoffLaunchDescriptor(pair: pair, propertyListData: data)
+    }
+
+    internal func bootoutExact(
+        _ descriptor: BackendServiceHandoffLaunchDescriptor
+    ) throws {
+        guard try activeHandoffDescriptor() == descriptor else {
+            throw BackendServicePairError.loadedDescriptorChanged(
+                expected: descriptor.pair.backendExecutableURL,
+                actual: try launchController.loadedProgramURL(label: self.descriptor.serviceLabel)
+            )
+        }
+        try launchController.bootoutExact(
+            label: self.descriptor.serviceLabel,
+            expectedProgramURL: descriptor.pair.backendExecutableURL
+        )
+    }
+
+    internal func writeHandoffDescriptor(
+        for pair: BackendServiceInstalledPair
+    ) throws -> BackendServiceHandoffLaunchDescriptor {
+        guard try activeInstalledPair() == nil else {
+            throw BackendServicePairError.loadedDescriptorChanged(
+                expected: pair.backendExecutableURL,
+                actual: try launchController.loadedProgramURL(label: descriptor.serviceLabel)
+            )
+        }
+        let validated = try installer.validateInstalledPair(
+            at: pair.installationDirectoryURL,
+            expectedBuildID: pair.buildID
+        )
+        let data = try launchAgentData(for: validated)
+        try writeLaunchAgentData(data)
+        return BackendServiceHandoffLaunchDescriptor(pair: validated, propertyListData: data)
+    }
+
+    internal func restoreHandoffDescriptor(
+        _ descriptor: BackendServiceHandoffLaunchDescriptor
+    ) throws {
+        guard try activeInstalledPair() == nil else {
+            throw BackendServicePairError.loadedDescriptorChanged(
+                expected: descriptor.pair.backendExecutableURL,
+                actual: try launchController.loadedProgramURL(label: self.descriptor.serviceLabel)
+            )
+        }
+        let pair = try installer.validateInstalledPair(
+            at: descriptor.pair.installationDirectoryURL,
+            expectedBuildID: descriptor.pair.buildID
+        )
+        guard pair == descriptor.pair else {
+            throw BackendServicePairError.launchAgentDescriptorChanged(propertyListURL)
+        }
+        try validateLaunchAgentPayload(descriptor.propertyListData, for: pair)
+        try writeLaunchAgentData(descriptor.propertyListData)
+    }
+
+    internal func bootstrapExact(
+        _ descriptor: BackendServiceHandoffLaunchDescriptor
+    ) throws {
+        try validateLaunchAgentFile(propertyListURL)
+        let onDisk = try Data(contentsOf: propertyListURL)
+        guard onDisk == descriptor.propertyListData else {
+            throw BackendServicePairError.launchAgentDescriptorChanged(propertyListURL)
+        }
+        try validateLaunchAgentPayload(onDisk, for: descriptor.pair)
+        guard try activeInstalledPair() == nil else {
+            throw BackendServicePairError.loadedDescriptorChanged(
+                expected: descriptor.pair.backendExecutableURL,
+                actual: try launchController.loadedProgramURL(label: self.descriptor.serviceLabel)
+            )
+        }
+        do {
+            try launchController.bootstrap(propertyListURL: propertyListURL)
+        } catch {
+            guard try activeHandoffDescriptor() == descriptor else { throw error }
+            return
+        }
+        guard try activeHandoffDescriptor() == descriptor else {
+            throw BackendServicePairError.loadedDescriptorChanged(
+                expected: descriptor.pair.backendExecutableURL,
+                actual: try launchController.loadedProgramURL(label: self.descriptor.serviceLabel)
+            )
+        }
     }
 
     /// Loads the exact absolute daemon path without replacing a live descriptor.
@@ -242,14 +378,80 @@ public actor SystemBackendServiceRegistration: BackendServiceRegistration {
     }
 
     /// Explicit teardown is the only operation allowed to stop a loaded daemon.
-    public func unregister() throws {
-        if FileManager.default.fileExists(atPath: propertyListURL.path) {
-            try validateLaunchAgentFile(propertyListURL)
+    public func unregister() async throws {
+        let loadedSnapshot = try activeHandoffDescriptor()
+        let propertyListSnapshot: Data?
+        if let loadedSnapshot {
+            propertyListSnapshot = loadedSnapshot.propertyListData
+        } else {
+            propertyListSnapshot = try snapshotLaunchAgentDataIfPresent()
         }
-        try launchController.bootout(label: descriptor.serviceLabel)
-        if FileManager.default.fileExists(atPath: propertyListURL.path) {
-            try FileManager.default.removeItem(at: propertyListURL)
+        let lease = try await serviceControlLock.acquire()
+        do {
+            try unregisterUnderServiceControlLock(
+                loadedSnapshot: loadedSnapshot,
+                propertyListSnapshot: propertyListSnapshot
+            )
+        } catch {
+            await lease.release()
+            throw error
         }
+        await lease.release()
+    }
+
+    private func unregisterUnderServiceControlLock(
+        loadedSnapshot: BackendServiceHandoffLaunchDescriptor?,
+        propertyListSnapshot: Data?
+    ) throws {
+        let active = try activeHandoffDescriptor()
+        guard active == loadedSnapshot else {
+            if let loadedSnapshot {
+                throw BackendServicePairError.loadedDescriptorChanged(
+                    expected: loadedSnapshot.pair.backendExecutableURL,
+                    actual: active?.pair.backendExecutableURL
+                )
+            }
+            throw BackendServicePairError.launchAgentDescriptorChanged(propertyListURL)
+        }
+        if let loadedSnapshot {
+            try bootoutExact(loadedSnapshot)
+        }
+        let replacement = try launchController.loadedProgramURL(
+            label: descriptor.serviceLabel
+        )
+        guard replacement == nil else {
+            throw BackendServicePairError.loadedDescriptorChanged(
+                expected: loadedSnapshot?.pair.backendExecutableURL ?? propertyListURL,
+                actual: replacement
+            )
+        }
+        try removeLaunchAgentIfExact(propertyListSnapshot)
+    }
+
+    private func snapshotLaunchAgentDataIfPresent() throws -> Data? {
+        guard FileManager.default.fileExists(atPath: propertyListURL.path) else {
+            return nil
+        }
+        try validateLaunchAgentFile(propertyListURL)
+        return try Data(contentsOf: propertyListURL)
+    }
+
+    private func removeLaunchAgentIfExact(_ expectedData: Data?) throws {
+        guard let expectedData else {
+            guard !FileManager.default.fileExists(atPath: propertyListURL.path) else {
+                throw BackendServicePairError.launchAgentDescriptorChanged(propertyListURL)
+            }
+            return
+        }
+        guard FileManager.default.fileExists(atPath: propertyListURL.path) else {
+            return
+        }
+        try validateLaunchAgentFile(propertyListURL)
+        guard try Data(contentsOf: propertyListURL) == expectedData else {
+            throw BackendServicePairError.launchAgentDescriptorChanged(propertyListURL)
+        }
+        try FileManager.default.removeItem(at: propertyListURL)
+        try synchronize(propertyListURL.deletingLastPathComponent(), isDirectory: true)
     }
 
     public func openSystemSettingsLoginItems() {
@@ -257,13 +459,10 @@ public actor SystemBackendServiceRegistration: BackendServiceRegistration {
     }
 
     private func writeLaunchAgent(for pair: BackendServiceInstalledPair) throws {
-        let directory = propertyListURL.deletingLastPathComponent()
-        try FileManager.default.createDirectory(
-            at: directory,
-            withIntermediateDirectories: true,
-            attributes: nil
-        )
-        try validateLaunchAgentDirectory(directory)
+        try writeLaunchAgentData(launchAgentData(for: pair))
+    }
+
+    private func launchAgentData(for pair: BackendServiceInstalledPair) throws -> Data {
         let payload: [String: Any] = [
             "Label": descriptor.serviceLabel,
             "Program": pair.backendExecutableURL.path,
@@ -280,11 +479,21 @@ public actor SystemBackendServiceRegistration: BackendServiceRegistration {
             "ThrottleInterval": 5,
             "Umask": 63,
         ]
-        let data = try PropertyListSerialization.data(
+        return try PropertyListSerialization.data(
             fromPropertyList: payload,
             format: .xml,
             options: 0
         )
+    }
+
+    private func writeLaunchAgentData(_ data: Data) throws {
+        let directory = propertyListURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true,
+            attributes: nil
+        )
+        try validateLaunchAgentDirectory(directory)
         let temporary = directory.appendingPathComponent(
             ".\(descriptor.propertyListName).\(UUID().uuidString).tmp",
             isDirectory: false
@@ -300,6 +509,31 @@ public actor SystemBackendServiceRegistration: BackendServiceRegistration {
         }
         try synchronize(directory, isDirectory: true)
         try validateLaunchAgentFile(propertyListURL)
+    }
+
+    private func validateLaunchAgentPayload(
+        _ data: Data,
+        for pair: BackendServiceInstalledPair
+    ) throws {
+        guard let payload = try PropertyListSerialization.propertyList(
+            from: data,
+            options: [],
+            format: nil
+        ) as? [String: Any],
+              payload["Label"] as? String == descriptor.serviceLabel,
+              payload["Program"] as? String == pair.backendExecutableURL.path,
+              payload["ProgramArguments"] as? [String] == [
+                  pair.backendExecutableURL.path,
+                  "--headless",
+                  "--app-service-layout",
+                  "--session",
+                  descriptor.sessionName,
+              ],
+              payload["WorkingDirectory"] as? String == pair.installationDirectoryURL.path,
+              payload["KeepAlive"] as? Bool == true
+        else {
+            throw BackendServicePairError.launchAgentDescriptorChanged(propertyListURL)
+        }
     }
 
     private func validateLaunchAgentDirectory(_ url: URL) throws {

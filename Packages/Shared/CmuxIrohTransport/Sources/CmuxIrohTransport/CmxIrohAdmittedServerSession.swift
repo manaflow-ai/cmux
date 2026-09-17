@@ -14,14 +14,26 @@ public struct CmxIrohAdmittedServerSession: Sendable {
     public let controlTransport: any CmxByteTransport
 
     private let session: CmxIrohServerSession
+    private let promoteUsableSession: @Sendable () async -> Bool
 
     init(
         peer: CmxIrohAdmittedPeer,
-        session: CmxIrohServerSession
+        session: CmxIrohServerSession,
+        promoteUsableSession: @escaping @Sendable () async -> Bool = { true }
     ) {
         self.peer = peer
         self.session = session
+        self.promoteUsableSession = promoteUsableSession
         controlTransport = CmxIrohServerByteTransport(session: session)
+    }
+
+    /// Promotes this connection after the application protocol is usable.
+    ///
+    /// Promotion is generation-scoped and retires older connections from the
+    /// same authenticated endpoint identity without risking a known-good
+    /// session during transport admission.
+    public func markUsable() async -> Bool {
+        await promoteUsableSession()
     }
 
     /// Accepts one client-created terminal or artifact lane.
@@ -43,5 +55,32 @@ public struct CmxIrohAdmittedServerSession: Sendable {
     /// Closes the complete peer connection and every child stream.
     public func close() async {
         await session.close()
+    }
+
+    /// Resolves an observed supervisor exit against a named host-side close cause.
+    ///
+    /// - Parameter observedExit: The first control or application-lane exit.
+    /// - Returns: The host invalidation exit when one initiated the close;
+    ///   otherwise, `observedExit`.
+    public func connectionExit(
+        resolving observedExit: CmxIrohAdmittedConnectionExit
+    ) async -> CmxIrohAdmittedConnectionExit {
+        guard let failure = await session.explicitCloseFailureKind() else {
+            return observedExit
+        }
+        return CmxIrohAdmittedConnectionExit(
+            lifecycle: .explicitlyInvalidated,
+            failure: failure
+        )
+    }
+
+    /// Returns the classified terminal cause for the shared QUIC connection.
+    public func closeAttribution() async -> CmxIrohConnectionCloseAttribution {
+        await session.closeAttribution()
+    }
+
+    /// Observes redacted lifecycle events for paths on the shared connection.
+    public func observedPathEvents() async -> AsyncStream<CmxIrohConnectionPathEvent> {
+        await session.observedPathEvents()
     }
 }

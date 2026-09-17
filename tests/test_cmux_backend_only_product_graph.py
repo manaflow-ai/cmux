@@ -65,6 +65,24 @@ def run_verifier(
     )
 
 
+def run_host_verifier(*arguments: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            sys.executable,
+            str(VERIFIER),
+            "--package-path",
+            str(TERMINAL_PACKAGE),
+            "--product",
+            "CmuxTerminalBackendHost",
+            *arguments,
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
 def write_fixture_package(root: Path, *, frontend_dependency: str = "CmuxTerminalDomain") -> Path:
     package = root / "CmuxTerminal"
     (package / "Sources/CmuxTerminalDomain").mkdir(parents=True)
@@ -122,14 +140,10 @@ def write_artifact_fixture(root: Path) -> tuple[Path, Path]:
     app = root / "cmux.app"
     macos = app / "Contents/MacOS"
     macos.mkdir(parents=True)
-    frameworks = app / "Contents/Frameworks"
-    frameworks.mkdir(parents=True)
     executable = macos / "cmux"
     debug_library = macos / "cmux.debug.dylib"
-    nucleo_library = frameworks / "libcmux_command_palette_nucleo_ffi.dylib"
     executable.write_bytes(b"host fixture\n")
     debug_library.write_bytes(b"debug fixture\n")
-    nucleo_library.write_bytes(b"nucleo fixture\n")
     with (app / "Contents/Info.plist").open("wb") as stream:
         plistlib.dump(
             {
@@ -152,8 +166,6 @@ if [[ "$mode" == "allowed-host-loaders" && "$2" == */MacOS/* ]]; then
   printf '                 U _dlclose\n'
 elif [[ "$mode" == "unsupported-host-loader" && "$2" == */MacOS/* ]]; then
   printf '                 U _dlmopen\n'
-elif [[ "$mode" == "nucleo-loader" && "$2" == */libcmux_command_palette_nucleo_ffi.dylib ]]; then
-  printf '                 U _dlopen\n'
 fi
 """,
     )
@@ -241,6 +253,36 @@ def test_repository_frontend_product_has_a_ghostty_free_closure() -> None:
     assert len(report["graph_sha256"]) == 64
 
 
+def test_repository_backend_host_product_binds_the_full_ghostty_free_boundary() -> None:
+    result = run_host_verifier()
+    assert result.returncode == 0, result.stderr
+    report = json.loads(result.stdout)
+    target_names = {node["target"] for node in report["product_closure"]["nodes"]}
+    assert {
+        "CmuxTerminalBackendHost",
+        "CmuxTerminalBackend",
+        "CmuxTerminalBackendService",
+        "CmuxTerminalFrontend",
+        "CmuxTerminalDomain",
+        "CmuxTerminalRenderCompositor",
+        "CmuxTerminalRenderProtocol",
+        "CmuxTerminalRenderTransport",
+    }.issubset(target_names)
+    assert target_names.isdisjoint(verifier_forbidden_targets())
+    audited_targets = {root["target"] for root in report["source_roots"]}
+    assert "CmuxTerminalBackendHost" in audited_targets
+
+
+def verifier_forbidden_targets() -> set[str]:
+    return {
+        "CmuxTerminal",
+        "CmuxTerminalCore",
+        "CmuxGhosttyKit",
+        "GhosttyKit",
+        "GhosttyRuntimeTestStubs",
+    }
+
+
 def test_source_policy_rejects_ghostty_and_dynamic_loading() -> None:
     with tempfile.TemporaryDirectory() as temporary_directory:
         package = write_fixture_package(Path(temporary_directory))
@@ -287,7 +329,6 @@ def test_artifact_attestation_binds_graph_to_recursive_host_load_closure() -> No
         assert {item["path"] for item in artifact["load_closure"]} == {
             "Contents/MacOS/cmux",
             "Contents/MacOS/cmux.debug.dylib",
-            "Contents/Frameworks/libcmux_command_palette_nucleo_ffi.dylib",
         }
         assert artifact["load_edges"] == [
             {
@@ -296,9 +337,7 @@ def test_artifact_attestation_binds_graph_to_recursive_host_load_closure() -> No
                 "to": "Contents/MacOS/cmux.debug.dylib",
             }
         ]
-        assert artifact["sanctioned_dynamic_loads"] == [
-            "Contents/Frameworks/libcmux_command_palette_nucleo_ffi.dylib"
-        ]
+        assert artifact["sanctioned_dynamic_loads"] == []
         assert {item["path"] for item in artifact["dynamic_load_sources"]} == {
             "Sources/SystemCommandRunner.swift",
             (
@@ -308,19 +347,25 @@ def test_artifact_attestation_binds_graph_to_recursive_host_load_closure() -> No
         }
         assert len(artifact["attestation_sha256"]) == 64
 
+        forbidden_nucleo = (
+            app / "Contents/Frameworks/libcmux_command_palette_nucleo_ffi.dylib"
+        )
+        forbidden_nucleo.parent.mkdir(parents=True)
+        forbidden_nucleo.write_bytes(b"unexpected backend-only payload\n")
+        result = run_verifier(package, "--app-bundle", str(app), environment=environment)
+        assert result.returncode != 0
+        assert "forbidden dynamic-load artifact" in result.stderr
+        forbidden_nucleo.unlink()
+
         environment["CMUX_PRODUCT_GRAPH_FIXTURE"] = "allowed-host-loaders"
         result = run_verifier(package, "--app-bundle", str(app), environment=environment)
-        assert result.returncode == 0, result.stderr
+        assert result.returncode != 0
+        assert "unapproved dynamic-load symbols" in result.stderr
 
         environment["CMUX_PRODUCT_GRAPH_FIXTURE"] = "unsupported-host-loader"
         result = run_verifier(package, "--app-bundle", str(app), environment=environment)
         assert result.returncode != 0
         assert "unapproved dynamic-load symbols: _dlmopen" in result.stderr
-
-        environment["CMUX_PRODUCT_GRAPH_FIXTURE"] = "nucleo-loader"
-        result = run_verifier(package, "--app-bundle", str(app), environment=environment)
-        assert result.returncode != 0
-        assert "unapproved dynamic-load symbols: _dlopen" in result.stderr
 
 
 def test_dynamic_load_source_policy_is_exact_and_hash_bound() -> None:
@@ -364,6 +409,7 @@ def write_xcode_target_fixture(root: Path) -> Path:
     source.parent.mkdir(parents=True)
     source.write_text("import Foundation\nstruct BackendHost {}\n", encoding="utf-8")
     products = [
+        "CmuxTerminalBackendHost",
         "CmuxTerminalBackend",
         "CmuxTerminalBackendService",
         "CmuxTerminalFrontend",
@@ -371,6 +417,19 @@ def write_xcode_target_fixture(root: Path) -> Path:
         "CmuxTerminalRenderProtocol",
         "CmuxTerminalRenderTransport",
     ]
+    product_packages = {
+        "CmuxTerminalBackendHost": "Packages/macOS/CmuxTerminal",
+        "CmuxTerminalFrontend": "Packages/macOS/CmuxTerminal",
+        "CmuxTerminalBackend": "Packages/macOS/CmuxTerminalBackend",
+        "CmuxTerminalBackendService": "Packages/macOS/CmuxTerminalBackendService",
+        "CmuxTerminalRenderCompositor": "Packages/macOS/CmuxTerminalRenderTransport",
+        "CmuxTerminalRenderProtocol": "Packages/macOS/CmuxTerminalRenderTransport",
+        "CmuxTerminalRenderTransport": "Packages/macOS/CmuxTerminalRenderTransport",
+    }
+    package_ids = {
+        package_path: f"PACKAGE-{index}"
+        for index, package_path in enumerate(sorted(set(product_packages.values())))
+    }
     objects: dict[str, object] = {
         "TARGET": {
             "isa": "PBXNativeTarget",
@@ -410,6 +469,10 @@ def write_xcode_target_fixture(root: Path) -> Path:
                 "CMUX_TERMINAL_BACKEND_ENABLED": "YES",
                 "CMUX_TERMINAL_RUNTIME_OWNERSHIP": "backend-only",
                 "LD_GENERATE_MAP_FILE": "YES",
+                "LD_MAP_FILE_PATH": (
+                    "$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/"
+                    "cmux-backend-only-$(CURRENT_ARCH).map"
+                ),
             },
         },
         "RELEASE": {
@@ -419,12 +482,25 @@ def write_xcode_target_fixture(root: Path) -> Path:
                 "CMUX_TERMINAL_BACKEND_ENABLED": "YES",
                 "CMUX_TERMINAL_RUNTIME_OWNERSHIP": "backend-only",
                 "LD_GENERATE_MAP_FILE": "YES",
+                "LD_MAP_FILE_PATH": (
+                    "$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/"
+                    "cmux-backend-only-$(CURRENT_ARCH).map"
+                ),
             },
         },
     }
+    for package_path, package_id in package_ids.items():
+        package_root = root / package_path
+        package_root.mkdir(parents=True)
+        (package_root / "Package.swift").write_text("// fixture\n", encoding="utf-8")
+        objects[package_id] = {
+            "isa": "XCLocalSwiftPackageReference",
+            "relativePath": package_path,
+        }
     for index, product in enumerate(products):
         objects[f"PRODUCT-{index}"] = {
             "isa": "XCSwiftPackageProductDependency",
+            "package": package_ids[product_packages[product]],
             "productName": product,
         }
         objects[f"PRODUCT-BUILD-{index}"] = {
@@ -456,10 +532,12 @@ def test_xcode_target_and_link_map_bind_the_actual_host_boundary() -> None:
         link_map = root / "cmux-backend-only-LinkMap.txt"
         link_map.write_text(
             """# Path: /tmp/cmux.debug.dylib
+# Arch: arm64
 # Object files:
 [  0] linker synthesized
 [  1] /tmp/CmuxTerminalFrontend.build/TerminalFrontendPanel.o
-[  2] /tmp/cmux-backend-only.build/BackendHost.o
+[  2] /tmp/CmuxTerminalBackendHost.build/BackendOnlyTerminalRuntime.o
+[  3] /tmp/cmux-backend-only.build/BackendHost.o
 # Sections:
 """,
             encoding="utf-8",
@@ -467,16 +545,19 @@ def test_xcode_target_and_link_map_bind_the_actual_host_boundary() -> None:
         link_report = verifier.verify_link_map(
             link_map,
             artifact_basenames={"cmux", "cmux.debug.dylib"},
+            expected_architecture="arm64",
         )
-        assert link_report["object_count"] == 2
+        assert link_report["object_count"] == 3
         assert len(link_report["objects_sha256"]) == 64
 
         link_map.write_text(
             """# Path: /tmp/cmux.debug.dylib
+# Arch: arm64
 # Object files:
 [  0] linker synthesized
 [  1] /tmp/CmuxTerminalFrontend.build/TerminalFrontendPanel.o
-[  2] /tmp/CmuxTerminal.build/TerminalSurface.o
+[  2] /tmp/CmuxTerminalBackendHost.build/BackendOnlyTerminalRuntime.o
+[  3] /tmp/CmuxTerminal.build/TerminalSurface.o
 # Sections:
 """,
             encoding="utf-8",
@@ -485,6 +566,7 @@ def test_xcode_target_and_link_map_bind_the_actual_host_boundary() -> None:
             verifier.verify_link_map(
                 link_map,
                 artifact_basenames={"cmux.debug.dylib"},
+                expected_architecture="arm64",
             )
         except verifier.VerificationError as error:
             assert "forbidden terminal object" in str(error)
@@ -522,6 +604,24 @@ def test_xcode_target_and_link_map_bind_the_actual_host_boundary() -> None:
         else:
             raise AssertionError("declared but unlinked backend product was accepted")
 
+        project = write_xcode_target_fixture(root / "wrong-package")
+        raw = json.loads(project.read_text(encoding="utf-8"))
+        fake_package = root / "wrong-package/Packages/Fake/CmuxTerminal"
+        fake_package.mkdir(parents=True)
+        (fake_package / "Package.swift").write_text("// fake\n", encoding="utf-8")
+        raw["objects"]["FAKE-PACKAGE"] = {
+            "isa": "XCLocalSwiftPackageReference",
+            "relativePath": "Packages/Fake/CmuxTerminal",
+        }
+        raw["objects"]["PRODUCT-0"]["package"] = "FAKE-PACKAGE"
+        project.write_text(json.dumps(raw), encoding="utf-8")
+        try:
+            verifier.xcode_target_report(project, "cmux-backend-only")
+        except verifier.VerificationError as error:
+            assert "expected Packages/macOS/CmuxTerminal" in str(error)
+        else:
+            raise AssertionError("same-name product from the wrong package was accepted")
+
 
 def test_xcode_frameworks_phase_cannot_hide_a_legacy_product_or_file_reference() -> None:
     verifier = load_verifier_module()
@@ -531,8 +631,16 @@ def test_xcode_frameworks_phase_cannot_hide_a_legacy_product_or_file_reference()
         raw = json.loads(project.read_text(encoding="utf-8"))
         objects = raw["objects"]
 
+        ghostty_package = root / "Packages/Ghostty"
+        ghostty_package.mkdir(parents=True)
+        (ghostty_package / "Package.swift").write_text("// fixture\n", encoding="utf-8")
+        objects["HIDDEN-GHOSTTY-PACKAGE"] = {
+            "isa": "XCLocalSwiftPackageReference",
+            "relativePath": "Packages/Ghostty",
+        }
         objects["HIDDEN-GHOSTTY-PRODUCT"] = {
             "isa": "XCSwiftPackageProductDependency",
+            "package": "HIDDEN-GHOSTTY-PACKAGE",
             "productName": "GhosttyKit",
         }
         objects["HIDDEN-GHOSTTY-BUILD"] = {
@@ -588,8 +696,41 @@ def test_xcode_source_import_audit_covers_swift_import_attributes_and_symbols() 
                 raise AssertionError(f"attributed or symbol import of {module} was accepted")
 
 
+def test_link_map_provenance_requires_the_packaged_fixed_name() -> None:
+    verifier = load_verifier_module()
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        root = Path(temporary_directory)
+        app = root / "cmux Backend.app"
+        resources = app / "Contents/Resources"
+        resources.mkdir(parents=True)
+        packaged = resources / "cmux-backend-only-arm64.map"
+        packaged.write_text("# Arch: arm64\n", encoding="utf-8")
+        resolved, architecture = verifier.packaged_link_map(app, packaged)
+        assert resolved == packaged.resolve()
+        assert architecture == "arm64"
+
+        outside = root / packaged.name
+        outside.write_text(packaged.read_text(encoding="utf-8"), encoding="utf-8")
+        try:
+            verifier.packaged_link_map(app, outside)
+        except verifier.VerificationError as error:
+            assert "not the app's packaged build artifact" in str(error)
+        else:
+            raise AssertionError("external link map was accepted")
+
+        renamed = resources / "copied-LinkMap.txt"
+        renamed.write_text(packaged.read_text(encoding="utf-8"), encoding="utf-8")
+        try:
+            verifier.packaged_link_map(app, renamed)
+        except verifier.VerificationError as error:
+            assert "invalid name" in str(error)
+        else:
+            raise AssertionError("arbitrarily named packaged link map was accepted")
+
+
 def main() -> int:
     test_repository_frontend_product_has_a_ghostty_free_closure()
+    test_repository_backend_host_product_binds_the_full_ghostty_free_boundary()
     test_source_policy_rejects_ghostty_and_dynamic_loading()
     test_product_closure_rejects_legacy_targets_even_without_forbidden_imports()
     test_artifact_attestation_binds_graph_to_recursive_host_load_closure()
@@ -597,6 +738,7 @@ def main() -> int:
     test_xcode_target_and_link_map_bind_the_actual_host_boundary()
     test_xcode_frameworks_phase_cannot_hide_a_legacy_product_or_file_reference()
     test_xcode_source_import_audit_covers_swift_import_attributes_and_symbols()
+    test_link_map_provenance_requires_the_packaged_fixed_name()
     print("PASS: backend-only product graph and host artifact are bound")
     return 0
 

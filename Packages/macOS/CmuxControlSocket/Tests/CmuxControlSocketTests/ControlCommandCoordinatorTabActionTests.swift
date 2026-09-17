@@ -71,6 +71,42 @@ struct ControlCommandCoordinatorTabActionTests {
         #expect(supportedActions.contains(.string("toggle_full_width_tab")))
     }
 
+    @Test func tabActionRejectsExplicitNullSurfaceIDBeforeContextMutation() {
+        let context = FakeTabActionControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "tab.action",
+            params: [
+                "action": .string("close_right"),
+                "surface_id": .null,
+            ]
+        ))
+
+        #expect(result == .err(code: "not_found", message: "Surface not found", data: nil))
+        #expect(context.actionKey == nil)
+        #expect(context.surfaceID == nil)
+    }
+
+    @Test func tabActionRejectsExplicitNullTabIDBeforeContextMutation() {
+        let context = FakeTabActionControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "tab.action",
+            params: [
+                "action": .string("close_right"),
+                "tab_id": .null,
+            ]
+        ))
+
+        #expect(result == .err(code: "not_found", message: "Tab not found", data: nil))
+        #expect(context.actionKey == nil)
+        #expect(context.surfaceID == nil)
+    }
+
     @Test func failedFullWidthTabToggleReturnsInvalidState() throws {
         let surfaceID = UUID()
         let context = FakeTabActionControlCommandContext()
@@ -98,6 +134,54 @@ struct ControlCommandCoordinatorTabActionTests {
         #expect(data == nil)
     }
 
+    @Test func queuedTabActionsPreserveDistinctReservedSurfaceIdentities() throws {
+        let workspaceID = UUID()
+        let anchorSurfaceID = UUID()
+        let submissions = [
+            (requestID: UUID(), createdSurfaceID: UUID()),
+            (requestID: UUID(), createdSurfaceID: UUID()),
+        ]
+        let context = FakeTabActionControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        for submission in submissions {
+            context.resolution = .completed(ControlTabActionResolution.Outcome(
+                workspaceID: workspaceID,
+                surfaceID: anchorSurfaceID,
+                windowID: nil,
+                paneID: nil,
+                extras: .submittedToBackend(
+                    requestID: submission.requestID,
+                    createdSurfaceID: submission.createdSurfaceID
+                )
+            ))
+
+            let result = coordinator.handle(ControlRequest(
+                id: .string(submission.requestID.uuidString),
+                method: "tab.action",
+                params: [
+                    "action": .string("new_terminal_right"),
+                    "surface_id": .string(anchorSurfaceID.uuidString),
+                ]
+            ))
+
+            guard case .ok(.object(let payload)) = result else {
+                Issue.record("expected queued tab.action payload")
+                continue
+            }
+            #expect(payload["request_id"] == .string(submission.requestID.uuidString))
+            #expect(
+                payload["created_surface_id"]
+                    == .string(submission.createdSurfaceID.uuidString)
+            )
+            #expect(
+                payload["created_tab_id"]
+                    == .string(submission.createdSurfaceID.uuidString)
+            )
+            #expect(payload["retry_safe"] == .bool(false))
+        }
+    }
+
     @Test func backendMutationStatusReportsCanonicalCommit() throws {
         let requestID = UUID()
         let context = FakeTabActionControlCommandContext()
@@ -122,7 +206,7 @@ struct ControlCommandCoordinatorTabActionTests {
         #expect(payload["swift_projection_installed"] == .bool(false))
     }
 
-    @Test func backendMutationStatusRejectsUnknownRequest() throws {
+    @Test func backendMutationStatusMarksUnknownCommitStateAsUnsafeToRetry() throws {
         let requestID = UUID()
         let context = FakeTabActionControlCommandContext()
         context.backendMutationStatus = .unknown
@@ -134,11 +218,15 @@ struct ControlCommandCoordinatorTabActionTests {
             params: ["request_id": .string(requestID.uuidString)]
         ))
 
-        guard case .err(let code, _, let data) = result else {
-            Issue.record("expected backend mutation not-found error")
+        guard case .ok(.object(let payload)) = result else {
+            Issue.record("expected indeterminate backend mutation status")
             return
         }
-        #expect(code == "not_found")
-        #expect(data == .object(["request_id": .string(requestID.uuidString)]))
+        #expect(payload["request_id"] == .string(requestID.uuidString))
+        #expect(payload["status"] == .string("indeterminate"))
+        #expect(payload["finished"] == .bool(false))
+        #expect(payload["committed"] == .null)
+        #expect(payload["retry_safe"] == .bool(false))
+        #expect(payload["recovery_method"] == .string("system.tree"))
     }
 }

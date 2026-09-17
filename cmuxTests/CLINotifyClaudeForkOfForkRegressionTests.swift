@@ -27,13 +27,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             activeTurnId: "fork-parent-turn"
         )
 
-        // One detached server pool covers both CLI invocations. Starting a second
-        // expectation-backed server on the same listener would race its accept
-        // workers against the first call's leftover workers and time out.
+        // One detached server covers both CLI invocations. An expectation-backed
+        // server per invocation would supersede this one mid-scenario, so keep the
+        // single long-lived server and assert on the recorded commands instead.
         startForkOfForkSurfaceServer(
             context: context,
-            surfaceIds: [forkParentSurfaceId, context.surfaceId],
-            connectionCount: 16
+            surfaceIds: [forkParentSurfaceId, context.surfaceId]
         )
 
         let start = runForkOfForkHook(
@@ -136,10 +135,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
     private func startForkOfForkSurfaceServer(
         context: ForkOfForkContext,
-        surfaceIds: [String],
-        connectionCount: Int
+        surfaceIds: [String]
     ) {
-        startDetachedMockServer(listenerFD: context.listenerFD, state: context.state, connectionCount: connectionCount) { line in
+        startDetachedMockServer(listenerFD: context.listenerFD, state: context.state) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {

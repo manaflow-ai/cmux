@@ -59,6 +59,7 @@ jobs:
           name: cmux-ghostty-cli-helper
           path: ghostty-cli-helper/ghostty
           if-no-files-found: error
+          retention-days: 3
 
   build-sign-notarize:
     needs: build-ghostty-cli-helper

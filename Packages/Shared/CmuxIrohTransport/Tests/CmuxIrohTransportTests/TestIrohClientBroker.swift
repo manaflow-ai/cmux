@@ -6,14 +6,21 @@ actor TestIrohClientBroker: CmxIrohClientBrokerServing {
     private let registration: CmxIrohRegistrationResponse
     private let discoveryResponse: CmxIrohDiscoveryResponse
     private let relayResponse: CmxIrohRelayTokenResponse
+    private let pairGrantResponse: CmxIrohPairGrantResponse?
     private let revokeError: (any Error)?
     private let registrationHook: (@Sendable (_ count: Int) async -> Void)?
+    private let discoveryHook: (@Sendable (_ count: Int) async -> Void)?
     private var registrationError: (any Error)?
     private var registrationErrorsByCount: [Int: any Error] = [:]
     private var preparedRegistrations: [CmxIrohPreparedRegistration] = []
     private var revokedBindingIDs: [String] = []
     private var relayIssueCount = 0
+    private var discoveryCount = 0
+    private var discoveryErrorsByCount: [Int: any Error] = [:]
     private var registrationCountWaiters: [
+        UUID: (minimum: Int, continuation: CheckedContinuation<Void, Never>)
+    ] = [:]
+    private var discoveryCountWaiters: [
         UUID: (minimum: Int, continuation: CheckedContinuation<Void, Never>)
     ] = [:]
 
@@ -21,10 +28,13 @@ actor TestIrohClientBroker: CmxIrohClientBrokerServing {
         binding: CmxIrohBrokerBinding,
         discovery: CmxIrohDiscoveryResponse,
         relay: CmxIrohRelayTokenResponse,
+        pairGrant: CmxIrohPairGrantResponse? = nil,
         issueRelayAtRegistration: Bool = true,
         registrationError: (any Error)? = nil,
+        discoveryErrorsByCount: [Int: any Error] = [:],
         revokeError: (any Error)? = nil,
-        registrationHook: (@Sendable (_ count: Int) async -> Void)? = nil
+        registrationHook: (@Sendable (_ count: Int) async -> Void)? = nil,
+        discoveryHook: (@Sendable (_ count: Int) async -> Void)? = nil
     ) {
         registration = CmxIrohRegistrationResponse(
             binding: binding,
@@ -32,9 +42,12 @@ actor TestIrohClientBroker: CmxIrohClientBrokerServing {
         )
         discoveryResponse = discovery
         relayResponse = relay
+        pairGrantResponse = pairGrant
         self.revokeError = revokeError
         self.registrationError = registrationError
+        self.discoveryErrorsByCount = discoveryErrorsByCount
         self.registrationHook = registrationHook
+        self.discoveryHook = discoveryHook
     }
 
     func register(
@@ -57,15 +70,30 @@ actor TestIrohClientBroker: CmxIrohClientBrokerServing {
         return registration
     }
 
-    func discover() -> CmxIrohDiscoveryResponse {
-        discoveryResponse
+    func discover() async throws -> CmxIrohDiscoveryResponse {
+        discoveryCount += 1
+        let count = discoveryCount
+        let readyIDs = discoveryCountWaiters.compactMap { id, waiter in
+            count >= waiter.minimum ? id : nil
+        }
+        for id in readyIDs {
+            discoveryCountWaiters.removeValue(forKey: id)?.continuation.resume()
+        }
+        await discoveryHook?(count)
+        if let error = discoveryErrorsByCount[discoveryCount] {
+            throw error
+        }
+        return discoveryResponse
     }
 
     func issuePairGrant(
         initiatorBindingID _: String,
         acceptorBindingID _: String
     ) throws -> CmxIrohPairGrantResponse {
-        throw TestIrohTransportError.unsupported
+        guard let pairGrantResponse else {
+            throw TestIrohTransportError.unsupported
+        }
+        return pairGrantResponse
     }
 
     func issueRelayToken(
@@ -91,6 +119,10 @@ actor TestIrohClientBroker: CmxIrohClientBrokerServing {
 
     func observedRelayIssueCount() -> Int {
         relayIssueCount
+    }
+
+    func observedDiscoveryCount() -> Int {
+        discoveryCount
     }
 
     func setRegistrationError(_ error: (any Error)?) {
@@ -138,7 +170,48 @@ actor TestIrohClientBroker: CmxIrohClientBrokerServing {
         }
     }
 
+    func waitForDiscoveryCount(_ minimum: Int) async {
+        if discoveryCount >= minimum { return }
+        let id = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if Task.isCancelled {
+                    continuation.resume()
+                } else {
+                    discoveryCountWaiters[id] = (minimum, continuation)
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelDiscoveryWaiter(id) }
+        }
+    }
+
+    func waitForDiscoveryCount(_ minimum: Int, timeout: Duration) async -> Bool {
+        if discoveryCount >= minimum { return true }
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                await self.waitForDiscoveryCount(minimum)
+                return !Task.isCancelled
+            }
+            group.addTask {
+                do {
+                    try await ContinuousClock().sleep(for: timeout)
+                } catch {
+                    return false
+                }
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
+    }
+
     private func cancelRegistrationWaiter(_ id: UUID) {
         registrationCountWaiters.removeValue(forKey: id)?.continuation.resume()
+    }
+
+    private func cancelDiscoveryWaiter(_ id: UUID) {
+        discoveryCountWaiters.removeValue(forKey: id)?.continuation.resume()
     }
 }

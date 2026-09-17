@@ -73,8 +73,9 @@ public actor TerminalRenderFrameReceiver {
         self.receivePort = port
         self.receiveSource = receiveSource
         receiveSource.setEventHandler { [weak self] in
-            Task {
-                await self?.signalReadiness()
+            guard let self else { return }
+            Task { [self] in
+                await self.signalReadiness()
             }
         }
         receiveSource.resume()

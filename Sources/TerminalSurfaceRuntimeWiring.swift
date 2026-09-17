@@ -16,6 +16,10 @@ import struct CmuxSettings.AgentIntegrationSettingsStore
 extension GhosttyApp: TerminalEngineHosting {
     var runtimeApp: ghostty_app_t? { app }
     var runtimeConfig: ghostty_config_t? { config }
+    var terminalFontConfigurationRuntimePoints: Float32 {
+        terminalFontConfigurationSnapshot()
+            .configuredRuntimePoints
+    }
     // `userGhosttyShellIntegrationMode` already matches the seam requirement.
 }
 
@@ -24,6 +28,8 @@ extension GhosttyApp: TerminalEngineHosting {
 /// Creates the concrete terminal interaction view and pane host while keeping
 /// embedded and external renderer ownership structurally separate.
 struct TerminalSurfaceViewFactory: TerminalSurfaceViewProviding {
+    let imageTransferPreparation: TerminalImageTransferPreparationService
+
     @MainActor
     func makeSurfaceViews(
         initialFrame: NSRect,
@@ -32,9 +38,15 @@ struct TerminalSurfaceViewFactory: TerminalSurfaceViewProviding {
         let view: GhosttyNSView
         switch renderOwnership {
         case .embeddedGhostty:
-            view = GhosttyNSView(frame: initialFrame)
+            view = GhosttyNSView(
+                frame: initialFrame,
+                imageTransferPreparation: imageTransferPreparation
+            )
         case .externalCompositor:
-            view = ExternalTerminalHostNSView(frame: initialFrame)
+            view = ExternalTerminalHostNSView(
+                frame: initialFrame,
+                imageTransferPreparation: imageTransferPreparation
+            )
         }
         return (view, GhosttySurfaceScrollView(surfaceView: view))
     }
@@ -128,19 +140,15 @@ extension RendererRealizationController: TerminalRendererRealizationScheduling {
 
 // MARK: Agent hibernation
 
-/// The legacy `recordAgentHibernationTerminalInput` free helper as an
-/// injected recorder: same gate, same timestamp capture, same main-actor hop.
+/// The app-owned safety tracker injected into the terminal input path.
+@MainActor
 final class TerminalAgentHibernationRecorder: AgentHibernationRecording {
     func recordTerminalInput(workspaceId: UUID, panelId: UUID) {
         guard AgentHibernationTrackingGate.isEnabled() else { return }
-        let recordedAt = Date()
-        Task { @MainActor in
-            AgentHibernationController.shared.recordTerminalInput(
-                workspaceId: workspaceId,
-                panelId: panelId,
-                recordedAt: recordedAt
-            )
-        }
+        AgentHibernationController.shared.recordTerminalInput(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
     }
 }
 
@@ -148,17 +156,33 @@ final class TerminalAgentHibernationRecorder: AgentHibernationRecording {
 
 extension TerminalSurfaceRuntimeFilesystem {
     static func live() -> TerminalSurfaceRuntimeFilesystem {
-        TerminalSurfaceRuntimeFilesystem(
-            claudeCommandShimTemporaryDirectory: FileManager.default.temporaryDirectory,
-            installClaudeCommandShim: {
-                TerminalSurface.installClaudeCommandShimIfPossible(
-                    wrapperURL: $0,
+        let hermesProfileAliasCatalog = HermesProfileAliasCatalog(
+            wrapperDirectoryURL: FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".local/bin", isDirectory: true)
+        )
+        return TerminalSurfaceRuntimeFilesystem(
+            agentCommandShimTemporaryDirectory: FileManager.default.temporaryDirectory,
+            installAgentCommandShims: {
+                let fileManager = FileManager.default
+                return await TerminalSurface.installAgentCommandShimsIfPossible(
+                    wrapperDirectoryURL: $0,
                     surfaceId: $1,
                     temporaryDirectory: $2,
-                    fileManager: .default
+                    hermesProfileAliasCatalog: hermesProfileAliasCatalog,
+                    fileManager: fileManager
                 )
             },
-            isExecutableFile: { FileManager.default.isExecutableFile(atPath: $0) }
+            removeAgentCommandShims: { shims in
+                try FileManager.default.removeItem(atPath: shims.directoryPath)
+            },
+            isExecutableFile: { FileManager.default.isExecutableFile(atPath: $0) },
+            directoryExists: { path in
+                var isDirectory: ObjCBool = false
+                return FileManager.default.fileExists(
+                    atPath: path,
+                    isDirectory: &isDirectory
+                ) && isDirectory.boolValue
+            }
         )
     }
 }
@@ -184,8 +208,9 @@ extension TerminalSurface {
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
-        manualIO: Bool = false,
-        manualInputHandler: (@Sendable (Data) -> Void)? = nil,
+        ioMode: TerminalSurfaceIOMode = .exec,
+        manualInputHandler: (@Sendable (TerminalManualInput) -> Void)? = nil,
+        manualInputKeyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
         preparePaneHost: @Sendable @MainActor (any TerminalSurfacePaneHosting) -> Void = { _ in }
     ) {
@@ -202,8 +227,9 @@ extension TerminalSurface {
             initialEnvironmentOverrides: initialEnvironmentOverrides,
             additionalEnvironment: additionalEnvironment,
             focusPlacement: focusPlacement,
-            manualIO: manualIO,
+            ioMode: ioMode,
             manualInputHandler: manualInputHandler,
+            manualInputKeyNameResolver: manualInputKeyNameResolver,
             runtimeSpawnPolicy: runtimeSpawnPolicy,
             preparePaneHost: preparePaneHost,
             dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies

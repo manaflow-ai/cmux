@@ -13,10 +13,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -24,6 +27,50 @@ import (
 	"github.com/creack/pty"
 	"nhooyr.io/websocket"
 )
+
+type doneObservedContext struct {
+	context.Context
+	observed chan<- struct{}
+}
+
+func (c doneObservedContext) Done() <-chan struct{} {
+	select {
+	case c.observed <- struct{}{}:
+	default:
+	}
+	return c.Context.Done()
+}
+
+type cancelAfterFirstErrContext struct {
+	context.Context
+	cancel context.CancelFunc
+	calls  atomic.Int32
+}
+
+func (c *cancelAfterFirstErrContext) Err() error {
+	if err := c.Context.Err(); err != nil {
+		return err
+	}
+	if c.calls.Add(1) == 1 {
+		c.cancel()
+	}
+	return nil
+}
+
+type gatedDoneContext struct {
+	context.Context
+	observed chan<- struct{}
+	release  <-chan struct{}
+}
+
+func (c gatedDoneContext) Done() <-chan struct{} {
+	select {
+	case c.observed <- struct{}{}:
+	default:
+	}
+	<-c.release
+	return c.Context.Done()
+}
 
 func newTestWebSocketPTYServer(t *testing.T, leasePath string) (*httptest.Server, *wsPTYHub) {
 	t.Helper()
@@ -52,8 +99,8 @@ func newTestWebSocketPTYServer(t *testing.T, leasePath string) (*httptest.Server
 // allocation failure (e.g. a hardened devpts mounted ptmxmode=000 where
 // /dev/ptmx cannot be opened) is reported loudly: the error returned to the
 // client names the failing device and explains the devpts cause, and the daemon
-// records the failure instead of leaving a 0-byte log. This is the regression
-// for https://github.com/manaflow-ai/cmux/issues/5185, where the failure
+// records a safe failure category instead of leaving a 0-byte log. This is the
+// regression for https://github.com/manaflow-ai/cmux/issues/5185, where the failure
 // collapsed into a generic "remote PTY attach failed" with an empty daemon log.
 func TestAttachRPCSurfacesPTYAllocationFailure(t *testing.T) {
 	stderr := &bytes.Buffer{}
@@ -93,8 +140,1019 @@ func TestAttachRPCSurfacesPTYAllocationFailure(t *testing.T) {
 	if stderr.Len() == 0 {
 		t.Fatalf("PTY allocation failure must be logged to the daemon log, not swallowed")
 	}
-	if !strings.Contains(stderr.String(), "/dev/ptmx") {
-		t.Fatalf("daemon log should include the allocation failure detail: %q", stderr.String())
+	if !strings.Contains(stderr.String(), "event=pty_start_fault") ||
+		!strings.Contains(stderr.String(), `error_category="permission_denied"`) {
+		t.Fatalf("daemon log should classify the allocation failure: %q", stderr.String())
+	}
+	if strings.Contains(stderr.String(), denied.Error()) {
+		t.Fatalf("daemon log should not persist the raw allocation failure: %q", stderr.String())
+	}
+}
+
+func TestAttachRPCStalledSessionStartDoesNotBlockHealthyReattach(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	const healthySessionID = "healthy-session"
+	if _, _, _, err := hub.attachRPC(
+		context.Background(),
+		healthySessionID,
+		"initial-attachment",
+		80,
+		24,
+		"sleep 30",
+		"",
+		false,
+		false,
+	); err != nil {
+		t.Fatalf("start healthy session: %v", err)
+	}
+
+	openPTY := hub.openPTY
+	startEntered := make(chan struct{})
+	releaseStart := make(chan struct{})
+	var startCount atomic.Int32
+	hub.openPTY = func() (*os.File, *os.File, error) {
+		if startCount.Add(1) == 1 {
+			close(startEntered)
+			<-releaseStart
+		}
+		return openPTY()
+	}
+
+	stalledResult := make(chan error, 1)
+	go func() {
+		_, _, _, err := hub.attachRPC(
+			context.Background(),
+			"stalled-session",
+			"stalled-attachment",
+			80,
+			24,
+			"sleep 30",
+			"",
+			false,
+			false,
+		)
+		stalledResult <- err
+	}()
+
+	select {
+	case <-startEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("stalled session never attempted PTY allocation")
+	}
+
+	healthyResult := make(chan error, 1)
+	go func() {
+		_, _, _, err := hub.attachRPC(
+			context.Background(),
+			healthySessionID,
+			"reattachment",
+			80,
+			24,
+			"",
+			"",
+			true,
+			false,
+		)
+		healthyResult <- err
+	}()
+
+	select {
+	case err := <-healthyResult:
+		if err != nil {
+			close(releaseStart)
+			<-stalledResult
+			t.Fatalf("reattach healthy session: %v", err)
+		}
+	case <-time.After(time.Second):
+		close(releaseStart)
+		<-stalledResult
+		<-healthyResult
+		t.Fatal("healthy reattach blocked behind another session's stalled PTY allocation")
+	}
+
+	independentResult := make(chan error, 1)
+	go func() {
+		_, _, _, err := hub.attachRPC(
+			context.Background(),
+			"independent-session",
+			"independent-attachment",
+			80,
+			24,
+			"sleep 30",
+			"",
+			false,
+			false,
+		)
+		independentResult <- err
+	}()
+	select {
+	case err := <-independentResult:
+		if err != nil {
+			close(releaseStart)
+			<-stalledResult
+			t.Fatalf("start independent session: %v", err)
+		}
+	case <-time.After(time.Second):
+		close(releaseStart)
+		<-stalledResult
+		<-independentResult
+		t.Fatal("independent session start blocked behind another session's stalled PTY allocation")
+	}
+
+	close(releaseStart)
+	if err := <-stalledResult; err != nil {
+		t.Fatalf("finish formerly stalled session start: %v", err)
+	}
+}
+
+func TestAttachRPCConcurrentSameSessionStartsOnce(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	openPTY := hub.openPTY
+	startEntered := make(chan struct{}, 2)
+	releaseStart := make(chan struct{})
+	var startCount atomic.Int32
+	hub.openPTY = func() (*os.File, *os.File, error) {
+		startCount.Add(1)
+		startEntered <- struct{}{}
+		<-releaseStart
+		return openPTY()
+	}
+
+	attach := func(ctx context.Context, attachmentID string) <-chan error {
+		result := make(chan error, 1)
+		go func() {
+			_, _, _, err := hub.attachRPC(
+				ctx,
+				"shared-session",
+				attachmentID,
+				80,
+				24,
+				"sleep 30",
+				"",
+				false,
+				false,
+			)
+			result <- err
+		}()
+		return result
+	}
+
+	firstResult := attach(context.Background(), "first-attachment")
+	select {
+	case <-startEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first attach never attempted PTY allocation")
+	}
+
+	secondWaiting := make(chan struct{}, 1)
+	secondResult := attach(
+		doneObservedContext{Context: context.Background(), observed: secondWaiting},
+		"second-attachment",
+	)
+	select {
+	case <-secondWaiting:
+	case <-time.After(time.Second):
+		close(releaseStart)
+		<-firstResult
+		<-secondResult
+		t.Fatal("second attach did not join the in-flight session start")
+	}
+	if got := startCount.Load(); got != 1 {
+		close(releaseStart)
+		<-firstResult
+		<-secondResult
+		t.Fatalf("PTY start count before release = %d, want 1", got)
+	}
+	close(releaseStart)
+
+	if err := <-firstResult; err != nil {
+		t.Fatalf("first attach: %v", err)
+	}
+	if err := <-secondResult; err != nil {
+		t.Fatalf("second attach: %v", err)
+	}
+	if got := startCount.Load(); got != 1 {
+		t.Fatalf("PTY start count = %d, want 1 for concurrent attaches to one session", got)
+	}
+
+	hub.mu.Lock()
+	session := hub.sessions[persistentPTYSessionKey("shared-session")]
+	pendingStarts := len(hub.startingSessions)
+	attachmentCount := 0
+	if session != nil {
+		attachmentCount = len(session.attachments)
+	}
+	hub.mu.Unlock()
+	if pendingStarts != 0 {
+		t.Fatalf("pending session starts = %d, want 0 after successful start", pendingStarts)
+	}
+	if attachmentCount != 2 {
+		t.Fatalf("shared session attachments = %d, want 2", attachmentCount)
+	}
+}
+
+func TestAttachRPCSharedStartSurvivesOwnerCancellation(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	openPTY := hub.openPTY
+	startEntered := make(chan struct{})
+	releaseStart := make(chan struct{})
+	hub.openPTY = func() (*os.File, *os.File, error) {
+		close(startEntered)
+		<-releaseStart
+		return openPTY()
+	}
+
+	ownerCtx, cancelOwner := context.WithCancel(context.Background())
+	ownerResult := make(chan error, 1)
+	go func() {
+		_, _, _, err := hub.attachRPC(
+			ownerCtx,
+			"owner-canceled-session",
+			"owner",
+			80,
+			24,
+			"sleep 30",
+			"",
+			false,
+			false,
+		)
+		ownerResult <- err
+	}()
+	select {
+	case <-startEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("start owner never attempted PTY allocation")
+	}
+
+	waiterJoined := make(chan struct{}, 1)
+	waiterResult := make(chan error, 1)
+	go func() {
+		_, _, _, err := hub.attachRPC(
+			doneObservedContext{Context: context.Background(), observed: waiterJoined},
+			"owner-canceled-session",
+			"waiter",
+			80,
+			24,
+			"sleep 30",
+			"",
+			false,
+			false,
+		)
+		waiterResult <- err
+	}()
+	select {
+	case <-waiterJoined:
+	case <-time.After(time.Second):
+		close(releaseStart)
+		t.Fatal("live waiter did not join the owner's in-flight start")
+	}
+
+	cancelOwner()
+	close(releaseStart)
+	if err := <-ownerResult; !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled start owner error = %v, want context canceled", err)
+	}
+	if err := <-waiterResult; err != nil {
+		t.Fatalf("live waiter failed after start owner cancellation: %v", err)
+	}
+
+	hub.mu.Lock()
+	session := hub.sessions[persistentPTYSessionKey("owner-canceled-session")]
+	attachmentCount := 0
+	if session != nil {
+		attachmentCount = len(session.attachments)
+	}
+	hub.mu.Unlock()
+	if attachmentCount != 1 {
+		t.Fatalf("shared session attachments = %d, want live waiter only", attachmentCount)
+	}
+}
+
+func TestAttachRPCSharedStartDropsWaitersCanceledBeforePublication(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	openPTY := hub.openPTY
+	startEntered := make(chan struct{})
+	releaseStart := make(chan struct{})
+	hub.openPTY = func() (*os.File, *os.File, error) {
+		close(startEntered)
+		<-releaseStart
+		return openPTY()
+	}
+
+	connectionCtx, cancelConnection := context.WithCancel(context.Background())
+	ownerResult := make(chan error, 1)
+	go func() {
+		_, _, _, err := hub.attachRPC(
+			connectionCtx,
+			"connection-canceled-session",
+			"owner",
+			80,
+			24,
+			"sleep 30",
+			"",
+			false,
+			false,
+		)
+		ownerResult <- err
+	}()
+	select {
+	case <-startEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("start owner never attempted PTY allocation")
+	}
+
+	waiterDoneObserved := make(chan struct{}, 1)
+	releaseWaiterDone := make(chan struct{})
+	waiterReleased := false
+	defer func() {
+		if !waiterReleased {
+			close(releaseWaiterDone)
+		}
+	}()
+	waiterResult := make(chan error, 1)
+	go func() {
+		_, _, _, err := hub.attachRPC(
+			gatedDoneContext{
+				Context:  connectionCtx,
+				observed: waiterDoneObserved,
+				release:  releaseWaiterDone,
+			},
+			"connection-canceled-session",
+			"waiter",
+			80,
+			24,
+			"sleep 30",
+			"",
+			false,
+			false,
+		)
+		waiterResult <- err
+	}()
+	select {
+	case <-waiterDoneObserved:
+	case <-time.After(time.Second):
+		close(releaseStart)
+		t.Fatal("same-connection waiter did not join the in-flight start")
+	}
+
+	cancelConnection()
+	close(releaseStart)
+	if err := <-ownerResult; !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled start owner error = %v, want context canceled", err)
+	}
+
+	hub.mu.Lock()
+	_, published := hub.sessions[persistentPTYSessionKey("connection-canceled-session")]
+	hub.mu.Unlock()
+	if published {
+		t.Fatal("start published a session for waiters canceled before publication")
+	}
+
+	close(releaseWaiterDone)
+	waiterReleased = true
+	if err := <-waiterResult; !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled start waiter error = %v, want context canceled", err)
+	}
+}
+
+func TestAttachRPCFastExitCoalescedWaitersShareGeneration(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	openPTY := hub.openPTY
+	startEntered := make(chan struct{})
+	releaseStart := make(chan struct{})
+	var startCount atomic.Int32
+	hub.openPTY = func() (*os.File, *os.File, error) {
+		startCount.Add(1)
+		close(startEntered)
+		<-releaseStart
+		return openPTY()
+	}
+
+	type attachResult struct {
+		attachment  *wsPTYAttachment
+		sessionDone <-chan struct{}
+		err         error
+	}
+	attach := func(ctx context.Context, attachmentID string) <-chan attachResult {
+		result := make(chan attachResult, 1)
+		go func() {
+			attachment, _, sessionDone, err := hub.attachRPC(
+				ctx,
+				"coalesced-fast-exit",
+				attachmentID,
+				80,
+				24,
+				"exit 0",
+				"",
+				false,
+				false,
+			)
+			result <- attachResult{attachment: attachment, sessionDone: sessionDone, err: err}
+		}()
+		return result
+	}
+
+	firstResult := attach(context.Background(), "first")
+	select {
+	case <-startEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first fast-exit attach never attempted PTY allocation")
+	}
+	waiterJoined := make(chan struct{}, 1)
+	releaseWaiter := make(chan struct{})
+	secondResult := attach(
+		gatedDoneContext{
+			Context:  context.Background(),
+			observed: waiterJoined,
+			release:  releaseWaiter,
+		},
+		"second",
+	)
+	select {
+	case <-waiterJoined:
+	case <-time.After(time.Second):
+		close(releaseStart)
+		close(releaseWaiter)
+		t.Fatal("second fast-exit attach did not join the in-flight generation")
+	}
+	close(releaseStart)
+
+	first := <-firstResult
+	if first.err != nil {
+		close(releaseWaiter)
+		t.Fatalf("first coalesced fast-exit attach: %v", first.err)
+	}
+	if first.attachment == nil || first.sessionDone == nil {
+		close(releaseWaiter)
+		t.Fatal("first coalesced fast-exit attach returned incomplete attachment")
+	}
+	select {
+	case <-first.sessionDone:
+	case <-time.After(5 * time.Second):
+		close(releaseWaiter)
+		t.Fatal("fast-exit process did not finish while its final claimant was pending")
+	}
+
+	hub.mu.Lock()
+	session := hub.sessions[persistentPTYSessionKey("coalesced-fast-exit")]
+	remainingClaims := 0
+	initialPhase := wsPTYSessionInitialActive
+	if session != nil {
+		remainingClaims = session.initialClaims
+		initialPhase = session.initialPhase
+	}
+	hub.mu.Unlock()
+	if session == nil {
+		close(releaseWaiter)
+		t.Fatal("fast-exit generation was removed before its final claimant consumed it")
+	}
+	if remainingClaims != 1 {
+		close(releaseWaiter)
+		t.Fatalf("fast-exit generation claims = %d, want final pending claimant", remainingClaims)
+	}
+	if initialPhase != wsPTYSessionFinishedBeforeInitialAttachment {
+		close(releaseWaiter)
+		t.Fatalf("fast-exit generation phase = %d, want finished-before-initial-attachment", initialPhase)
+	}
+	if snapshots := hub.sessionSnapshots(); len(snapshots) != 0 {
+		close(releaseWaiter)
+		t.Fatalf("fast-exit generation remained visible as running: %+v", snapshots)
+	}
+	if status := hub.writeInputByID("coalesced-fast-exit", "first", "", nil); status != wsPTYInputWriteNotFound {
+		close(releaseWaiter)
+		t.Fatalf("fast-exit generation input status = %v, want not found", status)
+	}
+	if hub.resizeByID("coalesced-fast-exit", "first", "", 100, 30) {
+		close(releaseWaiter)
+		t.Fatal("fast-exit generation remained resizable")
+	}
+
+	close(releaseWaiter)
+	second := <-secondResult
+	results := []attachResult{first, second}
+	for index, result := range results {
+		if result.err != nil {
+			t.Fatalf("coalesced fast-exit attach %d: %v", index+1, result.err)
+		}
+		if result.attachment == nil || result.sessionDone == nil {
+			t.Fatalf("coalesced fast-exit attach %d returned incomplete attachment", index+1)
+		}
+		if result.sessionDone != first.sessionDone {
+			t.Fatalf("coalesced fast-exit attach %d received a different generation", index+1)
+		}
+	}
+	if got := startCount.Load(); got != 1 {
+		t.Fatalf("coalesced fast-exit PTY start count = %d, want exactly 1", got)
+	}
+	hub.mu.Lock()
+	_, retained := hub.sessions[persistentPTYSessionKey("coalesced-fast-exit")]
+	hub.mu.Unlock()
+	if retained {
+		t.Fatal("fast-exit generation remained after its final initial claim")
+	}
+}
+
+func TestAttachRPCLateCancellationSchedulesPublishedSessionReap(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{
+		Shell:          "/bin/sh",
+		SessionIdleTTL: time.Hour,
+	}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	baseCtx, cancel := context.WithCancel(context.Background())
+	ctx := &cancelAfterFirstErrContext{Context: baseCtx, cancel: cancel}
+	_, _, _, err := hub.attachRPC(
+		ctx,
+		"late-canceled-session",
+		"late-canceled-attachment",
+		80,
+		24,
+		"sleep 30",
+		"",
+		false,
+		false,
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("late-canceled attach error = %v, want context canceled", err)
+	}
+
+	hub.mu.Lock()
+	session := hub.sessions[persistentPTYSessionKey("late-canceled-session")]
+	attachmentCount := 0
+	hasIdleTimer := false
+	if session != nil {
+		attachmentCount = len(session.attachments)
+		hasIdleTimer = session.idleTimer != nil
+	}
+	hub.mu.Unlock()
+	if session == nil {
+		t.Fatal("late-canceled published session was not retained for idle reaping")
+	}
+	if attachmentCount != 0 {
+		t.Fatalf("late-canceled session attachments = %d, want 0", attachmentCount)
+	}
+	if !hasIdleTimer {
+		t.Fatal("late-canceled published session has no idle reap timer")
+	}
+
+	reattached, _, _, err := hub.attachRPC(
+		context.Background(),
+		"late-canceled-session",
+		"replacement-attachment",
+		80,
+		24,
+		"",
+		"",
+		true,
+		false,
+	)
+	if err != nil {
+		t.Fatalf("reattach retained late-canceled session: %v", err)
+	}
+	hub.mu.Lock()
+	session = hub.sessions[persistentPTYSessionKey("late-canceled-session")]
+	attachmentCount = 0
+	hasIdleTimer = false
+	initialPhase := wsPTYSessionAwaitingInitialAttachment
+	if session != nil {
+		attachmentCount = len(session.attachments)
+		hasIdleTimer = session.idleTimer != nil
+		initialPhase = session.initialPhase
+	}
+	hub.mu.Unlock()
+	if session == nil {
+		t.Fatal("late-canceled session disappeared before replacement attach")
+	}
+	if attachmentCount != 1 {
+		t.Fatalf("reattached late-canceled session attachments = %d, want 1", attachmentCount)
+	}
+	if hasIdleTimer {
+		t.Fatal("reattached late-canceled session retained its idle reap timer")
+	}
+	if initialPhase != wsPTYSessionInitialActive {
+		t.Fatalf("reattached late-canceled session phase = %d, want active", initialPhase)
+	}
+
+	hub.dropAttachment(reattached)
+	session.terminateProcesses()
+	session.closePTYFiles()
+	waitForHubSessionCount(t, hub, 0, 5*time.Second)
+}
+
+func TestAnonymousAttachLateCancellationDropsPublishedSession(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{
+		Shell:          "/bin/sh",
+		SessionIdleTTL: time.Hour,
+	}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	baseCtx, cancel := context.WithCancel(context.Background())
+	ctx := &cancelAfterFirstErrContext{Context: baseCtx, cancel: cancel}
+	_, _, _, err := hub.prepareAttachment(
+		ctx,
+		nil,
+		"late-canceled-anonymous",
+		"",
+		80,
+		24,
+		false,
+		"sleep 30",
+		"",
+		false,
+		false,
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("late-canceled anonymous attach error = %v, want context canceled", err)
+	}
+
+	hub.mu.Lock()
+	sessionCount := len(hub.sessions)
+	hub.mu.Unlock()
+	if sessionCount != 0 {
+		t.Fatalf("anonymous sessions after late cancellation = %d, want 0", sessionCount)
+	}
+}
+
+func TestAttachRPCBoundsStalledSessionStartOwners(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	startEntered := make(chan struct{}, maxConcurrentPTYSessionStartOwnersPerHub)
+	releaseStarts := make(chan struct{})
+	released := false
+	t.Cleanup(func() {
+		if !released {
+			close(releaseStarts)
+		}
+	})
+	hub.openPTY = func() (*os.File, *os.File, error) {
+		startEntered <- struct{}{}
+		<-releaseStarts
+		return nil, nil, errors.New("test PTY start released")
+	}
+
+	results := make(chan error, maxConcurrentPTYSessionStartOwnersPerHub)
+	for i := 0; i < maxConcurrentPTYSessionStartOwnersPerHub; i++ {
+		go func(index int) {
+			_, _, _, err := hub.attachRPC(
+				context.Background(),
+				"bounded-start-"+strconv.Itoa(index),
+				"attachment",
+				80,
+				24,
+				"sleep 30",
+				"",
+				false,
+				false,
+			)
+			results <- err
+		}(i)
+	}
+	for i := 0; i < maxConcurrentPTYSessionStartOwnersPerHub; i++ {
+		select {
+		case <-startEntered:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("PTY start %d did not enter allocation", i+1)
+		}
+	}
+
+	excessResult := make(chan rpcResponse, 1)
+	server := &rpcServer{ptyHub: hub}
+	go func() {
+		excessResult <- server.handleRequest(rpcRequest{
+			ID:     1,
+			Method: "pty.attach",
+			Params: map[string]any{
+				"session_id":              "bounded-start-excess",
+				"attachment_id":           "attachment",
+				"client_attachment_token": "token",
+				"cols":                    80,
+				"rows":                    24,
+				"command":                 "sleep 30",
+			},
+		})
+	}()
+	select {
+	case response := <-excessResult:
+		if response.Error == nil || response.Error.Code != "unavailable" {
+			t.Fatalf("excess PTY start response = %+v, want unavailable error", response)
+		}
+		const wantMessage = "too many PTY sessions are already starting"
+		if response.Error.Message != wantMessage {
+			t.Fatalf("excess PTY start message = %q, want %q", response.Error.Message, wantMessage)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("excess PTY start blocked instead of failing immediately")
+	}
+
+	released = true
+	close(releaseStarts)
+	for i := 0; i < maxConcurrentPTYSessionStartOwnersPerHub; i++ {
+		<-results
+	}
+}
+
+func TestAttachRPCBoundsStalledSessionStartWaitersPerHub(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	const waiterLimit = 64
+	startEntered := make(chan struct{})
+	releaseStart := make(chan struct{})
+	released := false
+	t.Cleanup(func() {
+		if !released {
+			close(releaseStart)
+		}
+	})
+	hub.openPTY = func() (*os.File, *os.File, error) {
+		close(startEntered)
+		<-releaseStart
+		return nil, nil, errors.New("test PTY start released")
+	}
+
+	results := make(chan error, waiterLimit+1)
+	attach := func(ctx context.Context, attachmentID string) {
+		go func() {
+			_, _, _, err := hub.attachRPC(
+				ctx,
+				"bounded-waiters",
+				attachmentID,
+				80,
+				24,
+				"sleep 30",
+				"",
+				false,
+				false,
+			)
+			results <- err
+		}()
+	}
+	attach(context.Background(), "owner")
+	select {
+	case <-startEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("PTY start owner did not enter allocation")
+	}
+
+	for i := 0; i < waiterLimit; i++ {
+		waiterJoined := make(chan struct{}, 1)
+		attach(
+			doneObservedContext{Context: context.Background(), observed: waiterJoined},
+			"waiter-"+strconv.Itoa(i),
+		)
+		select {
+		case <-waiterJoined:
+		case <-time.After(time.Second):
+			t.Fatalf("PTY start waiter %d did not join", i+1)
+		}
+	}
+
+	excessResult := make(chan rpcResponse, 1)
+	server := &rpcServer{ptyHub: hub}
+	go func() {
+		excessResult <- server.handleRequest(rpcRequest{
+			ID:     1,
+			Method: "pty.attach",
+			Params: map[string]any{
+				"session_id":              "bounded-waiters",
+				"attachment_id":           "excess",
+				"client_attachment_token": "token",
+				"cols":                    80,
+				"rows":                    24,
+				"command":                 "sleep 30",
+			},
+		})
+	}()
+	select {
+	case response := <-excessResult:
+		if response.Error == nil || response.Error.Code != "unavailable" {
+			t.Fatalf("excess PTY start waiter response = %+v, want unavailable error", response)
+		}
+		const wantMessage = "too many PTY session starts are already being awaited"
+		if response.Error.Message != wantMessage {
+			t.Fatalf("excess PTY start waiter message = %q, want %q", response.Error.Message, wantMessage)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("excess PTY start waiter blocked instead of failing immediately")
+	}
+
+	released = true
+	close(releaseStart)
+	for i := 0; i < waiterLimit+1; i++ {
+		<-results
+	}
+}
+
+func TestCloseAllDoesNotWaitForStalledSessionStart(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	openPTY := hub.openPTY
+	startEntered := make(chan struct{})
+	releaseStart := make(chan struct{})
+	hub.openPTY = func() (*os.File, *os.File, error) {
+		close(startEntered)
+		<-releaseStart
+		return openPTY()
+	}
+
+	attachResult := make(chan error, 1)
+	go func() {
+		_, _, _, err := hub.attachRPC(
+			context.Background(),
+			"closing-session",
+			"closing-attachment",
+			80,
+			24,
+			"sleep 30",
+			"",
+			false,
+			false,
+		)
+		attachResult <- err
+	}()
+	select {
+	case <-startEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("session start never attempted PTY allocation")
+	}
+
+	closeDone := make(chan struct{})
+	go func() {
+		hub.closeAll()
+		close(closeDone)
+	}()
+	select {
+	case <-closeDone:
+	case <-time.After(time.Second):
+		close(releaseStart)
+		<-attachResult
+		t.Fatal("closeAll blocked behind a stalled session start")
+	}
+
+	close(releaseStart)
+	err := <-attachResult
+	if !errors.Is(err, errWSPTYHubClosed) {
+		t.Fatalf("attach after closeAll error = %v, want PTY hub closed", err)
+	}
+
+	hub.mu.Lock()
+	sessionCount := len(hub.sessions)
+	pendingStarts := len(hub.startingSessions)
+	hub.mu.Unlock()
+	if sessionCount != 0 {
+		t.Fatalf("published sessions after closeAll = %d, want 0", sessionCount)
+	}
+	if pendingStarts != 0 {
+		t.Fatalf("pending session starts after completion = %d, want 0", pendingStarts)
+	}
+}
+
+func TestWebSocketRPCStalledPTYAttachDoesNotBlockHealthyAttach(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, io.Discard)
+	t.Cleanup(hub.closeAll)
+
+	const healthySessionID = "ws-rpc-healthy"
+	if _, _, _, err := hub.attachRPC(
+		context.Background(),
+		healthySessionID,
+		"seed",
+		80,
+		24,
+		"sleep 30",
+		"seed-token",
+		false,
+		false,
+	); err != nil {
+		t.Fatalf("seed healthy PTY session: %v", err)
+	}
+
+	openPTY := hub.openPTY
+	startEntered := make(chan struct{})
+	releaseStart := make(chan struct{})
+	hub.openPTY = func() (*os.File, *os.File, error) {
+		close(startEntered)
+		<-releaseStart
+		return openPTY()
+	}
+	t.Cleanup(func() {
+		select {
+		case <-releaseStart:
+		default:
+			close(releaseStart)
+		}
+	})
+
+	rpcLeasePath := filepath.Join(t.TempDir(), "rpc-lease.json")
+	const authToken = "ws-rpc-token"
+	const authSessionID = "ws-rpc-client"
+	writeTestLease(t, rpcLeasePath, authToken, authSessionID, true, time.Now().Add(time.Minute))
+	server := httptest.NewServer(newWebSocketPTYHandler(wsPTYServerConfig{
+		PTYAuthLeaseFile: filepath.Join(t.TempDir(), "unused-pty-lease.json"),
+		RPCAuthLeaseFile: rpcLeasePath,
+		Shell:            "/bin/sh",
+		PTYHub:           hub,
+	}, io.Discard))
+	t.Cleanup(server.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/rpc"
+	conn, _, err := websocket.Dial(ctx, wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial WebSocket RPC: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close(websocket.StatusNormalClosure, "done") })
+
+	authPayload, err := json.Marshal(wsAuthFrame{
+		Type:      "auth",
+		Token:     authToken,
+		SessionID: authSessionID,
+	})
+	if err != nil {
+		t.Fatalf("marshal WebSocket RPC auth: %v", err)
+	}
+	if err := conn.Write(ctx, websocket.MessageText, authPayload); err != nil {
+		t.Fatalf("write WebSocket RPC auth: %v", err)
+	}
+	if _, payload, err := conn.Read(ctx); err != nil {
+		t.Fatalf("read WebSocket RPC ready: %v", err)
+	} else if !strings.Contains(string(payload), `"ready"`) {
+		t.Fatalf("unexpected WebSocket RPC ready frame: %s", payload)
+	}
+
+	writeRequest := func(req rpcRequest) {
+		t.Helper()
+		payload, err := json.Marshal(req)
+		if err != nil {
+			t.Fatalf("marshal WebSocket RPC request: %v", err)
+		}
+		if err := conn.Write(ctx, websocket.MessageText, payload); err != nil {
+			t.Fatalf("write WebSocket RPC request: %v", err)
+		}
+	}
+	writeRequest(rpcRequest{
+		ID:     1,
+		Method: "pty.attach",
+		Params: map[string]any{
+			"session_id":              "ws-rpc-stalled",
+			"attachment_id":           "stalled",
+			"client_attachment_token": "stalled-token",
+			"cols":                    80,
+			"rows":                    24,
+			"command":                 "sleep 30",
+		},
+	})
+	select {
+	case <-startEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("stalled WebSocket RPC attach never reached PTY allocation")
+	}
+	writeRequest(rpcRequest{
+		ID:     2,
+		Method: "pty.attach",
+		Params: map[string]any{
+			"session_id":              healthySessionID,
+			"attachment_id":           "healthy",
+			"client_attachment_token": "healthy-token",
+			"cols":                    80,
+			"rows":                    24,
+			"require_existing":        true,
+		},
+	})
+
+	for {
+		msgType, payload, err := conn.Read(ctx)
+		if err != nil {
+			t.Fatalf("read WebSocket RPC response: %v", err)
+		}
+		if msgType != websocket.MessageText {
+			continue
+		}
+		var frame map[string]any
+		if err := json.Unmarshal(payload, &frame); err != nil {
+			t.Fatalf("decode WebSocket RPC frame %q: %v", payload, err)
+		}
+		if frame["id"] == float64(1) {
+			t.Fatalf("stalled WebSocket RPC attach completed before release: %v", frame)
+		}
+		if frame["id"] == float64(2) {
+			if ok, _ := frame["ok"].(bool); !ok {
+				t.Fatalf("healthy WebSocket RPC attach failed: %v", frame)
+			}
+			return
+		}
 	}
 }
 
@@ -386,6 +1444,494 @@ func TestWebSocketPTYReconnectKeepsSessionProcess(t *testing.T) {
 	}
 	waitForBinaryContains(t, ctx, conn, "alive", 5*time.Second)
 	waitForHubSessionCount(t, hub, 0, 5*time.Second)
+}
+
+func TestWebSocketPTYReconnectKeepsForegroundProcessAfterHangup(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("foreground PTY hangup delivery is a Linux terminal-session regression")
+	}
+	leasePath := filepath.Join(t.TempDir(), "lease.json")
+	server, hub := newTestWebSocketPTYServer(t, leasePath)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	writeTestLease(t, leasePath, "first-token", "sess-hangup", true, time.Now().Add(time.Minute))
+	conn := dialPTY(t, ctx, server.URL)
+	sendAuthWithAttachment(t, ctx, conn, "first-token", "sess-hangup", "same", 80, 24)
+	readReady(t, ctx, conn)
+	command := `sh -c 'printf "%b=%s\n" "\103\115\125\130\137\110\125\120\137\103\110\111\114\104\137\120\111\104" "$$"; trap "printf \"%b\\n\" \"\\103\\115\\125\\130\\137\\110\\125\\120\\137\\103\\110\\111\\114\\104\\137\\101\\114\\111\\126\\105\"" USR1; while :; do sleep 1; done'` + "\r"
+	if err := conn.Write(ctx, websocket.MessageBinary, []byte(command)); err != nil {
+		t.Fatalf("launch foreground process: %v", err)
+	}
+	const pidMarker = "CMUX_HUP_CHILD_PID="
+	output := waitForBinaryContains(t, ctx, conn, pidMarker, 5*time.Second)
+	markerIndex := strings.LastIndex(output, pidMarker)
+	pidStart := markerIndex + len(pidMarker)
+	pidEnd := pidStart
+	for pidEnd < len(output) && output[pidEnd] >= '0' && output[pidEnd] <= '9' {
+		pidEnd++
+	}
+	childPID, err := strconv.Atoi(output[pidStart:pidEnd])
+	if err != nil || childPID <= 0 {
+		t.Fatalf("parse foreground process pid from output %q: pid=%d err=%v", output, childPID, err)
+	}
+	t.Cleanup(func() { _ = syscall.Kill(-childPID, syscall.SIGKILL) })
+
+	_ = conn.Close(websocket.StatusNormalClosure, "relay drop")
+	waitForHubSessionSize(t, hub, "sess-hangup", 0, 80, 24, 5*time.Second)
+	if err := syscall.Kill(-childPID, syscall.SIGHUP); err != nil {
+		t.Fatalf("deliver hangup to foreground process group: %v", err)
+	}
+
+	writeTestLease(t, leasePath, "second-token", "sess-hangup", true, time.Now().Add(time.Minute))
+	conn = dialPTY(t, ctx, server.URL)
+	defer conn.Close(websocket.StatusNormalClosure, "done")
+	sendAuthWithAttachment(t, ctx, conn, "second-token", "sess-hangup", "same", 80, 24)
+	readReady(t, ctx, conn)
+	waitForBinaryContains(t, ctx, conn, pidMarker, 5*time.Second)
+	if err := syscall.Kill(-childPID, syscall.SIGUSR1); err != nil {
+		t.Fatalf("foreground process did not survive hangup: %v", err)
+	}
+	waitForBinaryContains(t, ctx, conn, "CMUX_HUP_CHILD_ALIVE", 5*time.Second)
+
+	_ = syscall.Kill(-childPID, syscall.SIGKILL)
+	if err := conn.Write(ctx, websocket.MessageBinary, []byte("exit\r")); err != nil {
+		t.Fatalf("exit reattached shell: %v", err)
+	}
+	waitForHubSessionCount(t, hub, 0, 5*time.Second)
+}
+
+func TestWebSocketPTYPersistentInteractiveBashChildSurvivesHangup(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("interactive PTY hangup delivery is a Linux terminal-session regression")
+	}
+	if _, err := os.Stat("/bin/bash"); err != nil {
+		t.Skipf("interactive Bash is unavailable: %v", err)
+	}
+	if _, err := os.Stat("/usr/bin/python3"); err != nil {
+		t.Skipf("Python hangup fixture is unavailable: %v", err)
+	}
+	leasePath := filepath.Join(t.TempDir(), "lease.json")
+	server, hub := newTestWebSocketPTYServer(t, leasePath)
+	const sessionID = "sess-interactive-hangup"
+	if err := func() error {
+		hub.mu.Lock()
+		defer hub.mu.Unlock()
+		startupCommand := `/bin/true; if [ -n "${CMUX_PERSISTENT_PTY_EXEC_HELPER:-}" ]; then exec "$CMUX_PERSISTENT_PTY_EXEC_HELPER" --internal-persistent-pty-exec /bin/bash /bin/bash --noprofile --norc -i; fi; exec /bin/bash --noprofile --norc -i`
+		session, err := hub.startSession(
+			persistentPTYSessionKey(sessionID),
+			sessionID,
+			80,
+			24,
+			startupCommand,
+		)
+		if err != nil {
+			return err
+		}
+		hub.sessions[session.key] = session
+		hub.runSession(session)
+		return nil
+	}(); err != nil {
+		t.Fatalf("start persistent interactive Bash session: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	writeTestLease(t, leasePath, "interactive-token", sessionID, true, time.Now().Add(time.Minute))
+	conn := dialPTY(t, ctx, server.URL)
+	defer conn.Close(websocket.StatusNormalClosure, "done")
+	sendAuthWithAttachment(t, ctx, conn, "interactive-token", sessionID, "same", 80, 24)
+	readReady(t, ctx, conn)
+	// Prove that the interactive Bash has started through an input/output
+	// handshake. Do not infer readiness from prompt text: PS1 is environment-
+	// specific and need not contain the word "bash".
+	const bashReadyMarker = "CMUX_INTERACTIVE_BASH_READY"
+	bashReadyCommand := `test -n "${BASH_VERSION:-}" && printf 'CMUX_INTERACTIVE_%s version=%s\n' BASH_READY "$BASH_VERSION"` + "\r"
+	if err := conn.Write(ctx, websocket.MessageBinary, []byte(bashReadyCommand)); err != nil {
+		t.Fatalf("send interactive Bash readiness probe: %v", err)
+	}
+	waitForBinaryContains(t, ctx, conn, bashReadyMarker, 5*time.Second)
+
+	// The production bootstrap runs external programs before its final login
+	// shell. Agent runtimes may then restore SIGHUP's default disposition, so
+	// both foreground and background jobs must inherit protection from that
+	// final exec boundary instead of depending on the outer /bin/sh process.
+	backgroundCode := `import os,signal,time;signal.signal(signal.SIGHUP,signal.SIG_DFL);status=open("/proc/self/status").read();mask=int(next(line for line in status.splitlines() if line.startswith("SigBlk:")).split()[1],16);blocked=bool(mask&1);ignored=signal.getsignal(signal.SIGHUP)==signal.SIG_IGN;print("CMUX_"+"BACKGROUND_HUP_HELPER pid=%d blocked=%s ignored=%s protected=%s"%(os.getpid(),str(blocked).lower(),str(ignored).lower(),str(blocked or ignored).lower()),flush=True);signal.signal(signal.SIGUSR1,lambda *_:print("CMUX_"+"BACKGROUND_HUP_HELPER alive",flush=True));time.sleep(1000000)`
+	if err := conn.Write(ctx, websocket.MessageBinary, []byte("set -m; /usr/bin/python3 -u -c '"+backgroundCode+"' &\r")); err != nil {
+		t.Fatalf("launch background helper from interactive Bash: %v", err)
+	}
+	const backgroundPIDMarker = "CMUX_BACKGROUND_HUP_HELPER pid="
+	backgroundOutput := waitForBinaryContains(t, ctx, conn, backgroundPIDMarker, 5*time.Second)
+
+	foregroundCode := `import os,signal,time;signal.signal(signal.SIGHUP,signal.SIG_DFL);status=open("/proc/self/status").read();mask=int(next(line for line in status.splitlines() if line.startswith("SigBlk:")).split()[1],16);blocked=bool(mask&1);ignored=signal.getsignal(signal.SIGHUP)==signal.SIG_IGN;print("CMUX_"+"FOREGROUND_HUP_HELPER pid=%d blocked=%s ignored=%s protected=%s"%(os.getpid(),str(blocked).lower(),str(ignored).lower(),str(blocked or ignored).lower()),flush=True);signal.signal(signal.SIGUSR1,lambda *_:print("CMUX_"+"FOREGROUND_HUP_HELPER alive",flush=True));time.sleep(1000000)`
+	command := "/usr/bin/python3 -u -c '" + foregroundCode + "'\r"
+	if err := conn.Write(ctx, websocket.MessageBinary, []byte(command)); err != nil {
+		t.Fatalf("launch foreground helper from interactive Bash: %v", err)
+	}
+	const foregroundPIDMarker = "CMUX_FOREGROUND_HUP_HELPER pid="
+	foregroundOutput := waitForBinaryContains(t, ctx, conn, foregroundPIDMarker, 5*time.Second)
+	parsePID := func(output string, marker string) (int, string) {
+		markerIndex := strings.LastIndex(output, marker)
+		pidStart := markerIndex + len(marker)
+		pidEnd := pidStart
+		for pidEnd < len(output) && output[pidEnd] >= '0' && output[pidEnd] <= '9' {
+			pidEnd++
+		}
+		pid, parseErr := strconv.Atoi(output[pidStart:pidEnd])
+		if parseErr != nil || pid <= 0 {
+			t.Fatalf("parse interactive helper pid from output %q marker=%q: pid=%d err=%v", output, marker, pid, parseErr)
+		}
+		return pid, output[markerIndex:]
+	}
+	backgroundPID, backgroundProtection := parsePID(backgroundOutput, backgroundPIDMarker)
+	foregroundPID, foregroundProtection := parsePID(foregroundOutput, foregroundPIDMarker)
+	t.Logf("interactive background helper state: %q", backgroundProtection)
+	t.Logf("interactive foreground helper state: %q", foregroundProtection)
+	t.Cleanup(func() {
+		_ = syscall.Kill(-foregroundPID, syscall.SIGKILL)
+		_ = syscall.Kill(-backgroundPID, syscall.SIGKILL)
+	})
+
+	_ = conn.Close(websocket.StatusNormalClosure, "relay drop")
+	waitForHubSessionSize(t, hub, sessionID, 0, 80, 24, 5*time.Second)
+	if err := syscall.Kill(-foregroundPID, syscall.SIGHUP); err != nil {
+		t.Fatalf("deliver hangup to interactive foreground process group: %v", err)
+	}
+	if err := syscall.Kill(-backgroundPID, syscall.SIGHUP); err != nil {
+		t.Fatalf("deliver hangup to interactive background process group: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if err := syscall.Kill(-foregroundPID, syscall.SIGUSR1); err != nil {
+		t.Fatalf("interactive foreground helper did not survive hangup: %v", err)
+	}
+	if err := syscall.Kill(-backgroundPID, syscall.SIGUSR1); err != nil {
+		t.Fatalf("interactive background helper did not survive hangup: %v", err)
+	}
+
+	writeTestLease(t, leasePath, "reattach-token", sessionID, true, time.Now().Add(time.Minute))
+	conn = dialPTY(t, ctx, server.URL)
+	sendAuthWithAttachment(t, ctx, conn, "reattach-token", sessionID, "same", 80, 24)
+	readReady(t, ctx, conn)
+	waitForBinaryContainsAll(t, ctx, conn, []string{
+		"CMUX_FOREGROUND_HUP_HELPER alive",
+		"CMUX_BACKGROUND_HUP_HELPER alive",
+	}, 5*time.Second)
+	if !strings.Contains(foregroundProtection, "blocked=true ignored=false protected=true") {
+		t.Fatalf("interactive Bash foreground child did not inherit blocked SIGHUP: %q", foregroundProtection)
+	}
+	if !strings.Contains(backgroundProtection, "blocked=true ignored=false protected=true") {
+		t.Fatalf("interactive Bash background child did not inherit blocked SIGHUP: %q", backgroundProtection)
+	}
+
+	_ = syscall.Kill(-foregroundPID, syscall.SIGKILL)
+	_ = syscall.Kill(-backgroundPID, syscall.SIGKILL)
+	if err := conn.Write(ctx, websocket.MessageBinary, []byte("exit\r")); err != nil {
+		t.Fatalf("exit reattached shell: %v", err)
+	}
+	waitForHubSessionCount(t, hub, 0, 5*time.Second)
+}
+
+func TestPersistentPTYExecHelperKeepsHangupBlockedAcrossExec(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("persistent PTY exec helper is supported on Darwin and Linux")
+	}
+	if os.Getenv("CMUX_PERSISTENT_PTY_EXEC_TEST_CHILD") == "1" {
+		signal.Reset(syscall.SIGHUP)
+		if err := syscall.Kill(os.Getpid(), syscall.SIGHUP); err != nil {
+			t.Fatalf("send SIGHUP to helper child: %v", err)
+		}
+		_, _ = os.Stdout.WriteString("CMUX_PERSISTENT_PTY_EXEC_SURVIVED\n")
+		return
+	}
+
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("resolve test executable: %v", err)
+	}
+	cmd := exec.Command(
+		executable,
+		persistentPTYExecHelperArgument,
+		executable,
+		executable,
+		"-test.run",
+		"^TestPersistentPTYExecHelperKeepsHangupBlockedAcrossExec$",
+	)
+	cmd.Env = append(os.Environ(), "CMUX_PERSISTENT_PTY_EXEC_TEST_CHILD=1")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("persistent PTY exec helper child failed: %v output=%q", err, output)
+	}
+	if !bytes.Contains(output, []byte("CMUX_PERSISTENT_PTY_EXEC_SURVIVED")) {
+		t.Fatalf("persistent PTY exec helper child did not survive SIGHUP: %q", output)
+	}
+}
+
+func TestPersistentPTYExecHelperResolvesBareExecutableFromPATH(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("persistent PTY exec helper is supported on Darwin and Linux")
+	}
+	if os.Getenv("CMUX_PERSISTENT_PTY_PATH_LOOKUP_TEST_CHILD") == "1" {
+		_, _ = os.Stdout.WriteString("CMUX_PERSISTENT_PTY_PATH_LOOKUP_OK\n")
+		return
+	}
+
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("resolve test executable: %v", err)
+	}
+	bin := t.TempDir()
+	for _, helperName := range []string{"bash", "cmux-custom-shell"} {
+		t.Run(helperName, func(t *testing.T) {
+			if err := os.Symlink(executable, filepath.Join(bin, helperName)); err != nil {
+				t.Fatalf("link helper test executable: %v", err)
+			}
+			cmd := exec.Command(
+				executable,
+				persistentPTYExecHelperArgument,
+				helperName,
+				helperName,
+				"-test.run",
+				"^TestPersistentPTYExecHelperResolvesBareExecutableFromPATH$",
+			)
+			cmd.Env = append(os.Environ(),
+				"PATH="+bin,
+				"CMUX_PERSISTENT_PTY_PATH_LOOKUP_TEST_CHILD=1",
+			)
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("persistent PTY exec helper did not resolve bare executable %q through PATH: %v output=%q", helperName, err, output)
+			}
+			if !bytes.Contains(output, []byte("CMUX_PERSISTENT_PTY_PATH_LOOKUP_OK")) {
+				t.Fatalf("persistent PTY exec helper child did not run through PATH: %q", output)
+			}
+		})
+	}
+}
+
+func TestPersistentPTYCommandOverridesStaleExecHelperEnvironment(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("resolve test executable: %v", err)
+	}
+	cmd := exec.Command("/bin/sh", "-c", `test "$CMUX_PERSISTENT_PTY_EXEC_HELPER" = "$CMUX_EXPECTED_PTY_EXEC_HELPER"`)
+	cmd.Env = append(os.Environ(),
+		persistentPTYExecHelperEnvironment+"=/missing/cmuxd-remote",
+		"CMUX_EXPECTED_PTY_EXEC_HELPER="+executable,
+	)
+	wrapped, err := persistentPTYCommand(cmd)
+	if err != nil {
+		t.Fatalf("wrap persistent PTY command: %v", err)
+	}
+	if output, err := wrapped.CombinedOutput(); err != nil {
+		t.Fatalf("wrapped command did not receive authoritative helper path: %v output=%q", err, output)
+	}
+}
+
+func TestWebSocketPTYAnonymousSessionExitsOnHangup(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("foreground PTY hangup delivery is a Linux terminal-session regression")
+	}
+	hangupWasIgnored := signal.Ignored(syscall.SIGHUP)
+	signal.Reset(syscall.SIGHUP)
+	t.Cleanup(func() {
+		if hangupWasIgnored {
+			signal.Ignore(syscall.SIGHUP)
+		}
+	})
+	leasePath := filepath.Join(t.TempDir(), "lease.json")
+	server, _ := newTestWebSocketPTYServer(t, leasePath)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	writeTestLease(t, leasePath, "anonymous-token", "anonymous-hangup", true, time.Now().Add(time.Minute))
+	conn := dialPTY(t, ctx, server.URL)
+	defer conn.Close(websocket.StatusNormalClosure, "done")
+	sendAuth(t, ctx, conn, "anonymous-token", "anonymous-hangup", 80, 24)
+	readReady(t, ctx, conn)
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("resolve test executable: %v", err)
+	}
+	command := "CMUX_ANON_HUP_HELPER=1 exec " + strconv.Quote(executable) + " -test.run '^TestWebSocketPTYAnonymousHangupHelper$'\r"
+	if err := conn.Write(ctx, websocket.MessageBinary, []byte(command)); err != nil {
+		t.Fatalf("launch anonymous foreground process: %v", err)
+	}
+	const pidMarker = "CMUX_ANON_HUP_HELPER pid="
+	output := waitForBinaryContains(t, ctx, conn, pidMarker, 5*time.Second)
+	markerIndex := strings.LastIndex(output, pidMarker)
+	pidStart := markerIndex + len(pidMarker)
+	pidEnd := pidStart
+	for pidEnd < len(output) && output[pidEnd] >= '0' && output[pidEnd] <= '9' {
+		pidEnd++
+	}
+	childPID, err := strconv.Atoi(output[pidStart:pidEnd])
+	if err != nil || childPID <= 0 {
+		t.Fatalf("parse anonymous foreground process pid from output %q: pid=%d err=%v", output, childPID, err)
+	}
+	if !strings.Contains(output[markerIndex:], "ignored=false") {
+		t.Fatalf("anonymous foreground process inherited ignored SIGHUP: %q", output[markerIndex:])
+	}
+	t.Cleanup(func() { _ = syscall.Kill(-childPID, syscall.SIGKILL) })
+
+	if err := syscall.Kill(-childPID, syscall.SIGHUP); err != nil {
+		t.Fatalf("deliver hangup to anonymous foreground process group: %v", err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := syscall.Kill(-childPID, 0); errors.Is(err, syscall.ESRCH) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("anonymous foreground process group %d ignored SIGHUP", childPID)
+}
+
+func TestWebSocketPTYAnonymousHangupHelper(t *testing.T) {
+	if os.Getenv("CMUX_ANON_HUP_HELPER") != "1" {
+		return
+	}
+	_, _ = os.Stdout.WriteString(
+		"CMUX_ANON_HUP_HELPER pid=" + strconv.Itoa(os.Getpid()) +
+			" ignored=" + strconv.FormatBool(signal.Ignored(syscall.SIGHUP)) + "\n",
+	)
+	select {}
+}
+
+func TestTerminateProcessesSerializesPTYClose(t *testing.T) {
+	ptyFile, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatalf("open PTY stand-in: %v", err)
+	}
+	session := &wsPTYSession{ptyFile: ptyFile}
+	lookupStarted := make(chan struct{})
+	releaseLookup := make(chan struct{})
+	terminated := make(chan struct{})
+	go func() {
+		session.terminateProcessesWithForegroundGroupLookup(func(*os.File) int {
+			close(lookupStarted)
+			<-releaseLookup
+			return 0
+		})
+		close(terminated)
+	}()
+	<-lookupStarted
+
+	closed := make(chan struct{})
+	go func() {
+		session.closePTYFile()
+		close(closed)
+	}()
+	select {
+	case <-closed:
+		t.Fatal("PTY closed while foreground process-group lookup held its descriptor")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(releaseLookup)
+	select {
+	case <-terminated:
+	case <-time.After(5 * time.Second):
+		t.Fatal("process termination did not finish after lookup was released")
+	}
+	select {
+	case <-closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("PTY close did not finish after process termination released the descriptor")
+	}
+	if session.ptyFileSnapshot() != nil {
+		t.Fatal("closed PTY descriptor remained available to later operations")
+	}
+}
+
+func TestTerminateProcessesRunsOnlyOnce(t *testing.T) {
+	ptyFile, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatalf("open PTY stand-in: %v", err)
+	}
+	t.Cleanup(func() { _ = ptyFile.Close() })
+
+	session := &wsPTYSession{ptyFile: ptyFile}
+	lookupCount := 0
+	lookup := func(*os.File) int {
+		lookupCount++
+		return 0
+	}
+	session.terminateProcessesWithForegroundGroupLookup(lookup)
+	session.terminateProcessesWithForegroundGroupLookup(lookup)
+
+	if lookupCount != 1 {
+		t.Fatalf("process teardown ran %d times, want exactly once", lookupCount)
+	}
+}
+
+func TestWaitSessionProcessDrainsBufferedOutputBeforeForcedMasterClose(t *testing.T) {
+	master, slave, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("open buffered output pipe: %v", err)
+	}
+	heldSlaveFD, err := syscall.Dup(int(slave.Fd()))
+	if err != nil {
+		_ = master.Close()
+		_ = slave.Close()
+		t.Fatalf("duplicate escaped slave holder: %v", err)
+	}
+	heldSlave := os.NewFile(uintptr(heldSlaveFD), "escaped-slave-holder")
+	t.Cleanup(func() {
+		_ = master.Close()
+		_ = slave.Close()
+		_ = heldSlave.Close()
+	})
+
+	const marker = "CMUX_BUFFERED_FAST_EXIT_OUTPUT\n"
+	if _, err := slave.Write([]byte(marker)); err != nil {
+		t.Fatalf("buffer fast-exit output: %v", err)
+	}
+	command := exec.Command("/bin/sh", "-c", "exit 0")
+	if err := command.Start(); err != nil {
+		t.Fatalf("start fast-exit command: %v", err)
+	}
+
+	hub := newWebSocketPTYHub(wsPTYServerConfig{}, io.Discard)
+	t.Cleanup(hub.closeAll)
+	session := &wsPTYSession{
+		id:           "buffered-fast-exit",
+		key:          persistentPTYSessionKey("buffered-fast-exit"),
+		cmd:          command,
+		ptyFile:      master,
+		ttyFile:      slave,
+		attachments:  map[string]*wsPTYAttachment{},
+		done:         make(chan struct{}),
+		initialPhase: wsPTYSessionInitialActive,
+	}
+	hub.sessions[session.key] = session
+
+	go hub.pumpSession(session)
+	waiterDone := make(chan struct{})
+	go func() {
+		hub.waitSessionProcess(session)
+		close(waiterDone)
+	}()
+
+	select {
+	case <-waiterDone:
+	case <-time.After(defaultPTYExitDrainTimeout + 2*time.Second):
+		t.Fatal("process waiter did not force-close the master after its drain deadline")
+	}
+	select {
+	case <-session.done:
+	case <-time.After(time.Second):
+		t.Fatal("forced master close did not finish the escaped-holder session")
+	}
+
+	if got := string(session.scrollback); got != marker {
+		t.Fatalf("drained buffered output = %q, want %q", got, marker)
+	}
+	if _, err := heldSlave.Stat(); err != nil {
+		t.Fatalf("escaped slave holder closed before the master drain deadline: %v", err)
+	}
 }
 
 func TestWebSocketPTYReplacedAttachmentCannotWriteInput(t *testing.T) {
@@ -1264,6 +2810,64 @@ func TestWebSocketPTYReapsDetachedIdleSession(t *testing.T) {
 	waitForHubSessionCount(t, hub, 0, 5*time.Second)
 }
 
+func TestWebSocketPTYCountsIdleSessionUntilTeardownCompletes(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{}, io.Discard)
+	sessionKey := persistentPTYSessionKey("teardown-in-flight")
+	session := &wsPTYSession{
+		id:          "teardown-in-flight",
+		key:         sessionKey,
+		attachments: map[string]*wsPTYAttachment{},
+		done:        make(chan struct{}),
+	}
+	hub.mu.Lock()
+	hub.sessions[sessionKey] = session
+	hub.mu.Unlock()
+
+	// Hold the PTY-file mutex so the idle reaper can remove the session from
+	// the map but cannot finish terminateProcesses or closePTYFiles.
+	session.ptyFileMu.Lock()
+	ptyFileLocked := true
+	teardownDone := make(chan struct{})
+	go func() {
+		hub.reapIdleSession(session)
+		close(teardownDone)
+	}()
+	defer func() {
+		if ptyFileLocked {
+			session.ptyFileMu.Unlock()
+			<-teardownDone
+		}
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		hub.mu.Lock()
+		_, retained := hub.sessions[sessionKey]
+		hub.mu.Unlock()
+		if !retained {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("idle reaper did not begin session teardown")
+		}
+		runtime.Gosched()
+	}
+
+	if got := hub.activeSessionCount(); got != 1 {
+		t.Fatalf("hub activity during session teardown = %d, want 1", got)
+	}
+	session.ptyFileMu.Unlock()
+	ptyFileLocked = false
+	select {
+	case <-teardownDone:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("idle session teardown did not finish")
+	}
+	if got := hub.activeSessionCount(); got != 0 {
+		t.Fatalf("hub activity after session teardown = %d, want 0", got)
+	}
+}
+
 func TestWebSocketPTYScrollbackDoesNotRetainOversizedChunks(t *testing.T) {
 	hub := newWebSocketPTYHub(wsPTYServerConfig{
 		Shell:           "/bin/sh",
@@ -1293,6 +2897,52 @@ func TestWebSocketPTYScrollbackDoesNotRetainOversizedChunks(t *testing.T) {
 	if !strings.HasSuffix(string(session.scrollback), "tail") {
 		t.Fatalf("scrollback should retain newest output, got suffix %q", string(session.scrollback[len(session.scrollback)-16:]))
 	}
+}
+
+func TestDefaultWebSocketPTYEnvAddsStandardExecutableDirectories(t *testing.T) {
+	tests := []struct {
+		name          string
+		inheritedPath string
+	}{
+		{name: "restricted daemon PATH", inheritedPath: "/opt/cmux/bin"},
+		{name: "empty daemon PATH", inheritedPath: ""},
+		{name: "partially complete daemon PATH", inheritedPath: "/opt/cmux/bin:/usr/bin"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("PATH", test.inheritedPath)
+
+			env, _ := envMapWithOrder(defaultWebSocketPTYEnv("/bin/sh"))
+			pathEntries := strings.Split(env["PATH"], string(os.PathListSeparator))
+			inheritedPrefix := test.inheritedPath + string(os.PathListSeparator)
+			if test.inheritedPath != "" && env["PATH"] != test.inheritedPath && !strings.HasPrefix(env["PATH"], inheritedPrefix) {
+				t.Fatalf("PATH should preserve inherited entries first, got %q", env["PATH"])
+			}
+			for _, standardDirectory := range []string{
+				"/usr/local/bin",
+				"/usr/bin",
+				"/bin",
+				"/usr/local/sbin",
+				"/usr/sbin",
+				"/sbin",
+			} {
+				if count := countStrings(pathEntries, standardDirectory); count != 1 {
+					t.Errorf("PATH %q contains standard directory %q %d times, want once", env["PATH"], standardDirectory, count)
+				}
+			}
+		})
+	}
+}
+
+func countStrings(values []string, target string) int {
+	count := 0
+	for _, value := range values {
+		if value == target {
+			count++
+		}
+	}
+	return count
 }
 
 func TestWebSocketPTYSeedsUTF8LocaleAndTerminalEnv(t *testing.T) {
@@ -1407,6 +3057,40 @@ func readReady(t *testing.T, ctx context.Context, conn *websocket.Conn) {
 func waitForBinaryContains(t *testing.T, ctx context.Context, conn *websocket.Conn, needle string, timeout time.Duration) string {
 	t.Helper()
 	return waitForBinaryContainsLabel(t, ctx, conn, needle, needle, timeout)
+}
+
+func waitForBinaryContainsAll(t *testing.T, ctx context.Context, conn *websocket.Conn, needles []string, timeout time.Duration) string {
+	t.Helper()
+	var output strings.Builder
+	deadline := time.Now().Add(timeout)
+	closeOnTimeout := time.AfterFunc(timeout, func() {
+		_ = conn.Close(websocket.StatusNormalClosure, "test read timeout")
+	})
+	defer closeOnTimeout.Stop()
+	for time.Now().Before(deadline) {
+		readCtx, cancelRead := context.WithTimeout(ctx, time.Until(deadline))
+		msgType, payload, err := conn.Read(readCtx)
+		cancelRead()
+		if err != nil {
+			t.Fatalf("read terminal output while waiting for %q: %v output=%q", needles, err, output.String())
+		}
+		if msgType != websocket.MessageBinary {
+			continue
+		}
+		output.Write(payload)
+		matchedAll := true
+		for _, needle := range needles {
+			if !strings.Contains(output.String(), needle) {
+				matchedAll = false
+				break
+			}
+		}
+		if matchedAll {
+			return output.String()
+		}
+	}
+	t.Fatalf("timed out waiting for %q, got %q", needles, output.String())
+	return output.String()
 }
 
 func waitForBinaryContainsLabel(t *testing.T, ctx context.Context, conn *websocket.Conn, label string, needle string, timeout time.Duration) string {
@@ -1556,9 +3240,13 @@ func (h *wsPTYHub) sessionPTYSize(sessionID string) (cols int, rows int, ok bool
 
 	session.ptyWriteMu.Lock()
 	defer session.ptyWriteMu.Unlock()
-	sizeFile := session.ptyFile
-
-	size, err := pty.GetsizeFull(sizeFile)
+	var size *pty.Winsize
+	available := session.withPTYFileLocked(func(sizeFile *os.File) {
+		size, err = pty.GetsizeFull(sizeFile)
+	})
+	if !available {
+		return 0, 0, true, os.ErrClosed
+	}
 	if err != nil {
 		return 0, 0, true, err
 	}

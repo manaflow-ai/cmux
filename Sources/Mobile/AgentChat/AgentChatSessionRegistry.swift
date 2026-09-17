@@ -10,6 +10,9 @@ final class AgentChatSessionRegistry {
     private var sessionSurfaceIndex = ChatSessionSurfaceIndex<String>()
     private var liveSessionIDBySurfaceID: [String: String] = [:]
     private var liveClaudeSessionIDsBySurfaceID: [String: Set<String>] = [:]
+    static let codexHookBindingCapacity = 256
+    /// Latest authoritative Codex hook/store binding per terminal surface.
+    var codexHookBindingBySurfaceID: [String: (sessionID: String, updatedAt: Date)] = [:]
     private let hookStore: AgentChatHookSessionStore
 
     /// Called after a record mutation with the previous value (nil for a
@@ -291,6 +294,13 @@ final class AgentChatSessionRegistry {
             store.entry(agentSource: source, sessionID: lookupSessionID)
         }.value
         guard let entry else { return records[sessionID] }
+        if source == "codex", let surfaceID = entry.surfaceID {
+            rememberCodexHookBinding(
+                sessionID: entry.sessionID,
+                surfaceID: surfaceID,
+                updatedAt: entry.updatedAt ?? .distantPast
+            )
+        }
         update(sessionID: sessionID) { $0.adoptBindings(from: entry, includingPID: false) }
         return records[sessionID]
     }
@@ -359,6 +369,13 @@ final class AgentChatSessionRegistry {
         for (source, entries) in parsed {
             let kind = ChatAgentKind(source: source)
             for entry in entries {
+                if source == "codex", let surfaceID = entry.surfaceID {
+                    rememberCodexHookBinding(
+                        sessionID: entry.sessionID,
+                        surfaceID: surfaceID,
+                        updatedAt: entry.updatedAt ?? .distantPast
+                    )
+                }
                 let sessionID = canonicalClaudeSessionID(
                     incomingSessionID: entry.sessionID,
                     source: source,
@@ -406,6 +423,15 @@ final class AgentChatSessionRegistry {
     @discardableResult
     func noteHookEvent(_ event: WorkstreamEvent) -> AgentChatSessionRecord {
         let hookSessionID = Self.normalizedSessionID(event.sessionId, source: event.source)
+        if event.source == "codex",
+           let surfaceID = event.surfaceId,
+           !surfaceID.isEmpty {
+            rememberCodexHookBinding(
+                sessionID: hookSessionID,
+                surfaceID: surfaceID,
+                updatedAt: event.receivedAt
+            )
+        }
         let sessionID = canonicalClaudeSessionID(
             incomingSessionID: hookSessionID,
             source: event.source,
@@ -658,6 +684,13 @@ final class AgentChatSessionRegistry {
                 store.entry(agentSource: agentSource, sessionID: lookupSessionID)
             }.value
             guard let self, let entry else { return }
+            if agentSource == "codex", let surfaceID = entry.surfaceID {
+                self.rememberCodexHookBinding(
+                    sessionID: entry.sessionID,
+                    surfaceID: surfaceID,
+                    updatedAt: entry.updatedAt ?? .distantPast
+                )
+            }
             self.applyStoreBackfill(sessionID: sessionID, entry: entry)
         }
     }

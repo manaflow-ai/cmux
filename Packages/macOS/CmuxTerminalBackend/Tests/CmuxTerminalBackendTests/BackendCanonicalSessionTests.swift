@@ -4,6 +4,13 @@ import Testing
 
 @Suite("Canonical backend session")
 struct BackendCanonicalSessionTests {
+    private struct InvalidRendererReceiptScenario: Sendable {
+        let revision: UInt64
+        let floorDigest: String
+        let receiptDigest: String
+        let error: BackendRendererConfigValidationError
+    }
+
     @Test("v9 registers before topology and serializes leased input and geometry")
     func leasedTerminalControl() async throws {
         let transport = ScriptedBackendTransport()
@@ -941,6 +948,7 @@ struct BackendCanonicalSessionTests {
     @Test("snapshot fence resumes into contiguous topology deltas")
     func snapshotThenDelta() async throws {
         let transport = ScriptedBackendTransport()
+        let identity = testRegistrationIdentity()
         let authority = BackendAuthority(
             daemonInstanceID: DaemonInstanceID(rawValue: UUID()),
             sessionID: SessionID(rawValue: UUID())
@@ -952,17 +960,19 @@ struct BackendCanonicalSessionTests {
                 authority: authority,
                 processID: 4321
             ),
-            registrationIdentity: testRegistrationIdentity()
+            registrationIdentity: identity
         )
         let events = await session.events()
         var iterator = events.makeAsyncIterator()
 
         let connectTask = Task { try await session.connect() }
-        try await completeHandshake(
+        try await completeV9Handshake(
             transport: transport,
             authority: authority,
             session: "app-session",
-            processID: 4321
+            processID: 4321,
+            identity: identity,
+            connectionID: UUID()
         )
         let initial = try #require(try await connectTask.value)
         #expect(initial.revision == 0)
@@ -971,68 +981,11 @@ struct BackendCanonicalSessionTests {
             return
         }
         #expect(published == initial)
-
-        let workspaceID = WorkspaceID(rawValue: UUID())
-        await transport.enqueue(try encodedJSON([
-            "event": "renderer-worker-changed",
-            "workspace_uuid": workspaceID.description,
-            "prior_renderer_epoch": 4,
-            "prior_process_id": 4000,
-            "prior_process_start_time_seconds": 90,
-            "prior_process_start_time_microseconds": 190,
-            "renderer_epoch": 5,
-            "pid": 4321,
-            "process_start_time_seconds": 100,
-            "process_start_time_microseconds": 200,
-            "effective_user_id": 501,
-            "scene_capabilities": 3,
-            "state": "ready",
-            "restart_count": 1,
-            "retry_after_milliseconds": NSNull(),
-            "reason": NSNull(),
-        ]))
-        guard case .rendererWorkerChanged(let worker)? = await iterator.next() else {
-            Issue.record("expected renderer worker transition")
+        guard case .terminalActivitySnapshot(let activity)? = await iterator.next() else {
+            Issue.record("expected initial terminal activity snapshot")
             return
         }
-        #expect(worker.workspaceID == workspaceID)
-        #expect(worker.priorRendererEpoch == 4)
-        #expect(worker.rendererEpoch == 5)
-        #expect(worker.processID == 4321)
-        #expect(worker.state == .ready)
-
-        let presentationID = PresentationID(rawValue: UUID())
-        let terminalID = SurfaceID(rawValue: UUID())
-        await transport.enqueue(try encodedJSON([
-            "event": "renderer-presentation-ready",
-            "workspace_uuid": workspaceID.description,
-            "renderer_epoch": 5,
-            "worker_pid": 4321,
-            "worker_process_start_time_seconds": 100,
-            "worker_process_start_time_microseconds": 200,
-            "worker_effective_user_id": 501,
-            "terminal_id": terminalID.description,
-            "terminal_epoch": 2,
-            "presentation_id": presentationID.description,
-            "presentation_generation": 8,
-            "canonical_sequence": 21,
-            "presentation_sequence": 3,
-            "columns": 120,
-            "rows": 40,
-            "cell_width": 18,
-            "cell_height": 36,
-            "padding": ["top": 10, "right": 20, "bottom": 10, "left": 20],
-        ]))
-        guard case .rendererPresentationReady(let ready)? = await iterator.next() else {
-            Issue.record("expected renderer presentation metrics")
-            return
-        }
-        #expect(ready.presentationID == presentationID)
-        #expect(ready.terminalID == terminalID)
-        #expect(ready.rendererEpoch == 5)
-        #expect(ready.presentationGeneration == 8)
-        #expect(ready.cellWidth == 18)
-        #expect(ready.padding.left == 20)
+        #expect(activity.latestSequence == 0)
 
         let surfaceID = SurfaceID(rawValue: UUID())
         let delta = try topologyDelta(authority: authority, surfaceID: surfaceID)
@@ -1046,6 +999,423 @@ struct BackendCanonicalSessionTests {
         #expect(await session.surface(handle: 4)?.uuid == surfaceID)
 
         await session.close()
+    }
+
+    @Test("renderer lifecycle routes by workspace and presentation without generic fanout")
+    func rendererLifecycleRoutesExactly() async throws {
+        let transport = ScriptedBackendTransport()
+        let identity = testRegistrationIdentity()
+        let authority = BackendAuthority(
+            daemonInstanceID: DaemonInstanceID(rawValue: UUID()),
+            sessionID: SessionID(rawValue: UUID())
+        )
+        let session = BackendCanonicalSession(
+            transport: transport,
+            expectation: BackendCanonicalSessionExpectation(
+                session: "app-session",
+                authority: authority,
+                processID: 4321
+            ),
+            registrationIdentity: identity
+        )
+        let genericEvents = await session.events()
+        var genericIterator = genericEvents.makeAsyncIterator()
+
+        let connectTask = Task { try await session.connect() }
+        try await completeV9Handshake(
+            transport: transport,
+            authority: authority,
+            session: "app-session",
+            processID: 4321,
+            identity: identity,
+            connectionID: UUID()
+        )
+        _ = try await connectTask.value
+        guard case .snapshot? = await genericIterator.next() else {
+            Issue.record("expected initial snapshot")
+            return
+        }
+        guard case .terminalActivitySnapshot? = await genericIterator.next() else {
+            Issue.record("expected initial activity snapshot")
+            return
+        }
+
+        let routes = (0..<100).map { _ in
+            (
+                workspace: WorkspaceID(rawValue: UUID()),
+                presentation: PresentationID(rawValue: UUID())
+            )
+        }
+        var probes: [Task<[BackendRendererLifecycleEvent], Never>] = []
+        for (index, route) in routes.enumerated() {
+            let stream = await session.rendererEvents(
+                workspaceID: route.workspace,
+                presentationID: route.presentation
+            )
+            probes.append(Task {
+                var iterator = stream.makeAsyncIterator()
+                let expectedCount = index == 73 ? 3 : 1
+                var received: [BackendRendererLifecycleEvent] = []
+                for _ in 0..<expectedCount {
+                    if let event = await iterator.next() {
+                        received.append(event)
+                    }
+                }
+                return received
+            })
+        }
+
+        let target = routes[73]
+        await transport.enqueue(try rendererWorkerChangedEvent(workspaceID: target.workspace))
+        await transport.enqueue(try rendererPresentationReadyEvent(
+            workspaceID: target.workspace,
+            presentationID: target.presentation
+        ))
+        let invalidation = try rendererConfigInvalidationEvent(revision: 7, digestByte: "a")
+        await transport.enqueue(invalidation.data)
+
+        for (index, probe) in probes.enumerated() {
+            let received = await probe.value
+            if index == 73 {
+                #expect(received.count == 3)
+                guard received.count == 3 else { continue }
+                guard case .workerChanged(let worker) = received[0] else {
+                    Issue.record("target should receive its worker event first")
+                    continue
+                }
+                #expect(worker.workspaceID == target.workspace)
+                guard case .presentationReady(let ready) = received[1] else {
+                    Issue.record("target should receive its ready event second")
+                    continue
+                }
+                #expect(ready.presentationID == target.presentation)
+                guard case .configInvalidated(let config) = received[2] else {
+                    Issue.record("target should receive config invalidation third")
+                    continue
+                }
+                #expect(config.revision == 7)
+            } else {
+                #expect(received.count == 1)
+                guard case .configInvalidated(let config)? = received.first else {
+                    Issue.record("non-target route received another workspace's renderer event")
+                    continue
+                }
+                #expect(config.revision == 7)
+            }
+        }
+
+        let lateRoute = (
+            workspace: WorkspaceID(rawValue: UUID()),
+            presentation: PresentationID(rawValue: UUID())
+        )
+        let lateEvents = await session.rendererEvents(
+            workspaceID: lateRoute.workspace,
+            presentationID: lateRoute.presentation
+        )
+        var lateIterator = lateEvents.makeAsyncIterator()
+        guard case .configInvalidated(let retained)? = await lateIterator.next() else {
+            Issue.record("late renderer subscriber must receive the retained config floor")
+            return
+        }
+        #expect(retained == invalidation.value)
+
+        let surfaceID = SurfaceID(rawValue: UUID())
+        let delta = try topologyDelta(authority: authority, surfaceID: surfaceID)
+        await transport.enqueue(try topologyEvent(delta))
+        guard case .delta(let genericDelta)? = await genericIterator.next() else {
+            Issue.record("generic stream received a renderer lifecycle event")
+            return
+        }
+        #expect(genericDelta == delta)
+        await session.close()
+    }
+
+    @Test("renderer subscriber overflow retires only that local route")
+    func rendererSubscriberOverflowIsLocal() async throws {
+        let transport = ScriptedBackendTransport()
+        let identity = testRegistrationIdentity()
+        let authority = BackendAuthority(
+            daemonInstanceID: DaemonInstanceID(rawValue: UUID()),
+            sessionID: SessionID(rawValue: UUID())
+        )
+        let session = BackendCanonicalSession(
+            transport: transport,
+            expectation: BackendCanonicalSessionExpectation(
+                session: "app-session",
+                authority: authority,
+                processID: 4321
+            ),
+            registrationIdentity: identity
+        )
+        let genericEvents = await session.events()
+        var genericIterator = genericEvents.makeAsyncIterator()
+        let connectTask = Task { try await session.connect() }
+        try await completeV9Handshake(
+            transport: transport,
+            authority: authority,
+            session: "app-session",
+            processID: 4321,
+            identity: identity,
+            connectionID: UUID()
+        )
+        _ = try await connectTask.value
+        _ = await genericIterator.next()
+        _ = await genericIterator.next()
+
+        let overflowWorkspace = WorkspaceID(rawValue: UUID())
+        let overflowStream = await session.rendererEvents(
+            workspaceID: overflowWorkspace,
+            presentationID: PresentationID(rawValue: UUID()),
+            bufferingCapacity: 1
+        )
+        var overflowIterator = overflowStream.makeAsyncIterator()
+        let healthyStream = await session.rendererEvents(
+            workspaceID: WorkspaceID(rawValue: UUID()),
+            presentationID: PresentationID(rawValue: UUID())
+        )
+        var healthyIterator = healthyStream.makeAsyncIterator()
+
+        await transport.enqueue(try rendererWorkerChangedEvent(workspaceID: overflowWorkspace))
+        await transport.enqueue(try rendererWorkerChangedEvent(workspaceID: overflowWorkspace))
+        let invalidation = try rendererConfigInvalidationEvent(revision: 4, digestByte: "d")
+        await transport.enqueue(invalidation.data)
+        guard case .configInvalidated(let healthyConfig)? = await healthyIterator.next() else {
+            Issue.record("healthy renderer route did not survive another route's overflow")
+            return
+        }
+        #expect(healthyConfig == invalidation.value)
+        guard case .workerChanged? = await overflowIterator.next() else {
+            Issue.record("overflowing route should retain its oldest complete event")
+            return
+        }
+        #expect(await overflowIterator.next() == nil)
+        #expect(await session.currentSnapshot() != nil)
+
+        let surfaceID = SurfaceID(rawValue: UUID())
+        let delta = try topologyDelta(authority: authority, surfaceID: surfaceID)
+        await transport.enqueue(try topologyEvent(delta))
+        guard case .delta(let received)? = await genericIterator.next() else {
+            Issue.record("local renderer overflow ended the generic session stream")
+            return
+        }
+        #expect(received == delta)
+        await session.close()
+    }
+
+    @Test("renderer configure receipt is fenced by reentrant config invalidation")
+    func rendererConfigureReceiptUsesLatestSessionFloor() async throws {
+        let transport = ScriptedBackendTransport()
+        let identity = testRegistrationIdentity()
+        let authority = BackendAuthority(
+            daemonInstanceID: DaemonInstanceID(rawValue: UUID()),
+            sessionID: SessionID(rawValue: UUID())
+        )
+        let session = BackendCanonicalSession(
+            transport: transport,
+            expectation: BackendCanonicalSessionExpectation(
+                session: "app-session",
+                authority: authority,
+                processID: 4321
+            ),
+            registrationIdentity: identity
+        )
+        let connectTask = Task { try await session.connect() }
+        try await completeV9Handshake(
+            transport: transport,
+            authority: authority,
+            session: "app-session",
+            processID: 4321,
+            identity: identity,
+            connectionID: UUID()
+        )
+        _ = try await connectTask.value
+
+        let workspaceID = WorkspaceID(rawValue: UUID())
+        let presentationID = PresentationID(rawValue: UUID())
+        let terminalID = SurfaceID(rawValue: UUID())
+        let rendererEvents = await session.rendererEvents(
+            workspaceID: workspaceID,
+            presentationID: presentationID
+        )
+        var rendererIterator = rendererEvents.makeAsyncIterator()
+        let configure = Task {
+            try await session.configureRendererPresentation(
+                id: presentationID,
+                expectedGeneration: 1,
+                configuration: rendererConfiguration()
+            )
+        }
+        let request = try requestObject(await transport.nextSent())
+        #expect(request["cmd"] as? String == "configure-renderer-presentation")
+
+        let invalidation = try rendererConfigInvalidationEvent(revision: 2, digestByte: "b")
+        await transport.enqueue(invalidation.data)
+        guard case .configInvalidated(let received)? = await rendererIterator.next() else {
+            Issue.record("expected config invalidation before configure response")
+            return
+        }
+        #expect(received == invalidation.value)
+        await transport.enqueue(try response(
+            to: request,
+            data: rendererReceipt(
+                authority: authority,
+                workspaceID: workspaceID,
+                presentationID: presentationID,
+                terminalID: terminalID,
+                configRevision: 1,
+                digestByte: "a"
+            )
+        ))
+
+        await #expect(throws: BackendRendererConfigValidationError.staleReceipt(
+            minimumRevision: 2,
+            actualRevision: 1
+        )) {
+            _ = try await configure.value
+        }
+        await session.close()
+    }
+
+    @Test(
+        "renderer configure receipt rejects zero revision and one revision with conflicting digests",
+        arguments: [
+            InvalidRendererReceiptScenario(
+                revision: 0,
+                floorDigest: "a",
+                receiptDigest: "a",
+                error: .invalidRevision
+            ),
+            InvalidRendererReceiptScenario(
+                revision: 3,
+                floorDigest: "a",
+                receiptDigest: "b",
+                error: .inconsistentRevision(3)
+            ),
+        ]
+    )
+    private func rendererConfigureReceiptRejectsInvalidIdentity(
+        scenario: InvalidRendererReceiptScenario
+    ) async throws {
+        let transport = ScriptedBackendTransport()
+        let identity = testRegistrationIdentity()
+        let authority = BackendAuthority(
+            daemonInstanceID: DaemonInstanceID(rawValue: UUID()),
+            sessionID: SessionID(rawValue: UUID())
+        )
+        let session = BackendCanonicalSession(
+            transport: transport,
+            expectation: BackendCanonicalSessionExpectation(
+                session: "app-session",
+                authority: authority,
+                processID: 4321
+            ),
+            registrationIdentity: identity
+        )
+        let connectTask = Task { try await session.connect() }
+        try await completeV9Handshake(
+            transport: transport,
+            authority: authority,
+            session: "app-session",
+            processID: 4321,
+            identity: identity,
+            connectionID: UUID()
+        )
+        _ = try await connectTask.value
+
+        let workspaceID = WorkspaceID(rawValue: UUID())
+        let presentationID = PresentationID(rawValue: UUID())
+        let terminalID = SurfaceID(rawValue: UUID())
+        if scenario.revision > 0 {
+            let invalidation = try rendererConfigInvalidationEvent(
+                revision: scenario.revision,
+                digestByte: scenario.floorDigest
+            )
+            let events = await session.rendererEvents(
+                workspaceID: workspaceID,
+                presentationID: presentationID
+            )
+            var iterator = events.makeAsyncIterator()
+            await transport.enqueue(invalidation.data)
+            _ = await iterator.next()
+        }
+
+        let configure = Task {
+            try await session.configureRendererPresentation(
+                id: presentationID,
+                expectedGeneration: 1,
+                configuration: rendererConfiguration()
+            )
+        }
+        let request = try requestObject(await transport.nextSent())
+        await transport.enqueue(try response(
+            to: request,
+            data: rendererReceipt(
+                authority: authority,
+                workspaceID: workspaceID,
+                presentationID: presentationID,
+                terminalID: terminalID,
+                configRevision: scenario.revision,
+                digestByte: scenario.receiptDigest
+            )
+        ))
+        await #expect(throws: scenario.error) {
+            _ = try await configure.value
+        }
+        await session.close()
+    }
+
+    @Test("renderer lifecycle overflow fails closed instead of losing invalidations")
+    func rendererLifecycleOverflowFailsClosed() async throws {
+        let transport = ScriptedBackendTransport()
+        let identity = testRegistrationIdentity()
+        let authority = BackendAuthority(
+            daemonInstanceID: DaemonInstanceID(rawValue: UUID()),
+            sessionID: SessionID(rawValue: UUID())
+        )
+        let session = BackendCanonicalSession(
+            transport: transport,
+            expectation: BackendCanonicalSessionExpectation(
+                session: "app-session",
+                authority: authority,
+                processID: 4321
+            ),
+            registrationIdentity: identity
+        )
+        let events = await session.events()
+        var iterator = events.makeAsyncIterator()
+
+        let connectTask = Task { try await session.connect() }
+        try await completeV9Handshake(
+            transport: transport,
+            authority: authority,
+            session: "app-session",
+            processID: 4321,
+            identity: identity,
+            connectionID: UUID()
+        )
+        _ = try await connectTask.value
+        guard case .snapshot? = await iterator.next() else {
+            Issue.record("expected initial snapshot")
+            return
+        }
+        guard case .terminalActivitySnapshot(let activity)? = await iterator.next() else {
+            Issue.record("expected initial terminal activity snapshot")
+            return
+        }
+        #expect(activity.latestSequence == 0)
+
+        await transport.enqueue(try encodedJSON([
+            "event": "renderer-lifecycle-overflow",
+        ]))
+
+        guard case .disconnected(.topologyStreamFailed(let message))? = await iterator.next()
+        else {
+            Issue.record("expected fail-closed session overflow")
+            return
+        }
+        #expect(message == "renderer lifecycle stream overflow")
+        #expect(await session.currentSnapshot() == nil)
+        await transport.waitUntilClosed()
     }
 
     @Test("missing batch capability falls back to ordered singular terminal ensures")
@@ -1140,6 +1510,298 @@ struct BackendCanonicalSessionTests {
         }
         #expect(await transport.sentCount() == 0)
         await transport.waitUntilClosed()
+    }
+
+    @Test("interaction routing closes the snapshot race and rejects stale epochs and revisions")
+    func terminalInteractionRoutingFencesSnapshotAndEvents() async throws {
+        let authority = BackendAuthority(
+            daemonInstanceID: DaemonInstanceID(rawValue: UUID()),
+            sessionID: SessionID(rawValue: UUID())
+        )
+        let identity = fixedRegistrationIdentity()
+        let surfaceID = SurfaceID(rawValue: UUID())
+        let topology = try topologyDelta(authority: authority, surfaceID: surfaceID).replacement
+        let topologyObject = try #require(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(topology)) as? [String: Any]
+        )
+        let transport = ScriptedBackendTransport()
+        let session = BackendCanonicalSession(
+            transport: transport,
+            expectation: BackendCanonicalSessionExpectation(
+                session: "interaction-session",
+                authority: authority,
+                processID: 4321
+            ),
+            registrationIdentity: identity
+        )
+        let connectTask = Task { try await session.connect() }
+        try await completeV9Handshake(
+            transport: transport,
+            authority: authority,
+            session: "interaction-session",
+            processID: 4321,
+            identity: identity,
+            connectionID: UUID(),
+            topology: topologyObject
+        )
+        _ = try await connectTask.value
+
+        let subscription = try await session.terminalInteractionModeEventSubscription(
+            surfaceID: surfaceID,
+            bufferingCapacity: 8
+        )
+        var events = subscription.events.makeAsyncIterator()
+
+        let stateTask = Task { try await session.terminalState(surfaceID: surfaceID) }
+        let stateRequest = try requestObject(await transport.nextSent())
+        #expect(stateRequest["cmd"] as? String == "terminal-state")
+        await transport.enqueue(try encodedJSON([
+            "event": "terminal-interaction-mode-changed",
+            "surface_uuid": surfaceID.description,
+            "terminal_epoch": 19,
+            "interaction_revision": 2,
+            "mouse_tracking": true,
+        ]))
+        await transport.enqueue(try response(
+            to: stateRequest,
+            data: terminalStateData(
+                surfaceID: surfaceID,
+                terminalEpoch: 19,
+                revision: 1,
+                mouseTracking: false
+            )
+        ))
+        #expect(try await stateTask.value.interactionRevision == 1)
+
+        let selectionTask = Task {
+            try await session.terminalSelection(surfaceID: surfaceID, operation: .read)
+        }
+        let selectionRequest = try requestObject(await transport.nextSent())
+        await transport.enqueue(try response(to: selectionRequest, data: [
+            "selection": NSNull(),
+            "state": terminalStateData(
+                surfaceID: surfaceID,
+                terminalEpoch: 19,
+                revision: 3,
+                mouseTracking: false
+            ),
+        ]))
+        _ = try await selectionTask.value
+
+        var raced: [BackendTerminalInteractionModeChanged] = []
+        while let event = await events.next() {
+            raced.append(event)
+            if event.interactionRevision == 3 { break }
+        }
+        #expect(raced.map(\.interactionRevision) == raced.map(\.interactionRevision).sorted())
+        #expect(raced.suffix(2).map(\.interactionRevision) == [2, 3])
+        #expect(raced.suffix(2).map(\.mouseTracking) == [true, false])
+
+        await transport.enqueue(try encodedJSON([
+            "event": "terminal-interaction-mode-changed",
+            "surface_uuid": surfaceID.description,
+            "terminal_epoch": 18,
+            "interaction_revision": 100,
+            "mouse_tracking": true,
+        ]))
+        await transport.enqueue(try encodedJSON([
+            "event": "terminal-interaction-mode-changed",
+            "surface_uuid": surfaceID.description,
+            "terminal_epoch": 19,
+            "interaction_revision": 3,
+            "mouse_tracking": true,
+        ]))
+        await transport.enqueue(try encodedJSON([
+            "event": "terminal-interaction-mode-changed",
+            "surface_uuid": surfaceID.description,
+            "terminal_epoch": 19,
+            "interaction_revision": 4,
+            "mouse_tracking": true,
+        ]))
+        let accepted = try #require(await events.next())
+        #expect(accepted.terminalEpoch == 19)
+        #expect(accepted.interactionRevision == 4)
+        #expect(accepted.mouseTracking)
+
+        await session.cancelTerminalInteractionModeEventSubscription(subscription.identifier)
+        await session.close()
+    }
+
+    @Test("interaction routes are exact and local overflow finishes only the slow surface")
+    func terminalInteractionRoutesFailClosedLocally() async throws {
+        let authority = BackendAuthority(
+            daemonInstanceID: DaemonInstanceID(rawValue: UUID()),
+            sessionID: SessionID(rawValue: UUID())
+        )
+        let identity = fixedRegistrationIdentity()
+        let surfaceID = SurfaceID(rawValue: UUID())
+        let topology = try topologyDelta(authority: authority, surfaceID: surfaceID).replacement
+        let topologyObject = try #require(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(topology)) as? [String: Any]
+        )
+        let transport = ScriptedBackendTransport()
+        let session = BackendCanonicalSession(
+            transport: transport,
+            expectation: BackendCanonicalSessionExpectation(
+                session: "interaction-overflow-session",
+                authority: authority,
+                processID: 4321
+            ),
+            registrationIdentity: identity
+        )
+        let connectTask = Task { try await session.connect() }
+        try await completeV9Handshake(
+            transport: transport,
+            authority: authority,
+            session: "interaction-overflow-session",
+            processID: 4321,
+            identity: identity,
+            connectionID: UUID(),
+            topology: topologyObject
+        )
+        _ = try await connectTask.value
+
+        await #expect(throws: BackendProtocolError.self) {
+            _ = try await session.terminalInteractionModeEventSubscription(
+                surfaceID: SurfaceID(rawValue: UUID())
+            )
+        }
+        let exact = try await session.terminalInteractionModeEventSubscription(
+            surfaceID: surfaceID,
+            bufferingCapacity: 4
+        )
+        var exactEvents = exact.events.makeAsyncIterator()
+        let stateTask = Task { try await session.terminalState(surfaceID: surfaceID) }
+        let stateRequest = try requestObject(await transport.nextSent())
+        await transport.enqueue(try response(
+            to: stateRequest,
+            data: terminalStateData(
+                surfaceID: surfaceID,
+                terminalEpoch: 19,
+                revision: 1,
+                mouseTracking: false
+            )
+        ))
+        _ = try await stateTask.value
+        let initial = try #require(await exactEvents.next())
+        await transport.enqueue(try encodedJSON([
+            "event": "terminal-interaction-mode-changed",
+            "surface_uuid": surfaceID.description,
+            "terminal_epoch": 19,
+            "interaction_revision": 2,
+            "mouse_tracking": true,
+        ]))
+        let enabled = try #require(await exactEvents.next())
+        let selectionTask = Task {
+            try await session.terminalSelection(surfaceID: surfaceID, operation: .read)
+        }
+        let selectionRequest = try requestObject(await transport.nextSent())
+        await transport.enqueue(try response(to: selectionRequest, data: [
+            "selection": NSNull(),
+            "state": terminalStateData(
+                surfaceID: surfaceID,
+                terminalEpoch: 19,
+                revision: 3,
+                mouseTracking: false
+            ),
+        ]))
+        _ = try await selectionTask.value
+        let disabled = try #require(await exactEvents.next())
+        #expect([initial, enabled, disabled].map(\.interactionRevision) == [1, 2, 3])
+        #expect([initial, enabled, disabled].map(\.mouseTracking) == [false, true, false])
+        await session.cancelTerminalInteractionModeEventSubscription(exact.identifier)
+
+        let slow = try await session.terminalInteractionModeEventSubscription(
+            surfaceID: surfaceID,
+            bufferingCapacity: 1
+        )
+        await transport.enqueue(try encodedJSON([
+            "event": "terminal-interaction-mode-changed",
+            "surface_uuid": surfaceID.description,
+            "terminal_epoch": 19,
+            "interaction_revision": 4,
+            "mouse_tracking": true,
+        ]))
+        while await session.currentTerminalInteractionMode(
+            surfaceID: surfaceID
+        )?.interactionRevision != 4 {
+            await Task.yield()
+        }
+        var slowEvents = slow.events.makeAsyncIterator()
+        #expect(await slowEvents.next()?.interactionRevision == 3)
+        #expect(await slowEvents.next() == nil)
+        #expect(await session.currentSnapshot() != nil)
+
+        let replacement = try await session.terminalInteractionModeEventSubscription(
+            surfaceID: surfaceID,
+            bufferingCapacity: 1
+        )
+        var replacementEvents = replacement.events.makeAsyncIterator()
+        #expect(await replacementEvents.next()?.interactionRevision == 4)
+        await session.close()
+    }
+
+    @Test("interaction overflow, invalidation, and unknown surfaces replace the connection")
+    func terminalInteractionFatalEventsCloseConnection() async throws {
+        for terminalEvent in [
+            ["event": "terminal-interaction-mode-overflow"],
+            [
+                "event": "terminal-interaction-mode-invalidated",
+                "surface_uuid": SurfaceID(rawValue: UUID()).description,
+                "terminal_epoch": 19,
+                "reason": "revision-exhausted",
+            ],
+            [
+                "event": "terminal-interaction-mode-changed",
+                "surface_uuid": SurfaceID(rawValue: UUID()).description,
+                "terminal_epoch": 19,
+                "interaction_revision": 1,
+                "mouse_tracking": false,
+            ],
+        ] as [[String: Any]] {
+            let authority = BackendAuthority(
+                daemonInstanceID: DaemonInstanceID(rawValue: UUID()),
+                sessionID: SessionID(rawValue: UUID())
+            )
+            let identity = fixedRegistrationIdentity()
+            let transport = ScriptedBackendTransport()
+            let session = BackendCanonicalSession(
+                transport: transport,
+                expectation: BackendCanonicalSessionExpectation(
+                    session: "interaction-fatal-session",
+                    authority: authority,
+                    processID: 4321
+                ),
+                registrationIdentity: identity
+            )
+            var sessionEvents = await session.events().makeAsyncIterator()
+            let connectTask = Task { try await session.connect() }
+            try await completeV9Handshake(
+                transport: transport,
+                authority: authority,
+                session: "interaction-fatal-session",
+                processID: 4321,
+                identity: identity,
+                connectionID: UUID()
+            )
+            _ = try await connectTask.value
+            guard case .snapshot? = await sessionEvents.next() else {
+                Issue.record("missing connected snapshot")
+                return
+            }
+            guard case .terminalActivitySnapshot? = await sessionEvents.next() else {
+                Issue.record("missing connected activity snapshot")
+                return
+            }
+
+            await transport.enqueue(try encodedJSON(terminalEvent))
+            guard case .disconnected? = await sessionEvents.next() else {
+                Issue.record("fatal interaction event did not disconnect")
+                return
+            }
+            #expect(await session.currentSnapshot() == nil)
+            await transport.waitUntilClosed()
+        }
     }
 
     @Test("terminal activity restores per-reader receipts and applies ordered events")
@@ -1347,9 +2009,11 @@ struct BackendCanonicalSessionTests {
                     "ensure-terminal-v1",
                     "frontend-native-browser-v1",
                     "presentation-registry-v1",
+                    "projection-navigation-v2",
                     "projection-state-reconnect-v1",
                     "remote-tmux-producer-source-v1",
                     "renderer-semantic-scene-v1",
+                    "renderer-lifecycle-subscription-v1",
                     "renderer-worker-supervision-v1",
                     "reparent-terminal-v1",
                     "stable-entity-uuid-v1",
@@ -1363,6 +2027,7 @@ struct BackendCanonicalSessionTests {
                     "terminal-input-idempotency-v1",
                     "terminal-input-receipt-ack-v1",
                     "terminal-interaction-v1",
+                    "terminal-interaction-mode-subscription-v1",
                     "terminal-link-hit-v1",
                     "terminal-ordered-input-v1",
                     "terminal-activity-v1",
@@ -1437,6 +2102,49 @@ struct BackendCanonicalSessionTests {
                 "receipts": [],
             ]
         ))
+
+        let rendererLifecycle = try requestObject(await transport.nextSent())
+        #expect(
+            rendererLifecycle["cmd"] as? String == "subscribe-renderer-lifecycle"
+        )
+        await transport.enqueue(try response(to: rendererLifecycle, data: [:]))
+
+        let interactionModes = try requestObject(await transport.nextSent())
+        #expect(
+            interactionModes["cmd"] as? String
+                == "subscribe-terminal-interaction-modes"
+        )
+        await transport.enqueue(try response(
+            to: interactionModes,
+            data: ["status": "subscribed"]
+        ))
+    }
+
+    private func terminalStateData(
+        surfaceID: SurfaceID,
+        terminalEpoch: UInt64,
+        revision: UInt64,
+        mouseTracking: Bool,
+        exhausted: Bool = false
+    ) -> [String: Any] {
+        [
+            "surface_uuid": surfaceID.description,
+            "terminal_epoch": terminalEpoch,
+            "interaction_revision": revision,
+            "interaction_revision_exhausted": exhausted,
+            "copy_mode": false,
+            "copy_cursor": NSNull(),
+            "cursor": NSNull(),
+            "selection": NSNull(),
+            "search": [
+                "active": false,
+                "query": "",
+                "selected_match": NSNull(),
+                "total_matches": 0,
+            ],
+            "viewport": ["total_rows": 24, "offset": 0, "visible_rows": 24],
+            "mouse_tracking": mouseTracking,
+        ]
     }
 
     private func activitySnapshot(
@@ -1576,6 +2284,7 @@ struct BackendCanonicalSessionTests {
                 "replayed": 0,
             ]
         ))
+
     }
 
     private func identifyResponse(
@@ -1598,6 +2307,7 @@ struct BackendCanonicalSessionTests {
                     "durable-session-identity-v1",
                     "ensure-terminal-v1",
                     "presentation-registry-v1",
+                    "projection-navigation-v2",
                     "projection-state-reconnect-v1",
                     "stable-entity-uuid-v1",
                     "topology-resume-v1",
@@ -1609,6 +2319,123 @@ struct BackendCanonicalSessionTests {
                 "canonical_topology_revision": 0,
                 "pid": processID,
             ]
+        )
+    }
+
+    private func rendererConfiguration() -> BackendRendererPresentationConfiguration {
+        BackendRendererPresentationConfiguration(
+            width: 800,
+            height: 600,
+            backingScaleFactor: 2,
+            columns: 100,
+            rows: 30,
+            pixelFormat: .bgra8Unorm,
+            colorSpace: .sRGB,
+            frameEndpointService: "com.cmux.test.renderer-frames",
+            frameEndpointCapability: Data(repeating: 0x5a, count: 32),
+            focused: true,
+            cursorBlinkVisible: true
+        )
+    }
+
+    private func rendererReceipt(
+        authority: BackendAuthority,
+        workspaceID: WorkspaceID,
+        presentationID: PresentationID,
+        terminalID: SurfaceID,
+        configRevision: UInt64,
+        digestByte: String
+    ) -> [String: Any] {
+        [
+            "daemon_instance_id": authority.daemonInstanceID.description,
+            "workspace_uuid": workspaceID.description,
+            "renderer_epoch": 1,
+            "worker_state": "starting",
+            "terminal_id": terminalID.description,
+            "terminal_epoch": 1,
+            "presentation_id": presentationID.description,
+            "generation": 1,
+            "renderer_generation": 1,
+            "minimum_content_sequence": 0,
+            "width": 800,
+            "height": 600,
+            "backing_scale_factor": 2,
+            "columns": 100,
+            "rows": 30,
+            "metrics": NSNull(),
+            "pixel_format": "bgra8-unorm",
+            "color_space": "srgb",
+            "resolved_config_revision": configRevision,
+            "resolved_config_digest": String(repeating: digestByte, count: 64),
+        ]
+    }
+
+    private func rendererWorkerChangedEvent(workspaceID: WorkspaceID) throws -> Data {
+        try encodedJSON([
+            "event": "renderer-worker-changed",
+            "workspace_uuid": workspaceID.description,
+            "prior_renderer_epoch": 4,
+            "prior_process_id": 4000,
+            "prior_process_start_time_seconds": 90,
+            "prior_process_start_time_microseconds": 190,
+            "renderer_epoch": 5,
+            "pid": 4321,
+            "process_start_time_seconds": 100,
+            "process_start_time_microseconds": 200,
+            "effective_user_id": 501,
+            "scene_capabilities": 3,
+            "state": "ready",
+            "restart_count": 1,
+            "retry_after_milliseconds": NSNull(),
+            "reason": NSNull(),
+        ])
+    }
+
+    private func rendererPresentationReadyEvent(
+        workspaceID: WorkspaceID,
+        presentationID: PresentationID
+    ) throws -> Data {
+        try encodedJSON([
+            "event": "renderer-presentation-ready",
+            "workspace_uuid": workspaceID.description,
+            "renderer_epoch": 5,
+            "worker_pid": 4321,
+            "worker_process_start_time_seconds": 100,
+            "worker_process_start_time_microseconds": 200,
+            "worker_effective_user_id": 501,
+            "terminal_id": SurfaceID(rawValue: UUID()).description,
+            "terminal_epoch": 2,
+            "presentation_id": presentationID.description,
+            "presentation_generation": 8,
+            "canonical_sequence": 21,
+            "presentation_sequence": 3,
+            "columns": 120,
+            "rows": 40,
+            "cell_width": 18,
+            "cell_height": 36,
+            "padding": ["top": 10, "right": 20, "bottom": 10, "left": 20],
+        ])
+    }
+
+    private func rendererConfigInvalidationEvent(
+        revision: UInt64,
+        digestByte: String
+    ) throws -> (data: Data, value: BackendRendererConfigInvalidated) {
+        let digest = String(repeating: digestByte, count: 64)
+        return (
+            data: try encodedJSON([
+                "event": "renderer-config-invalidated",
+                "revision": revision,
+                "digest": digest,
+                "reason": "ghostty-config-reloaded",
+                "default_colors": [:],
+            ]),
+            value: try BackendRendererConfigInvalidated(
+                revision: revision,
+                digest: BackendRendererConfigDigest(validating: digest),
+                reason: "ghostty-config-reloaded",
+                defaultColors: [:]
+            )
         )
     }
 

@@ -128,6 +128,69 @@ export function parseHeartbeat(body: Record<string, unknown>): HeartbeatParse {
   };
 }
 
+export interface ConnectivityInvalidationInput {
+  revision: number;
+}
+
+/** Constant-work comparison for the server-only invalidation capability. */
+export async function isConnectivityPublisherAuthorized(
+  request: Request,
+  configuredSecret: string | undefined,
+): Promise<boolean> {
+  const expected = configuredSecret?.trim() ?? "";
+  const actual = request.headers.get(
+    "x-cmux-connectivity-publisher-secret",
+  )?.trim() ?? "";
+  if (expected.length < 32 || expected.length > 512) return false;
+  const encoder = new TextEncoder();
+  const expectedBytes = encoder.encode(expected);
+  const actualBytes = encoder.encode(actual);
+  if (actualBytes.byteLength === 0 || actualBytes.byteLength > 512) return false;
+  const key = await crypto.subtle.importKey(
+    "raw",
+    expectedBytes,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign", "verify"],
+  );
+  const candidateSignature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    actualBytes,
+  );
+  return crypto.subtle.verify(
+    "HMAC",
+    key,
+    candidateSignature,
+    expectedBytes,
+  );
+}
+
+export type ConnectivityInvalidationParse =
+  | { ok: true; invalidation: ConnectivityInvalidationInput }
+  | { ok: false; error: string };
+
+/** Parses the only payload the account connectivity channel accepts.
+ *
+ * The notification carries no routes, endpoint ids, or path hints. It is only
+ * a monotonic hint to reconcile through the authenticated v2 authority. */
+export function parseConnectivityInvalidation(
+  body: Record<string, unknown>,
+): ConnectivityInvalidationParse {
+  const keys = Object.keys(body);
+  if (keys.length !== 1 || keys[0] !== "revision") {
+    return { ok: false, error: "invalid_request" };
+  }
+  const revision = body.revision;
+  if (!Number.isSafeInteger(revision) || (revision as number) <= 0) {
+    return { ok: false, error: "invalid_revision" };
+  }
+  return {
+    ok: true,
+    invalidation: { revision: revision as number },
+  };
+}
+
 /** Bounded JSON body reader. Unlike the registry route's post-hoc length
  * check, this reads the stream incrementally and aborts the moment it crosses
  * the cap, so a chunked or lying-Content-Length body can never make the

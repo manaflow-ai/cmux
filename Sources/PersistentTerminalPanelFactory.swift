@@ -65,6 +65,7 @@ final class PersistentTerminalPanelFactory: TerminalPanelCreating {
         )
         let panel = TerminalPanel(
             externalRequest: request,
+            terminalLifecycleID: launchRequest.terminalLifecycleID,
             presentationDependencies: presentationDependencies,
             externalRuntime: frontendPanel
         )

@@ -6,6 +6,7 @@ Use these commands from a cmux terminal. Most commands infer the caller workspac
 
 ```bash
 cmux identify --json
+cmux --json --id-format both identify   # stable UUIDs plus human refs, for logs and handoffs
 cmux current-workspace --json
 cmux capabilities --json
 cmux ping
@@ -100,11 +101,4 @@ cmux settings path
 cmux settings cmux-json
 cmux settings shortcuts
 cmux reload-config
-```
-
-## Tagged Reloads
-
-```bash
-./scripts/reload.sh --tag <short-tag>
-CMUX_SOCKET_PATH=/tmp/cmux-debug-<short-tag>.sock cmux identify --json
 ```

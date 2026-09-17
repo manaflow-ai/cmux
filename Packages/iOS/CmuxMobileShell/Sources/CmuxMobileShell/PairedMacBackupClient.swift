@@ -88,7 +88,43 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
         expectedUserID: String?,
         routeDisclosureDate: Date
     ) async -> Bool {
-        guard !ops.isEmpty else { return true }
+        await uploadReportingResolvedTeam(
+            ops: ops,
+            teamID: teamID,
+            expectedUserID: expectedUserID,
+            routeDisclosureDate: routeDisclosureDate
+        ).succeeded
+    }
+
+    /// The presence worker echoes the verified team it stored the ops under.
+    private struct UploadResponseBody: Decodable {
+        let teamId: String?
+    }
+
+    /// Upload backup mutations and report the server-verified team they were
+    /// stored under (`nil` on failure or when the worker predates the echo).
+    public func uploadReportingResolvedTeam(
+        ops: [PairedMacBackupOp],
+        teamID: String?,
+        expectedUserID: String?
+    ) async -> PairedMacBackupUploadOutcome {
+        await uploadReportingResolvedTeam(
+            ops: ops,
+            teamID: teamID,
+            expectedUserID: expectedUserID,
+            routeDisclosureDate: Date()
+        )
+    }
+
+    func uploadReportingResolvedTeam(
+        ops: [PairedMacBackupOp],
+        teamID: String?,
+        expectedUserID: String?,
+        routeDisclosureDate: Date
+    ) async -> PairedMacBackupUploadOutcome {
+        guard !ops.isEmpty else {
+            return PairedMacBackupUploadOutcome(succeeded: true, resolvedTeamID: nil)
+        }
         let body = PairedMacBackupRequestBody(ops: ops.map {
             PairedMacBackupOpWire(
                 op: $0,
@@ -102,18 +138,24 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
                 teamID: teamID,
                 expectedUserID: expectedUserID
               ) else {
-            return false
+            return PairedMacBackupUploadOutcome(succeeded: false, resolvedTeamID: nil)
         }
         do {
-            let (_, response) = try await session.data(for: request)
+            let (responseData, response) = try await session.data(for: request)
             if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
                 pairedMacBackupLog.warning("paired-mac backup upload failed: HTTP \(http.statusCode)")
-                return false
+                return PairedMacBackupUploadOutcome(succeeded: false, resolvedTeamID: nil)
             }
-            return true
+            let echoedTeamID = (try? JSONDecoder().decode(UploadResponseBody.self, from: responseData))?
+                .teamId?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return PairedMacBackupUploadOutcome(
+                succeeded: true,
+                resolvedTeamID: (echoedTeamID?.isEmpty ?? true) ? nil : echoedTeamID
+            )
         } catch {
             pairedMacBackupLog.warning("paired-mac backup upload error: \(String(describing: error), privacy: .public)")
-            return false
+            return PairedMacBackupUploadOutcome(succeeded: false, resolvedTeamID: nil)
         }
     }
 

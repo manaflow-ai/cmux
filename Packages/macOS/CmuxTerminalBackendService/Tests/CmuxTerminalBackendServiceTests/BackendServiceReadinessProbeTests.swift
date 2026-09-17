@@ -268,16 +268,23 @@ struct BackendServiceReadinessProbeTests {
         #expect(await transport.isClosed())
     }
 
-    @Test("completion claimed before the deadline survives a blocked close")
+    @Test("completion claimed before the deadline survives a blocked close", .timeLimit(.minutes(1)))
     func completedHandshakeWinsWhileClosing() async throws {
         let transport = try makeTransport(blocksOnClose: true)
-        let probe = makeProbe(transport: transport, timeout: .milliseconds(50))
+        let clock = BackendReadinessManualClock()
+        let probe = makeProbe(
+            transport: transport,
+            timeout: .milliseconds(50),
+            clock: clock
+        )
         let readinessTask = Task {
             try await probe.checkReadiness()
         }
 
         await transport.waitUntilCloseStarts()
-        try await Task.sleep(for: .milliseconds(75))
+        try await clock.waitUntilSleepers()
+        clock.advance(by: .milliseconds(75))
+        #expect(clock.now.offset == .milliseconds(75))
         await transport.releaseClose()
 
         let readiness = try await readinessTask.value
@@ -285,7 +292,7 @@ struct BackendServiceReadinessProbeTests {
         #expect(await transport.isClosed())
     }
 
-    @Test("a blocked trust verifier cannot extend deadlines or spawn followers")
+    @Test("a blocked trust verifier cannot extend deadlines or spawn followers", .timeLimit(.minutes(1)))
     func blockedTrustVerifierIsBounded() async throws {
         let firstTransport = try makeTransport()
         let secondTransport = try makeTransport()
@@ -293,38 +300,43 @@ struct BackendServiceReadinessProbeTests {
         let recoveredTransport = try makeTransport()
         let sequence = BackendServiceProbeTransportSequence([firstTransport, secondTransport])
         let trustVerifier = BlockingBackendPeerTrustVerifier()
+        let clock = BackendReadinessManualClock()
         let probe = makeProbe(
             transportFactory: { sequence.next() },
             timeout: .milliseconds(100),
-            trustVerifier: trustVerifier
+            trustVerifier: trustVerifier,
+            clock: clock
         )
         let separatelyScopedProbe = makeProbe(
             transport: queuedTransport,
             timeout: .milliseconds(100),
-            trustVerifier: trustVerifier
+            trustVerifier: trustVerifier,
+            clock: clock
         )
-        let failsafe = Task.detached {
-            try? await Task.sleep(for: .seconds(1))
-            trustVerifier.release()
-        }
         defer {
-            failsafe.cancel()
             trustVerifier.release()
         }
-        let clock = ContinuousClock()
-        let started = clock.now
 
+        let firstAttempt = Task { try await probe.checkReadiness() }
+        try await clock.waitUntilSleepers()
+        clock.advance(by: .milliseconds(100))
         await #expect(throws: BackendServiceReadinessError.timedOut) {
-            _ = try await probe.checkReadiness()
+            _ = try await firstAttempt.value
         }
+        let secondAttempt = Task { try await probe.checkReadiness() }
+        try await clock.waitUntilSleepers()
+        clock.advance(by: .milliseconds(100))
         await #expect(throws: BackendServiceReadinessError.timedOut) {
-            _ = try await probe.checkReadiness()
+            _ = try await secondAttempt.value
         }
+        let separatelyScopedAttempt = Task { try await separatelyScopedProbe.checkReadiness() }
+        try await clock.waitUntilSleepers()
+        clock.advance(by: .milliseconds(100))
         await #expect(throws: BackendServiceReadinessError.timedOut) {
-            _ = try await separatelyScopedProbe.checkReadiness()
+            _ = try await separatelyScopedAttempt.value
         }
 
-        #expect(started.duration(to: clock.now) < .milliseconds(500))
+        #expect(clock.now.offset == .milliseconds(300))
         #expect(trustVerifier.invocationCount == 1)
         #expect(await firstTransport.isClosed())
         #expect(await secondTransport.isClosed())
@@ -359,7 +371,8 @@ struct BackendServiceReadinessProbeTests {
         transport: BackendServiceProbeTransport,
         timeout: Duration = .seconds(1),
         clientProcessID: UInt32 = 99,
-        trustVerifier: any BackendPeerTrustVerifying = FixedBackendPeerTrustVerifier()
+        trustVerifier: any BackendPeerTrustVerifying = FixedBackendPeerTrustVerifier(),
+        clock: any Clock<Duration> = ContinuousClock()
     ) -> BackendServiceReadinessProbe {
         let descriptor = BackendServiceDescriptor.production
         let paths = BackendServiceRuntimePaths(
@@ -374,7 +387,8 @@ struct BackendServiceReadinessProbeTests {
             expectedUserID: 501,
             clientProcessID: clientProcessID,
             trustVerifier: trustVerifier,
-            transportFactory: { transport }
+            transportFactory: { transport },
+            clock: clock
         )
     }
 
@@ -383,7 +397,8 @@ struct BackendServiceReadinessProbeTests {
         timeout: Duration = .seconds(1),
         retryPolicy: BackendServiceReadinessRetryPolicy = .launchdStartup,
         clientProcessID: UInt32 = 99,
-        trustVerifier: any BackendPeerTrustVerifying = FixedBackendPeerTrustVerifier()
+        trustVerifier: any BackendPeerTrustVerifying = FixedBackendPeerTrustVerifier(),
+        clock: any Clock<Duration> = ContinuousClock()
     ) -> BackendServiceReadinessProbe {
         let descriptor = BackendServiceDescriptor.production
         let paths = BackendServiceRuntimePaths(
@@ -399,7 +414,8 @@ struct BackendServiceReadinessProbeTests {
             expectedUserID: 501,
             clientProcessID: clientProcessID,
             trustVerifier: trustVerifier,
-            transportFactory: transportFactory
+            transportFactory: transportFactory,
+            clock: clock
         )
     }
 

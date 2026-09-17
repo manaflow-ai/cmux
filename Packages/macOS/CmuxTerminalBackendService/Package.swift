@@ -20,7 +20,10 @@ let package = Package(
         .target(
             name: "CmuxTerminalBackendService",
             dependencies: [
-                "CmuxTerminalBackend",
+                .product(
+                    name: "CmuxTerminalBackend",
+                    package: "CmuxTerminalBackend"
+                ),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
@@ -36,7 +39,10 @@ let package = Package(
         .testTarget(
             name: "CmuxTerminalBackendServiceTests",
             dependencies: [
-                "CmuxTerminalBackend",
+                .product(
+                    name: "CmuxTerminalBackend",
+                    package: "CmuxTerminalBackend"
+                ),
                 "CmuxTerminalBackendService",
             ]
         ),

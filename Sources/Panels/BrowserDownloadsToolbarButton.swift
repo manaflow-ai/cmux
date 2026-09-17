@@ -7,6 +7,8 @@ import SwiftUI
 /// (`BrowserDownloadRecord`) plus action closures — no `BrowserPanel` store
 /// crosses the popover's `ForEach` boundary (CLAUDE.md snapshot-boundary rule).
 struct BrowserDownloadsToolbarButton: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let downloads: [BrowserDownloadRecord]
     let isDownloading: Bool
     let iconPointSize: CGFloat
@@ -73,6 +75,9 @@ struct BrowserDownloadsToolbarButton: View {
         .buttonStyle(OmnibarAddressButtonStyle())
         .safeHelp(String(localized: "browser.downloads.title", defaultValue: "Downloads"))
         .accessibilityLabel(String(localized: "browser.downloads.title", defaultValue: "Downloads"))
+        #if DEBUG
+        .modifier(BrowserDownloadsPopoverAppearanceUITestPresenter(isPresented: $isPresented))
+        #endif
         .onChange(of: isPresented) { _, presented in
             if presented {
                 seenIDs = Set(downloads.map(\.id))
@@ -85,6 +90,7 @@ struct BrowserDownloadsToolbarButton: View {
                 onReveal: onReveal,
                 onClear: onClear
             )
+            .browserChromePopoverAppearance(colorScheme)
         }
     }
 }
@@ -135,6 +141,9 @@ private struct BrowserDownloadsPopoverContent: View {
             }
         }
         .frame(width: 340)
+        #if DEBUG
+        .background(BrowserDownloadsPopoverAppearanceUITestRecorder())
+        #endif
     }
 }
 

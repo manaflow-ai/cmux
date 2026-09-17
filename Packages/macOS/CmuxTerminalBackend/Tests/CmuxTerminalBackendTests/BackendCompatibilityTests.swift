@@ -60,6 +60,16 @@ struct BackendCompatibilityTests {
                 expectedMissingCapabilities: [missingCapability]
             ),
             Scenario(
+                name: "v9-missing-renderer-lifecycle-subscription",
+                serverRange: 8 ... 9,
+                capabilities: fullCapabilities.subtracting([
+                    "renderer-lifecycle-subscription-v1",
+                ]),
+                expectedNegotiatedProtocol: 9,
+                expectedReasons: [.missingCapabilities],
+                expectedMissingCapabilities: ["renderer-lifecycle-subscription-v1"]
+            ),
+            Scenario(
                 name: "v9-missing-topology-capability",
                 serverRange: 8 ... 9,
                 capabilities: fullCapabilities.subtracting([
@@ -84,7 +94,8 @@ struct BackendCompatibilityTests {
                 #expect(readWrite.negotiatedProtocol == 9)
                 #expect(await connection.transport.commandLog() == [
                     "identify", "register-client", "topology-snapshot", "subscribe-topology",
-                    "terminal-activity-snapshot",
+                    "terminal-activity-snapshot", "subscribe-renderer-lifecycle",
+                    "subscribe-terminal-interaction-modes",
                 ])
             } else {
                 guard case .readOnly(let diagnostic) = compatibility else {
@@ -312,6 +323,24 @@ struct BackendCompatibilityTests {
                 "facts": [],
                 "receipts": [],
             ]))
+        }
+        if scenario.isReadWrite {
+            let rendererLifecycle = try requestObject(await transport.nextSent())
+            #expect(
+                rendererLifecycle["cmd"] as? String
+                    == "subscribe-renderer-lifecycle"
+            )
+            await transport.enqueue(try response(to: rendererLifecycle, data: [:]))
+
+            let interactionModes = try requestObject(await transport.nextSent())
+            #expect(
+                interactionModes["cmd"] as? String
+                    == "subscribe-terminal-interaction-modes"
+            )
+            await transport.enqueue(try response(
+                to: interactionModes,
+                data: ["status": "subscribed"]
+            ))
         }
         _ = try await task.value
         return Connection(session: session, transport: transport, authority: authority)

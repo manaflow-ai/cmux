@@ -130,10 +130,7 @@ public final class TerminalRenderCompositorView: NSView {
     }
 
     private func retryPendingFrame() {
-        let frameIngress = frameIngress
-        Task.detached {
-            await frameIngress.retry()
-        }
+        frameIngress.retry()
     }
 
     private static func makeLayer(

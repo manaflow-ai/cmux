@@ -4,9 +4,9 @@ import PackageDescription
 
 // `CmuxMobileCrashReporting` is the iOS crash telemetry leaf package. It owns
 // the Sentry startup options for mobile, including watchdog termination,
-// app-hang, and MetricKit diagnostics, while depending on `CmuxMobileAnalytics`
-// only for the shared telemetry consent seam so crash reporting follows the
-// same opt-out as analytics.
+// app-hang, and MetricKit diagnostics. It depends on the telemetry consent seam
+// in `CMUXMobileCore`, making crash reporting and analytics sibling consumers
+// of the same opt-out contract.
 let package = Package(
     name: "CmuxMobileCrashReporting",
     platforms: [
@@ -20,7 +20,8 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(path: "../CmuxMobileAnalytics"),
+        .package(path: "../../Shared/CMUXMobileCore"),
+        .package(path: "../../Shared/CmuxSentryTelemetry"),
         .package(
             url: "https://github.com/getsentry/sentry-cocoa.git",
             .upToNextMajor(from: "9.3.0")
@@ -30,7 +31,9 @@ let package = Package(
         .target(
             name: "CmuxMobileCrashReporting",
             dependencies: [
-                "CmuxMobileAnalytics",
+                "CMUXMobileCore",
+                .product(name: "CmuxSentryScrubbing", package: "CmuxSentryTelemetry"),
+                .product(name: "CmuxSentryReporting", package: "CmuxSentryTelemetry"),
                 .product(name: "Sentry", package: "sentry-cocoa"),
             ],
             swiftSettings: [
@@ -41,7 +44,10 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxMobileCrashReportingTests",
-            dependencies: ["CmuxMobileCrashReporting"],
+            dependencies: [
+                "CMUXMobileCore",
+                "CmuxMobileCrashReporting",
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),

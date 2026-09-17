@@ -24,14 +24,6 @@ public typealias RenderDemandRetention = CmuxTerminalDomain.RenderDemandRetentio
 /// Compatibility alias for the domain-owned surface focus placement.
 public typealias TerminalSurfaceFocusPlacement = CmuxTerminalDomain.TerminalSurfaceFocusPlacement
 
-/// Compatibility alias for the domain-owned Claude wrapper descriptor.
-public typealias TerminalSurfaceClaudeCommandShim =
-    CmuxTerminalDomain.TerminalSurfaceClaudeCommandShim
-
 /// Compatibility alias for the domain-owned child-process context environment.
 public typealias TerminalSurfaceCmuxContextEnvironment =
     CmuxTerminalDomain.TerminalSurfaceCmuxContextEnvironment
-
-/// Compatibility alias for the domain-owned Codex wrapper descriptor.
-public typealias TerminalSurfaceCodexCommandShim =
-    CmuxTerminalDomain.TerminalSurfaceCodexCommandShim

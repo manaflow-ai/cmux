@@ -1,6 +1,8 @@
+import CmuxBrowser
 import CmuxTerminalBackend
 import CmuxCore
 import Foundation
+import WebKit
 
 /// Exact identity of one daemon-owned browser placement endpoint.
 ///
@@ -106,18 +108,19 @@ protocol TerminalBackendBrowserEndpointCreating {
     ) throws -> BrowserPanel
 }
 
-struct TerminalBackendNativeBrowserPresentationRequest: Sendable {
+struct TerminalBackendNativeBrowserPresentationRequest: @unchecked Sendable {
     let url: URL?
     let initialRequest: URLRequest?
     let profileID: UUID?
     let preloadInitialNavigationInBackground: Bool
     let bypassInsecureHTTPHostOnce: String?
-    let omnibarVisible: Bool
+    let chromeVisibility: BrowserChromeVisibility
     let transparentBackground: Bool
     let proxyEndpoint: BrowserProxyEndpoint?
     let bypassRemoteProxy: Bool
     let isRemoteWorkspace: Bool
     let remoteWebsiteDataStoreIdentifier: UUID?
+    let websiteDataStore: WKWebsiteDataStore?
 
     init(
         url: URL?,
@@ -125,24 +128,26 @@ struct TerminalBackendNativeBrowserPresentationRequest: Sendable {
         profileID: UUID?,
         preloadInitialNavigationInBackground: Bool = false,
         bypassInsecureHTTPHostOnce: String? = nil,
-        omnibarVisible: Bool,
+        chromeVisibility: BrowserChromeVisibility,
         transparentBackground: Bool,
         proxyEndpoint: BrowserProxyEndpoint? = nil,
         bypassRemoteProxy: Bool = false,
         isRemoteWorkspace: Bool = false,
-        remoteWebsiteDataStoreIdentifier: UUID? = nil
+        remoteWebsiteDataStoreIdentifier: UUID? = nil,
+        websiteDataStore: WKWebsiteDataStore? = nil
     ) {
         self.url = url
         self.initialRequest = initialRequest
         self.profileID = profileID
         self.preloadInitialNavigationInBackground = preloadInitialNavigationInBackground
         self.bypassInsecureHTTPHostOnce = bypassInsecureHTTPHostOnce
-        self.omnibarVisible = omnibarVisible
+        self.chromeVisibility = chromeVisibility
         self.transparentBackground = transparentBackground
         self.proxyEndpoint = proxyEndpoint
         self.bypassRemoteProxy = bypassRemoteProxy
         self.isRemoteWorkspace = isRemoteWorkspace
         self.remoteWebsiteDataStoreIdentifier = remoteWebsiteDataStoreIdentifier
+        self.websiteDataStore = websiteDataStore
     }
 }
 
@@ -238,12 +243,13 @@ struct NativeTerminalBackendBrowserEndpointFactory:
             preloadInitialNavigationInBackground:
                 request?.preloadInitialNavigationInBackground ?? false,
             bypassInsecureHTTPHostOnce: request?.bypassInsecureHTTPHostOnce,
-            omnibarVisible: request?.omnibarVisible ?? true,
+            chromeVisibility: request?.chromeVisibility ?? .visible,
             transparentBackground: request?.transparentBackground ?? false,
             proxyEndpoint: request?.proxyEndpoint,
             bypassRemoteProxy: request?.bypassRemoteProxy ?? false,
             isRemoteWorkspace: request?.isRemoteWorkspace ?? false,
-            remoteWebsiteDataStoreIdentifier: request?.remoteWebsiteDataStoreIdentifier
+            remoteWebsiteDataStoreIdentifier: request?.remoteWebsiteDataStoreIdentifier,
+            websiteDataStore: request?.websiteDataStore
         )
     }
 }

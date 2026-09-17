@@ -7,6 +7,10 @@ public actor BackendProtocolClient {
     /// The maximum number of server events buffered before the connection closes.
     public static let defaultEventCapacity = 256
 
+    /// A cancelled request may already be on the wire. Retain only a bounded
+    /// set of response IDs that the receive loop is allowed to discard.
+    private static let maximumAbandonedRequestCount = 256
+
     /// Commands whose wire contract is observational. Read-only compatibility
     /// denies every command not named here, so new mutations fail closed until
     /// they are classified deliberately.
@@ -19,6 +23,8 @@ public actor BackendProtocolClient {
         "process-info",
         "read-screen",
         "renderer-workers",
+        "subscribe-renderer-lifecycle",
+        "subscribe-terminal-interaction-modes",
         "subscribe-topology",
         "terminal-accessibility-activate-link",
         "terminal-accessibility-snapshot",
@@ -33,6 +39,8 @@ public actor BackendProtocolClient {
     private let eventStream: AsyncThrowingStream<BackendServerEvent, any Error>
     private let eventContinuation: AsyncThrowingStream<BackendServerEvent, any Error>.Continuation
     private var pending: [UInt64: CheckedContinuation<Data, any Error>] = [:]
+    private var dispatchStarted: Set<UInt64> = []
+    private var abandonedRequestIDs: Set<UInt64> = []
     private var nextRequestID: UInt64 = 1
     private var receiveTask: Task<Void, Never>?
     private var connected = false
@@ -147,6 +155,25 @@ public actor BackendProtocolClient {
             ],
             as: TopologySubscriptionResponse.self
         )
+    }
+
+    /// Registers the protocol-v9 stream containing only renderer lifecycle events.
+    public func subscribeRendererLifecycle() async throws {
+        let _: BackendEmptyResponse = try await call(
+            command: "subscribe-renderer-lifecycle",
+            as: BackendEmptyResponse.self
+        )
+    }
+
+    /// Registers the single connection-wide stream of parser interaction-mode changes.
+    public func subscribeTerminalInteractionModes() async throws {
+        let response: BackendTerminalInteractionModeSubscriptionResponse = try await call(
+            command: "subscribe-terminal-interaction-modes",
+            as: BackendTerminalInteractionModeSubscriptionResponse.self
+        )
+        guard response.status == "subscribed" else {
+            throw BackendProtocolError.malformedMessage
+        }
     }
 
     /// Registers a presentation for a client-visible terminal view.
@@ -281,7 +308,7 @@ public actor BackendProtocolClient {
             }
         } onCancel: {
             Task { [weak self] in
-                await self?.cancelAndClose(requestID: id)
+                await self?.cancel(requestID: id)
             }
         }
         try Task.checkCancellation()
@@ -317,9 +344,11 @@ public actor BackendProtocolClient {
 
     private func send(_ data: Data, requestID: UInt64) async {
         guard pending[requestID] != nil else { return }
+        dispatchStarted.insert(requestID)
         do {
             try await transport.send(data)
         } catch {
+            dispatchStarted.remove(requestID)
             pending.removeValue(forKey: requestID)?.resume(throwing: error)
             receiveTask?.cancel()
             receiveTask = nil
@@ -329,17 +358,24 @@ public actor BackendProtocolClient {
         }
     }
 
-    /// The protocol has no request-cancellation acknowledgement. Closing is
-    /// safer than keeping a connection on which a late response can be
-    /// mistaken for an unknown request or silently consume an ID forever.
-    private func cancelAndClose(requestID: UInt64) async {
-        pending.removeValue(forKey: requestID)?.resume(throwing: CancellationError())
-        guard connected else { return }
-        receiveTask?.cancel()
-        receiveTask = nil
-        connected = false
-        await transport.close()
-        finish(with: CancellationError())
+    /// Abandons one request without making its eventual correlated response
+    /// ambiguous. Requests cancelled before dispatch need no tombstone. If too
+    /// many dispatched requests remain unresolved, fail the connection closed
+    /// rather than retaining unbounded IDs or accepting an unknown response.
+    private func cancel(requestID: UInt64) async {
+        guard let continuation = pending.removeValue(forKey: requestID) else { return }
+        let wasDispatched = dispatchStarted.remove(requestID) != nil
+        continuation.resume(throwing: CancellationError())
+        guard wasDispatched, connected else { return }
+        guard abandonedRequestIDs.count < Self.maximumAbandonedRequestCount else {
+            receiveTask?.cancel()
+            receiveTask = nil
+            connected = false
+            await transport.close()
+            finish(with: BackendProtocolError.connectionClosed)
+            return
+        }
+        abandonedRequestIDs.insert(requestID)
     }
 
     private func receiveLoop() async {
@@ -363,10 +399,17 @@ public actor BackendProtocolClient {
                         throw BackendProtocolError.connectionClosed
                     }
                 } else if let id = header.id {
-                    guard let continuation = pending.removeValue(forKey: id) else {
+                    if let continuation = pending.removeValue(forKey: id) {
+                        dispatchStarted.remove(id)
+                        continuation.resume(returning: data)
+                    } else if abandonedRequestIDs.remove(id) != nil {
+                        guard header.ok != nil else {
+                            throw BackendProtocolError.malformedMessage
+                        }
+                        continue
+                    } else {
                         throw BackendProtocolError.malformedMessage
                     }
-                    continuation.resume(returning: data)
                 } else if header.ok == false {
                     throw BackendProtocolError.server(header.error ?? "uncorrelated backend error")
                 } else {
@@ -388,6 +431,8 @@ public actor BackendProtocolClient {
             continuation.resume(throwing: error)
         }
         pending.removeAll()
+        dispatchStarted.removeAll()
+        abandonedRequestIDs.removeAll()
         eventContinuation.finish(throwing: error)
     }
 }

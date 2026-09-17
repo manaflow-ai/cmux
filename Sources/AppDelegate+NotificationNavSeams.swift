@@ -53,6 +53,10 @@ final class NotificationNavSeamAdapter:
         owner?.workspaceUnreadIndicatorIdsForNav ?? []
     }
 
+    var windowDockUnreadTargets: [WindowDockUnreadTarget] {
+        owner?.windowDockUnreadTargetsForNav ?? []
+    }
+
     func hasManualUnread(forTabId tabId: UUID) -> Bool {
         owner?.navStoreHasManualUnread(forTabId: tabId) ?? false
     }
@@ -63,6 +67,10 @@ final class NotificationNavSeamAdapter:
 
     func markRead(id: UUID) {
         owner?.navMarkRead(id: id)
+    }
+
+    func clearWindowDockUnread(_ target: WindowDockUnreadTarget) {
+        owner?.navClearWindowDockUnread(target)
     }
 
     // MARK: MainWindowContextResolving
@@ -159,6 +167,10 @@ final class NotificationNavSeamAdapter:
         ) ?? false
     }
 
+    func openWindowDockUnread(_ target: WindowDockUnreadTarget) -> Bool {
+        owner?.openWindowDockUnread(target) ?? false
+    }
+
     func tabTitle(forTabId tabId: UUID) -> String? {
         owner?.tabTitle(forTabId: tabId) ?? nil
     }
@@ -185,6 +197,24 @@ final class NotificationNavSeamAdapter:
 
     func focusedTarget(preferredWindowToken: AnyObject?) -> FocusedNotificationTarget? {
         owner?.focusedTarget(preferredWindowToken: preferredWindowToken) ?? nil
+    }
+
+    func windowDockSurfaceIsUnread(_ target: WindowDockUnreadTarget) -> Bool {
+        owner?.windowDockSurfaceIsUnread(target) ?? false
+    }
+
+    func markWindowDockSurfaceUnread(_ target: WindowDockUnreadTarget) {
+        owner?.markWindowDockSurfaceUnread(target)
+    }
+
+    func clearWindowDockSurfaceUnread(_ target: WindowDockUnreadTarget) {
+        owner?.clearWindowDockSurfaceUnread(target)
+    }
+
+    func markLatestWindowDockNotificationAsOldestUnread(
+        _ target: WindowDockUnreadTarget
+    ) -> UUID? {
+        owner?.markLatestWindowDockNotificationAsOldestUnread(target)
     }
 
     func focusedPanel(forTabId tabId: UUID, surfaceId: UUID?) -> FocusedPanel? {
@@ -267,6 +297,10 @@ extension AppDelegate {
         notificationStore?.workspaceUnreadIndicatorIds ?? []
     }
 
+    var windowDockUnreadTargetsForNav: [WindowDockUnreadTarget] {
+        notificationStore?.windowDockUnreadTargets ?? []
+    }
+
     func navStoreHasManualUnread(forTabId tabId: UUID) -> Bool {
         notificationStore?.hasManualUnread(forTabId: tabId) ?? false
     }
@@ -277,6 +311,13 @@ extension AppDelegate {
 
     func navMarkRead(id: UUID) {
         notificationStore?.markRead(id: id)
+    }
+
+    func navClearWindowDockUnread(_ target: WindowDockUnreadTarget) {
+        notificationStore?.clearWindowDockSurfaceUnread(
+            windowId: target.windowId,
+            surfaceId: target.surfaceId
+        )
     }
 
     /// Whether `notification` is openable by the jump-to-latest scan. A thin
@@ -351,7 +392,15 @@ extension AppDelegate {
     }
 
     func triggerUnreadIndicatorDismissFlash(workspaceId: UUID, panelId: UUID) {
-        unreadJumpWorkspace(forTabId: workspaceId)?.triggerUnreadIndicatorDismissFlash(panelId: panelId)
+        if routeNotificationAttentionFlash(
+            workspaceID: workspaceId,
+            panelID: panelId,
+            reason: .unreadIndicatorDismiss
+        ) {
+            return
+        }
+        unreadJumpWorkspace(forTabId: workspaceId)?
+            .triggerUnreadIndicatorDismissFlash(panelId: panelId)
     }
 
     func clearUnreadAfterJump(workspaceId: UUID, panelId: UUID?) {
@@ -434,6 +483,22 @@ extension AppDelegate {
         )
     }
 
+    func openWindowDockUnread(_ target: WindowDockUnreadTarget) -> Bool {
+        guard let dock = windowDockForRegisteredOwner(target.windowId),
+              dock.containsPanel(target.surfaceId),
+              let manager = tabManagerForWindowDockOwner(target.windowId) else {
+            return false
+        }
+        guard TerminalController.shared.focusAndRevealWindowDock(
+            for: dock,
+            fallback: manager
+        ) else {
+            return false
+        }
+        dock.focusPanel(target.surfaceId)
+        return dock.focusedPanelId == target.surfaceId
+    }
+
     func tabTitle(forTabId tabId: UUID) -> String? {
         tabTitle(for: tabId)
     }
@@ -475,14 +540,25 @@ extension AppDelegate {
     }
 
     func focusedTarget(preferredWindowToken: AnyObject?) -> FocusedNotificationTarget? {
+        let preferredWindow = preferredWindowToken as? NSWindow
+        if let dock = focusedDockStoreForShortcut(preferredWindow: preferredWindow),
+           let surfaceId = dock.focusedPanelId,
+           dock.containsPanel(surfaceId) {
+            return .windowDock(
+                WindowDockUnreadTarget(
+                    windowId: dock.workspaceId,
+                    surfaceId: surfaceId
+                )
+            )
+        }
+
         // The opaque resolver token is the preferred `NSWindow` the legacy
-        // `focusedNotificationTarget(preferredWindow:)` took. The resolution
-        // itself stays in `AppDelegate.swift` (it reaches the private
-        // first-responder/`FocusedTerminalShortcutContext` resolver).
-        guard let target = resolveFocusedNotificationTarget(preferredWindow: preferredWindowToken as? NSWindow) else {
+        // workspace resolver took. It reaches the private first-responder /
+        // `FocusedTerminalShortcutContext` resolver in `AppDelegate.swift`.
+        guard let target = resolveFocusedNotificationTarget(preferredWindow: preferredWindow) else {
             return nil
         }
-        return FocusedNotificationTarget(tabId: target.tabId, surfaceId: target.surfaceId)
+        return .workspace(tabId: target.tabId, surfaceId: target.surfaceId)
     }
 
 }

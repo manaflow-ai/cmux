@@ -50,7 +50,6 @@ import {
   VmTimingRecorder,
 } from "../../../services/vms/timings";
 
-export const dynamic = "force-dynamic";
 
 export async function GET(request: Request): Promise<Response> {
   return withAuthedVmApiRoute(

@@ -13,6 +13,8 @@ import {
   relayPolicySigningKey,
   signRelayPolicy,
 } from "../services/relay/catalog";
+import { RelayCatalogIntegrityError } from "../services/relay/errors";
+import { relayErrorResponse } from "../services/relay/http";
 import {
   assertManagedSelectionExists,
   parseRelayCatalog,
@@ -53,6 +55,61 @@ const catalog: RelayCatalog = {
 };
 
 describe("signed relay policy", () => {
+  test("uses a canonical catalog digest across JSON object key order", () => {
+    const reordered = {
+      relays: catalog.relays.map((relay) => ({
+        url: relay.url,
+        region: relay.region,
+        provider: relay.provider,
+        id: relay.id,
+      })),
+      sequence: catalog.sequence,
+      version: catalog.version,
+    } as RelayCatalog;
+
+    expect(relayCatalogDigest(reordered)).toBe(relayCatalogDigest(catalog));
+  });
+
+  test("logs a safe reason when persisted catalog integrity fails", async () => {
+    const originalConsoleError = console.error;
+    const calls: unknown[][] = [];
+    console.error = (...args: unknown[]) => { calls.push(args); };
+    try {
+      const response = relayErrorResponse(new RelayCatalogIntegrityError({
+        reason: "persisted_catalog_digest_mismatch",
+      }));
+
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: "relay_policy_unavailable" });
+      expect(calls).toEqual([[
+        "relay.policy.catalog_integrity",
+        { reason: "persisted_catalog_digest_mismatch" },
+      ]]);
+    } finally {
+      console.error = originalConsoleError;
+    }
+  });
+
+  test("never logs unexpected relay policy error contents", async () => {
+    const originalConsoleError = console.error;
+    const calls: unknown[][] = [];
+    console.error = (...args: unknown[]) => { calls.push(args); };
+    try {
+      const response = relayErrorResponse(new Error(
+        "token=secret-token url=https://private-relay.example database=postgres://secret",
+      ));
+
+      expect(response.status).toBe(500);
+      expect(await response.json()).toEqual({ error: "internal_error" });
+      expect(calls).toEqual([[
+        "relay.policy.unexpected",
+        { failure: "unexpected" },
+      ]]);
+    } finally {
+      console.error = originalConsoleError;
+    }
+  });
+
   test("keeps signed policy, web publication, and Presence on one catalog digest", () => {
     const configured = configuredRelayCatalog();
     const presence = parseRelayCatalog(JSON.stringify(APPROVED_IROH_RELAY_CATALOG));

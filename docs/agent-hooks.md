@@ -59,11 +59,11 @@ When the opt-in `automation.workspaceAutoNaming` setting is enabled, turn-end ho
 
 ## Agent Hibernation
 
-Agent Hibernation kills idle background agent processes to free their RAM and CPU, then resumes each one with its saved session when you return to its tab. It is opt-in and off by default. cmux knows which process belongs to which terminal because the agent hooks associate each session ID with its surface (see the session-restore section above), so it can terminate the right process and bring back the right session.
+Agent Hibernation kills idle background agent processes to free their RAM and CPU, then resumes each one with its saved session when you return to its tab. Routine hibernation based on the live-terminal limit is opt-in and off by default. A separate bounded safety path remains active for critical system memory pressure. cmux knows which process belongs to which terminal because the agent hooks associate each session ID with its surface (see the session-restore section above), so it can terminate the right process and bring back the right session.
 
 ### When a terminal hibernates
 
-A live terminal is only ever a candidate when all of these hold:
+For routine hibernation, a live terminal is only a candidate when all of these hold:
 
 - it has a saved restorable agent session, and the saved launch data can build a resume command
 - the agent lifecycle is `idle` (not running, not waiting on input)
@@ -75,7 +75,11 @@ The live-terminal limit is the first gate. Under the limit, nothing hibernates n
 
 Before killing, cmux watches the terminal tail. It samples the last lines of output and a fingerprint of the process, and waits a short confirmation window (`confirmationSeconds`, ~60s) during which the output and process must stay unchanged. Any new output, input, lifecycle change, or PID change cancels the pending hibernation. This is why a small `idleSeconds` is safe: a freshly idle agent that resumes work on its own is never killed mid-task.
 
-So with the defaults, hibernation only affects power users running more than 12 agents at once, and even then only ~1 minute after an agent has gone quiet off-screen.
+So with the defaults, routine hibernation only affects power users running more than 12 agents at once, and even then only ~1 minute after an agent has gone quiet off-screen.
+
+### Critical memory pressure
+
+When macOS reports critical memory pressure, cmux can run the same protected teardown path independently of the `enabled` setting and live-terminal limit. Each pass selects at most two of the oldest eligible background agents. The agent must still be restorable, off-screen, explicitly idle, free of unconfirmed input, stable through the confirmation window, and backed by a transcript cmux can protect. Visible, running, needs-input, recently changed, or unprotectable agents are never selected. Before signaling anything, cmux revalidates the exact process generation and workspace/surface scope.
 
 ### What gets killed and how it comes back
 
@@ -83,7 +87,7 @@ cmux sends `SIGTERM` to the agent's process group (scoped to that workspace and 
 
 ### Enable and configure
 
-Enable from the command palette (`⌘⇧P` -> **Enable Agent Hibernation**), from **Settings > Terminal > Agent Hibernation**, or from the CLI:
+Enable routine hibernation from the command palette (`⌘⇧P` -> **Enable Agent Hibernation**), from **Settings > Terminal > Agent Hibernation**, or from the CLI:
 
 ```bash
 cmux agent-hibernation on

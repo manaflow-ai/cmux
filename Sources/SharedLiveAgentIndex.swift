@@ -438,6 +438,17 @@ final class SharedLiveAgentIndex {
         return index
     }
 
+    /// Returns a freshly loaded index, coalescing with any refresh already in flight.
+    func indexRefreshingNow() async -> RestorableAgentSessionIndex? {
+        ensureWatchingHookStoreDirectory()
+        if refreshTask == nil, forkAvailabilityRefreshTask == nil {
+            startReload()
+        }
+        let inFlight = forkAvailabilityRefreshTask ?? refreshTask
+        await inFlight?.value
+        return index
+    }
+
     func scheduleRefreshIfStale(
         validating panelKey: RestorableAgentSessionIndex.PanelKey? = nil,
         isRemoteContext: Bool = false

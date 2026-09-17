@@ -9,6 +9,18 @@ struct BackendRendererCommandTests {
     private let terminalUUID = "33333333-3333-4333-8333-333333333333"
     private let presentationUUID = "44444444-4444-4444-8444-444444444444"
 
+    @Test("renderer config invalidation rejects a malformed digest")
+    func rendererConfigInvalidationRejectsMalformedDigest() throws {
+        let event = try JSONDecoder().decode(
+            BackendServerEvent.self,
+            from: Data(#"{"event":"renderer-config-invalidated","revision":3,"digest":"xyz","reason":"default-colors-changed","default_colors":{}}"#.utf8)
+        )
+
+        #expect(throws: BackendProtocolError.malformedMessage) {
+            _ = try event.rendererConfigInvalidated()
+        }
+    }
+
     @Test("renderer attachment installs an exact process and presentation fence")
     func configureRendererPresentation() async throws {
         let transport = ScriptedBackendTransport()
@@ -84,6 +96,8 @@ struct BackendRendererCommandTests {
             "metrics": NSNull(),
             "pixel_format": "bgra8-unorm",
             "color_space": "display-p3",
+            "resolved_config_revision": 11,
+            "resolved_config_digest": String(repeating: "b", count: 64),
         ]))
 
         let receipt = try await task.value
@@ -99,6 +113,8 @@ struct BackendRendererCommandTests {
         #expect(receipt.rendererGeneration == 8)
         #expect(receipt.minimumContentSequence == 21)
         #expect(receipt.metrics == nil)
+        #expect(receipt.resolvedConfigRevision == 11)
+        #expect(receipt.resolvedConfigDigest.description == String(repeating: "b", count: 64))
 
         let activation = Task {
             try await client.activateRendererPresentation(

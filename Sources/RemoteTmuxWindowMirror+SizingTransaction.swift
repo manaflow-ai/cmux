@@ -270,20 +270,11 @@ extension RemoteTmuxWindowMirror {
                 panel.surface.reapplyAssignedGrid()
                 laggedShort = rendered.cols < node.width || rendered.rows < node.height
             }
-            // A grid that grew after tmux streamed those rows leaves the
-            // late-granted cells blank: the surface clipped that content while it
-            // was short, and tmux repaints only on change. tmux's own grid still
-            // HAS those rows — only the mirror lost them — so the repair is to read
-            // tmux's screen back into this pane, never to move the CLIENT size. The
-            // old shrink→restore kick did move it, which made tmux re-round an odd
-            // split, which grew a pane again and re-fired the kick: an unbounded
-            // loop (23k kicks in one fuzz iteration). Rationing the kick by a
-            // per-pane high-water bounded the loop but silently dropped genuine
-            // grows (a grow back to a size already refilled at this claim never
-            // repainted, so its cells stayed blank). A capture-pane read perturbs
-            // nothing, so every genuine grow can repaint exactly once with no
-            // budget, no high-water, and no loop.
-            if grewPin || laggedShort {
+            // Verified tmux assignment growth is repaired centrally after topology
+            // observers apply their grids. This residual covers a different edge:
+            // an unchanged pin applied against stale cell metrics can still render
+            // short, so re-read tmux's visible screen after reapplying that pin.
+            if laggedShort {
                 panesToRepaint.append(paneId)
             }
         }

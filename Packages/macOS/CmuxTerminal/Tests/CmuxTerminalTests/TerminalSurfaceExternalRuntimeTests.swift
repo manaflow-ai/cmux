@@ -6,6 +6,40 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct TerminalSurfaceExternalRuntimeTests {
+    @Test func externalSurfaceRebasesFontLineageWithoutEmbeddedRuntimeOwnership() {
+        let fontConfiguration = FakeTerminalFontConfigurationSource(
+            snapshot: TerminalFontConfigurationSnapshot(
+                generation: 1,
+                runtimePoints: 12
+            )
+        )
+        var template = CmuxSurfaceConfigTemplate()
+        template.fontSizeLineage = TerminalFontSizeLineage(
+            basePoints: 12,
+            isExplicitOverride: false
+        )
+        let fixture = makeFixture(
+            configTemplate: template,
+            fontConfigurationSnapshot: { fontConfiguration.snapshot }
+        )
+        defer { fixture.surface.detachExternalPresentationPreservingCanonicalTerminal() }
+
+        fontConfiguration.snapshot = TerminalFontConfigurationSnapshot(
+            generation: 2,
+            runtimePoints: 18
+        )
+
+        #expect(
+            fixture.surface.fontSizeLineageSnapshot(magnificationPercent: 100)
+                == TerminalFontSizeLineage(
+                    basePoints: 18,
+                    isExplicitOverride: false
+                )
+        )
+        #expect(fixture.surface.fontSizeLineageConfigurationGeneration == 2)
+        #expect(fixture.surface.embeddedRuntime == nil)
+    }
+
     @Test func externalSurfaceNeverCreatesEmbeddedGhosttyRuntimeOrBootstrapWindow() {
         let fixture = makeFixture(initialInput: "echo should-run-in-backend")
         defer { fixture.surface.detachExternalPresentationPreservingCanonicalTerminal() }
@@ -26,7 +60,7 @@ struct TerminalSurfaceExternalRuntimeTests {
         ])
     }
 
-    @Test func inputFocusVisibilityResizeAndReparentUseOneOrderedIngress() {
+    @Test func strictInputAndPresentationStateUseOwnedRoutes() {
         let fixture = makeFixture()
         defer { fixture.surface.detachExternalPresentationPreservingCanonicalTerminal() }
 
@@ -60,7 +94,8 @@ struct TerminalSurfaceExternalRuntimeTests {
         let newWorkspaceID = UUID()
         fixture.surface.updateWorkspaceId(newWorkspaceID)
 
-        #expect(fixture.runtime.acceptedSequences == Array(1...9))
+        #expect(fixture.runtime.acceptedSequences == Array(1...8))
+        #expect(fixture.runtime.desiredVisibilities == [false])
         #expect(fixture.runtime.mutations.count == 9)
         #expect(fixture.runtime.mutations[0] == .input(.text(
             TerminalExternalTextInput(text: "paste", kind: .paste)
@@ -88,14 +123,111 @@ struct TerminalSurfaceExternalRuntimeTests {
         #expect(fixture.surface.surface == nil)
     }
 
-    @Test func explicitTeardownClosesOnceThenDetachesWhileDeinitOnlyDetaches() {
+    @Test func externalInputNotifiesItsOwnerOnlyAfterAcceptance() {
+        let fixture = makeFixture()
+        defer { fixture.surface.detachExternalPresentationPreservingCanonicalTerminal() }
+        var acceptedInputCount = 0
+        fixture.surface.onExplicitInput = { acceptedInputCount += 1 }
+
+        #expect(fixture.surface.sendText("accepted"))
+        #expect(acceptedInputCount == 1)
+
+        fixture.runtime.rejectNext(.queueFull)
+        #expect(!fixture.surface.sendText("rejected"))
+        #expect(acceptedInputCount == 1)
+
+        #expect(fixture.surface.sendExternalKeyEvent(TerminalExternalKeyEvent(
+            key: 42,
+            action: .press
+        )).accepted)
+        #expect(acceptedInputCount == 2)
+
+        #expect(fixture.surface.sendExternalKeyEvent(TerminalExternalKeyEvent(
+            key: 42,
+            action: .release
+        )).accepted)
+        #expect(acceptedInputCount == 2)
+    }
+
+    @Test func saturatedStrictIngressCannotDropDesiredVisibility() {
+        let fixture = makeFixture()
+        defer { fixture.surface.detachExternalPresentationPreservingCanonicalTerminal() }
+        fixture.runtime.rejectNext(.queueFull)
+
+        fixture.surface.setOcclusion(false)
+
+        #expect(fixture.runtime.desiredVisibilities == [false])
+        #expect(fixture.runtime.mutations == [.visibility(false)])
+        #expect(fixture.surface.mutateExternalSelection(.clear) == .rejected(.queueFull))
+    }
+
+    @Test func externalSurfaceKeepsCanonicalTerminalLifecycleIdentity() {
+        let surfaceID = UUID()
+        let first = makeFixture(
+            surfaceID: surfaceID,
+            terminalLifecycleID: surfaceID
+        )
+        let second = makeFixture(
+            surfaceID: surfaceID,
+            terminalLifecycleID: surfaceID
+        )
+        defer {
+            first.surface.detachExternalPresentationPreservingCanonicalTerminal()
+            second.surface.detachExternalPresentationPreservingCanonicalTerminal()
+        }
+
+        #expect(first.surface.terminalLifecycleId == surfaceID)
+        #expect(second.surface.terminalLifecycleId == surfaceID)
+    }
+
+    @Test func externalCopyModeToggleDefersStateDecisionToRuntimeOwner() {
+        let fixture = makeFixture()
+        defer { fixture.surface.detachExternalPresentationPreservingCanonicalTerminal() }
+        fixture.runtime.snapshot = TerminalExternalRuntimeSnapshot(
+            lifecycle: .live,
+            copyModeActive: true
+        )
+        fixture.surface.setKeyboardCopyModeActive(false)
+
+        #expect(fixture.surface.toggleKeyboardCopyMode())
+        #expect(fixture.surface.toggleKeyboardCopyMode())
+
+        #expect(fixture.runtime.mutations == [.toggleCopyMode, .toggleCopyMode])
+        #expect(fixture.surface.keyboardCopyModeActive)
+    }
+
+    @Test func externalSurfaceRejectsEmbeddedManualIOWithoutTrap() {
+        let fixture = makeFixture()
+        defer { fixture.surface.detachExternalPresentationPreservingCanonicalTerminal() }
+
+        fixture.surface.setManualIONoReflow(true)
+        fixture.surface.processRemoteOutput(Data("remote output".utf8))
+
+        #expect(fixture.runtime.mutations.isEmpty)
+        #expect(fixture.surface.hasLiveSurface)
+    }
+
+    @Test func canonicalProjectionOwnsCloseCommitAndPresentationRetirement() {
         let explicitlyClosed = makeFixture()
         let closeLease = explicitlyClosed.runtime.leases[0]
+
         explicitlyClosed.surface.teardownSurface()
         explicitlyClosed.surface.teardownSurface()
 
-        #expect(explicitlyClosed.runtime.mutations.filter { $0 == .closeCanonicalTerminal }.count == 1)
+        #expect(explicitlyClosed.runtime.mutations.isEmpty)
+        #expect(closeLease.detachCount == 0)
+        #expect(explicitlyClosed.surface.hasLiveSurface)
+
+        #expect(explicitlyClosed.surface.requestCanonicalClose().accepted)
+        #expect(explicitlyClosed.runtime.mutations == [.closeCanonicalTerminal])
+        #expect(closeLease.detachCount == 0)
+        #expect(explicitlyClosed.surface.hasLiveSurface)
+
+        explicitlyClosed.surface.detachExternalPresentationPreservingCanonicalTerminal()
+        explicitlyClosed.surface.teardownSurface()
+
         #expect(closeLease.detachCount == 1)
+        #expect(!explicitlyClosed.surface.hasLiveSurface)
 
         let detachedRuntime = FakeExternalTerminalRuntime(snapshot: Self.liveSnapshot)
         var detachedSurface: TerminalSurface? = makeFixture(runtime: detachedRuntime).surface
@@ -119,6 +251,66 @@ struct TerminalSurfaceExternalRuntimeTests {
             $0 == TerminalExternalRuntimeMutation.closeCanonicalTerminal
         }.isEmpty)
         #expect(deinitLease.detachCount == 1)
+    }
+
+    @Test func rejectedCanonicalCloseKeepsPresentationAttachedAndRemainsRetryable() {
+        let fixture = makeFixture()
+        let lease = fixture.runtime.leases[0]
+        fixture.runtime.rejectNext(.queueFull)
+
+        #expect(!fixture.surface.requestCanonicalClose().accepted)
+
+        #expect(fixture.runtime.mutations.isEmpty)
+        #expect(lease.detachCount == 0)
+
+        #expect(fixture.surface.requestCanonicalClose().accepted)
+
+        #expect(fixture.runtime.mutations == [.closeCanonicalTerminal])
+        #expect(lease.detachCount == 0)
+        #expect(fixture.surface.hasLiveSurface)
+
+        fixture.surface.detachExternalPresentationPreservingCanonicalTerminal()
+        fixture.surface.teardownSurface()
+        #expect(lease.detachCount == 1)
+    }
+
+    @Test func rejectedFocusRemainsRetryable() {
+        let fixture = makeFixture()
+        defer { fixture.surface.detachExternalPresentationPreservingCanonicalTerminal() }
+        fixture.runtime.rejectNext(.queueFull)
+
+        fixture.surface.setFocus(true)
+
+        #expect(!fixture.surface.debugDesiredFocusState())
+        #expect(fixture.runtime.mutations.isEmpty)
+
+        fixture.surface.setFocus(true)
+
+        #expect(fixture.surface.debugDesiredFocusState())
+        #expect(fixture.runtime.mutations == [.focus(true)])
+    }
+
+    @Test func reparentInstallsOnlyFromCanonicalProjection() {
+        let fixture = makeFixture()
+        defer { fixture.surface.detachExternalPresentationPreservingCanonicalTerminal() }
+        let originalWorkspaceID = fixture.surface.tabId
+        let destinationWorkspaceID = UUID()
+        fixture.runtime.rejectNext(.queueFull)
+
+        fixture.surface.updateWorkspaceId(destinationWorkspaceID)
+
+        #expect(fixture.runtime.mutations.isEmpty)
+        #expect(fixture.surface.tabId == originalWorkspaceID)
+
+        fixture.surface.updateWorkspaceId(destinationWorkspaceID)
+
+        #expect(fixture.runtime.mutations == [.reparent(workspaceID: destinationWorkspaceID)])
+        #expect(fixture.surface.tabId == originalWorkspaceID)
+
+        fixture.surface.installCanonicalWorkspaceId(destinationWorkspaceID)
+
+        #expect(fixture.surface.tabId == destinationWorkspaceID)
+        #expect(fixture.surface.surfaceView.tabId == destinationWorkspaceID)
     }
 
     @Test func cachedScreenProcessAndCellStateRouteToExternalRuntime() async {
@@ -145,6 +337,17 @@ struct TerminalSurfaceExternalRuntimeTests {
         #expect(fixture.runtime.mutations.isEmpty)
     }
 
+    @Test func accessibilityDemandForwardsBothEdgesToExternalRuntime() {
+        let fixture = makeFixture()
+        defer { fixture.surface.detachExternalPresentationPreservingCanonicalTerminal() }
+
+        fixture.surface.enableExternalAccessibility()
+        fixture.surface.disableExternalAccessibility()
+
+        #expect(fixture.runtime.accessibilityEnableCount == 1)
+        #expect(fixture.runtime.accessibilityDisableCount == 1)
+    }
+
     private static let liveSnapshot = TerminalExternalRuntimeSnapshot(
         lifecycle: .live,
         visibleText: "visible",
@@ -164,8 +367,13 @@ struct TerminalSurfaceExternalRuntimeTests {
     )
 
     private func makeFixture(
+        surfaceID: UUID = UUID(),
+        terminalLifecycleID: UUID? = nil,
         initialInput: String? = nil,
-        runtime: FakeExternalTerminalRuntime? = nil
+        runtime: FakeExternalTerminalRuntime? = nil,
+        configTemplate: CmuxSurfaceConfigTemplate? = nil,
+        fontConfigurationSnapshot: @escaping
+            @MainActor @Sendable () -> TerminalFontConfigurationSnapshot? = { nil }
     ) -> (
         surface: TerminalSurface,
         runtime: FakeExternalTerminalRuntime
@@ -180,9 +388,11 @@ struct TerminalSurfaceExternalRuntimeTests {
         )
         let resolvedRuntime = runtime ?? FakeExternalTerminalRuntime(snapshot: Self.liveSnapshot)
         let surface = TerminalSurface(
+            id: surfaceID,
+            terminalLifecycleId: terminalLifecycleID ?? surfaceID,
             tabId: UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
+            configTemplate: configTemplate,
             initialInput: initialInput,
             externalRuntime: resolvedRuntime,
             presentationDependencies: TerminalSurfacePresentationDependencies(
@@ -193,10 +403,20 @@ struct TerminalSurfaceExternalRuntimeTests {
                 ),
                 spawnPolicy: FakeSpawnPolicyProvider(),
                 hibernationRecorder: FakeHibernationRecorder(),
-                scrollbackReplayEnvironmentKey: "CMUX_TEST_SCROLLBACK_REPLAY"
+                scrollbackReplayEnvironmentKey: "CMUX_TEST_SCROLLBACK_REPLAY",
+                fontConfigurationSnapshot: fontConfigurationSnapshot
             )
         )
         return (surface, resolvedRuntime)
+    }
+}
+
+@MainActor
+private final class FakeTerminalFontConfigurationSource {
+    var snapshot: TerminalFontConfigurationSnapshot
+
+    init(snapshot: TerminalFontConfigurationSnapshot) {
+        self.snapshot = snapshot
     }
 }
 
@@ -206,9 +426,13 @@ private final class FakeExternalTerminalRuntime: TerminalExternalRuntime {
     private(set) var presentations: [TerminalExternalPresentation] = []
     private(set) var leases: [RecordingExternalPresentationLease] = []
     private(set) var mutations: [TerminalExternalRuntimeMutation] = []
+    private(set) var desiredVisibilities: [Bool] = []
     private(set) var acceptedSequences: [UInt64] = []
     private(set) var screenRequests: [TerminalExternalScreenTextRequest] = []
+    private(set) var accessibilityEnableCount = 0
+    private(set) var accessibilityDisableCount = 0
     private var nextSequence: UInt64 = 1
+    private var nextRejection: TerminalExternalIngressRejection?
 
     init(snapshot: TerminalExternalRuntimeSnapshot) {
         self.snapshot = snapshot
@@ -223,12 +447,25 @@ private final class FakeExternalTerminalRuntime: TerminalExternalRuntime {
         return lease
     }
 
+    func setDesiredVisibility(_ visible: Bool) {
+        desiredVisibilities.append(visible)
+        mutations.append(.visibility(visible))
+    }
+
     func enqueue(_ mutation: TerminalExternalRuntimeMutation) -> TerminalExternalIngressResult {
+        if let nextRejection {
+            self.nextRejection = nil
+            return .rejected(nextRejection)
+        }
         let sequence = nextSequence
         nextSequence += 1
         mutations.append(mutation)
         acceptedSequences.append(sequence)
         return .accepted(sequence: sequence)
+    }
+
+    func rejectNext(_ rejection: TerminalExternalIngressRejection) {
+        nextRejection = rejection
     }
 
     func readScreenText(_ request: TerminalExternalScreenTextRequest) async -> String? {
@@ -238,6 +475,14 @@ private final class FakeExternalTerminalRuntime: TerminalExternalRuntime {
 
     func readSelection() async -> TerminalExternalSelection? {
         snapshot.selection
+    }
+
+    func enableAccessibility() {
+        accessibilityEnableCount += 1
+    }
+
+    func disableAccessibility() {
+        accessibilityDisableCount += 1
     }
 }
 

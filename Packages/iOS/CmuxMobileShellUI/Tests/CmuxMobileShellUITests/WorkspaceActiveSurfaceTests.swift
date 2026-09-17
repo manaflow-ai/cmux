@@ -26,6 +26,25 @@ import Testing
         ) == .terminal)
     }
 
+    @Test func browserStreamActivatesWhenNoLocalBrowserIsOpen() {
+        #expect(WorkspaceActiveSurface.derive(
+            isChatMode: false,
+            hasChosenChatSession: false,
+            hasActiveBrowser: false,
+            hasActiveBrowserStream: true
+        ) == .browserStream)
+    }
+
+    @Test func simulatorStreamActivatesWhenNoBrowserSurfaceIsOpen() {
+        #expect(WorkspaceActiveSurface.derive(
+            isChatMode: false,
+            hasChosenChatSession: false,
+            hasActiveBrowser: false,
+            hasActiveBrowserStream: false,
+            hasActiveSimulatorStream: true
+        ) == .simulatorStream)
+    }
+
     @Test func chromeReturnRefocusesTheSelectedTerminal() {
         #expect(WorkspaceActiveSurface.chromeReturnRefocusTerminalID(
             selectedTerminalID: "terminal-1",

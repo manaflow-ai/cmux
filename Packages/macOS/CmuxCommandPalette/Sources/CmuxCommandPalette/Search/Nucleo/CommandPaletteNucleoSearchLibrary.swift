@@ -106,27 +106,28 @@ final class CommandPaletteNucleoSearchLibrary: @unchecked Sendable {
     }
 
     private static func defaultLibraryPaths() -> [String] {
-        var paths: [String] = []
-        if let privateFrameworksPath = Bundle.main.privateFrameworksPath {
-            paths.append(
-                URL(fileURLWithPath: privateFrameworksPath)
-                    .appendingPathComponent(Self.libraryFileName)
-                    .path
-            )
-        }
-
         // A backend-only host is an attested product boundary. It may load the
         // signed library shipped in its own bundle, but it must never turn an
         // environment variable or source-tree path into a runtime code-loading
         // escape hatch. Standalone package tests and legacy debug builds retain
         // their developer paths because they have no backend-only ownership
         // declaration in their main-bundle Info.plist.
-        guard permitsDeveloperLibraryPaths else { return paths }
-
         let environmentPath = ProcessInfo.processInfo.environment["CMUX_NUCLEO_FFI_LIB"]
-        if let environmentPath, !environmentPath.isEmpty {
-            paths.append(environmentPath)
+        let bundledLibraryPath = Bundle.main.privateFrameworksPath.map {
+            URL(fileURLWithPath: $0)
+                .appendingPathComponent(Self.libraryFileName)
+                .path
         }
+        let policy = CommandPaletteNucleoLibraryPathPolicy(
+            environmentPath: environmentPath,
+            bundledLibraryPath: bundledLibraryPath,
+            runtimeOwnership: Bundle.main.object(
+                forInfoDictionaryKey: "CMUXTerminalRuntimeOwnership"
+            ) as? String,
+            debugBuild: Self.isDebugBuild
+        )
+        var paths = policy.prioritizedLibraryPaths
+        guard policy.permitsDeveloperPaths else { return paths }
 
         // Repo source root: this file lives at
         // Packages/macOS/CmuxCommandPalette/Sources/CmuxCommandPalette/Search/Nucleo/.
@@ -166,25 +167,12 @@ final class CommandPaletteNucleoSearchLibrary: @unchecked Sendable {
         return paths
     }
 
-    private static var permitsDeveloperLibraryPaths: Bool {
+    private static var isDebugBuild: Bool {
 #if DEBUG
-        let debugBuild = true
+        true
 #else
-        let debugBuild = false
+        false
 #endif
-        return permitsDeveloperLibraryPaths(
-            runtimeOwnership: Bundle.main.object(
-                forInfoDictionaryKey: "CMUXTerminalRuntimeOwnership"
-            ) as? String,
-            debugBuild: debugBuild
-        )
-    }
-
-    static func permitsDeveloperLibraryPaths(
-        runtimeOwnership: String?,
-        debugBuild: Bool
-    ) -> Bool {
-        debugBuild && runtimeOwnership != "backend-only"
     }
 
     private static let libraryFileName = "libcmux_command_palette_nucleo_ffi.dylib"

@@ -35,6 +35,16 @@ extension MobileShellComposite {
             // connection so a moving network repaints instead of going stale.
             for await _ in reachability.pathChanges() {
                 guard let self, !Task.isCancelled else { return }
+                let isOnline = await reachability.isOnline
+                self.diagnosticLog?.record(DiagnosticEvent(
+                    .reachabilityChanged,
+                    a: isOnline ? 1 : 0
+                ))
+                // Route strikes and hard gates accumulated on the old path
+                // predict nothing about the new one; drop them before this
+                // recovery pass so it is not refused by stale poisoning.
+                await self.connectAttemptRegistry.resetRouteHealthForNetworkChange()
+                guard !Task.isCancelled else { return }
                 self.recoverMobileConnection(trigger: .networkChange)
             }
         }
@@ -47,6 +57,10 @@ extension MobileShellComposite {
         guard connectionState == .connected,
               let client = remoteClient,
               pairedMacStore != nil else { return }
+        guard foregroundRefreshIsActive else {
+            pendingInactiveRecoveryTrigger = .foreground
+            return
+        }
         beginConnectionRecovery(
             trigger: .foreground,
             expectedClient: client,
@@ -63,27 +77,53 @@ extension MobileShellComposite {
     /// shows Retry and the next network change re-attempts automatically.
     func recoverMobileConnection(trigger: RecoveryTrigger) {
         guard remoteClient != nil || pairedMacStore != nil else { return }
+        // A dial launched while the scene is inactive suspends with the
+        // process; park the trigger and replay it once on foreground.
+        guard foregroundRefreshIsActive else {
+            pendingInactiveRecoveryTrigger = trigger
+            return
+        }
         if let accountID = identityProvider?.currentUserID {
             switch trigger {
-            case .manual, .networkChange:
+            case .manual, .networkChange, .foreground, .connectionMethodChanged:
                 clearTransientAutomaticReconnectBackoff(accountID: accountID)
             case .presencePush:
                 guard !automaticIrohReconnectIsBlocked(accountID: accountID) else {
                     return
                 }
-            case .foreground, .liveness, .eventStreamEnded,
-                 .subscriptionStartFailed, .transportWriteTimedOut,
-                 .automaticBackoffExpired:
+            case .liveness, .eventStreamEnded, .subscriptionStartFailed,
+                 .transportWriteTimedOut, .automaticBackoffExpired:
                 break
             }
+        }
+        let connectionMethodChanged: Bool
+        if case .connectionMethodChanged = trigger {
+            connectionMethodChanged = true
+            // A method change invalidates every route decision made by an
+            // in-flight recovery. The replacement below owns a new generation
+            // and is the only attempt allowed to publish a foreground client.
+            connectionRecoveryOwner.cancel()
+            applyConnectionRecoveryOwnerState()
+            invalidateStoredMacReconnectAttempt()
+        } else {
+            connectionMethodChanged = false
         }
         beginConnectionRecovery(
             trigger: trigger,
             expectedClient: remoteClient,
-            probeCurrentConnection: connectionState == .connected && remoteClient != nil,
+            probeCurrentConnection: !connectionMethodChanged
+                && connectionState == .connected
+                && remoteClient != nil,
             resyncAfterHealthy: true
         )
-        if multiMacAggregationEnabled, trigger.reschedulesSecondaryAggregation {
+        // A disconnected redial has cleared its foreground identity. Starting
+        // aggregation then would classify that same stored Mac as secondary and
+        // race the foreground attempt for one physical route lease.
+        if multiMacAggregationEnabled,
+           trigger.reschedulesSecondaryAggregation,
+           connectionState == .connected,
+           remoteClient != nil,
+           !connectionRecoveryOwner.isRedialingOrValidating {
             scheduleSecondaryAggregation()
         }
     }
@@ -98,6 +138,10 @@ extension MobileShellComposite {
         expectedClient: MobileCoreRPCClient
     ) {
         guard remoteClient === expectedClient, connectionState == .connected else { return }
+        guard foregroundRefreshIsActive else {
+            pendingInactiveRecoveryTrigger = trigger
+            return
+        }
 
         if connectionRecoveryOwner.isRedialingOrValidating {
             let replacementIsInstalled = connectionRecoveryOwner.isValidatingReplacement
@@ -122,6 +166,17 @@ extension MobileShellComposite {
             resyncAfterHealthy: false,
             preclaimedAttempt: superseding
         )
+    }
+
+    /// Replays the most recent recovery trigger that was parked while the
+    /// scene was inactive. Called from `resumeForegroundRefresh()` after the
+    /// foreground recovery passes, so a replay coalesces into any attempt
+    /// they already started instead of stacking a second dial.
+    func recoverPendingInactiveRecoveryIfNeeded() {
+        guard foregroundRefreshIsActive,
+              let trigger = pendingInactiveRecoveryTrigger else { return }
+        pendingInactiveRecoveryTrigger = nil
+        recoverMobileConnection(trigger: trigger)
     }
 
     private func beginConnectionRecovery(
@@ -157,7 +212,8 @@ extension MobileShellComposite {
                 markMacConnectionReconnecting()
                 resyncTerminalOutput(reason: trigger.description, restartEventStream: true)
             case .manual, .presencePush, .foreground, .eventStreamEnded,
-                 .subscriptionStartFailed, .transportWriteTimedOut, .automaticBackoffExpired:
+                 .subscriptionStartFailed, .transportWriteTimedOut, .automaticBackoffExpired,
+                 .connectionMethodChanged:
                 markMacConnectionUnavailableIfNoStore()
             }
             return
@@ -171,7 +227,8 @@ extension MobileShellComposite {
         diagnosticLog?.record(DiagnosticEvent(
             .recoveryStarted,
             a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
-                ?? DiagnosticTransportKind.unknown.rawValue
+                ?? DiagnosticTransportKind.unknown.rawValue,
+            b: trigger.diagnosticCode
         ))
         applyConnectionRecoveryOwnerState()
         let stackUserID = lastReconnectStackUserID ?? identityProvider?.currentUserID
@@ -183,6 +240,7 @@ extension MobileShellComposite {
                 guard self.connectionRecoveryOwner.isCurrent(attempt) else { return }
 
                 if probeCurrentConnection, let expectedClient {
+                    let epochAtProbeStart = self.foregroundResumeEpoch
                     let healthy = await self.reloadWorkspaceListFromMac(
                         timeoutNanoseconds: self.runtime?.livenessProbeTimeoutNanoseconds
                     )
@@ -204,6 +262,25 @@ extension MobileShellComposite {
                         self.applyConnectionRecoveryOwnerState()
                         return
                     }
+                    if self.lastBackgroundedAt != nil
+                        || self.foregroundResumeEpoch != epochAtProbeStart {
+                        // The probe spanned a background window: its wall-clock
+                        // deadline burned while the process was suspended, so
+                        // the timeout is not evidence of a dead connection.
+                        // Abandon this attempt without teardown; if we are
+                        // foreground again, probe once more with a fresh deadline.
+                        MobileDebugLog.anchormux(
+                            "connection.recovery probe abandoned: spanned background window"
+                        )
+                        _ = self.connectionRecoveryOwner.complete(attempt)
+                        self.applyConnectionRecoveryOwnerState()
+                        if self.lastBackgroundedAt == nil {
+                            self.recoverForegroundConnectionIfNeeded(
+                                resyncAfterHealthy: resyncAfterHealthy
+                            )
+                        }
+                        return
+                    }
                 }
 
                 guard !Task.isCancelled,
@@ -219,9 +296,17 @@ extension MobileShellComposite {
                     self.macConnectionStatus = .unavailable
                     self.clearRemoteConnectionContext()
                     self.applyConnectionRecoveryOwnerState()
-                    await expectedClient.disconnect()
+                    MobileDebugLog.anchormux(
+                        "connection.recovery waiting for physical transport drain "
+                            + "attempt=\(attempt.id.uuidString)"
+                    )
+                    await expectedClient.disconnectAndWaitForTransportDrain()
                     guard !Task.isCancelled,
                           self.connectionRecoveryOwner.isCurrent(attempt) else { return }
+                    MobileDebugLog.anchormux(
+                        "connection.recovery physical transport drained "
+                            + "attempt=\(attempt.id.uuidString)"
+                    )
                 }
                 if self.connectionState == .connected {
                     self.connectionState = .disconnected
@@ -232,7 +317,10 @@ extension MobileShellComposite {
 
                 // Recovery uses authenticated local Iroh state first. A stuck
                 // account-backup fetch must not block a known EndpointID from
-                // dialing; normal launch reconnect still refreshes first.
+                // dialing; normal launch reconnect still refreshes first. The
+                // shared reconnect entry owns the hard deadline after claiming
+                // its generation synchronously, so every lifecycle caller gets
+                // the same wedge protection without a second race here.
                 let reconnectOutcome = await self.reconnectActiveMacOutcome(
                     stackUserID: stackUserID,
                     refreshBackupBeforeDial: false
@@ -268,7 +356,8 @@ extension MobileShellComposite {
         _ attempt: MobileConnectionRecoveryOwner.Attempt,
         connectionGeneration: UUID
     ) -> Bool {
-        if lastSuccessfulTerminalSubscriptionGeneration == connectionGeneration {
+        if lastSuccessfulTerminalSubscription?.connectionGeneration
+            == connectionGeneration {
             return completeConnectionRecovery(attempt)
         }
         return connectionRecoveryOwner.transitionToValidation(
@@ -332,8 +421,15 @@ extension MobileShellComposite {
         ))
     }
 
-    func recordSuccessfulTerminalSubscription() {
-        lastSuccessfulTerminalSubscriptionGeneration = connectionGeneration
+    func recordSuccessfulTerminalSubscription(
+        connectionGeneration: UUID,
+        listenerID: UUID? = nil
+    ) {
+        lastSuccessfulTerminalSubscription =
+            MobileTerminalSubscriptionValidation(
+                connectionGeneration: connectionGeneration,
+                listenerID: listenerID
+            )
         if connectionRecoveryOwner.completeValidation(connectionGeneration: connectionGeneration) {
             recordConnectionRecoverySucceeded()
             applyConnectionRecoveryOwnerState()
@@ -345,7 +441,14 @@ extension MobileShellComposite {
         case .idle:
             isRecoveringConnection = false
             connectionRecoveryFailed = false
-        case .probing, .redialing, .validatingReplacement:
+        case .probing:
+            // A probe is a background health check on a connection still
+            // believed healthy: the terminal stays interactive and the visible
+            // status untouched. Only an actual redial may surface reconnecting
+            // UI (the picker status line and terminal status pill).
+            isRecoveringConnection = false
+            connectionRecoveryFailed = false
+        case .redialing, .validatingReplacement:
             isRecoveringConnection = true
             connectionRecoveryFailed = false
             if connectionState == .connected { markMacConnectionReconnecting() }
@@ -379,14 +482,15 @@ extension MobileShellComposite {
     /// Reconnects an already-paired Mac through its full route set.
     ///
     /// This path is used only when the set contains an authenticated Iroh peer
-    /// route. `connect(ticket:)` pins the pairing to Iroh, so an admission or
-    /// revocation failure cannot downgrade to raw Tailscale/custom-network RPC.
-    /// The synthetic ticket names the already-paired device; it is never used to
-    /// discover or create a new pairing.
+    /// route or an exact locally grandfathered Tailscale route. Iroh pins the
+    /// pairing and removes raw fallbacks; the Tailscale exception is bound to
+    /// the previously paired device, address, and port. The synthetic ticket
+    /// names the already-paired device and never creates a new pairing.
     func connectStoredMacRoutes(
         name: String,
         routes: [CmxAttachRoute],
         pairedMacDeviceID: String,
+        legacyTailscaleRoutes: [CmxAttachRoute] = [],
         ifStillCurrent: (() -> Bool)? = nil
     ) async {
         let ticket: CmxAttachTicket
@@ -398,6 +502,7 @@ extension MobileShellComposite {
             )
             _ = try await connect(
                 ticket: ticket,
+                legacyTailscaleRoutes: legacyTailscaleRoutes,
                 pairedMacDeviceID: pairedMacDeviceID,
                 ifStillCurrent: ifStillCurrent
             )
@@ -421,63 +526,19 @@ extension MobileShellComposite {
         name: String,
         routes: [CmxAttachRoute],
         pairedMacDeviceID: String,
+        legacyTailscaleRoutes: [CmxAttachRoute] = [],
         recordsPairingAttempt: Bool = false,
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> Bool {
-        guard ifStillCurrent?() ?? true else { return false }
-        let supportedKinds = runtime?.supportedRouteKinds ?? []
-        let pinnedRoutes = Self.storedReconnectRoutes(
-            routes,
-            supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
-        )
-        guard let firstRoute = pinnedRoutes.first else { return false }
-
-        if firstRoute.kind == .iroh {
-            await connectStoredMacRoutes(
-                name: name,
-                routes: pinnedRoutes,
-                pairedMacDeviceID: pairedMacDeviceID,
-                ifStillCurrent: ifStillCurrent
-            )
-        } else {
-            let candidates = Self.reconnectHostPortRoutes(
-                pinnedRoutes,
-                supportedKinds: supportedKinds,
-                preferNonLoopback: Self.prefersNonLoopbackRoutes
-            ).filter { MobileShellRouteAuthPolicy.normalizedManualHost($0.host) != nil }
-            for route in candidates {
-                guard ifStillCurrent?() ?? true else { return false }
-                if recordsPairingAttempt {
-                    await connectManualHost(
-                        name: name,
-                        host: route.host,
-                        port: route.port,
-                        pairedMacDeviceID: pairedMacDeviceID,
-                        recordsPairingAttempt: true,
-                        ifStillCurrent: ifStillCurrent
-                    )
-                } else {
-                    await connectStoredMacHost(
-                        name: name,
-                        host: route.host,
-                        port: route.port,
-                        pairedMacDeviceID: pairedMacDeviceID,
-                        ifStillCurrent: ifStillCurrent
-                    )
-                }
-                if connectionState == .connected,
-                   remoteClient != nil,
-                   foregroundMacDeviceID == pairedMacDeviceID {
-                    break
-                }
-            }
-        }
-
-        return (ifStillCurrent?() ?? true)
-            && connectionState == .connected
-            && remoteClient != nil
-            && foregroundMacDeviceID == pairedMacDeviceID
+        (await connectStoredMacOutcome(
+            name: name,
+            routes: routes,
+            pairedMacDeviceID: pairedMacDeviceID,
+            instanceTag: nil,
+            legacyTailscaleRoutes: legacyTailscaleRoutes,
+            recordsPairingAttempt: recordsPairingAttempt,
+            ifStillCurrent: ifStillCurrent
+        )).didConnect
     }
 
     func connectStoredMacHost(
@@ -493,7 +554,7 @@ extension MobileShellComposite {
             host: host,
             port: port,
             pairedMacDeviceID: pairedMacDeviceID,
-            instanceTagExpectation: MobileMacInstanceTagAuthority.expectation(
+            instanceTagExpectation: macInstanceTagAuthority.expectation(
                 storedInstanceTag: instanceTag
             ),
             recordsPairingAttempt: false,
@@ -509,6 +570,7 @@ extension MobileShellComposite {
         routes: [CmxAttachRoute],
         pairedMacDeviceID: String,
         instanceTag: String?,
+        legacyTailscaleRoutes: [CmxAttachRoute] = [],
         automaticReconnectAccountID: String? = nil,
         recordsPairingAttempt: Bool = false,
         ifStillCurrent: (() -> Bool)? = nil
@@ -518,6 +580,7 @@ extension MobileShellComposite {
             routes: routes,
             pairedMacDeviceID: pairedMacDeviceID,
             instanceTag: instanceTag,
+            legacyTailscaleRoutes: legacyTailscaleRoutes,
             automaticReconnectAccountID: automaticReconnectAccountID,
             recordsPairingAttempt: recordsPairingAttempt,
             ifStillCurrent: ifStillCurrent
@@ -529,6 +592,7 @@ extension MobileShellComposite {
         routes: [CmxAttachRoute],
         pairedMacDeviceID: String,
         instanceTag: String?,
+        legacyTailscaleRoutes: [CmxAttachRoute] = [],
         automaticReconnectAccountID: String? = nil,
         recordsPairingAttempt: Bool = false,
         ifStillCurrent: (() -> Bool)? = nil
@@ -537,9 +601,10 @@ extension MobileShellComposite {
             name: name,
             routes: routes,
             pairedMacDeviceID: pairedMacDeviceID,
-            instanceTagExpectation: MobileMacInstanceTagAuthority.expectation(
+            instanceTagExpectation: macInstanceTagAuthority.expectation(
                 storedInstanceTag: instanceTag
             ),
+            legacyTailscaleRoutes: legacyTailscaleRoutes,
             automaticReconnectAccountID: automaticReconnectAccountID,
             recordsPairingAttempt: recordsPairingAttempt,
             ifStillCurrent: ifStillCurrent
@@ -554,6 +619,7 @@ extension MobileShellComposite {
         routes: [CmxAttachRoute],
         pairedMacDeviceID: String,
         instanceTagExpectation: MobileMacInstanceTagExpectation,
+        legacyTailscaleRoutes: [CmxAttachRoute] = [],
         automaticReconnectAccountID: String? = nil,
         recordsPairingAttempt: Bool = false,
         ifStillCurrent: (() -> Bool)? = nil
@@ -563,13 +629,26 @@ extension MobileShellComposite {
         let pinnedRoutes = Self.storedReconnectRoutes(
             routes,
             supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
+            preferNonLoopback: Self.prefersNonLoopbackRoutes,
+            tailscaleRequirement: connectionMethodStore?.method == .tailscale
+                ? Self.TailscaleRouteRequirement(
+                    macDeviceID: pairedMacDeviceID,
+                    grantRoutes: legacyTailscaleRoutes
+                )
+                : nil
         )
         guard let firstRoute = pinnedRoutes.first else { return .failed(.unsupportedRoute) }
 
         var outcome: StoredMacReconnectOutcome = .failed(.unknown)
 
-        if firstRoute.kind == .iroh {
+        let hasAuthorizedLegacyTailscaleRoute = pinnedRoutes.contains { route in
+            Self.legacyTailscaleAuthorizationEvidence(
+                for: route,
+                macDeviceID: pairedMacDeviceID,
+                persistedRoutes: legacyTailscaleRoutes
+            ) != nil
+        }
+        if firstRoute.kind == .iroh || hasAuthorizedLegacyTailscaleRoute {
             do {
                 let ticket = try Self.storedMacTicket(
                     name: name,
@@ -578,6 +657,7 @@ extension MobileShellComposite {
                 )
                 let noThrowFailure = try await connect(
                     ticket: ticket,
+                    legacyTailscaleRoutes: legacyTailscaleRoutes,
                     pairedMacDeviceID: pairedMacDeviceID,
                     instanceTagExpectation: instanceTagExpectation,
                     ifStillCurrent: ifStillCurrent
@@ -795,6 +875,31 @@ extension MobileShellComposite {
         await loadRegistryDevices()
     }
 
+    /// Connect a live account-discovered Iroh Mac while requiring its broker
+    /// advertised app-instance tag.
+    @discardableResult
+    func connectAccountDiscoveredIrohMac(
+        _ mac: MobileDiscoveredIrohMac,
+        accountID: String,
+        ifStillCurrent: (() -> Bool)? = nil
+    ) async -> Bool {
+        let supportedKinds = runtime?.supportedRouteKinds ?? []
+        let candidateRoutes = Self.storedReconnectRoutes(
+            mac.routes,
+            supportedKinds: supportedKinds,
+            preferNonLoopback: Self.prefersNonLoopbackRoutes
+        )
+        guard candidateRoutes.contains(where: { $0.kind == .iroh }) else { return false }
+        return (await connectStoredMacOutcome(
+            name: mac.displayName ?? mac.deviceID,
+            routes: candidateRoutes,
+            pairedMacDeviceID: mac.deviceID,
+            instanceTagExpectation: .require(mac.instanceTag),
+            automaticReconnectAccountID: accountID,
+            ifStillCurrent: ifStillCurrent
+        )).didConnect
+    }
+
     /// Re-fetch the authoritative workspace list from the connected Mac and apply
     /// it, awaiting the round-trip to completion.
     @discardableResult
@@ -802,6 +907,15 @@ extension MobileShellComposite {
         timeoutNanoseconds: UInt64? = nil
     ) async -> Bool {
         guard let client = remoteClient else { return false }
+        // While state sync v2 owns the list, do not build/serialize/send the
+        // legacy full list at all (the Computers screen refreshes through here
+        // every 10s; paying the full-list cost and discarding it defeats the
+        // delta protocol). The cursor fetch is both the liveness probe and the
+        // authoritative refresh, AWAITED so pull-to-refresh cannot report done
+        // before state applied, with the caller's probe timeout honored.
+        if stateSyncActive {
+            return await performStateSyncFetch(client: client, timeoutNanoseconds: timeoutNanoseconds)
+        }
         do {
             let request = try MobileCoreRPCClient.requestData(
                 method: "mobile.workspace.list",
@@ -813,6 +927,12 @@ extension MobileShellComposite {
             )
             let response = try MobileSyncWorkspaceListResponse.decode(data)
             guard remoteClient === client, connectionState == .connected else { return false }
+            // Re-check authority AFTER the await: negotiation can grant v2 in
+            // the window while this legacy request was in flight, and applying
+            // the captured full list then would overwrite newer mirror state.
+            // The round-trip already proved liveness; the v2 mirror owns the
+            // list, so report success without applying.
+            if stateSyncActive { return true }
             applyRemoteWorkspaceList(response, preferActiveTicketTarget: false)
             syncSelectedTerminalForWorkspace()
             return true
@@ -832,4 +952,98 @@ extension MobileShellComposite {
     ///   `mobile.attach_ticket.create` connects via a synthetic `manual-…` ticket;
     ///   passing the real id keys the foreground aggregate state under it instead of
     ///   the synthetic id. `nil` for a genuinely manual/unknown host.
+
+    /// Races `operation` against a wall-clock deadline. Returns the
+    /// operation's value, or `nil` when the deadline expires first.
+    ///
+    /// Deliberately UNSTRUCTURED: a task group would structurally await the
+    /// losing child, so a dial that ignores cancellation (the exact wedge
+    /// this exists for) would suspend the race forever. Instead the
+    /// operation runs in its own task that the deadline path abandons after
+    /// a best-effort cancel; the once-guard is MainActor-confined so exactly
+    /// one side resumes. An abandoned dial retains its captures until it
+    /// eventually resolves — bounded by transport teardown and precisely the
+    /// cost of not being wedged.
+    /// Ceiling on concurrently outstanding abandoned (wedged) dials before
+    /// automatic retries pause. A dial that resolves reclaims its slot and
+    /// re-arms the automatic retry when still disconnected.
+    static var maximumAbandonedReconnectDials: Int { 3 }
+
+    static func shouldRecordReconnectBackoff(
+        abandonedDialCount: Int
+    ) -> Bool {
+        abandonedDialCount < maximumAbandonedReconnectDials
+    }
+
+    /// Tracks an abandoned dial until it resolves, so a persistently wedged
+    /// transport cannot accumulate an unbounded set of retained reconnect
+    /// tasks across automatic retries. On resolution, if the shell is still
+    /// signed in and disconnected, the automatic retry loop is re-armed
+    /// (covers the case where retries were paused at the ceiling).
+    func registerAbandonedReconnectDial(_ task: Task<StoredMacReconnectOutcome, Never>?) {
+        guard let task else { return }
+        abandonedReconnectDialCount += 1
+        Task { @MainActor [weak self] in
+            _ = await task.value
+            guard let self else { return }
+            self.abandonedReconnectDialCount = max(0, self.abandonedReconnectDialCount - 1)
+            // Re-arm the retry loop directly through the coalesced recovery
+            // entry, NEVER by recording backoff: a backoff write here can land
+            // mid-manual-retry and re-block the dial the user just requested
+            // (manual retries clear backoff on entry). Skip when any attempt
+            // or scheduled retry is already active.
+            guard self.isSignedIn, self.connectionState != .connected,
+                  !self.connectionRecoveryOwner.isRedialingOrValidating,
+                  self.automaticReconnectRetryTask == nil else { return }
+            self.recoverMobileConnection(trigger: .automaticBackoffExpired)
+        }
+    }
+
+    /// The race result: `value` is nil when the deadline won, in which case
+    /// `abandoned` is the still-running operation task so the caller can
+    /// bound how many abandoned dials may exist at once and reclaim the slot
+    /// when the task eventually resolves.
+    struct DeadlineRaceOutcome<Value: Sendable>: Sendable {
+        let value: Value?
+        let abandoned: Task<Value, Never>?
+        let didTimeOut: Bool
+        let wasCancelled: Bool
+    }
+
+    static func raceAgainstDeadline<Value: Sendable>(
+        nanoseconds: UInt64,
+        _ operation: @escaping @Sendable () async -> Value
+    ) async -> DeadlineRaceOutcome<Value> {
+        let operationTask = Task { await operation() }
+        // RPCTaskTimeout owns the deadline race through an actor. Keep the
+        // operation itself separate so a cancellation-ignoring FFI dial does
+        // not park the timeout scheduler; the returned handle accounts for
+        // that abandoned work until it eventually resolves.
+        let deadlineWaiter = Task<Value, any Error> {
+            await operationTask.value
+        }
+        let value: Value?
+        let didTimeOut: Bool
+        let wasCancelled: Bool
+        do {
+            value = try await RPCTaskTimeout().value(
+                deadlineWaiter,
+                timeoutNanoseconds: nanoseconds
+            )
+            didTimeOut = false
+            wasCancelled = false
+        } catch {
+            deadlineWaiter.cancel()
+            operationTask.cancel()
+            value = nil
+            wasCancelled = Task.isCancelled || error is CancellationError
+            didTimeOut = !wasCancelled
+        }
+        return DeadlineRaceOutcome(
+            value: value,
+            abandoned: value == nil ? operationTask : nil,
+            didTimeOut: didTimeOut,
+            wasCancelled: wasCancelled
+        )
+    }
 }

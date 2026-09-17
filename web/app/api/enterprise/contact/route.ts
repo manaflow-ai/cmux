@@ -15,8 +15,6 @@ import {
 } from "../../../../services/telemetry";
 import { checkEmailDeliverable } from "../../waitlist/email-check";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const enterpriseRecipient = "founders@manaflow.com";
 
@@ -51,7 +49,7 @@ export async function POST(request: Request) {
         return jsonError("Enterprise contact endpoint is not configured", 503);
       }
 
-      if (process.env.VERCEL === "1") {
+      if (process.env.VERCEL === "1" && config.rateLimitId) {
         const { error, rateLimited } = await checkRateLimit(
           config.rateLimitId,
           { request },
@@ -148,8 +146,9 @@ export async function POST(request: Request) {
 function resolveEnterpriseConfig() {
   const resendApiKey = env.RESEND_API_KEY;
   const fromEmail = env.CMUX_FEEDBACK_FROM_EMAIL;
+  // rateLimitId is optional: unset means the route runs without rate limiting.
   const rateLimitId = env.CMUX_FEEDBACK_RATE_LIMIT_ID;
-  if (!resendApiKey || !fromEmail || !rateLimitId) return null;
+  if (!resendApiKey || !fromEmail) return null;
   return {
     resendApiKey,
     fromEmail,

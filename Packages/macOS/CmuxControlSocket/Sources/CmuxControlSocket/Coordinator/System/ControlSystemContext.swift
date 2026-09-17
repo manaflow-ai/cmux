@@ -104,6 +104,18 @@ public protocol ControlSystemContext: AnyObject {
         moveParams: [String: JSONValue]
     ) -> ControlTabActionResolution
 
+    /// Returns the app-localized generic surface-not-found message for tab-action
+    /// routing failures.
+    ///
+    /// - Returns: The localized surface-not-found message.
+    func controlSystemSurfaceNotFoundMessage() -> String
+
+    /// Returns the app-localized generic tab-not-found message for tab-action
+    /// routing failures.
+    ///
+    /// - Returns: The localized tab-not-found message.
+    func controlSystemTabNotFoundMessage() -> String
+
     /// Splits a surface off into its own pane for `surface.split_off` /
     /// `surface.drag_to_split`, delegating to the shared app-side
     /// `v2SurfaceSplitOff` (also driven by the v1 `drag_surface_to_split`
@@ -133,27 +145,14 @@ public protocol ControlSystemContext: AnyObject {
     #endif
 }
 
-/// Stable control-wire phases for a locally queued backend topology mutation.
-public enum ControlTerminalBackendMutationStatus: String, Sendable, Equatable {
-    case queued
-    case running
-    case committed
-    case projected
-    case failed
-}
-
-/// App-side lookup result for `terminal_backend.mutation_status`.
-public enum ControlTerminalBackendMutationStatusResolution: Sendable, Equatable {
-    /// This cmux process does not use the persistent terminal backend.
-    case unavailable
-    /// The backend is enabled, but the bounded local request history no longer
-    /// contains this identifier.
-    case unknown
-    /// The request is present with its current phase.
-    case known(ControlTerminalBackendMutationStatus)
-}
-
+/// Default terminal-backend mutation lookup for control contexts without a
+/// persistent backend.
 public extension ControlSystemContext {
+    /// Returns the mutation status for contexts that do not use the persistent
+    /// terminal backend.
+    ///
+    /// - Parameter requestID: The request identifier to inspect.
+    /// - Returns: `unavailable` by default.
     func controlTerminalBackendMutationStatus(
         requestID: UUID
     ) -> ControlTerminalBackendMutationStatusResolution {

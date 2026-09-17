@@ -2,7 +2,7 @@ import CmuxAgentChat
 import Foundation
 
 /// Renderable states for one stat-driven artifact path.
-enum ChatArtifactViewerState: Equatable {
+enum ChatArtifactViewerState: Equatable, Sendable {
     case loading
     case folder
     case image(data: Data)

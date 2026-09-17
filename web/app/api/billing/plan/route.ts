@@ -14,7 +14,6 @@ import {
   type BillingTeamUserLike,
 } from "../../../../services/billing/teamResolution";
 
-export const dynamic = "force-dynamic";
 
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
 

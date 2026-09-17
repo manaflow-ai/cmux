@@ -127,6 +127,7 @@ extension ControlCommandCoordinator {
                 "pending": .bool(true),
                 "backend_request_id": .string(requestID.uuidString),
                 "status_method": .string("terminal_backend.mutation_status"),
+                "retry_safe": .bool(false),
             ]))
         case .failed(let message):
             return .err(code: "internal_error", message: message, data: nil)

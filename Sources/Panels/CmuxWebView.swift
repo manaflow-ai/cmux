@@ -13,6 +13,12 @@ final class CmuxWebView: WKWebView {
     var browserViewportModel: BrowserViewportModel?
     var onBrowserViewportHierarchyChanged: (() -> Void)?
 
+    // WebKit registers web-content edit commands on the view's `undoManager`;
+    // owning one per web view keeps every page's undo stack scoped to this
+    // view's lifetime instead of the window's shared undo manager.
+    // See CmuxWebViewWebContentUndo.swift.
+    let webContentUndoManager = UndoManager()
+
     // Some sites/WebKit paths report middle-click link activations as
     // WKNavigationAction.buttonNumber=4 instead of 2. Track a recent local
     // middle-click so navigation delegates can recover intent reliably.
@@ -676,6 +682,13 @@ final class CmuxWebView: WKWebView {
                     return finish(true)
                 }
                 let result = super.performKeyEquivalent(with: event)
+                // WebKit declining an undo/redo chord means the page already
+                // saw it and left it unhandled (WebKit resends such keys), so
+                // run the web view's own editing undo/redo before the blanket
+                // focus-mode consume below would swallow it (issue #9677).
+                if !result, performWebContentUndoRedo(for: event) {
+                    return finish(true)
+                }
                 // While focus mode is active, the page gets the shortcut once and cmux/main-menu
                 // fallback must not see unhandled command equivalents.
                 return finish(result || normalizedFlags.contains(.command))
@@ -801,6 +814,17 @@ final class CmuxWebView: WKWebView {
 #endif
                 return
             }
+        }
+
+        // An undo/redo chord reaching keyDown has already been offered to the
+        // page through performKeyEquivalent and declined (WebKit resends
+        // unhandled keys). Perform the web view's own editing undo/redo here;
+        // re-forwarding the chord into WebKit drops it (issue #9677).
+        if performWebContentUndoRedo(for: event) {
+#if DEBUG
+            route = "webContentUndoRedo"
+#endif
+            return
         }
 
         if Self.isPasteAsPlainTextCommandEquivalent(event) {
@@ -2018,15 +2042,8 @@ final class CmuxWebView: WKWebView {
         _ payload: BrowserImageCopyPasteboardPayload,
         expectedPasteboardChangeCount: Int,
         traceID: String
-    ) -> (wrote: Bool, shouldFallback: Bool) {
+    ) async -> (wrote: Bool, shouldFallback: Bool) {
         let pasteboard = NSPasteboard.general
-        if pasteboard.changeCount != expectedPasteboardChangeCount {
-            debugContextDownload(
-                "browser.ctxcopy.write trace=\(traceID) stage=skipPasteboardRace expected=\(expectedPasteboardChangeCount) actual=\(pasteboard.changeCount)"
-            )
-            return (false, false)
-        }
-
         let items = BrowserImageCopyPasteboardBuilder.makePasteboardItems(from: payload)
         guard !items.isEmpty else {
             debugContextDownload(
@@ -2035,8 +2052,19 @@ final class CmuxWebView: WKWebView {
             return (false, true)
         }
 
-        _ = pasteboard.clearContents()
-        let wrote = pasteboard.writeObjects(items)
+        let result = await GhosttyApp.terminalPasteboard
+            .replaceContentsAndWait(
+                of: pasteboard,
+                with: items,
+                expectedChangeCount: expectedPasteboardChangeCount
+            )
+        if result.status == .conditionNotMet {
+            debugContextDownload(
+                "browser.ctxcopy.write trace=\(traceID) stage=skipPasteboardRace expected=\(expectedPasteboardChangeCount) actual=\(pasteboard.changeCount)"
+            )
+            return (false, false)
+        }
+        let wrote = result.didWrite
         debugContextDownload(
             "browser.ctxcopy.write trace=\(traceID) stage=finish wrote=\(wrote ? 1 : 0) itemCount=\(items.count) types=\(items.map { $0.types.map(\.rawValue).joined(separator: ",") }.joined(separator: "|"))"
         )
@@ -2275,25 +2303,30 @@ final class CmuxWebView: WKWebView {
                     return
                 }
 
-                let writeResult = self.writeContextMenuImageCopyPayload(
-                    payload,
-                    expectedPasteboardChangeCount: pasteboardChangeCount,
-                    traceID: traceID
-                )
-                if writeResult.wrote {
-                    return
-                }
-                if !writeResult.shouldFallback {
-                    return
-                }
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    let writeResult = await self
+                        .writeContextMenuImageCopyPayload(
+                            payload,
+                            expectedPasteboardChangeCount:
+                                pasteboardChangeCount,
+                            traceID: traceID
+                        )
+                    if writeResult.wrote {
+                        return
+                    }
+                    if !writeResult.shouldFallback {
+                        return
+                    }
 
-                self.runContextMenuFallback(
-                    action: fallback.action,
-                    target: fallback.target,
-                    sender: sender,
-                    traceID: traceID,
-                    reason: "copy_image_write_failed"
-                )
+                    self.runContextMenuFallback(
+                        action: fallback.action,
+                        target: fallback.target,
+                        sender: sender,
+                        traceID: traceID,
+                        reason: "copy_image_write_failed"
+                    )
+                }
             }
         }
     }

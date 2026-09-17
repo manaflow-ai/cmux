@@ -10,10 +10,9 @@ concurrency:
 jobs:
   build-ghosttykit:
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
-    timeout-minutes: 20
+    timeout-minutes: 35
     env:
       GHOSTTYKIT_CRASH_REPORT_SUBDIR: cmux/crash
-      GHOSTTYKIT_BUILD_FLAVOR: crashsubdir-cmux-crash-v1
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -36,8 +35,13 @@ jobs:
         id: ghostty-sha
         run: |
           SHA=$(git -C ghostty rev-parse HEAD)
+          BUILD_FLAVOR="$(
+            ./scripts/ghosttykit-build-flavor.sh "$GHOSTTYKIT_CRASH_REPORT_SUBDIR"
+          )"
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "GHOSTTYKIT_BUILD_FLAVOR=$BUILD_FLAVOR" >> "$GITHUB_ENV"
           echo "Ghostty SHA: $SHA"
+          echo "GhosttyKit build flavor: $BUILD_FLAVOR"
 
       - name: Check if xcframework release already exists
         id: check-release
@@ -54,7 +58,6 @@ jobs:
           fi
 
       - name: Select Xcode
-        if: steps.check-release.outputs.exists == 'false'
         run: |
           set -euo pipefail
           if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
@@ -78,7 +81,6 @@ jobs:
           xcodebuild -version
 
       - name: Cache Zig packages
-        if: steps.check-release.outputs.exists == 'false'
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/zig
@@ -86,16 +88,33 @@ jobs:
           restore-keys: zig-packages-
 
       - name: Install zig
-        if: steps.check-release.outputs.exists == 'false'
         run: |
           set -euo pipefail
           ./scripts/install-zig-ci.sh
+
+      - name: Test Ghostty OS opener stderr reader
+        run: |
+          set -euo pipefail
+          cd ghostty
+          zig build test \
+            -Dapp-runtime=none \
+            -Demit-macos-app=false \
+            -Dsentry=false \
+            -Dtest-filter="open stderr reader exits"
 
       - name: Build Ghostty XCFrameworks
         if: steps.check-release.outputs.exists == 'false'
         run: |
           set -euo pipefail
-          cd ghostty && zig build -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" -Demit-xcframework=true -Demit-scene-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
+          cd ghostty && zig build -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" -Dsentry=false -Demit-xcframework=true -Demit-scene-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
+
+      - name: Audit scene renderer archive
+        if: steps.check-release.outputs.exists == 'false'
+        run: |
+          set -euo pipefail
+          ./scripts/audit-terminal-renderer-linkage.sh \
+            --archive-only \
+            --xcframework ghostty/macos/GhosttySceneRendererKit.xcframework
 
       - name: Package xcframeworks
         if: steps.check-release.outputs.exists == 'false'
@@ -122,6 +141,6 @@ jobs:
             --repo manaflow-ai/ghostty \
             --target "${{ steps.ghostty-sha.outputs.sha }}" \
             --title "Ghostty XCFrameworks (${{ steps.ghostty-sha.outputs.sha }}, ${GHOSTTYKIT_BUILD_FLAVOR})" \
-            --notes "Pre-built GhosttyKit.xcframework and GhosttySceneRendererKit.xcframework for commit ${{ steps.ghostty-sha.outputs.sha }} with crash-report-subdir=${GHOSTTYKIT_CRASH_REPORT_SUBDIR}" \
+            --notes "Pre-built GhosttyKit.xcframework and GhosttySceneRendererKit.xcframework for commit ${{ steps.ghostty-sha.outputs.sha }} with crash-report-subdir=${GHOSTTYKIT_CRASH_REPORT_SUBDIR} and sentry=false" \
             GhosttyKit.xcframework.tar.gz
           echo "Published release $TAG"

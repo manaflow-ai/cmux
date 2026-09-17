@@ -3,7 +3,6 @@ import {
   runVmWorkflow,
 } from "../../../../services/vms/workflows";
 
-export const dynamic = "force-dynamic";
 
 export async function GET(request: Request): Promise<Response> {
   const secret = process.env.CRON_SECRET;

@@ -211,6 +211,89 @@ public struct TerminalLetterboxGeometry {
         )
     }
 
+    /// The bottom edge (max Y) the render rect should pin to inside the
+    /// viewport, given the LIVE viewport bottom (the toolbar's presentation
+    /// position mid keyboard animation) and the TARGET layout viewport bottom
+    /// (where the animation will settle).
+    ///
+    /// The render is bottom-pinned to the live viewport so a letterboxed box
+    /// and the prompt line ride the keyboard edge. But during a keyboard
+    /// DISMISSAL the surface is already sized for the (taller) target
+    /// viewport while the live viewport is still keyboard-small; pinning the
+    /// tall render to the small live bottom shoves the top rows off screen by
+    /// `renderHeight - liveHeight` and they slide back down as the keyboard
+    /// leaves (the "content pushed up, then settles" glitch). Content that is
+    /// visible at settle must never be clipped mid-flight, so the bottom edge
+    /// is allowed to extend past the live viewport (under the keyboard) up to
+    /// the point where the render's top reaches the viewport top — but never
+    /// past the target bottom, so a small letterboxed box still rides the
+    /// live edge instead of jumping behind the keyboard.
+    ///
+    /// - `renderHeight <= live`: pins to the live bottom (unchanged).
+    /// - `renderHeight > live` during growth: pins to
+    ///   `min(target, viewportMinY + renderHeight)` — the top stays put and
+    ///   lower rows are revealed as the keyboard departs.
+    /// - Steady state (`live == target`): identical to the legacy behavior.
+    ///
+    /// `holdsProvisionalPin` marks a render whose size still reflects an
+    /// UNSETTLED grid negotiation (keyboard transition in flight, or the
+    /// capacity report's round-trip has not confirmed). While the viewport
+    /// grows under a provisional pin, the render holds its top edge instead
+    /// of riding the live bottom: the granted grid is one round-trip from
+    /// being superseded, and riding the departing keyboard slid the squeezed
+    /// content to the bottom only for the fresh grant to snap it back to the
+    /// top (the "content bounces down then up on keyboard close" glitch).
+    /// A settled letterboxed box (a genuinely smaller device pins the shared
+    /// grid) keeps the legacy ride so it stays glued to the dock.
+    ///
+    /// While the viewport SHRINKS under a provisional pin (keyboard rising,
+    /// old render still applied), the render slides up only as much as
+    /// needed to keep the cursor row visible above the keyboard, instead of
+    /// riding the screen bottom. The rows the keyboard covers are usually
+    /// the BLANK rows below the prompt, so pinning the screen bottom to the
+    /// keyboard edge shoved every content row up by the keyboard height and
+    /// the settle resize dropped them back — the "all rows momentarily
+    /// pushed up" glitch. `cursorBottomInRender` is the cursor's bottom
+    /// edge in render-local points; when it is unknown the legacy
+    /// screen-bottom ride is kept (never hides the prompt).
+    ///
+    /// - Parameters:
+    ///   - liveViewportMaxY: The live viewport bottom edge in points.
+    ///   - targetViewportMaxY: The target (layout) viewport bottom edge.
+    ///   - viewportMinY: The viewport top edge in points.
+    ///   - renderHeight: The render rect height in points.
+    ///   - holdsProvisionalPin: True while the grid negotiation is unsettled.
+    ///   - cursorBottomInRender: The cursor bottom in render-local points,
+    ///     when known.
+    /// - Returns: The bottom edge to pin the render rect to.
+    public static func renderPinnedBottomEdge(
+        liveViewportMaxY: CGFloat,
+        targetViewportMaxY: CGFloat,
+        viewportMinY: CGFloat,
+        renderHeight: CGFloat,
+        holdsProvisionalPin: Bool = false,
+        cursorBottomInRender: CGFloat? = nil
+    ) -> CGFloat {
+        if holdsProvisionalPin, liveViewportMaxY < targetViewportMaxY {
+            return min(targetViewportMaxY, viewportMinY + renderHeight)
+        }
+        // `>=` so the anchor keeps holding after the keyboard lands (live ==
+        // target) while the deferred resize is still waiting on the grid
+        // negotiation — releasing at equality would shove the rows up for
+        // the final stretch of the transition.
+        if holdsProvisionalPin,
+           liveViewportMaxY >= targetViewportMaxY,
+           let cursorBottom = cursorBottomInRender,
+           cursorBottom > 0 {
+            // Blank space below the cursor absorbs the keyboard intrusion
+            // before any content moves; once the cursor row itself would be
+            // covered, the render rides the live edge exactly like before.
+            let blankBelowCursor = max(0, renderHeight - cursorBottom)
+            return min(viewportMinY + renderHeight, liveViewportMaxY + blankBelowCursor)
+        }
+        return max(liveViewportMaxY, min(targetViewportMaxY, viewportMinY + renderHeight))
+    }
+
     /// The cell size in device pixels derived from a measured surface size.
     ///
     /// Returns `.zero` when any measured dimension is non-positive, matching the

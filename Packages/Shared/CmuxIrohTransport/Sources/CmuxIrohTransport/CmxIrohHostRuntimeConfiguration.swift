@@ -1,3 +1,5 @@
+internal import CMUXMobileCore
+
 /// Stable, account-scoped inputs for one Mac Iroh host lifecycle.
 public struct CmxIrohHostRuntimeConfiguration: Equatable, Sendable {
     /// The authenticated account scope used only for pending-revocation isolation.
@@ -53,7 +55,7 @@ public struct CmxIrohHostRuntimeConfiguration: Equatable, Sendable {
         cachedHostPolicy: CmxIrohCachedHostPolicy? = nil
     ) {
         self.accountID = accountID
-        self.deviceID = deviceID.lowercased()
+        self.deviceID = cmxCanonicalDeviceID(deviceID)
         self.appInstanceID = appInstanceID.lowercased()
         self.tag = tag
         self.displayName = displayName

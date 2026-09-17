@@ -243,8 +243,15 @@ private struct BrowserChromeStyle {
 
 /// View for rendering a browser panel with address bar
 struct BrowserPanelView: View {
+    private enum TaskKey: Hashable, Sendable {
+        case emptyStateImportBrowserRefresh
+        case omnibarSuggestionRefreshConsumer
+        case suggestion
+    }
+
     @ObservedObject var panel: BrowserPanel
     @ObservedObject private var browserProfileStore = BrowserProfileStore.shared
+    private let chromeState: BrowserChromeState
     let paneId: PaneID
     let isFocused: Bool
     let isVisibleInUI: Bool
@@ -258,9 +265,8 @@ struct BrowserPanelView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.cmuxCanvasInlineBrowserHosting) private var canvasInlineBrowserHosting
     @Environment(\.paneDropZone) private var paneDropZone
-    /// Held detector instance; the view detects and summarizes installed browsers
-    /// through this rather than the former `BrowserInstalledBrowserDetector` static
-    /// namespace.
+    /// Held detector instance used to summarize installed browsers rather than
+    /// the former `BrowserInstalledBrowserDetector` static namespace.
     private let installedBrowserDetector = BrowserInstalledBrowserDetector()
     @State private var omnibarState = OmnibarState()
     @State private var addressBarFocused: Bool = false
@@ -279,21 +285,19 @@ struct BrowserPanelView: View {
     @AppStorage(BrowserImportHintSettings.variantKey) private var browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
     @AppStorage(BrowserImportHintSettings.showOnBlankTabsKey) private var showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
     @AppStorage(BrowserImportHintSettings.dismissedKey) private var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
-    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @State private var omnibarSuggestionRefreshScheduler = OmnibarSuggestionRefreshScheduler()
-    @State private var omnibarSuggestionRefreshConsumerTask: Task<Void, Never>?
-    @State private var suggestionTask: Task<Void, Never>?
+    @State private var tasks = MainActorTaskStore<TaskKey>()
     @State private var isLoadingRemoteSuggestions: Bool = false
     @State private var latestRemoteSuggestionQuery: String = ""
     @State private var latestRemoteSuggestions: [String] = []
     @State private var emptyStateImportBrowsers: [InstalledBrowserCandidate] = []
-    @State private var emptyStateImportBrowserRefreshTask: Task<Void, Never>?
     @State private var emptyStateImportBrowserRefreshGeneration: UInt64 = 0
     @State private var inlineCompletion: OmnibarInlineCompletion?
     @State private var screenshotPageCopied: Bool = false
     @State private var screenshotPageCaptureInProgress: Bool = false
-    @State private var screenshotPageCopiedTimer: Timer?
+    @State private var screenshotPageCopiedScheduler = MainActorDeferredActionScheduler()
     @State private var omnibarSelectionRange: NSRange = NSRange(location: NSNotFound, length: 0)
     @State private var omnibarHasMarkedText: Bool = false
     @State private var suppressNextFocusLostRevert: Bool = false
@@ -351,6 +355,7 @@ struct BrowserPanelView: View {
         onRequestPanelFocus: @escaping () -> Void
     ) {
         self.panel = panel
+        self.chromeState = panel.chromeState
         self.paneId = paneId
         self.isFocused = isFocused
         self.isVisibleInUI = isVisibleInUI
@@ -453,7 +458,7 @@ struct BrowserPanelView: View {
     }
 
     private var hasVisibleOmnibarSuggestions: Bool {
-        panel.isOmnibarVisible && addressBarFocused && hasActionableOmnibarSuggestions && omnibarPillFrame.width > 0
+        chromeState.isOmnibarVisible && addressBarFocused && hasActionableOmnibarSuggestions && omnibarPillFrame.width > 0
     }
 
     private var shouldRenderOmnibarSuggestionsInPortal: Bool {
@@ -562,25 +567,24 @@ struct BrowserPanelView: View {
 #if DEBUG
             cmuxDebugLog("browser.reload.commandClickDuplicate panel=\(panel.id.uuidString.prefix(5))")
 #endif
-            guard let workspace = owningWorkspace else {
+            guard let app = AppDelegate.shared,
+                  let target = app.browserActionTarget(for: panel) else {
 #if DEBUG
-                cmuxDebugLog("browser.reload.commandClickDuplicate.abort panel=\(panel.id.uuidString.prefix(5)) reason=workspaceMissing")
+                cmuxDebugLog("browser.reload.commandClickDuplicate.abort panel=\(panel.id.uuidString.prefix(5)) reason=targetMissing")
 #endif
                 return
             }
-            guard let newPanelID = workspace.requestDuplicateBrowserToRight(
-                panelId: panel.id
-            ).surfaceID else {
+            guard BrowserActionDispatcher(appDelegate: app).perform(
+                .duplicateRight,
+                on: target
+            ) else {
 #if DEBUG
-                cmuxDebugLog("browser.reload.commandClickDuplicate.abort panel=\(panel.id.uuidString.prefix(5)) reason=newPanelFailed")
+                cmuxDebugLog("browser.reload.commandClickDuplicate.abort panel=\(panel.id.uuidString.prefix(5)) reason=duplicateFailed")
 #endif
                 return
             }
 #if DEBUG
-            cmuxDebugLog(
-                "browser.reload.commandClickDuplicate.done panel=\(panel.id.uuidString.prefix(5)) " +
-                "newPanel=\(newPanelID.uuidString.prefix(5))"
-            )
+            cmuxDebugLog("browser.reload.commandClickDuplicate.done panel=\(panel.id.uuidString.prefix(5))")
 #endif
             return
         }
@@ -622,13 +626,10 @@ struct BrowserPanelView: View {
     }
 
     private func showScreenshotPageCopiedIndicator() {
-        screenshotPageCopiedTimer?.invalidate()
+        screenshotPageCopiedScheduler.cancel()
         screenshotPageCopied = true
-        screenshotPageCopiedTimer = Timer.scheduledTimer(withTimeInterval: 1.4, repeats: false) { _ in
-            MainActor.assumeIsolated {
-                screenshotPageCopiedTimer = nil
-                screenshotPageCopied = false
-            }
+        screenshotPageCopiedScheduler.schedule(after: .seconds(1.4)) {
+            screenshotPageCopied = false
         }
     }
 
@@ -735,8 +736,7 @@ struct BrowserPanelView: View {
         stopOmnibarSuggestionRefreshConsumer()
         cancelPendingOmnibarSuggestionWork()
         focusModeShortcutHintMonitor.stop()
-        screenshotPageCopiedTimer?.invalidate()
-        screenshotPageCopiedTimer = nil
+        screenshotPageCopiedScheduler.cancel()
         screenshotPageCopied = false
     }
 
@@ -960,11 +960,7 @@ struct BrowserPanelView: View {
     }
 
     private var focusFlashOverlayView: some View {
-        RoundedRectangle(cornerRadius: FocusFlashPattern.ringCornerRadius)
-            .stroke(cmuxAccentColor().opacity(focusFlashOpacity), lineWidth: 3)
-            .shadow(color: cmuxAccentColor().opacity(focusFlashOpacity * 0.35), radius: 10)
-            .padding(FocusFlashPattern.ringInset)
-            .allowsHitTesting(false)
+        WorkspaceAttentionFlashRingView(opacity: focusFlashOpacity)
     }
 
     @ViewBuilder
@@ -993,14 +989,14 @@ struct BrowserPanelView: View {
 
     @ViewBuilder
     private var omnibarHeaderView: some View {
-        if panel.isOmnibarVisible {
+        if chromeState.isOmnibarVisible {
             addressBar
                 .fixedSize(horizontal: false, vertical: true)
                 .onDisappear {
 #if DEBUG
                     cmuxDebugLog(
                         "browser.omnibar.header.disappear panel=\(panel.id.uuidString.prefix(5)) " +
-                        "visible=\(panel.isOmnibarVisible ? 1 : 0) focusMode=\(panel.isBrowserFocusModeActive ? 1 : 0)"
+                        "visible=\(chromeState.isOmnibarVisible ? 1 : 0) focusMode=\(panel.isBrowserFocusModeActive ? 1 : 0)"
                     )
 #endif
                 }
@@ -1074,7 +1070,7 @@ struct BrowserPanelView: View {
         .onChange(of: panel.pendingAddressBarFocusRequestId) { _ in
             applyPendingAddressBarFocusRequestIfNeeded()
         }
-        .onChange(of: panel.isOmnibarVisible) { _, isVisible in
+        .onChange(of: chromeState.isOmnibarVisible) { _, isVisible in
             handleOmnibarVisibilityChange(isVisible)
         }
         .onChange(of: showModifierHoldHints) { _, _ in
@@ -1234,9 +1230,9 @@ struct BrowserPanelView: View {
                 hitSize: addressBarButtonHitSize
             )
 
-            if panel.isDownloading || !panel.recentDownloads.isEmpty {
+            if panel.isDownloading || !browserToolbarDownloads.isEmpty {
                 BrowserDownloadsToolbarButton(
-                    downloads: panel.recentDownloads,
+                    downloads: browserToolbarDownloads,
                     isDownloading: panel.isDownloading,
                     iconPointSize: chromeMetrics.navigationIconFontSize,
                     hitSize: addressBarButtonHitSize,
@@ -1246,6 +1242,16 @@ struct BrowserPanelView: View {
                 )
             }
         }
+    }
+
+    private var browserToolbarDownloads: [BrowserDownloadRecord] {
+        #if DEBUG
+        if panel.recentDownloads.isEmpty,
+           let fixtureDownload = BrowserDownloadsPopoverAppearanceUITestSupport().fixtureDownload {
+            return [fixtureDownload]
+        }
+        #endif
+        return panel.recentDownloads
     }
 
     private var screenshotPageButton: some View {
@@ -1383,7 +1389,7 @@ struct BrowserPanelView: View {
         .buttonStyle(OmnibarAddressButtonStyle())
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         .popover(isPresented: $isBrowserProfileMenuPresented, arrowEdge: .bottom) {
-            browserProfilePopover
+            browserProfilePopover.browserChromePopoverAppearance(browserChromeColorScheme)
         }
         .safeHelp(
             String(
@@ -1457,7 +1463,7 @@ struct BrowserPanelView: View {
         .buttonStyle(OmnibarAddressButtonStyle())
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         .popover(isPresented: $isBrowserThemeMenuPresented, arrowEdge: .bottom) {
-            browserThemeModePopover
+            browserThemeModePopover.browserChromePopoverAppearance(browserChromeColorScheme)
         }
         .safeHelp(
             String(
@@ -1487,7 +1493,7 @@ struct BrowserPanelView: View {
         }
         .buttonStyle(OmnibarAddressButtonStyle())
         .popover(isPresented: $isBrowserImportHintPopoverPresented, arrowEdge: .bottom) {
-            browserImportHintPopover
+            browserImportHintPopover.browserChromePopoverAppearance(browserChromeColorScheme)
         }
         .safeHelp(String(localized: "browser.import.hint.toolbar.help", defaultValue: "Import browser data"))
         .accessibilityIdentifier("BrowserImportHintToolbarChip")
@@ -1725,7 +1731,7 @@ struct BrowserPanelView: View {
                         controller: panel.designModeController
                     ),
                     omnibarSuggestions: portalOmnibarSuggestions,
-                    paneTopChromeHeight: panel.isOmnibarVisible ? addressBarHeight : 0
+                    paneTopChromeHeight: chromeState.isOmnibarVisible ? addressBarHeight : 0
                 )
                 .accessibilityIdentifier("BrowserWebViewSurface")
                 // Keep the host stable for normal pane churn, but force a remount when
@@ -1980,7 +1986,7 @@ struct BrowserPanelView: View {
             return true
         }
 
-        if let manager = app.tabManagerFor(tabId: panel.workspaceId),
+        if let manager = app.browserReferenceTabManager(for: panel),
            let windowId = app.windowId(for: manager),
            let window = app.mainWindow(for: windowId),
            app.isCommandPaletteVisible(for: window) {
@@ -2003,7 +2009,7 @@ struct BrowserPanelView: View {
         }
 
         guard let app = AppDelegate.shared,
-              let manager = app.tabManagerFor(tabId: panel.workspaceId),
+              let manager = app.browserReferenceTabManager(for: panel),
               let panelWindowId = app.windowId(for: manager) else {
             return false
         }
@@ -2260,7 +2266,7 @@ struct BrowserPanelView: View {
     }
 
     private func autoFocusOmnibarIfBlank() {
-        guard panel.isOmnibarVisible else {
+        guard chromeState.isOmnibarVisible else {
 #if DEBUG
             logBrowserFocusState(event: "addressBarFocus.autoFocus.skip", detail: "reason=omnibar_hidden")
 #endif
@@ -2311,27 +2317,24 @@ struct BrowserPanelView: View {
     }
 
     private func refreshEmptyStateImportBrowsers() {
-        emptyStateImportBrowserRefreshTask?.cancel()
+        tasks.cancel(.emptyStateImportBrowserRefresh)
         emptyStateImportBrowserRefreshGeneration &+= 1
         let generation = emptyStateImportBrowserRefreshGeneration
 
         guard shouldShowEmptyStateImportOverlay else {
             emptyStateImportBrowsers = []
-            emptyStateImportBrowserRefreshTask = nil
             return
         }
 
-        let detector = installedBrowserDetector
-        emptyStateImportBrowserRefreshTask = Task {
+        tasks.replaceOnMainActor(.emptyStateImportBrowserRefresh) {
             let browsers = await Task.detached(priority: .utility) {
-                detector.detectInstalledBrowsers()
+                BrowserInstalledBrowserDetector().detectInstalledBrowsers()
             }.value
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 guard emptyStateImportBrowserRefreshGeneration == generation,
                       shouldShowEmptyStateImportOverlay else { return }
                 emptyStateImportBrowsers = browsers
-                emptyStateImportBrowserRefreshTask = nil
             }
         }
     }
@@ -2376,9 +2379,9 @@ struct BrowserPanelView: View {
     }
 
     private func startOmnibarSuggestionRefreshConsumer() {
-        guard omnibarSuggestionRefreshConsumerTask == nil else { return }
+        guard !tasks.contains(.omnibarSuggestionRefreshConsumer) else { return }
         let scheduler = omnibarSuggestionRefreshScheduler
-        omnibarSuggestionRefreshConsumerTask = Task { @MainActor in
+        tasks.replaceOnMainActor(.omnibarSuggestionRefreshConsumer) {
             for await generation in scheduler.refreshStream {
                 guard scheduler.shouldProcessRefresh(generation) else { continue }
                 refreshSuggestions()
@@ -2387,14 +2390,12 @@ struct BrowserPanelView: View {
     }
 
     private func stopOmnibarSuggestionRefreshConsumer() {
-        omnibarSuggestionRefreshConsumerTask?.cancel()
-        omnibarSuggestionRefreshConsumerTask = nil
+        tasks.cancel(.omnibarSuggestionRefreshConsumer)
     }
 
     private func cancelPendingOmnibarSuggestionWork() {
         omnibarSuggestionRefreshScheduler.cancelPendingRefresh()
-        suggestionTask?.cancel()
-        suggestionTask = nil
+        tasks.cancel(.suggestion)
         isLoadingRemoteSuggestions = false
     }
 
@@ -2433,8 +2434,13 @@ struct BrowserPanelView: View {
         omnibarState.buffer = suggestion.completion
         omnibarState.isUserEditing = false
         switch suggestion.kind {
-        case .switchToTab(let tabId, let panelId, _, _):
-            AppDelegate.shared?.tabManager?.focusTab(tabId, surfaceId: panelId)
+        case .switchToTab(let host, _, let panelId, _, _):
+            if let app = AppDelegate.shared {
+                _ = BrowserActionDispatcher(appDelegate: app).perform(
+                    .focus,
+                    on: BrowserActionTarget(host: host, panelId: panelId)
+                )
+            }
         default:
             panel.navigateSmart(suggestion.completion)
         }
@@ -2606,8 +2612,7 @@ struct BrowserPanelView: View {
             )
         }
 #endif
-        suggestionTask?.cancel()
-        suggestionTask = nil
+        tasks.cancel(.suggestion)
         isLoadingRemoteSuggestions = false
 
         guard addressBarFocused, !omnibarHasMarkedText else {
@@ -2704,7 +2709,7 @@ struct BrowserPanelView: View {
         // Keep current remote rows visible while fetching fresh predictions.
         guard let engine = remoteSuggestionsEngine else { return }
         isLoadingRemoteSuggestions = true
-        suggestionTask = Task {
+        tasks.replaceOnMainActor(.suggestion) {
             let remote = await BrowserSearchSuggestionService.shared.suggestions(engine: engine, query: query)
             if Task.isCancelled { return }
 
@@ -2755,16 +2760,21 @@ struct BrowserPanelView: View {
         guard !query.isEmpty, limit > 0 else { return [] }
         let singleCharacterQuery = omnibarSingleCharacterQuery(for: query)
         let includeCurrentPanelForSingleCharacterQuery = singleCharacterQuery != nil
+        let app = AppDelegate.shared
+        let currentHost = app?.browserActionTarget(for: panel)?.host
+            ?? .workspace(panel.workspaceId)
         let currentPanelSnapshot = BrowserOpenTabSuggestionSnapshot(
-            workspaceId: panel.workspaceId,
+            host: currentHost,
             panelId: panel.id,
             url: panel.preferredURLStringForOmnibar(),
             title: panel.pageTitle
         )
-        let tabManager = AppDelegate.shared?.tabManagerFor(tabId: panel.workspaceId) ?? AppDelegate.shared?.tabManager
+        let tabManager = app?.browserReferenceTabManager(for: panel)
+            ?? app?.tabManager
         return tabManager?.matchingOpenBrowserTabSuggestions(
             for: query,
             currentWorkspaceId: panel.workspaceId,
+            currentHost: currentHost,
             currentPanelId: panel.id,
             currentPanelSnapshot: currentPanelSnapshot,
             includeCurrentPanelForSingleCharacterQuery: includeCurrentPanelForSingleCharacterQuery,
@@ -2899,7 +2909,7 @@ func omnibarSuggestionCompletion(for suggestion: OmnibarSuggestion) -> String? {
         return url
     case .history(let url, _):
         return url
-    case .switchToTab(_, _, let url, _):
+    case .switchToTab(_, _, _, let url, _):
         return url
     default:
         return nil
@@ -2910,7 +2920,7 @@ func omnibarSuggestionTitle(for suggestion: OmnibarSuggestion) -> String? {
     switch suggestion.kind {
     case .history(_, let title):
         return title
-    case .switchToTab(_, _, _, let title):
+    case .switchToTab(_, _, _, _, let title):
         return title
     default:
         return nil
@@ -3197,7 +3207,13 @@ func buildOmnibarSuggestions(
         let total = intentBaseScore + urlMatch + titleMatch + positionScore + resolvedURLBonus
         if match.isKnownOpenTab {
             insert(
-                .switchToTab(tabId: match.tabId, panelId: match.panelId, url: match.url, title: match.title),
+                .switchToTab(
+                    host: match.host,
+                    tabId: match.tabId,
+                    panelId: match.panelId,
+                    url: match.url,
+                    title: match.title
+                ),
                 score: total
             )
         } else {
@@ -3759,7 +3775,13 @@ struct OmnibarSuggestion: Identifiable, Hashable {
         case search(engineName: String, query: String)
         case navigate(url: String)
         case history(url: String, title: String?)
-        case switchToTab(tabId: UUID, panelId: UUID, url: String, title: String?)
+        case switchToTab(
+            host: PanelHost,
+            tabId: UUID,
+            panelId: UUID,
+            url: String,
+            title: String?
+        )
         case remote(query: String)
     }
 
@@ -3774,8 +3796,8 @@ struct OmnibarSuggestion: Identifiable, Hashable {
             return "navigate|\(url.lowercased())"
         case .history(let url, _):
             return "history|\(url.lowercased())"
-        case .switchToTab(let tabId, let panelId, let url, _):
-            return "switch-tab|\(tabId.uuidString.lowercased())|\(panelId.uuidString.lowercased())|\(url.lowercased())"
+        case .switchToTab(let host, let tabId, let panelId, let url, _):
+            return "switch-tab|\(host.identityKey)|\(tabId.uuidString.lowercased())|\(panelId.uuidString.lowercased())|\(url.lowercased())"
         case .remote(let query):
             return "remote|\(query.lowercased())"
         }
@@ -3786,7 +3808,7 @@ struct OmnibarSuggestion: Identifiable, Hashable {
         case .search(_, let q): return q
         case .navigate(let url): return url
         case .history(let url, _): return url
-        case .switchToTab(_, _, let url, _): return url
+        case .switchToTab(_, _, _, let url, _): return url
         case .remote(let q): return q
         }
     }
@@ -3800,7 +3822,7 @@ struct OmnibarSuggestion: Identifiable, Hashable {
         case .history(let url, let title):
             return (title?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
                 ? Self.singleLineText(title) : Self.displayURLText(for: url)
-        case .switchToTab(_, _, let url, let title):
+        case .switchToTab(_, _, _, let url, let title):
             return (title?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
                 ? Self.singleLineText(title) : Self.displayURLText(for: url)
         case .remote(let q):
@@ -3810,7 +3832,8 @@ struct OmnibarSuggestion: Identifiable, Hashable {
 
     var listText: String {
         switch kind {
-        case .history(let url, let title), .switchToTab(_, _, let url, let title):
+        case .history(let url, let title),
+             .switchToTab(_, _, _, let url, let title):
             let titleOneline = Self.singleLineText(title)
             guard !titleOneline.isEmpty else { return Self.displayURLText(for: url) }
             return "\(titleOneline) — \(Self.displayURLText(for: url))"
@@ -3824,7 +3847,7 @@ struct OmnibarSuggestion: Identifiable, Hashable {
         case .history(let url, let title):
             let titleOneline = Self.singleLineText(title)
             return titleOneline.isEmpty ? nil : Self.displayURLText(for: url)
-        case .switchToTab(_, _, let url, let title):
+        case .switchToTab(_, _, _, let url, let title):
             let titleOneline = Self.singleLineText(title)
             return titleOneline.isEmpty ? nil : Self.displayURLText(for: url)
         default:
@@ -3862,8 +3885,20 @@ struct OmnibarSuggestion: Identifiable, Hashable {
         OmnibarSuggestion(kind: .navigate(url: url))
     }
 
-    static func switchToTab(tabId: UUID, panelId: UUID, url: String, title: String?) -> OmnibarSuggestion {
-        OmnibarSuggestion(kind: .switchToTab(tabId: tabId, panelId: panelId, url: url, title: title))
+    static func switchToTab(
+        host: PanelHost,
+        tabId: UUID,
+        panelId: UUID,
+        url: String,
+        title: String?
+    ) -> OmnibarSuggestion {
+        OmnibarSuggestion(kind: .switchToTab(
+            host: host,
+            tabId: tabId,
+            panelId: panelId,
+            url: url,
+            title: title
+        ))
     }
 
     private static func singleLineText(_ value: String?) -> String {
@@ -3979,6 +4014,7 @@ final class OmnibarNativeTextField: NSTextField {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
+        cell = BrowserOmnibarPasteTextFieldCell(textCell: "")
         isBordered = false
         isBezeled = false
         drawsBackground = false
@@ -3990,7 +4026,6 @@ final class OmnibarNativeTextField: NSTextField {
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
-
     override func resetCursorRects() {
         super.resetCursorRects()
         addCursorRect(bounds, cursor: .iBeam)
@@ -5411,8 +5446,11 @@ struct WebViewRepresentable: NSViewRepresentable {
         private var hostedInspectorSideDockDockSide: HostedInspectorDockSide?
         private var isHostedInspectorDividerDragActive = false
         private var isApplyingHostedInspectorLayout = false
-        private var hostedInspectorReapplyWorkItem: DispatchWorkItem?
-        private var hostedInspectorDockConfigurationSyncWorkItem: DispatchWorkItem?
+        private let hostedWebKitPresentationScheduler = MainActorDeferredActionScheduler()
+        private var pendingHostedWebKitPresentationForceLifecycleRefresh = false
+        private var pendingHostedWebKitPresentationInspectorNormalization = false
+        private let hostedInspectorReapplyScheduler = MainActorDeferredActionScheduler()
+        private let hostedInspectorDockConfigurationSyncScheduler = MainActorDeferredActionScheduler()
         private var hostedInspectorSideDockPromotionTask: Task<Void, Never>?
         private var hostedInspectorSideDockPromotionTaskID: UUID?
         private var adaptiveBottomDockRequestCooldownDeadline: Date?
@@ -5426,8 +5464,6 @@ struct WebViewRepresentable: NSViewRepresentable {
 #endif
 
         deinit {
-            hostedInspectorReapplyWorkItem?.cancel()
-            hostedInspectorDockConfigurationSyncWorkItem?.cancel()
             hostedInspectorSideDockPromotionTask?.cancel()
             if let trackingArea {
                 removeTrackingArea(trackingArea)
@@ -5773,9 +5809,40 @@ struct WebViewRepresentable: NSViewRepresentable {
             }
         }
 
-        func refreshHostedWebKitPresentation(
+        func scheduleHostedWebKitPresentationRefresh(
             reason: String,
-            forceLifecycleRefresh: Bool = false
+            forceLifecycleRefresh: Bool = false,
+            normalizeHostedInspectorLayout: Bool = false
+        ) {
+            pendingHostedWebKitPresentationForceLifecycleRefresh =
+                pendingHostedWebKitPresentationForceLifecycleRefresh || forceLifecycleRefresh
+            pendingHostedWebKitPresentationInspectorNormalization =
+                pendingHostedWebKitPresentationInspectorNormalization || normalizeHostedInspectorLayout
+            hostedWebKitPresentationScheduler.schedule { [weak self] in
+                guard let self else { return }
+                let shouldForceLifecycleRefresh = pendingHostedWebKitPresentationForceLifecycleRefresh
+                let shouldNormalizeHostedInspectorLayout = pendingHostedWebKitPresentationInspectorNormalization
+                pendingHostedWebKitPresentationForceLifecycleRefresh = false
+                pendingHostedWebKitPresentationInspectorNormalization = false
+                refreshHostedWebKitPresentation(
+                    reason: reason,
+                    forceLifecycleRefresh: shouldForceLifecycleRefresh
+                )
+                if shouldNormalizeHostedInspectorLayout {
+                    normalizeHostedInspectorLayoutIfNeeded(reason: reason)
+                }
+            }
+        }
+
+        private func cancelHostedWebKitPresentationRefresh() {
+            hostedWebKitPresentationScheduler.cancel()
+            pendingHostedWebKitPresentationForceLifecycleRefresh = false
+            pendingHostedWebKitPresentationInspectorNormalization = false
+        }
+
+        private func refreshHostedWebKitPresentation(
+            reason: String,
+            forceLifecycleRefresh: Bool
         ) {
             guard let localInlineSlotView else { return }
             guard !localInlineSlotView.isHidden else { return }
@@ -5830,17 +5897,16 @@ struct WebViewRepresentable: NSViewRepresentable {
 
             localInlineSlotView.displayIfNeeded()
             // Flush only this panel's subtree. A whole-window displayIfNeeded
-            // here would also draw sibling Metal terminal panes — and this
-            // method runs from updateNSView/viewDidMoveToWindow, inside the
-            // layout pass, where a synchronous terminal draw can wedge the
-            // main thread against the still-open window transaction. WebKit
-            // subtree flushes carry no such wait.
+            // here would also draw sibling Metal terminal panes and can wedge
+            // the main thread against their open window transactions. Callers
+            // originating in updateNSView and AppKit lifecycle callbacks reach
+            // this flush only through the deferred host scheduler above.
             displayIfNeeded()
         }
 
         func prepareForWindowPortalHosting() {
-            hostedInspectorDockConfigurationSyncWorkItem?.cancel()
-            hostedInspectorDockConfigurationSyncWorkItem = nil
+            cancelHostedWebKitPresentationRefresh()
+            hostedInspectorDockConfigurationSyncScheduler.cancel()
             notifyHostedWebKitHidden(reason: "prepareForWindowPortalHosting")
             deactivateHostedInspectorSideDockIfNeeded(reparentTo: localInlineSlotView)
             hostedInspectorFrontendWebView = nil
@@ -5849,14 +5915,14 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         func clearStaleHostedInspectorOwnershipState() {
-            hostedInspectorDockConfigurationSyncWorkItem?.cancel()
-            hostedInspectorDockConfigurationSyncWorkItem = nil
+            hostedInspectorDockConfigurationSyncScheduler.cancel()
             hostedInspectorFrontendWebView = nil
             lastHostedInspectorManualSideDockAllowed = nil
             lastHostedInspectorDetachedFromHostWindow = nil
         }
 
         func releaseHostedWebViewConstraints() {
+            cancelHostedWebKitPresentationRefresh()
             NSLayoutConstraint.deactivate(hostedWebViewConstraints)
             hostedWebViewConstraints = []
             hostedWebView = nil
@@ -5879,7 +5945,6 @@ struct WebViewRepresentable: NSViewRepresentable {
                 !presentationView.translatesAutoresizingMaskIntoConstraints
             guard needsFrameHosting else {
                 needsLayout = true
-                layoutSubtreeIfNeeded()
                 return
             }
 
@@ -5897,7 +5962,6 @@ struct WebViewRepresentable: NSViewRepresentable {
                 presentationView.autoresizingMask = [.width, .height]
             }
             needsLayout = true
-            layoutSubtreeIfNeeded()
         }
 
         private func ensureHostedInspectorSideDockContainerView() -> HostedInspectorSideDockContainerView {
@@ -6099,17 +6163,14 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         fileprivate func scheduleHostedInspectorDockConfigurationSync(reason: String) {
-            hostedInspectorDockConfigurationSyncWorkItem?.cancel()
+            hostedInspectorDockConfigurationSyncScheduler.cancel()
             guard hostedInspectorFrontendWebView != nil else { return }
-            let workItem = DispatchWorkItem { [weak self] in
+            hostedInspectorDockConfigurationSyncScheduler.schedule { [weak self] in
                 self?.syncHostedInspectorDockConfiguration(reason: reason)
             }
-            hostedInspectorDockConfigurationSyncWorkItem = workItem
-            DispatchQueue.main.async(execute: workItem)
         }
 
         private func syncHostedInspectorDockConfiguration(reason: String) {
-            hostedInspectorDockConfigurationSyncWorkItem = nil
             guard let hostedInspectorFrontendWebView else { return }
             hostedInspectorFrontendWebView.evaluateJavaScript(
                 "typeof WI === 'undefined' ? null : WI.dockConfiguration"
@@ -6170,12 +6231,13 @@ struct WebViewRepresentable: NSViewRepresentable {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             if window == nil {
+                cancelHostedWebKitPresentationRefresh()
                 notifyHostedWebKitHidden(reason: "viewDidMoveToWindow")
                 clearActiveDividerCursor(restoreArrow: false)
             } else {
                 scheduleHostedInspectorDividerReapply(reason: "viewDidMoveToWindow")
                 scheduleHostedInspectorDockConfigurationSync(reason: "viewDidMoveToWindow")
-                refreshHostedWebKitPresentation(
+                scheduleHostedWebKitPresentationRefresh(
                     reason: "viewDidMoveToWindow",
                     forceLifecycleRefresh: hostedInspectorFrontendWebView != nil
                 )
@@ -6353,7 +6415,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 return
             }
 
-            hostedInspectorReapplyWorkItem?.cancel()
+            hostedInspectorReapplyScheduler.cancel()
             isHostedInspectorDividerDragActive = true
             hostedInspectorDividerDrag = HostedInspectorDividerDragState(
                 containerView: hostedInspectorHit.containerView,
@@ -6745,10 +6807,8 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         fileprivate func scheduleHostedInspectorDividerReapply(reason: String) {
-            hostedInspectorReapplyWorkItem?.cancel()
-            let workItem = DispatchWorkItem { [weak self] in
+            hostedInspectorReapplyScheduler.schedule { [weak self] in
                 guard let self else { return }
-                self.hostedInspectorReapplyWorkItem = nil
                 _ = self.promoteHostedInspectorSideDockFromCurrentLayoutIfNeeded()
                 if self.hasStoredHostedInspectorWidthPreference {
                     self.reapplyHostedInspectorDividerToStoredWidthIfNeeded(reason: reason)
@@ -6756,8 +6816,6 @@ struct WebViewRepresentable: NSViewRepresentable {
                     self.captureHostedInspectorPreferredWidthFromCurrentLayout(reason: reason)
                 }
             }
-            hostedInspectorReapplyWorkItem = workItem
-            DispatchQueue.main.async(execute: workItem)
         }
 
         private func captureHostedInspectorPreferredWidthFromCurrentLayout(reason: String) {
@@ -7158,36 +7216,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         if reusedSourceLocalFrames, sourceSlotBoundsSize != container.bounds.size {
             container.resizeSubviews(withOldSize: sourceSlotBoundsSize)
             container.needsLayout = true
-            container.layoutSubtreeIfNeeded()
         }
-    }
-
-    private static func installPortalAnchorView(_ anchorView: NSView, in host: NSView) {
-        // SwiftUI can keep transient replacement hosts alive off-window during split
-        // reparenting. Never let those hosts steal the shared portal anchor, or the
-        // portal will bind against an anchor with no real window and WKWebView will
-        // fall into a hidden/unrendered state.
-        guard host.window != nil else { return }
-        if anchorView.superview !== host {
-            anchorView.removeFromSuperview()
-            anchorView.translatesAutoresizingMaskIntoConstraints = false
-            host.addSubview(anchorView)
-            NSLayoutConstraint.activate([
-                anchorView.topAnchor.constraint(equalTo: host.topAnchor),
-                anchorView.bottomAnchor.constraint(equalTo: host.bottomAnchor),
-                anchorView.leadingAnchor.constraint(equalTo: host.leadingAnchor),
-                anchorView.trailingAnchor.constraint(equalTo: host.trailingAnchor),
-            ])
-        } else if anchorView.translatesAutoresizingMaskIntoConstraints {
-            anchorView.translatesAutoresizingMaskIntoConstraints = false
-            NSLayoutConstraint.activate([
-                anchorView.topAnchor.constraint(equalTo: host.topAnchor),
-                anchorView.bottomAnchor.constraint(equalTo: host.bottomAnchor),
-                anchorView.leadingAnchor.constraint(equalTo: host.leadingAnchor),
-                anchorView.trailingAnchor.constraint(equalTo: host.trailingAnchor),
-            ])
-        }
-        host.layoutSubtreeIfNeeded()
     }
 
     private func schedulePortalLifecycleVisibilityUpdate(
@@ -7333,19 +7362,14 @@ struct WebViewRepresentable: NSViewRepresentable {
             let didRevealDeveloperToolsAfterAttach =
                 !wasDeveloperToolsVisible && panel.isDeveloperToolsVisible()
             webView.needsLayout = true
-            webView.layoutSubtreeIfNeeded()
-            slotView.layoutSubtreeIfNeeded()
-            host.layoutSubtreeIfNeeded()
-            host.refreshHostedWebKitPresentation(
+            slotView.needsLayout = true
+            host.needsLayout = true
+            host.scheduleHostedWebKitPresentationRefresh(
                 reason: didAttachWebViewToLocalHost
                     ? "localInline.update.immediate"
                     : "localInline.update.existingHost",
-                forceLifecycleRefresh: didRevealDeveloperToolsAfterAttach
-            )
-            host.normalizeHostedInspectorLayoutIfNeeded(
-                reason: didAttachWebViewToLocalHost
-                    ? "localInline.update.immediate"
-                    : "localInline.update.existingHost"
+                forceLifecycleRefresh: didRevealDeveloperToolsAfterAttach,
+                normalizeHostedInspectorLayout: true
             )
             host.scheduleHostedInspectorDividerReapply(
                 reason: didAttachWebViewToLocalHost
@@ -7377,7 +7401,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                     )
                 }
                 host.setHostedInspectorFrontendWebView(nil)
-                host.refreshHostedWebKitPresentation(
+                host.scheduleHostedWebKitPresentationRefresh(
                     reason: didAttachWebViewToLocalHost
                         ? "localInline.update.async"
                         : "localInline.update.existingHost.async",
@@ -7481,7 +7505,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 #endif
         if host.window != nil, portalHostAccepted {
-            Self.installPortalAnchorView(portalAnchorView, in: host)
+            portalAnchorView.install(in: host)
         }
         let activeOmnibarSuggestions = coordinator.desiredPortalVisibleInUI ? omnibarSuggestions : nil
 
@@ -7497,7 +7521,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 reason: "didMoveToWindow"
             ) else { return }
             guard host.window != nil else { return }
-            Self.installPortalAnchorView(portalAnchorView, in: host)
+            portalAnchorView.install(in: host)
             BrowserWindowPortalRegistry.bind(
                 webView: webView,
                 to: portalAnchorView,
@@ -7532,7 +7556,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             ) else { return }
             guard host.window != nil else { return }
             let hostId = ObjectIdentifier(host)
-            Self.installPortalAnchorView(portalAnchorView, in: host)
+            portalAnchorView.install(in: host)
             if coordinator.lastPortalHostId != hostId ||
                !BrowserWindowPortalRegistry.isWebView(webView, boundTo: portalAnchorView) {
                 BrowserWindowPortalRegistry.bind(
@@ -7577,7 +7601,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 previousVisible != shouldAttachWebView ||
                 previousZPriority != portalZPriority
             if shouldBindNow {
-                Self.installPortalAnchorView(portalAnchorView, in: host)
+                portalAnchorView.install(in: host)
                 BrowserWindowPortalRegistry.bind(
                     webView: webView,
                     to: portalAnchorView,

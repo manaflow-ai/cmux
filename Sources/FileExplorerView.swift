@@ -83,6 +83,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
     // MARK: - Coordinator
 
+    @MainActor
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate {
         var store: FileExplorerStore
         var state: FileExplorerState
@@ -116,14 +117,16 @@ struct FileExplorerPanelView: NSViewRepresentable {
             styleObserver = NotificationCenter.default.addObserver(
                 forName: .fileExplorerStyleDidChange, object: nil, queue: .main
             ) { [weak self] _ in
-                guard let self, let outlineView = self.outlineView else { return }
-                let style = FileExplorerStyle.current
-                self.withProgrammaticOutlineUpdate {
-                    outlineView.indentationPerLevel = style.indentation
-                    outlineView.noteHeightOfRows(withIndexesChanged: IndexSet(0..<outlineView.numberOfRows))
-                    outlineView.reloadData()
-                    self.restoreExpansionState(self.store.expandedPaths, in: outlineView)
-                    self.applyStoredSelection(in: outlineView, fallbackToFirstVisible: false, scroll: false)
+                MainActor.assumeIsolated {
+                    guard let self, let outlineView = self.outlineView else { return }
+                    let style = FileExplorerStyle.current
+                    self.withProgrammaticOutlineUpdate {
+                        outlineView.indentationPerLevel = style.indentation
+                        outlineView.noteHeightOfRows(withIndexesChanged: IndexSet(0..<outlineView.numberOfRows))
+                        outlineView.reloadData()
+                        self.restoreExpansionState(self.store.expandedPaths, in: outlineView)
+                        self.applyStoredSelection(in: outlineView, fallbackToFirstVisible: false, scroll: false)
+                    }
                 }
             }
         }
@@ -614,15 +617,19 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
         @objc private func contextMenuCopyPath(_ sender: NSMenuItem) {
             guard let node = sender.representedObject as? FileExplorerNode else { return }
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(node.path, forType: .string)
+            GhosttyApp.terminalPasteboard.writeString(
+                node.path,
+                to: .general
+            )
         }
 
         @objc private func contextMenuCopyRelativePath(_ sender: NSMenuItem) {
             guard let node = sender.representedObject as? FileExplorerNode else { return }
             let relativePath = FileExplorerTerminalPathInsertion.relativePath(for: node.path, rootPath: store.rootPath)
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(relativePath, forType: .string)
+            GhosttyApp.terminalPasteboard.writeString(
+                relativePath,
+                to: .general
+            )
         }
     }
 }
@@ -1492,14 +1499,18 @@ final class FileExplorerContainerView: NSView {
 
     @objc private func contextMenuCopySearchResultPath(_ sender: NSMenuItem) {
         guard let result = searchResult(forMenuItem: sender) else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(result.path, forType: .string)
+        GhosttyApp.terminalPasteboard.writeString(
+            result.path,
+            to: .general
+        )
     }
 
     @objc private func contextMenuCopySearchResultRelativePath(_ sender: NSMenuItem) {
         guard let result = searchResult(forMenuItem: sender) else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(result.relativePath, forType: .string)
+        GhosttyApp.terminalPasteboard.writeString(
+            result.relativePath,
+            to: .general
+        )
     }
 }
 

@@ -37,7 +37,8 @@ struct TerminalPanelCreationRequest {
     let additionalEnvironment: [String: String]
     let focusPlacement: TerminalSurfaceFocusPlacement
     let manualIO: Bool
-    let manualInputHandler: (@Sendable (Data) -> Void)?
+    let manualInputHandler: (@Sendable (TerminalManualInput) -> Void)?
+    let manualInputKeyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)?
     let runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy
 
     init(
@@ -55,7 +56,8 @@ struct TerminalPanelCreationRequest {
         additionalEnvironment: [String: String] = [:],
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
         manualIO: Bool = false,
-        manualInputHandler: (@Sendable (Data) -> Void)? = nil,
+        manualInputHandler: (@Sendable (TerminalManualInput) -> Void)? = nil,
+        manualInputKeyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate
     ) {
         self.origin = origin
@@ -73,6 +75,7 @@ struct TerminalPanelCreationRequest {
         self.focusPlacement = focusPlacement
         self.manualIO = manualIO
         self.manualInputHandler = manualInputHandler
+        self.manualInputKeyNameResolver = manualInputKeyNameResolver
         self.runtimeSpawnPolicy = runtimeSpawnPolicy
     }
 }

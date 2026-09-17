@@ -64,10 +64,12 @@ public struct BackendTerminalMouseEvent: Equatable, Sendable {
 public struct BackendTerminalMouseResponse: Decodable, Equatable, Sendable {
     public let encodedBytes: UInt64
     public let route: BackendTerminalMouseRoute
+    public let handled: Bool?
+    public let state: BackendTerminalUXState?
 
     private enum CodingKeys: String, CodingKey {
         case encodedBytes = "encoded_bytes"
-        case route
+        case route, handled, state
     }
 }
 

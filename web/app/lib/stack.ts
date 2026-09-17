@@ -8,6 +8,7 @@ const publishableClientKey = env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY;
 const secretServerKey = env.STACK_SECRET_SERVER_KEY;
 
 let stackServerAppCache: StackServerApp<true> | null = null;
+let nonRedirectingStackServerAppCache: StackServerApp<true> | null = null;
 
 export function isStackConfigured(): boolean {
   return Boolean(projectId && publishableClientKey && secretServerKey);
@@ -26,9 +27,33 @@ export function getStackServerApp(): StackServerApp<true> {
     urls: {
       afterSignIn: "/handler/after-sign-in",
       afterSignUp: "/handler/after-sign-in",
+      accountSettings: "/dashboard/team",
     },
   });
   return stackServerAppCache;
+}
+
+// Native clients need a JSON response after revoking their exact token pair.
+// Stack's normal Next.js redirect mode throws a redirect after sign-out, so
+// keep a separate app instance whose session mutations never redirect.
+export function getNonRedirectingStackServerApp(): StackServerApp<true> {
+  if (!projectId || !publishableClientKey || !secretServerKey) {
+    throw new Error("Stack Auth is not configured");
+  }
+
+  nonRedirectingStackServerAppCache ??= new StackServerApp({
+    projectId,
+    publishableClientKey,
+    secretServerKey,
+    tokenStore: "nextjs-cookie",
+    redirectMethod: "none",
+    urls: {
+      afterSignIn: "/handler/after-sign-in",
+      afterSignUp: "/handler/after-sign-in",
+      accountSettings: "/dashboard/team",
+    },
+  });
+  return nonRedirectingStackServerAppCache;
 }
 
 export const stackServerApp = isStackConfigured() ? getStackServerApp() : null;

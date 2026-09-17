@@ -14,16 +14,8 @@ import {
   DEFAULT_FROM_EMAIL,
   buildFoundersWelcomeEmail,
 } from "./welcome-email";
+import { welcomeTriggerForMetadata } from "./welcome-trigger";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
-// Stripe checkout sessions created from the cmux Founder's Edition payment link
-// carry this metadata key (copied automatically onto each session). We only send
-// the welcome email when it is present and truthy.
-const FOUNDERS_METADATA_KEY = "founders_edition";
-
-// Stripe signs webhooks with a 5-minute default tolerance; reject older payloads
 // to blunt replay attempts.
 const SIGNATURE_TOLERANCE_SECONDS = 5 * 60;
 
@@ -129,27 +121,28 @@ export async function POST(request: Request) {
 
       setSpanAttributes(span, { "cmux.stripe.event_type": event.type ?? "" });
 
-      // Only react to completed checkout sessions flagged as Founder's Edition.
-      // Everything else (including renewals, which never create a checkout
-      // session) is acknowledged with 200 so Stripe stops retrying.
+      // Pro purchases have their own transactional welcome and TestFlight
+      // fulfillment in /api/stripe/webhook. Acknowledge them here without
+      // sending the personal Founder's Edition email as well. Explicit
+      // Founder's Edition metadata wins in welcomeTriggerForMetadata, so its
+      // behavior remains unchanged even if extra metadata is present.
       if (event.type !== "checkout.session.completed") {
         return NextResponse.json({ ok: true, skipped: "event_type" });
       }
       const session = event.data?.object;
-      const isFounders =
-        session?.metadata?.[FOUNDERS_METADATA_KEY] === "true";
+      const trigger = welcomeTriggerForMetadata(session?.metadata);
+      if (trigger === "pro_plan") {
+        return NextResponse.json({ ok: true, skipped: "pro_plan" });
+      }
       const customerEmail = session?.customer_details?.email ?? null;
       setSpanAttributes(span, {
-        "cmux.stripe.is_founders": isFounders,
+        "cmux.stripe.is_founders": trigger === "founders_edition",
+        "cmux.stripe.welcome_trigger": trigger,
         "cmux.stripe.has_customer_email": Boolean(customerEmail),
       });
-      if (!isFounders) {
-        return NextResponse.json({ ok: true, skipped: "not_founders" });
-      }
       if (!customerEmail) {
-        // Distinct from "not_founders" so a Founder's session that arrives
-        // without a customer email is diagnosable in telemetry rather than a
-        // silent miss.
+        // A completed session that arrives without a customer email is
+        // diagnosable in telemetry rather than a silent miss.
         return NextResponse.json({ ok: true, skipped: "no_customer_email" });
       }
 

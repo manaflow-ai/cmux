@@ -1,3 +1,4 @@
+import CmuxMobileDiagnostics
 import CmuxMobileShellModel
 import Foundation
 import SwiftUI
@@ -13,10 +14,13 @@ extension WorkspaceListView {
     var enablesWorkspaceReorder: Bool {
         moveWorkspace != nil
             && pendingWorkspaceMoveCount < Self.maxPipelinedWorkspaceMoves
-            && canRenderGroupsForSelection
+            && canMutateForegroundGroupsForSelection
             && trimmedQuery.isEmpty
             && filter.readState == .all
             && filter.machines.isEmpty
+            // The recency order is derived from timestamps, so a drag has no
+            // spatial position to send to the Mac.
+            && !appliesRecencySort
             && reorderableWorkspaces.hasSingleKnownWindow
             && (rendersGroupedSections || !filteredWorkspaces.contains(where: \.isPinned))
     }
@@ -29,14 +33,10 @@ extension WorkspaceListView {
         filteredWorkspaces.map { WorkspaceListStableOrderKey(workspace: $0) }
     }
 
-    var groupedWorkspaceOrderKey: [WorkspaceListStableOrderKey] {
-        groupedListItems.map { WorkspaceListStableOrderKey(item: $0) }
-    }
-
     var canCreateWorkspaceInGroups: Bool {
         createWorkspaceInGroup != nil
             && canCreateWorkspaceForMacSelection
-            && canRenderGroupsForSelection
+            && canMutateForegroundGroupsForSelection
     }
 
     func syncOptimisticWorkspaceOrder(moveDidFail: Bool = false) {
@@ -119,7 +119,10 @@ extension WorkspaceListView {
     }
 
     func moveGroupedRows(from sourceOffsets: IndexSet, to destination: Int) {
-        guard enablesWorkspaceReorder else { return }
+        guard enablesWorkspaceReorder else {
+            MobileDebugLog.anchormux("move.drop grouped BLOCKED enablesWorkspaceReorder=false")
+            return
+        }
         let sourceItems = displayedGroupedListItems
         let sourceWorkspaces = displayedGroupedWorkspaces
         guard let intent = sourceItems.moveIntent(
@@ -128,8 +131,14 @@ extension WorkspaceListView {
             sourceOffsets: sourceOffsets,
             destination: destination
         ) else {
+            MobileDebugLog.anchormux(
+                "move.drop grouped NO-INTENT source=\(sourceOffsets.first ?? -1) dest=\(destination) items=\(sourceItems.count)"
+            )
             return
         }
+        MobileDebugLog.anchormux(
+            "move.drop grouped source=\(sourceOffsets.first ?? -1) dest=\(destination) -> group=\(intent.groupID?.rawValue.suffix(6) ?? "root") before=\(intent.beforeWorkspaceID?.rawValue.suffix(6) ?? "end") movesGroup=\(intent.movesGroup)"
+        )
         guard let sourceIndex = sourceOffsets.first else {
             return
         }
@@ -142,6 +151,74 @@ extension WorkspaceListView {
         case .groupFooter:
             return
         }
+        applyGroupedWorkspaceMove(
+            intent,
+            movedWorkspaceID: movedWorkspaceID,
+            sourceWorkspaces: sourceWorkspaces
+        )
+    }
+
+    func canJoinGroupAtEnd(
+        workspaceID: MobileWorkspacePreview.ID,
+        groupID: MobileWorkspaceGroupPreview.ID
+    ) -> Bool {
+        guard enablesWorkspaceReorder, rendersGroupedSections else { return false }
+        let sourceWorkspaces = displayedGroupedWorkspaces
+        return MobileWorkspaceMovePolicy(workspaces: sourceWorkspaces, groups: groups)
+            .normalizedIntent(
+                MobileWorkspaceMoveIntent(
+                    groupID: groupID,
+                    beforeWorkspaceID: nil,
+                    movesGroup: false
+                ),
+                movedWorkspaceID: workspaceID
+            ) != nil
+    }
+
+    /// The context-menu "Move to Group" picker for one workspace row, or `nil`
+    /// when moves are unavailable (drag gating applies identically) or the
+    /// picker would be empty.
+    func groupMoveMenu(for workspaceID: MobileWorkspacePreview.ID) -> MobileWorkspaceGroupMoveMenu? {
+        guard enablesWorkspaceReorder, rendersGroupedSections else { return nil }
+        let menu = MobileWorkspaceGroupMoveMenu(
+            workspaces: displayedGroupedWorkspaces,
+            groups: groups,
+            movedWorkspaceID: workspaceID
+        )
+        return menu.isEmpty ? nil : menu
+    }
+
+    /// Joins a group at its end, or leaves the current group when `groupID` is
+    /// `nil`. Shared by the drop-into-group path and the context-menu picker.
+    func joinGroupAtEnd(
+        workspaceID: MobileWorkspacePreview.ID,
+        groupID: MobileWorkspaceGroupPreview.ID?
+    ) {
+        guard enablesWorkspaceReorder, rendersGroupedSections else { return }
+        let sourceWorkspaces = displayedGroupedWorkspaces
+        let policy = MobileWorkspaceMovePolicy(workspaces: sourceWorkspaces, groups: groups)
+        guard let intent = policy.normalizedIntent(
+            MobileWorkspaceMoveIntent(
+                groupID: groupID,
+                beforeWorkspaceID: nil,
+                movesGroup: false
+            ),
+            movedWorkspaceID: workspaceID
+        ) else {
+            return
+        }
+        applyGroupedWorkspaceMove(
+            intent,
+            movedWorkspaceID: workspaceID,
+            sourceWorkspaces: sourceWorkspaces
+        )
+    }
+
+    private func applyGroupedWorkspaceMove(
+        _ intent: MobileWorkspaceMoveIntent,
+        movedWorkspaceID: MobileWorkspacePreview.ID,
+        sourceWorkspaces: [MobileWorkspacePreview]
+    ) {
         let movedWorkspaces = sourceWorkspaces.applyingWorkspaceMoveIntent(
             intent,
             movedWorkspaceID: movedWorkspaceID,
@@ -159,15 +236,18 @@ extension WorkspaceListView {
             // Same ordering, predecessor-failure, and epoch contract as
             // moveFlatRows.
             if let previousMove, await previousMove.value == false {
+                MobileDebugLog.anchormux("move.chain ABORT predecessor-failed id=\(movedWorkspaceID.rawValue.suffix(6))")
                 pendingWorkspaceMoveCount -= 1
                 return false
             }
             guard epoch == workspaceMoveEpoch else {
+                MobileDebugLog.anchormux("move.chain ABORT epoch-superseded id=\(movedWorkspaceID.rawValue.suffix(6))")
                 pendingWorkspaceMoveCount -= 1
                 return false
             }
             let accepted = await moveWorkspace?(movedWorkspaceID, intent.groupID, intent.beforeWorkspaceID, intent.movesGroup) ?? false
             pendingWorkspaceMoveCount -= 1
+            MobileDebugLog.anchormux("move.chain accepted=\(accepted) id=\(movedWorkspaceID.rawValue.suffix(6))")
             if !accepted {
                 syncOptimisticWorkspaceOrder(moveDidFail: true)
                 pendingWorkspaceMoveTask = nil

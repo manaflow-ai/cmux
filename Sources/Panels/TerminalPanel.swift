@@ -6,31 +6,6 @@ import Bonsplit
 import CmuxTerminal
 import CmuxWorkspaces
 
-struct AgentHibernationPanelState {
-    let agent: SessionRestorableAgentSnapshot
-    let hibernatedAt: Date
-    let lastActivityAt: Date
-
-    var agentDisplayName: String {
-        agent.agentDisplayName
-    }
-}
-
-enum AgentHibernationResumePreparation: Equatable {
-    case unavailable
-    case resumed(queuedStartupInput: Bool)
-
-    var didResume: Bool {
-        if case .resumed = self { return true }
-        return false
-    }
-
-    var queuedStartupInput: Bool {
-        if case .resumed(let queuedStartupInput) = self { return queuedStartupInput }
-        return false
-    }
-}
-
 /// TerminalPanel wraps an existing TerminalSurface and conforms to the Panel protocol.
 /// This allows TerminalSurface to be used within the bonsplit-based layout system.
 @MainActor
@@ -47,6 +22,8 @@ final class TerminalPanel: Panel, ObservableObject {
 
     /// The underlying terminal surface
     let surface: TerminalSurface
+    var fontSizePanelTransfer:
+        WorkspaceTerminalFontSizePanelTransfer?
 
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
@@ -115,12 +92,15 @@ final class TerminalPanel: Panel, ObservableObject {
     /// (hostedView.window == nil) until the user switches workspaces.
     @Published var viewReattachToken: UInt64 = 0
 
-    @Published private(set) var agentHibernationState: AgentHibernationPanelState?
+    @Published var agentHibernationPhase: AgentHibernationPanelPhase = .live
 
     var onRequestWorkspacePaneFlash: ((WorkspaceAttentionFlashReason) -> Void)?
     var onRequestAgentHibernationResume: ((Bool) -> Bool)?
+    var onRequestAgentHibernationTerminationRetry: (() -> Void)?
 
     private var cancellables = Set<AnyCancellable>()
+    /// Shared monotonic gate for AppKit and workspace-overlay flash renderers.
+    private var attentionFlashActiveUntil: TimeInterval = 0
 
     var displayTitle: String {
         title.isEmpty ? "Terminal" : title
@@ -156,10 +136,6 @@ final class TerminalPanel: Panel, ObservableObject {
         // We still honor `needsConfirmClose()` when actually closing a panel; we just don't
         // surface it as a tab-level dirty indicator.
         false
-    }
-
-    var isAgentHibernated: Bool {
-        agentHibernationState != nil
     }
 
     /// The hosted NSView for embedding in SwiftUI
@@ -252,8 +228,9 @@ final class TerminalPanel: Panel, ObservableObject {
             initialEnvironmentOverrides: request.initialEnvironmentOverrides,
             additionalEnvironment: request.additionalEnvironment,
             focusPlacement: request.focusPlacement,
-            manualIO: request.manualIO,
+            ioMode: request.manualIO ? .manualMirror : .exec,
             manualInputHandler: request.manualInputHandler,
+            manualInputKeyNameResolver: request.manualInputKeyNameResolver,
             runtimeSpawnPolicy: request.runtimeSpawnPolicy,
             preparePaneHost: preparePaneHost,
             dependencies: dependencies
@@ -275,6 +252,7 @@ final class TerminalPanel: Panel, ObservableObject {
     /// teardown queue, restore scheduler, runtime filesystem, or session ports.
     convenience init(
         externalRequest request: TerminalPanelCreationRequest,
+        terminalLifecycleID: UUID,
         presentationDependencies: TerminalSurfacePresentationDependencies,
         externalRuntime: any TerminalExternalRuntime
     ) {
@@ -290,6 +268,7 @@ final class TerminalPanel: Panel, ObservableObject {
         }
         let surface = TerminalSurface(
             id: request.id,
+            terminalLifecycleId: terminalLifecycleID,
             tabId: request.workspaceId,
             context: request.context,
             configTemplate: request.configTemplate,
@@ -699,17 +678,25 @@ final class TerminalPanel: Panel, ObservableObject {
 #endif
 
     func focus() {
+        focus(focusTransactionId: nil)
+    }
+
+    func focus(focusTransactionId: UUID?) {
         if isAgentHibernated {
             _ = requestAgentHibernationResume(focus: true)
             return
         }
-        focusTerminalSurface(respectForeignFirstResponder: true)
+        focusTerminalSurface(
+            respectForeignFirstResponder: true,
+            focusTransactionId: focusTransactionId
+        )
     }
 
     @discardableResult
     private func focusTerminalSurface(
         respectForeignFirstResponder: Bool,
-        clearTextBoxHideArm: Bool = true
+        clearTextBoxHideArm: Bool = true,
+        focusTransactionId: UUID? = nil
     ) -> Bool {
         if clearTextBoxHideArm {
             shouldHideTextBoxOnNextEscape = false
@@ -746,7 +733,8 @@ final class TerminalPanel: Panel, ObservableObject {
         hostedView.ensureFocus(
             for: workspaceId,
             surfaceId: id,
-            respectForeignFirstResponder: respectForeignFirstResponder
+            respectForeignFirstResponder: respectForeignFirstResponder,
+            focusTransactionId: focusTransactionId
         )
         return true
     }
@@ -767,6 +755,11 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func close() {
         isClosingPanel = true
+        AgentHibernationController.shared.discardTrackingStateForClosedPanel(
+            workspaceId: workspaceId,
+            panelId: id
+        )
+        discardAgentHibernationPhaseForPermanentClose()
         discardTextBoxContentForClose()
         removeOwnedSessionScrollbackReplayArtifact()
         // Detach from the window portal on real close so stale hosted views
@@ -793,37 +786,6 @@ final class TerminalPanel: Panel, ObservableObject {
         )
 #endif
         surface.teardownSurface()
-    }
-
-    func enterAgentHibernation(
-        agent: SessionRestorableAgentSnapshot,
-        lastActivityAt: Date,
-        hibernatedAt: Date = Date()
-    ) {
-        agentHibernationState = AgentHibernationPanelState(
-            agent: agent,
-            hibernatedAt: hibernatedAt,
-            lastActivityAt: lastActivityAt
-        )
-        unfocus()
-        searchState = nil
-        hostedView.setVisibleInUI(false)
-        TerminalWindowPortalRegistry.detach(hostedView: hostedView)
-        surface.suspendRuntimeSurfaceForAgentHibernation(reason: "agentHibernation")
-        requestViewReattach()
-    }
-
-    @discardableResult
-    func prepareAgentHibernationResume() -> AgentHibernationResumePreparation {
-        guard let state = agentHibernationState else {
-            return .unavailable
-        }
-        let resumeStartupInput = state.agent.resumeStartupInput()
-        agentHibernationState = nil
-        surface.prepareAgentHibernationResume(initialInput: resumeStartupInput)
-        requestViewReattach()
-        surface.requestBackgroundSurfaceStartIfNeeded()
-        return .resumed(queuedStartupInput: resumeStartupInput != nil)
     }
 
     func requestViewReattach() {
@@ -917,15 +879,23 @@ final class TerminalPanel: Panel, ObservableObject {
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
         guard NotificationPaneFlashSettings.isEnabled() else { return }
 
+        let style = GhosttySurfaceScrollView.flashStyle(for: reason)
+        let now = ProcessInfo.processInfo.systemUptime
+        if case .notification = style,
+           now < attentionFlashActiveUntil {
+            return
+        }
+        attentionFlashActiveUntil = now + FocusFlashPattern.duration
+
         switch TmuxOverlayExperimentSettings.target() {
         case .bonsplitPane:
             if let onRequestWorkspacePaneFlash {
                 onRequestWorkspacePaneFlash(reason)
                 return
             }
-            hostedView.triggerFlash(style: GhosttySurfaceScrollView.flashStyle(for: reason))
+            hostedView.triggerFlash(style: style)
         case .surface, .tmuxActivePane:
-            hostedView.triggerFlash(style: GhosttySurfaceScrollView.flashStyle(for: reason))
+            hostedView.triggerFlash(style: style)
         }
     }
 

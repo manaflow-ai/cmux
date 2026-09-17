@@ -12,6 +12,39 @@ import Testing
 
 @MainActor
 @Suite struct RemoteTmuxWindowMirrorFocusSeedTests {
+    @Test func restoredPanelTransfersIntoAlwaysOnMirror() throws {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        let adopted = try #require(workspace.makeRemoteTmuxPanePanel(
+            remotePaneId: 4,
+            onInput: { _ in }
+        ))
+        var createdPaneIDs: [Int] = []
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"),
+            sessionName: "work"
+        )
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 1,
+            panelId: adopted.id,
+            connection: connection,
+            layout: Self.twoPaneLayout(left: 4, right: 5),
+            appearance: .default,
+            adoptedPanes: [(4, adopted)],
+            makePanel: { paneID in
+                createdPaneIDs.append(paneID)
+                return workspace.makeRemoteTmuxPanePanel(
+                    remotePaneId: paneID,
+                    onInput: { _ in }
+                )
+            }
+        )
+        defer { mirror.teardown() }
+
+        #expect(mirror.panel(forPane: 4) === adopted)
+        #expect(createdPaneIDs == [5])
+    }
+
     @Test func activePaneSeedsFromTmuxOnMirrorCreation() {
         let connection = RemoteTmuxControlConnection(host: RemoteTmuxHost(destination: "user@host"), sessionName: "work")
         connection.handleMessageForTesting(.windowPaneChanged(windowId: 1, paneId: 5))
@@ -47,6 +80,111 @@ import Testing
         connection.handleMessageForTesting(.windowPaneChanged(windowId: 1, paneId: 8))
         mirror.reconcile(layout: Self.twoPaneLayout(left: 7, right: 8))
         #expect(mirror.activePaneId == 8)
+    }
+
+    @Test func reconnectRejectsOptimisticFocusBeforeReconciliation() throws {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        workspace.isRemoteTmuxMirror = true
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"),
+            sessionName: "work"
+        )
+        let layout = Self.twoPaneLayout(left: 4, right: 5)
+        connection.windowsByID[1] = RemoteTmuxWindow(
+            id: 1,
+            name: "main",
+            width: layout.width,
+            height: layout.height,
+            layout: layout
+        )
+        connection.windowOrder = [1]
+        connection.activePaneByWindow[1] = 4
+        let sessionMirror = RemoteTmuxSessionMirror(
+            host: connection.host,
+            sessionName: "work",
+            connection: connection,
+            tabManager: manager,
+            workspace: workspace
+        )
+        defer { sessionMirror.detachObserver() }
+        let mirror = try #require(
+            workspace.panels.keys.lazy.compactMap {
+                workspace.remoteTmuxWindowMirror(forPanelId: $0)
+            }.first
+        )
+        var focusResult: Bool?
+
+        #expect(mirror.requestControlFocus(
+            pane: 5,
+            sendTracked: { _, completion in
+                completion(true)
+                return true
+            },
+            completion: { focusResult = $0 }
+        ))
+        #expect(mirror.activePaneId == 5)
+
+        connection.observers.notifyStateChanged(.reconnecting)
+        mirror.reconcile(layout: layout)
+
+        #expect(focusResult == false)
+        #expect(
+            mirror.activePaneId == 4,
+            "Reconnect reconciliation must prefer published tmux truth over optimistic local focus"
+        )
+    }
+
+    @Test func focusingAlreadyActivePaneStillSelectsItRemotely() throws {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)
+        workspace.isRemoteTmuxMirror = true
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"),
+            sessionName: "work"
+        )
+        let layout = Self.twoPaneLayout(left: 4, right: 5)
+        connection.windowsByID[1] = RemoteTmuxWindow(
+            id: 1,
+            name: "main",
+            width: layout.width,
+            height: layout.height,
+            layout: layout
+        )
+        connection.windowOrder = [1]
+        connection.activePaneByWindow[1] = 4
+        let sessionMirror = RemoteTmuxSessionMirror(
+            host: connection.host,
+            sessionName: "work",
+            connection: connection,
+            tabManager: manager,
+            workspace: workspace
+        )
+        defer { sessionMirror.detachObserver() }
+        let mirror = try #require(
+            workspace.panels.keys.lazy.compactMap {
+                workspace.remoteTmuxWindowMirror(forPanelId: $0)
+            }.first
+        )
+        var sentCommand: String?
+        var trackedCompletion: ((Bool) -> Void)?
+        var focusResult: Bool?
+
+        #expect(mirror.requestControlFocus(
+            pane: 4,
+            sendTracked: { command, completion in
+                sentCommand = command
+                trackedCompletion = completion
+                return true
+            },
+            completion: { focusResult = $0 }
+        ))
+
+        #expect(sentCommand == "select-pane -t @1.%4")
+        #expect(focusResult == nil)
+        trackedCompletion?(true)
+        #expect(focusResult == true)
+        #expect(mirror.activePaneId == 4)
     }
 
     @Test func liveWindowPaneChangedUpdatesMirrorBeforeAnotherReconcile() throws {

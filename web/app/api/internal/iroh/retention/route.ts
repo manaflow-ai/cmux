@@ -8,8 +8,6 @@ import {
 } from "../../../../../services/iroh/repository";
 import { jsonResponse } from "../../../../../services/vms/routeHelpers";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export async function GET(request: Request): Promise<Response> {
   return handle(request);

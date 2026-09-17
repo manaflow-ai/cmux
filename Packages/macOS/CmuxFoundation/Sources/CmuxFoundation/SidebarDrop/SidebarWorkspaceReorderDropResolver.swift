@@ -560,7 +560,7 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
                lastIndexByGroupId[groupId] == index {
                 nextRootTargetByGroupId[groupId] = nextRootTarget
             }
-            if target.groupId == nil {
+            if target.groupId == nil || target.isGroupHeader {
                 nextRootTarget = target
             }
         }

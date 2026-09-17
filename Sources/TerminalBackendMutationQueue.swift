@@ -73,8 +73,8 @@ struct TerminalBackendMutationQueue {
             .resize
         case .preedit:
             .preedit
-        case .input, .mouse, .bindingAction, .selection, .copyMode, .search,
-             .scroll, .reparent, .closeCanonicalTerminal:
+        case .input, .mouse, .bindingAction, .selection, .toggleCopyMode, .copyMode,
+             .search, .scroll, .reparent, .closeCanonicalTerminal:
             nil
         }
     }

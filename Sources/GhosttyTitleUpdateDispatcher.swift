@@ -27,7 +27,13 @@ actor GhosttyTitleUpdateDispatcher {
     init(
         coalescingInterval: Duration = .milliseconds(50),
         attachmentGeneration: AtomicUInt64Generation = AtomicUInt64Generation(),
-        schedule: @escaping Scheduler = { interval, action in
+        schedule: Scheduler? = nil,
+        publish: @escaping Publisher
+    ) {
+        self.coalescingInterval = coalescingInterval
+        self.attachmentGeneration = attachmentGeneration
+        minimumAttachmentGeneration = attachmentGeneration.loadRelaxed()
+        self.schedule = schedule ?? { interval, action in
             let task = Task {
                 // This cancellable delay is the intended title-publication window, not a readiness poll.
                 try? await ContinuousClock().sleep(for: interval)
@@ -35,13 +41,7 @@ actor GhosttyTitleUpdateDispatcher {
                 await action()
             }
             return { task.cancel() }
-        },
-        publish: @escaping Publisher
-    ) {
-        self.coalescingInterval = coalescingInterval
-        self.attachmentGeneration = attachmentGeneration
-        minimumAttachmentGeneration = attachmentGeneration.loadRelaxed()
-        self.schedule = schedule
+        }
         self.publish = publish
     }
 

@@ -45,8 +45,8 @@ public struct GhosttyConfig {
     public static let maxSurfaceTabBarFontSize = CGFloat(CmuxGhosttyConfigSettingEditor.maxSurfaceTabBarFontSize)
     /// The terminal font family.
     public var fontFamily: String = "Menlo"
-    /// The terminal font size, in points.
-    public var fontSize: CGFloat = 12
+    /// The terminal font size, in points. Ghostty's native macOS default is 13.
+    public var fontSize: CGFloat = 13
     /// The surface tab-bar font size, in points.
     public var surfaceTabBarFontSize: CGFloat = Self.defaultSurfaceTabBarFontSize
     /// The sidebar font size, in points.
@@ -55,6 +55,8 @@ public struct GhosttyConfig {
     public var theme: String?
     /// The configured `working-directory`, or `nil` when unset.
     public var workingDirectory: String?
+    /// The explicit `command` directive, or `nil` when Ghostty should resolve the login shell.
+    public var command: String?
     /// The scrollback limit. Ghostty measures this in bytes, not lines.
     public var scrollbackLimit: Int = 50_000_000
     /// The opacity (0...1) applied to unfocused split panes.
@@ -543,6 +545,10 @@ public struct GhosttyConfig {
                     }
                 case "working-directory":
                     workingDirectory = value
+                case "command":
+                    if !value.isEmpty {
+                        command = value
+                    }
                 case "scrollback-limit":
                     if let limit = Self.parseIntegerLiteral(value) {
                         scrollbackLimit = limit

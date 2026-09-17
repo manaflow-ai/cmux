@@ -187,7 +187,27 @@ enum AgentHookNotificationClassifier {
 }
 
 enum AgentHookNotificationPolicy {
-    static let dedupeEligibleAgents: Set<String> = ["grok", "antigravity"]
+    static let dedupeEligibleAgents: Set<String> = ["grok", "antigravity", "hermes-agent"]
+
+    static func notificationTitle(
+        agentName: String,
+        displayName: String,
+        surfaceTitle: String?
+    ) -> String {
+        guard agentName == "pi",
+              let surfaceTitle = surfaceTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !surfaceTitle.isEmpty else {
+            return displayName
+        }
+        if surfaceTitle.caseInsensitiveCompare(displayName) == .orderedSame
+            || surfaceTitle.range(
+                of: "\(displayName) · ",
+                options: [.anchored, .caseInsensitive]
+            ) != nil {
+            return surfaceTitle
+        }
+        return "\(displayName) · \(surfaceTitle)"
+    }
 
     /// Stable per-session fingerprint. Grok 0.2.91 emits an identical generic
     /// "Tool permission requested" Notification for every tool step, even in

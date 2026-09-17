@@ -11,6 +11,7 @@ struct RemoteDaemonCapabilityTests {
         #expect(RemoteDaemonCapability.ptyPersistentDaemon.rawValue == "pty.session.persistent_daemon")
         #expect(RemoteDaemonCapability.ptyWriteNotification.rawValue == "pty.write.notification")
         #expect(RemoteDaemonCapability.ptyResizeNotification.rawValue == "pty.resize.notification")
+        #expect(RemoteDaemonCapability.ptyAttachCancel.rawValue == "pty.attach.cancel")
         #expect(RemoteDaemonCapability.ptyInputSeqAck.rawValue == "pty.input.seq_ack")
     }
 
@@ -22,6 +23,7 @@ struct RemoteDaemonCapabilityTests {
             "pty.session.persistent_daemon",
             "pty.write.notification",
             "pty.resize.notification",
+            "pty.attach.cancel",
         ])
     }
 }
@@ -41,6 +43,7 @@ struct RemoteDaemonStringsTests {
             "pty.session.persistent_daemon",
             "pty.write.notification",
             "pty.resize.notification",
+            "pty.attach.cancel",
         ] {
             #expect(
                 strings.missingRequiredCapabilitiesMessage([capability])

@@ -88,6 +88,16 @@ struct SettingsSearchIndexTests {
         #expect(result.contains { $0.id == "setting:keyboardShortcuts:modifier-hold-hints" })
     }
 
+    @Test(arguments: ["push", "notifications", "iphone"])
+    func pushNotificationQueriesFindTheMobileForwardingRow(query: String) {
+        let result = SettingsSearchIndex(catalog: SettingCatalog()).match(
+            query
+        )
+        #expect(result.contains {
+            $0.id == "setting:mobile:phone-push-forwarding"
+        })
+    }
+
     @Test(arguments: [
         ("naming", "setting:automation:workspace-auto-naming"),
         ("nmaing", "setting:automation:workspace-auto-naming"),

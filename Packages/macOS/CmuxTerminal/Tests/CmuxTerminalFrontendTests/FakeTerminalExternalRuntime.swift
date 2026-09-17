@@ -12,6 +12,28 @@ final class FakeTerminalExternalRuntime: TerminalExternalRuntime {
     private(set) var adoptedWorkspaceIDs: [UUID] = []
     private(set) var mutations: [TerminalExternalRuntimeMutation] = []
     private(set) var accessibilityEnableCount = 0
+    private(set) var accessibilityDisableCount = 0
+    private(set) var accessibilityStreamSubscriptionCount = 0
+    private(set) var accessibilityStreamTerminationCount = 0
+    private(set) var selectionReadCount = 0
+    private(set) var accessibilityLinkActivations: [(
+        link: TerminalAccessibilityLink,
+        snapshot: TerminalAccessibilitySnapshot
+    )] = []
+    var stubbedIngressResults: [TerminalExternalIngressResult] = []
+    var stubbedSelection: TerminalExternalSelection? = TerminalExternalSelection(
+        text: "selected",
+        start: TerminalExternalCellPoint(column: 1, row: 2),
+        end: TerminalExternalCellPoint(column: 3, row: 2),
+        topLeft: TerminalExternalCellPoint(column: 1, row: 2),
+        bottomRight: TerminalExternalCellPoint(column: 3, row: 2),
+        rectangle: false
+    )
+    var stubbedAccessibilitySnapshots: [TerminalAccessibilitySnapshot] = []
+    var stubbedAccessibilityStream: AsyncStream<TerminalAccessibilitySnapshot>?
+    var keepAccessibilityStreamsOpen = false
+    var stubbedAccessibilityLinkTarget: String?
+    private var stubbedIngressResultIndex = 0
 
     func attachPresentation(
         _ presentation: TerminalExternalPresentation
@@ -24,10 +46,18 @@ final class FakeTerminalExternalRuntime: TerminalExternalRuntime {
         adoptedWorkspaceIDs.append(workspaceID)
     }
 
+    func setDesiredVisibility(_ visible: Bool) {
+        mutations.append(.visibility(visible))
+    }
+
     func enqueue(
         _ mutation: TerminalExternalRuntimeMutation
     ) -> TerminalExternalIngressResult {
         mutations.append(mutation)
+        if stubbedIngressResultIndex < stubbedIngressResults.count {
+            defer { stubbedIngressResultIndex += 1 }
+            return stubbedIngressResults[stubbedIngressResultIndex]
+        }
         return .accepted(sequence: UInt64(mutations.count))
     }
 
@@ -41,30 +71,47 @@ final class FakeTerminalExternalRuntime: TerminalExternalRuntime {
     }
 
     func readSelection() async -> TerminalExternalSelection? {
-        TerminalExternalSelection(
-            text: "selected",
-            start: TerminalExternalCellPoint(column: 1, row: 2),
-            end: TerminalExternalCellPoint(column: 3, row: 2),
-            topLeft: TerminalExternalCellPoint(column: 1, row: 2),
-            bottomRight: TerminalExternalCellPoint(column: 3, row: 2),
-            rectangle: false
-        )
+        selectionReadCount += 1
+        return stubbedSelection
     }
 
     func enableAccessibility() {
         accessibilityEnableCount += 1
     }
 
+    func disableAccessibility() {
+        accessibilityDisableCount += 1
+    }
+
     func accessibilitySnapshots() -> AsyncStream<TerminalAccessibilitySnapshot> {
-        AsyncStream { $0.finish() }
+        accessibilityStreamSubscriptionCount += 1
+        if let stubbedAccessibilityStream {
+            return stubbedAccessibilityStream
+        }
+        let snapshots = stubbedAccessibilitySnapshots
+        let pair = AsyncStream<TerminalAccessibilitySnapshot>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        for snapshot in snapshots {
+            pair.continuation.yield(snapshot)
+        }
+        if !keepAccessibilityStreamsOpen {
+            pair.continuation.finish()
+        }
+        pair.continuation.onTermination = { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.accessibilityStreamTerminationCount += 1
+            }
+        }
+        return pair.stream
     }
 
     func activateAccessibilityLink(
         _ link: TerminalAccessibilityLink,
         snapshot: TerminalAccessibilitySnapshot
     ) async -> String? {
-        _ = snapshot
-        return link.target
+        accessibilityLinkActivations.append((link, snapshot))
+        return stubbedAccessibilityLinkTarget ?? link.target
     }
 
     func activateHyperlink(

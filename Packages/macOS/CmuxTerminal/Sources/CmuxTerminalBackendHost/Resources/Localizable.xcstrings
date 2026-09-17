@@ -1,0 +1,78 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "backendOnly.maintenance.failed" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The terminal backend could not be unregistered, so the app was preserved." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ターミナルバックエンドの登録を解除できなかったため、アプリは保持されました。" } }
+      }
+    },
+    "backendOnly.maintenance.invalidBundle" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Unable to identify this app's terminal backend service." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このアプリのターミナルバックエンドサービスを識別できません。" } }
+      }
+    },
+    "backendOnly.maintenance.ptyWarning" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Warning: unregistering the terminal backend terminates every PTY it owns." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "警告: ターミナルバックエンドの登録を解除すると、そのバックエンドが所有するすべての PTY が終了します。" } }
+      }
+    },
+    "backendOnly.maintenance.serviceNotFound" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "The bundled terminal backend service could not be found, so the app was preserved." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "同梱のターミナルバックエンドサービスが見つからなかったため、アプリは保持されました。" } }
+      }
+    },
+    "backendOnly.action.newWorkspace" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "New Workspace" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "新規ワークスペース" } }
+      }
+    },
+    "backendOnly.sidebar.workspaces" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Workspaces" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ワークスペース" } }
+      }
+    },
+    "backendOnly.status.connecting" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Connecting to terminal backend…" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ターミナルバックエンドに接続中…" } }
+      }
+    },
+    "backendOnly.status.empty" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Create a workspace to start a persistent terminal." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ワークスペースを作成して永続ターミナルを開始します。" } }
+      }
+    },
+    "backendOnly.status.unavailable" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Terminal backend unavailable" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ターミナルバックエンドを利用できません" } }
+      }
+    },
+    "backendOnly.terminal.unavailable" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Terminal presentation unavailable" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ターミナル表示を利用できません" } }
+      }
+    },
+    "backendOnly.window.title" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "cmux Backend" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "cmux バックエンド" } }
+      }
+    },
+    "backendOnly.workspace.fallback" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Workspace" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ワークスペース" } }
+      }
+    }
+  },
+  "version" : "1.0"
+}

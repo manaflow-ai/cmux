@@ -60,6 +60,30 @@ describe("billing complete route", () => {
     );
   });
 
+  test("uses the callback scheme trusted at checkout on a deployed completion host", async () => {
+    retrievedSession = {
+      id: "cs_123",
+      payment_status: "paid",
+      client_reference_id: "user-1",
+      metadata: {
+        app: "cmux",
+        plan: "pro",
+        nativeCallbackScheme: "cmux-dev-local",
+      },
+      subscription: { id: "sub_1" },
+      customer: { id: "cus_1" },
+    };
+    const response = await GET(
+      new NextRequest(
+        "https://cmux.test/api/billing/complete?session_id=cs_123&cmux_scheme=cmux-dev-local",
+      ),
+    );
+
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/billing/success?session_id=cs_123&cmux_scheme=cmux-dev-local",
+    );
+  });
+
   test("redirects unpaid sessions to pending pricing state", async () => {
     retrievedSession = {
       id: "cs_123",

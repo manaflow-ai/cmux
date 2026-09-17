@@ -29,6 +29,12 @@ extension cmuxApp {
 
             Divider()
 
+            splitCommandButton(title: String(localized: "menu.history.reopenClosedWorkspace", defaultValue: "Reopen Closed Workspace"), shortcut: menuShortcut(for: .reopenClosedWorkspace)) {
+                if AppDelegate.shared?.reopenMostRecentlyClosedWorkspace(preferredTabManager: historyTabManager) != true {
+                    NSSound.beep()
+                }
+            }
+
             splitCommandButton(title: String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed"), shortcut: menuShortcut(for: .reopenClosedBrowserPanel)) {
                 if AppDelegate.shared?.reopenMostRecentlyClosedItem(preferredTabManager: historyTabManager) != true {
                     NSSound.beep()

@@ -43,6 +43,20 @@ public struct BackendRendererMetrics: Decodable, Equatable, Sendable {
     public let cellHeight: UInt32
     public let padding: BackendRendererPadding
 
+    public init(
+        columns: UInt16,
+        rows: UInt16,
+        cellWidth: UInt32,
+        cellHeight: UInt32,
+        padding: BackendRendererPadding
+    ) {
+        self.columns = columns
+        self.rows = rows
+        self.cellWidth = cellWidth
+        self.cellHeight = cellHeight
+        self.padding = padding
+    }
+
     private enum CodingKeys: String, CodingKey {
         case columns
         case rows
@@ -184,6 +198,8 @@ public struct BackendRendererPresentationReceipt: Decodable, Equatable, Sendable
     public let metrics: BackendRendererMetrics?
     public let pixelFormat: BackendRendererPixelFormat
     public let colorSpace: BackendRendererColorSpace
+    public let resolvedConfigRevision: UInt64
+    public let resolvedConfigDigest: BackendRendererConfigDigest
 
     private enum CodingKeys: String, CodingKey {
         case daemonInstanceID = "daemon_instance_id"
@@ -209,6 +225,8 @@ public struct BackendRendererPresentationReceipt: Decodable, Equatable, Sendable
         case metrics
         case pixelFormat = "pixel_format"
         case colorSpace = "color_space"
+        case resolvedConfigRevision = "resolved_config_revision"
+        case resolvedConfigDigest = "resolved_config_digest"
     }
 
     public var workerProcessInstanceToken: BackendRendererProcessInstanceToken? {

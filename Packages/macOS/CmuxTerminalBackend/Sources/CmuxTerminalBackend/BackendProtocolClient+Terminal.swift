@@ -879,6 +879,47 @@ public extension BackendProtocolClient {
         )
     }
 
+    /// Idempotently acquires semantic retention for one owned presentation.
+    func acquireTerminalAccessibilityDemand(
+        requestID: UUID,
+        presentationID: PresentationID,
+        expectedGeneration: UInt64,
+        expectedDemandGeneration: UInt64? = nil
+    ) async throws -> BackendTerminalAccessibilityDemandReceipt {
+        var parameters: [String: BackendJSONValue] = [
+            "request_id": .string(requestID.uuidString.lowercased()),
+            "presentation_id": .string(presentationID.description),
+            "expected_generation": .unsignedInteger(expectedGeneration),
+        ]
+        if let expectedDemandGeneration {
+            parameters["expected_demand_generation"] = .unsignedInteger(
+                expectedDemandGeneration
+            )
+        }
+        return try await call(
+            command: "acquire-terminal-accessibility-demand",
+            parameters: parameters,
+            as: BackendTerminalAccessibilityDemandReceipt.self
+        )
+    }
+
+    /// Releases only the exact semantic-retention generation previously admitted.
+    func releaseTerminalAccessibilityDemand(
+        presentationID: PresentationID,
+        expectedGeneration: UInt64,
+        demandGeneration: UInt64
+    ) async throws -> BackendTerminalAccessibilityDemandRelease {
+        try await call(
+            command: "release-terminal-accessibility-demand",
+            parameters: [
+                "presentation_id": .string(presentationID.description),
+                "expected_generation": .unsignedInteger(expectedGeneration),
+                "demand_generation": .unsignedInteger(demandGeneration),
+            ],
+            as: BackendTerminalAccessibilityDemandRelease.self
+        )
+    }
+
     /// Reads one bounded semantic accessibility snapshot for an owned presentation.
     func terminalAccessibilitySnapshot(
         presentationID: PresentationID,

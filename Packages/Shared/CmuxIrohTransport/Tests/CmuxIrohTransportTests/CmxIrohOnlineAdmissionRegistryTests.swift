@@ -185,20 +185,24 @@ final class OnlineAdmissionManualClock: CmxIrohRelayClock, @unchecked Sendable {
 }
 
 actor OnlineAdmissionCloseRecorder {
-    private var closes = 0
+    private var reasons: [CmxIrohOnlineAdmissionInvalidationReason] = []
     private var waiters: [CheckedContinuation<Void, Never>] = []
 
-    func close() {
-        closes += 1
+    func close(reason: CmxIrohOnlineAdmissionInvalidationReason) {
+        reasons.append(reason)
         let current = waiters
         waiters.removeAll()
         for waiter in current { waiter.resume() }
     }
 
-    func count() -> Int { closes }
+    func count() -> Int { reasons.count }
+
+    func observedReasons() -> [CmxIrohOnlineAdmissionInvalidationReason] {
+        reasons
+    }
 
     func waitUntilClosed() async {
-        if closes > 0 { return }
+        if !reasons.isEmpty { return }
         await withCheckedContinuation { waiters.append($0) }
     }
 }

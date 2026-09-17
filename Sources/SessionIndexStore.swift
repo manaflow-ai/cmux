@@ -164,16 +164,13 @@ struct IndexSection: Identifiable, Equatable {
 
     /// Whether to render the "Show more" affordance for this section.
     ///
-    /// Directory sections are derived from `scanAll()`'s global, per-agent-capped
-    /// pool, so their in-memory `entries` are only a preview that can under-report
-    /// a folder's true on-disk session count (issue #6302). "Show more" is the
-    /// only trigger for the complete folder-scoped query (`loadDirectorySnapshot`),
-    /// so always offer it for directory sections; otherwise a folder that
-    /// contributed ≤ `rowLimit` sessions to the capped pool would have the rest of
-    /// its sessions permanently unreachable from the UI. Agent sections aren't
-    /// folder-truncated this way, so they keep the simple count threshold.
+    /// Directory sections can under-report sessions because the initial pool is capped
+    /// per agent (issue #6302). Antigravity's initial history read is also deliberately
+    /// capped to one tail page. Keep "Show more" available for both so the explicit,
+    /// off-main query can page beyond either bounded snapshot.
     func shouldOfferShowMore(rowLimit: Int) -> Bool {
-        key.isDirectory || entries.count > rowLimit
+        let isAntigravity = entries.first?.agent.rawValue == "antigravity"
+        return key.isDirectory || isAntigravity || entries.count > rowLimit
     }
 }
 
@@ -203,6 +200,8 @@ struct DirectorySnapshot: Sendable {
 
 @MainActor
 final class SessionIndexStore: ObservableObject {
+    private let snapshotLoader: SessionIndexSnapshotLoader
+
     @Published private(set) var entries: [SessionEntry] = [] {
         didSet {
             guard entries != oldValue else { return }
@@ -268,7 +267,8 @@ final class SessionIndexStore: ObservableObject {
     private var cachedSectionsRevision: UInt64?
     private var cachedSections: [IndexSection] = []
 
-    init() {
+    init(snapshotLoader: SessionIndexSnapshotLoader = SessionIndexSnapshotLoader()) {
+        self.snapshotLoader = snapshotLoader
         self.agentOrder = Self.loadAgentOrder()
         self.directoryOrder = Self.loadDirectoryOrder()
         let storedGrouping = UserDefaults.standard.string(forKey: Self.groupingKey)
@@ -539,16 +539,14 @@ final class SessionIndexStore: ObservableObject {
         isLoading = true
         directorySnapshotGeneration += 1
         invalidateDirectorySnapshots()
-        loadTask = Task.detached(priority: .userInitiated) { [weak self] in
-            let scanned = await Self.scanAll()
-            await MainActor.run {
-                guard let self else { return }
-                if Task.isCancelled { return }
-                self.entries = scanned
-                self.isLoading = false
-                self.backfillAgentOrderFromEntries()
-                self.backfillDirectoryOrderFromEntries()
-            }
+        let snapshotLoader = self.snapshotLoader
+        loadTask = Task { @MainActor [weak self] in
+            let scanned = await snapshotLoader.load()
+            guard let self, !Task.isCancelled else { return }
+            self.entries = scanned
+            self.isLoading = false
+            self.backfillAgentOrderFromEntries()
+            self.backfillDirectoryOrderFromEntries()
         }
     }
 
@@ -597,7 +595,7 @@ final class SessionIndexStore: ObservableObject {
         // anyone has more Claude sessions in a single cwd we'll bump it.
         let bigLimit = 10_000
         let order = await Self.defaultAgentOrder(workingDirectory: cwdFilter)
-        var merged = await Self.loadAgents(
+        let merged = await Self.loadAgents(
             order.agents,
             registry: order.registry,
             needle: "",
@@ -609,11 +607,12 @@ final class SessionIndexStore: ObservableObject {
         if Task.isCancelled {
             return DirectorySnapshot(cwd: key, entries: [], errors: [])
         }
-        if noFolderScope {
-            merged = merged.filter { ($0.cwd ?? "").isEmpty }
-        }
-        let sorted = merged.sorted { $0.modified > $1.modified }
-        let snapshot = DirectorySnapshot(cwd: key, entries: sorted, errors: bag.snapshot())
+        let snapshot = await SessionIndexEntryProjection().directorySnapshot(
+            cwd: key,
+            entries: merged,
+            noFolderScope: noFolderScope,
+            errors: bag.snapshot()
+        )
         // Only cache this result if no `reload()` raced in while the
         // build was running. Otherwise the caller gets a fresh snapshot
         // but the cache stays invalidated; the next open will rebuild.
@@ -662,13 +661,21 @@ final class SessionIndexStore: ObservableObject {
 
     // MARK: - Scanning
 
-    private static let perAgentLimit = 30
+    nonisolated static let perAgentLimit = 30
     nonisolated static let headByteCap = 64 * 1024
     nonisolated static let tailByteCap = 32 * 1024
+    nonisolated static let antigravityHistoryByteCap = 16 * 1024 * 1024
+    nonisolated static let antigravityHistoryExplicitPageLimit = 16
+    nonisolated static let antigravityHistoryPreviewPageLimit = 8
     /// Hard cap on candidate files inspected per call to keep deep-page searches bounded.
     nonisolated static let searchMaxFiles = 1500
 
-    private static func scanAll() async -> [SessionEntry] {
+#if compiler(>=6.2)
+    @concurrent
+#else
+    @Sendable
+#endif
+    nonisolated static func loadInitialEntries() async -> [SessionEntry] {
         // Initial scan errors are silently ignored — UI just shows the cached
         // entries we did get. Errors get surfaced when the user actively
         // searches via the popover.
@@ -1042,40 +1049,22 @@ final class SessionIndexStore: ObservableObject {
 
     /// Stream JSON-lines from the start of `url`. `body` returns true to stop early.
     /// Caps total bytes read at `maxBytes`.
+    @discardableResult
     nonisolated static func forEachJSONLine(
         url: URL,
         maxBytes: Int,
         body: ([String: Any]) -> Bool
-    ) {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return }
-        defer { try? handle.close() }
-        var leftover = Data()
-        var totalRead = 0
-        let chunkSize = 64 * 1024
-        while totalRead < maxBytes {
-            let chunk: Data
-            if #available(macOS 10.15.4, *) {
-                chunk = (try? handle.read(upToCount: chunkSize)) ?? Data()
-            } else {
-                chunk = handle.readData(ofLength: chunkSize)
-            }
-            if chunk.isEmpty { break }
-            totalRead += chunk.count
-            leftover.append(chunk)
-            while let nl = leftover.firstIndex(of: 0x0a) {
-                let lineData = leftover.subdata(in: 0..<nl)
-                leftover.removeSubrange(0..<(nl + 1))
-                if lineData.isEmpty { continue }
-                if let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] {
-                    if body(obj) { return }
-                }
-            }
-        }
-        // Flush trailing line if no newline at EOF.
-        if !leftover.isEmpty,
-           let obj = try? JSONSerialization.jsonObject(with: leftover) as? [String: Any] {
-            _ = body(obj)
-        }
+    ) -> SessionIndexJSONLReadMetrics {
+        SessionIndexJSONLReader().fromStart(url: url, maxBytes: maxBytes, body: body)
+    }
+
+    @discardableResult
+    nonisolated static func forEachJSONLineFromTail(
+        url: URL,
+        maxBytes: Int,
+        body: ([String: Any]) -> Bool
+    ) -> SessionIndexJSONLReadMetrics {
+        SessionIndexJSONLReader().fromTail(url: url, maxBytes: maxBytes, body: body)
     }
 
     // MARK: OpenCode
@@ -1192,7 +1181,7 @@ final class SessionIndexStore: ObservableObject {
             // merge-sort can produce a stable global ordering, then slice.
             let target = offset + limit
             let order = await Self.defaultAgentOrder(workingDirectory: cwdFilter)
-            var merged = await Self.loadAgents(
+            let merged = await Self.loadAgents(
                 order.agents,
                 registry: order.registry,
                 needle: needle,
@@ -1201,11 +1190,12 @@ final class SessionIndexStore: ObservableObject {
                 limit: target,
                 errorBag: bag
             )
-            if noFolderScope {
-                merged = merged.filter { ($0.cwd ?? "").isEmpty }
-            }
-            let sorted = merged.sorted { $0.modified > $1.modified }
-            entries = Array(sorted.dropFirst(offset).prefix(limit))
+            entries = await SessionIndexEntryProjection().page(
+                entries: merged,
+                noFolderScope: noFolderScope,
+                offset: offset,
+                limit: limit
+            )
         }
         return SearchOutcome(entries: entries, errors: bag.snapshot())
     }
@@ -1273,6 +1263,11 @@ final class SessionIndexStore: ObservableObject {
         #endif
     }
 
+#if compiler(>=6.2)
+    @concurrent
+#else
+    @Sendable
+#endif
     nonisolated private static func searchAgent(
         needle: String, agent: SessionAgent, cwdFilter: String?,
         offset: Int, limit: Int, errorBag: ErrorBag,
@@ -1676,7 +1671,7 @@ final class SessionIndexStore: ObservableObject {
     /// Returns OpenCode session entries paginated by `time_updated` desc.
     /// Empty needle skips the `LIKE` clause entirely so it's just `ORDER BY … LIMIT/OFFSET`.
     /// Sync because the SQL pass is fast and SQLite's API is sync; the caller
-    /// awaits the wrapping `searchSessions`/`scanAll` boundaries.
+    /// awaits the wrapping `searchSessions`/`loadInitialEntries` boundaries.
     nonisolated private static func loadOpenCodeEntries(
         needle: String, cwdFilter: String?, offset: Int, limit: Int,
         errorBag: ErrorBag

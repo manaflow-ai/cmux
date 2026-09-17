@@ -240,7 +240,15 @@ extension TerminalController {
                 // via %window-add and the mirror positions it, so no local reorder here.
                 return finish(.routedToRemote)
             case .submittedToBackend(let submission):
-                return finish(.submittedToBackend(requestID: submission.requestID))
+                guard let createdSurfaceID = submission.surfaceID else {
+                    preconditionFailure(
+                        "Backend terminal-tab submission omitted its reserved surface identity"
+                    )
+                }
+                return finish(.submittedToBackend(
+                    requestID: submission.requestID,
+                    createdSurfaceID: createdSurfaceID
+                ))
             case .failed:
                 return .createFailed
             }

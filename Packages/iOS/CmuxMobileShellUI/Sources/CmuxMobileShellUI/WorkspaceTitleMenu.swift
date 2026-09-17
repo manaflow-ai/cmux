@@ -1,17 +1,17 @@
 import SwiftUI
 
-struct WorkspaceTitleMenu<Label: View, MenuContent: View>: View {
-    let contentWidth: CGFloat
-    let hasBackButton: Bool
-    let hasTrailingCluster: Bool
-    let hasChatToggle: Bool
-    var isEnabled = true
+struct WorkspaceTitleMenu<Label: View, MenuContent: View>: View, Equatable {
+    let value: WorkspaceTitleMenuValue
     @ViewBuilder let menuContent: () -> MenuContent
     @ViewBuilder let label: () -> Label
 
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.value == rhs.value
+    }
+
     @ViewBuilder
     var body: some View {
-        if isEnabled {
+        if value.isEnabled {
             Menu {
                 menuContent()
             } label: {
@@ -30,10 +30,10 @@ struct WorkspaceTitleMenu<Label: View, MenuContent: View>: View {
 
     private var fittedLabel: some View {
         let cap = MobileLeadingToolbarTitleWidth(
-            contentWidth: contentWidth,
-            hasBackButton: hasBackButton,
-            hasTrailingCluster: hasTrailingCluster,
-            hasChatToggle: hasChatToggle
+            contentWidth: value.contentWidth,
+            hasBackButton: value.hasBackButton,
+            hasTrailingCluster: value.hasTrailingCluster,
+            hasChatToggle: value.hasChatToggle
         ).cap
 
         return label()

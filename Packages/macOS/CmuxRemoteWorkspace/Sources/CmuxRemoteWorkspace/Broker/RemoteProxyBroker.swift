@@ -177,16 +177,93 @@ public final class RemoteProxyBroker: @unchecked Sendable {
             ptyLifecycleOwnership.acknowledge(lifecycleKey)
         }
     }
-    /// Claims a generation and enqueues retirement against its exact transport.
-    @discardableResult
-    public func acknowledgePTYLifecycleAfterWrapperEnd(sessionID: String, lifecycleID: String) -> Bool {
+
+    /// Returns the broker-owned transport attachment for a current generation.
+    public func currentPTYLifecycleOwner(
+        sessionID: String,
+        lifecycleID: String
+    ) -> RemotePTYLifecycleOwner? {
         let lifecycleKey = RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
-        let ownership = queue.sync {
-            ptyLifecycleOwnership.claimAfterWrapperEnd(lifecycleKey)
+        // Lifecycle ownership is part of the broker's existing queue-confined
+        // registry; this one-shot readiness lookup does not cross into UI work.
+        return queue.sync {
+            ptyLifecycleOwnership.currentOwner(lifecycleKey)
         }
-        guard let ownership else { return false }
+    }
+
+    /// Returns the broker owner that a wrapper-end callback must match.
+    ///
+    /// - Parameters:
+    ///   - sessionID: The persistent PTY session identifier.
+    ///   - lifecycleID: The wrapper lifecycle generation.
+    /// - Returns: The owner that must still match at claim time, or `nil` when
+    ///   the lifecycle is unknown.
+    public func ptyLifecycleOwnerForWrapperEnd(
+        sessionID: String,
+        lifecycleID: String
+    ) -> RemotePTYLifecycleWrapperEndOwner? {
+        let lifecycleKey = RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
+        return queue.sync {
+            ptyLifecycleOwnership.ownerForWrapperEnd(lifecycleKey)
+        }
+    }
+
+    /// Claims a generation and enqueues retirement against its exact ownership.
+    ///
+    /// - Parameters:
+    ///   - sessionID: The persistent PTY session identifier.
+    ///   - lifecycleID: The wrapper lifecycle generation.
+    /// - Returns: The exact retired ownership, or `nil` when it is unknown.
+    @discardableResult
+    public func claimPTYLifecycleAfterWrapperEnd(
+        sessionID: String,
+        lifecycleID: String
+    ) -> RemotePTYLifecycleWrapperEndClaim? {
+        claimPTYLifecycleAfterWrapperEnd(
+            sessionID: sessionID,
+            lifecycleID: lifecycleID,
+            expectedOwner: nil
+        )
+    }
+
+    /// Claims a generation only if its ownership still matches the caller's
+    /// already-validated transport and attachment.
+    ///
+    /// - Parameters:
+    ///   - sessionID: The persistent PTY session identifier.
+    ///   - lifecycleID: The wrapper lifecycle generation.
+    ///   - expectedOwner: The transport and attachment validated by the caller.
+    /// - Returns: The exact retired ownership, or `nil` if ownership changed.
+    @discardableResult
+    public func claimPTYLifecycleAfterWrapperEnd(
+        sessionID: String,
+        lifecycleID: String,
+        expectedOwner: RemotePTYLifecycleWrapperEndOwner
+    ) -> RemotePTYLifecycleWrapperEndClaim? {
+        claimPTYLifecycleAfterWrapperEnd(
+            sessionID: sessionID,
+            lifecycleID: lifecycleID,
+            expectedOwner: Optional(expectedOwner)
+        )
+    }
+
+    private func claimPTYLifecycleAfterWrapperEnd(
+        sessionID: String,
+        lifecycleID: String,
+        expectedOwner: RemotePTYLifecycleWrapperEndOwner?
+    ) -> RemotePTYLifecycleWrapperEndClaim? {
+        let lifecycleKey = RemotePTYLifecycleKey(sessionID: sessionID, lifecycleID: lifecycleID)
+        // Claiming must stay ordered with the broker's other queue-confined
+        // lifecycle mutations; cleanup is enqueued only after this sync returns.
+        let claim = queue.sync {
+            ptyLifecycleOwnership.claimAfterWrapperEnd(
+                lifecycleKey,
+                expectedOwner: expectedOwner
+            )
+        }
+        guard let claim else { return nil }
         queue.async { [weak self] in
-            guard let self, let entry = self.entries[ownership.transportKey] else { return }
+            guard let self, let entry = self.entries[claim.transportKey] else { return }
             if let tunnel = entry.tunnel {
                 _ = tunnel.acknowledgePTYLifecycleIfKnown(
                     sessionID: lifecycleKey.sessionID,
@@ -200,7 +277,19 @@ public final class RemoteProxyBroker: @unchecked Sendable {
                 entry.ptyLifecycleSnapshot = snapshot
             }
         }
-        return ownership.wasCurrent
+        return claim
+    }
+
+    /// Claims a generation and reports whether it was current.
+    @discardableResult
+    public func acknowledgePTYLifecycleAfterWrapperEnd(
+        sessionID: String,
+        lifecycleID: String
+    ) -> Bool {
+        claimPTYLifecycleAfterWrapperEnd(
+            sessionID: sessionID,
+            lifecycleID: lifecycleID
+        )?.wasCurrent == true
     }
 
     /// Resizes a PTY attachment through the ready tunnel.

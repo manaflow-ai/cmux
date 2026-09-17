@@ -389,6 +389,10 @@ struct BackendTerminalCommandTests {
                 "accepted_sequence": 0,
                 "next_sequence": 1,
                 "no_reflow": true,
+                "terminal_epoch": 19,
+                "interaction_revision": 4,
+                "interaction_revision_exhausted": false,
+                "mouse_tracking": true,
                 "egress": "",
                 "replayed": false,
             ]
@@ -397,6 +401,10 @@ struct BackendTerminalCommandTests {
         let receipt = try await task.value
         #expect(receipt.noReflow)
         #expect(receipt.outputGeneration == 7)
+        #expect(receipt.terminalEpoch == 19)
+        #expect(receipt.interactionRevision == 4)
+        #expect(!receipt.interactionRevisionExhausted)
+        #expect(receipt.mouseTracking)
         await client.close()
     }
 
@@ -566,6 +574,9 @@ struct BackendTerminalCommandTests {
         )
         let stateJSON: [String: Any] = [
             "surface_uuid": surfaceID.description,
+            "terminal_epoch": 19,
+            "interaction_revision": 4,
+            "interaction_revision_exhausted": false,
             "copy_mode": false,
             "copy_cursor": NSNull(),
             "cursor": ["column": 7, "row": 42, "visible": true],
@@ -591,6 +602,9 @@ struct BackendTerminalCommandTests {
         let state = try await stateTask.value.state
         #expect(state.cursor?.column == 7)
         #expect(state.cursor?.row == 42)
+        #expect(state.terminalEpoch == 19)
+        #expect(state.interactionRevision == 4)
+        #expect(!state.interactionRevisionExhausted)
         #expect(state.mouseTracking)
         #expect(state.selection?.hasSelection == false)
         #expect(state.selection?.text == nil)
@@ -612,6 +626,68 @@ struct BackendTerminalCommandTests {
             "state": stateJSON,
         ]))
         #expect(try await copyTask.value.handled)
+        await client.close()
+    }
+
+    @Test("interaction subscription is live before its acknowledgement and decodes fatal events")
+    func terminalInteractionModeSubscription() async throws {
+        let transport = ScriptedBackendTransport()
+        let client = BackendProtocolClient(transport: transport)
+        try await client.connect()
+        var events = await client.events().makeAsyncIterator()
+        let surfaceID = SurfaceID(
+            rawValue: try #require(UUID(uuidString: "22222222-2222-4222-8222-222222222222"))
+        )
+
+        let subscriptionTask = Task {
+            try await client.subscribeTerminalInteractionModes()
+        }
+        let request = try requestObject(await transport.nextSent())
+        #expect(request["cmd"] as? String == "subscribe-terminal-interaction-modes")
+        await transport.enqueue(try encodedJSON([
+            "event": "terminal-interaction-mode-changed",
+            "surface_uuid": surfaceID.description,
+            "terminal_epoch": 19,
+            "interaction_revision": 5,
+            "mouse_tracking": true,
+        ]))
+        await transport.enqueue(try response(to: request, data: ["status": "subscribed"]))
+        try await subscriptionTask.value
+
+        let rawChanged = try #require(try await events.next())
+        guard case .changed(let changed) = try rawChanged.terminalInteractionModeStreamEvent()
+        else {
+            Issue.record("expected a typed interaction-mode change")
+            return
+        }
+        #expect(changed.surfaceID == surfaceID)
+        #expect(changed.terminalEpoch == 19)
+        #expect(changed.interactionRevision == 5)
+        #expect(changed.mouseTracking)
+
+        let invalidated = try JSONDecoder().decode(
+            BackendServerEvent.self,
+            from: encodedJSON([
+                "event": "terminal-interaction-mode-invalidated",
+                "surface_uuid": surfaceID.description,
+                "terminal_epoch": 19,
+                "reason": "revision-exhausted",
+            ])
+        )
+        guard case .invalidated(let fatal) = try invalidated.terminalInteractionModeStreamEvent()
+        else {
+            Issue.record("expected a typed interaction-mode invalidation")
+            return
+        }
+        #expect(fatal.surfaceID == surfaceID)
+        #expect(fatal.terminalEpoch == 19)
+        #expect(fatal.reason == "revision-exhausted")
+
+        let overflow = try JSONDecoder().decode(
+            BackendServerEvent.self,
+            from: encodedJSON(["event": "terminal-interaction-mode-overflow"])
+        )
+        #expect(try overflow.terminalInteractionModeStreamEvent() == .overflow)
         await client.close()
     }
 
@@ -742,6 +818,96 @@ struct BackendTerminalCommandTests {
             data: ["target": "https://example.com/a"]
         ))
         #expect(try await activationTask.value.target == "https://example.com/a")
+        await client.close()
+    }
+
+    @Test("terminal accessibility demand uses exact reversible generation fences")
+    func terminalAccessibilityDemandCommands() async throws {
+        let transport = ScriptedBackendTransport()
+        let client = BackendProtocolClient(transport: transport)
+        try await client.connect()
+        let requestID = try #require(
+            UUID(uuidString: "77777777-7777-4777-8777-777777777777")
+        )
+        let presentationID = PresentationID(
+            rawValue: try #require(
+                UUID(uuidString: "88888888-8888-4888-8888-888888888888")
+            )
+        )
+
+        let acquireTask = Task {
+            try await client.acquireTerminalAccessibilityDemand(
+                requestID: requestID,
+                presentationID: presentationID,
+                expectedGeneration: 7,
+                expectedDemandGeneration: 11
+            )
+        }
+        let acquireRequest = try requestObject(await transport.nextSent())
+        #expect(
+            acquireRequest["cmd"] as? String
+                == "acquire-terminal-accessibility-demand"
+        )
+        #expect(acquireRequest["request_id"] as? String == requestID.uuidString.lowercased())
+        #expect(acquireRequest["presentation_id"] as? String == presentationID.description)
+        #expect(try uint64(acquireRequest, "expected_generation") == 7)
+        #expect(try uint64(acquireRequest, "expected_demand_generation") == 11)
+        await transport.enqueue(try response(to: acquireRequest, data: [
+            "request_id": requestID.uuidString.lowercased(),
+            "presentation_id": presentationID.description,
+            "presentation_generation": 7,
+            "demand_generation": 12,
+        ]))
+        let receipt = try await acquireTask.value
+        #expect(receipt.requestID == requestID)
+        #expect(receipt.presentationID == presentationID)
+        #expect(receipt.presentationGeneration == 7)
+        #expect(receipt.demandGeneration == 12)
+
+        let releaseTask = Task {
+            try await client.releaseTerminalAccessibilityDemand(
+                presentationID: presentationID,
+                expectedGeneration: 7,
+                demandGeneration: 12
+            )
+        }
+        let releaseRequest = try requestObject(await transport.nextSent())
+        #expect(
+            releaseRequest["cmd"] as? String
+                == "release-terminal-accessibility-demand"
+        )
+        #expect(releaseRequest["presentation_id"] as? String == presentationID.description)
+        #expect(try uint64(releaseRequest, "expected_generation") == 7)
+        #expect(try uint64(releaseRequest, "demand_generation") == 12)
+        await transport.enqueue(try response(to: releaseRequest, data: [
+            "presentation_id": presentationID.description,
+            "presentation_generation": 7,
+            "demand_generation": 12,
+            "released": false,
+        ]))
+        let release = try await releaseTask.value
+        #expect(release.presentationID == presentationID)
+        #expect(release.presentationGeneration == 7)
+        #expect(release.demandGeneration == 12)
+        #expect(!release.released)
+
+        let initialAcquireTask = Task {
+            try await client.acquireTerminalAccessibilityDemand(
+                requestID: UUID(),
+                presentationID: presentationID,
+                expectedGeneration: 7,
+                expectedDemandGeneration: nil
+            )
+        }
+        let initialAcquireRequest = try requestObject(await transport.nextSent())
+        #expect(initialAcquireRequest["expected_demand_generation"] == nil)
+        await transport.enqueue(try response(to: initialAcquireRequest, data: [
+            "request_id": try #require(initialAcquireRequest["request_id"] as? String),
+            "presentation_id": presentationID.description,
+            "presentation_generation": 7,
+            "demand_generation": 13,
+        ]))
+        _ = try await initialAcquireTask.value
         await client.close()
     }
 

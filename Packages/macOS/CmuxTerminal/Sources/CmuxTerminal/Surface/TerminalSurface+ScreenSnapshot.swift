@@ -25,6 +25,7 @@ extension TerminalSurface {
         if let externalRuntime {
             return await externalRuntime.readScreenText(.vtTail(maxRows: maxRows, maxBytes: maxBytes))
         }
+        guard let runtimeTeardown = embeddedRuntime?.runtimeTeardown else { return nil }
         guard let surface = liveSurfaceForGhosttyAccess(reason: "boundedScreenTailVT") else { return nil }
         return await runtimeTeardown.readScreenTailVT(
             TerminalSurfaceRuntimeScreenTailRequest(

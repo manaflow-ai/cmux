@@ -7,6 +7,8 @@ public enum TerminalRenderCompositorMetricEvent: Sendable {
     case receivedFrame
     case admittedFrame
     case submittedBlit
+    case gpuCompletedBlit
+    case releasedSurface
     case coalescedFrame
     case rejectedFrame
     case drawableUnavailable
@@ -36,6 +38,10 @@ public final class TerminalRenderCompositorMetricsRecorder: @unchecked Sendable 
             storage.admittedFrames &+= 1
         case .submittedBlit:
             storage.submittedBlits &+= 1
+        case .gpuCompletedBlit:
+            storage.gpuCompletedBlits &+= 1
+        case .releasedSurface:
+            storage.releasedSurfaces &+= 1
         case .coalescedFrame:
             storage.coalescedFrames &+= 1
         case .rejectedFrame:
@@ -75,6 +81,12 @@ public struct TerminalRenderCompositorMetrics: Equatable, Sendable {
 
     /// Full IOSurface-to-drawable blits committed by the Swift host.
     public internal(set) var submittedBlits: UInt64 = 0
+
+    /// Submitted host blits whose command buffers reached GPU completion.
+    public internal(set) var gpuCompletedBlits: UInt64 = 0
+
+    /// Exact renderer IOSurface leases returned after drop or GPU completion.
+    public internal(set) var releasedSurfaces: UInt64 = 0
 
     /// Admitted frames discarded in favor of a newer pending frame.
     public internal(set) var coalescedFrames: UInt64 = 0

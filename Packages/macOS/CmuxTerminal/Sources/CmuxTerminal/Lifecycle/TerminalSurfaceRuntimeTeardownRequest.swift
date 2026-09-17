@@ -25,6 +25,7 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
     let manualIOContext: Unmanaged<TerminalManualIOWriteBox>?
     let byteTeeLease: (any TerminalByteTeeLease)?
     let freeSurface: @Sendable (ghostty_surface_t) -> Void
+    let completion: TerminalSurfaceRuntimeTeardownCompletion
 #if DEBUG
     let surfaceToken: String
     let workspaceToken: String
@@ -38,7 +39,8 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
         callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?,
         manualIOContext: Unmanaged<TerminalManualIOWriteBox>?,
         byteTeeLease: (any TerminalByteTeeLease)?,
-        freeSurface: @escaping @Sendable (ghostty_surface_t) -> Void
+        freeSurface: @escaping @Sendable (ghostty_surface_t) -> Void,
+        completion: TerminalSurfaceRuntimeTeardownCompletion
     ) {
         self.id = id
         self.workspaceId = workspaceId
@@ -48,6 +50,7 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
         self.manualIOContext = manualIOContext
         self.byteTeeLease = byteTeeLease
         self.freeSurface = freeSurface
+        self.completion = completion
 #if DEBUG
         self.surfaceToken = String(id.uuidString.prefix(5))
         self.workspaceToken = String(workspaceId.uuidString.prefix(5))

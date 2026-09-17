@@ -16,8 +16,6 @@ import {
 } from "../../../../services/billing/stripe";
 import { resolveBillingTeam } from "../../../../services/billing/teamResolution";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
 type GetStackServerApp = typeof StackLib.getStackServerApp;

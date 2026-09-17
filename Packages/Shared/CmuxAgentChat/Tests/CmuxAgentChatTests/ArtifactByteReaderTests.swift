@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 
@@ -98,6 +99,114 @@ struct ArtifactByteReaderTests {
             try bytes.write(to: file)
 
             #expect(ArtifactByteReader().kind(path: file.path, isDirectory: false) == .text)
+        }
+    }
+
+    @Test("FIFO metadata is classified without opening the pipe")
+    func fifoStat() throws {
+        try withTemporaryDirectory { directory in
+            let fifo = directory.appendingPathComponent("pipe")
+            try #require(Darwin.mkfifo(fifo.path, 0o600) == 0)
+            let clock = ContinuousClock()
+            let start = clock.now
+
+            let stat = try ArtifactByteReader().stat(path: fifo.path)
+
+            #expect(!stat.isDirectory)
+            #expect(stat.kind == .binary)
+            #expect(clock.now - start < .seconds(1))
+        }
+    }
+
+    @Test("FIFO metadata ignores an image extension without opening the pipe")
+    func imageExtensionFifoStat() throws {
+        try withTemporaryDirectory { directory in
+            let fifo = directory.appendingPathComponent("preview.png")
+            try #require(Darwin.mkfifo(fifo.path, 0o600) == 0)
+            let clock = ContinuousClock()
+            let start = clock.now
+
+            let stat = try ArtifactByteReader().stat(path: fifo.path)
+
+            #expect(!stat.isDirectory)
+            #expect(stat.kind == .binary)
+            #expect(clock.now - start < .seconds(1))
+        }
+    }
+
+    @Test("FIFO bytes are rejected without opening the pipe")
+    func fifoFetch() throws {
+        try withTemporaryDirectory { directory in
+            let fifo = directory.appendingPathComponent("pipe")
+            try #require(Darwin.mkfifo(fifo.path, 0o600) == 0)
+            let clock = ContinuousClock()
+            let start = clock.now
+
+            do {
+                _ = try ArtifactByteReader().fetch(path: fifo.path, offset: 0, length: 1)
+                Issue.record("fetching a FIFO should fail")
+            } catch ArtifactByteReader.Error.unsupportedMedia {
+                // Expected: opening a FIFO for reading could block indefinitely.
+            } catch {
+                Issue.record("unexpected error: \(error)")
+            }
+
+            #expect(clock.now - start < .seconds(1))
+        }
+    }
+
+    @Test("FIFO thumbnails ignore an image extension without opening the pipe")
+    func imageExtensionFifoThumbnail() throws {
+        try withTemporaryDirectory { directory in
+            let fifo = directory.appendingPathComponent("preview.png")
+            try #require(Darwin.mkfifo(fifo.path, 0o600) == 0)
+            let clock = ContinuousClock()
+            let start = clock.now
+
+            do {
+                _ = try ArtifactByteReader().thumbnail(path: fifo.path, maxDimension: 128)
+                Issue.record("thumbnailing a FIFO should fail")
+            } catch ArtifactByteReader.Error.unsupportedMedia {
+                // Expected: ImageIO must never open an unverified FIFO path.
+            } catch {
+                Issue.record("unexpected error: \(error)")
+            }
+
+            #expect(clock.now - start < .seconds(1))
+        }
+    }
+
+    @Test("descriptor validation rejects a FIFO without blocking")
+    func fifoDescriptorValidation() throws {
+        try withTemporaryDirectory { directory in
+            let fifo = directory.appendingPathComponent("pipe")
+            try #require(Darwin.mkfifo(fifo.path, 0o600) == 0)
+            let clock = ContinuousClock()
+            let start = clock.now
+
+            do {
+                let opened = try ArtifactByteReader().openVerifiedRegularFile(path: fifo.path)
+                try? opened.handle.close()
+                Issue.record("descriptor validation should reject a FIFO")
+            } catch ArtifactByteReader.Error.unsupportedMedia {
+                // Expected: the nonblocking descriptor is identified as a FIFO.
+            } catch {
+                Issue.record("unexpected error: \(error)")
+            }
+
+            #expect(clock.now - start < .seconds(1))
+        }
+    }
+
+    @Test("missing files retain extension-derived kinds")
+    func missingFileExtensionKinds() throws {
+        try withTemporaryDirectory { directory in
+            let missingImage = directory.appendingPathComponent("missing.png")
+            let missingExtensionless = directory.appendingPathComponent("missing-extensionless")
+            let reader = ArtifactByteReader()
+
+            #expect(reader.kind(path: missingImage.path, isDirectory: false) == .image)
+            #expect(reader.kind(path: missingExtensionless.path, isDirectory: false) == .binary)
         }
     }
 

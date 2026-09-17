@@ -1,5 +1,5 @@
 {
-  "originHash" : "6f94ab2f651c83bb892468739d9672438a11d8741e2ec9315a1e4fd45b12e125",
+  "originHash" : "a44cf039348606fc14d5a8b392911aa9d2903db44b1aee29f12ff0a736caf38d",
   "pins" : [
     {
       "identity" : "aexml",
@@ -15,8 +15,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/manaflow-ai/iroh-ffi.git",
       "state" : {
-        "revision" : "31ec35c931028937db1910b6d623a3e078eb91da",
-        "version" : "1.0.2-cmux.2"
+        "revision" : "20f0e67cc3cb5179e816ef45b7a7ec5c8c58b0e0",
+        "version" : "1.0.2-cmux.7"
       }
     },
     {
@@ -123,8 +123,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tuist/XcodeProj.git",
       "state" : {
-        "revision" : "621eca8d091cc110a99adc23bb0d6618a65b4544",
-        "version" : "9.13.0"
+        "revision" : "3259a01e7193d55174c2f370d72e3ff4c277d8fd",
+        "version" : "9.15.0"
       }
     }
   ],

@@ -81,6 +81,11 @@ public final class TerminalFrontendPanel: TerminalExternalRuntime {
         runtime.adoptCanonicalPlacement(workspaceID: workspaceID)
     }
 
+    /// Forwards non-droppable presentation visibility to the canonical owner.
+    public func setDesiredVisibility(_ visible: Bool) {
+        runtime.setDesiredVisibility(visible)
+    }
+
     /// Forwards one bounded ordered mutation to the canonical runtime.
     @discardableResult
     public func enqueue(
@@ -104,6 +109,11 @@ public final class TerminalFrontendPanel: TerminalExternalRuntime {
     /// Enables demand-driven accessibility state in the canonical runtime.
     public func enableAccessibility() {
         runtime.enableAccessibility()
+    }
+
+    /// Releases one explicit accessibility observer in the canonical runtime.
+    public func disableAccessibility() {
+        runtime.disableAccessibility()
     }
 
     /// Streams changed accessibility snapshots from the canonical runtime.

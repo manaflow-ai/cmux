@@ -29,8 +29,10 @@ public struct ChatMessageRowView: View {
                     message: snapshot.message,
                     groupPosition: snapshot.groupPosition,
                     showsTimestamp: snapshot.showsTimestamp,
-                    onShowCodeDetail: actions.showCodeBlockDetail
+                    onShowCodeDetail: actions.showCodeBlockDetail,
+                    onCopied: actions.notifyCopied
                 )
+                .equatable()
             case .thought:
                 ChatThoughtRowView(
                     rowID: rowID,

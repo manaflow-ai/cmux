@@ -1,7 +1,7 @@
 import Foundation
 
 /// The complete context copied for a coding agent from selected page elements.
-public nonisolated struct BrowserDesignModePromptContext: Equatable, Sendable {
+public struct BrowserDesignModePromptContext: Equatable, Sendable {
     /// The page URL containing the edited element, reduced to safe structure and field names.
     public let pageURL: String
     /// The authoritative design-mode snapshot.

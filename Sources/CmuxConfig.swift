@@ -935,6 +935,7 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
 
     static let newTerminal = actionReference(CmuxSurfaceTabBarBuiltInAction.newTerminal.configID)
     static let newBrowser = actionReference(CmuxSurfaceTabBarBuiltInAction.newBrowser.configID)
+    static let newSimulator = actionReference(CmuxSurfaceTabBarBuiltInAction.newSimulator.configID)
     static let splitRight = actionReference(CmuxSurfaceTabBarBuiltInAction.splitRight.configID)
     static let splitDown = actionReference(CmuxSurfaceTabBarBuiltInAction.splitDown.configID)
 
@@ -1365,40 +1366,13 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
     }
 
     static func builtIn(_ builtIn: CmuxSurfaceTabBarBuiltInAction) -> CmuxResolvedConfigAction {
-        let title: String
-        let keywords: [String]
-        switch builtIn {
-        case .newWorkspace:
-            title = String(localized: "command.newWorkspace.title", defaultValue: "New Workspace")
-            keywords = ["create", "new", "workspace"]
-        case .newAgentChat:
-            title = String(localized: "command.newAgentChat.title", defaultValue: "New agent chat")
-            keywords = ["create", "new", "agent", "chat", "browser", "codex", "claude"]
-        case .cloudVM:
-            title = String(localized: "command.cloudVM.title", defaultValue: "Open Base")
-            keywords = ["base", "cloud", "vm", "virtual", "machine", "remote"]
-        case .mobileConnect:
-            title = String(localized: "command.mobileConnect.title", defaultValue: "Connect iPhone/iPad")
-            keywords = ["iphone", "ipad", "mobile", "phone", "pair", "connect"]
-        case .newTerminal:
-            title = String(localized: "command.newTerminalTab.title", defaultValue: "New Terminal Tab")
-            keywords = ["new", "terminal", "tab", "surface"]
-        case .newBrowser:
-            title = String(localized: "command.newBrowserTab.title", defaultValue: "New Browser Tab")
-            keywords = ["new", "browser", "tab", "surface"]
-        case .splitRight:
-            title = String(localized: "command.terminalSplitRight.title", defaultValue: "Split Right")
-            keywords = ["terminal", "split", "right"]
-        case .splitDown:
-            title = String(localized: "command.terminalSplitDown.title", defaultValue: "Split Down")
-            keywords = ["terminal", "split", "down"]
-        }
+        let metadata = builtIn.resolvedConfigMetadata
 
         return CmuxResolvedConfigAction(
             id: builtIn.configID,
-            title: title,
+            title: metadata.title,
             subtitle: String(localized: "command.cmuxConfig.builtInSubtitle", defaultValue: "cmux"),
-            keywords: keywords,
+            keywords: metadata.keywords,
             palette: true,
             shortcut: nil,
             icon: .symbol(builtIn.defaultIcon),

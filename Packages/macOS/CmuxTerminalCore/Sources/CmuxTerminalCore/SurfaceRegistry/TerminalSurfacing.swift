@@ -7,7 +7,8 @@ public import Foundation
 /// model layer. Every requirement must be safe to read from any thread: `id`
 /// and renderer ownership are immutable for the surface's lifetime, and
 /// `focusPlacement` is set at construction and read by the registry only while
-/// registering on the creating thread.
+/// registering on the creating thread. The registry owns the mutable terminal
+/// process generation separately under its synchronization boundary.
 public protocol TerminalSurfacing: AnyObject {
     /// The stable identity of the terminal surface.
     var id: UUID { get }

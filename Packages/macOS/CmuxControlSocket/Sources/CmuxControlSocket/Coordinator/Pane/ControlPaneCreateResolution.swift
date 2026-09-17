@@ -52,6 +52,14 @@ public enum ControlPaneCreateResolution: Sendable, Equatable {
     /// URL opened externally (legacy `ok`, the external-open payload). Carries
     /// the resolved window (may be absent) and the opened URL string.
     case browserDisabledOpenedExternally(windowID: UUID?, url: String)
+    /// An explicit browser profile selector did not identify exactly one
+    /// profile. An empty candidate list means no profile matched; otherwise the
+    /// candidates share the requested display name.
+    case invalidBrowserProfile(
+        selector: String,
+        message: String,
+        candidates: [ControlPaneBrowserProfileCandidate]
+    )
     /// A TabManager resolved but no workspace did (legacy `not_found` /
     /// "Workspace not found", `data: nil`).
     case workspaceNotFound
@@ -68,9 +76,16 @@ public enum ControlPaneCreateResolution: Sendable, Equatable {
     /// The split was routed to the remote tmux mirror backing the workspace;
     /// the pane arrives asynchronously via `%layout-change`.
     case routedToRemote(windowID: UUID?, workspaceID: UUID, typeRawValue: String)
-    /// The pane create entered the local serialized backend queue. The daemon
-    /// has not necessarily accepted it yet.
-    case submittedToBackend(requestID: UUID, windowID: UUID?, workspaceID: UUID, typeRawValue: String)
+    /// The pane create entered the local serialized backend queue with a
+    /// reserved surface identity. The daemon has not necessarily accepted it yet.
+    case submittedToBackend(
+        requestID: UUID,
+        windowID: UUID?,
+        workspaceID: UUID,
+        paneID: UUID?,
+        surfaceID: UUID,
+        typeRawValue: String
+    )
     /// The pane was created in the right-sidebar Dock. Dock handles are scoped to
     /// the Dock container and are not ordinary workspace surface/pane ids.
     case createdDock(

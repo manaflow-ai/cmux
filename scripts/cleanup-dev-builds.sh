@@ -12,7 +12,8 @@
 # This script removes those artifacts for tags that are safe to clean.
 # Safety rules (always on):
 #   - Skip any tag whose `cmux DEV <tag>` app is currently running.
-#   - Skip the tag pointed at by /tmp/cmux-last-cli-path (most recent reload).
+#   - Skip the tag recorded by reload.sh's app/tag markers (most recent reload).
+#     Legacy builds fall back to /tmp/cmux-last-cli-path.
 # A worktree merely existing on the same name is not treated as a
 # protection. Use --keep TAG when you want to preserve a build whose
 # worktree you still have around, or --older-than DAYS to skip anything
@@ -43,6 +44,10 @@ TERMINAL_BACKEND_IDENTITY_TOOL="$SCRIPT_DIR/terminal-backend-identity.py"
 DERIVED_DATA_ROOT="$HOME/Library/Developer/Xcode/DerivedData"
 APP_SUPPORT_DIR="$HOME/Library/Application Support/cmux"
 LAST_CLI_PATH_FILE="/tmp/cmux-last-cli-path"
+_cmux_account_home="$(perl -e 'print((getpwuid($<))[7])' 2>/dev/null || true)"
+CMUX_STATE_DIR="${CMUX_STATE_DIR:-${_cmux_account_home:-$HOME}/.local/state/cmux}"
+LAST_RELOAD_TAG_FILE="$CMUX_STATE_DIR/last-reload-tag"
+LAST_RELOAD_APP_PATH_FILE="$CMUX_STATE_DIR/last-reload-app-path"
 
 apply=0
 terminate_terminal_backends=0
@@ -309,11 +314,34 @@ PY
 
 # ---- safety probes ----------------------------------------------------------
 
-# Active tag (most recent reload) per the CLI symlink target. Match
-# `/cmux-<tag>/` anywhere in the path so we cover paths under DerivedData,
-# /tmp, or other locations reload.sh may emit.
-active_tag=""
-if [[ -r "$LAST_CLI_PATH_FILE" ]]; then
+# Resolve reload.sh's marker pair only when both files are ordinary,
+# current-user-owned files and the app is the recorded tag's DerivedData app.
+# The pair intentionally supersedes the CLI marker because backend-only builds
+# do not contain or publish the full-app CLI.
+active_tag_from_reload_markers() {
+    local tag=""
+    local app_path=""
+    local expected_prefix=""
+    [[ -f "$LAST_RELOAD_TAG_FILE" && ! -L "$LAST_RELOAD_TAG_FILE" && -O "$LAST_RELOAD_TAG_FILE" ]] || return 1
+    [[ -f "$LAST_RELOAD_APP_PATH_FILE" && ! -L "$LAST_RELOAD_APP_PATH_FILE" && -O "$LAST_RELOAD_APP_PATH_FILE" ]] || return 1
+    IFS= read -r tag < "$LAST_RELOAD_TAG_FILE" || return 1
+    IFS= read -r app_path < "$LAST_RELOAD_APP_PATH_FILE" || return 1
+    [[ "$tag" =~ ^[A-Za-z0-9._-]+$ ]] || return 1
+    expected_prefix="$DERIVED_DATA_ROOT/cmux-${tag}/Build/Products/Debug/"
+    case "$app_path" in
+        "$expected_prefix"*.app) ;;
+        *) return 1 ;;
+    esac
+    [[ -d "$app_path" && ! -L "$app_path" ]] || return 1
+    printf '%s\n' "$tag"
+}
+
+# Active tag (most recent reload). New builds publish an app/tag marker pair.
+# Fall back to the historical CLI marker for builds created before that pair
+# existed. Match `/cmux-<tag>/` anywhere in the CLI path so old DerivedData and
+# /tmp layouts remain recognized.
+active_tag="$(active_tag_from_reload_markers || true)"
+if [[ -z "$active_tag" && -r "$LAST_CLI_PATH_FILE" ]]; then
     last_path="$(cat "$LAST_CLI_PATH_FILE" 2>/dev/null || true)"
     if [[ "$last_path" =~ /cmux-([A-Za-z0-9._-]+)/ ]]; then
         active_tag="${BASH_REMATCH[1]}"

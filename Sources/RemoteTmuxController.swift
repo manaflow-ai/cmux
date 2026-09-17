@@ -366,7 +366,8 @@ final class RemoteTmuxController {
         let workspace = tabManager.addLocalWorkspace(
             title: sessionName,
             select: false,
-            autoWelcomeIfNeeded: false
+            autoWelcomeIfNeeded: false,
+            applyCreationTitleAsCustomTitle: false
         )
         installMirrorWorkspaceState(
             workspace,
@@ -413,7 +414,9 @@ final class RemoteTmuxController {
             backendTmuxSessionID: backendTmuxSessionID,
             restoredSurfaces: restoredSurfaces,
             onControlPaneRemoved: TerminalController.remoteTmuxControlPaneRemovalHandler(),
-            onControlSurfaceRemoved: TerminalController.remoteTmuxControlSurfaceRemovalHandler()
+            onControlSurfaceRemoved: TerminalController.remoteTmuxControlSurfaceRemovalHandler(
+                workspaceID: workspace.id
+            )
         )
         sessionMirrors[key] = mirror
         if let backendProducerID {

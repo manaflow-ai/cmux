@@ -39,7 +39,10 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxMobileAnalyticsTests",
-            dependencies: ["CmuxMobileAnalytics"],
+            dependencies: [
+                "CMUXMobileCore",
+                "CmuxMobileAnalytics",
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),

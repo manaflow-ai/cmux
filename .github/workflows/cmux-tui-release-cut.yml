@@ -151,19 +151,25 @@ jobs:
       - name: Dispatch release workflows
         # The tag push above was made with the default GITHUB_TOKEN, which
         # never triggers other workflows' tag-push events. Dispatch the
-        # release workflows explicitly against the new tag. This keeps registry
-        # OIDC identities on their top-level workflow files and binds provenance
-        # to the exact immutable release commit. Failed runs retain that ref.
+        # build/package workflow explicitly against the new tag. That workflow
+        # builds and verifies every package once, then dispatches the top-level
+        # registry workflows with its artifact run ID. The registry OIDC
+        # identities therefore stay on their existing workflow files without
+        # rebuilding the same binaries for each registry.
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
-          gh workflow run cmux-tui-release.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG" -f version="$VERSION"
-          gh workflow run tui-publish-pypi.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG" -f version="$VERSION"
-          gh workflow run tui-publish-npm.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG" -f version="$VERSION" -f confirm_tui_cmux=true
+          gh workflow run cmux-tui-release.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "$TAG" \
+            -f version="$VERSION" \
+            -f publish_npm=true \
+            -f publish_pypi=true \
+            -f confirm_tui_cmux=true
           {
-            echo "- Dispatched cmux-tui-release.yml on $TAG"
-            echo "- Dispatched npm and PyPI publishers on $TAG"
+            echo "- Dispatched one build/package run on $TAG"
+            echo "- npm and PyPI will reuse that run's verified artifacts"
           } >> "$GITHUB_STEP_SUMMARY"

@@ -39,6 +39,7 @@ type Article = {
   href: string;
   titleKey: string;
   descKey: string;
+  brand?: string;
   locales?: readonly string[];
 };
 
@@ -50,6 +51,12 @@ const ARTICLES: readonly Article[] = [
   { href: "/agents/claude-code", titleKey: "claude.title", descKey: "claude.metaDescription" },
   { href: "/agents/codex", titleKey: "codex.title", descKey: "codex.metaDescription" },
   { href: "/agents/opencode", titleKey: "opencode.title", descKey: "opencode.metaDescription" },
+  {
+    href: "/agents/pi",
+    titleKey: "agents.title",
+    descKey: "agents.metaDescription",
+    brand: "Pi",
+  },
   { href: "/agents/gemini-cli", titleKey: "geminiCli.title", descKey: "geminiCli.metaDescription" },
   { href: "/agents/aider", titleKey: "aider.title", descKey: "aider.metaDescription" },
   { href: "/agents/amp", titleKey: "amp.title", descKey: "amp.metaDescription" },
@@ -82,7 +89,7 @@ export default function GuidesPage() {
                   event="guide_link_clicked"
                   className="text-base font-medium underline underline-offset-2"
                 >
-                  {t(a.titleKey)}
+                  {a.brand ? `${a.brand}: ${t(a.titleKey)}` : t(a.titleKey)}
                 </TrackedLink>
                 <p className="text-muted text-sm mt-1">{t(a.descKey)}</p>
               </li>

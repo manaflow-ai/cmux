@@ -342,7 +342,7 @@ func TestWaitForPersistentDaemonStopTimesOutWhenOwnershipDoesNotRelease(t *testi
 	}
 }
 
-func TestPersistentDaemonReapsActivePTYAfterObservedSlotLeaseDisappears(t *testing.T) {
+func TestPersistentDaemonPreservesActivePTYAfterObservedSlotLeaseDisappears(t *testing.T) {
 	socketDir, err := os.MkdirTemp("/tmp", "cmuxd-remote-lease-reap-*")
 	if err != nil {
 		t.Fatalf("create short socket dir: %v", err)
@@ -356,21 +356,30 @@ func TestPersistentDaemonReapsActivePTYAfterObservedSlotLeaseDisappears(t *testi
 
 	var leasePresent atomic.Bool
 	leasePresent.Store(true)
-	leaseChecked := make(chan struct{}, 1)
+	leaseChecked := make(chan bool, 1)
+	leaseRemoved := make(chan struct{}, 1)
+	var stderr bytes.Buffer
 	done := make(chan error, 1)
 	go func() {
 		done <- servePersistentDaemonWithVerifierConfig(
 			listener,
 			persistentDaemonFixedTokenVerifier("lease-token"),
-			io.Discard,
+			&stderr,
 			persistentDaemonServerConfig{
 				acceptPollStep: 10 * time.Millisecond,
 				slotLeasePresent: func() (bool, error) {
+					present := leasePresent.Load()
 					select {
-					case leaseChecked <- struct{}{}:
+					case leaseChecked <- present:
 					default:
 					}
-					return leasePresent.Load(), nil
+					return present, nil
+				},
+				slotLeaseRemoved: func() {
+					select {
+					case leaseRemoved <- struct{}{}:
+					default:
+					}
 				},
 			},
 		)
@@ -389,7 +398,10 @@ func TestPersistentDaemonReapsActivePTYAfterObservedSlotLeaseDisappears(t *testi
 	}()
 
 	select {
-	case <-leaseChecked:
+	case present := <-leaseChecked:
+		if !present {
+			t.Fatalf("persistent daemon observed an absent initial slot lease")
+		}
 	case <-time.After(2 * time.Second):
 		t.Fatalf("persistent daemon did not inspect the slot lease")
 	}
@@ -412,18 +424,118 @@ func TestPersistentDaemonReapsActivePTYAfterObservedSlotLeaseDisappears(t *testi
 	readPersistentTestEvent(t, conn, reader, func(frame map[string]any) bool {
 		return frame["event"] == "pty.ready" && frame["attachment_id"] == "lease-attachment"
 	})
+	for {
+		select {
+		case <-leaseChecked:
+			continue
+		default:
+			goto leaseChecksDrained
+		}
+	}
+
+leaseChecksDrained:
 	_ = conn.Close()
+	for checkedAfterDisconnect := 0; checkedAfterDisconnect < 5; {
+		select {
+		case present := <-leaseChecked:
+			if present {
+				checkedAfterDisconnect++
+			}
+		case err := <-done:
+			serverExited = true
+			t.Fatalf("persistent daemon exited before its slot lease disappeared: %v", err)
+		case <-time.After(2 * time.Second):
+			t.Fatalf("persistent daemon did not continue checking its slot lease after disconnect")
+		}
+	}
 	leasePresent.Store(false)
+
+	for absentChecks := 0; absentChecks < 3; {
+		select {
+		case present := <-leaseChecked:
+			if !present {
+				absentChecks++
+			}
+		case <-leaseRemoved:
+			t.Fatalf("persistent daemon retired while its detached PTY was still active")
+		case err := <-done:
+			serverExited = true
+			t.Fatalf("persistent daemon exited while its detached PTY was still active: %v", err)
+		case <-time.After(2 * time.Second):
+			t.Fatalf("persistent daemon did not continue checking the absent slot lease")
+		}
+	}
+
+	reconnect, reconnectReader, reconnectWriter := openPersistentTestClient(t, socketPath, "lease-token")
+	reattach := persistentTestRPCCall(t, reconnect, reconnectReader, reconnectWriter, rpcRequest{
+		ID:     2,
+		Method: "pty.attach",
+		Params: map[string]any{
+			"session_id":              "lease-session",
+			"attachment_id":           "lease-reattachment",
+			"client_attachment_token": "lease-reattachment-token",
+			"cols":                    100,
+			"rows":                    30,
+			"command":                 "printf 'replacement command must not run\\n'",
+			"require_existing":        true,
+		},
+	})
+	if ok, _ := reattach["ok"].(bool); !ok {
+		t.Fatalf("reattach after slot lease removal failed: %v", reattach)
+	}
+	readPersistentTestEvent(t, reconnect, reconnectReader, func(frame map[string]any) bool {
+		return frame["event"] == "pty.ready" && frame["attachment_id"] == "lease-reattachment"
+	})
+	closePTY := persistentTestRPCCall(t, reconnect, reconnectReader, reconnectWriter, rpcRequest{
+		ID:     3,
+		Method: "pty.close",
+		Params: map[string]any{"session_id": "lease-session"},
+	})
+	if ok, _ := closePTY["ok"].(bool); !ok {
+		t.Fatalf("pty.close after lease removal failed: %v", closePTY)
+	}
+	_ = reconnect.Close()
 
 	select {
 	case err := <-done:
 		serverExited = true
 		if err != nil {
-			t.Fatalf("persistent daemon exited with error: %v", err)
+			t.Fatalf("persistent daemon exited with error after its final PTY closed: %v", err)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatalf("persistent daemon did not stop after its observed slot lease disappeared")
+		t.Fatalf("persistent daemon did not retire after its absent lease and final PTY close")
 	}
+	requirePersistentDaemonAutomaticExitLog(
+		t,
+		stderr.String(),
+		persistentDaemonExitSlotLeaseRemoved,
+	)
+}
+
+func requirePersistentDaemonAutomaticExitLog(
+	t *testing.T,
+	logOutput string,
+	reason persistentDaemonExitReason,
+) {
+	t.Helper()
+	wantActivity := "reason=" + string(reason) + " active_connections=0 active_sessions=0"
+	for _, line := range strings.Split(logOutput, "\n") {
+		if !strings.Contains(line, wantActivity) {
+			continue
+		}
+		for _, field := range strings.Fields(line) {
+			if !strings.HasPrefix(field, "time=") {
+				continue
+			}
+			timestamp := strings.TrimPrefix(field, "time=")
+			if _, err := time.Parse(time.RFC3339Nano, timestamp); err != nil {
+				t.Fatalf("persistent daemon exit log timestamp %q is not RFC3339Nano: %v", timestamp, err)
+			}
+			return
+		}
+		t.Fatalf("persistent daemon exit log line %q has no time field", line)
+	}
+	t.Fatalf("persistent daemon exit log = %q, want %q", logOutput, wantActivity)
 }
 
 func TestPersistentDaemonSlotLeasePresentMatchesExactRelayPortAndSlot(t *testing.T) {

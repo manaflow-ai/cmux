@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+from typing import NamedTuple
 
 
 ALLOWED_IGNORED_PREFIXES = (
@@ -18,10 +19,6 @@ ALLOWED_IGNORED_PREFIXES = (
 
 XCODE_PACKAGE_RESOLVED = (
     "cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
-)
-SWIFT_FRONTEND_XCODE_LOCKFILE_PREFIX = "cmux-tui/frontends/swift/"
-XCODE_LOCKFILE_SUFFIX = (
-    ".xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
 )
 XCODE_PROJECT_FILE = "cmux.xcodeproj/project.pbxproj"
 IOS_WORKSPACE_PACKAGE_RESOLVED = (
@@ -42,6 +39,20 @@ XCODE_PACKAGE_REFERENCE_TOKENS = (
     "branch",
     "requirement =",
 )
+
+
+class PackageNode(NamedTuple):
+    """Dependency edges declared by one Package.swift."""
+
+    has_url_dependency: bool
+    path_dependencies: list[str]
+    # Normalized text of every `.package(url:)` call, so a version-requirement
+    # bump on an unchanged URL still counts as a remote-resolution change.
+    url_calls: frozenset[str]
+
+
+EMPTY_PACKAGE_NODE = PackageNode(False, [], frozenset())
+
 PACKAGE_DEPENDENCY_RE = re.compile(r"\.package\(([^)]*)\)", re.DOTALL)
 PACKAGE_PATH_ARGUMENT_RE = re.compile(r'\bpath\s*:\s*"([^"]+)"')
 PACKAGE_URL_ARGUMENT_RE = re.compile(r'\burl\s*:\s*"[^"]+"')
@@ -113,11 +124,11 @@ def package_graph(
     manifests: dict[str, Path],
     *,
     ref: str | None = None,
-) -> dict[str, tuple[bool, list[str]]]:
+) -> dict[str, PackageNode]:
     root_by_resolved_path = {
         manifest.parent.resolve(): root for root, manifest in manifests.items()
     }
-    graph: dict[str, tuple[bool, list[str]]] = {}
+    graph: dict[str, PackageNode] = {}
 
     for root, manifest in manifests.items():
         text = (
@@ -128,17 +139,19 @@ def package_graph(
         if not text:
             continue
         path_dependencies: list[str] = []
-        has_url_dependency = False
+        url_calls: set[str] = set()
         for dependency in PACKAGE_DEPENDENCY_RE.findall(text):
             if PACKAGE_URL_ARGUMENT_RE.search(dependency):
-                has_url_dependency = True
+                url_calls.add(" ".join(dependency.split()))
             path_match = PACKAGE_PATH_ARGUMENT_RE.search(dependency)
             if path_match is None:
                 continue
             dependency_root = (manifest.parent / path_match.group(1)).resolve()
             if dependency_root in root_by_resolved_path:
                 path_dependencies.append(root_by_resolved_path[dependency_root])
-        graph[root] = (has_url_dependency, path_dependencies)
+        graph[root] = PackageNode(
+            bool(url_calls), path_dependencies, frozenset(url_calls)
+        )
 
     return graph
 
@@ -147,13 +160,24 @@ def package_dependency_calls(text: str) -> list[str]:
     return [" ".join(dependency.split()) for dependency in PACKAGE_DEPENDENCY_RE.findall(text)]
 
 
-def dependency_calls_include_url(calls: list[str]) -> bool:
-    return any(PACKAGE_URL_ARGUMENT_RE.search(call) for call in calls)
+def closure_remote_dependency_calls(
+    root: str,
+    graph: dict[str, PackageNode],
+) -> frozenset[str]:
+    """Every `.package(url:)` call reachable from ``root``.
+
+    This is what `swift package resolve` actually pins, so comparing it across
+    refs answers "can a Package.resolved diff exist for this change?".
+    """
+    calls: set[str] = set()
+    for member in package_dependency_closure(root, graph):
+        calls.update(graph.get(member, EMPTY_PACKAGE_NODE).url_calls)
+    return frozenset(calls)
 
 
 def has_remote_dependency(
     root: str,
-    graph: dict[str, tuple[bool, list[str]]],
+    graph: dict[str, PackageNode],
     memo: dict[str, bool],
     visiting: set[str],
 ) -> bool:
@@ -161,7 +185,9 @@ def has_remote_dependency(
         return memo[root]
     if root in visiting:
         return False
-    has_url_dependency, path_dependencies = graph.get(root, (False, []))
+    node = graph.get(root, EMPTY_PACKAGE_NODE)
+    has_url_dependency = node.has_url_dependency
+    path_dependencies = node.path_dependencies
     visiting.add(root)
     needs_lockfile = has_url_dependency or any(
         has_remote_dependency(dependency, graph, memo, visiting)
@@ -174,7 +200,7 @@ def has_remote_dependency(
 
 def package_dependency_closure(
     root: str,
-    graph: dict[str, tuple[bool, list[str]]],
+    graph: dict[str, PackageNode],
 ) -> set[str]:
     closure: set[str] = set()
 
@@ -182,8 +208,7 @@ def package_dependency_closure(
         if current in closure:
             return
         closure.add(current)
-        _has_url_dependency, path_dependencies = graph.get(current, (False, []))
-        for dependency in path_dependencies:
+        for dependency in graph.get(current, EMPTY_PACKAGE_NODE).path_dependencies:
             visit(dependency)
 
     visit(root)
@@ -215,7 +240,7 @@ def workspace_package_roots(
 
 def package_roots_requiring_lockfiles(
     cmux_manifests: dict[str, Path] | None = None,
-    graph: dict[str, tuple[bool, list[str]]] | None = None,
+    graph: dict[str, PackageNode] | None = None,
 ) -> set[str]:
     if cmux_manifests is None or graph is None:
         all_manifests = tracked_package_manifests(include_allowed_vendor=True)
@@ -292,15 +317,6 @@ def xcode_package_reference_changed(
 def is_expected_lockfile_path(lockfile: str, roots: set[str]) -> bool:
     if lockfile in EXPECTED_XCODE_LOCKFILES:
         return True
-    # Swift frontends may track both their package-local lockfile and the
-    # lockfile used by their checked-in Xcode project, just as the root Xcode
-    # project does. Keep this allowance narrow so derived/build lockfiles in
-    # other locations remain policy violations.
-    if (
-        lockfile.startswith(SWIFT_FRONTEND_XCODE_LOCKFILE_PREFIX)
-        and lockfile.endswith(XCODE_LOCKFILE_SUFFIX)
-    ):
-        return True
     if has_skipped_part(lockfile):
         return False
     return Path(lockfile).parent.as_posix() in roots
@@ -340,16 +356,14 @@ def main() -> int:
     changed_files = changed_files_since(merge_base)
     changed_dependency_roots: set[str] = set()
     previous_manifests: dict[str, Path] = {}
-    previous_graph: dict[str, tuple[bool, list[str]]] = {}
+    previous_graph: dict[str, PackageNode] = {}
 
     if merge_base is not None:
-        current_remote_memo: dict[str, bool] = {}
         previous_manifests = tracked_package_manifests_at_ref(
             merge_base,
             include_allowed_vendor=True,
         )
         previous_graph = package_graph(previous_manifests, ref=merge_base)
-        previous_remote_memo: dict[str, bool] = {}
         for root, manifest in all_manifests.items():
             if manifest.as_posix() not in changed_files:
                 continue
@@ -363,18 +377,14 @@ def main() -> int:
                 continue
             # Local path-only dependency edits do not always change the resolved
             # external pins. Require a matching Package.resolved diff only when
-            # the edited manifest's graph currently has, previously had, or
-            # directly changes a remote dependency.
-            if (
-                dependency_calls_include_url(current_calls + previous_calls)
-                or has_remote_dependency(root, graph, current_remote_memo, set())
-                or has_remote_dependency(
-                    root,
-                    previous_graph,
-                    previous_remote_memo,
-                    set(),
-                )
-            ):
+            # the set of `.package(url:)` calls reachable from this manifest
+            # actually differs, since that set is what `swift package resolve`
+            # pins. Adding a leaf local-path package whose closure has no remote
+            # dependency leaves the lockfiles byte-identical, so demanding a
+            # diff there is unsatisfiable (issue #8871).
+            if closure_remote_dependency_calls(
+                root, graph
+            ) != closure_remote_dependency_calls(root, previous_graph):
                 changed_dependency_roots.add(root)
 
     if (

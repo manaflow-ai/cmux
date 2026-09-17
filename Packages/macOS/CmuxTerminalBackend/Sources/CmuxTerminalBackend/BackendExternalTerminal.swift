@@ -35,6 +35,10 @@ public struct BackendExternalTerminalOutputReceipt: Codable, Equatable, Sendable
     public let acceptedSequence: UInt64
     public let nextSequence: UInt64
     public let noReflow: Bool
+    public let terminalEpoch: UInt64
+    public let interactionRevision: UInt64
+    public let interactionRevisionExhausted: Bool
+    public let mouseTracking: Bool
     public let egress: Data
     public let replayed: Bool
 
@@ -45,6 +49,10 @@ public struct BackendExternalTerminalOutputReceipt: Codable, Equatable, Sendable
         acceptedSequence: UInt64,
         nextSequence: UInt64,
         noReflow: Bool,
+        terminalEpoch: UInt64,
+        interactionRevision: UInt64,
+        interactionRevisionExhausted: Bool,
+        mouseTracking: Bool,
         egress: Data,
         replayed: Bool
     ) {
@@ -54,6 +62,10 @@ public struct BackendExternalTerminalOutputReceipt: Codable, Equatable, Sendable
         self.acceptedSequence = acceptedSequence
         self.nextSequence = nextSequence
         self.noReflow = noReflow
+        self.terminalEpoch = terminalEpoch
+        self.interactionRevision = interactionRevision
+        self.interactionRevisionExhausted = interactionRevisionExhausted
+        self.mouseTracking = mouseTracking
         self.egress = egress
         self.replayed = replayed
     }
@@ -65,6 +77,10 @@ public struct BackendExternalTerminalOutputReceipt: Codable, Equatable, Sendable
         case acceptedSequence = "accepted_sequence"
         case nextSequence = "next_sequence"
         case noReflow = "no_reflow"
+        case terminalEpoch = "terminal_epoch"
+        case interactionRevision = "interaction_revision"
+        case interactionRevisionExhausted = "interaction_revision_exhausted"
+        case mouseTracking = "mouse_tracking"
         case egress
         case replayed
     }

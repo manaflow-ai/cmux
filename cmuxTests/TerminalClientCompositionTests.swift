@@ -3,6 +3,7 @@ import CmuxCore
 import CmuxTerminal
 import CmuxTerminalBackend
 import CmuxTerminalBackendService
+import CmuxTerminalCore
 import CmuxTerminalRenderCompositor
 import CmuxTerminalRenderProtocol
 import CmuxTerminalRenderTransport
@@ -67,67 +68,6 @@ struct TerminalClientCompositionTests {
         #expect(composition.mobileTerminalDataPlane.profile == .embeddedGhostty)
     }
 
-    @Test @MainActor
-    func resolvedRenderConfigPublicationIsSurfaceScopedAndGenerationFenced() async throws {
-        let registry = TerminalBackendPresentationRegistry()
-        let surfaceID = UUID()
-        let unrelatedSurfaceID = UUID()
-        var iterator = registry.resolvedRenderConfigUpdates(
-            surfaceID: surfaceID
-        ).makeAsyncIterator()
-
-        let initialEvent = await iterator.next()
-        #expect(initialEvent == .unavailable)
-
-        let first = TerminalBackendRenderConfigSnapshot(
-            revision: 7,
-            data: Data("font-family = Menlo\n".utf8)
-        )
-        let firstPublisher = registry.beginResolvedRenderConfigPublication(
-            surfaceID: surfaceID,
-            snapshot: first
-        )
-        let firstEvent = await iterator.next()
-        #expect(firstEvent == .available(first))
-        #expect(registry.resolvedRenderConfig(surfaceID: surfaceID) == first)
-        #expect(
-            registry.resolvedRenderConfig(surfaceID: unrelatedSurfaceID) == nil
-        )
-
-        let replacement = TerminalBackendRenderConfigSnapshot(
-            revision: 11,
-            data: Data("font-family = Iosevka\nfont-size = 17\n".utf8)
-        )
-        let replacementPublisher =
-            registry.beginResolvedRenderConfigPublication(
-                surfaceID: surfaceID,
-                snapshot: replacement
-            )
-        let replacementEvent = await iterator.next()
-        #expect(replacementEvent == .available(replacement))
-
-        registry.updateResolvedRenderConfig(
-            surfaceID: surfaceID,
-            publisherID: firstPublisher,
-            snapshot: first
-        )
-        registry.endResolvedRenderConfigPublication(
-            surfaceID: surfaceID,
-            publisherID: firstPublisher
-        )
-        #expect(
-            registry.resolvedRenderConfig(surfaceID: surfaceID) == replacement
-        )
-
-        registry.endResolvedRenderConfigPublication(
-            surfaceID: surfaceID,
-            publisherID: replacementPublisher
-        )
-        let finalEvent = await iterator.next()
-        #expect(finalEvent == .unavailable)
-        #expect(registry.resolvedRenderConfig(surfaceID: surfaceID) == nil)
-    }
-
     @Test(.timeLimit(.minutes(1)))
     func rendererDetachRetryIsWokenByReconnectWithoutPolling() async throws {
         let client = RecordingPersistentTerminalBackendClient(detachFailures: 1)
@@ -155,11 +95,7 @@ struct TerminalClientCompositionTests {
     func rendererFrameReleaseRetryIsWokenByReconnectWithoutPolling() async throws {
         let client = RecordingPersistentTerminalBackendClient(releaseFailures: 1)
         let frame = try Self.makeRenderDiagnosticsFrame(sequence: 17)
-        let release = TerminalRenderFrameRelease(
-            metadata: frame.metadata,
-            surfaceID: frame.surface.identifier,
-            workerIdentity: frame.workerIdentity
-        )
+        let release = TerminalRenderFrameRelease(frame: frame)
         let retry = Task {
             await returnRendererFrameLease(client: client, release: release)
         }
@@ -173,6 +109,306 @@ struct TerminalClientCompositionTests {
 
         await retry.value
         #expect(await client.releaseAttemptCount() == 2)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func fullAppFrameReleaseLaneIsBoundedSerialAndRecoveryReserved() async throws {
+        let sender = ControlledFullAppFrameReleaseSender()
+        let lane = TerminalBackendFrameReleaseLane(
+            normalCapacity: 2,
+            recoveryCapacity: 1,
+            send: sender.send
+        )
+        let releases = try (1 ... 4).map {
+            TerminalRenderFrameRelease(
+                frame: try Self.makeRenderDiagnosticsFrame(sequence: UInt64($0))
+            )
+        }
+
+        #expect(lane.enqueue(releases[0], priority: .normal) == .accepted)
+        await sender.waitUntilStarted(count: 1)
+        #expect(lane.enqueue(releases[1], priority: .normal) == .accepted)
+        #expect(lane.enqueue(releases[2], priority: .normal) == .capacityExceeded)
+        #expect(lane.enqueue(releases[3], priority: .recovery) == .accepted)
+        #expect(lane.metrics().workerStarts == 1)
+        #expect(lane.metrics().maximumOutstanding == 3)
+
+        await sender.resumeNext(result: true)
+        await sender.waitUntilStarted(count: 2)
+        await sender.resumeNext(result: true)
+        await sender.waitUntilStarted(count: 3)
+        await sender.resumeNext(result: true)
+        await lane.waitUntilIdle()
+
+        #expect(await sender.startedSequences() == [1, 2, 4])
+        #expect(await sender.maximumConcurrentSendCount == 1)
+        #expect(lane.metrics().sent == 3)
+        #expect(lane.metrics().outstanding == 0)
+        await lane.stop()
+    }
+
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func sustainedSuccessfulFrameReleaseKeepsOneProcessWideRendererSubscription() async throws {
+        let client = RecordingPersistentTerminalBackendClient()
+        let runtime = PersistentTerminalExternalRuntime(
+            client: client,
+            launchResolver: makeLaunchResolver(),
+            launchRequest: makeLaunchRequest(
+                workspaceID: UUID(),
+                surfaceID: UUID()
+            ),
+            presentationRegistry: TerminalBackendPresentationRegistry()
+        )
+        defer { _ = runtime }
+        await client.waitForRendererSubscriberCount(1)
+        let frame = try Self.makeRenderDiagnosticsFrame(sequence: 18)
+        let release = TerminalRenderFrameRelease(frame: frame)
+
+        for _ in 0..<256 {
+            #expect(await returnRendererFrameLease(client: client, release: release))
+        }
+        for _ in 0..<64 { await Task.yield() }
+
+        #expect(await client.releaseAttemptCount() == 256)
+        #expect(await client.rendererEventStreamStartCount() == 1)
+        #expect(await client.peakRendererSubscriberCount() == 1)
+        #expect(await client.activeRendererSubscriberCount() == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func cancellingFrameReleaseRetryRemovesItsProcessWideLifecycleWaiter() async throws {
+        let client = RecordingPersistentTerminalBackendClient(releaseFailures: .max)
+        let runtime = PersistentTerminalExternalRuntime(
+            client: client,
+            launchResolver: makeLaunchResolver(),
+            launchRequest: makeLaunchRequest(
+                workspaceID: UUID(),
+                surfaceID: UUID()
+            ),
+            presentationRegistry: TerminalBackendPresentationRegistry()
+        )
+        await client.waitForRendererSubscriberCount(1)
+        let release = TerminalRenderFrameRelease(
+            frame: try Self.makeRenderDiagnosticsFrame(sequence: 19)
+        )
+        let retry = Task {
+            await returnRendererFrameLease(client: client, release: release)
+        }
+        await client.waitForReleaseCount(1)
+        for _ in 0..<32 { await Task.yield() }
+
+        retry.cancel()
+        #expect(await retry.value == false)
+        for _ in 0..<64 { await Task.yield() }
+
+        #expect(await client.rendererEventStreamStartCount() == 1)
+        #expect(await client.peakRendererSubscriberCount() == 1)
+        #expect(await client.activeRendererSubscriberCount() == 1)
+        #expect(await runtime.debugFrontendLifecycleWaiterCountForTesting() == 0)
+    }
+
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func permanentFrameReleaseFailureDoesNotRetryOnUnrelatedWorkerLifecycle() async throws {
+        let client = RecordingPersistentTerminalBackendClient(
+            permanentReleaseFailure: true
+        )
+        let workspaceID = UUID()
+        let runtime = PersistentTerminalExternalRuntime(
+            client: client,
+            launchResolver: makeLaunchResolver(),
+            launchRequest: makeLaunchRequest(
+                workspaceID: workspaceID,
+                surfaceID: UUID()
+            ),
+            presentationRegistry: TerminalBackendPresentationRegistry()
+        )
+        await client.waitForRendererSubscriberCount(1)
+        let release = TerminalRenderFrameRelease(
+            frame: try Self.makeRenderDiagnosticsFrame(sequence: 20)
+        )
+        let retry = Task {
+            await returnRendererFrameLease(client: client, release: release)
+        }
+        await client.waitForReleaseCount(1)
+        await client.publish(.workerChanged(
+            presentationID: runtime.debugPresentationIDForTesting(),
+            change: try Self.rendererWorkerChange(
+                workspaceID: workspaceID,
+                priorRendererEpoch: 1,
+                rendererEpoch: 2,
+                state: .ready
+            )
+        ))
+        for _ in 0..<64 { await Task.yield() }
+
+        #expect(await client.releaseAttemptCount() == 1)
+        retry.cancel()
+        #expect(await retry.value == false)
+        #expect(await client.rendererEventStreamStartCount() == 1)
+        #expect(await runtime.debugFrontendLifecycleWaiterCountForTesting() == 0)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func blockedRendererRouteDoesNotBlockAnotherWorkspaceOrUpstreamIngestion() async throws {
+        let client = RecordingPersistentTerminalBackendClient()
+        let router = TerminalBackendFrontendEventRouter(client: client, configUpdates: nil)
+        let probe = FrontendRouterDeliveryProbe()
+        let gate = FrontendRouterTestGate()
+        let workspaceA = UUID()
+        let workspaceB = UUID()
+        let presentationA = UUID()
+        let presentationB = UUID()
+        await router.start()
+        await client.waitForRendererSubscriberCount(1)
+        let routeA = await router.register(
+            presentationID: presentationA,
+            workspaceID: workspaceA,
+            rendererHandler: { event in
+                await probe.recordRenderer(workspaceID: workspaceA, event: event)
+                await gate.wait()
+            },
+            rendererStreamEndedHandler: {
+                await probe.recordResync(workspaceID: workspaceA)
+            },
+            configHandler: { _ in }
+        )
+        let routeB = await router.register(
+            presentationID: presentationB,
+            workspaceID: workspaceB,
+            rendererHandler: { event in
+                await probe.recordRenderer(workspaceID: workspaceB, event: event)
+            },
+            rendererStreamEndedHandler: {
+                await probe.recordResync(workspaceID: workspaceB)
+            },
+            configHandler: { _ in }
+        )
+
+        await client.publish(.workerChanged(
+            presentationID: presentationA,
+            change: try Self.rendererWorkerChange(
+                workspaceID: workspaceA,
+                priorRendererEpoch: 0,
+                rendererEpoch: nil,
+                state: .starting
+            )
+        ))
+        await probe.waitForRendererCount(1, workspaceID: workspaceA)
+        await client.publish(.workerChanged(
+            presentationID: presentationB,
+            change: try Self.rendererWorkerChange(
+                workspaceID: workspaceB,
+                priorRendererEpoch: 0,
+                rendererEpoch: nil,
+                state: .starting
+            )
+        ))
+        for _ in 0..<128 { await Task.yield() }
+
+        #expect(await probe.rendererCount(workspaceID: workspaceB) == 1)
+        #expect(await client.rendererEventStreamStartCount() == 1)
+
+        await gate.open()
+        await router.unregister(routeA)
+        await router.unregister(routeB)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func routeMailboxOverflowCoalescesToOneAuthoritativeResync() async throws {
+        let client = RecordingPersistentTerminalBackendClient()
+        let router = TerminalBackendFrontendEventRouter(client: client, configUpdates: nil)
+        let probe = FrontendRouterDeliveryProbe()
+        let gate = FrontendRouterTestGate()
+        let workspaceID = UUID()
+        let presentationID = UUID()
+        await router.start()
+        await client.waitForRendererSubscriberCount(1)
+        let route = await router.register(
+            presentationID: presentationID,
+            workspaceID: workspaceID,
+            rendererHandler: { event in
+                await probe.recordRenderer(workspaceID: workspaceID, event: event)
+                if await probe.rendererCount(workspaceID: workspaceID) == 1 {
+                    await gate.wait()
+                }
+            },
+            rendererStreamEndedHandler: {
+                await probe.recordResync(workspaceID: workspaceID)
+            },
+            configHandler: { _ in }
+        )
+        await client.publish(.workerChanged(
+            presentationID: presentationID,
+            change: try Self.rendererWorkerChange(
+                workspaceID: workspaceID,
+                priorRendererEpoch: 0,
+                rendererEpoch: nil,
+                state: .starting
+            )
+        ))
+        await probe.waitForRendererCount(1, workspaceID: workspaceID)
+        for epoch in 1...128 {
+            await client.publish(.workerChanged(
+                presentationID: presentationID,
+                change: try Self.rendererWorkerChange(
+                    workspaceID: workspaceID,
+                    priorRendererEpoch: UInt64(epoch - 1),
+                    rendererEpoch: UInt64(epoch),
+                    state: .ready
+                )
+            ))
+        }
+        await router.waitForRendererDeliveryCount(129)
+
+        await gate.open()
+        for _ in 0..<512 { await Task.yield() }
+
+        #expect(await probe.resyncCount(workspaceID: workspaceID) == 1)
+        #expect(await probe.rendererCount(workspaceID: workspaceID) <= 2)
+        #expect(await client.rendererEventStreamStartCount() == 1)
+        await router.unregister(route)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func routeMailboxCoalescesPendingConfigToNewestRevision() async throws {
+        let client = RecordingPersistentTerminalBackendClient()
+        let updates = AsyncStream<TerminalBackendRenderConfigSnapshot>.makeStream()
+        let router = TerminalBackendFrontendEventRouter(
+            client: client,
+            configUpdates: updates.stream
+        )
+        let probe = FrontendRouterDeliveryProbe()
+        let gate = FrontendRouterTestGate()
+        await router.start()
+        let route = await router.register(
+            presentationID: UUID(),
+            workspaceID: UUID(),
+            rendererHandler: { _ in },
+            rendererStreamEndedHandler: {},
+            configHandler: { update in
+                await probe.recordConfig(revision: update.revision)
+                if await probe.configCount() == 1 {
+                    await gate.wait()
+                }
+            }
+        )
+        updates.continuation.yield(TerminalBackendRenderConfigSnapshot(
+            revision: 1,
+            data: Data("font-family = Menlo\n".utf8)
+        ))
+        await probe.waitForConfigCount(1)
+        for revision in 2...128 {
+            updates.continuation.yield(TerminalBackendRenderConfigSnapshot(
+                revision: UInt64(revision),
+                data: Data("font-size = \(revision)\n".utf8)
+            ))
+        }
+        await router.waitForConfigDeliveryCount(128)
+        await gate.open()
+        for _ in 0..<512 { await Task.yield() }
+
+        #expect(await probe.configRevisions() == [1, 128])
+        await router.unregister(route)
     }
 
     @Test
@@ -216,14 +452,14 @@ struct TerminalClientCompositionTests {
         let currentRegistration = ledger.register(current)
         let duplicateRegistration = ledger.register(current)
         let staleRegistration = ledger.register(stale)
+        let staleExited = ledger.markExited(stale)
+        let oldExited = ledger.markExited(old)
         #expect(oldRegistration == .installed)
         #expect(currentRegistration == .installed)
         #expect(duplicateRegistration == .existing)
         #expect(staleRegistration == .conflict(current))
-        let markedStaleExited = ledger.markExited(stale)
-        #expect(!markedStaleExited)
-        let markedOldExited = ledger.markExited(old)
-        #expect(markedOldExited)
+        #expect(!staleExited)
+        #expect(oldExited)
         #expect(ledger.hasExited(oldEpoch) == true)
         #expect(ledger.hasExited(currentEpoch) == false)
     }
@@ -245,9 +481,9 @@ struct TerminalClientCompositionTests {
                 )
             )
             let registration = ledger.register(identity)
-            let markedExited = ledger.markExited(identity)
+            let exited = ledger.markExited(identity)
             #expect(registration == .installed)
-            #expect(markedExited)
+            #expect(exited)
         }
         #expect(ledger.entryCount <= TerminalBackendRendererWorkerExitLedger
             .maximumRetainedExitedEntries)
@@ -778,12 +1014,15 @@ struct TerminalClientCompositionTests {
         #expect(router.configDeliveryCounts[firstPresentationID] == 1)
         #expect(router.configDeliveryCounts[secondPresentationID] == 1)
 
-        await client.publish(.workerChanged(try Self.rendererWorkerChange(
-            workspaceID: workspaceIDs[0],
-            priorRendererEpoch: 0,
-            rendererEpoch: nil,
-            state: .starting
-        )))
+        await client.publish(.workerChanged(
+            presentationID: firstPresentationID,
+            change: try Self.rendererWorkerChange(
+                workspaceID: workspaceIDs[0],
+                priorRendererEpoch: 0,
+                rendererEpoch: nil,
+                state: .starting
+            )
+        ))
         await runtimes[0].debugWaitForFrontendRendererDeliveryCountForTesting(1)
 
         router = await runtimes[0].debugFrontendEventRouterSnapshotForTesting()
@@ -804,6 +1043,166 @@ struct TerminalClientCompositionTests {
         #expect(router.rendererUpstreamSubscriptionCount == 1)
         #expect(await client.activeRendererSubscriberCount() == 1)
         #expect(renderConfigSource.debugActiveUpdateSubscriberCountForTesting() == 1)
+
+        leases.forEach { $0.detach() }
+        await client.waitForDetachCount(1_000)
+        for _ in 0..<128 { await Task.yield() }
+        #expect(await client.rendererEventStreamStartCount() == 1)
+        #expect(await client.peakRendererSubscriberCount() == 1)
+        #expect(await client.activeRendererSubscriberCount() == 1)
+        #expect(await runtimes[0].debugFrontendLifecycleWaiterCountForTesting() == 0)
+    }
+
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func visibleReparentAtomicallyReindexesItsKeyedFrontendRoute() async throws {
+        let client = RecordingPersistentTerminalBackendClient()
+        let sourceWorkspaceID = UUID()
+        let destinationWorkspaceID = UUID()
+        let surfaceID = UUID()
+        let runtime = PersistentTerminalExternalRuntime(
+            client: client,
+            launchResolver: makeLaunchResolver(),
+            launchRequest: makeLaunchRequest(
+                workspaceID: sourceWorkspaceID,
+                surfaceID: surfaceID
+            ),
+            presentationRegistry: TerminalBackendPresentationRegistry(),
+            renderConfigSource: TerminalBackendRenderConfigSource {
+                Data("font-family = Menlo\n".utf8)
+            }
+        )
+        let lease = runtime.attachPresentation(TerminalExternalPresentation(
+            surfaceID: surfaceID,
+            workspaceID: sourceWorkspaceID
+        ))
+        defer { lease.detach() }
+        await client.waitForEnsureCount(1)
+        #expect(runtime.enqueue(.visibility(true)).accepted)
+        await runtime.debugWaitForFrontendEventRouteCountForTesting(1)
+
+        #expect(runtime.enqueue(.reparent(workspaceID: destinationWorkspaceID)).accepted)
+        await client.waitForMutationCount(1)
+        for _ in 0..<64 { await Task.yield() }
+        let presentationID = runtime.debugPresentationIDForTesting()
+
+        await client.publish(.workerChanged(
+            presentationID: presentationID,
+            change: try Self.rendererWorkerChange(
+                workspaceID: destinationWorkspaceID,
+                priorRendererEpoch: 0,
+                rendererEpoch: nil,
+                state: .starting
+            )
+        ))
+        for _ in 0..<128 { await Task.yield() }
+        var snapshot = await runtime.debugFrontendEventRouterSnapshotForTesting()
+        #expect(snapshot.activeRouteCount == 1)
+        #expect(snapshot.rendererDeliveryCounts[presentationID] == 1)
+
+        await client.publish(.workerChanged(
+            presentationID: presentationID,
+            change: try Self.rendererWorkerChange(
+                workspaceID: sourceWorkspaceID,
+                priorRendererEpoch: 0,
+                rendererEpoch: nil,
+                state: .starting
+            )
+        ))
+        for _ in 0..<128 { await Task.yield() }
+        snapshot = await runtime.debugFrontendEventRouterSnapshotForTesting()
+        #expect(snapshot.rendererDeliveryCounts[presentationID] == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func detachedRuntimeRejectsLateRendererApplyPublication() async throws {
+        let client = RecordingPersistentTerminalBackendClient(suspendMutations: true)
+        let registry = TerminalBackendPresentationRegistry()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let runtime = PersistentTerminalExternalRuntime(
+            client: client,
+            launchResolver: makeLaunchResolver(),
+            launchRequest: makeLaunchRequest(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID
+            ),
+            presentationRegistry: registry,
+            renderConfigSource: TerminalBackendRenderConfigSource {
+                Data("font-family = Menlo\n".utf8)
+            }
+        )
+        let lease = runtime.attachPresentation(TerminalExternalPresentation(
+            surfaceID: surfaceID,
+            workspaceID: workspaceID
+        ))
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        #expect(registry.mountCompositor(surfaceID: surfaceID, in: host))
+        await client.waitForEnsureCount(1)
+        #expect(runtime.enqueue(.visibility(true)).accepted)
+        #expect(runtime.enqueue(.resize(TerminalExternalViewport(
+            widthPoints: 640,
+            heightPoints: 480,
+            widthPixels: 1_280,
+            heightPixels: 960,
+            xScale: 2,
+            yScale: 2,
+            proposedColumns: 160,
+            proposedRows: 48
+        ))).accepted)
+        await client.waitForMutationCount(1)
+
+        lease.detach()
+        await client.waitForDetachCount(1)
+        await client.resumeMutation(at: 0)
+        for _ in 0..<128 { await Task.yield() }
+
+        #expect(!runtime.debugBackendPresentationOpenForTesting())
+        #expect(!runtime.debugHasCurrentFrameReceiverForTesting())
+        #expect(!runtime.debugHasFrontendEventRouteForTesting())
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func unregisterPrunesBoundedRouteDeliveryDiagnostics() async throws {
+        let client = RecordingPersistentTerminalBackendClient()
+        let config = AsyncStream<TerminalBackendRenderConfigSnapshot>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let router = TerminalBackendFrontendEventRouter(
+            client: client,
+            configUpdates: config.stream
+        )
+        let workspaceID = UUID()
+        let presentationID = UUID()
+        await router.start()
+        await client.waitForRendererSubscriberCount(1)
+        let route = await router.register(
+            presentationID: presentationID,
+            workspaceID: workspaceID,
+            rendererHandler: { _ in },
+            rendererStreamEndedHandler: {},
+            configHandler: { _ in }
+        )
+        config.continuation.yield(TerminalBackendRenderConfigSnapshot(
+            revision: 1,
+            data: Data("font-family = Menlo\n".utf8)
+        ))
+        await client.publish(.workerChanged(
+            presentationID: presentationID,
+            change: try Self.rendererWorkerChange(
+                workspaceID: workspaceID,
+                priorRendererEpoch: 0,
+                rendererEpoch: nil,
+                state: .starting
+            )
+        ))
+        await router.waitForRendererDeliveryCount(1)
+        await router.waitForConfigDeliveryCount(1)
+        await router.unregister(route)
+
+        let snapshot = await router.snapshot()
+        #expect(snapshot.activeRouteCount == 0)
+        #expect(snapshot.rendererDeliveryCounts.isEmpty)
+        #expect(snapshot.configDeliveryCounts.isEmpty)
     }
 
     @Test @MainActor
@@ -1573,7 +1972,10 @@ struct TerminalClientCompositionTests {
             rendererEpoch: 7,
             state: .ready
         )
-        await runtime.debugHandleRendererEventForTesting(.workerChanged(sameEpoch))
+        await runtime.debugHandleRendererEventForTesting(.workerChanged(
+            presentationID: presentationID,
+            change: sameEpoch
+        ))
         #expect(registry.compositorView(surfaceID: surfaceID) != nil)
 
         let replacedEpoch = try Self.rendererWorkerChange(
@@ -1582,7 +1984,10 @@ struct TerminalClientCompositionTests {
             rendererEpoch: 8,
             state: .ready
         )
-        await runtime.debugHandleRendererEventForTesting(.workerChanged(replacedEpoch))
+        await runtime.debugHandleRendererEventForTesting(.workerChanged(
+            presentationID: presentationID,
+            change: replacedEpoch
+        ))
         #expect(registry.compositorView(surfaceID: surfaceID) == nil)
         #expect(!runtime.debugHasFrameReceiverRetirementForTesting())
     }
@@ -1644,11 +2049,6 @@ struct TerminalClientCompositionTests {
         #expect(initialString.contains("font-family = Fira Code"))
         #expect(initialString.contains("custom-shader = /tmp/old.glsl"))
         #expect(initialString.hasSuffix("font-size = 17\n"))
-        let publishedInitial = try #require(
-            registry.resolvedRenderConfig(surfaceID: surfaceID)
-        )
-        #expect(publishedInitial.revision == initial.presentation?.resolvedConfigRevision)
-        #expect(publishedInitial.data == initialConfig)
 
         serializedConfig = Data("""
             font-family = Iosevka
@@ -1662,21 +2062,15 @@ struct TerminalClientCompositionTests {
         let updated = try #require(updatedMutations.last)
         let updatedConfig = try #require(updated.presentation?.resolvedConfig)
         let updatedString = try #require(String(data: updatedConfig, encoding: .utf8))
-        #expect(updated.mutation == .visibility(true))
+        #expect(updated.mutation == .resize(viewport))
         #expect(updated.presentation?.resolvedConfigRevision != initial.presentation?.resolvedConfigRevision)
         #expect(updatedString.contains("font-family = Iosevka"))
         #expect(updatedString.contains("custom-shader = /tmp/new.glsl"))
         #expect(updatedString.hasSuffix("font-size = 17\n"))
-        #expect(updatedMutations.map(\.mutation) == [
-            .resize(viewport),
-            .visibility(true),
-        ])
-        #expect(updatedMutations.allSatisfy { $0.presentation?.visible == true })
-        let publishedUpdate = try #require(
-            registry.resolvedRenderConfig(surfaceID: surfaceID)
-        )
-        #expect(publishedUpdate.revision == updated.presentation?.resolvedConfigRevision)
-        #expect(publishedUpdate.data == updatedConfig)
+        #expect(updatedMutations.allSatisfy { mutation in
+            if case .resize = mutation.mutation { return true }
+            return false
+        })
     }
 
     @Test
@@ -1748,16 +2142,20 @@ struct TerminalClientCompositionTests {
         )
         var queue = TerminalBackendMutationQueue(capacity: 5)
 
-        let admitted = [
-            queue.append(queued(1, .focus(true))),
-            queue.append(queued(2, .resize(firstViewport))),
-            queue.append(queued(3, .focus(false))),
-            queue.append(queued(4, .input(.namedKey("Enter")))),
-            queue.append(queued(5, .focus(true))),
-            queue.append(queued(6, .focus(false))),
-            queue.append(queued(7, .resize(finalViewport))),
-        ]
-        #expect(admitted.allSatisfy { $0 })
+        let admittedFocusOne = queue.append(queued(1, .focus(true)))
+        let admittedFirstResize = queue.append(queued(2, .resize(firstViewport)))
+        let admittedFocusTwo = queue.append(queued(3, .focus(false)))
+        let admittedInput = queue.append(queued(4, .input(.namedKey("Enter"))))
+        let admittedFocusThree = queue.append(queued(5, .focus(true)))
+        let admittedFocusFour = queue.append(queued(6, .focus(false)))
+        let admittedFinalResize = queue.append(queued(7, .resize(finalViewport)))
+        #expect(admittedFocusOne)
+        #expect(admittedFirstResize)
+        #expect(admittedFocusTwo)
+        #expect(admittedInput)
+        #expect(admittedFocusThree)
+        #expect(admittedFocusFour)
+        #expect(admittedFinalResize)
 
         var drained: [TerminalBackendQueuedMutation] = []
         while let mutation = queue.removeFirst() {
@@ -1770,6 +2168,36 @@ struct TerminalClientCompositionTests {
             .input(.namedKey("Enter")),
             .focus(false),
             .resize(finalViewport),
+        ])
+    }
+
+    @Test @MainActor
+    func copyModeTogglesResolveInOrderAgainstConfirmedBackendState() async {
+        let client = RecordingPersistentTerminalBackendClient()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let runtime = PersistentTerminalExternalRuntime(
+            client: client,
+            launchResolver: makeLaunchResolver(),
+            launchRequest: makeLaunchRequest(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID
+            ),
+            presentationRegistry: TerminalBackendPresentationRegistry()
+        )
+        let lease = runtime.attachPresentation(TerminalExternalPresentation(
+            surfaceID: surfaceID,
+            workspaceID: workspaceID
+        ))
+        defer { lease.detach() }
+
+        #expect(runtime.enqueue(.toggleCopyMode).accepted)
+        #expect(runtime.enqueue(.toggleCopyMode).accepted)
+        await client.waitForMutationCount(2)
+
+        #expect((await client.mutations()).map(\.mutation) == [
+            .copyMode(operation: .enter, adjustment: nil, count: 1),
+            .copyMode(operation: .exit, adjustment: nil, count: 1),
         ])
     }
 
@@ -1812,14 +2240,10 @@ struct TerminalClientCompositionTests {
             #expect(queue.count == 4)
         }
 
-        let acceptedBarrier = queue.append(
-            queued(50_000, .input(.namedKey("Enter")))
-        )
-        let acceptedConvergentState = queue.append(
-            queued(50_001, .focus(true))
-        )
-        #expect(!acceptedBarrier)
-        #expect(acceptedConvergentState)
+        let admittedOverflowInput = queue.append(queued(50_000, .input(.namedKey("Enter"))))
+        let admittedFinalFocus = queue.append(queued(50_001, .focus(true)))
+        #expect(!admittedOverflowInput)
+        #expect(admittedFinalFocus)
         var mutations: [TerminalExternalRuntimeMutation] = []
         while let queued = queue.removeFirst() {
             mutations.append(queued.mutation)
@@ -1830,6 +2254,48 @@ struct TerminalClientCompositionTests {
             .preedit(.collapsedAtEnd("9999")),
             .focus(true),
         ])
+    }
+
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func desiredVisibilitySurvivesStrictIngressSaturation() async {
+        let client = RecordingPersistentTerminalBackendClient(suspendMutations: true)
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let runtime = PersistentTerminalExternalRuntime(
+            client: client,
+            launchResolver: makeLaunchResolver(),
+            launchRequest: makeLaunchRequest(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID
+            ),
+            presentationRegistry: TerminalBackendPresentationRegistry(),
+            queueCapacity: 1
+        )
+        let lease = runtime.attachPresentation(TerminalExternalPresentation(
+            surfaceID: surfaceID,
+            workspaceID: workspaceID
+        ))
+        defer { lease.detach() }
+        await client.waitForEnsureCount(1)
+
+        #expect(runtime.enqueue(.input(.namedKey("first"))).accepted)
+        await client.waitForMutationCount(1)
+
+        runtime.setDesiredVisibility(true)
+        runtime.setDesiredVisibility(false)
+        #expect(
+            runtime.enqueue(.input(.namedKey("second")))
+                == .rejected(.queueFull)
+        )
+
+        await client.resumeMutation(at: 0)
+        await client.waitForMutationCount(2)
+        let mutations = await client.mutations()
+        #expect(mutations.map(\.mutation) == [
+            .input(.namedKey("first")),
+            .visibility(false),
+        ])
+        await client.resumeMutation(at: 1)
     }
 
     @Test @MainActor
@@ -1948,8 +2414,62 @@ struct TerminalClientCompositionTests {
         #expect(mutationsAfterClose.filter { $0.mutation == .closeCanonicalTerminal }.count == 1)
     }
 
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func persistentCanonicalCloseReleasesInstalledCommandShims() async {
+        let client = RecordingPersistentTerminalBackendClient()
+        let cleanupRecorder = PersistentCommandShimCleanupRecorder()
+        let installedShims = TerminalSurfaceAgentCommandShimSet(
+            directoryPath: "/tmp/cmux-persistent-command-shims",
+            shims: []
+        )
+        let launchDependencies = GhosttyApp.terminalSurfaceLaunchDependencies
+        let resolver = TerminalSurfaceLaunchResolver(
+            userGhosttyShellIntegrationMode: { "none" },
+            resolvedUserShell: { nil },
+            userGhosttyCommand: { nil },
+            spawnPolicyProvider: launchDependencies.spawnPolicyProvider,
+            runtimeFilesystem: TerminalSurfaceRuntimeFilesystem(
+                agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp"),
+                installAgentCommandShims: { _, _, _ in installedShims },
+                removeAgentCommandShims: { shims in
+                    await cleanupRecorder.record(shims)
+                },
+                isExecutableFile: { _ in false },
+                directoryExists: { _ in false }
+            ),
+            sessionPortBase: 40_000,
+            sessionPortRangeSize: 100,
+            resourceURL: URL(fileURLWithPath: "/tmp/cmux-test-resources"),
+            bundleIdentifier: "com.cmux.test.persistent-terminal",
+            ambientEnvironment: ["PATH": "/usr/bin", "SHELL": "/bin/zsh"],
+            defaultShellArguments: ["/bin/zsh", "-l"]
+        )
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let runtime = PersistentTerminalExternalRuntime(
+            client: client,
+            launchResolver: resolver,
+            launchRequest: makeLaunchRequest(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID
+            ),
+            presentationRegistry: TerminalBackendPresentationRegistry()
+        )
+        let presentationLease = runtime.attachPresentation(TerminalExternalPresentation(
+            surfaceID: surfaceID,
+            workspaceID: workspaceID
+        ))
+        defer { presentationLease.detach() }
+
+        await client.waitForEnsureCount(1)
+        await client.waitForUXReadCount(1)
+        #expect(runtime.enqueue(.closeCanonicalTerminal).accepted)
+
+        #expect(await cleanupRecorder.next() == installedShims)
+    }
+
     @Test(.timeLimit(.minutes(1)))
-    func rendererDetachWaitsForAnInFlightConfigurationBeforeAcknowledgingQuiescence() async throws {
+    func rendererListenerRegistersBeforeConfigureAndDetachWaitsForQuiescence() async throws {
         let authority = BackendAuthority(
             daemonInstanceID: DaemonInstanceID(rawValue: UUID()),
             sessionID: SessionID(rawValue: UUID())
@@ -2028,6 +2548,8 @@ struct TerminalClientCompositionTests {
             resolvedConfigRevision: 1,
             resolvedConfig: Data("font-family = Menlo\n".utf8)
         )
+        let rendererEvents = await coordinator.rendererEvents()
+        var rendererEventIterator = rendererEvents.makeAsyncIterator()
 
         let configuration = Task {
             try await coordinator.apply(
@@ -2038,6 +2560,31 @@ struct TerminalClientCompositionTests {
             )
         }
         await renderer.waitForConfiguration()
+        #expect(await renderer.events() == ["subscribe", "configure-start"])
+        let changed = try JSONDecoder().decode(
+            BackendRendererWorkerChanged.self,
+            from: Data(
+                """
+                {
+                  "workspace_uuid":"\(workspaceID.description)",
+                  "prior_renderer_epoch":1,
+                  "renderer_epoch":null,
+                  "pid":null,
+                  "process_start_time_seconds":null,
+                  "process_start_time_microseconds":null,
+                  "effective_user_id":null,
+                  "scene_capabilities":null,
+                  "state":"starting",
+                  "restart_count":1
+                }
+                """.utf8
+            )
+        )
+        await renderer.emitRendererEvent(.workerChanged(changed))
+        try await coordinator.debugWaitForRendererPresentationOperationWaiterCount(
+            1,
+            presentationID: appPresentationID
+        )
         let detach = Task {
             try await coordinator.detachPresentation(
                 presentationID: appPresentationID,
@@ -2049,11 +2596,21 @@ struct TerminalClientCompositionTests {
 
         await renderer.resumeConfiguration()
         _ = try await configuration.value
+        guard case .workerChanged(let eventPresentationID, let receivedChange)? =
+            await rendererEventIterator.next()
+        else {
+            Issue.record("expected exact renderer worker delivery")
+            return
+        }
+        #expect(eventPresentationID == appPresentationID)
+        #expect(receivedChange == changed)
         try await detach.value
         #expect(await renderer.detachCount() == 1)
-        #expect(Array((await renderer.events()).prefix(3)) == [
+        #expect(Array((await renderer.events()).prefix(5)) == [
+            "subscribe",
             "configure-start",
             "configure-finish",
+            "unsubscribe",
             "detach",
         ])
 
@@ -2253,23 +2810,13 @@ struct TerminalClientCompositionTests {
                 from: binding
             )
         }
-        try await withReconnectTestTimeout(.seconds(5)) {
-            while await coordinator.debugRendererWorkerExitWaiterCount < 1 {
-                try Task.checkCancellation()
-                await Task.yield()
-            }
-        }
+        try await coordinator.debugWaitForRendererWorkerExitWaiterCount(1)
         #expect(rendererProcess.isRunning)
         #expect(await coordinator.debugRendererWorkerExitWaiterCount == 1)
 
         #expect(Darwin.kill(rendererPID, SIGCONT) == 0)
         #expect(Darwin.kill(rendererPID, SIGTERM) == 0)
-        try await withReconnectTestTimeout(.seconds(5)) {
-            while await coordinator.debugRendererWorkerExitWaiterCount != 0 {
-                try Task.checkCancellation()
-                await Task.yield()
-            }
-        }
+        try await coordinator.debugWaitForRendererWorkerExitWaiterCount(0)
         try await releaseTask.value
         try await detachTask.value
         rendererProcess.waitUntilExit()
@@ -2301,25 +2848,20 @@ struct TerminalClientCompositionTests {
             revision: 1_000,
             topology: emptyTopology
         )
-        let rendererChange = try makeBackendWorkerChange()
         let targets = try TopologyTargets()
         var burst: [BackendCanonicalSessionEvent] = []
         burst.reserveCapacity(600)
         var topologyRevision: UInt64 = 1
-        for index in 0..<600 {
-            if index.isMultiple(of: 2) {
-                topologyRevision += 1
-                burst.append(.delta(TopologyDelta(
-                    authority: firstAuthority,
-                    baseRevision: topologyRevision - 1,
-                    revision: topologyRevision,
-                    operation: .layoutApplied,
-                    targets: targets,
-                    replacement: emptyTopology
-                )))
-            } else {
-                burst.append(.rendererWorkerChanged(rendererChange))
-            }
+        for _ in 0..<600 {
+            topologyRevision += 1
+            burst.append(.delta(TopologyDelta(
+                authority: firstAuthority,
+                baseRevision: topologyRevision - 1,
+                revision: topologyRevision,
+                operation: .layoutApplied,
+                targets: targets,
+                replacement: emptyTopology
+            )))
         }
 
         let lifecycle = BackendSessionLifecycleRecorder()
@@ -2346,19 +2888,21 @@ struct TerminalClientCompositionTests {
                 revision: latestSnapshot.revision
             )),
         ])
+        let recoveryClock = TerminalBackendManualClock()
         let coordinator = TerminalBackendClientCoordinator(
             readinessProvider: { await readiness.next() },
             sessionFactory: { proof in
                 proof.processID == 41 ? firstSession : secondSession
             },
             reconnectPolicy: TerminalBackendReconnectPolicy(
-                delays: [.zero, .zero],
-                recoveryCycleDelay: .zero
-            )
+                delays: [.seconds(1), .seconds(2)],
+                recoveryCycleDelay: .seconds(3)
+            ),
+            recoveryClock: recoveryClock
         )
 
         let events = try await coordinator.canonicalTopologyEvents()
-        let recoveredRevision = try await withReconnectTestTimeout(.seconds(5)) {
+        let recoveredRevisionTask = Task { () throws -> UInt64 in
             for await event in events {
                 let revision: UInt64?
                 switch event {
@@ -2375,6 +2919,14 @@ struct TerminalClientCompositionTests {
             }
             throw ReconnectSupervisorTestError.streamEnded
         }
+        defer { recoveredRevisionTask.cancel() }
+        try await recoveryClock.waitUntilSleepers()
+        recoveryClock.advance(by: .seconds(1))
+        try await recoveryClock.waitUntilSleepers()
+        recoveryClock.advance(by: .seconds(2))
+        try await recoveryClock.waitUntilSleepers()
+        recoveryClock.advance(by: .seconds(3))
+        let recoveredRevision = try await recoveredRevisionTask.value
 
         #expect(recoveredRevision == latestSnapshot.revision)
         #expect(await readiness.requestCount() >= 5)
@@ -2539,42 +3091,37 @@ struct TerminalClientCompositionTests {
         _ count: Int,
         reports: BackendCompatibilityReporterRecorder
     ) async throws {
-        try await withReconnectTestTimeout(.seconds(5)) {
-            while await reports.count() < count {
-                await Task.yield()
-            }
-        }
+        try await reports.waitForCount(count)
     }
 
     private func waitForEventSubscriptionCount(
         _ count: Int,
         session: OverflowingBackendSession
     ) async throws {
-        try await withReconnectTestTimeout(.seconds(5)) {
-            while await session.eventSubscriptionCount() < count {
-                await Task.yield()
-            }
-        }
+        try await session.waitForEventSubscriptionCount(count)
     }
 
     @MainActor
     private func makeLaunchResolver() -> TerminalSurfaceLaunchResolver {
         let dependencies = GhosttyApp.terminalSurfaceLaunchDependencies
         return TerminalSurfaceLaunchResolver(
-            userGhosttyShellIntegrationMode:
-                dependencies.userGhosttyShellIntegrationMode,
+            userGhosttyShellIntegrationMode: dependencies.userGhosttyShellIntegrationMode,
+            resolvedUserShell: dependencies.resolvedUserShell,
+            userGhosttyCommand: dependencies.userGhosttyCommand,
             spawnPolicyProvider: dependencies.spawnPolicyProvider,
             runtimeFilesystem: TerminalSurfaceRuntimeFilesystem(
-                claudeCommandShimTemporaryDirectory: URL(fileURLWithPath: NSTemporaryDirectory()),
-                installClaudeCommandShim: { _, _, _ in nil },
-                isExecutableFile: { _ in false }
+                agentCommandShimTemporaryDirectory: URL(fileURLWithPath: NSTemporaryDirectory()),
+                installAgentCommandShims: { _, _, _ in nil },
+                removeAgentCommandShims: { _ in },
+                isExecutableFile: { _ in false },
+                directoryExists: { _ in false }
             ),
             sessionPortBase: 40_000,
             sessionPortRangeSize: 100,
             resourceURL: nil,
             bundleIdentifier: "com.cmux.test.persistent-terminal",
             ambientEnvironment: ["PATH": "/usr/bin", "SHELL": "/bin/zsh"],
-            defaultShellArguments: { ["/bin/zsh", "-l"] }
+            defaultShellArguments: ["/bin/zsh", "-l"]
         )
     }
 
@@ -2635,27 +3182,6 @@ struct TerminalClientCompositionTests {
                 negotiatedProtocol: 9,
                 requiredCapabilities: BackendHandshakePolicy.terminalAuthorityV1.requiredCapabilities
             ))
-        )
-    }
-
-    private func makeBackendWorkerChange() throws -> BackendRendererWorkerChanged {
-        let workspaceID = WorkspaceID(rawValue: UUID())
-        return try JSONDecoder().decode(
-            BackendRendererWorkerChanged.self,
-            from: Data("""
-                {
-                  "workspace_uuid": "\(workspaceID.description)",
-                  "prior_renderer_epoch": 1,
-                  "renderer_epoch": 2,
-                  "pid": 88,
-                  "process_start_time_seconds": 100,
-                  "process_start_time_microseconds": 200,
-                  "effective_user_id": 501,
-                  "scene_capabilities": 1,
-                  "state": "ready",
-                  "restart_count": 0
-                }
-                """.utf8)
         )
     }
 
@@ -3036,16 +3562,20 @@ struct TerminalClientCompositionTests {
 
         let capture = Data(
             repeating: 0x61,
-            count: RemoteTmuxControlConnection.maximumPendingPaneSeedByteCount + 1
+            count: RemoteTmuxControlConnection.maximumPendingPaneSeedLiveBytes + 1
         )
         let live = Data("live-after-early-seed".utf8)
         let state = Data("pane-state-after-live".utf8)
-        connection.beginPaneSeed(paneId: paneID, clearScrollback: false)
-        connection.installPaneSeedCapture(paneId: paneID, data: capture)
+        let seedID = try #require(connection.beginPaneSeed(
+            paneId: paneID,
+            clearScrollback: false,
+            kind: .fullHistory
+        ))
+        connection.installPaneSeedCapture(paneId: paneID, seedID: seedID, data: capture)
         await service.waitForResetCount(1)
 
         connection.handleMessageForTesting(.output(paneId: paneID, data: live))
-        connection.finishPaneSeed(paneId: paneID, state: state)
+        connection.finishPaneSeed(paneId: paneID, seedID: seedID, state: state)
         await service.releaseResets()
         await bridge.waitForIdleForTesting()
 
@@ -3526,6 +4056,10 @@ actor RecordingExternalTerminalService: TerminalBackendExternalTerminalServing,
             acceptedSequence: 0,
             nextSequence: 1,
             noReflow: noReflow,
+            terminalEpoch: 0,
+            interactionRevision: 0,
+            interactionRevisionExhausted: false,
+            mouseTracking: false,
             egress: Data("reset-egress".utf8),
             replayed: false
         )
@@ -3552,6 +4086,10 @@ actor RecordingExternalTerminalService: TerminalBackendExternalTerminalServing,
             acceptedSequence: sequence,
             nextSequence: sequence + 1,
             noReflow: currentNoReflow,
+            terminalEpoch: 0,
+            interactionRevision: 0,
+            interactionRevisionExhausted: false,
+            mouseTracking: false,
             egress: Data("output-egress-\(sequence)".utf8),
             replayed: false
         )
@@ -3641,27 +4179,121 @@ actor RecordingExternalTerminalService: TerminalBackendExternalTerminalServing,
     }
 }
 
-private enum ReconnectSupervisorTestError: Error {
-    case timedOut
-    case streamEnded
+private final class TerminalBackendManualClock: Clock, @unchecked Sendable {
+    struct Instant: InstantProtocol, Sendable {
+        var offset: Duration
+
+        func advanced(by duration: Duration) -> Instant { Instant(offset: offset + duration) }
+        func duration(to other: Instant) -> Duration { other.offset - offset }
+        static func < (lhs: Instant, rhs: Instant) -> Bool { lhs.offset < rhs.offset }
+    }
+
+    private struct Sleeper {
+        let deadline: Instant
+        let continuation: CheckedContinuation<Void, any Error>
+    }
+
+    private let lock = NSLock()
+    private var currentInstant = Instant(offset: .zero)
+    private var sleepers: [UUID: Sleeper] = [:]
+    private var cancelledSleeperIDs: Set<UUID> = []
+    private var parkWaiters: [
+        UUID: (count: Int, continuation: CheckedContinuation<Void, any Error>)
+    ] = [:]
+
+    var now: Instant {
+        lock.lock()
+        defer { lock.unlock() }
+        return currentInstant
+    }
+
+    var minimumResolution: Duration { .zero }
+
+    func sleep(until deadline: Instant, tolerance: Duration?) async throws {
+        let identifier = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Void, any Error>) in
+                lock.lock()
+                if cancelledSleeperIDs.remove(identifier) != nil {
+                    lock.unlock()
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                if deadline <= currentInstant {
+                    lock.unlock()
+                    continuation.resume()
+                    return
+                }
+                sleepers[identifier] = Sleeper(
+                    deadline: deadline,
+                    continuation: continuation
+                )
+                let waiters = takeSatisfiedParkWaitersLocked()
+                lock.unlock()
+                for waiter in waiters { waiter.resume() }
+            }
+        } onCancel: {
+            lock.lock()
+            let sleeper = sleepers.removeValue(forKey: identifier)
+            if sleeper == nil { cancelledSleeperIDs.insert(identifier) }
+            lock.unlock()
+            sleeper?.continuation.resume(throwing: CancellationError())
+        }
+    }
+
+    func waitUntilSleepers(count: Int = 1) async throws {
+        let identifier = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Void, any Error>) in
+                lock.lock()
+                if Task.isCancelled {
+                    lock.unlock()
+                    continuation.resume(throwing: CancellationError())
+                } else if sleepers.count >= count {
+                    lock.unlock()
+                    continuation.resume()
+                } else {
+                    parkWaiters[identifier] = (count, continuation)
+                    lock.unlock()
+                }
+            }
+        } onCancel: {
+            lock.lock()
+            let waiter = parkWaiters.removeValue(forKey: identifier)
+            lock.unlock()
+            waiter?.continuation.resume(throwing: CancellationError())
+        }
+    }
+
+    func advance(by duration: Duration) {
+        lock.lock()
+        currentInstant = currentInstant.advanced(by: duration)
+        var due: [Sleeper] = []
+        for (identifier, sleeper) in sleepers where sleeper.deadline <= currentInstant {
+            sleepers[identifier] = nil
+            due.append(sleeper)
+        }
+        lock.unlock()
+        for sleeper in due.sorted(by: { $0.deadline < $1.deadline }) {
+            sleeper.continuation.resume()
+        }
+    }
+
+    private func takeSatisfiedParkWaitersLocked() -> [CheckedContinuation<Void, any Error>] {
+        let identifiers = parkWaiters.compactMap { identifier, waiter in
+            sleepers.count >= waiter.count ? identifier : nil
+        }
+        return identifiers.compactMap {
+            parkWaiters.removeValue(forKey: $0)?.continuation
+        }
+    }
 }
 
-private func withReconnectTestTimeout<Value: Sendable>(
-    _ duration: Duration,
-    operation: @escaping @Sendable () async throws -> Value
-) async throws -> Value {
-    try await withThrowingTaskGroup(of: Value.self) { group in
-        group.addTask(operation: operation)
-        group.addTask {
-            try await ContinuousClock().sleep(for: duration)
-            throw ReconnectSupervisorTestError.timedOut
-        }
-        defer { group.cancelAll() }
-        guard let value = try await group.next() else {
-            throw ReconnectSupervisorTestError.streamEnded
-        }
-        return value
-    }
+private enum ReconnectSupervisorTestError: Error {
+    case streamEnded
+    case timedOut
 }
 
 private actor ScriptedBackendReadiness {
@@ -3705,14 +4337,48 @@ private actor BackendSessionLifecycleRecorder {
 
 private actor BackendCompatibilityReporterRecorder {
     private var reports: [BackendCompatibilityResult?] = []
+    private var countWaiters: [
+        UUID: (count: Int, continuation: CheckedContinuation<Void, any Error>)
+    ] = [:]
 
     func record(_ compatibility: BackendCompatibilityResult?) {
         reports.append(compatibility)
+        let identifiers = countWaiters.compactMap { identifier, waiter in
+            waiter.count <= reports.count ? identifier : nil
+        }
+        for identifier in identifiers {
+            countWaiters.removeValue(forKey: identifier)?.continuation.resume()
+        }
     }
 
     func count() -> Int { reports.count }
 
     func recorded() -> [BackendCompatibilityResult?] { reports }
+
+    func waitForCount(_ expectedCount: Int) async throws {
+        guard reports.count < expectedCount else { return }
+        let identifier = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Void, any Error>) in
+                if Task.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                } else if reports.count >= expectedCount {
+                    continuation.resume()
+                } else {
+                    countWaiters[identifier] = (expectedCount, continuation)
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelCountWaiter(identifier) }
+        }
+    }
+
+    private func cancelCountWaiter(_ identifier: UUID) {
+        countWaiters.removeValue(forKey: identifier)?.continuation.resume(
+            throwing: CancellationError()
+        )
+    }
 }
 
 private actor RendererSerializationSessionHarness {
@@ -3727,6 +4393,9 @@ private actor RendererSerializationSessionHarness {
         CheckedContinuation<BackendRendererPresentationReceipt, Never>?
     private var pendingConfigurationReceipt: BackendRendererPresentationReceipt?
     private var configurationWaiters: [CheckedContinuation<Void, Never>] = []
+    private var rendererEventContinuations: [
+        UUID: AsyncStream<BackendRendererLifecycleEvent>.Continuation
+    ] = [:]
     private var recordedEvents: [String] = []
     private var recordedDetachCount = 0
 
@@ -3789,6 +4458,46 @@ private actor RendererSerializationSessionHarness {
         }
         recordedEvents.append("configure-finish")
         return resumed
+    }
+
+    func rendererEventSubscription(
+        workspaceID: WorkspaceID,
+        presentationID: PresentationID,
+        bufferingCapacity: Int
+    ) -> BackendRendererEventSubscription {
+        #expect(workspaceID == self.workspaceID)
+        #expect(presentationID == self.presentationID)
+        #expect(bufferingCapacity > 0)
+        let identifier = UUID()
+        let pair = AsyncStream<BackendRendererLifecycleEvent>.makeStream(
+            bufferingPolicy: .bufferingOldest(bufferingCapacity)
+        )
+        rendererEventContinuations[identifier] = pair.continuation
+        recordedEvents.append("subscribe")
+        return BackendRendererEventSubscription(
+            identifier: identifier,
+            events: pair.stream
+        )
+    }
+
+    func cancelRendererEventSubscription(_ identifier: UUID) {
+        guard let continuation = rendererEventContinuations.removeValue(
+            forKey: identifier
+        ) else { return }
+        recordedEvents.append("unsubscribe")
+        continuation.finish()
+    }
+
+    func emitRendererEvent(_ event: BackendRendererLifecycleEvent) {
+        for continuation in rendererEventContinuations.values {
+            continuation.yield(event)
+        }
+    }
+
+    func finishRendererEvents() {
+        let continuations = Array(rendererEventContinuations.values)
+        rendererEventContinuations.removeAll()
+        continuations.forEach { $0.finish() }
     }
 
     func waitForConfiguration() async {
@@ -3888,7 +4597,9 @@ private actor RendererSerializationSessionHarness {
                   "rows":\(configuration.rows),
                   "metrics":\(metrics),
                   "pixel_format":"bgra8-unorm",
-                  "color_space":"srgb"
+                  "color_space":"srgb",
+                  "resolved_config_revision":1,
+                  "resolved_config_digest":"\(String(repeating: "a", count: 64))"
                 }
                 """.utf8
             )
@@ -3905,6 +4616,9 @@ private actor OverflowingBackendSession: TerminalBackendSessionServing {
     private let rendererSerialization: RendererSerializationSessionHarness?
     private var stableContinuation: AsyncStream<BackendCanonicalSessionEvent>.Continuation?
     private var recordedEventSubscriptionCount = 0
+    private var eventSubscriptionCountWaiters: [
+        UUID: (count: Int, continuation: CheckedContinuation<Void, any Error>)
+    ] = [:]
     private var recordedConnectCount = 0
     private var recordedCloseCount = 0
     private var isOpen = false
@@ -3932,6 +4646,12 @@ private actor OverflowingBackendSession: TerminalBackendSessionServing {
 
     func events() -> AsyncStream<BackendCanonicalSessionEvent> {
         recordedEventSubscriptionCount += 1
+        let identifiers = eventSubscriptionCountWaiters.compactMap { identifier, waiter in
+            waiter.count <= recordedEventSubscriptionCount ? identifier : nil
+        }
+        for identifier in identifiers {
+            eventSubscriptionCountWaiters.removeValue(forKey: identifier)?.continuation.resume()
+        }
         let pair = AsyncStream<BackendCanonicalSessionEvent>.makeStream(
             bufferingPolicy: .bufferingOldest(256)
         )
@@ -3954,6 +4674,34 @@ private actor OverflowingBackendSession: TerminalBackendSessionServing {
         return pair.stream
     }
 
+    func rendererEventSubscription(
+        workspaceID: WorkspaceID,
+        presentationID: PresentationID,
+        bufferingCapacity: Int
+    ) async -> BackendRendererEventSubscription {
+        if let rendererSerialization {
+            return await rendererSerialization.rendererEventSubscription(
+                workspaceID: workspaceID,
+                presentationID: presentationID,
+                bufferingCapacity: bufferingCapacity
+            )
+        }
+        let pair = AsyncStream<BackendRendererLifecycleEvent>.makeStream(
+            bufferingPolicy: .bufferingOldest(max(bufferingCapacity, 1))
+        )
+        pair.continuation.finish()
+        return BackendRendererEventSubscription(
+            identifier: UUID(),
+            events: pair.stream
+        )
+    }
+
+    func cancelRendererEventSubscription(_ identifier: UUID) async {
+        if let rendererSerialization {
+            await rendererSerialization.cancelRendererEventSubscription(identifier)
+        }
+    }
+
     func backendCompatibility() async throws -> BackendCompatibilityResult {
         compatibility
     }
@@ -3966,6 +4714,31 @@ private actor OverflowingBackendSession: TerminalBackendSessionServing {
 
     func eventSubscriptionCount() -> Int { recordedEventSubscriptionCount }
 
+    func waitForEventSubscriptionCount(_ expectedCount: Int) async throws {
+        guard recordedEventSubscriptionCount < expectedCount else { return }
+        let identifier = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Void, any Error>) in
+                if Task.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                } else if recordedEventSubscriptionCount >= expectedCount {
+                    continuation.resume()
+                } else {
+                    eventSubscriptionCountWaiters[identifier] = (expectedCount, continuation)
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelEventSubscriptionCountWaiter(identifier) }
+        }
+    }
+
+    private func cancelEventSubscriptionCountWaiter(_ identifier: UUID) {
+        eventSubscriptionCountWaiters.removeValue(forKey: identifier)?.continuation.resume(
+            throwing: CancellationError()
+        )
+    }
+
     func connect() async throws -> TopologySnapshot? {
         recordedConnectCount += 1
         isOpen = true
@@ -3977,6 +4750,7 @@ private actor OverflowingBackendSession: TerminalBackendSessionServing {
         recordedCloseCount += 1
         stableContinuation?.finish()
         stableContinuation = nil
+        await rendererSerialization?.finishRendererEvents()
         guard isOpen else { return }
         isOpen = false
         await lifecycle.closed(identifier)
@@ -4309,10 +5083,12 @@ private actor SuspendedTerminalLaunchResolver {
     private static func resolvedLaunch(
         for request: TerminalSurfaceLaunchRequest
     ) -> TerminalSurfaceResolvedLaunch {
-        TerminalSurfaceResolvedLaunch(
+        let launchForm = request.initialCommand
+            .flatMap(TerminalSurfaceLaunchForm.init(command:))
+            ?? .fallbackLoginShell
+        return TerminalSurfaceResolvedLaunch(
             workingDirectory: request.workingDirectory,
-            command: request.initialCommand,
-            arguments: request.initialCommand == nil ? ["/bin/zsh", "-l"] : nil,
+            launchForm: launchForm,
             environment: ["CMUX_WORKSPACE_ID": request.workspaceID.uuidString],
             initialInput: request.initialInput,
             waitAfterCommand: request.configTemplate?.waitAfterCommand ?? false
@@ -4326,6 +5102,30 @@ private actor SuspendedTerminalLaunchResolver {
         let satisfied = waiters.keys.filter { $0 <= count }
         for key in satisfied {
             waiters.removeValue(forKey: key)?.forEach { $0.resume() }
+        }
+    }
+}
+
+private actor PersistentCommandShimCleanupRecorder {
+    private var recorded: [TerminalSurfaceAgentCommandShimSet] = []
+    private var waiters: [CheckedContinuation<TerminalSurfaceAgentCommandShimSet, Never>] = []
+
+    func record(_ shims: TerminalSurfaceAgentCommandShimSet) {
+        if let waiter = waiters.first {
+            waiters.removeFirst()
+            waiter.resume(returning: shims)
+        } else {
+            recorded.append(shims)
+        }
+    }
+
+    func next() async -> TerminalSurfaceAgentCommandShimSet {
+        if let shims = recorded.first {
+            recorded.removeFirst()
+            return shims
+        }
+        return await withCheckedContinuation { continuation in
+            waiters.append(continuation)
         }
     }
 }
@@ -4488,12 +5288,111 @@ private actor AccessibilityRuntimeBackendClient: TerminalBackendClient {
     }
 }
 
+private actor FrontendRouterTestGate {
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        guard !isOpen else { return }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    func open() {
+        guard !isOpen else { return }
+        isOpen = true
+        let pending = waiters
+        waiters.removeAll()
+        pending.forEach { $0.resume() }
+    }
+}
+
+private actor FrontendRouterDeliveryProbe {
+    private var rendererCounts: [UUID: Int] = [:]
+    private var resyncCounts: [UUID: Int] = [:]
+    private var recordedConfigRevisions: [UInt64] = []
+    private var rendererWaiters: [
+        UUID: [Int: [CheckedContinuation<Void, Never>]]
+    ] = [:]
+    private var configWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
+
+    func recordRenderer(
+        workspaceID: UUID,
+        event: TerminalBackendRendererEvent
+    ) {
+        _ = event
+        rendererCounts[workspaceID, default: 0] += 1
+        resumeRendererWaiters(workspaceID: workspaceID)
+    }
+
+    func recordResync(workspaceID: UUID) {
+        resyncCounts[workspaceID, default: 0] += 1
+    }
+
+    func rendererCount(workspaceID: UUID) -> Int {
+        rendererCounts[workspaceID, default: 0]
+    }
+
+    func resyncCount(workspaceID: UUID) -> Int {
+        resyncCounts[workspaceID, default: 0]
+    }
+
+    func recordConfig(revision: UInt64) {
+        recordedConfigRevisions.append(revision)
+        let satisfied = configWaiters.keys.filter {
+            $0 <= recordedConfigRevisions.count
+        }
+        for count in satisfied {
+            configWaiters.removeValue(forKey: count)?.forEach { $0.resume() }
+        }
+    }
+
+    func configCount() -> Int {
+        recordedConfigRevisions.count
+    }
+
+    func configRevisions() -> [UInt64] {
+        recordedConfigRevisions
+    }
+
+    func waitForConfigCount(_ count: Int) async {
+        guard recordedConfigRevisions.count < count else { return }
+        await withCheckedContinuation { continuation in
+            configWaiters[count, default: []].append(continuation)
+        }
+    }
+
+    func waitForRendererCount(_ count: Int, workspaceID: UUID) async {
+        guard rendererCounts[workspaceID, default: 0] < count else { return }
+        await withCheckedContinuation { continuation in
+            rendererWaiters[workspaceID, default: [:]][count, default: []]
+                .append(continuation)
+        }
+    }
+
+    private func resumeRendererWaiters(workspaceID: UUID) {
+        let current = rendererCounts[workspaceID, default: 0]
+        let satisfied = rendererWaiters[workspaceID]?.keys.filter { $0 <= current } ?? []
+        for count in satisfied {
+            rendererWaiters[workspaceID]?
+                .removeValue(forKey: count)?
+                .forEach { $0.resume() }
+        }
+        if rendererWaiters[workspaceID]?.isEmpty == true {
+            rendererWaiters.removeValue(forKey: workspaceID)
+        }
+    }
+}
+
 private actor RecordingPersistentTerminalBackendClient:
     TerminalBackendClient,
     TerminalBackendTopologyMutating {
     private let suspendEnsures: Bool
     private let suspendUXReads: Bool
+    private let suspendMutations: Bool
     private let failFirstMutation: Bool
+    private let permanentReleaseFailure: Bool
     private var detachFailuresRemaining: Int
     private var releaseFailuresRemaining: Int
     private var didFailMutation = false
@@ -4503,6 +5402,7 @@ private actor RecordingPersistentTerminalBackendClient:
         UUID: AsyncStream<TerminalBackendRendererEvent>.Continuation
     ] = [:]
     private var rendererEventStreamStarts = 0
+    private var peakRendererSubscribers = 0
     private var ensureWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
     private var mutationWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
     private var rendererSubscriberWaiters: [Int: [CheckedContinuation<Void, Never>]] = [:]
@@ -4515,6 +5415,9 @@ private actor RecordingPersistentTerminalBackendClient:
     private var uxReadContinuations: [
         Int: CheckedContinuation<TerminalBackendMutationOutcome, Never>
     ] = [:]
+    private var mutationContinuations: [
+        Int: CheckedContinuation<TerminalBackendMutationOutcome, Never>
+    ] = [:]
     private var uxReadWorkspaces: [UUID] = []
     private var detachedBindingWorkspaces: [UUID?] = []
     private var releaseAttempts = 0
@@ -4522,15 +5425,231 @@ private actor RecordingPersistentTerminalBackendClient:
     init(
         suspendEnsures: Bool = false,
         suspendUXReads: Bool = false,
+        suspendMutations: Bool = false,
         failFirstMutation: Bool = false,
         detachFailures: Int = 0,
-        releaseFailures: Int = 0
+        releaseFailures: Int = 0,
+        permanentReleaseFailure: Bool = false
     ) {
         self.suspendEnsures = suspendEnsures
         self.suspendUXReads = suspendUXReads
+        self.suspendMutations = suspendMutations
         self.failFirstMutation = failFirstMutation
         self.detachFailuresRemaining = detachFailures
         self.releaseFailuresRemaining = releaseFailures
+        self.permanentReleaseFailure = permanentReleaseFailure
+    }
+
+    func createWorkspace(
+        requestID: UUID,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        name: String?,
+        launch: BackendTerminalLaunch,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        try rejectTopologyMutation()
+    }
+
+    func createTerminalTab(
+        requestID: UUID,
+        surfaceID: SurfaceID,
+        in paneID: PaneID,
+        launch: BackendTerminalLaunch,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        try rejectTopologyMutation()
+    }
+
+    func createBrowserWorkspace(
+        requestID: UUID,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        name: String?,
+        url: URL,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        try rejectTopologyMutation()
+    }
+
+    func createBrowserTab(
+        requestID: UUID,
+        surfaceID: SurfaceID,
+        in paneID: PaneID,
+        url: URL,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        try rejectTopologyMutation()
+    }
+
+    func splitBrowserPane(
+        requestID: UUID,
+        surfaceID: SurfaceID,
+        _ paneID: PaneID,
+        direction: BackendSplitDirection,
+        initialRatio: Float,
+        url: URL,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        try rejectTopologyMutation()
+    }
+
+    func materializeTerminal(
+        requestID: UUID,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        launch: BackendTerminalLaunch,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        try rejectTopologyMutation()
+    }
+
+    func respawnTerminal(
+        requestID: UUID,
+        surfaceID: SurfaceID,
+        launch: BackendTerminalLaunch,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        try rejectTopologyMutation()
+    }
+
+    func newExternalWorkspace(
+        requestID: UUID,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        columns: UInt16,
+        rows: UInt16,
+        noReflow: Bool,
+        provenance: CanonicalExternalTerminalProvenance,
+        producerSource: BackendRemoteTmuxProducerSource
+    ) async throws -> BackendSurfacePlacement {
+        try rejectTopologyMutation()
+    }
+
+    func materializeExternalTerminal(
+        requestID: UUID,
+        workspaceID: WorkspaceID,
+        surfaceID: SurfaceID,
+        columns: UInt16,
+        rows: UInt16,
+        noReflow: Bool,
+        provenance: CanonicalExternalTerminalProvenance
+    ) async throws -> BackendSurfacePlacement {
+        try rejectTopologyMutation()
+    }
+
+    func splitPane(
+        requestID: UUID,
+        surfaceID: SurfaceID,
+        _ paneID: PaneID,
+        direction: BackendSplitDirection,
+        initialRatio: Float,
+        launch: BackendTerminalLaunch,
+        columns: UInt16?,
+        rows: UInt16?
+    ) async throws -> BackendSurfacePlacement {
+        try rejectTopologyMutation()
+    }
+
+    func splitTab(
+        requestID: UUID,
+        _ surfaceID: SurfaceID,
+        around paneID: PaneID,
+        direction: BackendSplitDirection,
+        initialRatio: Float
+    ) async throws -> BackendSurfacePlacement {
+        try rejectTopologyMutation()
+    }
+
+    func closePane(
+        requestID: UUID,
+        _ paneID: PaneID
+    ) async throws -> BackendTopologyMutationReceipt {
+        try rejectTopologyMutation()
+    }
+
+    func closeSurface(
+        requestID: UUID,
+        _ surfaceID: SurfaceID
+    ) async throws -> BackendTopologyMutationReceipt {
+        try rejectTopologyMutation()
+    }
+
+    func closeWorkspace(
+        requestID: UUID,
+        _ workspaceID: WorkspaceID
+    ) async throws -> BackendTopologyMutationReceipt {
+        try rejectTopologyMutation()
+    }
+
+    func renameWorkspace(
+        requestID: UUID,
+        _ workspaceID: WorkspaceID,
+        name: String
+    ) async throws -> BackendTopologyMutationReceipt {
+        try rejectTopologyMutation()
+    }
+
+    func renameSurface(
+        requestID: UUID,
+        _ surfaceID: SurfaceID,
+        name: String
+    ) async throws -> BackendTopologyMutationReceipt {
+        try rejectTopologyMutation()
+    }
+
+    func moveTab(
+        requestID: UUID,
+        _ surfaceID: SurfaceID,
+        to paneID: PaneID,
+        index: Int
+    ) async throws -> BackendTopologyMutationReceipt {
+        try rejectTopologyMutation()
+    }
+
+    func reorderTabs(
+        requestID: UUID,
+        in paneID: PaneID,
+        surfaceIDs: [SurfaceID]
+    ) async throws -> BackendTopologyMutationReceipt {
+        try rejectTopologyMutation()
+    }
+
+    func reorderWorkspaces(
+        requestID: UUID,
+        _ workspaceIDs: [WorkspaceID]
+    ) async throws -> BackendTopologyMutationReceipt {
+        try rejectTopologyMutation()
+    }
+
+    func moveTabToNewWorkspace(
+        requestID: UUID,
+        _ surfaceID: SurfaceID,
+        workspaceID: WorkspaceID,
+        name: String?,
+        index: Int?
+    ) async throws -> BackendSurfacePlacement {
+        try rejectTopologyMutation()
+    }
+
+    func setSplitRatio(
+        requestID: UUID,
+        around paneID: PaneID,
+        direction: BackendSplitDirection,
+        ratio: Float
+    ) async throws -> BackendTopologyMutationReceipt {
+        try rejectTopologyMutation()
+    }
+
+    private func rejectTopologyMutation<Result>() throws -> Result {
+        throw BackendProtocolError.connectionClosed
     }
 
     func rendererEvents() async -> AsyncStream<TerminalBackendRendererEvent> {
@@ -4538,6 +5657,10 @@ private actor RecordingPersistentTerminalBackendClient:
         let identifier = UUID()
         let pair = AsyncStream<TerminalBackendRendererEvent>.makeStream()
         rendererContinuations[identifier] = pair.continuation
+        peakRendererSubscribers = max(
+            peakRendererSubscribers,
+            rendererContinuations.count
+        )
         resumeSatisfiedWaiters(
             &rendererSubscriberWaiters,
             count: rendererContinuations.count
@@ -4583,7 +5706,20 @@ private actor RecordingPersistentTerminalBackendClient:
             didFailMutation = true
             throw BackendProtocolError.connectionClosed
         }
+        if suspendMutations {
+            return await withCheckedContinuation { continuation in
+                mutationContinuations[recordedMutations.count - 1] = continuation
+            }
+        }
         var outcome = TerminalBackendMutationOutcome()
+        switch mutation {
+        case .copyMode(operation: .enter, adjustment: _, count: _):
+            outcome.copyModeActive = true
+        case .copyMode(operation: .exit, adjustment: _, count: _):
+            outcome.copyModeActive = false
+        default:
+            break
+        }
         if case .reparent(let workspaceID) = mutation {
             outcome.binding = TerminalBackendTerminalBinding(
                 authority: binding.authority,
@@ -4645,6 +5781,9 @@ private actor RecordingPersistentTerminalBackendClient:
         _ = release
         releaseAttempts += 1
         resumeSatisfiedWaiters(&releaseWaiters, count: releaseAttempts)
+        if permanentReleaseFailure {
+            throw TerminalBackendClientError.presentationUnavailable
+        }
         if releaseFailuresRemaining > 0 {
             releaseFailuresRemaining -= 1
             throw BackendProtocolError.connectionClosed
@@ -4717,6 +5856,13 @@ private actor RecordingPersistentTerminalBackendClient:
         }
     }
 
+    func resumeMutation(
+        at index: Int,
+        returning outcome: TerminalBackendMutationOutcome = TerminalBackendMutationOutcome()
+    ) {
+        mutationContinuations.removeValue(forKey: index)?.resume(returning: outcome)
+    }
+
     func ensureRequests() -> [TerminalBackendTerminalRequest] { requests }
 
     func mutations() -> [RecordedPersistentTerminalMutation] { recordedMutations }
@@ -4734,6 +5880,8 @@ private actor RecordingPersistentTerminalBackendClient:
     func rendererEventStreamStartCount() -> Int { rendererEventStreamStarts }
 
     func activeRendererSubscriberCount() -> Int { rendererContinuations.count }
+
+    func peakRendererSubscriberCount() -> Int { peakRendererSubscribers }
 
     func publish(_ event: TerminalBackendRendererEvent) {
         for continuation in rendererContinuations.values {
@@ -4774,217 +5922,57 @@ private actor RecordingPersistentTerminalBackendClient:
     }
 }
 
-extension RecordingPersistentTerminalBackendClient {
-    func rejectTopologyMutation<T>() throws -> T {
-        throw BackendProtocolError.connectionClosed
+private actor ControlledFullAppFrameReleaseSender {
+    private var started: [TerminalRenderFrameRelease] = []
+    private var continuations: [CheckedContinuation<Bool, Never>] = []
+    private var startWaiters: [
+        (count: Int, continuation: CheckedContinuation<Void, Never>)
+    ] = []
+    private var concurrentSendCount = 0
+    private(set) var maximumConcurrentSendCount = 0
+
+    func send(_ release: TerminalRenderFrameRelease) async -> Bool {
+        concurrentSendCount += 1
+        maximumConcurrentSendCount = max(
+            maximumConcurrentSendCount,
+            concurrentSendCount
+        )
+        started.append(release)
+        resumeStartWaiters()
+        let result = await withCheckedContinuation { continuation in
+            continuations.append(continuation)
+        }
+        concurrentSendCount -= 1
+        return result
     }
 
-    func createWorkspace(
-        requestID: UUID,
-        workspaceID: WorkspaceID,
-        surfaceID: SurfaceID,
-        name: String?,
-        launch: BackendTerminalLaunch,
-        columns: UInt16?,
-        rows: UInt16?
-    ) async throws -> BackendSurfacePlacement {
-        try rejectTopologyMutation()
+    func waitUntilStarted(count: Int) async {
+        if started.count >= count { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append((count, continuation))
+        }
     }
 
-    func createTerminalTab(
-        requestID: UUID,
-        surfaceID: SurfaceID,
-        in paneID: CmuxTerminalBackend.PaneID,
-        launch: BackendTerminalLaunch,
-        columns: UInt16?,
-        rows: UInt16?
-    ) async throws -> BackendSurfacePlacement {
-        try rejectTopologyMutation()
+    func resumeNext(result: Bool) {
+        continuations.removeFirst().resume(returning: result)
     }
 
-    func createBrowserWorkspace(
-        requestID: UUID,
-        workspaceID: WorkspaceID,
-        surfaceID: SurfaceID,
-        name: String?,
-        url: URL,
-        columns: UInt16?,
-        rows: UInt16?
-    ) async throws -> BackendSurfacePlacement {
-        try rejectTopologyMutation()
+    func startedSequences() -> [UInt64] {
+        started.map(\.metadata.frameSequence)
     }
 
-    func createBrowserTab(
-        requestID: UUID,
-        surfaceID: SurfaceID,
-        in paneID: CmuxTerminalBackend.PaneID,
-        url: URL,
-        columns: UInt16?,
-        rows: UInt16?
-    ) async throws -> BackendSurfacePlacement {
-        try rejectTopologyMutation()
-    }
-
-    func splitBrowserPane(
-        requestID: UUID,
-        surfaceID: SurfaceID,
-        _ paneID: CmuxTerminalBackend.PaneID,
-        direction: BackendSplitDirection,
-        initialRatio: Float,
-        url: URL,
-        columns: UInt16?,
-        rows: UInt16?
-    ) async throws -> BackendSurfacePlacement {
-        try rejectTopologyMutation()
-    }
-
-    func materializeTerminal(
-        requestID: UUID,
-        workspaceID: WorkspaceID,
-        surfaceID: SurfaceID,
-        launch: BackendTerminalLaunch,
-        columns: UInt16?,
-        rows: UInt16?
-    ) async throws -> BackendSurfacePlacement {
-        try rejectTopologyMutation()
-    }
-
-    func respawnTerminal(
-        requestID: UUID,
-        surfaceID: SurfaceID,
-        launch: BackendTerminalLaunch,
-        columns: UInt16?,
-        rows: UInt16?
-    ) async throws -> BackendSurfacePlacement {
-        try rejectTopologyMutation()
-    }
-
-    func newExternalWorkspace(
-        requestID: UUID,
-        workspaceID: WorkspaceID,
-        surfaceID: SurfaceID,
-        columns: UInt16,
-        rows: UInt16,
-        noReflow: Bool,
-        provenance: CanonicalExternalTerminalProvenance,
-        producerSource: BackendRemoteTmuxProducerSource
-    ) async throws -> BackendSurfacePlacement {
-        try rejectTopologyMutation()
-    }
-
-    func materializeExternalTerminal(
-        requestID: UUID,
-        workspaceID: WorkspaceID,
-        surfaceID: SurfaceID,
-        columns: UInt16,
-        rows: UInt16,
-        noReflow: Bool,
-        provenance: CanonicalExternalTerminalProvenance
-    ) async throws -> BackendSurfacePlacement {
-        try rejectTopologyMutation()
-    }
-
-    func splitPane(
-        requestID: UUID,
-        surfaceID: SurfaceID,
-        _ paneID: CmuxTerminalBackend.PaneID,
-        direction: BackendSplitDirection,
-        initialRatio: Float,
-        launch: BackendTerminalLaunch,
-        columns: UInt16?,
-        rows: UInt16?
-    ) async throws -> BackendSurfacePlacement {
-        try rejectTopologyMutation()
-    }
-
-    func splitTab(
-        requestID: UUID,
-        _ surfaceID: SurfaceID,
-        around paneID: CmuxTerminalBackend.PaneID,
-        direction: BackendSplitDirection,
-        initialRatio: Float
-    ) async throws -> BackendSurfacePlacement {
-        try rejectTopologyMutation()
-    }
-
-    func closePane(
-        requestID: UUID,
-        _ paneID: CmuxTerminalBackend.PaneID
-    ) async throws -> BackendTopologyMutationReceipt {
-        try rejectTopologyMutation()
-    }
-
-    func closeSurface(
-        requestID: UUID,
-        _ surfaceID: SurfaceID
-    ) async throws -> BackendTopologyMutationReceipt {
-        try rejectTopologyMutation()
-    }
-
-    func closeWorkspace(
-        requestID: UUID,
-        _ workspaceID: WorkspaceID
-    ) async throws -> BackendTopologyMutationReceipt {
-        try rejectTopologyMutation()
-    }
-
-    func renameWorkspace(
-        requestID: UUID,
-        _ workspaceID: WorkspaceID,
-        name: String
-    ) async throws -> BackendTopologyMutationReceipt {
-        try rejectTopologyMutation()
-    }
-
-    func renameSurface(
-        requestID: UUID,
-        _ surfaceID: SurfaceID,
-        name: String
-    ) async throws -> BackendTopologyMutationReceipt {
-        try rejectTopologyMutation()
-    }
-
-    func moveTab(
-        requestID: UUID,
-        _ surfaceID: SurfaceID,
-        to paneID: CmuxTerminalBackend.PaneID,
-        index: Int
-    ) async throws -> BackendTopologyMutationReceipt {
-        try rejectTopologyMutation()
-    }
-
-    func reorderTabs(
-        requestID: UUID,
-        in paneID: CmuxTerminalBackend.PaneID,
-        surfaceIDs: [SurfaceID]
-    ) async throws -> BackendTopologyMutationReceipt {
-        try rejectTopologyMutation()
-    }
-
-    func reorderWorkspaces(
-        requestID: UUID,
-        _ workspaceIDs: [WorkspaceID]
-    ) async throws -> BackendTopologyMutationReceipt {
-        try rejectTopologyMutation()
-    }
-
-    func moveTabToNewWorkspace(
-        requestID: UUID,
-        _ surfaceID: SurfaceID,
-        workspaceID: WorkspaceID,
-        name: String?,
-        index: Int?
-    ) async throws -> BackendSurfacePlacement {
-        try rejectTopologyMutation()
-    }
-
-    func setSplitRatio(
-        requestID: UUID,
-        around paneID: CmuxTerminalBackend.PaneID,
-        direction: BackendSplitDirection,
-        ratio: Float
-    ) async throws -> BackendTopologyMutationReceipt {
-        try rejectTopologyMutation()
+    private func resumeStartWaiters() {
+        var retained: [
+            (count: Int, continuation: CheckedContinuation<Void, Never>)
+        ] = []
+        for waiter in startWaiters {
+            if started.count >= waiter.count {
+                waiter.continuation.resume()
+            } else {
+                retained.append(waiter)
+            }
+        }
+        startWaiters = retained
     }
 }
 

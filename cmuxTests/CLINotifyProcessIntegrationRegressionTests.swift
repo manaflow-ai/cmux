@@ -7,6 +7,14 @@ import Darwin
 #endif
 
 final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
+    override func tearDown() {
+        // The mock servers park an accept loop on the test's listener FD, and
+        // closing that FD does not wake a thread already blocked in poll/accept.
+        // Reap the loops here so none of them outlives the test that started it.
+        CLIMockAcceptLoopRegistry.shared.stopAll()
+        super.tearDown()
+    }
+
     func testClaudeClearSessionStartMarksWorkspaceRunning() throws {
         let context = try makeClaudeHookContext(name: "claude-clear-running")
         defer { context.cleanup() }
@@ -309,7 +317,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     func testCodexStopReadsOversizedFinalTranscriptLine() throws {
         let context = try makeClaudeHookContext(name: "codex-oversized-final-transcript")
         defer { context.cleanup() }
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+        startAgentHookMockServerAccepting(context: context)
 
         let turnId = "oversized-final-turn"
         let transcriptURL = context.root.appendingPathComponent("oversized-final-codex-session.jsonl")
@@ -374,7 +382,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         _ = try runGit(["commit", "-m", "initial"])
         let initialCommit = try runGit(["rev-parse", "HEAD"])
 
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+        startAgentHookMockServerAccepting(context: context)
         let sessionId = "codex-last-turn-session"
         let sessionStart = runCodexHook(
             context: context,
@@ -790,7 +798,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         standardInput: String,
         extraEnvironment: [String: String] = [:]
     ) -> ProcessRunResult {
-        let serverHandled = startMockServer(listenerFD: context.listenerFD, state: context.state, connectionCount: 4) { line in
+        let serverHandled = startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
             guard let payload = self.jsonObject(line) else {
                 return "OK"
             }
@@ -1700,7 +1708,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let sessionId = "same-process-session"
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+        startAgentHookMockServerAccepting(context: context)
 
         let parentPrompt = runCodexHook(
             context: context,
@@ -1787,7 +1795,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let sessionId = "notification-lifecycle-session"
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
+        startAgentHookMockServerAccepting(context: context)
 
         let prompt = runCodexHook(
             context: context,
@@ -1846,7 +1854,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let newSessionId = "stale-idle-stop-new"
         let oldEnvironment = codexLaunchEnvironment(context: context, sessionId: oldSessionId)
         let newEnvironment = codexLaunchEnvironment(context: context, sessionId: newSessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
+        startAgentHookMockServerAccepting(context: context)
 
         let oldPrompt = runCodexHook(
             context: context,
@@ -1906,7 +1914,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let newSessionId = "stale-idle-notification-new"
         let oldEnvironment = codexLaunchEnvironment(context: context, sessionId: oldSessionId)
         let newEnvironment = codexLaunchEnvironment(context: context, sessionId: newSessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
+        startAgentHookMockServerAccepting(context: context)
 
         let oldPrompt = runCodexHook(
             context: context,
@@ -1964,7 +1972,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let sessionId = "legacy-stop-turn-stack-session"
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
+        startAgentHookMockServerAccepting(context: context)
 
         let parentPrompt = runCodexHook(
             context: context,
@@ -2025,7 +2033,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let sessionId = "generic-turn-stack-session"
         let launchEnvironment = agentLaunchEnvironment(context: context, kind: "gemini", executable: "/usr/local/bin/gemini")
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
+        startAgentHookMockServerAccepting(context: context)
 
         let parentPrompt = runAgentHook(
             context: context,
@@ -2100,7 +2108,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let sessionId = "mixed-anonymous-depth-session"
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
+        startAgentHookMockServerAccepting(context: context)
 
         let parentPrompt = runCodexHook(
             context: context,
@@ -2205,7 +2213,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let sessionId = "anonymous-depth-turn-stop-session"
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
+        startAgentHookMockServerAccepting(context: context)
 
         let parentPrompt = runCodexHook(
             context: context,
@@ -2272,7 +2280,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             eventType: "turn_aborted"
         )
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+        startAgentHookMockServerAccepting(context: context)
 
         let interruptedPrompt = runCodexHook(
             context: context,
@@ -2324,7 +2332,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             #"{"type":"event_msg","payload":{"type":"task_started","turn_id":"old-turn"}}"#,
         ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
+        startAgentHookMockServerAccepting(context: context)
 
         let oldPrompt = runCodexHook(
             context: context,
@@ -2391,7 +2399,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             eventType: "turn_complete"
         )
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
+        startAgentHookMockServerAccepting(context: context)
 
         let parentPrompt = runCodexHook(
             context: context,
@@ -2489,7 +2497,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             #"{"type":"event_msg","payload":{"type":"turn_aborted","turn_id":"child-turn"}}"#,
         ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
+        startAgentHookMockServerAccepting(context: context)
 
         let parentPrompt = runCodexHook(
             context: context,
@@ -2566,7 +2574,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             .write(to: stateURL, options: .atomic)
 
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+        startAgentHookMockServerAccepting(context: context)
 
         let childPromptStart = context.state.commands.count
         let childPrompt = runCodexHook(
@@ -2637,7 +2645,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             .write(to: stateURL, options: .atomic)
 
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+        startAgentHookMockServerAccepting(context: context)
 
         let childPromptStart = context.state.commands.count
         let childPrompt = runCodexHook(
@@ -2707,7 +2715,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             .write(to: stateURL, options: .atomic)
 
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+        startAgentHookMockServerAccepting(context: context)
 
         let childPromptStart = context.state.commands.count
         let childPrompt = runCodexHook(
@@ -2770,7 +2778,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             .write(to: stateURL, options: .atomic)
 
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
+        startAgentHookMockServerAccepting(context: context)
 
         let childPrompt = runCodexHook(
             context: context,
@@ -2849,7 +2857,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             .write(to: stateURL, options: .atomic)
 
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 64)
+        startAgentHookMockServerAccepting(context: context)
 
         let childStopStart = context.state.commands.count
         let childStop = runCodexHook(
@@ -2937,7 +2945,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             .write(to: stateURL, options: .atomic)
 
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+        startAgentHookMockServerAccepting(context: context)
 
         let childPromptStart = context.state.commands.count
         let childPrompt = runCodexHook(
@@ -2986,7 +2994,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             eventType: "turn_aborted"
         )
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
+        startAgentHookMockServerAccepting(context: context)
 
         let oldPrompt = runCodexHook(
             context: context,
@@ -3051,7 +3059,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             eventType: "turn_aborted"
         )
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
+        startAgentHookMockServerAccepting(context: context)
 
         let oldPrompt = runCodexHook(
             context: context,
@@ -3115,7 +3123,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             eventType: "turn_aborted"
         )
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+        startAgentHookMockServerAccepting(context: context)
 
         let oldPrompt = runCodexHook(
             context: context,
@@ -3187,7 +3195,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             .write(to: stateURL, options: .atomic)
 
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+        startAgentHookMockServerAccepting(context: context)
 
         let currentStopStart = context.state.commands.count
         let currentStop = runCodexHook(
@@ -3216,7 +3224,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let sessionId = "unseen-turn-stop-session"
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 48)
+        startAgentHookMockServerAccepting(context: context)
 
         let oldPrompt = runCodexHook(
             context: context,
@@ -3262,7 +3270,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         defer { context.cleanup() }
 
         let sessionId = "managed-child-session"
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 16)
+        startAgentHookMockServerAccepting(context: context)
         let result = runCodexHook(
             context: context,
             subcommand: "stop",
@@ -3304,7 +3312,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             #"{"type":"response_item","payload":{"type":"message","role":"user","content":"<subagent_notification>old child finished</subagent_notification>"}}"#,
         ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
 
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 24)
+        startAgentHookMockServerAccepting(context: context)
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
 
         let prompt = runCodexHook(
@@ -3357,7 +3365,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
             .write(to: stateURL, options: .atomic)
 
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 16)
+        startAgentHookMockServerAccepting(context: context)
         let result = runCodexHook(
             context: context,
             subcommand: "session-end",
@@ -3655,6 +3663,41 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(configureParams["ssh_auth_sock"] as? String, agentSocketPath)
     }
 
+    private func assertSSHPTYAttachAuthUsesRetryLoop(
+        _ script: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let retryLoop = script.range(of: "while :; do"),
+              let auth = script.range(of: "    ( cmux_ssh_foreground_auth )"),
+              let initialAuth = script.range(
+                of: "cmux_ssh_reauth_required=1",
+                range: script.startIndex..<retryLoop.lowerBound
+              ) else {
+            XCTFail("Missing foreground auth or persistent attach loop", file: file, line: line)
+            return
+        }
+        XCTAssertTrue(initialAuth.lowerBound < retryLoop.lowerBound, script, file: file, line: line)
+        XCTAssertTrue(retryLoop.lowerBound < auth.lowerBound, script, file: file, line: line)
+        XCTAssertEqual(
+            script.components(separatedBy: "( cmux_ssh_foreground_auth )").count - 1,
+            1,
+            script,
+            file: file,
+            line: line
+        )
+        XCTAssertTrue(
+            script.contains("case \"$cmux_ssh_status\" in 254)")
+                && script.contains(
+                    "252) cmux_ssh_status=255; if [ \"$cmux_ssh_auth_succeeded\" -eq 0 ]; then break; fi"
+                )
+                && script.contains("*) break ;; esac; fi"),
+            script,
+            file: file,
+            line: line
+        )
+    }
+
     private func assertSSHPersistentPTYUsesReusableForegroundAuthControlConnection(
         run: MockedSSHRun,
         file: StaticString = #filePath,
@@ -3683,13 +3726,19 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             initialScript.contains("CMUX_SSH_PTY_SESSION_ID=\"ssh-${CMUX_WORKSPACE_ID:-}-${CMUX_SURFACE_ID:-}\"") && initialScript.contains("cmux_ssh_pty_session_id=\"$CMUX_SSH_PTY_SESSION_ID\""),
             initialScript
         )
-        XCTAssertEqual(initialScript.components(separatedBy: "/usr/bin/uuidgen").count - 1, 1, initialScript)
+        XCTAssertEqual(initialScript.components(separatedBy: "/usr/bin/uuidgen").count - 1, 2, initialScript)
         XCTAssertTrue(initialScript.contains("--session-id \"${CMUX_SSH_PTY_SESSION_ID:-}\""), initialScript)
         XCTAssertTrue(initialScript.contains("--lifecycle-id \"${CMUX_SSH_PTY_LIFECYCLE_ID:-}\""), initialScript)
-        assertSSHPTYAttachAuthPrecedesRetryLoop(initialScript)
+        assertSSHPTYAttachAuthUsesRetryLoop(initialScript)
         assertSSHPTYAttachOmitsSurfaceArgument(initialScript)
         XCTAssertTrue(
             initialScript.contains("--workspace \"$cmux_ssh_pty_workspace_id\""),
+            initialScript
+        )
+        XCTAssertTrue(
+            initialScript.contains(
+                "if [ \"$cmux_ssh_attach_no_progress_retry\" -gt 0 ]; then cmux_ssh_begin_attempt || exit 1; fi"
+            ),
             initialScript
         )
         XCTAssertEqual(initialScript.components(separatedBy: "workspace.remote.foreground_auth_ready").count - 1, 1, initialScript)
@@ -3709,13 +3758,19 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             terminalStartupScript.contains("CMUX_SSH_PTY_SESSION_ID=\"ssh-${CMUX_WORKSPACE_ID:-}-${CMUX_SURFACE_ID:-}\"") && terminalStartupScript.contains("cmux_ssh_pty_session_id=\"$CMUX_SSH_PTY_SESSION_ID\""),
             terminalStartupScript
         )
-        XCTAssertEqual(terminalStartupScript.components(separatedBy: "/usr/bin/uuidgen").count - 1, 1, terminalStartupScript)
+        XCTAssertEqual(terminalStartupScript.components(separatedBy: "/usr/bin/uuidgen").count - 1, 2, terminalStartupScript)
         XCTAssertTrue(terminalStartupScript.contains("--session-id \"${CMUX_SSH_PTY_SESSION_ID:-}\""), terminalStartupScript)
         XCTAssertTrue(terminalStartupScript.contains("--lifecycle-id \"${CMUX_SSH_PTY_LIFECYCLE_ID:-}\""), terminalStartupScript)
-        assertSSHPTYAttachAuthPrecedesRetryLoop(terminalStartupScript)
+        assertSSHPTYAttachAuthUsesRetryLoop(terminalStartupScript)
         assertSSHPTYAttachOmitsSurfaceArgument(terminalStartupScript)
         XCTAssertTrue(
             terminalStartupScript.contains("--workspace \"$cmux_ssh_pty_workspace_id\""),
+            terminalStartupScript
+        )
+        XCTAssertTrue(
+            terminalStartupScript.contains(
+                "if [ \"$cmux_ssh_attach_no_progress_retry\" -gt 0 ]; then cmux_ssh_begin_attempt || exit 1; fi"
+            ),
             terminalStartupScript
         )
         XCTAssertEqual(terminalStartupScript.components(separatedBy: "workspace.remote.foreground_auth_ready").count - 1, 1, terminalStartupScript)
@@ -3755,11 +3810,44 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
             XCTAssertFalse(initialScript.contains("ssh-pty-attach"), testCase.name)
             XCTAssertFalse(terminalStartupScript.contains("ssh-pty-attach"), testCase.name)
+            XCTAssertTrue(
+                initialScript.contains("workspace.remote.terminal_session_connected"),
+                testCase.name
+            )
+            XCTAssertTrue(
+                terminalStartupScript.contains("workspace.remote.terminal_session_connected"),
+                testCase.name
+            )
             XCTAssertEqual(configureParams["auto_connect"] as? Bool, true, testCase.name)
             XCTAssertNil(configureParams["foreground_auth_token"], testCase.name)
             XCTAssertNil(configureParams["preserve_after_terminal_exit"], testCase.name)
             XCTAssertNil(configureParams["persistent_daemon_slot"], testCase.name)
         }
+    }
+
+    func testSSHRawRemoteCommandReportsTerminalReadiness() throws {
+        let run = try runMockedSSH(arguments: [
+            "--",
+            "tmux", "attach", "-t", "work",
+        ])
+        let configureParams = try XCTUnwrap(
+            params(for: "workspace.remote.configure", in: run.requests)
+        )
+        let terminalStartupCommand = try XCTUnwrap(
+            configureParams["terminal_startup_command"] as? String
+        )
+        let terminalStartupScript =
+            decodedReusableStartupScript(from: terminalStartupCommand) ??
+            terminalStartupCommand
+
+        XCTAssertTrue(
+            terminalStartupScript.contains("workspace.remote.terminal_session_connected"),
+            "Raw SSH commands must report authoritative readiness instead of leaving the workspace in connecting state: \(terminalStartupScript)"
+        )
+        XCTAssertTrue(
+            terminalStartupScript.contains("tmux attach -t work"),
+            terminalStartupScript
+        )
     }
 
     func testSSHPTYAttachBridgeErrorClearsLocalStateBeforeReady() throws {
@@ -3854,7 +3942,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_sessions", "workspace.remote.pty_attach_end"])
     }
 
-    func testSSHPTYAttachBridgeEOFWhileSessionRunsPreservesLifecycleForRetry() throws {
+    func testSSHPTYAttachExhaustedZeroOutputBridgeEOFReleasesSurface() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshptyeof")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -3871,7 +3959,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             unlink(socketPath)
         }
 
-        let socketHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+        let socketHandled = startMockServer(
+            listenerFD: listenerFD,
+            state: state
+        ) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
@@ -3896,6 +3987,15 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 XCTAssertEqual(params["attachment_token"] as? String, "attach-token")
                 XCTAssertEqual(params["surface_id"] as? String, surfaceId)
                 return self.v2Response(id: id, ok: true, result: ["resized": true])
+            case "workspace.remote.terminal_session_connected":
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                XCTAssertEqual(params["session_id"] as? String, sessionId)
+                XCTAssertEqual(params["terminal_lifecycle_id"] as? String, surfaceId)
+                XCTAssertNotNil(
+                    (params["lifecycle_id"] as? String).flatMap(UUID.init(uuidString:))
+                )
+                return self.v2Response(id: id, ok: true, result: ["connected": true])
             case "workspace.remote.pty_sessions":
                 return self.v2Response(
                     id: id,
@@ -3925,6 +4025,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                         "detached": true,
                     ]
                 )
+            case "workspace.remote.pty_attach_end":
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                XCTAssertEqual(params["session_id"] as? String, sessionId)
+                return self.v2Response(id: id, ok: true, result: ["ended": true])
             default:
                 return self.v2Response(
                     id: id,
@@ -3938,7 +4043,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_TERMINAL_LIFECYCLE_ID"] = surfaceId
         environment["CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY"] = "1"
+        environment["CMUX_SSH_PTY_ATTACH_NO_PROGRESS_RETRY"] = "2"
+        environment["CMUX_SSH_PTY_ATTACH_NO_PROGRESS_LIMIT"] = "3"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -3955,13 +4063,29 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         wait(for: [socketHandled, bridgeHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 254, result.stderr)
+        XCTAssertEqual(result.status, 252, result.stderr)
         XCTAssertTrue(
-            result.stderr.contains("ssh-pty-attach: bridge closed while remote PTY session is still running"),
+            result.stderr.contains("bridge closed without receiving new output"),
             result.stderr
         )
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
-        XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_resize", "workspace.remote.pty_sessions", "workspace.remote.pty_detach"])
+        XCTAssertEqual(
+            methods.filter { $0 != "workspace.remote.terminal_session_connected" },
+            [
+                "workspace.remote.pty_bridge",
+                "workspace.remote.pty_resize",
+                "workspace.remote.pty_sessions",
+                "workspace.remote.pty_detach",
+                "workspace.remote.pty_sessions",
+                "workspace.remote.pty_attach_end",
+            ]
+        )
+        XCTAssertEqual(
+            methods.filter {
+                $0 == "workspace.remote.terminal_session_connected"
+            }.count,
+            1
+        )
     }
 
     func testSSHPTYAttachBridgeEOFWhenSessionGoneClearsLocalState() throws {
@@ -3981,7 +4105,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             unlink(socketPath)
         }
 
-        let socketHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+        let socketHandled = startMockServer(
+            listenerFD: listenerFD,
+            state: state
+        ) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
@@ -4005,6 +4132,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 XCTAssertEqual(params["attachment_token"] as? String, "attach-token")
                 XCTAssertEqual(params["surface_id"] as? String, surfaceId)
                 return self.v2Response(id: id, ok: true, result: ["resized": true])
+            case "workspace.remote.terminal_session_connected":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                XCTAssertEqual(params["session_id"] as? String, sessionId)
+                XCTAssertEqual(params["terminal_lifecycle_id"] as? String, surfaceId)
+                XCTAssertNotNil(
+                    (params["lifecycle_id"] as? String).flatMap(UUID.init(uuidString:))
+                )
+                return self.v2Response(id: id, ok: true, result: ["connected": true])
             case "workspace.remote.pty_sessions":
                 return self.v2Response(
                     id: id,
@@ -4041,6 +4178,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_TERMINAL_LIFECYCLE_ID"] = surfaceId
 
         let result = runProcess(
             executablePath: cliPath,
@@ -4060,7 +4198,22 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stdout.isEmpty, result.stdout)
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
-        XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_resize", "workspace.remote.pty_sessions", "workspace.remote.pty_attach_end"])
+        XCTAssertEqual(
+            methods.filter { $0 != "workspace.remote.terminal_session_connected" },
+            [
+                "workspace.remote.pty_bridge",
+                "workspace.remote.pty_resize",
+                "workspace.remote.pty_sessions",
+                "workspace.remote.pty_sessions",
+                "workspace.remote.pty_attach_end",
+            ]
+        )
+        XCTAssertEqual(
+            methods.filter {
+                $0 == "workspace.remote.terminal_session_connected"
+            }.count,
+            1
+        )
     }
 
     func testSSHPTYAttachWithoutSurfaceDoesNotSendLocalAttachEnd() throws {
@@ -4079,7 +4232,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             unlink(socketPath)
         }
 
-        let socketHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+        let socketHandled = startMockServer(
+            listenerFD: listenerFD,
+            state: state
+        ) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
@@ -4149,7 +4305,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stdout.isEmpty, result.stdout)
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
-        XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_resize", "workspace.remote.pty_sessions"])
+        XCTAssertEqual(methods, [
+            "workspace.remote.pty_bridge",
+            "workspace.remote.pty_resize",
+            "workspace.remote.pty_sessions",
+            "workspace.remote.pty_sessions",
+        ])
     }
 
     func testSSHPTYAttachBridgeResetWhenSessionGoneClearsLocalState() throws {
@@ -4162,6 +4323,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let surfaceId = "33333333-3333-3333-3333-333333333333"
         let sessionId = "ssh-\(workspaceId)-\(surfaceId)"
         let token = "bridge-token"
+        let resizeObserved = DispatchSemaphore(value: 0)
+        let readinessObserved = DispatchSemaphore(value: 0)
 
         defer {
             Darwin.close(listenerFD)
@@ -4169,7 +4332,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             unlink(socketPath)
         }
 
-        let socketHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+        let socketHandled = startMockServer(
+            listenerFD: listenerFD,
+            state: state
+        ) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
@@ -4192,7 +4358,19 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 let params = payload["params"] as? [String: Any] ?? [:]
                 XCTAssertEqual(params["attachment_token"] as? String, "attach-token")
                 XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                resizeObserved.signal()
                 return self.v2Response(id: id, ok: true, result: ["resized": true])
+            case "workspace.remote.terminal_session_connected":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                XCTAssertEqual(params["session_id"] as? String, sessionId)
+                XCTAssertEqual(params["terminal_lifecycle_id"] as? String, surfaceId)
+                XCTAssertNotNil(
+                    (params["lifecycle_id"] as? String).flatMap(UUID.init(uuidString:))
+                )
+                readinessObserved.signal()
+                return self.v2Response(id: id, ok: true, result: ["connected": true])
             case "workspace.remote.pty_sessions":
                 return self.v2Response(
                     id: id,
@@ -4224,11 +4402,15 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 )
             }
         }
-        let bridgeHandled = startBridgeReadyThenResetAfterClientEOFServer(listenerFD: bridge.fd)
+        let bridgeHandled = startBridgeReadyThenResetAfterClientEOFServer(
+            listenerFD: bridge.fd,
+            waitBeforeClientEOF: [resizeObserved, readinessObserved]
+        )
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_TERMINAL_LIFECYCLE_ID"] = surfaceId
 
         let result = runProcess(
             executablePath: cliPath,
@@ -4248,7 +4430,22 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stdout.isEmpty, result.stdout)
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
-        XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_resize", "workspace.remote.pty_sessions", "workspace.remote.pty_attach_end"])
+        XCTAssertEqual(
+            methods.filter { $0 != "workspace.remote.terminal_session_connected" },
+            [
+                "workspace.remote.pty_bridge",
+                "workspace.remote.pty_resize",
+                "workspace.remote.pty_sessions",
+                "workspace.remote.pty_sessions",
+                "workspace.remote.pty_attach_end",
+            ]
+        )
+        XCTAssertEqual(
+            methods.filter {
+                $0 == "workspace.remote.terminal_session_connected"
+            }.count,
+            1
+        )
     }
 
     func testSSHPTYAttachWaitUsesCurrentTerminalSizeForBridgeHandshake() throws {
@@ -4299,7 +4496,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         try setPTYSize(cols: 40, rows: 12)
 
-        let socketHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+        let socketHandled = startMockServer(
+            listenerFD: listenerFD,
+            state: state
+        ) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
@@ -4326,6 +4526,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 XCTAssertEqual(params["cols"] as? Int, 132)
                 XCTAssertEqual(params["rows"] as? Int, 43)
                 return self.v2Response(id: id, ok: true, result: ["resized": true])
+            case "workspace.remote.terminal_session_connected":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                XCTAssertEqual(params["session_id"] as? String, sessionId)
+                XCTAssertEqual(params["terminal_lifecycle_id"] as? String, surfaceId)
+                XCTAssertNotNil(
+                    (params["lifecycle_id"] as? String).flatMap(UUID.init(uuidString:))
+                )
+                return self.v2Response(id: id, ok: true, result: ["connected": true])
             case "workspace.remote.pty_sessions":
                 return self.v2Response(id: id, ok: true, result: ["sessions": []])
             case "workspace.remote.pty_attach_end":
@@ -4402,6 +4612,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_TERMINAL_LIFECYCLE_ID"] = surfaceId
         process.environment = environment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = slaveHandle
@@ -4446,6 +4657,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let allowResizeResponse = DispatchSemaphore(value: 0)
         let bridgeReady = DispatchSemaphore(value: 0)
         let closeBridge = DispatchSemaphore(value: 0)
+        let readinessAcknowledged = DispatchSemaphore(value: 0)
+        let unexpectedReadinessAfterAcknowledgement = expectation(
+            description: "readiness delivery stopped after acknowledgement"
+        )
+        unexpectedReadinessAfterAcknowledgement.isInverted = true
 
         defer {
             Darwin.close(listenerFD)
@@ -4453,7 +4669,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             unlink(socketPath)
         }
 
-        let socketHandler: (String) -> String = { line in
+        let socketHandler: (String) -> String? = { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
@@ -4488,6 +4704,36 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                     ok: true,
                     result: ["errors": [["error": "resize response marker"]]]
                 )
+            case "workspace.remote.terminal_session_connected":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                XCTAssertEqual(params["session_id"] as? String, sessionId)
+                XCTAssertEqual(params["terminal_lifecycle_id"] as? String, surfaceId)
+                XCTAssertNotNil(
+                    (params["lifecycle_id"] as? String).flatMap(UUID.init(uuidString:))
+                )
+                let readinessReportCount = state.snapshot().compactMap {
+                    self.jsonObject($0)?["method"] as? String
+                }.filter {
+                    $0 == "workspace.remote.terminal_session_connected"
+                }.count
+                if readinessReportCount <= 4 {
+                    return self.v2Response(
+                        id: id,
+                        ok: false,
+                        error: ["code": "busy", "message": "Lifecycle commit is temporarily busy"]
+                    )
+                }
+                if readinessReportCount > 5 {
+                    unexpectedReadinessAfterAcknowledgement.fulfill()
+                }
+                readinessAcknowledged.signal()
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["connected": true]
+                )
             case "workspace.remote.pty_sessions":
                 return self.v2Response(id: id, ok: true, result: ["sessions": []])
             case "workspace.remote.pty_attach_end":
@@ -4509,7 +4755,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 )
             }
         }
-        let socketHandled = (0..<2).map { _ in startMockServer(listenerFD: listenerFD, state: state, handler: socketHandler) }
+        let socketHandled = startMockServerAllowingNoResponse(
+            listenerFD: listenerFD,
+            state: state,
+            handler: socketHandler
+        )
 
         let bridgeHandled = expectation(description: "controlled bridge handled")
         DispatchQueue.global(qos: .userInitiated).async {
@@ -4557,6 +4807,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_TERMINAL_LIFECYCLE_ID"] = surfaceId
+        environment["CMUX_SSH_ATTEMPT_ID"] = "44444444-4444-4444-4444-444444444444"
         process.environment = environment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = stdoutPipe
@@ -4569,6 +4821,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             }
         }
         XCTAssertEqual(bridgeReady.wait(timeout: .now() + 5), .success)
+        XCTAssertEqual(
+            readinessAcknowledged.wait(timeout: .now() + 5),
+            .success,
+            "Expected a retry to acknowledge persistent PTY readiness"
+        )
 
         XCTAssertEqual(
             resizeRequestReceived.wait(timeout: .now() + 5),
@@ -4587,7 +4844,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
         XCTAssertEqual(exited.wait(timeout: .now() + 5), .success)
 
-        wait(for: socketHandled, timeout: 5)
+        wait(for: [socketHandled, unexpectedReadinessAfterAcknowledgement], timeout: 0.5)
         let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         XCTAssertEqual(process.terminationStatus, 0, stderr)
@@ -4595,9 +4852,207 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(stderr, "")
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
         XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_bridge" }.count, 1)
+        XCTAssertEqual(
+            methods.filter {
+                $0 == "workspace.remote.terminal_session_connected"
+            }.count,
+            5,
+            "A live PTY must keep retrying authoritative readiness beyond transient local backpressure"
+        )
+        let readinessTimestamps = state.timestampedSnapshot().compactMap { record -> TimeInterval? in
+            self.jsonObject(record.command)?["method"] as? String ==
+                "workspace.remote.terminal_session_connected"
+                ? record.timestamp
+                : nil
+        }
+        XCTAssertEqual(readinessTimestamps.count, 5)
+        if readinessTimestamps.count == 5 {
+            XCTAssertGreaterThanOrEqual(
+                readinessTimestamps[4] - readinessTimestamps[0],
+                1.25,
+                "Transient v2 rejections must use exponential backoff before the fifth attempt"
+            )
+        }
         XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_resize" }.count, 1)
-        XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_sessions" }.count, 1)
+        XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_sessions" }.count, 2)
         XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_attach_end" }.count, 1)
+    }
+
+    func testSSHPTYAttachPermanentReadinessRejectionDoesNotRetryWhileBridgeLives() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("sshptyreject")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let bridge = try bindLoopbackTCP()
+        let state = MockSocketServerState()
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+        let surfaceId = "33333333-3333-3333-3333-333333333333"
+        let sessionId = "ssh-\(workspaceId)-\(surfaceId)"
+        let token = "bridge-token"
+        let bridgeReady = DispatchSemaphore(value: 0)
+        let closeBridge = DispatchSemaphore(value: 0)
+        let readinessRejected = DispatchSemaphore(value: 0)
+        let unexpectedReadinessRetry = expectation(
+            description: "permanent readiness rejection is not retried"
+        )
+        unexpectedReadinessRetry.isInverted = true
+
+        defer {
+            Darwin.close(listenerFD)
+            Darwin.close(bridge.fd)
+            unlink(socketPath)
+        }
+
+        let socketHandled = startMockServer(
+            listenerFD: listenerFD,
+            state: state
+        ) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "workspace.remote.pty_bridge":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "host": "127.0.0.1",
+                        "port": bridge.port,
+                        "token": token,
+                        "session_id": sessionId,
+                        "attachment_id": surfaceId,
+                    ]
+                )
+            case "workspace.remote.pty_resize":
+                return self.v2Response(id: id, ok: true, result: ["resized": true])
+            case "workspace.remote.terminal_session_connected":
+                let readinessCount = state.snapshot().compactMap {
+                    self.jsonObject($0)?["method"] as? String
+                }.filter {
+                    $0 == "workspace.remote.terminal_session_connected"
+                }.count
+                if readinessCount == 1 {
+                    readinessRejected.signal()
+                } else {
+                    unexpectedReadinessRetry.fulfill()
+                }
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "not_found", "message": "Workspace not found"]
+                )
+            case "workspace.remote.pty_sessions":
+                return self.v2Response(id: id, ok: true, result: ["sessions": []])
+            case "workspace.remote.pty_attach_end":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspace_id": workspaceId,
+                        "surface_id": surfaceId,
+                        "session_id": sessionId,
+                        "cleared_remote_pty_session": true,
+                    ]
+                )
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        let bridgeHandled = expectation(description: "controlled bridge handled")
+        DispatchQueue.global(qos: .userInitiated).async {
+            defer { bridgeHandled.fulfill() }
+            var clientAddr = sockaddr_in()
+            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                    Darwin.accept(bridge.fd, sockaddrPtr, &clientAddrLen)
+                }
+            }
+            guard clientFD >= 0 else { return }
+            defer { Darwin.close(clientFD) }
+
+            var pending = Data()
+            var buffer = [UInt8](repeating: 0, count: 1024)
+            while !pending.contains(0x0A) {
+                let count = Darwin.read(clientFD, &buffer, buffer.count)
+                if count < 0 {
+                    if errno == EINTR { continue }
+                    return
+                }
+                if count == 0 { return }
+                pending.append(buffer, count: count)
+            }
+
+            let ready = #"{"type":"ready","attachment_token":"attach-token"}"# + "\n"
+            _ = ready.withCString { ptr in
+                Darwin.write(clientFD, ptr, strlen(ptr))
+            }
+            bridgeReady.signal()
+            _ = closeBridge.wait(timeout: .now() + 5)
+        }
+
+        let process = Process()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: cliPath)
+        process.arguments = [
+            "ssh-pty-attach",
+            "--workspace", workspaceId,
+            "--session-id", sessionId,
+            "--attachment-id", surfaceId,
+        ]
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_TERMINAL_LIFECYCLE_ID"] = surfaceId
+        environment["CMUX_SSH_ATTEMPT_ID"] = "44444444-4444-4444-4444-444444444444"
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        try process.run()
+        defer {
+            if process.isRunning {
+                process.terminate()
+            }
+        }
+        XCTAssertEqual(bridgeReady.wait(timeout: .now() + 5), .success)
+        XCTAssertEqual(readinessRejected.wait(timeout: .now() + 5), .success)
+        wait(for: [unexpectedReadinessRetry], timeout: 0.5)
+
+        closeBridge.signal()
+        wait(for: [bridgeHandled], timeout: 5)
+        let exited = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            process.waitUntilExit()
+            exited.signal()
+        }
+        XCTAssertEqual(exited.wait(timeout: .now() + 5), .success)
+        wait(for: [socketHandled], timeout: 5)
+
+        let stdout = String(
+            data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+        let stderr = String(
+            data: stderrPipe.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+        XCTAssertEqual(process.terminationStatus, 0, stderr)
+        XCTAssertEqual(stdout, "")
+        XCTAssertEqual(stderr, "")
+        let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
+        XCTAssertEqual(
+            methods.filter { $0 == "workspace.remote.terminal_session_connected" }.count,
+            1
+        )
     }
 
     func testSSHSessionAttachCreatesSurfaceWithPersistedPTYSessionID() throws {
@@ -4632,8 +5087,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertTrue(initialCommand.contains(sessionId), initialCommand)
             XCTAssertTrue(initialCommand.contains("CMUX_WORKSPACE_ID"), initialCommand)
             XCTAssertTrue(initialCommand.contains("CMUX_SURFACE_ID"), initialCommand)
-            XCTAssertTrue(initialCommand.contains("254|255") && initialCommand.contains("CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS") && initialCommand.contains("∞"), initialCommand)
-            XCTAssertEqual(initialCommand.components(separatedBy: "/usr/bin/uuidgen").count - 1, 1, initialCommand)
+            let retryStatuses = ["251)", "252)", "254)", "255)"]
+            XCTAssertTrue(
+                retryStatuses.allSatisfy { initialCommand.contains($0) }
+                    && initialCommand.contains("CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS")
+                    && initialCommand.contains("∞"),
+                initialCommand
+            )
+            XCTAssertEqual(initialCommand.components(separatedBy: "/usr/bin/uuidgen").count - 1, 2, initialCommand)
             XCTAssertTrue(initialCommand.contains("ssh-session-end --lifecycle-only"), initialCommand)
             return self.v2Response(
                 id: id,
@@ -5288,7 +5749,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(state.snapshot().contains { $0.contains("workspace.remote.pty_close") })
         XCTAssertTrue(result.stderr.contains("ssh-session-cleanup failed for 1 persisted SSH PTY session"), result.stderr)
         XCTAssertTrue(result.stderr.contains(sessionId), result.stderr)
-        XCTAssertTrue(result.stderr.contains("persistent SSH PTY session is no longer running"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("remote PTY operation failed"), result.stderr)
     }
 
     func testSSHSessionCleanupAllWorkspacesSessionIDCountsDuplicateIDsPerWorkspace() throws {
@@ -7715,7 +8176,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         ]
         try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted]).write(to: storeURL, options: .atomic)
 
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+        startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = self.jsonObject(line) else {
                 return line.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{")
                     ? self.malformedRequestResponse(raw: line)
@@ -7750,9 +8211,12 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             timeout: 5
         )
 
+        // This path is expected to reject the stale mapping without ever opening
+        // the control socket. Stop the owned accept loop explicitly; closing the
+        // listener alone does not wake poll(2) on Darwin.
+        CLIMockAcceptLoopRegistry.shared.stop(listenerFD: listenerFD)
         Darwin.close(listenerFD)
         listenerClosed = true
-        wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(result.stdout, "{}\n")
@@ -8715,52 +9179,21 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
-    private func startAgentHookMockServerAccepting(
-        context: ClaudeHookContext,
-        connectionLimit: Int
-    ) {
-        DispatchQueue.global(qos: .userInitiated).async {
-            var accepted = 0
-            while accepted < connectionLimit {
-                var clientAddr = sockaddr_un()
-                var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
-                let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
-                    ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                        Darwin.accept(context.listenerFD, sockaddrPtr, &clientAddrLen)
-                    }
-                }
-                if clientFD < 0 {
-                    if errno == EINTR { continue }
-                    return
-                }
-                accepted += 1
-
-                DispatchQueue.global(qos: .userInitiated).async {
-                    defer { Darwin.close(clientFD) }
-                    var pending = Data()
-                    var buffer = [UInt8](repeating: 0, count: 4096)
-                    while true {
-                        let count = Darwin.read(clientFD, &buffer, buffer.count)
-                        if count < 0 {
-                            if errno == EINTR { continue }
-                            return
-                        }
-                        if count == 0 { return }
-                        pending.append(buffer, count: count)
-                        while let newlineRange = pending.firstRange(of: Data([0x0A])) {
-                            let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
-                            pending.removeSubrange(0...newlineRange.lowerBound)
-                            guard let line = String(data: lineData, encoding: .utf8) else { continue }
-                            context.state.append(line)
-                            let response = self.agentHookMockResponse(line: line, context: context) + "\n"
-                            _ = response.withCString { ptr in
-                                Darwin.write(clientFD, ptr, strlen(ptr))
-                            }
-                        }
-                    }
-                }
-            }
+    /// Serves this context's agent-hook mock socket for the rest of the test. One
+    /// accept loop answers every connection, including the CLI's extra `system.top`
+    /// lookup connection, and the registry reaps the loop at teardown.
+    private func startAgentHookMockServerAccepting(context: ClaudeHookContext) {
+        let state = context.state
+        let mockResponse: @Sendable (String) -> String = { line in
+            self.agentHookMockResponse(line: line, context: context)
         }
+        CLIMockAcceptLoopRegistry.shared.start(listenerFD: context.listenerFD, onConnection: { clientFD in
+            defer { Darwin.close(clientFD) }
+            cliMockServeLineFramedConnection(clientFD: clientFD) { line in
+                state.append(line)
+                return mockResponse(line)
+            }
+        }, onListenerClosed: {})
     }
 
     private func agentHookMockResponse(line: String, context: ClaudeHookContext) -> String {
@@ -8806,7 +9239,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         standardInput: String,
         extraEnvironment: [String: String] = [:]
     ) -> ProcessRunResult {
-        let serverHandled = startMockServer(listenerFD: context.listenerFD, state: context.state, connectionCount: 4) { line in
+        let serverHandled = startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
             guard let payload = self.jsonObject(line) else {
                 return "OK"
             }
@@ -9432,7 +9865,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .appendingPathComponent("cmux-spawn-id-e2e-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmpDir) }
-        let socketPath = tmpDir.appendingPathComponent("sock").path
+        // Bind the control socket under a short /tmp path. The AF_UNIX sun_path
+        // limit is 104 bytes, and this machine's temporary directory alone is long
+        // enough that a socket nested under `tmpDir` overflows it; keep HOME pointed
+        // at tmpDir but give the socket a short, dedicated path.
+        let socketPath = makeSocketPath("tmuxenv")
         let listenerFD = try bindUnixSocket(at: socketPath)
         defer { Darwin.close(listenerFD); unlink(socketPath) }
         let state = MockSocketServerState()
@@ -9440,6 +9877,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         // The operator's FOCUSED pane is surface A (what system.identify returns).
         let focusedWorkspace = "11111111-1111-1111-1111-111111111111"
         let focusedSurface = "22222222-2222-2222-2222-222222222222"
+        let focusedPane = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        let focusedWindow = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+        let launchWorkspace = "33333333-3333-3333-3333-333333333333"
+        let launchSurface = "44444444-4444-4444-4444-444444444444"
+        let launchPane = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+        let launchWindow = "dddddddd-dddd-dddd-dddd-dddddddddddd"
         let handled = startMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
@@ -9451,19 +9894,32 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "focused": [
                         "workspace_id": focusedWorkspace,
                         "surface_id": focusedSurface,
-                        "pane_id": "%1",
+                        "pane_id": focusedPane,
+                        "window_id": focusedWindow,
                     ],
                 ])
             }
-            // resolveWorkspaceId / tmuxCanonicalPaneId fail gracefully (CLI uses try?).
+            if method == "surface.list" {
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["workspace_id"] as? String, launchWorkspace)
+                return self.v2Response(id: id, ok: true, result: [
+                    "window_id": launchWindow,
+                    "surfaces": [[
+                        "id": launchSurface,
+                        "ref": "surface:2",
+                        "pane_id": launchPane,
+                        "pane_ref": "pane:2",
+                    ]],
+                ])
+            }
+            // Any unexpected launch-context query fails closed.
             return self.v2Response(id: id, ok: false, error: ["code": "unsupported", "message": method])
         }
 
-        // ...but the launcher RUNS in surface B (its own inherited env). Tab id is surface-scoped, so
-        // it is distinct from the workspace id.
-        let launchWorkspace = "33333333-3333-3333-3333-333333333333"
-        let launchSurface = "44444444-4444-4444-4444-444444444444"
-        let launchTab = "55555555-5555-5555-5555-555555555555"
+        // ...but the launcher RUNS in surface B (its own inherited env). Seed stale legacy aliases
+        // too: the launcher must make the entire identity coherent with the validated surface.
+        let staleTab = "55555555-5555-5555-5555-555555555555"
+        let stalePane = "66666666-6666-6666-6666-666666666666"
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["__debug-tmux-compat-env"],
@@ -9472,13 +9928,20 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "CMUX_WORKSPACE_ID": launchWorkspace,
                 "CMUX_SURFACE_ID": launchSurface,
                 "CMUX_PANEL_ID": launchSurface,
-                "CMUX_TAB_ID": launchTab,
+                "CMUX_TAB_ID": staleTab,
+                "CMUX_PANE_ID": stalePane,
                 "HOME": tmpDir.path,
                 "PATH": ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin",
             ],
             timeout: 30
         )
         wait(for: [handled], timeout: 30)
+
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["surface.list"],
+            "a complete launch identity must resolve without consulting mutable global focus"
+        )
 
         XCTAssertTrue(
             result.stdout.contains("CMUX_SURFACE_ID=\(launchSurface)"),
@@ -9489,9 +9952,23 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "launcher must NOT stamp the focused surface; stdout:\n\(result.stdout)"
         )
         XCTAssertTrue(result.stdout.contains("CMUX_WORKSPACE_ID=\(launchWorkspace)"), result.stdout)
-        // Matched-pair invariant: SURFACE == PANEL (the desync is exactly the bug). The surface-scoped
-        // tab id passes through untouched.
+        XCTAssertTrue(
+            result.stdout.contains("TMUX=/tmp/cmux-debug/\(launchWorkspace),\(launchWindow),395573847701825025"),
+            "fake tmux session/window identity must come from the launch surface; stdout:\n\(result.stdout)"
+        )
+        XCTAssertFalse(
+            result.stdout.contains("TMUX=/tmp/cmux-debug/\(focusedWorkspace),\(focusedWindow),"),
+            "fake tmux identity must not follow global focus; stdout:\n\(result.stdout)"
+        )
+        XCTAssertTrue(
+            result.stdout.contains("TMUX_PANE=%395573847701825025"),
+            "TMUX_PANE must identify the launch surface's pane; stdout:\n\(result.stdout)"
+        )
+        // Primary ids and their legacy aliases must remain matched pairs.
         XCTAssertTrue(result.stdout.contains("CMUX_PANEL_ID=\(launchSurface)"), result.stdout)
-        XCTAssertTrue(result.stdout.contains("CMUX_TAB_ID=\(launchTab)"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("CMUX_TAB_ID=\(launchWorkspace)"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("CMUX_PANE_ID=\(launchPane)"), result.stdout)
+        XCTAssertFalse(result.stdout.contains(staleTab), result.stdout)
+        XCTAssertFalse(result.stdout.contains(stalePane), result.stdout)
     }
 }

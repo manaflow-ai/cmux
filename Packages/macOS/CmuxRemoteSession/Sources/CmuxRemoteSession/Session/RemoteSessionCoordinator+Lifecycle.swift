@@ -21,6 +21,7 @@ extension RemoteSessionCoordinator {
         consecutiveUnreachableProbeCount = 0
         reconnectSuspended = false
         reachabilityProbeGeneration &+= 1
+        cancelControlMasterReapObservationLocked()
         cancelReverseRelayRestartLocked()
         cancelRemotePortScanCoalesceLocked()
         let cleanupSucceeded = stopReverseRelayLocked(cleanupScope: cleanupScope)

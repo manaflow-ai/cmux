@@ -15,16 +15,27 @@ extension ControlCommandCoordinator {
 
     /// `surface.action` / `tab.action` — run one surface-tab mutation.
     func tabAction(_ params: [String: JSONValue]) -> ControlCallResult {
+        guard let systemContext else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
         let action = actionKey(params)
-        let resolution = systemContext?.controlTabAction(
+        let surfaceID = uuid(params, "surface_id")
+        let tabID = uuid(params, "tab_id")
+        if params["surface_id"] != nil, surfaceID == nil {
+            return .err(code: "not_found", message: systemContext.controlSystemSurfaceNotFoundMessage(), data: nil)
+        }
+        if params["tab_id"] != nil, tabID == nil {
+            return .err(code: "not_found", message: systemContext.controlSystemTabNotFoundMessage(), data: nil)
+        }
+        let resolution = systemContext.controlTabAction(
             routing: routingSelectors(params),
             actionKey: action,
             title: string(params, "title"),
             rawURL: string(params, "url"),
-            surfaceID: uuid(params, "surface_id") ?? uuid(params, "tab_id"),
+            surfaceID: surfaceID ?? tabID,
             requestedFocus: bool(params, "focus") ?? false,
             moveParams: params
-        ) ?? .tabManagerUnavailable
+        )
 
         switch resolution {
         case .tabManagerUnavailable:
@@ -38,7 +49,7 @@ extension ControlCommandCoordinator {
         case .tabNotFound(let surfaceID):
             return .err(
                 code: "not_found",
-                message: "Tab not found",
+                message: systemContext.controlSystemTabNotFoundMessage(),
                 data: .object([
                     "surface_id": .string(surfaceID.uuidString),
                     "surface_ref": ref(.surface, surfaceID),
@@ -123,17 +134,18 @@ extension ControlCommandCoordinator {
                 payload["created_surface_ref"] = .null
                 payload["created_tab_id"] = .null
                 payload["created_tab_ref"] = .null
-            case .submittedToBackend(let requestID):
+            case .submittedToBackend(let requestID, let createdSurfaceID):
                 payload["submitted"] = .bool(true)
                 payload["accepted"] = .bool(false)
                 payload["request_id"] = .string(requestID.uuidString)
                 payload["status_method"] = .string("terminal_backend.mutation_status")
+                payload["retry_safe"] = .bool(false)
                 payload["submission_target"] = .string("cmuxd")
                 payload["pending_projection"] = .bool(true)
-                payload["created_surface_id"] = .null
-                payload["created_surface_ref"] = .null
-                payload["created_tab_id"] = .null
-                payload["created_tab_ref"] = .null
+                payload["created_surface_id"] = .string(createdSurfaceID.uuidString)
+                payload["created_surface_ref"] = ref(.surface, createdSurfaceID)
+                payload["created_tab_id"] = .string(createdSurfaceID.uuidString)
+                payload["created_tab_ref"] = tabRef(createdSurfaceID)
             case .closed(let closed, let skippedPinned):
                 payload["closed"] = .int(Int64(closed))
                 payload["skipped_pinned"] = .int(Int64(skippedPinned))

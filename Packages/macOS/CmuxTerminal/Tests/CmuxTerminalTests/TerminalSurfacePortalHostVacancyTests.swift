@@ -240,9 +240,11 @@ import Testing
                 runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator(),
                 restoreSpawnScheduler: TerminalSurfaceRestoreSpawnScheduler(interSpawnDelay: .zero),
                 runtimeFilesystem: TerminalSurfaceRuntimeFilesystem(
-                    claudeCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
-                    installClaudeCommandShim: { _, _, _ in nil },
-                    isExecutableFile: { _ in false }
+                    agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
+                    installAgentCommandShims: { _, _, _ in nil },
+                    removeAgentCommandShims: { _ in },
+                    isExecutableFile: { _ in false },
+                    directoryExists: { _ in false }
                 ),
                 sessionPortBase: 40_000,
                 sessionPortRangeSize: 100,

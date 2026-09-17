@@ -30,6 +30,7 @@ import Testing
         panel.adoptCanonicalPlacement(workspaceID: replacementWorkspaceID)
         let ingress = panel.enqueue(.focus(true))
         panel.enableAccessibility()
+        panel.disableAccessibility()
 
         #expect(lease === runtime.lease)
         #expect(panel.surfaceView === surfaceView)
@@ -46,6 +47,7 @@ import Testing
         #expect(runtime.mutations == [.focus(true)])
         #expect(ingress == .accepted(sequence: 1))
         #expect(runtime.accessibilityEnableCount == 1)
+        #expect(runtime.accessibilityDisableCount == 1)
         #expect(await panel.readScreenText(.visible) == "visible text")
         #expect(await panel.readSelection()?.text == "selected")
     }

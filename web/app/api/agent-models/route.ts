@@ -2,8 +2,6 @@ import { createHash } from "node:crypto";
 
 import { agentModelCatalog } from "../../../data/agent-models";
 
-export const runtime = "nodejs";
-export const revalidate = 300;
 
 const CACHE_CONTROL = "public, s-maxage=300, stale-while-revalidate=86400";
 const ALLOW_METHODS = "GET, OPTIONS";

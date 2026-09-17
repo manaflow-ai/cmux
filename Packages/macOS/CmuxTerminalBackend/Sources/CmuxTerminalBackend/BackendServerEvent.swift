@@ -89,6 +89,21 @@ public struct BackendServerEvent: Codable, Equatable, Sendable {
             from: JSONEncoder().encode(self)
         )
     }
+
+    /// Decodes one daemon renderer-configuration invalidation.
+    public func rendererConfigInvalidated() throws -> BackendRendererConfigInvalidated {
+        guard name == "renderer-config-invalidated" else {
+            throw BackendProtocolError.malformedMessage
+        }
+        do {
+            return try JSONDecoder().decode(
+                BackendRendererConfigInvalidated.self,
+                from: JSONEncoder().encode(self)
+            )
+        } catch {
+            throw BackendProtocolError.malformedMessage
+        }
+    }
 }
 
 private extension Int {

@@ -10,13 +10,16 @@ internal import Foundation
 /// Sendable enum the app maps.
 extension ControlCommandCoordinator {
     /// `v2RawString`: the raw string value, untrimmed, or `nil`.
-    func rawString(_ params: [String: JSONValue], _ key: String) -> String? {
+    nonisolated func rawString(_ params: [String: JSONValue], _ key: String) -> String? {
         guard case .string(let value)? = params[key] else { return nil }
         return value
     }
 
     /// `v2OptionalTrimmedRawString`: trimmed raw string, `nil` when empty.
-    func optionalTrimmedRawString(_ params: [String: JSONValue], _ key: String) -> String? {
+    nonisolated func optionalTrimmedRawString(
+        _ params: [String: JSONValue],
+        _ key: String
+    ) -> String? {
         let trimmed = rawString(params, key)?.trimmingCharacters(in: .whitespacesAndNewlines)
         return (trimmed?.isEmpty == false) ? trimmed : nil
     }
@@ -63,7 +66,9 @@ extension ControlCommandCoordinator {
     }
 
     /// `v2ActionKey`: a trimmed string lowercased with `-` mapped to `_`.
-    func actionKey(_ params: [String: JSONValue], _ key: String = "action") -> String? {
+    nonisolated func actionKey(
+        _ params: [String: JSONValue], _ key: String = "action"
+    ) -> String? {
         guard let action = string(params, key) else { return nil }
         return action.lowercased().replacingOccurrences(of: "-", with: "_")
     }
@@ -144,12 +149,12 @@ extension ControlCommandCoordinator {
 
     /// `v2StrictInt`: an exact integer only — a non-boolean integral number or a
     /// parsable integer string; fractional or non-finite numbers are rejected.
-    func strictInt(_ params: [String: JSONValue], _ key: String) -> Int? {
+    nonisolated func strictInt(_ params: [String: JSONValue], _ key: String) -> Int? {
         strictIntValue(params[key])
     }
 
     /// `v2StrictIntAny`: the strict-int rule for a single JSON value.
-    func strictIntValue(_ raw: JSONValue?) -> Int? {
+    nonisolated func strictIntValue(_ raw: JSONValue?) -> Int? {
         switch raw {
         case .int(let value):
             return Int(value)

@@ -29,7 +29,7 @@ extension SidebarGitMetadataService {
         let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
         guard let host else { return }
         guard !host.shouldSkipLocalGitMetadata(workspaceId: workspaceId, panelId: panelId) else { return }
-        guard sidebarGitMetadataWatchEnabled else {
+        guard sidebarGitMetadataActivePollingEnabled else {
             clearWorkspaceGitMetadata(for: key)
             return
         }

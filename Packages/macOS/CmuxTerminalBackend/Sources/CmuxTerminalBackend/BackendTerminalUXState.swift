@@ -68,6 +68,9 @@ public struct BackendTerminalViewportState: Decodable, Equatable, Sendable {
 /// Coherent daemon-owned terminal UX state returned after every related mutation.
 public struct BackendTerminalUXState: Decodable, Equatable, Sendable {
     public let surfaceID: SurfaceID
+    public let terminalEpoch: UInt64
+    public let interactionRevision: UInt64
+    public let interactionRevisionExhausted: Bool
     public let copyMode: Bool
     public let mouseTracking: Bool
     public let copyCursor: BackendTerminalCellPoint?
@@ -78,6 +81,9 @@ public struct BackendTerminalUXState: Decodable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case surfaceID = "surface_uuid"
+        case terminalEpoch = "terminal_epoch"
+        case interactionRevision = "interaction_revision"
+        case interactionRevisionExhausted = "interaction_revision_exhausted"
         case copyMode = "copy_mode"
         case mouseTracking = "mouse_tracking"
         case copyCursor = "copy_cursor"
@@ -87,6 +93,9 @@ public struct BackendTerminalUXState: Decodable, Equatable, Sendable {
 
 public struct BackendTerminalStateResponse: Decodable, Equatable, Sendable {
     public let surfaceID: SurfaceID
+    public let terminalEpoch: UInt64
+    public let interactionRevision: UInt64
+    public let interactionRevisionExhausted: Bool
     public let copyMode: Bool
     public let mouseTracking: Bool
     public let copyCursor: BackendTerminalCellPoint?
@@ -97,6 +106,9 @@ public struct BackendTerminalStateResponse: Decodable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case surfaceID = "surface_uuid"
+        case terminalEpoch = "terminal_epoch"
+        case interactionRevision = "interaction_revision"
+        case interactionRevisionExhausted = "interaction_revision_exhausted"
         case copyMode = "copy_mode"
         case mouseTracking = "mouse_tracking"
         case copyCursor = "copy_cursor"
@@ -106,6 +118,9 @@ public struct BackendTerminalStateResponse: Decodable, Equatable, Sendable {
     public var state: BackendTerminalUXState {
         BackendTerminalUXState(
             surfaceID: surfaceID,
+            terminalEpoch: terminalEpoch,
+            interactionRevision: interactionRevision,
+            interactionRevisionExhausted: interactionRevisionExhausted,
             copyMode: copyMode,
             mouseTracking: mouseTracking,
             copyCursor: copyCursor,

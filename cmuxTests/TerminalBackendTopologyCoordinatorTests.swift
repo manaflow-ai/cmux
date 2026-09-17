@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxAgentChat
 import CmuxTerminal
 import CmuxTerminalBackend
 import Foundation
@@ -2260,27 +2261,10 @@ struct TerminalBackendTopologyCoordinatorTests {
     }
 
     @Test
-    func unsupportedStructuralMutationsAreExhaustive() {
-        #expect(TerminalBackendTopologyMutationCoordinator.supportedMutations == [
-            .closeTerminal,
-            .reparentTerminal,
-        ])
+    func structuralMutationSupportIsExhaustive() {
         #expect(
-            Set(TerminalBackendTopologyMutation.allCases)
-                .subtracting(TerminalBackendTopologyMutationCoordinator.supportedMutations)
-            == [
-                .createWorkspace,
-                .closeWorkspace,
-                .renameWorkspace,
-                .splitPane,
-                .closePane,
-                .attachSurface,
-                .renameSurface,
-                .moveTab,
-                .reorderTab,
-                .reorderWorkspace,
-                .changeSplitRatio,
-            ]
+            TerminalBackendTopologyMutationCoordinator.supportedMutations
+                == Set(TerminalBackendTopologyMutation.allCases)
         )
     }
 
@@ -2292,7 +2276,7 @@ struct TerminalBackendTopologyCoordinatorTests {
             let ordinal = UInt64(index + 1)
             workspaces.append(makeWorkspace(
                 workspaceID: UUID(),
-                workspaceName: "workspace " + String(index),
+                workspaceName: "workspace \(index)",
                 workspaceNumber: ordinal,
                 screenNumber: ordinal,
                 paneNumber: ordinal,
@@ -2341,21 +2325,20 @@ struct TerminalBackendTopologyCoordinatorTests {
     }
 
     @Test @MainActor
-    func everyUnsupportedMutationReportsAndReturnsFalse() {
+    func explicitRejectionReportsEveryMutationAndReturnsFalse() {
         var failures: [String] = []
         let coordinator = TerminalBackendTopologyMutationCoordinator(
             mutator: RejectingTopologyMutator(),
             failureReporter: { failures.append($0) }
         )
-        let unsupported = Set(TerminalBackendTopologyMutation.allCases)
-            .subtracting(TerminalBackendTopologyMutationCoordinator.supportedMutations)
+        let mutations = TerminalBackendTopologyMutation.allCases
 
-        for mutation in unsupported {
+        for mutation in mutations {
             #expect(coordinator.reject(mutation) == false)
         }
 
-        #expect(failures.count == unsupported.count)
-        for mutation in unsupported {
+        #expect(failures.count == mutations.count)
+        for mutation in mutations {
             #expect(failures.contains(where: { $0.contains(mutation.rawValue) }))
         }
     }
@@ -2435,6 +2418,121 @@ struct TerminalBackendTopologyCoordinatorTests {
         #expect(projectionFirst.submissionStatus(
             requestID: projectionFirstSubmission.requestID
         ) == .projected(placement.receipt))
+    }
+
+    @Test @MainActor
+    func workspaceCreationSeedsRestoreSnapshotAfterCanonicalProjection() async throws {
+        let authority = makeAuthority()
+        let mutationCoordinator = TerminalBackendTopologyMutationCoordinator(
+            mutator: RejectingTopologyMutator(createWorkspaceAuthority: authority)
+        )
+        let composition = TerminalClientComposition(
+            terminalPanelFactory: CanonicalTestTerminalPanelFactory(),
+            terminalBackendTopologyMutationCoordinator: mutationCoordinator,
+            terminalBackendTopologyAdoptionRegistry: TerminalBackendTopologyAdoptionRegistry()
+        )
+        var resumeIntents: [AgentChatResumeIntent] = []
+        let manager = TabManager(
+            autoWelcomeIfNeeded: false,
+            terminalClientComposition: composition,
+            agentChatResumeIntentRecorder: AgentChatResumeIntentRecorder {
+                resumeIntents.append($0)
+            }
+        )
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "canonical-resume-session",
+            workingDirectory: "/tmp/canonical-resume"
+        )
+
+        let outcome = manager.requestAddWorkspace(
+            workingDirectory: agent.workingDirectory,
+            initialTerminalInput: " cmux restore codex canonical-resume-session\n",
+            initialTerminalStartupRestoreAgent: agent
+        )
+        guard case .submittedToBackend(let submission) = outcome else {
+            Issue.record("Expected workspace creation to enter the backend mutation queue")
+            return
+        }
+        let workspaceID = try #require(submission.workspaceID)
+        let surfaceID = try #require(submission.surfaceID)
+        try manager.installCanonicalTopology(try makeSnapshot(
+            authority: authority,
+            revision: 1,
+            workspaces: [makeWorkspace(
+                workspaceID: workspaceID,
+                surfaceIDs: [surfaceID]
+            )]
+        ))
+        for _ in 0..<200 {
+            if mutationCoordinator.submissionStatus(requestID: submission.requestID)?.isFinished == true {
+                break
+            }
+            await Task.yield()
+        }
+
+        let workspace = try #require(manager.tabs.first { $0.id == workspaceID })
+        #expect(
+            workspace.restoredAgentSnapshotsByPanelId[surfaceID]?.sessionId
+                == "canonical-resume-session"
+        )
+        #expect(
+            workspace.restoredResumeSessionWorkingDirectoriesByPanelId[surfaceID]
+                == "/tmp/canonical-resume"
+        )
+        let resumeIntent = try #require(resumeIntents.last)
+        #expect(resumeIntent.sessionID == "canonical-resume-session")
+        #expect(resumeIntent.surfaceID == surfaceID.uuidString)
+        #expect(resumeIntent.workspaceID == workspaceID.uuidString)
+    }
+
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func loginShellRespawnUsesCanonicalBackendWithoutReplacingPanel() async throws {
+        let authority = makeAuthority()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let placement = try makeSurfacePlacement(
+            authority: authority,
+            revision: 2,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID
+        )
+        let recorder = RespawnTopologyRecorder()
+        let mutationCoordinator = TerminalBackendTopologyMutationCoordinator(
+            mutator: RejectingTopologyMutator(
+                respawnPlacement: placement,
+                respawnRecorder: recorder
+            )
+        )
+        let composition = TerminalClientComposition(
+            terminalPanelFactory: EmbeddedTerminalPanelFactory(
+                dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies
+            ),
+            terminalBackendTopologyMutationCoordinator: mutationCoordinator
+        )
+        let workspace = Workspace(
+            id: workspaceID,
+            terminalClientComposition: composition,
+            initialTerminalSurfaceID: surfaceID
+        )
+        defer { workspace.teardownAllPanels() }
+        let originalPanel = try #require(workspace.terminalPanel(for: surfaceID))
+
+        let outcome = workspace.requestRespawnTerminalSurface(
+            panelId: surfaceID,
+            command: nil,
+            focus: true
+        )
+        guard case .submittedToBackend(let submission) = outcome else {
+            Issue.record("Expected login-shell respawn to enter the backend mutation queue")
+            return
+        }
+        let launch = await recorder.nextLaunch()
+
+        #expect(submission.surfaceID == surfaceID)
+        #expect(launch.command == nil)
+        #expect(workspace.terminalPanel(for: surfaceID) === originalPanel)
     }
 
     @Test @MainActor
@@ -2748,6 +2846,15 @@ struct TerminalBackendTopologyCoordinatorTests {
             workspaces: [canonical]
         )
         let plan = try TerminalBackendTopologyProjectionPlan(topology: snapshot.topology)
+        #expect(first.registry.register(
+            TerminalBackendNativeBrowserPresentationRequest(
+                url: sourceURL,
+                profileID: nil,
+                chromeVisibility: .chromeless,
+                transparentBackground: false
+            ),
+            for: surfaceID
+        ))
 
         try await first.runtime.claimBeforeProjection(
             authority: authority,
@@ -2762,6 +2869,7 @@ struct TerminalBackendTopologyCoordinatorTests {
 
         let browser = try #require(manager.tabs.first?.panels[surfaceID.rawValue] as? BrowserPanel)
         #expect(browser.endpointProvenance == .frontendNativeCanonical(surfaceID))
+        #expect(browser.chromeVisibility == .chromeless)
         #expect(browser.currentURLForTabDuplication == sourceURL)
         #expect(!browser.shouldPersistSessionSnapshot())
         let swiftSnapshot = manager.sessionSnapshot(includeScrollback: false)
@@ -2815,13 +2923,13 @@ struct TerminalBackendTopologyCoordinatorTests {
             url: credentialRequest.url,
             initialRequest: credentialRequest,
             profileID: nil,
-            omnibarVisible: true,
+            chromeVisibility: .visible,
             transparentBackground: false
         )
         let ordinaryRequest = TerminalBackendNativeBrowserPresentationRequest(
             url: try #require(URL(string: "https://example.com/second")),
             profileID: nil,
-            omnibarVisible: true,
+            chromeVisibility: .visible,
             transparentBackground: false
         )
 
@@ -2860,7 +2968,7 @@ struct TerminalBackendTopologyCoordinatorTests {
                 url: sourceURL,
                 initialRequest: credentialRequest,
                 profileID: nil,
-                omnibarVisible: true,
+                chromeVisibility: .visible,
                 transparentBackground: false
             ),
             for: surfaceID
@@ -2902,26 +3010,32 @@ struct TerminalBackendTopologyCoordinatorTests {
         #expect(await service.claimCallSnapshot().count == 1)
     }
 
-    @Test @MainActor
+    @Test(.timeLimit(.minutes(1))) @MainActor
     func nativeBrowserClaimsUseBoundedConcurrency() async throws {
         let authority = makeAuthority()
         let surfaceIDs = (0..<40).map { _ in SurfaceID(rawValue: UUID()) }
         let service = RecordingNativeBrowserService(authority: authority)
-        await service.setClaimDelay(nanoseconds: 10_000_000)
+        await service.setBlocksClaims(true)
         let runtime = TerminalBackendNativeBrowserRuntimeCoordinator(
             service: service,
             presentationRegistry: TerminalBackendNativeBrowserPresentationRegistry(),
             maximumConcurrentClaimCount: 16
         )
 
-        try await runtime.claimBeforeProjection(
-            authority: authority,
-            surfaceIDs: surfaceIDs,
-            projector: RecordingTopologyProjector()
-        )
+        let claimTask = Task {
+            try await runtime.claimBeforeProjection(
+                authority: authority,
+                surfaceIDs: surfaceIDs,
+                projector: RecordingTopologyProjector()
+            )
+        }
+        defer { claimTask.cancel() }
 
-        #expect(await service.claimCallSnapshot().count == surfaceIDs.count)
+        try await service.waitForActiveClaimCount(16)
         #expect(await service.maximumConcurrentClaimCount() == 16)
+        await service.releaseClaims()
+        try await claimTask.value
+        #expect(await service.claimCallSnapshot().count == surfaceIDs.count)
     }
 
     @Test @MainActor
@@ -4155,6 +4269,7 @@ private final class CanonicalTestTerminalPanelFactory: TerminalPanelCreating {
     func makeTerminalPanel(_ request: TerminalPanelCreationRequest) -> TerminalPanel {
         TerminalPanel(
             externalRequest: request,
+            terminalLifecycleID: UUID(),
             presentationDependencies: GhosttyApp.terminalSurfacePresentationDependencies,
             externalRuntime: CanonicalTestTerminalRuntime()
         )
@@ -4171,6 +4286,10 @@ private final class CanonicalTestTerminalRuntime: TerminalExternalRuntime {
     ) -> any TerminalExternalPresentationLease {
         _ = presentation
         return CanonicalTestTerminalPresentationLease()
+    }
+
+    func setDesiredVisibility(_ visible: Bool) {
+        _ = visible
     }
 
     func enqueue(
@@ -4334,7 +4453,11 @@ private actor RecordingNativeBrowserService:
     private var sourceUpdateCalls: [SourceUpdateCall] = []
     private var activeClaimCount = 0
     private var maximumActiveClaimCount = 0
-    private var claimDelayNanoseconds: UInt64 = 0
+    private var blocksClaims = false
+    private var claimContinuations: [UUID: CheckedContinuation<Void, any Error>] = [:]
+    private var activeClaimCountWaiters: [
+        UUID: (count: Int, continuation: CheckedContinuation<Void, any Error>)
+    ] = [:]
     private var blocksFirstSourceUpdate = false
     private var firstSourceUpdateContinuation: CheckedContinuation<Void, Never>?
     private var failsSourceUpdates = false
@@ -4359,9 +4482,15 @@ private actor RecordingNativeBrowserService:
         ))
         activeClaimCount += 1
         maximumActiveClaimCount = max(maximumActiveClaimCount, activeClaimCount)
+        let identifiers = activeClaimCountWaiters.compactMap { identifier, waiter in
+            waiter.count <= activeClaimCount ? identifier : nil
+        }
+        for identifier in identifiers {
+            activeClaimCountWaiters.removeValue(forKey: identifier)?.continuation.resume()
+        }
         defer { activeClaimCount -= 1 }
-        if claimDelayNanoseconds > 0 {
-            try await Task.sleep(nanoseconds: claimDelayNanoseconds)
+        if blocksClaims {
+            try await waitForClaimRelease()
         }
         let resolvedSource = retainedSources[surfaceID] ?? sourceURL
         if let resolvedSource {
@@ -4408,8 +4537,64 @@ private actor RecordingNativeBrowserService:
         )
     }
 
-    func setClaimDelay(nanoseconds: UInt64) {
-        claimDelayNanoseconds = nanoseconds
+    func setBlocksClaims(_ blocks: Bool) {
+        blocksClaims = blocks
+    }
+
+    func waitForActiveClaimCount(_ expectedCount: Int) async throws {
+        guard activeClaimCount < expectedCount else { return }
+        let identifier = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Void, any Error>) in
+                if Task.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                } else if activeClaimCount >= expectedCount {
+                    continuation.resume()
+                } else {
+                    activeClaimCountWaiters[identifier] = (expectedCount, continuation)
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelActiveClaimCountWaiter(identifier) }
+        }
+    }
+
+    func releaseClaims() {
+        blocksClaims = false
+        let continuations = claimContinuations
+        claimContinuations.removeAll(keepingCapacity: false)
+        for continuation in continuations.values { continuation.resume() }
+    }
+
+    private func waitForClaimRelease() async throws {
+        let identifier = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Void, any Error>) in
+                if Task.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                } else if blocksClaims {
+                    claimContinuations[identifier] = continuation
+                } else {
+                    continuation.resume()
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelClaimContinuation(identifier) }
+        }
+    }
+
+    private func cancelClaimContinuation(_ identifier: UUID) {
+        claimContinuations.removeValue(forKey: identifier)?.resume(
+            throwing: CancellationError()
+        )
+    }
+
+    private func cancelActiveClaimCountWaiter(_ identifier: UUID) {
+        activeClaimCountWaiters.removeValue(forKey: identifier)?.continuation.resume(
+            throwing: CancellationError()
+        )
     }
 
     func setBlocksFirstSourceUpdate(_ blocks: Bool) {
@@ -4466,11 +4651,44 @@ private actor NativeBrowserRecoveryCounter {
     }
 }
 
+private actor RespawnTopologyRecorder {
+    private var launches: [BackendTerminalLaunch] = []
+    private var waiters: [CheckedContinuation<BackendTerminalLaunch, Never>] = []
+
+    func record(_ launch: BackendTerminalLaunch) {
+        if !waiters.isEmpty {
+            waiters.removeFirst().resume(returning: launch)
+        } else {
+            launches.append(launch)
+        }
+    }
+
+    func nextLaunch() async -> BackendTerminalLaunch {
+        if !launches.isEmpty {
+            return launches.removeFirst()
+        }
+        return await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+}
+
 private struct RejectingTopologyMutator: TerminalBackendTopologyMutating {
     let createWorkspacePlacement: BackendSurfacePlacement?
+    let createWorkspaceAuthority: BackendAuthority?
+    let respawnPlacement: BackendSurfacePlacement?
+    let respawnRecorder: RespawnTopologyRecorder?
 
-    init(createWorkspacePlacement: BackendSurfacePlacement? = nil) {
+    init(
+        createWorkspacePlacement: BackendSurfacePlacement? = nil,
+        createWorkspaceAuthority: BackendAuthority? = nil,
+        respawnPlacement: BackendSurfacePlacement? = nil,
+        respawnRecorder: RespawnTopologyRecorder? = nil
+    ) {
         self.createWorkspacePlacement = createWorkspacePlacement
+        self.createWorkspaceAuthority = createWorkspaceAuthority
+        self.respawnPlacement = respawnPlacement
+        self.respawnRecorder = respawnRecorder
     }
 
     private func reject<T>() throws -> T {
@@ -4482,6 +4700,26 @@ private struct RejectingTopologyMutator: TerminalBackendTopologyMutating {
         name: String?, launch: BackendTerminalLaunch, columns: UInt16?, rows: UInt16?
     ) async throws -> BackendSurfacePlacement {
         if let createWorkspacePlacement { return createWorkspacePlacement }
+        if let createWorkspaceAuthority {
+            let data = try JSONSerialization.data(withJSONObject: [
+                "request_id": requestID.uuidString.lowercased(),
+                "daemon_instance_id": createWorkspaceAuthority.daemonInstanceID.rawValue
+                    .uuidString.lowercased(),
+                "session_id": createWorkspaceAuthority.sessionID.rawValue.uuidString.lowercased(),
+                "base_revision": 0,
+                "revision": 1,
+                "replayed": false,
+                "surface": 1,
+                "surface_uuid": surfaceID.rawValue.uuidString.lowercased(),
+                "pane": 1,
+                "pane_uuid": UUID().uuidString.lowercased(),
+                "screen": 1,
+                "screen_uuid": UUID().uuidString.lowercased(),
+                "workspace": 1,
+                "workspace_uuid": workspaceID.rawValue.uuidString.lowercased(),
+            ])
+            return try JSONDecoder().decode(BackendSurfacePlacement.self, from: data)
+        }
         return try reject()
     }
 
@@ -4514,7 +4752,13 @@ private struct RejectingTopologyMutator: TerminalBackendTopologyMutating {
     func respawnTerminal(
         requestID: UUID, surfaceID: SurfaceID, launch: BackendTerminalLaunch,
         columns: UInt16?, rows: UInt16?
-    ) async throws -> BackendSurfacePlacement { try reject() }
+    ) async throws -> BackendSurfacePlacement {
+        if let respawnPlacement {
+            await respawnRecorder?.record(launch)
+            return respawnPlacement
+        }
+        return try reject()
+    }
 
     func newExternalWorkspace(
         requestID: UUID, workspaceID: WorkspaceID, surfaceID: SurfaceID,

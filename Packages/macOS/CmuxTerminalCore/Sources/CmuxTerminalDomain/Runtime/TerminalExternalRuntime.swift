@@ -206,6 +206,10 @@ public struct TerminalExternalCellMetrics: Equatable, Sendable {
     public let surfaceWidthPixels: Int
     public let surfaceHeightPixels: Int
     public let backingScale: Double
+    public let paddingLeftPixels: Int?
+    public let paddingTopPixels: Int?
+    public let paddingRightPixels: Int?
+    public let paddingBottomPixels: Int?
 
     public init(
         columns: Int,
@@ -214,7 +218,11 @@ public struct TerminalExternalCellMetrics: Equatable, Sendable {
         cellHeightPixels: Int,
         surfaceWidthPixels: Int,
         surfaceHeightPixels: Int,
-        backingScale: Double
+        backingScale: Double,
+        paddingLeftPixels: Int? = nil,
+        paddingTopPixels: Int? = nil,
+        paddingRightPixels: Int? = nil,
+        paddingBottomPixels: Int? = nil
     ) {
         self.columns = columns
         self.rows = rows
@@ -223,6 +231,10 @@ public struct TerminalExternalCellMetrics: Equatable, Sendable {
         self.surfaceWidthPixels = surfaceWidthPixels
         self.surfaceHeightPixels = surfaceHeightPixels
         self.backingScale = backingScale
+        self.paddingLeftPixels = paddingLeftPixels
+        self.paddingTopPixels = paddingTopPixels
+        self.paddingRightPixels = paddingRightPixels
+        self.paddingBottomPixels = paddingBottomPixels
     }
 }
 
@@ -579,6 +591,8 @@ public enum TerminalExternalRuntimeMutation: Equatable, Sendable {
     case resize(TerminalExternalViewport)
     case bindingAction(action: String, repeatCount: UInt32)
     case selection(TerminalExternalSelectionOperation)
+    /// Resolves enter versus exit at the ordered runtime mutation owner.
+    case toggleCopyMode
     case copyMode(
         operation: TerminalExternalCopyModeOperation,
         adjustment: TerminalExternalCopyModeAdjustment?,
@@ -668,6 +682,11 @@ public protocol TerminalExternalRuntime: AnyObject {
     /// previous workspace before rendering or accepting geometry again.
     func adoptCanonicalPlacement(workspaceID: UUID)
 
+    /// Stores the latest desired visibility outside the bounded strict ingress.
+    /// Implementations must coalesce repeated values and keep retrying the
+    /// latest value until it is applied or the presentation retires.
+    func setDesiredVisibility(_ visible: Bool)
+
     @discardableResult
     func enqueue(_ mutation: TerminalExternalRuntimeMutation) -> TerminalExternalIngressResult
 
@@ -678,6 +697,9 @@ public protocol TerminalExternalRuntime: AnyObject {
 
     /// Enables demand-driven semantic accessibility reads for this presentation.
     func enableAccessibility()
+
+    /// Releases one explicit semantic accessibility observer.
+    func disableAccessibility()
 
     /// Streams only snapshots whose revision tuple changed.
     func accessibilitySnapshots() -> AsyncStream<TerminalAccessibilitySnapshot>
@@ -699,6 +721,8 @@ public extension TerminalExternalRuntime {
     }
 
     func enableAccessibility() {}
+
+    func disableAccessibility() {}
 
     func accessibilitySnapshots() -> AsyncStream<TerminalAccessibilitySnapshot> {
         AsyncStream { $0.finish() }

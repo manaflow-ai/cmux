@@ -1,16 +1,141 @@
 import CmuxCommandPalette
 import CmuxSettings
+import Foundation
 import Testing
 @testable import CmuxSettingsUI
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
+private typealias SimulatorStoredShortcut = cmux_DEV.StoredShortcut
 #elseif canImport(cmux)
 @testable import cmux
+private typealias SimulatorStoredShortcut = cmux.StoredShortcut
 #endif
 
 @Suite("Keyboard shortcut context")
 struct KeyboardShortcutContextSwiftTests {
+    @Test("focus history and browser history partition their shared default shortcuts by focus")
+    func focusAndBrowserHistoryContextsAreMutuallyExclusive() throws {
+        let pairs: [(KeyboardShortcutSettings.Action, KeyboardShortcutSettings.Action)] = [
+            (.focusHistoryBack, .browserBack),
+            (.focusHistoryForward, .browserForward),
+        ]
+        let outsideBrowserWhen: ShortcutWhenClause = .not(.atom(.browserFocus))
+
+        for (focusHistoryAction, browserAction) in pairs {
+            let focusHistoryContext = focusHistoryAction.shortcutContext
+            let browserContext = browserAction.shortcutContext
+            let sharedDefault = focusHistoryAction.defaultShortcut
+            let settingsAction = try #require(ShortcutAction(rawValue: focusHistoryAction.rawValue))
+
+            #expect(sharedDefault == browserAction.defaultShortcut)
+            #expect(focusHistoryContext.isAvailable(
+                focusedBrowserPanel: false,
+                focusedMarkdownPanel: false,
+                rightSidebarFocused: false
+            ))
+            #expect(focusHistoryContext.isAvailable(
+                focusedBrowserPanel: false,
+                focusedMarkdownPanel: false,
+                rightSidebarFocused: true
+            ))
+            #expect(!focusHistoryContext.isAvailable(
+                focusedBrowserPanel: true,
+                focusedMarkdownPanel: false,
+                rightSidebarFocused: false
+            ))
+            #expect(browserContext.isAvailable(
+                focusedBrowserPanel: true,
+                focusedMarkdownPanel: false,
+                rightSidebarFocused: false
+            ))
+            #expect(!focusHistoryContext.overlaps(browserContext))
+            #expect(focusHistoryContext.defaultWhenClause == outsideBrowserWhen)
+            #expect(settingsAction.defaultFocusWhenClause == outsideBrowserWhen)
+            #expect(!focusHistoryAction.conflicts(
+                with: browserAction.defaultShortcut,
+                proposedAction: browserAction,
+                configuredShortcut: sharedDefault
+            ))
+        }
+    }
+
+    @Test("Simulator shortcuts are configurable, scoped, and priority routed")
+    func simulatorShortcutPolicy() throws {
+        let actions = KeyboardShortcutSettings.Action.simulatorActions
+        #expect(actions.map(\.rawValue) == [
+            "simulatorHome",
+            "simulatorRotateLeft",
+            "simulatorRotateRight",
+            "simulatorToggleAppearance",
+            "simulatorToggleSoftwareKeyboard",
+        ])
+        #expect(actions.allSatisfy { $0.shortcutContext == .simulatorPanel })
+        #expect(actions.allSatisfy { $0.hasPriorityShortcutRouting })
+
+        let expected: [KeyboardShortcutSettings.Action: SimulatorStoredShortcut] = [
+            .simulatorHome: SimulatorStoredShortcut(key: "h", command: true, shift: true, option: false, control: false),
+            .simulatorRotateLeft: SimulatorStoredShortcut(key: "←", command: true, shift: false, option: false, control: false),
+            .simulatorRotateRight: SimulatorStoredShortcut(key: "→", command: true, shift: false, option: false, control: false),
+            .simulatorToggleAppearance: SimulatorStoredShortcut(key: "a", command: true, shift: true, option: false, control: false),
+            .simulatorToggleSoftwareKeyboard: SimulatorStoredShortcut(key: "k", command: true, shift: false, option: false, control: false),
+        ]
+        for action in actions {
+            #expect(action.defaultShortcut == expected[action])
+            let shared = try #require(ShortcutAction(rawValue: action.rawValue))
+            #expect(shared.defaultFocusWhenClause == action.shortcutContext.defaultWhenClause)
+            #expect(shared.hasPriorityShortcutRouting == action.hasPriorityShortcutRouting)
+            #expect(ShortcutAction.settingsVisibleActions.contains(shared))
+        }
+    }
+
+    @Test("Simulator context is available only for Simulator focus")
+    func simulatorContextAvailability() {
+        let context = KeyboardShortcutSettings.Action.simulatorHome.shortcutContext
+        #expect(context.isAvailable(
+            focusedBrowserPanel: false,
+            focusedMarkdownPanel: false,
+            focusedSimulatorPanel: true,
+            rightSidebarFocused: false
+        ))
+        #expect(!context.isAvailable(
+            focusedBrowserPanel: false,
+            focusedMarkdownPanel: false,
+            focusedSimulatorPanel: false,
+            rightSidebarFocused: false
+        ))
+
+        var palette = CommandPaletteContextSnapshot()
+        palette.setBool(CommandPaletteContextKeys.panelIsSimulator, true)
+        #expect(context.isAvailable(commandPaletteContext: palette))
+    }
+
+    @Test("reopen last closed default yields to an explicit workspace binding")
+    func reopenLastClosedDefaultYieldsToExplicitWorkspaceBinding() {
+        let workspaceAction = KeyboardShortcutSettings.Action.reopenClosedWorkspace
+        let reopenLastClosedAction = KeyboardShortcutSettings.Action.reopenClosedBrowserPanel
+        let commandShiftT = reopenLastClosedAction.defaultShortcut
+
+        let resolved = KeyboardShortcutSettings.defaultShortcutResolvingLegacyConflicts(
+            for: reopenLastClosedAction,
+            explicitlyConfiguredShortcut: { action in
+                action == workspaceAction ? commandShiftT : nil
+            }
+        )
+
+        #expect(resolved == nil)
+        #expect(KeyboardShortcutSettings.defaultShortcutResolvingLegacyConflicts(
+            for: reopenLastClosedAction,
+            explicitlyConfiguredShortcut: { _ in nil }
+        ) == commandShiftT)
+        #expect(KeyboardShortcutSettings.defaultShortcutResolvingLegacyConflicts(
+            for: reopenLastClosedAction,
+            explicitlyConfiguredShortcut: { action in
+                action == workspaceAction ? .unbound : nil
+            }
+        ) == nil)
+    }
+
     @Test("markdown and view zoom contexts do not collide")
     func markdownAndViewZoomContextsDoNotCollide() {
         let markdown = KeyboardShortcutSettings.Action.markdownZoomIn.shortcutContext
@@ -125,6 +250,52 @@ struct KeyboardShortcutContextSwiftTests {
         #expect(!manager.zoomOutFocusedBrowserOrTextFilePreview())
         #expect(!manager.resetZoomFocusedBrowserOrTextFilePreview())
         #expect(manager.calls == ["text", "text"])
+    }
+}
+
+extension CMUXCLIErrorOutputRegressionTests {
+    @Test func testGeneralHelpListsSimulatorNamespace() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["--help"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(result.stdout.contains("simulator <subcommand>"), result.stdout)
+    }
+}
+
+@Suite("Stored shortcut physical-key matching")
+struct StoredShortcutPhysicalKeyMatchingTests {
+    @Test("recorded Option shortcut matches its physical key across layouts")
+    func recordedOptionShortcutMatchesPhysicalKeyAcrossLayouts() {
+        let shortcut = StoredShortcut(
+            key: "1",
+            command: false,
+            shift: false,
+            option: true,
+            control: false,
+            keyCode: 18
+        )
+
+        #expect(shortcut.matches(
+            keyCode: 18,
+            modifierFlags: [.option],
+            eventCharacter: "&",
+            layoutCharacterProvider: { _, _ in "&" }
+        ))
+        #expect(!shortcut.matches(
+            keyCode: 19,
+            modifierFlags: [.option],
+            eventCharacter: "1",
+            layoutCharacterProvider: { _, _ in "1" }
+        ))
     }
 }
 

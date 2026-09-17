@@ -39,6 +39,7 @@ extension CMUXCLI {
                 .init(agentEvent: "Notification", cmuxSubcommand: "notification"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
+            dispatch: .pinned(marker: "cmux-grok-hook-v2"),
             publishesStopNotification: false,
             sessionEndIsTurnBoundary: true,
             feedHookEvents: ["PreToolUse"]
@@ -142,8 +143,8 @@ extension CMUXCLI {
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
             aliases: ["agy"],
-            sessionEndIsTurnBoundary: true,
-            feedHookEvents: ["PreToolUse", "PostToolUse"]
+            dispatch: .pinned(marker: "cmux-antigravity-hook-v2"),
+            sessionEndIsTurnBoundary: true
         ),
         AgentHookDef(
             name: "rovodev", displayName: "Rovo Dev", statusKey: "rovodev",
@@ -160,6 +161,7 @@ extension CMUXCLI {
         AgentHookDef(
             name: "hermes-agent", displayName: "Hermes Agent", statusKey: "hermes-agent",
             configDir: ".hermes", configFile: "config.yaml", configDirEnvOverride: "HERMES_HOME",
+            createConfigDirIfMissing: true,
             binaryName: "hermes",
             sessionStoreSuffix: "hermes-agent", disableEnvVar: "CMUX_HERMES_AGENT_HOOKS_DISABLED",
             hookMarker: "cmux hooks hermes-agent", format: .hermesAgentYAML,

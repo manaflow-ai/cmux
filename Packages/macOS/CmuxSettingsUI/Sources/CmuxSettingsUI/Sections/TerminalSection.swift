@@ -15,7 +15,7 @@ public struct TerminalSection: View {
 
     @State private var surfaceTabBarFont: SettingsFontSize
     @State private var fontSaveFailed = false
-    @State private var fontSaveTask: Task<Void, Never>?
+    @State private var tasks = MainActorTaskStore<String>()
     @State private var scrollSpeed: DefaultsValueModel<Double>
     @State private var activeScrollSpeedDragValue: Double?
     @State private var sessionContentMaxWidth: DefaultsValueModel<Double>
@@ -94,8 +94,7 @@ public struct TerminalSection: View {
     /// rapid sequence of slider releases only reflects the latest value (the
     /// host serializes the underlying writes; this keeps the UI state in step).
     private func saveSurfaceTabBarFontSize(_ points: Double) {
-        fontSaveTask?.cancel()
-        fontSaveTask = Task {
+        tasks.replaceOnMainActor("fontSave") {
             let saved = await hostActions.setSurfaceTabBarFontSize(points)
             if !Task.isCancelled { fontSaveFailed = !saved }
         }
@@ -386,7 +385,7 @@ public struct TerminalSection: View {
                 String(localized: "settings.terminal.agentHibernation", defaultValue: "Agent Hibernation"),
                 subtitle: hibernation.current
                     ? String(localized: "settings.terminal.agentHibernation.subtitleOn", defaultValue: "Idle background agent terminals can be suspended when the live-terminal limit is exceeded.")
-                    : String(localized: "settings.terminal.agentHibernation.subtitleOff", defaultValue: "Agent terminals stay live until you close them or quit cmux.")
+                    : String(localized: "settings.terminal.agentHibernation.subtitleOff", defaultValue: "Scheduled hibernation is off. During critical memory pressure, cmux may still hibernate safe idle background agents.")
             ) {
                 Toggle("", isOn: Binding(get: { hibernation.current }, set: { hibernation.set($0) }))
                     .labelsHidden()

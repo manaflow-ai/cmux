@@ -36,18 +36,37 @@ extension DockSplitStore {
         }
 
         let tabCloseButtonClose = tabCloseButtonCloseDockTabIds.remove(tab.id) != nil
+        if tabCloseButtonClose,
+           let panelId = surfaceIdToPanelId[tab.id] {
+            markDockCloseHistoryEligible(panelId: panelId)
+        }
         let closeSource: CloseTabCloseSource = tabCloseButtonClose ? .tabCloseButton : .shortcut
-        guard let panel = panel(for: tab.id) else { return true }
-        guard CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
+        guard let panel = panel(for: tab.id) else {
+            discardDockClosedPanelHistory(tabId: tab.id)
+            return true
+        }
+        let confirmationManager = dockCloseConfirmationManager()
+        let closeWarningStore = CloseTabWarningStore(
+            defaults: confirmationManager?.closeTabWarningDefaults ?? .standard
+        )
+        guard closeWarningStore.shouldConfirmClose(
             requiresConfirmation: dockPanelNeedsConfirmClose(panel),
             source: closeSource
         ) else {
+            if closeHistoryEligibleDockTabIds.contains(tab.id) {
+                stageDockClosedPanelHistory(
+                    tabIds: Set([tab.id]),
+                    inPane: pane
+                )
+            }
             return true
         }
         guard !pendingCloseConfirmDockTabIds.contains(tab.id) else { return false }
 
-        let confirmationManager = dockCloseConfirmationManager()
-        if confirmationManager?.isCloseConfirmationInFlight == true { return false }
+        if confirmationManager?.isCloseConfirmationInFlight == true {
+            discardDockClosedPanelHistory(tabId: tab.id)
+            return false
+        }
 
         pendingCloseConfirmDockTabIds.insert(tab.id)
         let tabId = tab.id
@@ -58,37 +77,70 @@ extension DockSplitStore {
             defer {
                 self.pendingCloseConfirmDockTabIds.remove(tabId)
             }
-            guard let panel = self.panel(for: tabId) else { return }
-            guard self.confirmCloseDockPanel(panel, confirmationManager: confirmationManager) else { return }
+            guard let panel = self.panel(for: tabId) else {
+                self.discardDockClosedPanelHistory(tabId: tabId)
+                return
+            }
+            guard self.confirmCloseDockPanel(
+                panel,
+                confirmationManager: confirmationManager
+            ) else {
+                self.discardDockClosedPanelHistory(tabId: tabId)
+                return
+            }
 
+            if self.closeHistoryEligibleDockTabIds.contains(tabId) {
+                self.stageDockClosedPanelHistory(
+                    tabIds: Set([tabId]),
+                    inPane: pane
+                )
+            }
             self.forceCloseDockTabIds.insert(tabId)
             let closed = self.bonsplitController.closeTab(tabId)
             if !closed {
                 self.forceCloseDockTabIds.remove(tabId)
+                self.discardDockClosedPanelHistory(tabId: tabId)
             }
         }
         return false
     }
 
     func splitTabBar(_ controller: BonsplitController, shouldClosePane pane: PaneID) -> Bool {
+        let tabs = controller.tabs(inPane: pane)
+        let userCloseTabIds = Set(
+            tabs.lazy
+                .filter { !self.forceCloseDockTabIds.contains($0.id) }
+                .map(\.id)
+        )
+        guard !userCloseTabIds.isEmpty else { return true }
+
+        let confirmationManager = dockCloseConfirmationManager()
+        let closeWarningStore = CloseTabWarningStore(
+            defaults: confirmationManager?.closeTabWarningDefaults ?? .standard
+        )
         var paneTitles: [String] = []
         var confirmableTabIds = Set<TabID>()
-        for tab in controller.tabs(inPane: pane) {
+        for tab in tabs {
             let panel = panel(for: tab.id)
             paneTitles.append(CloseOtherTabsConfirmationPrompt.displayTitle(panel?.displayTitle ?? tab.title))
-            guard !forceCloseDockTabIds.contains(tab.id), let panel else { continue }
-            if CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
+            guard userCloseTabIds.contains(tab.id), let panel else { continue }
+            if closeWarningStore.shouldConfirmClose(
                 requiresConfirmation: dockPanelNeedsConfirmClose(panel),
                 source: .shortcut
             ) {
                 confirmableTabIds.insert(tab.id)
             }
         }
-        guard !confirmableTabIds.isEmpty else { return true }
+        guard !confirmableTabIds.isEmpty else {
+            stageDockClosedPaneHistory(
+                pane,
+                tabIds: userCloseTabIds
+            )
+            return true
+        }
 
         guard pendingCloseConfirmDockTabIds.isDisjoint(with: confirmableTabIds) else { return false }
 
-        let confirmationManager = dockCloseConfirmationManager()
         if confirmationManager?.isCloseConfirmationInFlight == true { return false }
 
         pendingCloseConfirmDockTabIds.formUnion(confirmableTabIds)
@@ -96,23 +148,50 @@ extension DockSplitStore {
         Task { @MainActor [weak self] in
             guard let self else { return }
             defer { self.pendingCloseConfirmDockTabIds.subtract(confirmableTabIds) }
-            guard self.confirmCloseDockPane(prompt, confirmationManager: confirmationManager) else { return }
+            guard self.confirmCloseDockPane(
+                prompt,
+                confirmationManager: confirmationManager
+            ) else {
+                self.discardDockClosedPaneHistory(pane)
+                return
+            }
 
-            self.forceCloseDockTabIds.formUnion(confirmableTabIds)
-            defer { self.forceCloseDockTabIds.subtract(confirmableTabIds) }
-            _ = self.bonsplitController.closePane(pane)
+            let acceptedTabIds = Set(
+                self.bonsplitController.tabs(inPane: pane).lazy
+                    .filter {
+                        !self.forceCloseDockTabIds.contains($0.id)
+                    }
+                    .map(\.id)
+            )
+            self.stageDockClosedPaneHistory(
+                pane,
+                tabIds: acceptedTabIds
+            )
+            self.forceCloseDockTabIds.formUnion(acceptedTabIds)
+            defer {
+                self.forceCloseDockTabIds.subtract(acceptedTabIds)
+            }
+            if !self.bonsplitController.closePane(pane) {
+                self.discardDockClosedPaneHistory(pane)
+            }
         }
         return false
     }
 
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
+        // Closing the final tab can auto-close its pane without a separate
+        // `didClosePane` callback.
+        synchronizeOwnedPaneIds(with: controller)
         forceCloseDockTabIds.remove(tabId)
         pendingCloseConfirmDockTabIds.remove(tabId)
         tabCloseButtonCloseDockTabIds.remove(tabId)
+        commitDockClosedPanelHistory(tabId: tabId)
         reconcilePanels()
     }
 
     func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
+        synchronizeOwnedPaneIds(with: controller)
+        commitDockClosedPaneHistory(paneId)
         reconcilePanels()
     }
 
@@ -121,7 +200,7 @@ extension DockSplitStore {
         _ = newSurface(kind: surfaceKind, inPane: pane, focus: true)
     }
 
-    private func dockPanelNeedsConfirmClose(_ panel: any Panel) -> Bool {
+    func dockPanelNeedsConfirmClose(_ panel: any Panel) -> Bool {
         if let terminalPanel = panel as? TerminalPanel {
             return terminalPanel.needsConfirmClose()
         }
@@ -131,7 +210,7 @@ extension DockSplitStore {
     /// The manager that owns Dock close confirmation state and sheet
     /// presentation. Window Docks use a window id as `workspaceId`, so they
     /// must resolve through the Dock owner rather than `tabManagerFor(tabId:)`.
-    private func dockCloseConfirmationManager() -> TabManager? {
+    func dockCloseConfirmationManager() -> TabManager? {
         guard let app = AppDelegate.shared else { return nil }
         return app.dockReferenceTabManager(for: self)
     }

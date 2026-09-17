@@ -1,6 +1,8 @@
+import AppKit
 import CmuxFoundation
 import Foundation
 import Testing
+import struct CmuxSettings.NotificationsCatalogSection
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -82,6 +84,80 @@ struct KeyboardShortcutModifierHoldHintsSettingsFileTests {
         }
     }
 
+    @Test
+    func malformedPaneFlashColorDoesNotSkipLaterNotificationSettings() throws {
+        let defaults = UserDefaults.standard
+        let notifications = NotificationsCatalogSection()
+        let paneFlashColorKey = notifications.paneFlashColorHex.userDefaultsKey
+        let agentTurnCompleteKey = notifications.agentTurnComplete.userDefaultsKey
+        try preservingDefaults(keys: [
+            paneFlashColorKey,
+            agentTurnCompleteKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            defaults.set("never", forKey: agentTurnCompleteKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try """
+            {
+              "notifications": {
+                "paneFlashColor": "not-a-color",
+                "agentTurnComplete": "always"
+              }
+            }
+            """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            #expect(defaults.string(forKey: agentTurnCompleteKey) == "always")
+        }
+    }
+
+    @Test
+    func malformedNotificationSoundDoesNotSkipPaneFlashColor() throws {
+        let defaults = UserDefaults.standard
+        let paneFlashColorKey = NotificationsCatalogSection().paneFlashColorHex.userDefaultsKey
+        try preservingDefaults(keys: [
+            NotificationSoundSettings.key,
+            paneFlashColorKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            defaults.set("#112233", forKey: paneFlashColorKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try """
+            {
+              "notifications": {
+                "sound": "not-a-system-sound",
+                "paneFlashColor": "#ff69b4"
+              }
+            }
+            """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            #expect(defaults.string(forKey: paneFlashColorKey) == "#FF69B4")
+        }
+    }
+
     @Test @MainActor
     func focusControllerSeedsBonsplitHintEligibilityFromDisabledSetting() throws {
         let defaults = UserDefaults.standard
@@ -127,5 +203,31 @@ struct KeyboardShortcutModifierHoldHintsSettingsFileTests {
         )
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+}
+
+@Suite("Pane attention color")
+struct PaneAttentionColorTests {
+    @Test
+    func fallsBackToSystemBlueWhenUnset() {
+        #expect(
+            WorkspaceAttentionColor(configuredHex: nil).nsColor.hexString() ==
+                NSColor.systemBlue.hexString()
+        )
+    }
+
+    @Test
+    func usesConfiguredHex() {
+        #expect(
+            WorkspaceAttentionColor(configuredHex: "#ff69b4").nsColor.hexString() == "#FF69B4"
+        )
+    }
+
+    @Test(arguments: ["not-a-color", "#FFZZZZ", "FF69B4", "#FF69B4AA"])
+    func rejectsValuesOutsideSchema(configuredHex: String) {
+        #expect(
+            WorkspaceAttentionColor(configuredHex: configuredHex).nsColor.hexString() ==
+                NSColor.systemBlue.hexString()
+        )
     }
 }

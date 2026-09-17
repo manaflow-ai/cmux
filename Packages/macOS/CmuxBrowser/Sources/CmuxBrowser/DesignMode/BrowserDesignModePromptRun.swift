@@ -5,7 +5,7 @@ import Foundation
 /// selector). The token field archives these so the prompt survives view
 /// recreation, and the prompt formatter ships them so agents see where each
 /// selection sits inside the instruction.
-public nonisolated enum BrowserDesignModePromptRun: Equatable, Sendable {
+public enum BrowserDesignModePromptRun: Equatable, Sendable {
     case text(String)
     case token(String)
 }

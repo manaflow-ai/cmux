@@ -5,8 +5,24 @@ import UIKit
 @MainActor
 final class WorkspaceListUITableView: UITableView {
     var layoutMetricsDidChange: (() -> Void)?
+    var scrollEdgeRegistrationNeedsUpdate: (() -> Void)?
 
     private var measuredWidth: CGFloat = 0
+
+    override init(frame: CGRect, style: UITableView.Style) {
+        super.init(frame: frame, style: style)
+        configureScrollEdgeEffects()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        configureScrollEdgeEffects()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        requestScrollEdgeRegistrationUpdate()
+    }
 
     override func layoutSubviews() {
         let previousWidth = measuredWidth
@@ -23,6 +39,19 @@ final class WorkspaceListUITableView: UITableView {
             != traitCollection.preferredContentSizeCategory {
             layoutMetricsDidChange?()
         }
+    }
+
+    private func configureScrollEdgeEffects() {
+        contentInsetAdjustmentBehavior = .automatic
+        if #available(iOS 26.0, *) {
+            topEdgeEffect.style = .soft
+            // New Task is an overlay, so the tab bar owns this effect's edge.
+            bottomEdgeEffect.style = .soft
+        }
+    }
+
+    func requestScrollEdgeRegistrationUpdate() {
+        scrollEdgeRegistrationNeedsUpdate?()
     }
 }
 #endif

@@ -77,6 +77,11 @@ final class SidebarWorkspaceReorderDropView: NSView {
         setTargetCollectionActive(false)
     }
 
+    func suspendPresentation() {
+        setTargetCollectionActive(false)
+        targets = []
+    }
+
     func performPendingDropIfPossible() {
         guard let pendingDrop,
               pendingDrop.requestId == targetRequestId,

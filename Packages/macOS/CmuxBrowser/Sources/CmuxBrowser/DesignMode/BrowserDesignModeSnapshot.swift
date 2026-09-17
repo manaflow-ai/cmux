@@ -1,7 +1,7 @@
 import Foundation
 
 /// An authoritative, revisioned snapshot returned by the page runtime.
-public nonisolated struct BrowserDesignModeSnapshot: Codable, Equatable, Sendable {
+public struct BrowserDesignModeSnapshot: Codable, Equatable, Sendable {
     /// The monotonic runtime revision.
     public let revision: Int
     /// Whether element picking is active in the current document.

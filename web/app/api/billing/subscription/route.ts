@@ -22,8 +22,6 @@ import {
 import { captureBillingError } from "../../../../services/errors";
 import { browserMutationOriginAllowed } from "../../../../services/vms/routeHelpers";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
 type SubscriptionAction = "cancel" | "resume";

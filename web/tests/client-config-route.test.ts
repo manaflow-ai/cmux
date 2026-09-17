@@ -274,14 +274,19 @@ describe("client config", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test("fails closed on Vercel when the client-config limiter is missing", async () => {
+  test("skips rate limiting on Vercel when the client-config limiter id is unset", async () => {
+    // An unset id means the operator wants no rate limiting; client config
+    // must keep serving (it gates every app boot).
     process.env.VERCEL = "1";
     delete process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID;
-    const consoleError = mock(() => {});
-    console.error = consoleError as unknown as typeof console.error;
-    const fetchMock = mock(async () => {
-      throw new Error("PostHog flags should not be reached without a rate-limit rule");
-    });
+    const fetchMock = mock(async () => new Response(
+      JSON.stringify({
+        errorsWhileComputingFlags: false,
+        featureFlags: {},
+        featureFlagPayloads: {},
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    ));
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     const response = await POST(new Request("https://cmux.test/api/client-config", {
@@ -290,21 +295,25 @@ describe("client config", () => {
       body: JSON.stringify({ distinctId: "browser-id" }),
     }));
 
-    expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({ error: "client_config_unavailable" });
-    expect(consoleError).toHaveBeenCalledWith("client-config.route.rate_limit_not_configured");
+    expect(response.status).toBe(200);
     expect(checkRateLimit).not.toHaveBeenCalled();
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  test("fails closed on Vercel when the client-config limiter rule is not found", async () => {
+  test("fails open on Vercel when the client-config limiter rule is not found", async () => {
+    // A deleted rule is an operator action (no limit wanted), not an outage.
     process.env.VERCEL = "1";
     checkRateLimit.mockResolvedValue({ rateLimited: false, error: "not-found" });
-    const consoleError = mock(() => {});
-    console.error = consoleError as unknown as typeof console.error;
-    const fetchMock = mock(async () => {
-      throw new Error("PostHog flags should not be reached without a valid rate-limit rule");
-    });
+    const consoleWarn = mock(() => {});
+    console.warn = consoleWarn as unknown as typeof console.warn;
+    const fetchMock = mock(async () => new Response(
+      JSON.stringify({
+        errorsWhileComputingFlags: false,
+        featureFlags: {},
+        featureFlagPayloads: {},
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    ));
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     const response = await POST(new Request("https://cmux.test/api/client-config", {
@@ -313,14 +322,13 @@ describe("client config", () => {
       body: JSON.stringify({ distinctId: "browser-id" }),
     }));
 
-    expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({ error: "client_config_unavailable" });
-    expect(consoleError).toHaveBeenCalledWith(
-      "client-config.route.rate_limit_not_found",
+    expect(response.status).toBe(200);
+    expect(consoleWarn).toHaveBeenCalledWith(
+      "client-config.route.rate_limit_not_found; failing open",
       "cmux-client-config-test",
     );
     expect(checkRateLimit).toHaveBeenCalledTimes(1);
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   test("fails closed on Vercel when the client-config limiter returns an error", async () => {

@@ -64,11 +64,17 @@ _ghostty_scene_renderer_should_animate
 _ghostty_scene_renderer_borrow_iosurface
 _ghostty_scene_renderer_release_frame
 SYMBOLS
+    printf '_fork\n'
+    if [[ "${CMUX_LINKAGE_FIXTURE_CASE:-}" != "missing-interposer" ]]; then
+      printf '_execve\n'
+    fi
+    printf '_cmux_scene_process_capabilities_fail_closed_probe\n'
     ;;
   *" -uj "*)
     case "${CMUX_LINKAGE_FIXTURE_CASE:-}" in
       dlopen) printf '_dlopen\n' ;;
       dlsym) printf '_dlsym\n' ;;
+      import-fork) printf '_fork\n' ;;
     esac
     ;;
   *" -u -A "*)
@@ -98,12 +104,34 @@ if [[ "${CMUX_LINKAGE_FIXTURE_CASE:-}" == "objc-bundle-load" ]]; then
 fi
 EOF
 
-for command in ar clang; do
-  cat > "$FAKE_BIN/$command" <<'EOF'
+cat > "$FAKE_BIN/ar" <<'EOF'
 #!/usr/bin/env bash
 exit 0
 EOF
+
+cat > "$FAKE_BIN/clang" <<'EOF'
+#!/usr/bin/env bash
+output=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -o)
+      output="$2"
+      shift 2
+      ;;
+    *) shift ;;
+  esac
 done
+if [[ -n "$output" ]]; then
+  cat > "$output" <<'PROBE'
+#!/usr/bin/env bash
+if [[ "${CMUX_LINKAGE_FIXTURE_CASE:-}" == "probe-failure" ]]; then
+  exit 7
+fi
+exit 0
+PROBE
+  chmod +x "$output"
+fi
+EOF
 chmod +x "$FAKE_BIN"/*
 
 assert_rejected() {
@@ -125,6 +153,7 @@ assert_rejected dlopen "generic dynamic-loading escape hatch"
 assert_rejected dlsym "generic dynamic-loading escape hatch"
 assert_rejected swift-bundle-load "generic dynamic-loading escape hatch"
 assert_rejected objc-bundle-load "NSBundle dynamic-loading escape hatch"
+assert_rejected import-fork "imports process capability: _fork"
 
 CMUX_LINKAGE_FIXTURE_CASE=clean \
   PATH="$FAKE_BIN:$PATH" \
@@ -151,5 +180,7 @@ assert_archive_rejected dlopen "scene archive contains a generic dynamic-loading
 assert_archive_rejected dlsym "scene archive contains a generic dynamic-loading escape hatch"
 assert_archive_rejected swift-bundle-load "scene archive contains a generic dynamic-loading escape hatch"
 assert_archive_rejected objc-bundle-load "scene archive exposes an NSBundle dynamic-loading escape hatch"
+assert_archive_rejected missing-interposer "scene archive is missing fail-closed process boundary"
+assert_archive_rejected probe-failure "linked scene archive fail-closed behavior probe failed"
 
 echo "terminal renderer dynamic-loader linkage fixtures rejected"

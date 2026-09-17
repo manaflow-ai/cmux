@@ -1,3 +1,4 @@
+import CmuxNotifications
 import Foundation
 import UserNotifications
 
@@ -7,17 +8,27 @@ struct NativeNotificationDeliveryHooks: Sendable {
     typealias Scheduler = @Sendable (UNNotificationRequest, @escaping @Sendable (Error?) -> Void) -> Void
     typealias CommandRunner = @Sendable (String, String, String) -> Void
 
-    var authorizationHandlerForTesting: AuthorizationHandler?
-    var scheduler: Scheduler = {
-        request,
-        completion in
-        UNUserNotificationCenter.current().add(request, withCompletionHandler: completion)
-    }
-    var commandRunner: CommandRunner = {
+    typealias UnavailableFeedbackPlayer = @Sendable (TerminalNotificationPolicyEffects) -> Void
+
+    static let defaultCommandRunner: CommandRunner = {
         title,
         subtitle,
         body in
         NotificationSoundSettings.runCustomCommand(title: title, subtitle: subtitle, body: body)
+    }
+
+    var authorizationHandlerForTesting: AuthorizationHandler?
+    let userNotificationCenter: UserNotificationCenterService
+    var scheduler: Scheduler?
+    static let defaultUnavailableFeedbackPlayer: UnavailableFeedbackPlayer = { effects in
+        NativeNotificationDeliveryHooks.playNativeUnavailableFeedback(effects: effects)
+    }
+
+    var commandRunner: CommandRunner = defaultCommandRunner
+    var unavailableFeedbackPlayer: UnavailableFeedbackPlayer = defaultUnavailableFeedbackPlayer
+
+    init(userNotificationCenter: UserNotificationCenterService) {
+        self.userNotificationCenter = userNotificationCenter
     }
 
     func authorizeForTesting(_ completion: @escaping AuthorizationCompletion) -> Bool {
@@ -32,11 +43,29 @@ struct NativeNotificationDeliveryHooks: Sendable {
         _ request: UNNotificationRequest,
         completion: @escaping @Sendable (Error?) -> Void
     ) {
-        scheduler(request, completion)
+        let scheduler = scheduler
+        Task {
+            let result: Result<Void, UserNotificationCenterFailure>
+            if let scheduler {
+                result = await userNotificationCenter.add(request, using: scheduler)
+            } else {
+                result = await userNotificationCenter.add(request)
+            }
+            switch result {
+            case .success:
+                completion(nil)
+            case .failure(let error):
+                completion(error)
+            }
+        }
     }
 
     func runCommand(title: String, subtitle: String, body: String) {
         commandRunner(title, subtitle, body)
+    }
+
+    func playUnavailableFeedback(effects: TerminalNotificationPolicyEffects) {
+        unavailableFeedbackPlayer(effects)
     }
 
     func runLocalFeedback(

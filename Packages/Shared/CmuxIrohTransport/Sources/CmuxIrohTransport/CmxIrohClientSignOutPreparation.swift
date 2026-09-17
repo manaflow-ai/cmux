@@ -32,7 +32,7 @@ public struct CmxIrohSignOutPreparation: Equatable, Sendable {
     /// - Parameter pendingRevocations: The same device-only outbox used by the runtime.
     /// - Throws: The broker revocation error for an existing binding.
     public func revoke(
-        using broker: any CmxIrohClientBrokerServing,
+        using broker: any CmxIrohBindingRevoking,
         pendingRevocations: CmxIrohPendingRevocationOutbox
     ) async throws {
         guard let pendingRevocation else { return }

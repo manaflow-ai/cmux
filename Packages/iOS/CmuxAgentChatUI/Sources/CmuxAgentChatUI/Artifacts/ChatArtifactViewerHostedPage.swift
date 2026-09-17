@@ -8,6 +8,7 @@ struct ChatArtifactViewerHostedPage: View {
     let scope: ChatArtifactViewerScope
     let loader: ChatArtifactLoader
     let onImageMinimumZoomChanged: (String, Bool) -> Void
+    let onImageAction: @MainActor (ChatArtifactAction, ChatArtifactViewerPageSnapshot) -> Void
     let onDone: () -> Void
 
     var path: String { model.path }
@@ -28,6 +29,9 @@ struct ChatArtifactViewerHostedPage: View {
             ),
             onImageMinimumZoomChanged: {
                 onImageMinimumZoomChanged(snapshot.path, $0)
+            },
+            onImageAction: { action in
+                onImageAction(action, snapshot)
             },
             onDone: onDone
         )

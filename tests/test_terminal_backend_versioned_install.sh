@@ -6,6 +6,7 @@ TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/cmux-versioned-backend.XXXXXX")"
 BACKEND_PID=""
 WORKER_PID_FILE="$TEST_ROOT/worker.pid"
 RENDER_LOG="$TEST_ROOT/render.log"
+RENDER_EVENT_PIPE="$TEST_ROOT/render-event.pipe"
 BUILD_V1="1111111111111111111111111111111111111111111111111111111111111111"
 BUILD_V2="2222222222222222222222222222222222222222222222222222222222222222"
 VERSIONS="$TEST_ROOT/Application Support/cmux/terminal-backend/com.cmuxterm.test/versions"
@@ -20,6 +21,7 @@ stop_backend() {
 
 cleanup() {
   stop_backend
+  exec 9>&-
   rm -rf "$TEST_ROOT"
 }
 trap cleanup EXIT
@@ -49,6 +51,7 @@ BACKEND
   cat > "$directory/cmux-terminal-renderer" <<RENDERER
 #!/usr/bin/env bash
 printf '%s\n' '$version' >> "\$1"
+printf '%s\n' '$version' > "\$CMUX_TEST_RENDER_EVENT_PIPE"
 exec /usr/bin/tail -f /dev/null
 RENDERER
   printf '%s\n' "$build_id" > "$directory/cmux-terminal-backend.build-id"
@@ -77,6 +80,7 @@ start_descriptor() {
   local program
   program="$(/usr/libexec/PlistBuddy -c 'Print :Program' "$LAUNCH_PLIST")"
   CMUX_TEST_RENDER_LOG="$RENDER_LOG" \
+    CMUX_TEST_RENDER_EVENT_PIPE="$RENDER_EVENT_PIPE" \
     CMUX_TEST_WORKER_PID_FILE="$WORKER_PID_FILE" \
     "$program" &
   BACKEND_PID=$!
@@ -84,17 +88,14 @@ start_descriptor() {
 
 wait_for_render_count() {
   local expected="$1"
-  local count=0
-  for _ in {1..250}; do
-    count="$(wc -l < "$RENDER_LOG" 2>/dev/null || true)"
-    [[ "$count" -ge "$expected" ]] && return 0
-    kill -0 "$BACKEND_PID" 2>/dev/null || return 1
-    sleep 0.02
-  done
-  return 1
+  local event
+  IFS= read -r -t 5 -u 9 event || return 1
+  [[ "$(wc -l < "$RENDER_LOG")" -ge "$expected" ]]
 }
 
 mkdir -p "$VERSIONS"
+mkfifo "$RENDER_EVENT_PIPE"
+exec 9<> "$RENDER_EVENT_PIPE"
 : > "$RENDER_LOG"
 chmod 0700 "$TEST_ROOT/Application Support" "$TEST_ROOT/Application Support/cmux" \
   "$TEST_ROOT/Application Support/cmux/terminal-backend" \

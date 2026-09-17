@@ -20,6 +20,7 @@ struct TerminalOutputDelivery: Equatable, Sendable {
     private var payload: Payload
     var replacementScope: ReplacementScope?
     var viewportPolicy: MobileTerminalOutputViewportPolicy?
+    var endSequence: UInt64?
 
     var replaceable: Bool {
         replacementScope != nil
@@ -29,17 +30,20 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         bytes: Data,
         replaceable: Bool,
         replacementScope: ReplacementScope? = nil,
-        viewportPolicy: MobileTerminalOutputViewportPolicy? = nil
+        viewportPolicy: MobileTerminalOutputViewportPolicy? = nil,
+        endSequence: UInt64? = nil
     ) {
         self.payload = .bytes(bytes)
         self.replacementScope = replaceable ? (replacementScope ?? .byteViewport) : nil
         self.viewportPolicy = viewportPolicy
+        self.endSequence = endSequence
     }
 
     init(theme frame: MobileTerminalRenderGridFrame) {
         self.payload = .theme(frame)
         self.replacementScope = .terminalTheme
         self.viewportPolicy = nil
+        self.endSequence = nil
     }
 
     init(
@@ -51,6 +55,7 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         self.payload = .renderGrid(frame)
         self.replacementScope = replaceable ? (replacementScope ?? .renderGridViewport) : nil
         self.viewportPolicy = viewportPolicy
+        self.endSequence = frame.stateSeq
     }
 
     var bytes: Data {
@@ -71,6 +76,11 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         case .bytes:
             nil
         }
+    }
+
+    var sourceRenderGridFrame: MobileTerminalRenderGridFrame? {
+        guard case .renderGrid(let frame) = payload else { return nil }
+        return frame
     }
 }
 

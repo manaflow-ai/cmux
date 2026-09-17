@@ -1,6 +1,11 @@
 import type { Span } from "@opentelemetry/api";
 import { recordSpanError, withApiRouteSpan, type MaybeAttributes } from "../telemetry";
-import { unauthorized, verifyRequest, type AuthedUser } from "./auth";
+import {
+  parseNativeStackTokens,
+  unauthorized,
+  verifyRequest,
+  type AuthedUser,
+} from "./auth";
 import {
   isVmBillingTeamResolutionError,
   resolveVmEntitlements,
@@ -20,13 +25,7 @@ import { recordSpanTiming } from "./timings";
 export type StackBearer = { accessToken: string; refreshToken: string };
 
 export function parseBearer(request: Request): StackBearer | null {
-  const auth = request.headers.get("authorization");
-  const refresh = request.headers.get("x-stack-refresh-token");
-  if (!auth?.toLowerCase().startsWith("bearer ") || !refresh) return null;
-  const accessToken = auth.slice("bearer ".length).trim();
-  const refreshToken = refresh.trim();
-  if (!accessToken || !refreshToken) return null;
-  return { accessToken, refreshToken };
+  return parseNativeStackTokens(request);
 }
 
 export type AuthedVmRouteContext = {

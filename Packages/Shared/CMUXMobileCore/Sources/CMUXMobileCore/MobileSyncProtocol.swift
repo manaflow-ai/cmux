@@ -64,7 +64,7 @@ public struct MobileSyncPairingPayload: Equatable, Sendable, Codable {
         transport: MobileSyncTransportKind
     ) throws {
         self.version = version
-        self.macDeviceID = macDeviceID
+        self.macDeviceID = cmxCanonicalDeviceID(macDeviceID)
         self.macDisplayName = macDisplayName
         self.host = host
         self.port = port
@@ -84,7 +84,9 @@ public struct MobileSyncPairingPayload: Equatable, Sendable, Codable {
 
         let container = try decoder.container(keyedBy: CodingKeys.self)
         version = try container.decode(Int.self, forKey: .version)
-        macDeviceID = try container.decode(String.self, forKey: .macDeviceID)
+        macDeviceID = cmxCanonicalDeviceID(
+            try container.decode(String.self, forKey: .macDeviceID)
+        )
         macDisplayName = try container.decodeIfPresent(String.self, forKey: .macDisplayName)
         host = try container.decode(String.self, forKey: .host)
         port = try container.decode(Int.self, forKey: .port)

@@ -13,6 +13,8 @@ public actor BackendCanonicalSession {
     private static let terminalLeaseRefreshMarginMilliseconds: UInt64 = 1_000
     private static let ensureTerminalsCapability = "ensure-terminals-v1"
     private static let canonicalTopologyMutationsCapability = "canonical-topology-mutations-v1"
+    private static let projectionNavigationV2Capability = "projection-navigation-v2"
+    private static let terminalAccessibilityCapability = "terminal-accessibility-v1"
     private static let canonicalTopologyReadCapabilities: Set<String> = [
         "canonical-topology-snapshot-v1",
         "topology-resume-v1",
@@ -30,6 +32,17 @@ public actor BackendCanonicalSession {
         var localDeadlineNanoseconds: UInt64
     }
 
+    private struct RendererSubscriber {
+        let workspaceID: WorkspaceID
+        let presentationID: PresentationID
+        let continuation: AsyncStream<BackendRendererLifecycleEvent>.Continuation
+    }
+
+    private struct TerminalInteractionModeSubscriber {
+        let surfaceID: SurfaceID
+        let continuation: AsyncStream<BackendTerminalInteractionModeChanged>.Continuation
+    }
+
     private let client: BackendProtocolClient
     private let transport: any BackendPeerIdentityTransport
     private let expectation: BackendCanonicalSessionExpectation
@@ -40,6 +53,14 @@ public actor BackendCanonicalSession {
     private var activityProjection = BackendTerminalActivityProjection()
     private var eventTask: Task<Void, Never>?
     private var continuations: [UUID: AsyncStream<BackendCanonicalSessionEvent>.Continuation] = [:]
+    private var rendererSubscribers: [UUID: RendererSubscriber] = [:]
+    private var rendererSubscribersByWorkspace: [WorkspaceID: Set<UUID>] = [:]
+    private var rendererSubscribersByPresentation: [PresentationID: Set<UUID>] = [:]
+    private var terminalInteractionModeSubscribers: [UUID: TerminalInteractionModeSubscriber] = [:]
+    private var terminalInteractionModeSubscribersBySurface: [SurfaceID: Set<UUID>] = [:]
+    private var terminalInteractionModes: [SurfaceID: BackendTerminalInteractionModeChanged] = [:]
+    private var rendererConfigFloor: BackendRendererConfigIdentity?
+    private var latestRendererConfigInvalidation: BackendRendererConfigInvalidated?
     private var connected = false
     private var terminalError: BackendCanonicalSessionError?
     private var identifiedBackend: BackendIdentifyResponse?
@@ -94,6 +115,99 @@ public actor BackendCanonicalSession {
         return pair.stream
     }
 
+    /// Registers a bounded renderer stream keyed to one workspace presentation.
+    /// Registration completes on this actor before the stream is returned.
+    public func rendererEventSubscription(
+        workspaceID: WorkspaceID,
+        presentationID: PresentationID,
+        bufferingCapacity: Int = 256
+    ) -> BackendRendererEventSubscription {
+        precondition(bufferingCapacity > 0)
+        let identifier = UUID()
+        let pair = AsyncStream<BackendRendererLifecycleEvent>.makeStream(
+            bufferingPolicy: .bufferingOldest(bufferingCapacity)
+        )
+        rendererSubscribers[identifier] = RendererSubscriber(
+            workspaceID: workspaceID,
+            presentationID: presentationID,
+            continuation: pair.continuation
+        )
+        rendererSubscribersByWorkspace[workspaceID, default: []].insert(identifier)
+        rendererSubscribersByPresentation[presentationID, default: []].insert(identifier)
+        if let latestRendererConfigInvalidation {
+            pair.continuation.yield(.configInvalidated(latestRendererConfigInvalidation))
+        }
+        if terminalError != nil {
+            pair.continuation.finish()
+        }
+        pair.continuation.onTermination = { @Sendable _ in
+            Task { await self.removeRendererContinuation(identifier) }
+        }
+        return BackendRendererEventSubscription(
+            identifier: identifier,
+            events: pair.stream
+        )
+    }
+
+    /// Convenience stream for consumers that rely on termination cleanup.
+    public func rendererEvents(
+        workspaceID: WorkspaceID,
+        presentationID: PresentationID,
+        bufferingCapacity: Int = 256
+    ) -> AsyncStream<BackendRendererLifecycleEvent> {
+        rendererEventSubscription(
+            workspaceID: workspaceID,
+            presentationID: presentationID,
+            bufferingCapacity: bufferingCapacity
+        ).events
+    }
+
+    /// Explicitly retires one renderer route before its presentation is replaced.
+    public func cancelRendererEventSubscription(_ identifier: UUID) {
+        guard let subscriber = removeRendererContinuation(identifier) else { return }
+        subscriber.continuation.finish()
+    }
+
+    /// Registers one exact bounded route after the canonical surface is known live.
+    /// Registration completes on this actor before the stream is returned.
+    public func terminalInteractionModeEventSubscription(
+        surfaceID: SurfaceID,
+        bufferingCapacity: Int = 8
+    ) throws -> BackendTerminalInteractionModeEventSubscription {
+        precondition(bufferingCapacity > 0)
+        try requireConnected()
+        guard projection.value?.liveSurfaceIDs.contains(surfaceID) == true else {
+            throw BackendProtocolError.malformedMessage
+        }
+        let identifier = UUID()
+        let pair = AsyncStream<BackendTerminalInteractionModeChanged>.makeStream(
+            bufferingPolicy: .bufferingOldest(bufferingCapacity)
+        )
+        terminalInteractionModeSubscribers[identifier] = TerminalInteractionModeSubscriber(
+            surfaceID: surfaceID,
+            continuation: pair.continuation
+        )
+        terminalInteractionModeSubscribersBySurface[surfaceID, default: []].insert(identifier)
+        if let current = terminalInteractionModes[surfaceID] {
+            pair.continuation.yield(current)
+        }
+        pair.continuation.onTermination = { @Sendable _ in
+            Task { await self.removeTerminalInteractionModeContinuation(identifier) }
+        }
+        return BackendTerminalInteractionModeEventSubscription(
+            identifier: identifier,
+            events: pair.stream
+        )
+    }
+
+    /// Explicitly retires one interaction-mode listener during presentation teardown.
+    public func cancelTerminalInteractionModeEventSubscription(_ identifier: UUID) {
+        guard let subscriber = removeTerminalInteractionModeContinuation(identifier) else {
+            return
+        }
+        subscriber.continuation.finish()
+    }
+
     /// Connects and validates identity, then installs canonical topology only
     /// when a mutually understood observational contract is advertised.
     ///
@@ -109,6 +223,9 @@ public actor BackendCanonicalSession {
         negotiatedCompatibility = nil
         advertisedCapabilities.removeAll()
         activityProjection.invalidate()
+        rendererConfigFloor = nil
+        latestRendererConfigInvalidation = nil
+        terminalInteractionModes.removeAll()
         resetTerminalControlState()
         do {
             try await client.connect()
@@ -181,6 +298,8 @@ public actor BackendCanonicalSession {
                 }
                 let activity = try await client.terminalActivitySnapshot()
                 try activityProjection.install(activity, expectedReaderUUID: readerUUID)
+                try await client.subscribeRendererLifecycle()
+                try await client.subscribeTerminalInteractionModes()
             }
             advertisedCapabilities = identify.capabilities
             identifiedBackend = identify
@@ -198,7 +317,12 @@ public actor BackendCanonicalSession {
             negotiatedCompatibility = nil
             advertisedCapabilities.removeAll()
             activityProjection.invalidate()
+            rendererConfigFloor = nil
+            latestRendererConfigInvalidation = nil
+            terminalInteractionModes.removeAll()
             resetTerminalControlState()
+            finishRendererContinuations()
+            finishTerminalInteractionModeContinuations()
             await client.close()
             if let sessionError = error as? BackendCanonicalSessionError {
                 terminalError = sessionError
@@ -220,6 +344,14 @@ public actor BackendCanonicalSession {
     /// Returns persisted activity facts and receipts for this stable frontend reader.
     public func currentTerminalActivitySnapshot() -> BackendTerminalActivitySnapshot? {
         activityProjection.snapshot(liveSurfaceIDs: projection.value?.liveSurfaceIDs)
+    }
+
+    /// Returns the latest accepted interaction mode for one live terminal incarnation.
+    public func currentTerminalInteractionMode(
+        surfaceID: SurfaceID
+    ) -> BackendTerminalInteractionModeChanged? {
+        guard connected else { return nil }
+        return terminalInteractionModes[surfaceID]
     }
 
     /// Binds one snapshot expectation to the server-issued lease for this live connection.
@@ -321,8 +453,13 @@ public actor BackendCanonicalSession {
         negotiatedCompatibility = nil
         advertisedCapabilities.removeAll()
         activityProjection.invalidate()
+        rendererConfigFloor = nil
+        latestRendererConfigInvalidation = nil
+        terminalInteractionModes.removeAll()
         resetTerminalControlState()
         await client.close()
+        finishRendererContinuations()
+        finishTerminalInteractionModeContinuations()
         finishContinuations()
     }
 
@@ -428,11 +565,26 @@ public actor BackendCanonicalSession {
     ) async throws -> BackendRendererPresentationReceipt {
         try requireConnected()
         try requireMutationAccess(command: "configure-renderer-presentation")
-        return try await client.configureRendererPresentation(
+        let receipt = try await client.configureRendererPresentation(
             id: id,
             expectedGeneration: expectedGeneration,
             configuration: configuration
         )
+        do {
+            try acceptRendererConfigIdentity(BackendRendererConfigIdentity(
+                revision: receipt.resolvedConfigRevision,
+                digest: receipt.resolvedConfigDigest
+            ))
+        } catch let error as BackendRendererConfigValidationError {
+            if case .staleReceipt = error {
+                // A config invalidation may legitimately overtake an in-flight
+                // configure response. The caller retries against the new floor.
+            } else {
+                await finish(.topologyStreamFailed(String(describing: error)))
+            }
+            throw error
+        }
+        return receipt
     }
 
     public func activateRendererPresentation(
@@ -566,6 +718,107 @@ public actor BackendCanonicalSession {
     public func listProjectionStates() async throws -> [BackendProjectionState] {
         try requireConnected()
         return try await client.listProjectionStates()
+    }
+
+    /// Claims or reclaims one v2 logical-window navigation record.
+    ///
+    /// - Parameters:
+    ///   - logicalPresentationID: The stable logical Swift-window identifier.
+    ///   - authority: The exact daemon and persisted-session authority.
+    ///   - expectedTopologyRevision: The exact canonical topology revision.
+    /// - Returns: A typed applied response or structured conflict.
+    /// - Throws: A connection, compatibility, capability, or protocol error.
+    public func claimProjectionNavigationV2(
+        logicalPresentationID: UUID,
+        authority: BackendAuthority,
+        expectedTopologyRevision: UInt64
+    ) async throws -> BackendProjectionNavigationResponse {
+        try requireConnected()
+        try requireMutationAccess(command: "claim-projection-navigation-v2")
+        try requireCapability(Self.projectionNavigationV2Capability)
+        return try await client.claimProjectionNavigationV2(
+            logicalPresentationID: logicalPresentationID,
+            authority: authority,
+            expectedTopologyRevision: expectedTopologyRevision
+        )
+    }
+
+    /// Lists every retained v2 logical-window record through bounded pagination.
+    ///
+    /// - Parameters:
+    ///   - authority: The exact daemon and persisted-session authority.
+    ///   - expectedTopologyRevision: The exact canonical topology revision.
+    /// - Returns: One consolidated applied response or structured conflict.
+    /// - Throws: A connection, compatibility, capability, or protocol error.
+    public func listAllProjectionNavigationV2(
+        authority: BackendAuthority,
+        expectedTopologyRevision: UInt64
+    ) async throws -> BackendProjectionNavigationResponse {
+        try requireConnected()
+        try requireMutationAccess(command: "list-projection-navigation-v2")
+        try requireCapability(Self.projectionNavigationV2Capability)
+        return try await client.listAllProjectionNavigationV2(
+            authority: authority,
+            expectedTopologyRevision: expectedTopologyRevision
+        )
+    }
+
+    /// Applies one idempotent atomic v2 mutation batch.
+    ///
+    /// - Parameters:
+    ///   - requestID: The UUID identifying this exact retryable request body.
+    ///   - authority: The exact daemon and persisted-session authority.
+    ///   - expectedTopologyRevision: The exact canonical topology revision.
+    ///   - projections: Unique claimed logical-window mutations.
+    /// - Returns: A typed applied response or structured conflict.
+    /// - Throws: A connection, compatibility, capability, or protocol error.
+    public func mutateProjectionNavigationV2(
+        requestID: UUID,
+        authority: BackendAuthority,
+        expectedTopologyRevision: UInt64,
+        projections: [BackendProjectionNavigationMutation]
+    ) async throws -> BackendProjectionNavigationResponse {
+        try requireConnected()
+        try requireMutationAccess(command: "mutate-projection-navigation-v2")
+        try requireCapability(Self.projectionNavigationV2Capability)
+        return try await client.mutateProjectionNavigationV2(
+            requestID: requestID,
+            authority: authority,
+            expectedTopologyRevision: expectedTopologyRevision,
+            projections: projections
+        )
+    }
+
+    /// Explicitly releases one retained v2 logical-window record.
+    ///
+    /// - Parameters:
+    ///   - requestID: The UUID identifying this exact retryable release body.
+    ///   - logicalPresentationID: The stable logical-window identifier.
+    ///   - claimID: The exact connection-owned claim.
+    ///   - expectedGeneration: The record generation the caller observed.
+    ///   - authority: The exact daemon and persisted-session authority.
+    ///   - expectedTopologyRevision: The exact canonical topology revision.
+    /// - Returns: A typed empty applied response or structured conflict.
+    /// - Throws: A connection, compatibility, capability, or protocol error.
+    public func releaseProjectionNavigationV2(
+        requestID: UUID,
+        logicalPresentationID: UUID,
+        claimID: UUID,
+        expectedGeneration: UInt64,
+        authority: BackendAuthority,
+        expectedTopologyRevision: UInt64
+    ) async throws -> BackendProjectionNavigationResponse {
+        try requireConnected()
+        try requireMutationAccess(command: "release-projection-navigation-v2")
+        try requireCapability(Self.projectionNavigationV2Capability)
+        return try await client.releaseProjectionNavigationV2(
+            requestID: requestID,
+            logicalPresentationID: logicalPresentationID,
+            claimID: claimID,
+            expectedGeneration: expectedGeneration,
+            authority: authority,
+            expectedTopologyRevision: expectedTopologyRevision
+        )
     }
 
     /// Returns the terminal-mutation protocol selected during this connection's handshake.
@@ -1136,7 +1389,7 @@ public actor BackendCanonicalSession {
         seed: Data
     ) async throws -> BackendExternalTerminalOutputReceipt {
         try requireConnected()
-        return try await client.resetExternalTerminal(
+        let receipt = try await client.resetExternalTerminal(
             surfaceID: surfaceID,
             ownerGeneration: ownerGeneration,
             requestID: requestID,
@@ -1146,6 +1399,8 @@ public actor BackendCanonicalSession {
             noReflow: noReflow,
             seed: seed
         )
+        try await acceptExternalTerminalInteraction(surfaceID: surfaceID, receipt: receipt)
+        return receipt
     }
 
     public func sendExternalTerminalOutput(
@@ -1157,7 +1412,7 @@ public actor BackendCanonicalSession {
         data: Data
     ) async throws -> BackendExternalTerminalOutputReceipt {
         try requireConnected()
-        return try await client.sendExternalTerminalOutput(
+        let receipt = try await client.sendExternalTerminalOutput(
             surfaceID: surfaceID,
             ownerGeneration: ownerGeneration,
             requestID: requestID,
@@ -1165,6 +1420,8 @@ public actor BackendCanonicalSession {
             sequence: sequence,
             data: data
         )
+        try await acceptExternalTerminalInteraction(surfaceID: surfaceID, receipt: receipt)
+        return receipt
     }
 
     public func drainExternalTerminalEgress(
@@ -1536,7 +1793,11 @@ public actor BackendCanonicalSession {
     ) async throws -> BackendTerminalMouseResponse {
         try requireConnected()
         try requireMutationAccess(command: "terminal-mouse")
-        return try await client.sendTerminalMouse(surface: surface, event: event)
+        let response = try await client.sendTerminalMouse(surface: surface, event: event)
+        if let state = response.state {
+            try await acceptTerminalInteractionState(state)
+        }
+        return response
     }
 
     public func sendTerminalText(surface: UInt64, text: String, paste: Bool = false) async throws {
@@ -1563,7 +1824,9 @@ public actor BackendCanonicalSession {
 
     public func terminalState(surfaceID: SurfaceID) async throws -> BackendTerminalStateResponse {
         try requireConnected()
-        return try await client.terminalState(surfaceID: surfaceID)
+        let response = try await client.terminalState(surfaceID: surfaceID)
+        try await acceptTerminalInteractionState(response.state)
+        return response
     }
 
     public func terminalAccessibilitySnapshot(
@@ -1577,6 +1840,67 @@ public actor BackendCanonicalSession {
             expectedGeneration: expectedGeneration,
             expectedContentSequence: expectedContentSequence
         )
+    }
+
+    /// Acquires semantic retention for one exact presentation generation.
+    ///
+    /// Retrying an ambiguous call with the same request identity is safe and
+    /// returns the daemon's original demand generation.
+    public func acquireTerminalAccessibilityDemand(
+        requestID: UUID,
+        presentationID: PresentationID,
+        expectedGeneration: UInt64,
+        expectedDemandGeneration: UInt64? = nil
+    ) async throws -> BackendTerminalAccessibilityDemandReceipt {
+        try requireConnected()
+        try requireMutationAccess(command: "acquire-terminal-accessibility-demand")
+        try requireCapability(Self.terminalAccessibilityCapability)
+        try requireNonNil(requestID)
+        guard expectedGeneration > 0,
+              expectedDemandGeneration.map({ $0 > 0 }) ?? true else {
+            throw BackendProtocolError.malformedMessage
+        }
+        let response = try await client.acquireTerminalAccessibilityDemand(
+            requestID: requestID,
+            presentationID: presentationID,
+            expectedGeneration: expectedGeneration,
+            expectedDemandGeneration: expectedDemandGeneration
+        )
+        try requireConnected()
+        guard response.requestID == requestID,
+              response.presentationID == presentationID,
+              response.presentationGeneration == expectedGeneration,
+              response.demandGeneration > 0,
+              expectedDemandGeneration.map({ response.demandGeneration > $0 }) ?? true else {
+            throw BackendProtocolError.malformedMessage
+        }
+        return response
+    }
+
+    /// Releases only the exact demand generation supplied by the daemon.
+    public func releaseTerminalAccessibilityDemand(
+        presentationID: PresentationID,
+        expectedGeneration: UInt64,
+        demandGeneration: UInt64
+    ) async throws -> BackendTerminalAccessibilityDemandRelease {
+        try requireConnected()
+        try requireMutationAccess(command: "release-terminal-accessibility-demand")
+        try requireCapability(Self.terminalAccessibilityCapability)
+        guard expectedGeneration > 0, demandGeneration > 0 else {
+            throw BackendProtocolError.malformedMessage
+        }
+        let response = try await client.releaseTerminalAccessibilityDemand(
+            presentationID: presentationID,
+            expectedGeneration: expectedGeneration,
+            demandGeneration: demandGeneration
+        )
+        try requireConnected()
+        guard response.presentationID == presentationID,
+              response.presentationGeneration == expectedGeneration,
+              response.demandGeneration == demandGeneration else {
+            throw BackendProtocolError.malformedMessage
+        }
+        return response
     }
 
     public func activateTerminalAccessibilityLink(
@@ -1622,11 +1946,13 @@ public actor BackendCanonicalSession {
     ) async throws -> BackendTerminalActionResponse {
         try requireConnected()
         try requireMutationAccess(command: "terminal-binding-action")
-        return try await client.performTerminalBindingAction(
+        let response = try await client.performTerminalBindingAction(
             surfaceID: surfaceID,
             action: action,
             repeatCount: repeatCount
         )
+        try await acceptTerminalInteractionState(response.state)
+        return response
     }
 
     public func terminalSelection(
@@ -1637,7 +1963,12 @@ public actor BackendCanonicalSession {
         if operation != .read {
             try requireMutationAccess(command: "terminal-selection")
         }
-        return try await client.terminalSelection(surfaceID: surfaceID, operation: operation)
+        let response = try await client.terminalSelection(
+            surfaceID: surfaceID,
+            operation: operation
+        )
+        try await acceptTerminalInteractionState(response.state)
+        return response
     }
 
     public func terminalCopyMode(
@@ -1648,12 +1979,14 @@ public actor BackendCanonicalSession {
     ) async throws -> BackendTerminalActionResponse {
         try requireConnected()
         try requireMutationAccess(command: "terminal-copy-mode")
-        return try await client.terminalCopyMode(
+        let response = try await client.terminalCopyMode(
             surfaceID: surfaceID,
             operation: operation,
             adjustment: adjustment,
             count: count
         )
+        try await acceptTerminalInteractionState(response.state)
+        return response
     }
 
     public func terminalSearch(
@@ -1663,11 +1996,13 @@ public actor BackendCanonicalSession {
     ) async throws -> BackendTerminalActionResponse {
         try requireConnected()
         try requireMutationAccess(command: "terminal-search")
-        return try await client.terminalSearch(
+        let response = try await client.terminalSearch(
             surfaceID: surfaceID,
             operation: operation,
             query: query
         )
+        try await acceptTerminalInteractionState(response.state)
+        return response
     }
 
     public func terminalScroll(
@@ -1677,11 +2012,13 @@ public actor BackendCanonicalSession {
     ) async throws -> BackendTerminalActionResponse {
         try requireConnected()
         try requireMutationAccess(command: "terminal-scroll")
-        return try await client.terminalScroll(
+        let response = try await client.terminalScroll(
             surfaceID: surfaceID,
             operation: operation,
             amount: amount
         )
+        try await acceptTerminalInteractionState(response.state)
+        return response
     }
 
     public func readTerminalScreen(surface: UInt64) async throws -> BackendScreenText {
@@ -2092,6 +2429,35 @@ public actor BackendCanonicalSession {
 
     private func receive(_ event: BackendServerEvent) async {
         guard connected else { return }
+        if event.name == "terminal-interaction-mode-changed"
+            || event.name == "terminal-interaction-mode-invalidated"
+            || event.name == "terminal-interaction-mode-overflow" {
+            do {
+                switch try event.terminalInteractionModeStreamEvent() {
+                case .changed(let changed):
+                    if try acceptTerminalInteractionModeChange(changed) {
+                        publishTerminalInteractionMode(changed)
+                    }
+                case .invalidated(let invalidated):
+                    await finish(.topologyStreamFailed(
+                        "terminal interaction mode invalidated for "
+                            + "\(invalidated.surfaceID.description) epoch "
+                            + "\(invalidated.terminalEpoch): \(invalidated.reason)"
+                    ))
+                case .overflow:
+                    await finish(.topologyStreamFailed(
+                        "terminal interaction mode stream overflow"
+                    ))
+                }
+            } catch {
+                await finish(.topologyStreamFailed(String(describing: error)))
+            }
+            return
+        }
+        if event.name == "renderer-lifecycle-overflow" {
+            await finish(.topologyStreamFailed("renderer lifecycle stream overflow"))
+            return
+        }
         if event.name == "terminal-activity" {
             do {
                 let fact = try event.terminalActivityFact()
@@ -2116,7 +2482,11 @@ public actor BackendCanonicalSession {
         }
         if event.name == "renderer-worker-changed" {
             do {
-                publish(.rendererWorkerChanged(try event.rendererWorkerChanged()))
+                let changed = try event.rendererWorkerChanged()
+                publishRenderer(
+                    .workerChanged(changed),
+                    to: rendererSubscribersByWorkspace[changed.workspaceID] ?? []
+                )
             } catch {
                 await finish(.topologyStreamFailed(String(describing: error)))
             }
@@ -2124,7 +2494,24 @@ public actor BackendCanonicalSession {
         }
         if event.name == "renderer-presentation-ready" {
             do {
-                publish(.rendererPresentationReady(try event.rendererPresentationReady()))
+                let ready = try event.rendererPresentationReady()
+                publishRenderer(
+                    .presentationReady(ready),
+                    to: rendererSubscribersByPresentation[ready.presentationID] ?? []
+                )
+            } catch {
+                await finish(.topologyStreamFailed(String(describing: error)))
+            }
+            return
+        }
+        if event.name == "renderer-config-invalidated" {
+            do {
+                let invalidation = try event.rendererConfigInvalidated()
+                guard try recordRendererConfigInvalidation(invalidation) else { return }
+                publishRenderer(
+                    .configInvalidated(invalidation),
+                    to: Set(rendererSubscribers.keys)
+                )
             } catch {
                 await finish(.topologyStreamFailed(String(describing: error)))
             }
@@ -2137,6 +2524,7 @@ public actor BackendCanonicalSession {
             switch try event.topologyStreamEvent() {
             case .delta(let delta):
                 try projection.apply(delta)
+                pruneTerminalInteractionModes()
                 publish(.delta(delta))
             case .resnapshotRequired(let required):
                 try projection.requireResnapshot(required)
@@ -2152,6 +2540,147 @@ public actor BackendCanonicalSession {
 
     private func requireConnected() throws {
         guard connected else { throw BackendCanonicalSessionError.notConnected }
+    }
+
+    private func acceptTerminalInteractionModeChange(
+        _ changed: BackendTerminalInteractionModeChanged,
+        authoritativeEpoch: Bool = false
+    ) throws -> Bool {
+        guard projection.value?.liveSurfaceIDs.contains(changed.surfaceID) == true,
+              changed.terminalEpoch > 0,
+              changed.interactionRevision > 0 else {
+            throw BackendProtocolError.malformedMessage
+        }
+        if let current = terminalInteractionModes[changed.surfaceID] {
+            if current.terminalEpoch != changed.terminalEpoch {
+                guard authoritativeEpoch else { return false }
+            } else if changed.interactionRevision < current.interactionRevision {
+                return false
+            } else if changed.interactionRevision == current.interactionRevision {
+                guard changed.mouseTracking == current.mouseTracking else {
+                    throw BackendProtocolError.malformedMessage
+                }
+                return false
+            }
+        }
+        terminalInteractionModes[changed.surfaceID] = changed
+        return true
+    }
+
+    private func acceptTerminalInteractionState(_ state: BackendTerminalUXState) async throws {
+        guard !state.interactionRevisionExhausted else {
+            let error = BackendProtocolError.malformedMessage
+            await finish(.topologyStreamFailed(
+                "terminal interaction revision exhausted for \(state.surfaceID.description)"
+            ))
+            throw error
+        }
+        let changed = BackendTerminalInteractionModeChanged(
+            surfaceID: state.surfaceID,
+            terminalEpoch: state.terminalEpoch,
+            interactionRevision: state.interactionRevision,
+            mouseTracking: state.mouseTracking
+        )
+        do {
+            if try acceptTerminalInteractionModeChange(changed, authoritativeEpoch: true) {
+                publishTerminalInteractionMode(changed)
+            }
+        } catch {
+            await finish(.topologyStreamFailed(String(describing: error)))
+            throw error
+        }
+    }
+
+    private func acceptExternalTerminalInteraction(
+        surfaceID: SurfaceID,
+        receipt: BackendExternalTerminalOutputReceipt
+    ) async throws {
+        guard !receipt.interactionRevisionExhausted else {
+            let error = BackendProtocolError.malformedMessage
+            await finish(.topologyStreamFailed(
+                "terminal interaction revision exhausted for \(surfaceID.description)"
+            ))
+            throw error
+        }
+        let changed = BackendTerminalInteractionModeChanged(
+            surfaceID: surfaceID,
+            terminalEpoch: receipt.terminalEpoch,
+            interactionRevision: receipt.interactionRevision,
+            mouseTracking: receipt.mouseTracking
+        )
+        do {
+            if try acceptTerminalInteractionModeChange(changed, authoritativeEpoch: true) {
+                publishTerminalInteractionMode(changed)
+            }
+        } catch {
+            await finish(.topologyStreamFailed(String(describing: error)))
+            throw error
+        }
+    }
+
+    private func pruneTerminalInteractionModes() {
+        let live = projection.value?.liveSurfaceIDs ?? []
+        terminalInteractionModes = terminalInteractionModes.filter { live.contains($0.key) }
+        let retiredSurfaceIDs = terminalInteractionModeSubscribersBySurface.keys.filter {
+            !live.contains($0)
+        }
+        for surfaceID in retiredSurfaceIDs {
+            let identifiers = terminalInteractionModeSubscribersBySurface[surfaceID] ?? []
+            for identifier in identifiers {
+                removeTerminalInteractionModeContinuation(identifier)?.continuation.finish()
+            }
+        }
+    }
+
+    private func recordRendererConfigInvalidation(
+        _ invalidation: BackendRendererConfigInvalidated
+    ) throws -> Bool {
+        let identity = BackendRendererConfigIdentity(
+            revision: invalidation.revision,
+            digest: invalidation.digest
+        )
+        guard identity.revision > 0 else {
+            throw BackendRendererConfigValidationError.invalidRevision
+        }
+        if let floor = rendererConfigFloor {
+            if identity.revision < floor.revision {
+                return false
+            }
+            if identity.revision == floor.revision,
+               identity.digest != floor.digest {
+                throw BackendRendererConfigValidationError.inconsistentRevision(identity.revision)
+            }
+        }
+        if rendererConfigFloor.map({ identity.revision > $0.revision }) ?? true {
+            rendererConfigFloor = identity
+        }
+        latestRendererConfigInvalidation = invalidation
+        return true
+    }
+
+    private func acceptRendererConfigIdentity(
+        _ identity: BackendRendererConfigIdentity
+    ) throws {
+        guard identity.revision > 0 else {
+            throw BackendRendererConfigValidationError.invalidRevision
+        }
+        if let floor = rendererConfigFloor {
+            if identity.revision < floor.revision {
+                throw BackendRendererConfigValidationError.staleReceipt(
+                    minimumRevision: floor.revision,
+                    actualRevision: identity.revision
+                )
+            }
+            if identity.revision == floor.revision {
+                guard identity.digest == floor.digest else {
+                    throw BackendRendererConfigValidationError.inconsistentRevision(
+                        identity.revision
+                    )
+                }
+                return
+            }
+        }
+        rendererConfigFloor = identity
     }
 
     private func requireMutationAccess(command: String) throws {
@@ -2209,6 +2738,11 @@ public actor BackendCanonicalSession {
         resetTerminalControlState()
         terminalError = error
         publish(.disconnected(error))
+        rendererConfigFloor = nil
+        latestRendererConfigInvalidation = nil
+        terminalInteractionModes.removeAll()
+        finishRendererContinuations()
+        finishTerminalInteractionModeContinuations()
         await client.close()
     }
 
@@ -2231,6 +2765,56 @@ public actor BackendCanonicalSession {
         }
     }
 
+    private func publishRenderer(
+        _ event: BackendRendererLifecycleEvent,
+        to identifiers: Set<UUID>
+    ) {
+        var retired: [UUID] = []
+        retired.reserveCapacity(identifiers.count)
+        for identifier in identifiers {
+            guard let subscriber = rendererSubscribers[identifier] else { continue }
+            switch subscriber.continuation.yield(event) {
+            case .enqueued:
+                break
+            case .dropped, .terminated:
+                subscriber.continuation.finish()
+                retired.append(identifier)
+            @unknown default:
+                subscriber.continuation.finish()
+                retired.append(identifier)
+            }
+        }
+        for identifier in retired {
+            _ = removeRendererContinuation(identifier)
+        }
+    }
+
+    private func publishTerminalInteractionMode(
+        _ event: BackendTerminalInteractionModeChanged
+    ) {
+        let identifiers = terminalInteractionModeSubscribersBySurface[event.surfaceID] ?? []
+        var retired: [UUID] = []
+        retired.reserveCapacity(identifiers.count)
+        for identifier in identifiers {
+            guard let subscriber = terminalInteractionModeSubscribers[identifier] else {
+                continue
+            }
+            switch subscriber.continuation.yield(event) {
+            case .enqueued:
+                break
+            case .dropped, .terminated:
+                subscriber.continuation.finish()
+                retired.append(identifier)
+            @unknown default:
+                subscriber.continuation.finish()
+                retired.append(identifier)
+            }
+        }
+        for identifier in retired {
+            _ = removeTerminalInteractionModeContinuation(identifier)
+        }
+    }
+
     private func finishContinuations() {
         for continuation in continuations.values {
             continuation.finish()
@@ -2238,8 +2822,55 @@ public actor BackendCanonicalSession {
         continuations.removeAll()
     }
 
+    private func finishRendererContinuations() {
+        for subscriber in rendererSubscribers.values {
+            subscriber.continuation.finish()
+        }
+        rendererSubscribers.removeAll()
+        rendererSubscribersByWorkspace.removeAll()
+        rendererSubscribersByPresentation.removeAll()
+    }
+
+    private func finishTerminalInteractionModeContinuations() {
+        for subscriber in terminalInteractionModeSubscribers.values {
+            subscriber.continuation.finish()
+        }
+        terminalInteractionModeSubscribers.removeAll()
+        terminalInteractionModeSubscribersBySurface.removeAll()
+    }
+
     private func removeContinuation(_ identifier: UUID) {
         continuations.removeValue(forKey: identifier)
+    }
+
+    @discardableResult
+    private func removeRendererContinuation(_ identifier: UUID) -> RendererSubscriber? {
+        guard let subscriber = rendererSubscribers.removeValue(forKey: identifier) else {
+            return nil
+        }
+        rendererSubscribersByWorkspace[subscriber.workspaceID]?.remove(identifier)
+        if rendererSubscribersByWorkspace[subscriber.workspaceID]?.isEmpty == true {
+            rendererSubscribersByWorkspace.removeValue(forKey: subscriber.workspaceID)
+        }
+        rendererSubscribersByPresentation[subscriber.presentationID]?.remove(identifier)
+        if rendererSubscribersByPresentation[subscriber.presentationID]?.isEmpty == true {
+            rendererSubscribersByPresentation.removeValue(forKey: subscriber.presentationID)
+        }
+        return subscriber
+    }
+
+    @discardableResult
+    private func removeTerminalInteractionModeContinuation(
+        _ identifier: UUID
+    ) -> TerminalInteractionModeSubscriber? {
+        guard let subscriber = terminalInteractionModeSubscribers.removeValue(
+            forKey: identifier
+        ) else { return nil }
+        terminalInteractionModeSubscribersBySurface[subscriber.surfaceID]?.remove(identifier)
+        if terminalInteractionModeSubscribersBySurface[subscriber.surfaceID]?.isEmpty == true {
+            terminalInteractionModeSubscribersBySurface.removeValue(forKey: subscriber.surfaceID)
+        }
+        return subscriber
     }
 }
 

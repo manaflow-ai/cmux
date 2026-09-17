@@ -1389,6 +1389,8 @@ func dispatchTmuxCommand(rc *rpcContext, command string, args []string) error {
 		return tmuxKillWindow(rc, args)
 	case "kill-pane", "killp":
 		return tmuxKillPane(rc, args)
+	case "respawn-pane", "respawnp":
+		return tmuxRespawnPane(rc, args)
 	case "send-keys", "send":
 		return tmuxSendKeys(rc, args)
 	case "capture-pane", "capturep":
@@ -1645,6 +1647,124 @@ func tmuxKillPane(rc *rpcContext, args []string) error {
 	// Re-equalize after removal
 	rc.call("workspace.equalize_splits", map[string]any{"workspace_id": wsId, "orientation": "vertical"})
 	return nil
+}
+
+// tmuxRespawnPane mirrors the Swift __tmux-compat respawn-pane handler
+// (CLI/cmux.swift), which Claude Code agent teams use to start teammate
+// panes. Both paths dispatch to the same surface.respawn socket method.
+func tmuxRespawnPane(rc *rpcContext, args []string) error {
+	p := parseTmuxArgs(args, []string{"-c", "-t"}, []string{"-k"})
+	if !p.hasFlag("-k") {
+		return fmt.Errorf("respawn-pane requires -k in cmux tmux compatibility mode")
+	}
+	wsId, _, surfId, err := tmuxResolveSurfaceTarget(rc, p.value("-t"))
+	if err != nil {
+		return err
+	}
+	commandText := strings.TrimSpace(strings.Join(p.positional, " "))
+	if commandText == "" {
+		commandText, err = tmuxStoredStartCommand(rc, wsId, surfId)
+		if err != nil {
+			return err
+		}
+	}
+	if commandText == "" {
+		commandText = "exec ${SHELL:-/bin/sh} -l"
+	}
+	params := map[string]any{
+		"workspace_id": wsId,
+		"surface_id":   surfId,
+		"command":      tmuxRespawnStartCommand(commandText, tmuxClaudeTeamsRespawnEnvironment()),
+		// Kept raw (unwrapped) for display and session persistence, matching
+		// the Swift path.
+		"tmux_start_command": commandText,
+	}
+	if cwd := strings.TrimSpace(p.value("-c")); cwd != "" {
+		if resolved := tmuxNormalizePath(cwd); resolved != "" {
+			params["working_directory"] = resolved
+		}
+	}
+	_, err = rc.call("surface.respawn", params)
+	return err
+}
+
+// tmuxStoredStartCommand returns the surface's recorded start command, used
+// when respawn-pane is called without an explicit command (tmux semantics:
+// reuse the command the pane was started with). A lookup failure is
+// propagated rather than treated as "no stored command", so a transient
+// RPC error cannot silently replace the pane's intended command with the
+// login-shell fallback (matching the Swift path, where the lookup throws).
+func tmuxStoredStartCommand(rc *rpcContext, workspaceId, surfaceId string) (string, error) {
+	payload, err := rc.call("surface.list", map[string]any{"workspace_id": workspaceId})
+	if err != nil {
+		return "", err
+	}
+	surfaces, _ := payload["surfaces"].([]any)
+	for _, s := range surfaces {
+		surface, _ := s.(map[string]any)
+		if surface == nil || stringFromAnyGo(surface["id"]) != surfaceId {
+			continue
+		}
+		for _, key := range []string{"tmux_start_command", "pane_start_command", "initial_command"} {
+			if v := stringFromAnyGo(surface[key]); v != "" {
+				return v, nil
+			}
+		}
+		return "", nil
+	}
+	return "", nil
+}
+
+// tmuxShellInvokedStartCommand wraps a tmux shell-command in `/bin/sh -c`
+// so the surface can exec it. Ghostty execs the pane start command as a
+// single executable, but tmux shell-commands are arbitrary shell
+// expressions (Claude Code teammates respawn with `cd <dir> && env …`),
+// so a bare exec of `cd` fails and the pane dies before the real command
+// runs. Mirrors the Swift tmuxShellInvokedStartCommand.
+func tmuxShellInvokedStartCommand(command string) string {
+	trimmed := strings.TrimSpace(command)
+	if trimmed == "" {
+		return command
+	}
+	return "/bin/sh -c " + tmuxShellQuote(trimmed)
+}
+
+type tmuxEnvPair struct {
+	key   string
+	value string
+}
+
+// tmuxRespawnStartCommand is tmuxShellInvokedStartCommand with prependEnv
+// exported inside the wrapping shell, so the respawned process inherits
+// those variables. With an empty prependEnv it is byte-for-byte identical
+// to tmuxShellInvokedStartCommand. Mirrors the Swift tmuxRespawnStartCommand.
+func tmuxRespawnStartCommand(command string, prependEnv []tmuxEnvPair) string {
+	trimmed := strings.TrimSpace(command)
+	if trimmed == "" {
+		return command
+	}
+	if len(prependEnv) == 0 {
+		return tmuxShellInvokedStartCommand(trimmed)
+	}
+	exports := make([]string, len(prependEnv))
+	for i, kv := range prependEnv {
+		exports[i] = "export " + kv.key + "=" + tmuxShellQuote(kv.value)
+	}
+	return tmuxShellInvokedStartCommand(strings.Join(exports, "; ") + "; " + trimmed)
+}
+
+// tmuxClaudeTeamsRespawnEnvironment re-supplies the environment a
+// claude-teams teammate pane must start with. CLAUDE_CODE_SANDBOXED
+// short-circuits Claude Code's interactive trust prompt, which a teammate
+// pane can never answer. It is only set when the claude-teams launcher
+// recorded the user's explicit opt-in (CMUX_CLAUDE_TEAMS_SANDBOXED=1),
+// propagated to this process by the tmux shim. Mirrors the Swift
+// tmuxClaudeTeamsRespawnEnvironment; see that for the full rationale.
+func tmuxClaudeTeamsRespawnEnvironment() []tmuxEnvPair {
+	if strings.TrimSpace(os.Getenv("CMUX_CLAUDE_TEAMS_SANDBOXED")) != "1" {
+		return nil
+	}
+	return []tmuxEnvPair{{key: "CLAUDE_CODE_SANDBOXED", value: "1"}}
 }
 
 func tmuxSendKeys(rc *rpcContext, args []string) error {

@@ -1,0 +1,24 @@
+-- Publish this as the SQL endpoint `coderouter-team-usage-30d` in the
+-- dedicated CodeRouter PostHog project. Define `team_scope` as a required
+-- string variable. The required equality filter makes accidental unscoped
+-- execution fail and permits endpoint materialization.
+SELECT
+  -- The dedicated CodeRouter project timezone is pinned to UTC.
+  toString(toDate(timestamp)) AS day,
+  sum(toInt(coalesce(properties.$ai_input_tokens, 0))) AS input_tokens,
+  sum(toInt(coalesce(properties.$ai_cache_read_input_tokens, 0))) AS cached_input_tokens,
+  sum(toInt(coalesce(properties.$ai_output_tokens, 0))) AS output_tokens,
+  sum(toInt(coalesce(properties.coderouter_total_tokens, 0))) AS total_tokens,
+  sum(toFloat(coalesce(properties.$ai_total_cost_usd, 0))) AS api_equivalent_usd,
+  sum(toInt(coalesce(properties.coderouter_priced_tokens, 0))) AS priced_tokens,
+  sum(toInt(coalesce(properties.coderouter_unpriced_tokens, 0))) AS unpriced_tokens
+FROM events
+WHERE event = '$ai_generation'
+  AND toDate(timestamp) >= toDate(now()) - INTERVAL 29 DAY
+  AND toDate(timestamp) <= toDate(now())
+  AND properties.coderouter_team_scope = {variables.team_scope}
+GROUP BY day
+ORDER BY day ASC
+-- Fetch one overflow sentinel rather than silently trimming if a future query
+-- change violates the exactly-30-UTC-day invariant. The app rejects >30 rows.
+LIMIT 31
