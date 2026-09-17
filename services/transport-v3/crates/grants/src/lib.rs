@@ -11,6 +11,7 @@ use thiserror::Error;
 
 const ISSUER: &str = "cmux-transport-v3";
 const TOKEN_TYPE: &str = "cmux-v3-grant+jwt";
+const REVOCATION_TOKEN_TYPE: &str = "cmux-v3-revocation+jwt";
 const MAX_TOKEN_BYTES: usize = 8192;
 
 /// Expected scope supplied by the receiving service, with transport-authenticated peer IDs.
@@ -101,6 +102,30 @@ pub struct Grant {
     pub exp: Option<u64>,
 }
 
+/// Monotonic authorization state delivered to endpoints and relays. This is a
+/// signed snapshot delta, not a client assertion. Missing updates are detected
+/// by the sequence and policy revision and must be fetched before admission.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RevocationUpdate {
+    pub key_id: String,
+    pub team_id: String,
+    pub sequence: u64,
+    pub policy_revision: u64,
+    pub revoked_peers: Vec<String>,
+    pub issued_at: u64,
+}
+impl RevocationUpdate {
+    fn validate(&self, now: u64) -> Result<(), Error> {
+        if self.key_id.is_empty() || self.key_id.len() > 128 || self.team_id.is_empty()
+            || self.team_id.len() > 256 || self.sequence == 0 || self.policy_revision == 0
+            || self.issued_at > now || now - self.issued_at > 300 || self.revoked_peers.len() > 10000
+            || self.revoked_peers.iter().any(|peer| peer.parse::<PeerId>().is_err())
+        { return Err(Error::InvalidGrant); }
+        Ok(())
+    }
+}
+
 impl Grant {
     pub fn new(
         scope: Scope<'_>,
@@ -178,6 +203,15 @@ impl GrantSigner {
         header.kid = Some(self.key_id.clone());
         jsonwebtoken::encode(&header, grant, &self.key).map_err(|_| Error::InvalidGrant)
     }
+
+    pub fn sign_revocation(&self, mut update: RevocationUpdate, now: u64) -> Result<String, Error> {
+        update.key_id = self.key_id.clone();
+        update.validate(now)?;
+        let mut header = Header::new(Algorithm::EdDSA);
+        header.typ = Some(REVOCATION_TOKEN_TYPE.into());
+        header.kid = Some(self.key_id.clone());
+        jsonwebtoken::encode(&header, &update, &self.key).map_err(|_| Error::InvalidGrant)
+    }
 }
 
 /// Supplied by trusted server configuration, not populated from token headers.
@@ -230,6 +264,21 @@ impl AuthorityKeys {
         admission.check(now, revocations)?;
         Ok(admission)
     }
+
+    pub fn admit_revocation(&self, token: &str, team: &str, now: u64) -> Result<RevocationUpdate, Error> {
+        if token.len() > MAX_TOKEN_BYTES || team.is_empty() || team.len() > 256 { return Err(Error::InvalidGrant); }
+        let header = jsonwebtoken::decode_header(token).map_err(|_| Error::InvalidGrant)?;
+        if header.alg != Algorithm::EdDSA || header.typ.as_deref() != Some(REVOCATION_TOKEN_TYPE) { return Err(Error::InvalidGrant); }
+        let key = header.kid.as_ref().and_then(|id| self.0.get(id)).ok_or(Error::UnknownSigner)?;
+        let mut validation = Validation::new(Algorithm::EdDSA);
+        validation.validate_exp = false;
+        validation.leeway = 0;
+        let update = jsonwebtoken::decode::<RevocationUpdate>(token, key, &validation)
+            .map_err(|_| Error::InvalidGrant)?.claims;
+        if update.team_id != team { return Err(Error::WrongScope); }
+        update.validate(now)?;
+        Ok(update)
+    }
 }
 
 /// Authenticated updates only. Revisions invalidate older grants, including unlimited ones.
@@ -237,6 +286,7 @@ impl AuthorityKeys {
 pub struct Revocations {
     revisions: BTreeMap<String, u64>,
     devices: BTreeSet<(String, PeerId)>,
+    sequences: BTreeMap<String, u64>,
 }
 
 impl Revocations {
@@ -246,6 +296,15 @@ impl Revocations {
     }
     pub fn revoke_device(&mut self, team: String, peer: PeerId) {
         self.devices.insert((team, peer));
+    }
+    pub fn apply_update(&mut self, update: &RevocationUpdate) -> Result<(), Error> {
+        if let Some(previous) = self.sequences.get(&update.team_id) {
+            if update.sequence != previous.saturating_add(1) { return Err(Error::InvalidGrant); }
+        }
+        self.sequences.insert(update.team_id.clone(), update.sequence);
+        self.advance_policy(update.team_id.clone(), update.policy_revision);
+        for peer in &update.revoked_peers { self.revoke_device(update.team_id.clone(), peer.parse().map_err(|_| Error::InvalidGrant)?); }
+        Ok(())
     }
 }
 

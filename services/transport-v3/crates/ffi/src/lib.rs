@@ -230,16 +230,11 @@ impl NativeEndpoint {
             stream: NativeStream::new(accepted.session, self.endpoint.cancellation()),
         })
     }
-    /// Caller supplies verified server updates; these only revoke, never grant.
-    pub fn update_revocations(&self, revision: u64, peers: Vec<String>) -> Result<(), NativeError> {
-        if peers.len() > 10000 {
-            return Err(NativeError::Invalid);
-        }
-        let peers = peers
-            .into_iter()
-            .map(|p| p.parse::<PeerId>().map_err(|_| NativeError::Invalid))
-            .collect::<Result<_, _>>()?;
-        self.endpoint.update_revocations(revision, peers);
+    /// Apply only an authority-signed ordered update. Callers cannot inject
+    /// raw revocation state or widen permissions.
+    pub fn apply_revocation_update(&self, token: String) -> Result<(), NativeError> {
+        if token.len() > 8192 { return Err(NativeError::Invalid); }
+        self.endpoint.apply_revocation_token(&token).map_err(|_| NativeError::Denied)?;
         Ok(())
     }
 }

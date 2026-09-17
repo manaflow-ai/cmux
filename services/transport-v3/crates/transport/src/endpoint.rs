@@ -30,6 +30,7 @@ pub struct Endpoint {
     pub peer: PeerId,
     team: String,
     context: Context,
+    authority_keys: Arc<AuthorityKeys>,
     control: libp2p_stream::Control,
     commands: mpsc::Sender<Command>,
     incoming: Mutex<mpsc::Receiver<Accepted>>,
@@ -57,6 +58,7 @@ impl Endpoint {
         let mut swarm = peer(key).await.map_err(|_| Error::Transport)?;
         let peer = *swarm.local_peer_id();
         let (revocations, updates) = watch::channel(Arc::new(Revocations::default()));
+        let authority_keys = keys.clone();
         let context = Context::new(team.clone(), peer, keys, updates, 64)?;
         let control = swarm.behaviour().streams.new_control();
         let mut streams = control
@@ -157,6 +159,7 @@ impl Endpoint {
             peer,
             team,
             context,
+            authority_keys,
             control,
             commands,
             incoming: Mutex::new(incoming),
@@ -261,14 +264,18 @@ impl Endpoint {
             value = async { self.incoming.lock().await.recv().await } => value.ok_or(Error::Closed),
         }
     }
-    /// Only narrows authority. A caller cannot undo previously known revocation.
-    pub fn update_revocations(&self, revision: u64, peers: Vec<PeerId>) {
-        self.revocations.send_modify(|snapshot| {
-            let state = Arc::make_mut(snapshot);
-            state.advance_policy(self.team.clone(), revision);
-            for peer in peers {
-                state.revoke_device(self.team.clone(), peer);
-            }
-        });
+    /// Apply an authority-signed, ordered feed event. Raw peer lists are never
+    /// accepted from application code.
+    pub fn apply_revocation_token(&self, token: &str) -> Result<(), Error> {
+        let update = self.authority_keys.admit_revocation(token, &self.team, unix_now())
+            .map_err(|_| Error::Denied)?;
+        let mut next = self.revocations.borrow().as_ref().clone();
+        next.apply_update(&update).map_err(|_| Error::Denied)?;
+        self.revocations.send_replace(Arc::new(next));
+        Ok(())
     }
+}
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }

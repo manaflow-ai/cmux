@@ -10,7 +10,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use cmux_v3_grants::{GrantSigner, LeasePolicy};
+use cmux_v3_grants::{GrantSigner, LeasePolicy, RevocationUpdate};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -111,6 +111,16 @@ pub struct Revocation {
 pub struct TeamRequest {
     pub team: String,
 }
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct EventRequest {
+    pub team: String,
+    #[serde(default)]
+    pub after_sequence: i64,
+    #[serde(default = "event_limit")]
+    pub limit: i64,
+}
+fn event_limit() -> i64 { 256 }
 
 fn token(headers: &HeaderMap) -> Result<&str, Error> {
     headers
@@ -145,6 +155,7 @@ pub fn router(service: Service) -> Router {
         .route("/v3/device-policy", post(device_policy))
         .route("/v3/revoke", post(revoke))
         .route("/v3/directory", post(directory))
+        .route("/v3/events", post(events))
         .layer(DefaultBodyLimit::max(64 * 1024))
         .layer(axum::middleware::from_fn(
             move |request: axum::extract::Request, next: axum::middleware::Next| {
@@ -279,4 +290,33 @@ async fn directory(
         .authorize(token(&headers)?, &input.team, false)
         .await?;
     Ok(Json(s.store.directory(&identity).await?))
+}
+async fn events(
+    State(s): State<Service>,
+    headers: HeaderMap,
+    Json(input): Json<EventRequest>,
+) -> Result<Json<serde_json::Value>, Error> {
+    let identity = s.stack.authorize(token(&headers)?, &input.team, false).await?;
+    if input.team != identity.team || input.after_sequence < 0 || !(1..=256).contains(&input.limit) {
+        return Err(Error::Invalid);
+    }
+    let rows = s.store.events(&identity, input.after_sequence, input.limit).await?;
+    let mut updates = Vec::with_capacity(rows.len());
+    for row in rows {
+        let revoked_peers = if row.action == "revoke" {
+            row.peer_id.into_iter().collect()
+        } else {
+            Vec::new()
+        };
+        let update = RevocationUpdate {
+            key_id: String::new(), team_id: identity.team.clone(), sequence: row.sequence as u64,
+            policy_revision: row.revision as u64, revoked_peers, issued_at: now(),
+        };
+        updates.push(serde_json::json!({
+            "sequence": update.sequence,
+            "policy_revision": update.policy_revision,
+            "update": s.signer.sign_revocation(update, now()).map_err(|_| Error::Unavailable)?,
+        }));
+    }
+    Ok(Json(serde_json::json!({"team":identity.team,"events":updates})))
 }

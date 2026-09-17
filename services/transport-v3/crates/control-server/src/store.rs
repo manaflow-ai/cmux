@@ -24,6 +24,13 @@ struct Record {
     tags: serde_json::Value,
     lease: serde_json::Value,
 }
+#[derive(FromRow)]
+pub struct EventRecord {
+    pub sequence: i64,
+    pub revision: i64,
+    pub action: String,
+    pub peer_id: Option<String>,
+}
 impl Record {
     fn device(&self) -> Result<Device, Error> {
         Ok(Device {
@@ -341,5 +348,12 @@ impl Store {
         }
         tx.commit().await?;
         Ok(serde_json::json!({"team":identity.team,"revision":team.revision,"devices":rows}))
+    }
+    pub async fn events(&self, identity: &Identity, after: i64, limit: i64) -> Result<Vec<EventRecord>, Error> {
+        if after < 0 || !(1..=256).contains(&limit) { return Err(Error::Invalid); }
+        sqlx::query_as::<_, EventRecord>(
+            "SELECT sequence,revision,action,peer_id FROM transport_v3_events WHERE team_id=$1 AND sequence>$2 ORDER BY sequence LIMIT $3"
+        )
+        .bind(&identity.team).bind(after).bind(limit).fetch_all(&self.0).await.map_err(Into::into)
     }
 }
