@@ -188,8 +188,8 @@ struct SurfaceSocketCommandTests {
             self.workspaceID = manager.selectedWorkspace!.id
         }
 
-        /// The Bonsplit pane id (UUID string) of the workspace's focused panel — a live pane
-        /// an explicit `pane_id` may name.
+        /// The pane belongs to this windowless fixture, so requests also name
+        /// its workspace instead of asking the live-window router to find it.
         @MainActor
         var livePaneID: String? {
             // Straight from the workspace: the test TabManager is the controller's active
@@ -316,7 +316,8 @@ struct SurfaceSocketCommandTests {
             // (a LIVE pane: the workspace's own focused pane).
             let pane = try #require(fixture.livePaneID)
             let split = try Self.ok(try await Self.call("surface.project", [
-                "resource": resource, "reuse": false, "pane_id": pane, "direction": "left", "focus": false,
+                "resource": resource, "reuse": false, "workspace_id": fixture.workspaceID.uuidString,
+                "pane_id": pane, "direction": "left", "focus": false,
             ]))
             #expect(split["reused"] as? Bool == false)
             #expect(fixture.provider.materialized.count == 2)
@@ -324,7 +325,10 @@ struct SurfaceSocketCommandTests {
             #expect(fixture.provider.materialized[1].focus == false)
 
             // `placement: tab` on a pane becomes a tab destination.
-            _ = try Self.ok(try await Self.call("surface.project", ["resource": resource, "reuse": false, "pane_id": pane, "placement": "tab"]))
+            _ = try Self.ok(try await Self.call("surface.project", [
+                "resource": resource, "reuse": false, "workspace_id": fixture.workspaceID.uuidString,
+                "pane_id": pane, "placement": "tab",
+            ]))
             #expect(fixture.provider.materialized.last?.destination == .tab(workspaceID: fixture.workspaceID, paneID: pane, index: nil))
 
             let projections = try Self.ok(try await Self.call("surface.catalog", ["machine": fixture.machineID]))["projections"] as? [[String: Any]]
