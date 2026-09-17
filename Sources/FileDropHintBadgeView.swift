@@ -91,13 +91,31 @@ final class FileDropHintBadgeView: NSView {
         nil
     }
 
-    func show(text: String, centeredIn targetBounds: CGRect, clippedTo bounds: CGRect) {
+    func show(text: String, centeredIn targetBounds: CGRect, clippedTo bounds: CGRect, warning: Bool = false) {
         animationGeneration &+= 1
         label.stringValue = text
+        label.textColor = warning ? .systemRed : .labelColor
+        label.maximumNumberOfLines = warning ? 0 : 1
+        label.lineBreakMode = warning ? .byWordWrapping : .byClipping
+        label.setContentCompressionResistancePriority(warning ? .defaultLow : .required, for: .horizontal)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.staticText)
+        setAccessibilityLabel(text)
+        let tint = warning ? NSColor.systemRed.withAlphaComponent(0.16) : Self.neutralBackgroundColor
+        effectView.layer?.backgroundColor = tint.cgColor
+        if effectView.responds(to: NSSelectorFromString("setTintColor:")) {
+            effectView.perform(NSSelectorFromString("setTintColor:"), with: tint)
+        }
         let fitting = label.intrinsicContentSize
-        let maxWidth = max(80, min(bounds.width, targetBounds.width) - 16)
+        let maxWidth = max(1, min(bounds.width, warning ? 420 : targetBounds.width) - 16)
         let width = min(max(140, fitting.width + 20), maxWidth)
-        let height = Self.badgeHeight(for: label.font)
+        label.preferredMaxLayoutWidth = warning ? max(1, width - 20) : 0
+        let textHeight = (text as NSString).boundingRect(
+            with: CGSize(width: max(1, width - 20), height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: label.font ?? NSFont.systemFont(ofSize: 12)]
+        ).height
+        let height = warning ? max(Self.badgeHeight(for: label.font), ceil(textHeight) + 10) : Self.badgeHeight(for: label.font)
         let origin = CGPoint(
             x: min(max(targetBounds.midX - width / 2, bounds.minX + 8), max(bounds.minX + 8, bounds.maxX - width - 8)),
             y: min(max(targetBounds.midY - height / 2, bounds.minY + 8), max(bounds.minY + 8, bounds.maxY - height - 8))
@@ -110,6 +128,13 @@ final class FileDropHintBadgeView: NSView {
         } else {
             alphaValue = 1
         }
+    }
+
+    func hideImmediately() {
+        animationGeneration &+= 1
+        alphaValue = 0
+        isHidden = true
+        setAccessibilityLabel(nil)
     }
 
     func hide() {

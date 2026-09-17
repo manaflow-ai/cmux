@@ -79,8 +79,8 @@ struct DisconnectedWorkspaceShellView: View {
                         ToolbarItem(placement: .topBarLeading) {
                             Button(action: showComputers) {
                                 MobileDevicesToolbarLabel(
-                                    gateWarningDeviceIDs: store?.macVersionUpdateRequiredDeviceIDs ?? [],
-                                    computerDeviceIDs: savedComputerDeviceIDs
+                                    gateWarningPairingIDs: store?.macVersionUpdateRequiredPairingIDs ?? [],
+                                    computerPairingIDs: savedComputerPairingIDs
                                 )
                             }
                             .accessibilityLabel(L10n.string(
@@ -164,11 +164,8 @@ struct DisconnectedWorkspaceShellView: View {
 
     /// The Computers sheet includes both shown and hidden rows, so both sets
     /// participate in the toolbar warning scope while this screen is open.
-    private var savedComputerDeviceIDs: Set<String> {
-        Set(
-            savedComputers.map(\.deviceId)
-                + (store?.hiddenComputers.map(\.macDeviceID) ?? [])
-        )
+    private var savedComputerPairingIDs: Set<String> {
+        Set(savedComputers.map(\.id) + (store?.hiddenComputers.map(\.id) ?? []))
     }
 
     @ViewBuilder
@@ -293,8 +290,8 @@ struct DisconnectedWorkspaceShellView: View {
         }
         #endif
         return L10n.string(
-            "mobile.devices.emptyDescription",
-            defaultValue: "For Iroh to find a Mac, run cmux 0.64.20 or later on the Mac, sign in to cmux on both devices with the same account, and keep cmux running on the Mac while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
+            "mobile.v2.devices.emptyDescription",
+            defaultValue: "On your Mac, turn on Enable iOS pairing in cmux Settings. Select the same team on both devices and keep cmux running. Only Macs you own or have permission to connect to appear here."
         ) + " " + MobilePairingCopy().emptyWorkspaceMessage
     }
 
@@ -393,8 +390,8 @@ struct DisconnectedWorkspaceShellView: View {
             Text(
                 savedMacs.isEmpty
                     ? L10n.string(
-                        "mobile.devices.emptyDescription",
-                        defaultValue: "For Iroh to find a Mac, run cmux 0.64.20 or later on the Mac, sign in to cmux on both devices with the same account, and keep cmux running on the Mac while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
+                        "mobile.v2.devices.emptyDescription",
+                        defaultValue: "On your Mac, turn on Enable iOS pairing in cmux Settings. Select the same team on both devices and keep cmux running. Only Macs you own or have permission to connect to appear here."
                     )
                     : savedMacDescription
             )
