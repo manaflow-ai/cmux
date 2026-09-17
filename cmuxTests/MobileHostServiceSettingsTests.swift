@@ -13,15 +13,18 @@ import Testing
 
 struct MobileHostServiceSettingsTests {
     @Test(arguments: [BuildFlavor.dev, .nightly, .stable])
-    func pairingRequiresExplicitCurrentOptIn(buildFlavor: BuildFlavor) throws {
+    func pairingRequiresExplicitOptInAndPreservesHistoricalChoice(buildFlavor: BuildFlavor) throws {
         let suiteName = "MobileHostServiceSettingsTests.v2.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         #expect(!MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: buildFlavor))
         defaults.set(true, forKey: "cmuxMobilePairingHostEnabled")
+        #expect(MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: buildFlavor))
+        defaults.set(false, forKey: "cmuxMobilePairingHostEnabled")
         #expect(!MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: buildFlavor))
         defaults.set(true, forKey: MobileHostService.listeningEnabledDefaultsKey)
         #expect(MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: buildFlavor))
+        defaults.set(true, forKey: "cmuxMobilePairingHostEnabled")
         defaults.set(false, forKey: MobileHostService.listeningEnabledDefaultsKey)
         #expect(!MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: buildFlavor))
         #expect(SettingCatalog().mobile.iOSPairingHost.defaultValue == false)
