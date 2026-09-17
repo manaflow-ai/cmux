@@ -288,7 +288,17 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
             let previousAppDelegate = AppDelegate.shared
             let appDelegate = AppDelegate()
             AppDelegate.shared = appDelegate
-            defer { AppDelegate.shared = previousAppDelegate }
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            appDelegate.tabManager = manager
+            let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+            defer {
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                manager.tabs.forEach { $0.teardownAllPanels() }
+                AppDelegate.shared = previousAppDelegate
+            }
+            let workspace = try XCTUnwrap(manager.tabs.first)
+            let panel = try XCTUnwrap(workspace.panels.values.first)
+            let pane = try XCTUnwrap(workspace.paneId(forPanelId: panel.id))
 
             let defaults = UserDefaults.standard
             let savedDefaultBehavior = defaults.object(forKey: FileDropBehaviorSettings.defaultBehaviorKey)
@@ -322,9 +332,9 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
             slot.addSubview(webView)
             slot.pinHostedWebView(webView)
             slot.setPaneDropContext(BrowserPaneDropContext(
-                workspaceId: UUID(),
-                panelId: UUID(),
-                paneId: PaneID(id: UUID())
+                workspaceId: workspace.id,
+                panelId: panel.id,
+                paneId: pane
             ))
             slot.layoutSubtreeIfNeeded()
 
