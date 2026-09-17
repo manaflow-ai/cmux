@@ -6,11 +6,23 @@ import datetime as dt
 import hashlib
 import hmac
 import json
+import mimetypes
 import os
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+
+
+class _RejectRedirects(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # A SigV4 signature is bound to its original host and path. Never
+        # forward it or a session token to a redirect destination.
+        return None
+
+
+def _open_signed_request(request: urllib.request.Request, *, timeout: int):
+    return urllib.request.build_opener(_RejectRedirects()).open(request, timeout=timeout)
 
 
 def _sign(key: bytes, message: str) -> bytes:
@@ -44,8 +56,8 @@ def _build_signed_request(
         raise SystemExit("AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are required")
 
     parsed = urllib.parse.urlsplit(args.endpoint_url.rstrip("/"))
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise SystemExit(f"Invalid R2 endpoint URL: {args.endpoint_url}")
+    if parsed.scheme != "https" or not parsed.netloc:
+        raise SystemExit("R2 endpoint URL must use HTTPS and include a host")
 
     date_stamp = amz_date[:8]
     canonical_uri = _canonical_path(args.bucket, args.key)
@@ -59,6 +71,7 @@ def _build_signed_request(
     }
     if method == "PUT":
         headers["cache-control"] = args.cache_control
+        headers["content-type"] = args.content_type
     if extra_headers:
         headers.update({name.lower(): value for name, value in extra_headers.items()})
     session_token = os.environ.get("AWS_SESSION_TOKEN")
@@ -114,7 +127,7 @@ def _read_existing_object(
 
     head = _build_signed_request(args, b"", amz_date, method="HEAD")
     try:
-        with urllib.request.urlopen(head, timeout=30) as response:
+        with _open_signed_request(head, timeout=30) as response:
             response.read()
     except urllib.error.HTTPError as error:
         if error.code == 404:
@@ -122,7 +135,7 @@ def _read_existing_object(
         raise
 
     get = _build_signed_request(args, b"", amz_date, method="GET")
-    with urllib.request.urlopen(get, timeout=120) as response:
+    with _open_signed_request(get, timeout=120) as response:
         existing = response.read()
     actual_digest = hashlib.sha256(existing).hexdigest()
     if actual_digest != expected_digest:
@@ -141,12 +154,21 @@ def main() -> int:
     parser.add_argument("--key", required=True, help="Object key inside the bucket")
     parser.add_argument("--cache-control", required=True, help="Cache-Control metadata")
     parser.add_argument(
+        "--content-type",
+        help="Content-Type metadata (default: infer from file extension, otherwise application/octet-stream)",
+    )
+    parser.add_argument(
         "--write-once",
         action="store_true",
         help="Refuse to overwrite an immutable object; accept an identical existing object",
     )
     parser.add_argument("--dry-run-json", action="store_true", help="Print the signed request instead of uploading")
     args = parser.parse_args()
+    if not args.content_type:
+        content_type, encoding = mimetypes.guess_type(args.file)
+        # A compressed file is not the unencoded type returned by guess_type.
+        # Keep its bytes opaque unless the caller supplies the archive type.
+        args.content_type = content_type if content_type and not encoding else "application/octet-stream"
 
     with open(args.file, "rb") as file:
         body = file.read()
@@ -192,7 +214,7 @@ def main() -> int:
             amz_date,
             extra_headers={"if-none-match": "*"} if args.write_once else None,
         )
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with _open_signed_request(request, timeout=30) as response:
             response.read()
             print(f"Uploaded {args.file} to s3://{args.bucket}/{args.key} ({response.status})")
             return 0

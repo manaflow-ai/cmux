@@ -27,6 +27,8 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     case customSidebars
     case betaFeatures
     case automation
+    /// Local computer-use integration, permissions, and menu-bar controls.
+    case computerUse
     case browser
     case browserImport
     case globalHotkey
@@ -40,25 +42,26 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     /// User-facing section title shown in the sidebar.
     public var title: String {
         switch self {
-        case .account: return "Account"
-        case .app: return "App"
-        case .terminal: return "Terminal"
+        case .account: return String(localized: "settings.section.account", defaultValue: "Account")
+        case .app: return String(localized: "settings.section.app", defaultValue: "App")
+        case .terminal: return String(localized: "settings.section.terminal", defaultValue: "Terminal")
         case .textBox: return String(localized: "settings.section.textBox", defaultValue: "TextBox (Beta)")
         case .sleepyMode: return String(localized: "settings.section.sleepyMode", defaultValue: "Sleepy Mode")
         case .mobile: return String(localized: "settings.section.mobile", defaultValue: "Mobile")
         case .cloudMachines: return String(localized: "settings.section.cloudMachines", defaultValue: "Cloud")
         case .networking: return String(localized: "settings.section.networking", defaultValue: "Networking")
-        case .sidebarAppearance: return "Sidebar"
+        case .sidebarAppearance: return String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar")
         case .customSidebars: return String(localized: "settings.section.customSidebars", defaultValue: "Custom Sidebars")
-        case .betaFeatures: return "Beta Features"
-        case .automation: return "Automation"
-        case .browser: return "Browser"
-        case .browserImport: return "Import Browser Data"
-        case .globalHotkey: return "Global Hotkey"
-        case .keyboardShortcuts: return "Keyboard Shortcuts"
-        case .workspaceColors: return "Workspace Colors"
+        case .betaFeatures: return String(localized: "settings.section.betaFeatures", defaultValue: "Beta Features")
+        case .automation: return String(localized: "settings.section.automation", defaultValue: "Automation")
+        case .computerUse: return String(localized: "settings.section.computerUse", defaultValue: "Computer Use")
+        case .browser: return String(localized: "settings.section.browser", defaultValue: "Browser")
+        case .browserImport: return String(localized: "settings.browser.import", defaultValue: "Import Browser Data")
+        case .globalHotkey: return String(localized: "settings.section.globalHotkey", defaultValue: "Global Hotkey")
+        case .keyboardShortcuts: return String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts")
+        case .workspaceColors: return String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors")
         case .settingsJSON: return "cmux.json"
-        case .reset: return "Reset"
+        case .reset: return String(localized: "settings.section.reset", defaultValue: "Reset")
         }
     }
 
@@ -77,6 +80,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .customSidebars: return "sidebar.squares.left"
         case .betaFeatures: return "exclamationmark.triangle"
         case .automation: return "wand.and.sparkles"
+        case .computerUse: return "cursorarrow.rays"
         case .browser: return "globe"
         case .browserImport: return "square.and.arrow.down"
         case .globalHotkey: return "keyboard.badge.ellipsis"
@@ -104,6 +108,11 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .customSidebars: return "custom sidebars vibe swift json interpreted renderer in-process remote worker isolated"
         case .betaFeatures: return "beta experimental unstable feed dock right sidebar"
         case .automation: return "socket integrations hooks ports claude cursor gemini naming auto naming workspace tabs"
+        case .computerUse:
+            return String(
+                localized: "settings.search.keywords.computerUse",
+                defaultValue: "computer use accessibility screen recording permissions cursor mcp agents menu bar onboarding"
+            )
         case .browser: return "search engine links history theme"
         case .browserImport: return "browser import bookmarks history cookies"
         case .globalHotkey: return "system wide shortcut"

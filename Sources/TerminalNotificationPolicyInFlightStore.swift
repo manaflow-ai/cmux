@@ -132,7 +132,7 @@ final class TerminalNotificationPolicyInFlightStore {
     }
 
     func discard(forTabId tabId: UUID, correlationKey: String) {
-        let idsToDiscard = requests.compactMap { id, entry in
+        let idsToDiscard: [UUID] = requests.compactMap { id, entry in
             entry.indexedTabId == tabId && entry.request.correlationKey == correlationKey ? id : nil
         }
         let identities = Set(idsToDiscard.compactMap(discardRequest))

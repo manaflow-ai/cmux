@@ -382,6 +382,7 @@ extension MobileShellComposite {
                 previewAt: record.previewAt,
                 lastActivityAt: record.lastActivityAt,
                 hasUnread: record.hasUnread,
+                unreadCount: record.unreadCount,
                 terminals: record.terminals.map { terminal in
                     MobileSyncWorkspaceListResponse.Terminal(
                         id: terminal.id,

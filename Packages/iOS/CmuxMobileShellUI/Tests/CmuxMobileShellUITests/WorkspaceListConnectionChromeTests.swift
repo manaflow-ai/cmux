@@ -197,23 +197,26 @@ import Testing
         ).statusLine == .notConnected)
     }
 
-    @Test func workspaceDetailReconnectIsUnavailableDuringReauthentication() {
-        var reconnectCount = 0
-        let blocked = WorkspaceDetailView.reconnectAction(
+    @Test func workspaceDetailReconnectMenuItemGating() {
+        // Reauthentication owns recovery through its blocking banner.
+        #expect(!WorkspaceDetailView.canReconnectFromTitleMenu(
+            effectiveConnectionStatus: .unavailable,
             connectionRequiresReauth: true
-        ) {
-            reconnectCount += 1
-        }
-        #expect(blocked == nil)
-
-        let available = WorkspaceDetailView.reconnectAction(
+        ))
+        // An active reconnect owns recovery. A connected session can still
+        // have stale terminal contents and needs a manual refresh entry.
+        #expect(!WorkspaceDetailView.canReconnectFromTitleMenu(
+            effectiveConnectionStatus: .reconnecting,
             connectionRequiresReauth: false
-        ) {
-            reconnectCount += 1
-        }
-        #expect(available != nil)
-        available?()
-        #expect(reconnectCount == 1)
+        ))
+        #expect(WorkspaceDetailView.canReconnectFromTitleMenu(
+            effectiveConnectionStatus: .connected,
+            connectionRequiresReauth: false
+        ))
+        #expect(WorkspaceDetailView.canReconnectFromTitleMenu(
+            effectiveConnectionStatus: .unavailable,
+            connectionRequiresReauth: false
+        ))
     }
 
     private func chrome(
