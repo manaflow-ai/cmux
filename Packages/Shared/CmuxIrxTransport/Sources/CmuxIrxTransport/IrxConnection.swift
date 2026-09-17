@@ -145,7 +145,7 @@ public actor IrxConnection {
     private var closedFlag = false
     private var nativeClosureObserved = false
     private var localTermination: IrxTermination?
-    private var keepaliveTask: Task<Void, Never>?
+    private(set) var keepaliveTask: Task<Void, Never>?
     private var pingSeq: UInt64 = 0
     private var applicationActive = true
     private var keepaliveGeneration: UInt64 = 0

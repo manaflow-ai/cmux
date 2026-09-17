@@ -535,7 +535,7 @@ extension MobileHostAuthorizationTests {
     @Test func testMobileHostConnectionDoesNotPersistUnauthorizedEventSubscription() async throws {
         let connectionID = UUID()
         let recorder = MobileHostConnectionCloseRecorder()
-        let transport = RecordingMobileHostByteTransport()
+        let transport = ScriptedMobileHostByteTransport()
         let session = MobileHostConnection(
             id: connectionID,
             transport: transport,
@@ -544,20 +544,17 @@ extension MobileHostAuthorizationTests {
             },
             onAuthorizedRequest: { _ in },
             handleRequest: { _ in .ok([:]) },
-            onClose: { id in
-                await recorder.record(id)
-            }
+            onClose: { id in await recorder.record(id) }
         )
-        let frame = try MobileSyncFrameCodec.encodeFrame(
-            Data(#"{"id":"subscribe","method":"mobile.events.subscribe","params":{"stream_id":"events","topics":["terminal.updated"]}}"#.utf8)
-        )
+        let frame = try MobileSyncFrameCodec.encodeFrame(Data(#"{"id":"subscribe","method":"mobile.events.subscribe","params":{"stream_id":"events","topics":["terminal.updated"]}}"#.utf8))
         await session.debugHandleReceiveDataForTesting(frame)
-        let sent = await transport.waitForSentBufferCount(1)
-        var buffer = try #require(sent.first)
-        let responseData = try #require(MobileSyncFrameCodec.decodeFrames(from: &buffer).first)
+        let responses = await transport.waitForSentBufferCount(1)
+        var responseFrame = try #require(responses.first)
+        let responseData = try #require(MobileSyncFrameCodec.decodeFrames(from: &responseFrame).first)
         let response = try #require(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
-        let error = try #require(response["error"] as? [String: Any])
-        #expect(error["code"] as? String == "unauthorized")
+        #expect(response["id"] as? String == "subscribe")
+        #expect(response["ok"] as? Bool == false)
+        #expect((response["error"] as? [String: Any])?["code"] as? String == "unauthorized")
         #expect(await session.isSubscribed(to: "terminal.updated") == false)
         #expect(await recorder.recordedIDs().isEmpty)
         await session.close(reason: "test cleanup")
@@ -568,9 +565,8 @@ extension MobileHostAuthorizationTests {
         let sessionBox = MobileHostConnectionBox()
         // Deterministic ordering signals replace the former timing race: the
         // first frame's authorize records and closes the session, then fulfills
-        // `firstRecorded`. The second frame's authorize blocks on `secondGate`
+        // `firstRecorded`; the second frame's authorize blocks on `secondGate`
         // (held until close is confirmed) instead of a fixed 100ms sleep, so the
-        // close provably lands before the second frame can proceed.
         let firstRecorded = AsyncTestSignal()
         let secondAuthorizeStarted = AsyncTestSignal()
         let secondAuthorizeFinished = AsyncTestSignal()
@@ -884,7 +880,7 @@ private actor GatedMobileHostByteTransport: CmxByteTransport {
     }
 }
 
-private actor ScriptedMobileHostByteTransport: CmxByteTransport {
+actor ScriptedMobileHostByteTransport: CmxByteTransport {
     private enum Failure: Error {
         case scriptedSend
     }

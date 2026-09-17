@@ -31,6 +31,12 @@ const { POST } = await import("../app/api/client-config/route");
 const originalFetch = globalThis.fetch;
 const originalConsoleError = console.error;
 
+function deferred<T = void>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(value => { resolve = value; });
+  return { promise, resolve };
+}
+
 beforeEach(() => {
   process.env.VERCEL_DEPLOYMENT_ID = "client-config-route-tests";
   const entries = new Map<string, unknown>();
@@ -441,12 +447,11 @@ describe("client config", () => {
     mutableEnv.VERCEL_ENV = "production";
     process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID = "cmux-client-config-test";
     checkRateLimit.mockResolvedValue({ rateLimited: false, error: null });
-    let releaseFetch!: () => void;
-    const fetchGate = new Promise<void>((resolve) => {
-      releaseFetch = resolve;
-    });
+    const fetchStarted = deferred();
+    const fetchGate = deferred();
     const fetchMock = mock(async () => {
-      await fetchGate;
+      fetchStarted.resolve();
+      await fetchGate.promise;
       return new Response(
         JSON.stringify({
           errorsWhileComputingFlags: false,
@@ -466,11 +471,10 @@ describe("client config", () => {
     });
 
     const firstPromise = POST(request());
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await fetchStarted.promise;
     const secondPromise = POST(request());
-    await new Promise((resolve) => setTimeout(resolve, 0));
 
-    releaseFetch();
+    fetchGate.resolve();
     const [first, second] = await Promise.all([firstPromise, secondPromise]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(checkRateLimit).toHaveBeenCalledTimes(2);
@@ -484,10 +488,11 @@ describe("client config", () => {
     mutableEnv.NODE_ENV = "production";
     process.env.VERCEL = "1";
     process.env.VERCEL_ENV = "production";
-    let releaseFetch!: () => void;
-    const gate = new Promise<void>((resolve) => { releaseFetch = resolve; });
+    const fetchStarted = deferred();
+    const gate = deferred();
     const fetchMock = mock(async () => {
-      await gate;
+      fetchStarted.resolve();
+      await gate.promise;
       return Response.json({ errorsWhileComputingFlags: false, featureFlags: {}, featureFlagPayloads: {} });
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
@@ -497,17 +502,20 @@ describe("client config", () => {
     });
 
     const allowed = POST(request());
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    checkRateLimit.mockResolvedValue({ rateLimited: true, error: null });
-    const blocked = POST(request());
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    releaseFetch();
-    const [allowedResponse, blockedResponse] = await Promise.all([allowed, blocked]);
-
-    expect(allowedResponse.status).toBe(200);
-    expect(blockedResponse.status).toBe(429);
-    expect(checkRateLimit).toHaveBeenCalledTimes(2);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    try {
+      await fetchStarted.promise;
+      checkRateLimit.mockResolvedValue({ rateLimited: true, error: null });
+      // Admission must reject this caller while the allowed fetch is still held.
+      const blockedResponse = await POST(request());
+      expect(blockedResponse.status).toBe(429);
+      expect(await blockedResponse.json()).toEqual({ error: "rate_limited" });
+      expect(checkRateLimit).toHaveBeenCalledTimes(2);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      gate.resolve();
+      await allowed;
+    }
+    expect((await allowed).status).toBe(200);
   });
 
   test.each([

@@ -662,7 +662,6 @@ final class MobileHostService {
             if result.startDrain {
                 Task { await connection.drainQueuedEvents() }
             }
-
         }
         if !resyncSurfaceIDs.isEmpty {
             MobileTerminalRenderObserver.requestRenderGridFullResync(
