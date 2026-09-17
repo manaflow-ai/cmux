@@ -812,8 +812,8 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             "link_state": "connected",
         ]
         let exited: [String: Any] = [
-            "id": "\(machineID)/terminal/term_exited",
-            "key": "term_exited",
+            "id": "\(machineID)/terminal/term_out",
+            "key": "term_out",
             "kind": "terminal",
             "lifecycle": "exited",
             "remote_views": [[String: Any]](),
@@ -821,7 +821,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
 
         let result = try runCLICloudTree(machine: machine, resources: [exited])
         #expect(result.status == 0, Comment(rawValue: result.stderr))
-        #expect(result.stdout.contains("term_exited"))
+        #expect(result.stdout.contains("term_out"))
         #expect(!result.stdout.contains("detached"))
         #expect(!result.stdout.contains("cmux surface open"))
     }
@@ -841,8 +841,8 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             "remote_workspaces": [workspace],
         ]
         let exited: [String: Any] = [
-            "id": "\(machineID)/terminal/term_exited",
-            "key": "term_exited",
+            "id": "\(machineID)/terminal/term_out",
+            "key": "term_out",
             "kind": "terminal",
             "lifecycle": "exited",
             "remote_workspace": workspace,
@@ -851,8 +851,8 @@ struct CloudTreeOneMachineManyWorkspacesTests {
 
         let result = try runCLICloudTree(machine: machine, resources: [exited])
         #expect(result.status == 0, Comment(rawValue: result.stderr))
-        #expect(result.stdout.contains("term_exited"))
-        #expect(!result.stdout.contains("cmux vm open \(machineID)/ws_main/term_exited"))
+        #expect(result.stdout.contains("term_out"))
+        #expect(!result.stdout.contains("cmux vm open \(machineID)/ws_main/term_out"))
     }
 
     @Test("CLI does not group an exited legacy terminal in a workspace")
@@ -871,8 +871,8 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         ]
         // Older providers omit remote_views and expose only the legacy owner field.
         let exited: [String: Any] = [
-            "id": "\(machineID)/terminal/term_exited",
-            "key": "term_exited",
+            "id": "\(machineID)/terminal/term_out",
+            "key": "term_out",
             "kind": "terminal",
             "lifecycle": "exited",
             "remote_workspace": workspace,
@@ -880,8 +880,8 @@ struct CloudTreeOneMachineManyWorkspacesTests {
 
         let result = try runCLICloudTree(machine: machine, resources: [exited])
         #expect(result.status == 0, Comment(rawValue: result.stderr))
-        #expect(result.stdout.contains("    ○ term_exited"))
-        #expect(!result.stdout.contains("      ○ term_exited"), "an exited legacy terminal stays in the pool")
+        #expect(result.stdout.contains("    ○ term_out"))
+        #expect(!result.stdout.contains("      ○ term_out"), "an exited legacy terminal stays in the pool")
     }
 
     @Test("CLI does not offer surface open for a stopped legacy terminal")
@@ -892,15 +892,15 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             "link_state": "connected",
         ]
         let stopped: [String: Any] = [
-            "id": "\(machineID)/terminal/term_stopped",
-            "key": "term_stopped",
+            "id": "\(machineID)/terminal/term_off",
+            "key": "term_off",
             "kind": "terminal",
             "running": false,
         ]
 
         let result = try runCLICloudTree(machine: machine, resources: [stopped])
         #expect(result.status == 0, Comment(rawValue: result.stderr))
-        #expect(result.stdout.contains("term_stopped"))
+        #expect(result.stdout.contains("term_off"))
         #expect(!result.stdout.contains("cmux surface open"))
     }
 
