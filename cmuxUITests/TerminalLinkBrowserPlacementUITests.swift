@@ -164,7 +164,13 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { !$0.isEmpty }
             .joined(separator: "-")
-        return [socketPath, "/tmp/cmux-debug-\(slug).sock"]
+        var candidates = [socketPath, "/tmp/cmux-debug-\(slug).sock"]
+        let diagnosticsURL = fixture.appendingPathComponent("socket.json")
+        if let expected = readState(diagnosticsURL)["socketExpectedPath"] as? String,
+           !expected.isEmpty {
+            candidates.append(expected)
+        }
+        return Array(Set(candidates))
     }
 
     private func readState(_ url: URL) -> [String: Any] {
