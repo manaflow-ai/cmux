@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxRemoteWorkspace
 import Testing
 
 #if canImport(cmux_DEV)
