@@ -12,8 +12,8 @@
     },
     {
       "path": "client.py",
-      "sha256": "19feb59b05b1322841c91ca8ca24ce6b74f5f56259e56e819352cf4556e9d43a",
-      "size": 40078
+      "sha256": "ea5182ad28335c4d222f469802cdf78872b03562df790a72f27f32d7cbe71248",
+      "size": 40196
     },
     {
       "path": "codec.py",

@@ -430,7 +430,7 @@ class CmuxClient(GeneratedClientMixin):
         stream_type = AttachStream if metadata.stream_kind == "attach" else EventStream
         return stream_type(self, command, payload)
 
-    def _open_command_stream_with_result(self, command: str, request: Any) -> tuple[Any, _Stream]:
+    def _open_command_stream_with_result(self, command: str, request: object) -> tuple[Any, _Stream]:
         stream = self._open_command_stream(command, request)
         response = stream.response or {}
         try:
