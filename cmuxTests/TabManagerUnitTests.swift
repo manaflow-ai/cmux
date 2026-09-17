@@ -1,4 +1,5 @@
 import XCTest
+import Testing
 import CmuxCore
 import AppKit
 import SwiftUI
@@ -907,6 +908,34 @@ final class TabManagerChildExitCloseTests: XCTestCase {
     }
 }
 
+
+@MainActor
+@Suite(.serialized)
+struct TabManagerSplitZoomCleanupTests {
+    /// Verifies that leaving a workspace clears its transient split-zoom state.
+    @Test
+    func testSwitchingWorkspacesClearsSplitZoomFromOutgoingWorkspace() throws {
+        let manager = TabManager()
+        let outgoingWorkspace = try #require(manager.selectedWorkspace)
+        let focusedPanelId = try #require(outgoingWorkspace.focusedPanelId)
+        _ = try #require(
+            outgoingWorkspace.newTerminalSplit(from: focusedPanelId, orientation: .horizontal)
+        )
+        let incomingWorkspace = try #require(manager.addWorkspaceIfActive(select: false))
+
+        outgoingWorkspace.focusPanel(focusedPanelId)
+        #expect(outgoingWorkspace.toggleSplitZoom(panelId: focusedPanelId))
+        #expect(outgoingWorkspace.bonsplitController.isSplitZoomed)
+
+        manager.selectWorkspace(incomingWorkspace)
+
+        #expect(manager.selectedTabId == incomingWorkspace.id)
+        #expect(
+            !outgoingWorkspace.bonsplitController.isSplitZoomed,
+            "Switching workspaces should clear zoom from the workspace being left"
+        )
+    }
+}
 
 @MainActor
 final class TabManagerWorkspaceOwnershipTests: XCTestCase {
@@ -3918,6 +3947,65 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         }
         let result = XCTWaiter().wait(for: [expectation], timeout: 3.0)
         XCTAssertEqual(result, .completed)
+    }
+}
+
+/// Verifies split-zoom cleanup at both selected and unselected detach boundaries.
+@MainActor
+@Suite(.serialized)
+struct CrossWindowWorkspaceSplitZoomTests {
+    /// Verifies that detaching the selected workspace clears zoom before transfer.
+    @Test
+    func testDetachingSelectedZoomedWorkspaceClearsSplitZoomBeforeTransfer() throws {
+        let source = TabManager()
+        let destination = TabManager()
+        let moving = try #require(source.selectedWorkspace)
+        let focusedPanelId = try #require(moving.focusedPanelId)
+        _ = try #require(
+            moving.newTerminalSplit(from: focusedPanelId, orientation: .horizontal)
+        )
+        _ = try #require(source.addWorkspaceIfActive(select: false))
+        #expect(source.selectedTabId == moving.id)
+
+        moving.focusPanel(focusedPanelId)
+        #expect(moving.toggleSplitZoom(panelId: focusedPanelId))
+        #expect(moving.bonsplitController.isSplitZoomed)
+
+        let detached = try #require(source.detachWorkspace(tabId: moving.id))
+        #expect(
+            !detached.bonsplitController.isSplitZoomed,
+            "Detaching a selected workspace should clear its outgoing zoom"
+        )
+
+        destination.attachWorkspace(detached, select: true)
+        #expect(destination.selectedWorkspace?.bonsplitController.isSplitZoomed == false)
+    }
+
+    /// Verifies that detaching an unselected workspace also clears zoom before transfer.
+    @Test
+    func testDetachingUnselectedZoomedWorkspaceClearsSplitZoomBeforeTransfer() throws {
+        let source = TabManager()
+        let destination = TabManager()
+        let moving = try #require(source.selectedWorkspace)
+        let focusedPanelId = try #require(moving.focusedPanelId)
+        _ = try #require(
+            moving.newTerminalSplit(from: focusedPanelId, orientation: .horizontal)
+        )
+        let selectedWorkspace = try #require(source.addWorkspaceIfActive())
+        #expect(source.selectedTabId == selectedWorkspace.id)
+
+        moving.focusPanel(focusedPanelId)
+        #expect(moving.toggleSplitZoom(panelId: focusedPanelId))
+        #expect(moving.bonsplitController.isSplitZoomed)
+
+        let detached = try #require(source.detachWorkspace(tabId: moving.id))
+        #expect(
+            !detached.bonsplitController.isSplitZoomed,
+            "Detaching any workspace should clear its outgoing zoom"
+        )
+
+        destination.attachWorkspace(detached, select: true)
+        #expect(destination.selectedWorkspace?.bonsplitController.isSplitZoomed == false)
     }
 }
 
