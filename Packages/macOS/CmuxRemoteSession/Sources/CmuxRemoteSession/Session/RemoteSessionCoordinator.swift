@@ -55,8 +55,10 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     let host: any RemoteSessionHosting
     let configuration: WorkspaceRemoteConfiguration
     let proxyBroker: any RemoteProxyBrokering
+    let connectionBroker: NativeSSHConnectionBroker
     let manifestRepository: RemoteDaemonManifestRepository
     let processRunner: any RemoteSessionProcessRunning
+    let reverseRelayLauncher: any RemoteReverseRelayLaunching
     let reachabilityProbe: any RemoteHostReachabilityProbing
     let relayCommandRewriter: any RemoteRelayCommandRewriting
     let buildInfo: any RemoteSessionBuildInfoProviding
@@ -66,20 +68,33 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     /// relay restart, bootstrap-TTY retry, port-scan coalesce and burst).
     let clock: any RemoteProxyRetryClock
     let reconnectPolicy = RemoteReconnectPolicy()
+    let bootstrapRetryPolicy = RemoteBootstrapRetryPolicy()
     // MARK: - Queue-confined state
     //
     // Every var below is confined to `queue` (see the isolation essay).
     // Internal so the coordinator's same-module extension files can reach them.
-
     var isStopping = false
     var proxyLease: RemoteProxyLease?
     var proxyLeaseGeneration: UInt64 = 0
+    /// Whether this connection attempt still needs a proxy tunnel.  Keeping
+    /// the intent separate from relay readiness lets a standalone relay start
+    /// asynchronously without losing the eventual proxy acquisition.
+    var proxyConnectionDesired = false
     var proxyEndpoint: BrowserProxyEndpoint?
     var daemonReady = false
     var daemonBootstrapVersion: String?
     var daemonRemotePath: String?
-    var reverseRelayProcess: Process?
+    var readyDaemonStatus: WorkspaceRemoteDaemonStatus?
+    var controlMasterReapState = ControlMasterReapState()
+    var reverseRelayProcess: (any RemoteReverseRelayProcess)?
     var reverseRelayControlMasterForwardSpec: String?
+    /// True only after the reverse listener and its authenticated remote
+    /// metadata are both installed.  The proxy/PTY bridge must not be
+    /// advertised before this invariant holds: a ControlMaster recovery can
+    /// leave the daemon hello ready while the old reverse port is still
+    /// draining.
+    var reverseRelayReady = false
+    var resolvedControlMasterSSHOptions: [String]?
     var cliRelayServer: RemoteCLIRelayServer?
     var remotePortScanTTYNames: [UUID: String] = [:]
     /// Stable publication state for best-effort remote TTY attribution scans.
@@ -107,15 +122,27 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var bootstrapRemoteTTYRetryToken: UUID?
     var bootstrapRemoteTTYFetchInFlight = false
     var bootstrapRemoteTTYRetryCount = 0
-    var reverseRelayStderrPipe: Pipe?
     var reverseRelayRestartTask: Task<Void, Never>?
     var reverseRelayRestartToken: UUID?
-    var reverseRelayStderrBuffer = ""
     var reconnectRetryCount = 0
     var reconnectTask: Task<Void, Never>?
     var reconnectToken: UUID?
+    var bootstrapFailureFingerprint: String?
+    var bootstrapFailureCount = 0
+    var bootstrapFailureTotal = 0
+    var connectionAttemptTask: Task<Void, Never>?
+    var connectionAttemptToken: UUID?
     var consecutiveUnreachableProbeCount = 0
-    var reconnectSuspended = false
+    /// Non-nil while the session is parked: recovery stopped and readiness
+    /// waiters were released with this reason. `reconnectSuspended` reads it.
+    var parkedState: RemoteSessionParkedState?
+    /// Deadline between a daemon hello and a published proxy endpoint, armed
+    /// once per readiness seek (see `armReadinessDeadlineLocked`).
+    var readinessDeadlineTask: Task<Void, Never>?
+    var readinessDeadlineToken: UUID?
+    /// Whether this coordinator ever wrote relay metadata to the remote host;
+    /// until it has, its transport cleanup has nothing to remove.
+    var didInstallRelayMetadata = false
     var isSystemSleeping = false
     var reachabilityProbeGeneration: UInt64 = 0
     var heartbeatCount: Int = 0
@@ -127,11 +154,6 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     /// `.some(nil)` = computed and unavailable (legacy process-wide
     /// `static let` cache, made per-coordinator with the build-info seam).
     var remoteDaemonSourceFingerprintCache: String??
-    /// Grace period the relay-startup failure probe waits for an `ssh -N -R`
-    /// transport that may exit immediately (public because it is the default
-    /// argument of the test-pinned ``reverseRelayStartupFailureDetail(process:stderrPipe:gracePeriod:)``).
-    public static let reverseRelayStartupGracePeriod: TimeInterval = 0.5
-
     /// Creates a coordinator for one remote-workspace connection attempt.
     ///
     /// - Parameters:
@@ -140,8 +162,11 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     ///     this coordinator's lifetime; reconnects construct a fresh one).
     ///   - proxyBroker: Process-wide proxy-tunnel broker (one shared tunnel
     ///     per remote transport), injected from the app hub.
+    ///   - connectionBroker: Process-wide native SSH ownership and per-host
+    ///     connection-attempt broker.
     ///   - manifestRepository: cmuxd-remote manifest/binary-cache repository.
     ///   - processRunner: Blocking subprocess seam (ssh/scp/dev go build).
+    ///   - reverseRelayLauncher: Standalone SSH reverse-relay launch seam.
     ///   - reachabilityProbe: SSH endpoint reachability seam for the
     ///     reconnect-suspend policy.
     ///   - relayCommandRewriter: Alias-aware CLI relay command rewriter.
@@ -154,8 +179,10 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         host: any RemoteSessionHosting,
         configuration: WorkspaceRemoteConfiguration,
         proxyBroker: any RemoteProxyBrokering,
+        connectionBroker: NativeSSHConnectionBroker,
         manifestRepository: RemoteDaemonManifestRepository,
         processRunner: any RemoteSessionProcessRunning,
+        reverseRelayLauncher: any RemoteReverseRelayLaunching = RemoteReverseRelayLauncher(),
         reachabilityProbe: any RemoteHostReachabilityProbing,
         relayCommandRewriter: any RemoteRelayCommandRewriting,
         buildInfo: any RemoteSessionBuildInfoProviding,
@@ -166,8 +193,10 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         self.host = host
         self.configuration = configuration
         self.proxyBroker = proxyBroker
+        self.connectionBroker = connectionBroker
         self.manifestRepository = manifestRepository
         self.processRunner = processRunner
+        self.reverseRelayLauncher = reverseRelayLauncher
         self.reachabilityProbe = reachabilityProbe
         self.relayCommandRewriter = relayCommandRewriter
         self.buildInfo = buildInfo
@@ -205,20 +234,20 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         queue.async { [weak self] in
             guard let self else { return }
             guard !self.isStopping else { return }
-            self.beginConnectionAttemptLocked()
+            self.requestConnectionAttemptLocked()
         }
     }
 
-    /// Stops the session: tears down the relay, releases the proxy lease,
-    /// fails parked PTY-bridge starts, and publishes cleared state.
-    /// Synchronous when already on the coordinator queue.
-    public func stop() {
+    /// Stops the session with the requested ownership scope; synchronous on the coordinator queue.
+    ///
+    /// - Parameter cleanupScope: The ownership scope released by this stop.
+    public func stop(cleanupScope: RemoteRelayCleanupScope = .persistentSlot) {
         if DispatchQueue.getSpecific(key: queueKey) != nil {
-            stopAllLocked()
+            _ = stopAllLocked(cleanupScope: cleanupScope)
             return
         }
         queue.async { [self] in
-            stopAllLocked()
+            _ = stopAllLocked(cleanupScope: cleanupScope)
         }
     }
 
@@ -236,46 +265,8 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         }
     }
 
-    func stopAllLocked() {
-        debugLog("remote.session.stop \(debugConfigSummary())")
-        isStopping = true
-        cancelReconnectRetryLocked()
-        reconnectRetryCount = 0
-        consecutiveUnreachableProbeCount = 0
-        reconnectSuspended = false
-        reachabilityProbeGeneration &+= 1
-        cancelReverseRelayRestartLocked()
-        cancelRemotePortScanCoalesceLocked()
-        stopReverseRelayLocked()
-        remotePortScanGeneration &+= 1
-        remotePortScanBurstTask?.cancel()
-        remotePortScanBurstTask = nil
-        remotePortScanBurstActive = false
-        remotePortScanActiveReason = nil
-        remotePortScanPendingReason = nil
-        remotePortScanTTYNames.removeAll()
-        remotePortScanSnapshot.reset()
-        stopRemotePortPollingLocked()
-        remotePortPollState.reset()
-        keepPolledRemotePortsUntilTTYScan = false
-        bootstrapRemoteTTYResolved = false
-        cancelBootstrapRemoteTTYRetryLocked()
-        bootstrapRemoteTTYFetchInFlight = false
-        bootstrapRemoteTTYRetryCount = 0
-        failPendingPTYBridgeStartsLocked("remote daemon is not ready")
-
-        releaseProxyLeaseLocked()
-        proxyEndpoint = nil
-        daemonReady = false
-        daemonBootstrapVersion = nil
-        daemonRemotePath = nil
-        publishProxyEndpoint(nil)
-        publishPortsSnapshotLocked()
-    }
-
     func beginConnectionAttemptLocked() {
         guard !isStopping else { return }
-
         Self.killOrphanedRemoteSSHProcesses(
             destination: configuration.destination,
             relayPort: configuration.relayPort,
@@ -309,6 +300,9 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         publishState(connectionState, detail: connectDetail)
         publishDaemonStatus(.bootstrapping, detail: bootstrapDetail)
         do {
+            try prepareControlMasterOwnershipLocked()
+            proxyConnectionDesired = !configuration.skipDaemonBootstrap ||
+                configuration.daemonWebSocketEndpoint != nil
             let requiredCapabilities = requiredDaemonCapabilities
             let hello: DaemonHello
             if configuration.skipDaemonBootstrap {
@@ -346,6 +340,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
                 remotePath: hello.remotePath
             )
             recordHeartbeatActivityLocked()
+            armReadinessDeadlineLocked()
             if configuration.skipDaemonBootstrap {
                 debugLog("remote.relay.skipped reason=vm-baked transport=\(configuration.transport.rawValue)")
                 if configuration.daemonWebSocketEndpoint != nil {
@@ -353,6 +348,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
                 } else {
                     // SSH-only cloud VM fallback cannot use ssh-exec or local socket forwarding
                     // through provider gateways. Keep the shell connected and leave proxy off.
+                    resetBootstrapFailureTrackingLocked()
                     publishState(
                         .connected,
                         detail: String(format: strings.connectedVMNoProxyFormat, configuration.displayTarget)
@@ -367,25 +363,63 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
             daemonReady = false
             daemonBootstrapVersion = nil
             daemonRemotePath = nil
-            let retrySchedule = scheduleReconnectLocked(baseDelay: 4.0)
-            let retrySuffix = Self.retrySuffix(retry: retrySchedule.retry, delay: retrySchedule.delay)
-            let detail = "Remote daemon bootstrap failed: \(Self.userFacingRemoteDaemonBootstrapErrorMessage(error, strings: daemonStrings))\(retrySuffix)"
-            publishDaemonStatus(.error, detail: detail)
-            publishState(.error, detail: detail)
+            let failureMessage = Self.userFacingRemoteDaemonBootstrapErrorMessage(error, strings: daemonStrings)
+            let evaluation = bootstrapRetryPolicy.evaluate(
+                fingerprint: RemoteBootstrapRetryPolicy.fingerprint(for: error),
+                previousFingerprint: bootstrapFailureFingerprint,
+                previousConsecutiveFailures: bootstrapFailureCount,
+                previousTotalFailures: bootstrapFailureTotal
+            )
+            bootstrapFailureFingerprint = evaluation.fingerprint
+            bootstrapFailureCount = evaluation.consecutiveFailures
+            bootstrapFailureTotal = evaluation.totalFailures
+            switch evaluation.decision {
+            case .retry:
+                let retrySchedule = scheduleReconnectLocked(baseDelay: 4.0)
+                // A retryable bootstrap failure is supervisor state, not a
+                // user-visible terminal error.  Publishing `.error` here
+                // makes the sidebar flash red even when the very next retry
+                // succeeds; the bounded `.suspend` branch below is the only
+                // place that parks and surfaces a bootstrap failure.
+                debugLog(
+                    "remote.session.bootstrap.retry failure=\(failureMessage.debugLogSnippet(limit: 240)) " +
+                    "retry=\(retrySchedule.retry) delay=\(Int(retrySchedule.delay))"
+                )
+                publishDaemonStatus(.bootstrapping, detail: nil)
+                publishState(.reconnecting, detail: nil)
+            case .suspend:
+                let pausedSuffix = String(
+                    localized: "remoteDaemon.bootstrap.reconnectPaused",
+                    defaultValue: "Automatic reconnect paused because bootstrap cannot proceed; repair the reported remote failure and use Reconnect to try again."
+                )
+                let detail = "Remote daemon bootstrap failed: \(failureMessage). " +
+                    pausedSuffix
+                debugLog(
+                    "remote.session.bootstrap.suspended consecutive=\(evaluation.consecutiveFailures) " +
+                    "total=\(evaluation.totalFailures) fingerprint=\(evaluation.fingerprint) \(debugConfigSummary())"
+                )
+                parkSessionLocked(cause: .bootstrapFailed, daemonState: .error, detail: detail)
+            }
         }
     }
 
     func startProxyLocked() {
         guard !isStopping else { return }
         guard daemonReady else { return }
+        guard proxyConnectionDesired else { return }
+        guard configuration.relayPort == nil || reverseRelayReady else {
+            debugLog(
+                "remote.proxy.waitingForRelay \(debugConfigSummary())"
+            )
+            return
+        }
         guard proxyLease == nil else { return }
         guard let remotePath = daemonRemotePath,
               !remotePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            let retrySchedule = scheduleReconnectLocked(baseDelay: 4.0)
-            let retrySuffix = Self.retrySuffix(retry: retrySchedule.retry, delay: retrySchedule.delay)
-            let detail = "Remote daemon did not provide a valid remote path\(retrySuffix)"
-            publishDaemonStatus(.error, detail: detail)
-            publishState(.error, detail: detail)
+            _ = scheduleReconnectLocked(baseDelay: 4.0)
+            debugLog("remote.session.proxy.missingPath \(debugConfigSummary())")
+            publishDaemonStatus(.bootstrapping, detail: nil)
+            publishState(.reconnecting, detail: nil)
             return
         }
 
@@ -423,9 +457,10 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
             cancelReconnectRetryLocked()
             reconnectRetryCount = 0
             consecutiveUnreachableProbeCount = 0
+            resetBootstrapFailureTrackingLocked()
             // A live connection ends any suspension; without this a future
             // failure would hit the suspended guard and never reschedule.
-            reconnectSuspended = false
+            endReadinessSeekLocked()
             reachabilityProbeGeneration &+= 1
             guard proxyEndpoint != endpoint else {
                 publishState(
@@ -448,7 +483,6 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
             requestBootstrapRemoteTTYIfNeededLocked()
             recordHeartbeatActivityLocked()
         case .error(let detail):
-            debugLog("remote.proxy.error detail=\(detail) \(debugConfigSummary())")
             remotePortScanGeneration &+= 1
             remotePortScanBurstTask?.cancel()
             remotePortScanBurstTask = nil
@@ -463,21 +497,43 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
             proxyEndpoint = nil
             publishProxyEndpoint(nil)
             publishPortsSnapshotLocked()
-            publishState(.error, detail: "Remote proxy to \(configuration.displayTarget) unavailable: \(detail)")
-            failPendingPTYBridgeStartsLocked("remote daemon is not ready")
-            guard Self.shouldEscalateProxyErrorToBootstrap(detail) else { return }
+            let shouldEscalate = Self.shouldEscalateProxyErrorToBootstrap(detail)
+            let brokerWillRetry = shouldEscalate || detail.lowercased().contains("retry in")
+            debugLog(
+                "remote.proxy.error escalated=\(shouldEscalate ? 1 : 0) " +
+                    "brokerRetry=\(brokerWillRetry ? 1 : 0) \(debugConfigSummary())"
+            )
+            if brokerWillRetry {
+                // Keep transient tunnel churn out of the sidebar.  The
+                // supervisor owns the retry and the eventual parked state
+                // carries the actionable failure if it cannot recover.
+                publishDaemonStatus(.bootstrapping, detail: nil)
+                publishState(.reconnecting, detail: nil)
+            } else {
+                publishState(
+                    .error,
+                    detail: "\(strings.remoteProxyUnavailable) (\(configuration.displayTarget))"
+                )
+            }
+            // Keep wait-for-ready PTY requests parked across a transient
+            // transport bounce.  The remote PTY is persistent; failing the
+            // local bridge here forces a noisy shell retry even though the
+            // supervisor is already reconnecting the daemon/proxy.
+            guard shouldEscalate else { return }
 
+            // The proxy broker can lose its daemon tunnel while the reverse
+            // relay's local state still claims ownership of the old forward.
+            // Clear that transport lease before the next bootstrap; otherwise
+            // `startReverseRelayLocked` sees a non-nil forward spec and the
+            // proxy/PTY bridge remains parked forever after a reconnect.
+            _ = stopReverseRelayLocked(cleanupScope: .transport)
             releaseProxyLeaseLocked()
             daemonReady = false
             daemonBootstrapVersion = nil
             daemonRemotePath = nil
 
-            let retrySchedule = scheduleReconnectLocked(baseDelay: 2.0)
-            let retrySuffix = Self.retrySuffix(retry: retrySchedule.retry, delay: retrySchedule.delay)
-            publishDaemonStatus(
-                .error,
-                detail: "Remote daemon transport needs re-bootstrap after proxy failure\(retrySuffix)"
-            )
+            _ = scheduleReconnectLocked(baseDelay: 2.0)
+            publishDaemonStatus(.bootstrapping, detail: nil)
         }
     }
 
@@ -503,7 +559,16 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
             capabilities: capabilities,
             remotePath: remotePath
         )
+        if state == .ready {
+            readyDaemonStatus = status
+        }
         host.publishDaemonStatus(status)
+    }
+
+    /// Re-publishes the daemon hello snapshot after relay recovery succeeds.
+    func restoreReadyDaemonStatusLocked() {
+        guard daemonReady, let readyDaemonStatus else { return }
+        host.publishDaemonStatus(readyDaemonStatus)
     }
 
     func publishProxyEndpoint(_ endpoint: BrowserProxyEndpoint?) {
@@ -538,87 +603,12 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
 
     var bakedDaemonPreflightRequiredCapabilities: [String] {
         requiredDaemonCapabilities.filter {
-            $0 != RemoteDaemonRPCClient.requiredPTYSessionCapability &&
-                $0 != RemoteDaemonRPCClient.requiredPTYSessionTokenCapability &&
-                $0 != RemoteDaemonRPCClient.requiredPTYPersistentDaemonCapability &&
-                $0 != RemoteDaemonRPCClient.requiredPTYWriteNotificationCapability &&
-                $0 != RemoteDaemonRPCClient.requiredPTYResizeNotificationCapability
+            !RemoteDaemonCapability.persistentPTYFamily.contains($0)
         }
     }
 
     static func missingRequiredCapabilities(_ required: [String], in capabilities: [String]) -> [String] {
         RemoteDaemonRPCClient.missingRequiredCapabilities(required, in: capabilities)
-    }
-
-    /// Maps a bootstrap failure to the user-facing message: capability
-    /// failures collapse to the app-localized missing-capability string,
-    /// anything else surfaces its own description. Static because tests pin
-    /// it directly against raw errors; the strings ride in explicitly
-    /// (legacy read the app-localized strings in place).
-    public static func userFacingRemoteDaemonBootstrapErrorMessage(
-        _ error: any Error,
-        strings: RemoteDaemonStrings
-    ) -> String {
-        let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-        let lowered = message.lowercased()
-        if lowered.contains("missing required capability") ||
-            lowered.contains(RemoteDaemonRPCClient.requiredPTYSessionCapability) ||
-            lowered.contains(RemoteDaemonRPCClient.requiredPTYSessionTokenCapability) ||
-            lowered.contains(RemoteDaemonRPCClient.requiredPTYWriteNotificationCapability) || lowered.contains(RemoteDaemonRPCClient.requiredPTYResizeNotificationCapability) {
-            return strings.missingRequiredCapabilitiesMessage([
-                RemoteDaemonRPCClient.requiredPTYSessionCapability,
-            ])
-        }
-        return message.isEmpty ? "remote daemon bootstrap failed" : message
-    }
-
-    // MARK: - Subprocess execution (through the runner seam)
-
-    func sshExec(arguments: [String], stdin: Data? = nil, timeout: TimeInterval = 15) throws -> RemoteCommandResult {
-        try runProcess(
-            executable: "/usr/bin/ssh",
-            arguments: arguments,
-            environment: configuration.sshProcessEnvironment,
-            stdin: stdin,
-            timeout: timeout
-        )
-    }
-
-    func scpExec(
-        arguments: [String],
-        timeout: TimeInterval = 30,
-        operation: (any RemoteTransferCancelling)? = nil
-    ) throws -> RemoteCommandResult {
-        try runProcess(
-            executable: "/usr/bin/scp",
-            arguments: arguments,
-            environment: configuration.sshProcessEnvironment,
-            stdin: nil,
-            timeout: timeout,
-            operation: operation
-        )
-    }
-
-    func runProcess(
-        executable: String,
-        arguments: [String],
-        environment: [String: String]? = nil,
-        currentDirectory: URL? = nil,
-        stdin: Data?,
-        timeout: TimeInterval,
-        operation: (any RemoteTransferCancelling)? = nil
-    ) throws -> RemoteCommandResult {
-        try processRunner.run(
-            RemoteProcessRequest(
-                executable: executable,
-                arguments: arguments,
-                environment: environment,
-                currentDirectory: currentDirectory,
-                stdin: stdin,
-                timeout: timeout
-            ),
-            operation: operation
-        )
     }
 
     // MARK: - Debug logging

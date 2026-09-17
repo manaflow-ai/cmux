@@ -218,7 +218,8 @@ extension AppDelegate {
         let accessory = WorkspaceActionSaveDialogAccessory(
             snapshot: snapshot,
             initialName: workspace.customTitle
-                ?? URL(fileURLWithPath: workspace.currentDirectory).lastPathComponent
+                ?? URL(fileURLWithPath: workspace.currentDirectory).lastPathComponent,
+            visibleFrame: window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
         )
         alert.accessoryView = accessory.view
         alert.window.initialFirstResponder = accessory.nameField

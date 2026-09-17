@@ -1,6 +1,27 @@
 #if DEBUG
 import AppKit
 
+/// Process-wide counters proving geometry-only window activity (a titlebar
+/// drag, an origin-only setFrame) does no sizing work. The sizing UI suite
+/// snapshots them via `remote.tmux.sizing_settled`, moves the window without
+/// resizing it, and asserts every delta is zero — the regression guard for
+/// the window-move echo storm: the full-pass signature once fingerprinted
+/// the window's frame WITH origin, so during a titlebar drag every echoed
+/// sync escalated to a full layout pass whose notifications scheduled the
+/// next. These serve the UI-test RPC only, so they live in the debug support
+/// boundary rather than the production portal type.
+@MainActor
+enum RemoteTmuxSizingDiagnostics {
+    static var sizingPassCount = 0
+    static var parityRearmCount = 0
+    static var fullHierarchySyncCount = 0
+    /// Executed external-geometry sync passes (not merely scheduled ones):
+    /// the liveness counter for the deferred-hop chain — with static
+    /// geometry this must stay bounded no matter which interactive flags
+    /// are held, or the chain is a per-runloop-turn busy loop.
+    static var externalGeometrySyncPassCount = 0
+}
+
 extension WindowTerminalPortal {
     /// Hosted views whose frame has drifted from their anchor's — the
     /// definitive "terminal drawn over chrome" detector: the portal paints

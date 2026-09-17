@@ -2,6 +2,32 @@
 
 Global app preferences live in `~/.config/cmux/cmux.json`.
 
+## Automation socket trust boundary
+
+`cmuxOnly` allows the cmux CLI and programs started from cmux terminals. This
+uses the process ancestry of the caller, so a program launched inside a cmux
+terminal is trusted even when it later starts another process or leaves the
+terminal's original process group. Use `password` or `cmuxOnly` when untrusted
+code may run inside a cmux terminal. `allowAll` also grants
+access to other local macOS users and is unsafe on a shared Mac.
+
+## `mobile.artifactFolderAccess`
+
+Controls which files and folders cmux on iOS may browse after a chat references a directory or a directory path appears in a terminal.
+
+```json
+{
+  "mobile": {
+    "artifactFolderAccess": "subtree"
+  }
+}
+```
+
+- `subtree` (default): authorize the referenced directory and its full subtree.
+- `oneLevel`: preserve the previous rule, authorizing only immediate children and listing only the referenced directory itself.
+
+Authorization compares canonical paths after resolving symlinks. A symlink inside an authorized folder cannot grant access to a target outside that folder.
+
 ## `paneBorderColor` and `activePaneBorderColor`
 
 Customize split-workspace pane boundaries controlled by cmux.
@@ -49,7 +75,7 @@ Controls when cmux asks before quitting:
 - `dirty-only`: show it only when a workspace has a terminal or panel that reports close confirmation is needed.
 - `never`: quit immediately.
 
-Default: `always` for stable and nightly builds. DEV builds always behave as `never`, regardless of the file setting, so tagged development builds can be replaced without a full-screen quit dialog.
+Default: `always` for stable, nightly, and RC builds. DEV builds always behave as `never`, regardless of the file setting, so tagged development builds can be replaced without a full-screen quit dialog.
 
 The older boolean `app.warnBeforeQuit` still works as a fallback when `app.confirmQuit` is not set. `true` maps to `always`; `false` maps to `never`.
 
@@ -61,32 +87,14 @@ Values: `right`, `left`, `top`, `bottom`, `newTab`, `newWorkspace`.
 
 Default: `right`.
 
-## `ui.newWorkspace.menuSectionOrder`
-
-Controls the section order in the titlebar `+` button menu. The Cloud VM section is built in; the custom section comes from `ui.newWorkspace.contextMenu`.
-
-Values: `customFirst`, `cloudFirst`.
-
-Default: `cloudFirst`.
-
-```json
-{
-  "ui": {
-    "newWorkspace": {
-      "menuSectionOrder": "customFirst",
-      "contextMenu": [
-        "newWorkspace"
-      ]
-    }
-  }
-}
-```
-
-`sectionOrder` is accepted as an alias. Project-local `.cmux/cmux.json` values override the global setting.
-
 ## `terminal.agentHibernation`
 
-Opt-in Agent Hibernation. cmux kills idle background agent processes to free RAM and CPU, then resumes each one with its saved session when you visit its tab. See [agent-hooks.md](agent-hooks.md#agent-hibernation) for the full behavior, including the confirmation settle window and how resume works.
+Routine Agent Hibernation is opt-in. cmux hibernates idle background agent
+processes to free RAM and CPU, then resumes each one with its saved session
+when you visit its tab. Independently, aggregate memory pressure can offer the
+same lossless hibernation lifecycle even when routine hibernation is disabled.
+See [agent-hooks.md](agent-hooks.md#agent-hibernation) for the full eligibility
+rules, confirmation settle window, and resume behavior.
 
 ```json
 {
@@ -100,11 +108,34 @@ Opt-in Agent Hibernation. cmux kills idle background agent processes to free RAM
 }
 ```
 
-- `enabled`: turn Agent Hibernation on. Default: `false`.
+- `enabled`: turn routine Agent Hibernation on. Default: `false`. Aggregate-pressure safety hibernation remains available when this is `false`.
 - `idleSeconds`: seconds a background idle agent terminal must be quiet before it can hibernate. A ~60s confirmation settle window still applies on top of this. Default: `5`. Range: `5`-`604800`.
-- `maxLiveTerminals`: how many live restorable agent terminals to keep before cmux hibernates the oldest idle background ones. Nothing hibernates while you are at or under this count. Default: `12`. Range: `1`-`256`.
+- `maxLiveTerminals`: the target used only by opt-in routine hibernation before it hibernates the oldest idle background terminals. It is not a global memory or agent limit, and aggregate-pressure handling does not use it. Default: `12`. Range: `1`-`256`.
 
-Enable it from the command palette (`⌘⇧P` -> Enable Agent Hibernation), from **Settings > Terminal > Agent Hibernation**, or with `cmux agent-hibernation on`.
+### Aggregate memory-pressure safety policy
+
+cmux prefers macOS's resource-coalition physical footprint, which includes the
+cmux process and its descendants. The private coalition layout is enabled only
+on OS releases with a validated ABI; if the API or validation is unavailable,
+cmux uses a complete, de-duplicated descendant process tree. An incomplete
+listing is treated as unavailable and cannot authorize hibernation. Relative
+percentages (warning at 50% and critical at 70% of installed physical memory,
+with an optional 20%/10% available-memory corroboration) decide only when to
+offer the idle-only pass. They are signals, not a memory ceiling or a limit on cmux.
+
+While the same complete pressure remains through the existing
+confirmation window, cmux considers every currently eligible idle, non-visible
+agent through the ordinary lossless Agent Hibernation lifecycle. The scheduled
+routine pass retains its oldest-activity ordering; the pressure pass considers
+all eligible agents, so its encounter order does not limit or prioritize which
+agents are eligible. The existing `idle` lifecycle state, terminal-input check,
+transcript/process identity validation, and visible-panel protection remain
+required; if those proofs are unavailable, that candidate is left running. This
+policy never caps memory use, caps the number of agents/panes/processes,
+throttles or blocks new work, or terminates active or visible work. Hibernated
+agents resume from their saved session exactly as routine Agent Hibernation does.
+
+Enable routine hibernation from the command palette (`⌘⇧P` -> Enable Agent Hibernation), from **Settings > Terminal > Agent Hibernation**, or with `cmux agent-hibernation on`.
 
 ## `sidebar.showAgentActivity`
 
@@ -131,6 +162,16 @@ The spinner is compositor-driven (a Core Animation transform run by the render s
 `terminal.showTextBoxOnNewTerminals` opens the TextBox on newly-created terminal sessions without moving keyboard focus into it.
 
 `terminal.focusTextBoxOnNewTerminals` opens the TextBox and focuses it for foreground terminal sessions created from the app UI, such as new terminal workspaces, tabs, and splits. Terminals created through the cmux CLI/control socket do not auto-focus the TextBox, even when this setting is enabled, so background automation does not steal keyboard focus.
+
+## Workspace terminal font size shortcuts
+
+Cmd+Ctrl+= and Cmd+Ctrl+- increase or decrease every terminal in the selected workspace by one point. Cmd+Ctrl+0 resets them to the current Ghostty font size. Hidden, hibernated, and Dock terminals change with visible terminals, and newly created terminals inherit the workspace size. Rebind them with `shortcuts.bindings.increaseWorkspaceTerminalFontSize`, `shortcuts.bindings.decreaseWorkspaceTerminalFontSize`, and `shortcuts.bindings.resetWorkspaceTerminalFontSize`.
+
+## New Cloud Workspace shortcut and the plus-button menu
+
+Cmd+Y creates a workspace on the starred default Cloud machine. Cmd+Shift+Y opens the New Machine flow to provision a new machine and attach its first workspace. Rebind or unbind these shortcuts from Settings > Keyboard Shortcuts or with `shortcuts.bindings.newCloudWorkspace` and `shortcuts.bindings.newCloudMachine`. Both are inert unless Cloud Machines is enabled and the account is signed in.
+
+When `ui.newWorkspace.contextMenu` is not set, the plus-button menu lists `cmux.newWorkspace` (Cmd+N), `cmux.newCloudWorkspace` (Cmd+Y), `cmux.newCloudMachine` (Cmd+Shift+Y), `cmux.newTerminal` (Cmd+T), and `cmux.newBrowser` (Cmd+Shift+L). Each row shows its current shortcut, so a rebind in Settings or `cmux.json` appears the next time the menu opens; unbound and chord shortcuts show no hint. Cloud rows appear only when Cloud Machines is enabled. A configured menu keeps your order and still shows hints for built-in rows and for actions with a `shortcut`.
 
 ## `terminal.textBoxSubmitActions`
 

@@ -46,10 +46,12 @@ extension KeyboardShortcutSettings.Action {
         case application
         case commandPaletteVisible
         case nonBrowserPanel
+        case outsideBrowserPanel
         case browserPanel
         case viewerPanel
         case browserOrFilePreviewTextEditor
         case markdownPanel
+        case simulatorPanel
         case rightSidebarFocus
         case canvasLayout
         case canvasLayoutOutsideFocusedContent
@@ -68,6 +70,7 @@ extension KeyboardShortcutSettings.Action {
         func isAvailable(
             focusedBrowserPanel: Bool,
             focusedMarkdownPanel: Bool,
+            focusedSimulatorPanel: Bool = false,
             focusedFilePreviewTextEditor: Bool = false,
             rightSidebarFocused: Bool,
             workspaceCanvasLayout: Bool = false
@@ -76,16 +79,19 @@ extension KeyboardShortcutSettings.Action {
             case .application: return true
             case .commandPaletteVisible: return false
             case .nonBrowserPanel: return !focusedBrowserPanel && !rightSidebarFocused
+            case .outsideBrowserPanel: return !focusedBrowserPanel
             case .browserPanel: return focusedBrowserPanel
             case .viewerPanel: return focusedBrowserPanel || focusedMarkdownPanel
             case .browserOrFilePreviewTextEditor: return focusedBrowserPanel || focusedFilePreviewTextEditor
             case .markdownPanel: return focusedMarkdownPanel
+            case .simulatorPanel: return focusedSimulatorPanel
             case .rightSidebarFocus: return rightSidebarFocused
             case .canvasLayout: return workspaceCanvasLayout
             case .canvasLayoutOutsideFocusedContent:
                 return workspaceCanvasLayout
                     && !focusedBrowserPanel
                     && !focusedMarkdownPanel
+                    && !focusedSimulatorPanel
                     && !focusedFilePreviewTextEditor
             }
         }
@@ -94,6 +100,7 @@ extension KeyboardShortcutSettings.Action {
             return isAvailable(
                 focusedBrowserPanel: context.browserPanel != nil,
                 focusedMarkdownPanel: context.markdownPanel != nil,
+                focusedSimulatorPanel: context.shortcutContext.bool(ShortcutContextKnownKey.simulatorFocus.rawValue),
                 focusedFilePreviewTextEditor: context.filePreviewTextEditorFocused,
                 rightSidebarFocused: context.rightSidebarFocused,
                 workspaceCanvasLayout: context.shortcutContext.bool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue)
@@ -107,6 +114,7 @@ extension KeyboardShortcutSettings.Action {
             return isAvailable(
                 focusedBrowserPanel: context.bool(CommandPaletteContextKeys.panelIsBrowser),
                 focusedMarkdownPanel: context.bool(CommandPaletteContextKeys.panelIsMarkdown),
+                focusedSimulatorPanel: context.bool(CommandPaletteContextKeys.panelIsSimulator),
                 focusedFilePreviewTextEditor: context.bool(CommandPaletteContextKeys.panelIsFilePreviewTextEditor),
                 rightSidebarFocused: false,
                 workspaceCanvasLayout: context.bool(CommandPaletteContextKeys.workspaceCanvasLayout)
@@ -118,11 +126,13 @@ extension KeyboardShortcutSettings.Action {
             case .application: return .always
             case .commandPaletteVisible: return .key(ShortcutContextKnownKey.commandPaletteVisible.rawValue)
             case .nonBrowserPanel: return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
+            case .outsideBrowserPanel: return .not(.atom(.browserFocus))
             case .browserPanel: return .atom(.browserFocus)
             case .viewerPanel: return .or(.atom(.browserFocus), .atom(.markdownFocus))
             case .browserOrFilePreviewTextEditor:
                 return .or(.atom(.browserFocus), .atom(.filePreviewTextEditorFocus))
             case .markdownPanel: return .atom(.markdownFocus)
+            case .simulatorPanel: return .atom(.simulatorFocus)
             case .rightSidebarFocus: return .atom(.sidebarFocus)
             case .canvasLayout: return .key(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue)
             case .canvasLayoutOutsideFocusedContent:
@@ -130,7 +140,13 @@ extension KeyboardShortcutSettings.Action {
                     .key(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue),
                     .and(
                         .not(.atom(.browserFocus)),
-                        .and(.not(.atom(.markdownFocus)), .not(.atom(.filePreviewTextEditorFocus)))
+                        .and(
+                            .not(.atom(.markdownFocus)),
+                            .and(
+                                .not(.atom(.filePreviewTextEditorFocus)),
+                                .not(.atom(.simulatorFocus))
+                            )
+                        )
                     )
                 )
             }
@@ -139,6 +155,10 @@ extension KeyboardShortcutSettings.Action {
         func overlaps(_ other: ShortcutContext) -> Bool {
             if self == .application || other == .application || self == other {
                 return true
+            }
+            if self == .outsideBrowserPanel || other == .outsideBrowserPanel {
+                let paired = self == .outsideBrowserPanel ? other : self
+                return paired != .browserPanel
             }
             if (self == .markdownPanel && other == .nonBrowserPanel)
                 || (self == .nonBrowserPanel && other == .markdownPanel) {
@@ -175,6 +195,10 @@ extension KeyboardShortcutSettings.Action {
                     && self != .viewerPanel
                     && other != .viewerPanel
             }
+            if self == .simulatorPanel || other == .simulatorPanel {
+                let paired = self == .simulatorPanel ? other : self
+                return paired == .nonBrowserPanel || paired == .canvasLayout
+            }
             return false
         }
     }
@@ -183,6 +207,9 @@ extension KeyboardShortcutSettings.Action {
         switch self {
         case .switchRightSidebarToFiles, .switchRightSidebarToFind,
              .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock,
+             .switchRightSidebarToMachines,
+             .simulatorHome, .simulatorRotateLeft, .simulatorRotateRight,
+             .simulatorToggleAppearance, .simulatorToggleSoftwareKeyboard,
              .commandPaletteNext, .commandPalettePrevious:
             return true
         default:
@@ -202,21 +229,27 @@ extension KeyboardShortcutSettings.Action {
         case .commandPaletteNext, .commandPalettePrevious:
             return .commandPaletteVisible
         case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions,
-             .switchRightSidebarToFeed, .switchRightSidebarToDock, .fileExplorerOpenSelection,
+             .switchRightSidebarToFeed, .switchRightSidebarToDock, .switchRightSidebarToMachines, .fileExplorerOpenSelection,
              .fileExplorerOpenSelectionFinderAlias:
             return .rightSidebarFocus
         case .renameTab, .renameWorkspace, .sendCtrlFToTerminal, .clearScreenKeepScrollback:
             return .nonBrowserPanel
+        case .focusHistoryBack, .focusHistoryForward:
+            return .outsideBrowserPanel
         case .browserBack, .browserForward, .browserReload, .browserHardReload,
-             .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole, .toggleBrowserFocusMode:
+             .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole, .toggleBrowserFocusMode,
+             .toggleBrowserDesignMode:
             return .browserPanel
         case .browserZoomIn, .browserZoomOut, .browserZoomReset:
             return .browserOrFilePreviewTextEditor
         case .markdownZoomIn, .markdownZoomOut, .markdownZoomReset:
             return .markdownPanel
-        case .canvasZoomReset:
+        case .simulatorHome, .simulatorRotateLeft, .simulatorRotateRight,
+             .simulatorToggleAppearance, .simulatorToggleSoftwareKeyboard:
+            return .simulatorPanel
+        case .canvasZoomIn, .canvasZoomOut, .canvasZoomReset:
             return .canvasLayoutOutsideFocusedContent
-        case .canvasRevealFocusedPane, .canvasOverview, .canvasZoomIn, .canvasZoomOut,
+        case .canvasRevealFocusedPane, .canvasOverview,
              .canvasTidy, .canvasAlignLeft, .canvasAlignRight,
              .canvasAlignTop, .canvasAlignBottom, .canvasEqualizeWidths,
              .canvasEqualizeHeights, .canvasDistributeHorizontally, .canvasDistributeVertically:

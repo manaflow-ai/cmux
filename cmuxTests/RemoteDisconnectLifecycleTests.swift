@@ -1,4 +1,5 @@
 import CmuxCore
+import CmuxRemoteSession
 import Foundation
 import Testing
 
@@ -337,7 +338,9 @@ struct RemoteDisconnectLifecycleTests {
         try Data("file".utf8).write(to: invalidDirectory)
         defer { try? FileManager.default.removeItem(at: invalidDirectory) }
 
-        let replacement = workspace.createReplacementTerminalPanel(temporaryDirectory: invalidDirectory)
+        let replacement = try #require(
+            workspace.createReplacementTerminalPanel(temporaryDirectory: invalidDirectory)
+        )
 
         #expect(replacement.surface.initialCommand == "/usr/bin/false")
         #expect(workspace.remoteDisconnectPlaceholderPanelIds.contains(replacement.id))

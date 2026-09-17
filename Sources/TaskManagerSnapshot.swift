@@ -99,13 +99,13 @@ struct CmuxTaskManagerSnapshot {
     private static func childMemoryRows(from diagnostic: CmuxTaskManagerMemoryDiagnostic?) -> [CmuxTaskManagerRow] {
         guard let diagnostic else { return [] }
         return diagnostic.groups.map { group in
-            let attribution = group.topAttribution
+            let attribution = group.attribution.commonOwner
             let workspaceId = attribution?.workspaceId
             let surfaceId = attribution?.surfaceId
             let surfaceType = attribution?.surfaceType?.lowercased()
             let detailParts = [
                 processCountDetail(group.processCount),
-                attributionDetail(attribution)
+                group.attribution.localizedDescription
             ].compactMap { $0 }
             return CmuxTaskManagerRow(
                 id: "childMemoryAggregate:\(group.id)",
@@ -130,35 +130,6 @@ struct CmuxTaskManagerSnapshot {
                 agentAssetName: agentAssetName(for: [group.name])
             )
         }
-    }
-
-    private static func attributionDetail(_ attribution: CmuxTaskManagerMemoryAttribution?) -> String? {
-        guard let attribution else {
-            return String(localized: "taskManager.memory.unattributed", defaultValue: "Unattributed")
-        }
-        var parts: [String] = []
-        if let workspace = attribution.workspaceRef ?? attribution.workspaceId?.uuidString {
-            parts.append(String(format: String(
-                localized: "taskManager.memory.workspace",
-                defaultValue: "Workspace %@"
-            ), workspace))
-        }
-        if let pane = attribution.paneRef ?? attribution.paneId?.uuidString {
-            parts.append(String(format: String(
-                localized: "taskManager.memory.pane",
-                defaultValue: "Pane %@"
-            ), pane))
-        }
-        if let surface = attribution.surfaceRef ?? attribution.surfaceId?.uuidString {
-            parts.append(String(format: String(
-                localized: "taskManager.memory.surface",
-                defaultValue: "Surface %@"
-            ), surface))
-        }
-        if parts.isEmpty {
-            return String(localized: "taskManager.memory.unattributed", defaultValue: "Unattributed")
-        }
-        return parts.joined(separator: " / ")
     }
 
     private static func agentRows(from payloads: [[String: Any]]) -> [CmuxTaskManagerRow] {

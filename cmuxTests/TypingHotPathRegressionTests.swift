@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import Foundation
 import Testing
 
@@ -9,10 +10,11 @@ import Testing
 #endif
 
 // SAFETY: every mutable field is accessed only while `lock` is held.
-private final class TitleScheduleRecorder: @unchecked Sendable {
+final class TitleScheduleRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var scheduledAction: (@Sendable () async -> Void)?
     private var recordedScheduleCount = 0
+    private var firstScheduleWaiters: [CheckedContinuation<Void, Never>] = []
 
     var scheduleCount: Int {
         lock.lock()
@@ -28,8 +30,26 @@ private final class TitleScheduleRecorder: @unchecked Sendable {
         lock.lock()
         recordedScheduleCount += 1
         scheduledAction = action
+        let waiters = firstScheduleWaiters
+        firstScheduleWaiters.removeAll()
         lock.unlock()
+        for waiter in waiters {
+            waiter.resume()
+        }
         return { [weak self] in self?.cancel() }
+    }
+
+    func awaitFirstSchedule() async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            guard recordedScheduleCount == 0 else {
+                lock.unlock()
+                continuation.resume()
+                return
+            }
+            firstScheduleWaiters.append(continuation)
+            lock.unlock()
+        }
     }
 
     func fire() async {
@@ -227,13 +247,15 @@ struct GhosttyTitleUpdateDispatcherTests {
         let surfaceId = UUID()
         let source = NSObject()
         let sourceIdentifier = ObjectIdentifier(source)
+        let terminalLifecycleID = UUID()
 
         for sequence in 1...600 {
             await dispatcher.receive(GhosttyTitleUpdate(
                 tabId: tabId,
                 surfaceId: surfaceId,
                 title: "spinner-\(sequence)",
-                sourceSurfaceIdentifier: sourceIdentifier
+                sourceSurfaceIdentifier: sourceIdentifier,
+                terminalLifecycleID: terminalLifecycleID
             ))
         }
         #expect(scheduler.scheduleCount == 1)
@@ -252,11 +274,13 @@ struct GhosttyTitleUpdateDispatcherTests {
         }
         let source = NSObject()
         let sourceIdentifier = ObjectIdentifier(source)
+        let terminalLifecycleID = UUID()
         let first = GhosttyTitleUpdate(
             tabId: UUID(),
             surfaceId: UUID(),
             title: "unchanged",
-            sourceSurfaceIdentifier: sourceIdentifier
+            sourceSurfaceIdentifier: sourceIdentifier,
+            terminalLifecycleID: terminalLifecycleID
         )
 
         await dispatcher.receive(first)
@@ -265,7 +289,8 @@ struct GhosttyTitleUpdateDispatcherTests {
             tabId: first.tabId,
             surfaceId: first.surfaceId,
             title: first.title,
-            sourceSurfaceIdentifier: sourceIdentifier
+            sourceSurfaceIdentifier: sourceIdentifier,
+            terminalLifecycleID: terminalLifecycleID
         ))
         await dispatcher.flushNow()
 
@@ -274,27 +299,54 @@ struct GhosttyTitleUpdateDispatcherTests {
 
     @Test func retirementDropsPendingTitle() async {
         var published: [GhosttyTitleUpdate] = []
-        let dispatcher = GhosttyTitleUpdateDispatcher(schedule: { _, _ in
-            {}
-        }) { updates in
+        let attachmentGeneration = AtomicUInt64Generation()
+        let dispatcher = GhosttyTitleUpdateDispatcher(
+            attachmentGeneration: attachmentGeneration,
+            schedule: { _, _ in {} }
+        ) { updates in
             published.append(contentsOf: updates)
         }
         let surfaceId = UUID()
         let sourceIdentifier = ObjectIdentifier(NSObject())
+        let terminalLifecycleID = UUID()
 
         await dispatcher.receive(GhosttyTitleUpdate(
             tabId: UUID(),
             surfaceId: surfaceId,
             title: "pending",
-            sourceSurfaceIdentifier: sourceIdentifier
+            sourceSurfaceIdentifier: sourceIdentifier,
+            terminalLifecycleID: terminalLifecycleID
         ))
-        await dispatcher.retire(GhosttyTitleUpdateSurfaceKey(
-            surfaceId: surfaceId,
-            sourceSurfaceIdentifier: sourceIdentifier
-        ))
+        await dispatcher.retireUpdates(before: attachmentGeneration.advanceRelaxed())
         await dispatcher.flushNow()
 
         #expect(published.isEmpty)
+    }
+
+    @Test func newGenerationSurvivesLateRetirementCleanup() async {
+        var published: [GhosttyTitleUpdate] = []
+        let attachmentGeneration = AtomicUInt64Generation()
+        let dispatcher = GhosttyTitleUpdateDispatcher(
+            attachmentGeneration: attachmentGeneration,
+            schedule: { _, _ in {} }
+        ) { updates in
+            published.append(contentsOf: updates)
+        }
+        let generation = attachmentGeneration.advanceRelaxed()
+        let update = GhosttyTitleUpdate(
+            tabId: UUID(),
+            surfaceId: UUID(),
+            title: "reattached",
+            sourceSurfaceIdentifier: ObjectIdentifier(NSObject()),
+            terminalLifecycleID: UUID(),
+            attachmentGeneration: generation
+        )
+
+        await dispatcher.receive(update)
+        await dispatcher.retireUpdates(before: generation)
+        await dispatcher.flushNow()
+
+        #expect(published == [update])
     }
 
     @Test func workspaceMoveKeepsOneSurfaceLifetimeAndLatestRoute() async {
@@ -306,74 +358,23 @@ struct GhosttyTitleUpdateDispatcherTests {
         }
         let surfaceId = UUID()
         let sourceIdentifier = ObjectIdentifier(NSObject())
+        let terminalLifecycleID = UUID()
         let destinationTabId = UUID()
         await dispatcher.receive(GhosttyTitleUpdate(
             tabId: UUID(), surfaceId: surfaceId, title: "stable",
-            sourceSurfaceIdentifier: sourceIdentifier
+            sourceSurfaceIdentifier: sourceIdentifier,
+            terminalLifecycleID: terminalLifecycleID
         ))
         await dispatcher.receive(GhosttyTitleUpdate(
             tabId: destinationTabId, surfaceId: surfaceId, title: "stable",
-            sourceSurfaceIdentifier: sourceIdentifier
+            sourceSurfaceIdentifier: sourceIdentifier,
+            terminalLifecycleID: terminalLifecycleID
         ))
         await dispatcher.flushNow()
 
         #expect(published.count == 1)
         #expect(published.first?.tabId == destinationTabId)
         #expect(published.first?.title == "stable")
-    }
-}
-
-@Suite("Ghostty title update ingress")
-@MainActor
-struct GhosttyTitleUpdateIngressTests {
-    @Test func duplicateCallbackTitleIsRejectedBeforeEnqueue() {
-        let ingress = GhosttyTitleUpdateIngress()
-        let tabId = UUID()
-        let surfaceId = UUID()
-        let source = NSObject()
-
-        #expect(ingress.submit(
-            tabId: tabId,
-            surfaceId: surfaceId,
-            sourceSurface: source,
-            title: "stable"
-        ))
-        #expect(!ingress.submit(
-            tabId: tabId,
-            surfaceId: surfaceId,
-            sourceSurface: source,
-            title: "stable"
-        ))
-        #expect(ingress.submit(
-            tabId: UUID(),
-            surfaceId: surfaceId,
-            sourceSurface: source,
-            title: "stable"
-        ))
-    }
-
-    @Test func retiringAttachmentAllowsItsFirstRepeatedTitleAfterReattach() {
-        let ingress = GhosttyTitleUpdateIngress()
-        let tabId = UUID()
-        let surfaceId = UUID()
-        let source = NSObject()
-
-        #expect(ingress.submit(
-            tabId: tabId,
-            surfaceId: surfaceId,
-            sourceSurface: source,
-            title: "stable"
-        ))
-        ingress.retire(GhosttyTitleUpdateSurfaceKey(
-            surfaceId: surfaceId,
-            sourceSurface: source
-        ))
-        #expect(ingress.submit(
-            tabId: tabId,
-            surfaceId: surfaceId,
-            sourceSurface: source,
-            title: "stable"
-        ))
     }
 }
 
@@ -401,7 +402,7 @@ struct RightSidebarModeShortcutMatcherTests {
             #expect(matcher.modeShortcut(for: event, allowingAction: { _ in true }) == nil)
         }
 
-        #expect(initialLookupCount == 5)
+        #expect(initialLookupCount == 6)
         #expect(shortcutLookupCount == initialLookupCount)
         #expect(layoutLookupCount == 0)
     }
@@ -417,11 +418,11 @@ struct RightSidebarModeShortcutMatcherTests {
             layoutCharacterProvider: { _, _ in nil }
         )
 
-        #expect(shortcutLookupCount == 5)
+        #expect(shortcutLookupCount == 6)
         matcher.reload()
-        #expect(shortcutLookupCount == 10)
+        #expect(shortcutLookupCount == 12)
         _ = matcher.modeShortcut(for: makeKeyEvent(characters: "x", modifiers: []), allowingAction: { _ in true })
-        #expect(shortcutLookupCount == 10)
+        #expect(shortcutLookupCount == 12)
     }
 
     private func makeKeyEvent(

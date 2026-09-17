@@ -7,15 +7,18 @@ import {
   flatNavItems,
 } from "./docs-nav-items";
 import { ContentLocaleLink } from "./content-locale-link";
+import { docsChannelUrl, docsNavPath } from "@/app/lib/docs-channel";
+import { docsPagerAdjacentItems } from "@/app/lib/docs-pager-path";
+import { useDocsChannel } from "./docs-channel-context";
 
 export function DocsPager() {
   const pathname = usePathname();
   const locale = useLocale();
+  const channel = useDocsChannel();
   const t = useTranslations("docs.navItems");
-  const flat = flatNavItems(navItemsForLocale(locale));
-  const index = flat.findIndex((item) => item.href === pathname);
-  const prev = index > 0 ? flat[index - 1] : null;
-  const next = index < flat.length - 1 ? flat[index + 1] : null;
+  const flat = flatNavItems(navItemsForLocale(locale, channel));
+  const releasePathname = docsNavPath(pathname, locale);
+  const { prev, next } = docsPagerAdjacentItems(flat, releasePathname);
 
   if (!prev && !next) return null;
 
@@ -23,7 +26,7 @@ export function DocsPager() {
     <nav className="flex items-center justify-between mt-12 pt-6 border-t border-border text-[14px]">
       {prev ? (
         <ContentLocaleLink
-          href={prev.href}
+          href={docsChannelUrl(channel, prev.href)}
           currentLocale={locale}
           contentLocales={prev.contentLocales}
           className="flex items-center gap-1.5 text-muted hover:text-foreground transition-colors"
@@ -36,7 +39,7 @@ export function DocsPager() {
       )}
       {next ? (
         <ContentLocaleLink
-          href={next.href}
+          href={docsChannelUrl(channel, next.href)}
           currentLocale={locale}
           contentLocales={next.contentLocales}
           className="flex items-center gap-1.5 text-muted hover:text-foreground transition-colors"

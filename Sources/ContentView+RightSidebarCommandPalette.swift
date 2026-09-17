@@ -5,6 +5,9 @@ import CmuxSwiftRender
 
 extension ContentView {
     static func commandPaletteShortcutAction(forCommandID commandId: String) -> KeyboardShortcutSettings.Action? {
+        if let movement = SurfacePaneMovement(commandID: commandId) {
+            return movement.shortcutAction
+        }
         if let rightSidebarModeAction = commandPaletteRightSidebarModeShortcutAction(forCommandID: commandId) {
             return rightSidebarModeAction
         }
@@ -14,12 +17,16 @@ extension ContentView {
             return .newTab
         case "palette.newBrowserWorkspace":
             return .newBrowserWorkspace
+        case ContentView.commandPaletteCloudNewMachineCommandId:
+            return .newCloudMachine
         case "palette.newWindow":
             return .newWindow
         case "palette.openFolder":
             return .openFolder
         case "palette.reopenPreviousSession":
             return .reopenPreviousSession
+        case "palette.reopenClosedWorkspace":
+            return .reopenClosedWorkspace
         case "palette.reopenClosedBrowserTab":
             return .reopenClosedBrowserPanel
         case "palette.newTerminalTab":
@@ -96,6 +103,14 @@ extension ContentView {
             return .toggleSplitZoom
         case "palette.equalizeSplits":
             return .equalizeSplits
+        case "palette.resizePaneLeft":
+            return .resizePaneLeft
+        case "palette.resizePaneRight":
+            return .resizePaneRight
+        case "palette.resizePaneUp":
+            return .resizePaneUp
+        case "palette.resizePaneDown":
+            return .resizePaneDown
         case "palette.triggerFlash":
             return .triggerFlash
         default:
@@ -108,7 +123,11 @@ extension ContentView {
             { _ in value }
         }
 
-        return RightSidebarMode.availableModes().map { mode in
+        // Palette execution resolves through the mode's shortcut action;
+        // customSidebar has none yet (a new cmux-owned shortcut carries the
+        // full settings/config/docs policy), so it stays out of the palette
+        // until that lands. The mode bar, CLI, and socket verb cover it.
+        return RightSidebarMode.availableModes().filter { $0.shortcutAction != nil }.map { mode in
             let title = mode.shortcutAction?.label ?? mode.label
             return CommandPaletteCommandContribution(
                 commandId: Self.commandPaletteRightSidebarModeCommandID(mode),
@@ -146,6 +165,8 @@ extension ContentView {
             return "palette.showRightSidebarFeed"
         case .dock:
             return "palette.showRightSidebarDock"
+        case .machines:
+            return "palette.showRightSidebarMachines"
         case .customSidebar:
             return "palette.showRightSidebarCustomSidebar"
         }
@@ -153,7 +174,8 @@ extension ContentView {
 
     static func commandPaletteRightSidebarToolPaneCommandDescriptors() -> [(mode: RightSidebarMode, commandId: String, title: String)] {
         RightSidebarMode.paneModes.compactMap { mode in
-            guard let commandId = commandPaletteRightSidebarToolPaneCommandID(mode),
+            guard mode.isAvailable(),
+                  let commandId = commandPaletteRightSidebarToolPaneCommandID(mode),
                   let title = commandPaletteRightSidebarToolPaneTitle(mode) else {
                 return nil
             }
@@ -169,6 +191,8 @@ extension ContentView {
             return "palette.openFindPane"
         case .sessions:
             return "palette.openVaultPane"
+        case .machines:
+            return "palette.openCloudPane"
         case .feed, .dock, .customSidebar:
             return nil
         }
@@ -182,6 +206,8 @@ extension ContentView {
             return String(localized: "command.openFindPane.title", defaultValue: "Open Find as Pane")
         case .sessions:
             return String(localized: "command.openVaultPane.title", defaultValue: "Open Vault as Pane")
+        case .machines:
+            return String(localized: "command.openCloudPane.title", defaultValue: "Open Cloud as Pane")
         case .feed, .dock, .customSidebar:
             return nil
         }

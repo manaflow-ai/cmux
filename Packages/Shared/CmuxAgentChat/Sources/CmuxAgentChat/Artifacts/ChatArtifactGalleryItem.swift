@@ -14,6 +14,10 @@ public struct ChatArtifactGalleryItem: Sendable, Equatable, Codable, Identifiabl
     public let modifiedAt: Date?
     /// Whether the path existed when this page was served.
     public let exists: Bool
+    /// Immediate child count for a directory, when listing succeeded.
+    public let childCount: Int?
+    /// Whether ``childCount`` is the listing cap rather than the exact count.
+    public let childCountIsCapped: Bool
     /// Transcript provenance after precedence-based de-duplication.
     public let provenance: ChatArtifactProvenance
 
@@ -28,6 +32,8 @@ public struct ChatArtifactGalleryItem: Sendable, Equatable, Codable, Identifiabl
         size: Int64? = nil,
         modifiedAt: Date? = nil,
         exists: Bool = true,
+        childCount: Int? = nil,
+        childCountIsCapped: Bool = false,
         provenance: ChatArtifactProvenance = .referenced
     ) {
         self.path = path
@@ -36,6 +42,8 @@ public struct ChatArtifactGalleryItem: Sendable, Equatable, Codable, Identifiabl
         self.size = size
         self.modifiedAt = modifiedAt
         self.exists = exists
+        self.childCount = childCount
+        self.childCountIsCapped = childCountIsCapped
         self.provenance = provenance
     }
 
@@ -46,6 +54,8 @@ public struct ChatArtifactGalleryItem: Sendable, Equatable, Codable, Identifiabl
         case size
         case modifiedAt = "modified_at"
         case exists
+        case childCount = "child_count"
+        case childCountIsCapped = "child_count_is_capped"
         case provenance
     }
 
@@ -62,6 +72,8 @@ public struct ChatArtifactGalleryItem: Sendable, Equatable, Codable, Identifiabl
             modifiedAt = try? container.decode(Date.self, forKey: .modifiedAt)
         }
         exists = (try? container.decode(Bool.self, forKey: .exists)) ?? true
+        childCount = try? container.decode(Int.self, forKey: .childCount)
+        childCountIsCapped = (try? container.decode(Bool.self, forKey: .childCountIsCapped)) ?? false
         provenance = (try? container.decode(ChatArtifactProvenance.self, forKey: .provenance)) ?? .referenced
     }
 
@@ -75,6 +87,8 @@ public struct ChatArtifactGalleryItem: Sendable, Equatable, Codable, Identifiabl
             try container.encode(modifiedAt.timeIntervalSince1970, forKey: .modifiedAt)
         }
         try container.encode(exists, forKey: .exists)
+        try container.encodeIfPresent(childCount, forKey: .childCount)
+        try container.encode(childCountIsCapped, forKey: .childCountIsCapped)
         try container.encode(provenance, forKey: .provenance)
     }
 }

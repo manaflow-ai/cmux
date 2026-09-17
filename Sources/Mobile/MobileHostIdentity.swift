@@ -1,3 +1,5 @@
+import CMUXMobileCore
+import CmuxFoundation
 import CmuxSettings
 import Foundation
 
@@ -7,17 +9,55 @@ enum MobileHostIdentity {
     private static let stableBundleIdentifier = "com.cmuxterm.app"
     private static let maximumDisplayNameUTF16Length = 128
     private static let maximumDisplayedBuildTagUTF16Length = 64
+    /// Publishes the initialized snapshot and elects its defaults-mirror writer.
+    /// A synchronous compare-and-set lets reentrant readers avoid joining
+    /// UserDefaults notification delivery on another thread.
+    private static let deviceIDReady = AtomicBooleanGate(false)
 
-    static func deviceID() -> String {
+    /// Process-stable host identity used by synchronous transport and terminal paths.
+    ///
+    /// Swift initializes this constant once, so the filesystem-backed migration
+    /// runs at most once per app process. After initialization, ``deviceID()``
+    /// returns the immutable snapshot without locking or disk access. The
+    /// overload below remains the testable resolver for persistence migration.
+    private static let cachedDeviceID: String = {
         let stableDefaults = Bundle.main.bundleIdentifier == stableBundleIdentifier
             ? nil
             : UserDefaults(suiteName: stableBundleIdentifier)
-        return deviceID(
+        return resolveDeviceID(
             defaults: .standard,
             sharedIDURL: defaultSharedDeviceIDURL(),
             stableDefaults: stableDefaults,
             bundleIdentifier: Bundle.main.bundleIdentifier
         )
+    }()
+
+    /// Returns the process-stable host identity without repeating filesystem work.
+    static func deviceID() -> String {
+        let value = cachedDeviceID
+        // Defaults may synchronously deliver an observer on the main queue.
+        // Publish after leaving the once initializer, before that observer can
+        // reenter deviceID() and wait on the thread performing this write.
+        if deviceIDReady.compareExchange(expected: false, desired: true) {
+            persistDeviceIDIfNeeded(value, defaults: .standard)
+        }
+        return value
+    }
+
+    /// Returns the identity after its immutable snapshot has been published,
+    /// without joining defaults notification delivery. This check never touches
+    /// the lazy snapshot while it is cold.
+    static func deviceIDIfReady() -> String? {
+        guard deviceIDReady.loadAcquire() else { return nil }
+        return cachedDeviceID
+    }
+
+    /// Resolves the identity on a utility task so migration I/O cannot occupy
+    /// the main actor. Swift still initializes ``cachedDeviceID`` exactly once.
+    static func prewarm() async {
+        await Task.detached(priority: .utility) {
+            _ = deviceID()
+        }.value
     }
 
     static func deviceID(
@@ -26,22 +66,38 @@ enum MobileHostIdentity {
         stableDefaults: UserDefaults? = nil,
         bundleIdentifier: String? = Bundle.main.bundleIdentifier
     ) -> String {
+        let id = resolveDeviceID(
+            defaults: defaults,
+            sharedIDURL: sharedIDURL,
+            stableDefaults: stableDefaults,
+            bundleIdentifier: bundleIdentifier
+        )
+        persistDeviceIDIfNeeded(id, defaults: defaults)
+        return id
+    }
+
+    /// Settles the authoritative identity without posting defaults notifications.
+    private static func resolveDeviceID(
+        defaults: UserDefaults,
+        sharedIDURL: URL?,
+        stableDefaults: UserDefaults?,
+        bundleIdentifier: String?
+    ) -> String {
         if let id = readSharedDeviceID(from: sharedIDURL) {
-            defaults.set(id, forKey: deviceIDKey)
             return id
         }
 
         if shouldPreferStableDefaults(bundleIdentifier: bundleIdentifier),
            let id = normalizedID(stableDefaults?.string(forKey: deviceIDKey)) {
-            return settleSharedDeviceID(id, defaults: defaults, sharedIDURL: sharedIDURL)
+            return settleSharedDeviceID(id, sharedIDURL: sharedIDURL)
         }
 
         if let id = normalizedID(defaults.string(forKey: deviceIDKey)) {
-            return settleSharedDeviceID(id, defaults: defaults, sharedIDURL: sharedIDURL)
+            return settleSharedDeviceID(id, sharedIDURL: sharedIDURL)
         }
 
-        let generated = UUID().uuidString
-        return settleSharedDeviceID(generated, defaults: defaults, sharedIDURL: sharedIDURL)
+        let generated = cmxCanonicalDeviceID(UUID().uuidString)
+        return settleSharedDeviceID(generated, sharedIDURL: sharedIDURL)
     }
 
     private static func defaultSharedDeviceIDURL(fileManager: FileManager = .default) -> URL? {
@@ -70,8 +126,8 @@ enum MobileHostIdentity {
 
     private static func normalizedID(_ value: String?) -> String? {
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard let uuid = UUID(uuidString: trimmed) else { return nil }
-        return uuid.uuidString
+        guard UUID(uuidString: trimmed) != nil else { return nil }
+        return cmxCanonicalDeviceID(trimmed)
     }
 
     private static func readSharedDeviceID(from url: URL?) -> String? {
@@ -82,9 +138,15 @@ enum MobileHostIdentity {
         return normalizedID(existing)
     }
 
-    private static func settleSharedDeviceID(_ candidate: String, defaults: UserDefaults, sharedIDURL: URL?) -> String {
+    private static func persistDeviceIDIfNeeded(_ id: String, defaults: UserDefaults) {
+        let stored = normalizedID(defaults.string(forKey: deviceIDKey))
+        guard stored != id else { return }
+        defaults.set(id, forKey: deviceIDKey)
+    }
+
+    private static func settleSharedDeviceID(_ candidate: String, sharedIDURL: URL?) -> String {
+        let candidate = cmxCanonicalDeviceID(candidate)
         guard let sharedIDURL else {
-            defaults.set(candidate, forKey: deviceIDKey)
             return candidate
         }
         try? FileManager.default.createDirectory(
@@ -94,14 +156,11 @@ enum MobileHostIdentity {
         let data = Data(candidate.utf8)
         if !FileManager.default.createFile(atPath: sharedIDURL.path, contents: data) {
             if let winner = readSharedDeviceID(from: sharedIDURL) {
-                defaults.set(winner, forKey: deviceIDKey)
                 return winner
             }
             try? data.write(to: sharedIDURL, options: .atomic)
         }
-        let settled = readSharedDeviceID(from: sharedIDURL) ?? candidate
-        defaults.set(settled, forKey: deviceIDKey)
-        return settled
+        return readSharedDeviceID(from: sharedIDURL) ?? candidate
     }
 
     /// Stable physical-device name. Device-level registry and backup rows use
@@ -178,9 +237,45 @@ enum MobileHostIdentity {
     }
 
     /// Canonical app-instance tag used by registry and presence. This is the
-    /// same launch tag that owns the tagged socket and bundle identity.
+    /// same launch tag or release channel that owns the socket and bundle
+    /// identity.
     static func instanceTag() -> String {
-        SocketControlSettings.launchTag() ?? "default"
+        instanceTag(
+            environment: ProcessInfo.processInfo.environment,
+            bundleIdentifier: Bundle.main.bundleIdentifier
+        )
+    }
+
+    /// Resolves the app-instance tag from explicit launch metadata first, then
+    /// from the bundle channel. Stable keeps the historical `"default"` tag;
+    /// Nightly, RC, and Staging must be distinct now that every app bundle on one
+    /// Mac intentionally shares the same physical device identifier.
+    static func instanceTag(
+        environment: [String: String],
+        bundleIdentifier: String?
+    ) -> String {
+        if let launchTag = SocketControlSettings.launchTag(environment: environment) {
+            return launchTag
+        }
+
+        let normalizedBundleID = bundleIdentifier?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? ""
+        switch SocketPathMarkerFiles.variant(
+            bundleIdentifier: normalizedBundleID,
+            environment: environment
+        ) {
+        case .stable:
+            return "default"
+        case .nightly(let slug):
+            return slug ?? "nightly"
+        case .rc(let slug):
+            return slug ?? "rc"
+        case .staging(let slug):
+            return slug ?? "staging"
+        case .dev(let slug):
+            return slug ?? "dev"
+        }
     }
 
     /// Returns the longest whole-character prefix that fits a UTF-16 wire limit.

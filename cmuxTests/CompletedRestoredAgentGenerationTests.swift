@@ -21,8 +21,8 @@ struct CompletedRestoredAgentGenerationTests {
         let oldIdentity = AgentPIDProcessIdentity(pid: 321, startSeconds: 90, startMicroseconds: 0)
         let newIdentity = AgentPIDProcessIdentity(pid: 321, startSeconds: 101, startMicroseconds: 0)
         let lifecycle = RestoredAgentLifecycleCoordinator(dateProvider: { 100 })
-        lifecycle.snapshotsByPanelId[panelId] = snapshot
-        lifecycle.resumeStatesByPanelId[panelId] = .observedAgentCommandRunning
+        lifecycle.setSnapshot(snapshot, panelId: panelId)
+        lifecycle.setResumeState(.observedAgentCommandRunning, panelId: panelId)
         lifecycle.markCompleted(
             panelId: panelId,
             observation: indexEntry(snapshot: snapshot, updatedAt: 95, identity: oldIdentity),
@@ -60,12 +60,18 @@ struct CompletedRestoredAgentGenerationTests {
         let panelId = try #require(workspace.focusedPanelId)
         let sessionId = "completed-agent-stale-hook"
         let oldWorkingDirectory = "/tmp/completed-agent-stale-hook-old"
-        workspace.restoredAgentSnapshotsByPanelId[panelId] = agentSnapshot(
-            sessionId: sessionId,
-            workingDirectory: oldWorkingDirectory,
-            capturedAt: Date.now.timeIntervalSince1970 - 60
+        workspace.restoredAgentLifecycle.setSnapshot(
+            agentSnapshot(
+                sessionId: sessionId,
+                workingDirectory: oldWorkingDirectory,
+                capturedAt: Date.now.timeIntervalSince1970 - 60
+            ),
+            panelId: panelId
         )
-        workspace.restoredAgentResumeStatesByPanelId[panelId] = .observedAgentCommandRunning
+        workspace.restoredAgentLifecycle.setResumeState(
+            .observedAgentCommandRunning,
+            panelId: panelId
+        )
         workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
         workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
         try #require(workspace.restoredAgentResumeStatesByPanelId[panelId] == .completedAgentExit)
@@ -98,8 +104,8 @@ struct CompletedRestoredAgentGenerationTests {
             capturedAt: 90
         )
         let source = RestoredAgentLifecycleCoordinator(dateProvider: { 100 })
-        source.snapshotsByPanelId[panelId] = snapshot
-        source.resumeStatesByPanelId[panelId] = .observedAgentCommandRunning
+        source.setSnapshot(snapshot, panelId: panelId)
+        source.setResumeState(.observedAgentCommandRunning, panelId: panelId)
         source.markCompleted(
             panelId: panelId,
             observation: nil,
@@ -112,7 +118,8 @@ struct CompletedRestoredAgentGenerationTests {
             panelId: panelId,
             snapshot: snapshot,
             resumeState: .completedAgentExit,
-            completedGeneration: transferredGeneration
+            completedGeneration: transferredGeneration,
+            resumeWorkingDirectory: nil
         )
         let replacementIdentity = AgentPIDProcessIdentity(
             pid: 654,
@@ -134,6 +141,54 @@ struct CompletedRestoredAgentGenerationTests {
         #expect(destination.resumeStatesByPanelId[panelId] == .observedAgentCommandRunning)
     }
 
+    @Test("Snapshotless Dock transfer keeps completion until a newer process generation")
+    func snapshotlessDockTransferKeepsCompletionUntilNewGeneration() throws {
+        let panelId = UUID()
+        let completedGeneration = RestoredAgentCompletedGeneration(
+            completedAt: 100,
+            processIdentities: []
+        )
+        let destination = RestoredAgentLifecycleCoordinator(dateProvider: { 200 })
+        destination.seedTransferredState(
+            panelId: panelId,
+            snapshot: nil,
+            resumeState: .completedAgentExit,
+            completedGeneration: completedGeneration,
+            resumeWorkingDirectory: nil
+        )
+
+        destination.setSnapshot(nil, panelId: panelId)
+        destination.retainSessionRestores(for: [panelId])
+        #expect(
+            destination.completedGeneration(panelId: panelId)?.completedAt
+                == completedGeneration.completedAt
+        )
+
+        let replacementSnapshot = agentSnapshot(
+            sessionId: "snapshotless-dock-replacement",
+            workingDirectory: "/tmp/snapshotless-dock-replacement",
+            capturedAt: 90
+        )
+        let replacementIdentity = AgentPIDProcessIdentity(
+            pid: 654,
+            startSeconds: 150,
+            startMicroseconds: 0
+        )
+        let accepted = destination.reconcileCompletedAgent(
+            panelId: panelId,
+            observation: indexEntry(
+                snapshot: replacementSnapshot,
+                updatedAt: 160,
+                identity: replacementIdentity
+            ),
+            currentProcessIdentity: { _ in replacementIdentity }
+        )
+
+        #expect(accepted)
+        #expect(destination.resumeStatesByPanelId[panelId] == .observedAgentCommandRunning)
+        #expect(destination.snapshotsByPanelId[panelId]?.sessionId == replacementSnapshot.sessionId)
+    }
+
     @Test
     func workspaceTransferPreservesCompletionGenerationAndShellActivity() throws {
         let source = Workspace()
@@ -143,8 +198,11 @@ struct CompletedRestoredAgentGenerationTests {
             workingDirectory: "/tmp/workspace-transfer-completed-agent",
             capturedAt: Date.now.timeIntervalSince1970 - 60
         )
-        source.restoredAgentSnapshotsByPanelId[panelId] = snapshot
-        source.restoredAgentResumeStatesByPanelId[panelId] = .observedAgentCommandRunning
+        source.restoredAgentLifecycle.setSnapshot(snapshot, panelId: panelId)
+        source.restoredAgentLifecycle.setResumeState(
+            .observedAgentCommandRunning,
+            panelId: panelId
+        )
         source.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
         source.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
         let sourceGeneration = try #require(source.restoredAgentLifecycle.completedGeneration(panelId: panelId))
@@ -174,12 +232,18 @@ struct CompletedRestoredAgentGenerationTests {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
         let completedSessionId = "completed-before-delayed-refresh"
-        workspace.restoredAgentSnapshotsByPanelId[panelId] = agentSnapshot(
-            sessionId: completedSessionId,
-            workingDirectory: "/tmp/completed-before-delayed-refresh",
-            capturedAt: Date.now.timeIntervalSince1970 - 60
+        workspace.restoredAgentLifecycle.setSnapshot(
+            agentSnapshot(
+                sessionId: completedSessionId,
+                workingDirectory: "/tmp/completed-before-delayed-refresh",
+                capturedAt: Date.now.timeIntervalSince1970 - 60
+            ),
+            panelId: panelId
         )
-        workspace.restoredAgentResumeStatesByPanelId[panelId] = .observedAgentCommandRunning
+        workspace.restoredAgentLifecycle.setResumeState(
+            .observedAgentCommandRunning,
+            panelId: panelId
+        )
         workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
         workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
         workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
@@ -233,9 +297,16 @@ struct CompletedRestoredAgentGenerationTests {
             snapshot: snapshot,
             lifecycle: .running,
             updatedAt: updatedAt,
+            processLiveness: .running,
+            hasRecordedProcessID: true,
             processIDs: [Int(identity.pid)],
+            processIdentities: [Int(identity.pid): identity],
             agentProcessIDs: [Int(identity.pid)],
-            agentProcessIdentities: [Int(identity.pid): identity]
+            agentProcessIdentities: [Int(identity.pid): identity],
+            hibernationPanelProcessIDs: [Int(identity.pid)],
+            terminationProcessIDs: [Int(identity.pid)],
+            terminationProcessIdentities: [Int(identity.pid): identity],
+            containsUnrelatedProcess: false
         )
     }
 

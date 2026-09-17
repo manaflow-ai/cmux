@@ -1,7 +1,9 @@
 import { locales } from "./routing";
+import { docsCanonicalOrigin } from "@/app/lib/docs-channel";
 
 const BASE = "https://cmux.com";
 const DEFAULT_OG_IMAGE_PATH = "/opengraph-image";
+const BROWSER_OG_IMAGE_PATH = "/browser-opengraph-image";
 
 const shortDescriptionSuffixes: Record<string, string> = {
   en: "Built for AI coding agents and multitasking on macOS.",
@@ -139,6 +141,15 @@ export function openGraphImage(locale: string) {
 
 export const defaultOpenGraphImage = openGraphImage("en");
 
+export function browserOpenGraphImage(alt: string) {
+  return {
+    url: `${BASE}${BROWSER_OG_IMAGE_PATH}`,
+    width: OPEN_GRAPH_IMAGE_WIDTH,
+    height: OPEN_GRAPH_IMAGE_HEIGHT,
+    alt,
+  };
+}
+
 export function hasLocalizedSeoCopy(locale: string) {
   return (
     Object.hasOwn(shortDescriptionSuffixes, locale) &&
@@ -213,6 +224,7 @@ export function seoDescription(
   options: {
     minLength?: number;
     fallbackCandidates?: readonly string[];
+    appendLocalizedContext?: boolean;
   } = {},
 ) {
   const minLength = options.minLength ?? DEFAULT_MIN_DESCRIPTION_LENGTH;
@@ -220,6 +232,7 @@ export function seoDescription(
   const candidates = [...(options.fallbackCandidates ?? [])];
 
   if (
+    options.appendLocalizedContext !== false &&
     isSafeMetadataText(trimmed) &&
     metadataSearchLength(trimmed) < minLength
   ) {
@@ -354,6 +367,17 @@ export function openGraphDefaults(
   };
 }
 
+export function browserOpenGraphDefaults(
+  alt: string,
+  type: "website" | "article" = "website",
+) {
+  return {
+    siteName: "cmux",
+    type,
+    images: [browserOpenGraphImage(alt)],
+  };
+}
+
 export function twitterSummary(
   locale: string,
   title: string,
@@ -364,6 +388,15 @@ export function twitterSummary(
     title,
     description,
     images: [canonicalUrl(locale, DEFAULT_OG_IMAGE_PATH)],
+  };
+}
+
+export function browserTwitterSummary(title: string, description: string) {
+  return {
+    card: "summary_large_image" as const,
+    title,
+    description,
+    images: [`${BASE}${BROWSER_OG_IMAGE_PATH}`],
   };
 }
 
@@ -381,14 +414,18 @@ export function buildAlternates(
   path: string,
   availableLocales: readonly string[] = locales,
 ) {
+  const base = path === "/docs" || path.startsWith("/docs/")
+    ? docsCanonicalOrigin()
+    : BASE;
   const languages: Record<string, string> = {};
   for (const loc of availableLocales) {
     languages[loc] =
-      loc === "en" ? `${BASE}${path}` : `${BASE}/${loc}${path}`;
+      loc === "en" ? `${base}${path}` : `${base}/${loc}${path}`;
   }
-  languages["x-default"] = `${BASE}${path}`;
+  languages["x-default"] = `${base}${path}`;
 
-  const canonical = canonicalUrl(locale, path);
+  const canonical =
+    locale === "en" ? `${base}${path}` : `${base}/${locale}${path}`;
 
   return { canonical, languages };
 }

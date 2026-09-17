@@ -34,6 +34,7 @@ extension RemoteTmuxWindowMirror {
             paneTitleRowHeight: tmuxTitleRowPlacement != nil
                 ? CGFloat(geometry.cellHeightPx) / geometry.scale
                 : 0,
+            minimumPaneExtent: RemoteTmuxNativeLayoutMetrics.bonsplitMinimumPaneExtent,
             paneTitleRowPaneIDs: tmuxTitleRowPlacement?.paneIDs(in: renderedLayout) ?? []
         )
     }

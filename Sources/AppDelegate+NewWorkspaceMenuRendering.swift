@@ -33,6 +33,7 @@ extension AppDelegate {
                 action: menuAction.action
             )
             item.toolTip = menuAction.tooltip
+            applyNewWorkspaceMenuShortcutHint(to: item, action: menuAction.action)
             item.image = menuAction.icon?.contextMenuImage(
                 configSourcePath: menuAction.iconSourcePath,
                 globalConfigPath: cmuxConfigStore.globalConfigPath
@@ -97,9 +98,9 @@ extension AppDelegate {
                     items.removeLast()
                 }
                 addRenderedSection(items)
-            case .cloud:
-                let cloudMenu = TitlebarCloudVMButton.makeCloudVMMenu()
-                addRenderedSection(cloudMenu.items)
+                if CloudMachinesFeature.isEnabled, auth?.accountFlow.isAuthenticated == true {
+                    addRenderedSection([sharedTeamWindowMenuItem(windowID: context.windowId)])
+                }
             case .layouts(let rows):
                 var items: [NSMenuItem] = [
                     .sectionHeader(title: String(
@@ -225,4 +226,56 @@ extension AppDelegate {
         guard menu.items.contains(where: { !$0.isSeparatorItem }) else { return nil }
         return menu
     }
+}
+
+extension AppDelegate {
+    /// The shortcut a plus-menu row should advertise: the live
+    /// `KeyboardShortcutSettings` binding for built-in actions, else the
+    /// `shortcut` declared on a config action. Nil when unbound or when the
+    /// binding is a chord, which an `NSMenuItem` key equivalent cannot show.
+    nonisolated static func newWorkspaceMenuShortcutHint(
+        for action: CmuxResolvedConfigAction
+    ) -> StoredShortcut? {
+        let shortcut: StoredShortcut
+        if case .builtIn(let builtIn) = action.action, let shortcutAction = builtIn.shortcutAction {
+            shortcut = KeyboardShortcutSettings.menuShortcut(for: shortcutAction)
+        } else if let configured = action.shortcut {
+            shortcut = configured
+        } else {
+            return nil
+        }
+        guard shortcut.menuItemKeyEquivalent != nil else { return nil }
+        return shortcut
+    }
+
+    /// AppKit draws a key equivalent as the grey shortcut column of the menu
+    /// row. The menu is rebuilt on every open, so this always reflects the
+    /// current binding.
+    func applyNewWorkspaceMenuShortcutHint(to item: NSMenuItem, action: CmuxResolvedConfigAction) {
+        guard let shortcut = Self.newWorkspaceMenuShortcutHint(for: action),
+              let keyEquivalent = shortcut.menuItemKeyEquivalent else {
+            item.keyEquivalent = ""
+            item.keyEquivalentModifierMask = []
+            return
+        }
+        item.keyEquivalent = keyEquivalent
+        item.keyEquivalentModifierMask = shortcut.modifierFlags
+    }
+
+    func sharedTeamWindowMenuItem(windowID: UUID) -> NSMenuItem {
+        let item = NSMenuItem(
+            title: String(localized: "command.cloudVM.teamWindow.open.title", defaultValue: "Open Team Window"),
+            action: #selector(openSharedTeamWindowMenuItem(_:)), keyEquivalent: ""
+        )
+        item.target = self
+        item.representedObject = windowID as NSUUID
+        return item
+    }
+
+    @objc private func openSharedTeamWindowMenuItem(_ sender: NSMenuItem) {
+        guard let windowID = sender.representedObject as? UUID,
+              let context = mainWindowContexts.values.first(where: { $0.windowId == windowID }) else { return }
+        _ = performSharedTeamWindowAction(preferredWindow: resolvedWindow(for: context), debugSource: "titlebar.cloudVM.menu.teamWindow")
+    }
+
 }

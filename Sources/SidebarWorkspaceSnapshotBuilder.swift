@@ -36,7 +36,11 @@ struct SidebarWorkspaceSnapshotBuilder {
         let title: String
         let customDescription: String?
         let isPinned: Bool
+        /// Whether any workspace-scoped notification mute is active.
+        let isMuted: Bool
         let customColorHex: String?
+        /// Stable Cloud identity, independent of connection status and detail visibility.
+        let cloudWorkspaceLabel: String?
         let remoteWorkspaceSidebarText: String?
         let remoteConnectionStatusText: String
         let remoteStateHelpText: String
@@ -58,13 +62,24 @@ struct SidebarWorkspaceSnapshotBuilder {
         let finderDirectoryPath: String?
         let mediaActivity: BrowserMediaActivity
         // Workspace todo status/checklist; taskStatus is nil when the
-        // workspace opted out of status display. Drives only the done-row
-        // dim — sidebar rows draw no status glyph (issue: status circles
-        // must not appear on workspace rows).
+        // workspace opted out of status display or the remote todo-controls
+        // flag is off. Manual status draws a compact row indicator, while
+        // automatic status still only drives the done-row dim.
         let taskStatus: WorkspaceTaskStatus?
+        let todoStatusMenuModel: SidebarWorkspaceCompactStatusMenuModel?
+        let hasManualTaskStatus: Bool
         let checklistItems: [WorkspaceChecklistItem]
         let checklistCompletedCount: Int
         let checklistTotalCount: Int
         let checklistFirstUncheckedText: String?
+        var taskStatusInput = SidebarWorkspaceTaskStatusSnapshot()
+
+        func accessibilityLabel(index: Int, workspaceCount: Int) -> String {
+            let position = String(
+                localized: "accessibility.workspacePosition",
+                defaultValue: "\(title), workspace \(index + 1) of \(workspaceCount)"
+            )
+            return [position, cloudWorkspaceLabel].compactMap { $0 }.joined(separator: ", ")
+        }
     }
 }

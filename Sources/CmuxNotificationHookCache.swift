@@ -1,9 +1,9 @@
+import CryptoKit
 import Foundation
 
 /// Resolves per-directory notification hooks on a background actor. Cache
-/// entries are invalidated by both hierarchy changes (new/removed config
-/// files) and file metadata changes, so notification delivery never parses
-/// cmux.json on the Ghostty callback thread or main actor.
+/// entries are invalidated by hierarchy or content changes, so notification
+/// delivery never parses cmux.json on the Ghostty callback thread or main actor.
 actor CmuxNotificationHookCache {
     private let fileManager: FileManager
     private let maximumEntryCount: Int
@@ -28,7 +28,8 @@ actor CmuxNotificationHookCache {
         let key = CmuxNotificationHookCacheKey(directory: normalizedDirectory, globalConfigPath: normalizedGlobalPath)
         let localPaths = normalizedDirectory.map { findConfigHierarchy(startingFrom: $0) } ?? []
         let paths = [normalizedGlobalPath] + localPaths
-        let fingerprints = paths.map(fingerprint(for:))
+        let snapshots = paths.map(snapshot(for:))
+        let fingerprints = snapshots.map(\.fingerprint)
         let sequence = nextAccessSequence()
         if var entry = entries[key], entry.fingerprints == fingerprints {
             hitCount += 1
@@ -37,9 +38,9 @@ actor CmuxNotificationHookCache {
             return entry.hooks
         }
 
-        let globalConfig = parsedConfig(for: fingerprints[0])
-        let localConfigs = zip(localPaths, fingerprints.dropFirst()).compactMap { path, fingerprint in
-            parsedConfig(for: fingerprint).map { (path: path, config: $0) }
+        let globalConfig = parsedConfig(for: snapshots[0])
+        let localConfigs = zip(localPaths, snapshots.dropFirst()).compactMap { path, snapshot in
+            parsedConfig(for: snapshot).map { (path: path, config: $0) }
         }
         let hooks = resolveHooks(
             globalConfig: globalConfig,
@@ -98,26 +99,24 @@ actor CmuxNotificationHookCache {
         return paths.reversed()
     }
 
-    private func fingerprint(for path: String) -> CmuxNotificationHookFileFingerprint {
-        guard let attributes = try? fileManager.attributesOfItem(atPath: path) else {
-            return CmuxNotificationHookFileFingerprint(
-                path: path,
-                exists: false,
-                fileSize: 0,
-                modificationDate: nil,
-                fileIdentifier: nil
-            )
-        }
-        return CmuxNotificationHookFileFingerprint(
+    private func snapshot(for path: String) -> CmuxNotificationHookFileSnapshot {
+        let attributes = try? fileManager.attributesOfItem(atPath: path)
+        let contents = fileManager.contents(atPath: path)
+        let exists = attributes != nil || contents != nil
+        let fingerprint = CmuxNotificationHookFileFingerprint(
             path: path,
-            exists: true,
-            fileSize: (attributes[.size] as? NSNumber)?.uint64Value ?? 0,
-            modificationDate: attributes[.modificationDate] as? Date,
-            fileIdentifier: (attributes[.systemFileNumber] as? NSNumber)?.uint64Value
+            exists: exists,
+            fileSize: (attributes?[.size] as? NSNumber)?.uint64Value
+                ?? UInt64(contents?.count ?? 0),
+            modificationDate: attributes?[.modificationDate] as? Date,
+            fileIdentifier: (attributes?[.systemFileNumber] as? NSNumber)?.uint64Value,
+            contentDigest: contents.map { Data(SHA256.hash(data: $0)) }
         )
+        return CmuxNotificationHookFileSnapshot(fingerprint: fingerprint, contents: contents)
     }
 
-    private func parsedConfig(for fingerprint: CmuxNotificationHookFileFingerprint) -> CmuxConfigFile? {
+    private func parsedConfig(for snapshot: CmuxNotificationHookFileSnapshot) -> CmuxConfigFile? {
+        let fingerprint = snapshot.fingerprint
         guard fingerprint.exists else {
             parsedConfigs.removeValue(forKey: fingerprint.path)
             return nil
@@ -127,8 +126,8 @@ actor CmuxNotificationHookCache {
         }
         parseCount += 1
         let config: CmuxConfigFile?
-        if let data = fileManager.contents(atPath: fingerprint.path),
-           let sanitized = try? JSONCParser.preprocess(data: data) {
+        if let contents = snapshot.contents,
+           let sanitized = try? JSONCParser.preprocess(data: contents) {
             config = try? JSONDecoder().decode(CmuxConfigFile.self, from: sanitized)
         } else {
             config = nil

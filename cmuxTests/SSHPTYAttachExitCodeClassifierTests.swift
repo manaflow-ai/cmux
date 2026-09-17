@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Testing
 
 @Suite struct SSHPTYAttachExitCodeClassifierTests {
@@ -93,6 +94,38 @@ import Testing
             SSHPTYAttachExitCode.classifyBridgeEstablishmentFailure(
                 code: "pty_lifecycle_closed",
                 message: "remote daemon tunnel is not ready"
+        ) == SSHPTYAttachExitCode.fatal
+        )
+    }
+
+    @Test(arguments: [
+        ("ssh: connect to host tinybox port 22: Operation timed out", SSHPTYAttachExitCode.hostUnreachable),
+        ("ssh: Could not resolve hostname tinybox: Name or service not known", SSHPTYAttachExitCode.hostUnreachable),
+        ("remote daemon is not ready", SSHPTYAttachExitCode.daemonNotReady),
+        ("remote daemon did not respond in time", SSHPTYAttachExitCode.daemonNotReady),
+        ("mux_client_request_session: read from master failed: Broken pipe", SSHPTYAttachExitCode.controlMasterUnavailable),
+        ("user@example.com: Permission denied", SSHPTYAttachExitCode.authenticationRequired),
+    ])
+    func managedRetryStatusSeparatesTransportPhases(
+        diagnostic: String,
+        expected: SSHPTYAttachExitCode
+    ) {
+        #expect(
+            SSHPTYAttachExitCode.retryableTransient.managedRetryStatus(for: diagnostic) == expected
+        )
+    }
+
+    @Test func unrecognizedDiagnosticKeepsOriginalStatus() {
+        #expect(
+            SSHPTYAttachExitCode.retryableTransient.managedRetryStatus(for: "arbitrary text") ==
+                SSHPTYAttachExitCode.retryableTransient
+        )
+    }
+
+    @Test func nonRetryableStatusIsNotRefined() {
+        #expect(
+            SSHPTYAttachExitCode.fatal.managedRetryStatus(
+                for: "ssh: connect to host x port 22: Operation timed out"
             ) == SSHPTYAttachExitCode.fatal
         )
     }

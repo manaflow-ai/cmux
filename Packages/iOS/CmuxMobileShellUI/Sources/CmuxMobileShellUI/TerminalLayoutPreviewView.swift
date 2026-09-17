@@ -45,19 +45,26 @@ struct TerminalLayoutPreviewView: View {
         }
     }
 
+    private var previewTheme: TerminalTheme {
+        guard let backgroundHex,
+              TerminalTheme.rgbComponents(backgroundHex) != nil else {
+            return .monokai
+        }
+        var theme = TerminalTheme.monokai
+        theme.background = backgroundHex.hasPrefix("#") ? backgroundHex : "#\(backgroundHex)"
+        theme.palette[0] = theme.background
+        return theme
+    }
+
     /// Chrome (status-bar + nav-bar) fill, matching the terminal background so the
     /// header blends with the surface.
     private var chromeBackground: Color {
-        if let bg = backgroundHex,
-           let c = Color(hexString: bg.hasPrefix("#") ? bg : "#\(bg)") {
-            return c
-        }
-        return TerminalPalette.background
+        previewTheme.terminalBackgroundColor
     }
 
     var body: some View {
         NavigationStack {
-            TerminalLayoutPreviewSurface()
+            TerminalLayoutPreviewSurface(theme: previewTheme)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 // Fill the whole window, INCLUDING under the status bar and nav
                 // bar, with the terminal color (#272822) — exactly like
@@ -76,7 +83,13 @@ struct TerminalLayoutPreviewView: View {
                 // color showing through behind it.
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
-                        Image(systemName: "chevron.left").fontWeight(.semibold)
+                        // Keep this standalone DEBUG fixture independent of
+                        // CoreUI's SF Symbol rasterizer. On a fresh simulator,
+                        // the terminal surface can make a toolbar symbol's
+                        // initial proposed size zero, which crashes CoreUI.
+                        Text("‹")
+                            .font(.system(size: 28, weight: .semibold))
+                            .frame(width: 22, height: 22)
                     }
                     // Title on its own Liquid Glass pill so it stays legible over
                     // terminal text when the bar background is cleared (iOS 26),
@@ -86,12 +99,13 @@ struct TerminalLayoutPreviewView: View {
                             .font(.headline)
                             .lineLimit(1)
                             .truncationMode(.tail)
-                            .foregroundStyle(TerminalPalette.foreground)
+                            .foregroundStyle(previewTheme.terminalChromeForegroundColor)
                             .mobileGlassNavigationTitle()
                     }
                     ToolbarItemGroup(placement: .topBarTrailing) {
-                        Image(systemName: "bubble.left.and.bubble.right")
-                        Image(systemName: "terminal")
+                        Text("▣")
+                            .font(.system(size: 18, weight: .medium))
+                            .frame(width: 22, height: 22)
                     }
                     if ProcessInfo.processInfo.environment["CMUX_UITEST_ALT_SCREEN_NOTICE_PREVIEW"] == "1",
                        displaySettings.showAltScreenNotice {
@@ -102,13 +116,15 @@ struct TerminalLayoutPreviewView: View {
                         }
                     }
                 }
-                .tint(TerminalPalette.foreground)
-                .mobileTerminalNavigationChrome()
+                .tint(previewTheme.terminalChromeForegroundColor)
+                .mobileTerminalNavigationChrome(theme: previewTheme)
         }
     }
 }
 
 private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
+    let theme: TerminalTheme
+
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> UIView {
@@ -118,7 +134,8 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
         } catch {
             let label = UILabel()
             label.numberOfLines = 0
-            label.textColor = .white
+            label.textColor = theme.terminalForegroundUIColor
+            label.backgroundColor = theme.terminalBackgroundUIColor
             label.text = "runtime init failed: \(error.localizedDescription)"
             return label
         }
@@ -128,7 +145,9 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
         let view = GhosttySurfaceView(
             runtime: runtime,
             delegate: context.coordinator,
-            fontSize: fontSize
+            fontSize: fontSize,
+            terminalTheme: theme,
+            terminalConfigTheme: theme
         )
         view.autoFocusOnWindowAttach = false
         // Keyboard down by default, but keep the existing keyboard viewport

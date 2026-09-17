@@ -14,6 +14,79 @@ private struct SidebarPanelObservationState: Equatable {
 }
 
 extension View {
+    /// Observes row-affecting workspace publishers above the lazy-list boundary.
+    ///
+    /// Each task retains the workspace identity that produced a change, so a
+    /// status/metadata/title update rebuilds one immutable row projection
+    /// instead of walking every workspace. The initial CombineLatest value is
+    /// intentionally delivered: it closes the gap between the owner's first
+    /// snapshot and subscription setup, while the snapshot equality guard makes
+    /// an unchanged initial value a no-op.
+    func sidebarWorkspaceObservations(
+        ids: [UUID],
+        workspaces: [Workspace],
+        debouncedInterval: DispatchQueue.SchedulerTimeType.Stride,
+        onChange: @MainActor @escaping (UUID) -> Void
+    ) -> some View {
+        task(id: ids) { @MainActor in
+            await withTaskGroup(of: Void.self) { group in
+                for (id, workspace) in zip(ids, workspaces) {
+                    let cloudChanges = workspace.cloudBindingState.changes()
+                    let immediateChanges = workspace.sidebarImmediateObservationPublisher
+                        .values
+                    let debouncedChanges = workspace.sidebarObservationPublisher
+                        // DispatchQueue.main, not RunLoop.main: the RunLoop
+                        // scheduler delivers only in the DEFAULT runloop mode,
+                        // so modal panels (rename alert), context menus, and
+                        // drag tracking stalled every sidebar row update until
+                        // the mode unwound. Main-queue delivery is mode-agnostic.
+                        .receive(on: DispatchQueue.main)
+                        .debounce(for: debouncedInterval, scheduler: DispatchQueue.main)
+                        .values
+                    group.addTask { @MainActor in
+                        for await _ in cloudChanges {
+                            if Task.isCancelled { break }
+                            onChange(id)
+                        }
+                    }
+                    group.addTask { @MainActor in
+                        for await _ in immediateChanges {
+                            if Task.isCancelled { break }
+                            onChange(id)
+                        }
+                    }
+                    group.addTask { @MainActor in
+                        for await _ in debouncedChanges {
+                            if Task.isCancelled { break }
+                            onChange(id)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Keeps extension sidebar projections current using the same Cloud invalidation source.
+    func sidebarCloudBindingObservations(
+        ids: [UUID],
+        models: [WorkspaceCloudBindingState],
+        onChange: @MainActor @escaping () -> Void
+    ) -> some View {
+        task(id: ids) { @MainActor in
+            await withTaskGroup(of: Void.self) { group in
+                for model in models {
+                    let changes = model.changes()
+                    group.addTask { @MainActor in
+                        for await _ in changes {
+                            if Task.isCancelled { break }
+                            onChange()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     func sidebarAgentRuntimeObservation(
         id: UUID,
         model: WorkspaceSidebarAgentRuntimeObservationModel,
@@ -69,12 +142,57 @@ extension View {
             }
         }
     }
+
+    /// Observes every default-sidebar workspace above the lazy row boundary.
+    /// The callback identifies the changed workspace so the owner can rebuild
+    /// its immutable projection without mounting an observation task per row.
+    func sidebarProcessTitleObservations(
+        ids: [UUID],
+        models: [WorkspaceSidebarProcessTitleObservationModel],
+        onChange: @MainActor @escaping (UUID) -> Void
+    ) -> some View {
+        task(id: ids) { @MainActor in
+            await withTaskGroup(of: Void.self) { group in
+                for (id, model) in zip(ids, models) {
+                    let changes = model.changes()
+                    group.addTask { @MainActor in
+                        for await _ in changes {
+                            if Task.isCancelled { break }
+                            onChange(id)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Agent-runtime counterpart to ``sidebarProcessTitleObservations(ids:models:onChange:)``.
+    func sidebarAgentRuntimeObservations(
+        ids: [UUID],
+        models: [WorkspaceSidebarAgentRuntimeObservationModel],
+        onChange: @MainActor @escaping (UUID) -> Void
+    ) -> some View {
+        task(id: ids) { @MainActor in
+            await withTaskGroup(of: Void.self) { group in
+                for (id, model) in zip(ids, models) {
+                    let changes = model.changes()
+                    group.addTask { @MainActor in
+                        for await _ in changes {
+                            if Task.isCancelled { break }
+                            onChange(id)
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 private struct SidebarImmediateObservationState: Equatable {
     let customTitle: String?
     let customDescription: String?
     let isPinned: Bool
+    let isMuted: Bool
     let customColor: String?
     let latestConversationMessage: String?
     let latestSubmittedMessage: String?
@@ -116,14 +234,19 @@ extension Workspace {
     // and the settle model's deferral deadline still republishes during
     // sustained churn so a row's title cannot stay stale until the agent
     // goes quiet. See https://github.com/manaflow-ai/cmux/issues/5570.
-    static let sidebarImmediateObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(50)
+    static let sidebarImmediateObservationCoalesceInterval: DispatchQueue.SchedulerTimeType.Stride = .milliseconds(50)
+    /// Publishes synchronous row-affecting workspace changes for the shared sidebar refresh path.
     func makeSidebarImmediateObservationPublisher() -> AnyPublisher<Void, Never> {
+        // Combine exposes up to four-way convenience publishers. Compose the
+        // extra fields explicitly so adding a row-affecting property does not
+        // require a non-existent ``CombineLatest5`` specialization.
         let workspaceFields = Publishers.CombineLatest4(
             $customTitle,
             $customDescription,
             $isPinned,
             $customColor
         )
+        .combineLatest($isMuted)
         let conversationFields = Publishers.CombineLatest3(
             $latestConversationMessage,
             $latestSubmittedMessage,
@@ -142,10 +265,11 @@ extension Workspace {
             .combineLatest(conversationFields, todoFields)
             .map { workspaceFields, conversationFields, todoFields in
                 SidebarImmediateObservationState(
-                    customTitle: workspaceFields.0,
-                    customDescription: workspaceFields.1,
-                    isPinned: workspaceFields.2,
-                    customColor: workspaceFields.3,
+                    customTitle: workspaceFields.0.0,
+                    customDescription: workspaceFields.0.1,
+                    isPinned: workspaceFields.0.2,
+                    isMuted: workspaceFields.1,
+                    customColor: workspaceFields.0.3,
                     latestConversationMessage: conversationFields.0,
                     latestSubmittedMessage: conversationFields.1,
                     latestSubmittedAt: conversationFields.2,
@@ -157,7 +281,7 @@ extension Workspace {
             .removeDuplicates()
             .coalesceLatest(
                 for: Self.sidebarImmediateObservationCoalesceInterval,
-                scheduler: RunLoop.main
+                scheduler: DispatchQueue.main
             )
             .map { _ in () }
 
@@ -172,10 +296,10 @@ extension Workspace {
     /// as before.
     static func mergedImmediateObservationPublisher(for workspaces: [Workspace]) -> AnyPublisher<Void, Never> {
         Publishers.MergeMany(workspaces.map { $0.sidebarImmediateObservationPublisher })
-            .receive(on: RunLoop.main)
+            .receive(on: DispatchQueue.main)
             .coalesceLatest(
                 for: sidebarImmediateObservationCoalesceInterval,
-                scheduler: RunLoop.main
+                scheduler: DispatchQueue.main
             )
             .eraseToAnyPublisher()
     }

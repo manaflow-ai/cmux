@@ -149,6 +149,31 @@ extension RemoteTmuxControlConnection {
     }
 
 
+    /// The exact `refresh-client -B` line that subscribes `windowId`'s
+    /// `pane-border-status`. Same load-bearing quoting as
+    /// ``panePathSubscriptionCommand(paneId:)``.
+    static func windowBorderStatusSubscriptionCommand(windowId: Int) -> String {
+        "refresh-client -B \"\(borderStatusSubscriptionPrefix)\(windowId):@\(windowId):#{pane-border-status}\""
+    }
+
+
+    /// Subscribes to live `pane-border-status` changes for `windowId` — the only
+    /// layout input tmux mutates silently. See
+    /// ``RemoteTmuxControlConnection/borderStatusSubscriptionPrefix`` for why a
+    /// subscription is the only event-driven way to see it.
+    func subscribeWindowBorderStatus(windowId: Int) {
+        send(Self.windowBorderStatusSubscriptionCommand(windowId: windowId))
+    }
+
+
+    /// Removes `windowId`'s `pane-border-status` subscription (issued once the
+    /// window is gone), mirroring ``unsubscribePanePath(paneId:)``.
+    func unsubscribeWindowBorderStatus(windowId: Int) {
+        send("refresh-client -B \(Self.borderStatusSubscriptionPrefix)\(windowId)")
+        borderStatusByWindow.removeValue(forKey: windowId)
+    }
+
+
     /// The `list-panes` line behind ``queryWindowActivity(windowId:completion:)``.
     static func windowActivityQueryCommand(windowId: Int) -> String {
         "list-panes -t @\(windowId) -F \"\(activityQueryFormat)\""

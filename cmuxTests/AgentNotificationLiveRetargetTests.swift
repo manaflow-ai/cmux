@@ -1,5 +1,6 @@
 import AppKit
 import CmuxControlSocket
+import CmuxCore
 import Testing
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -176,6 +177,48 @@ extension AgentNotificationRegressionTests {
     }
 
     @Test
+    func testRelayTTYResolutionStaysInsideAuthenticatedWorkspace() throws {
+        let fixture = try makeLiveRetargetFixture()
+        defer { fixture.restore() }
+
+        let remoteConfiguration = WorkspaceRemoteConfiguration(
+            destination: "example.invalid",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil
+        )
+        fixture.claimedWorkspace.remoteConfiguration = remoteConfiguration
+        fixture.owningWorkspace.remoteConfiguration = remoteConfiguration
+        let siblingPanelID = try #require(fixture.claimedWorkspace.focusedPanelId)
+        fixture.claimedWorkspace.trackRemoteTerminalSurface(siblingPanelID)
+        fixture.owningWorkspace.trackRemoteTerminalSurface(fixture.panelId)
+        fixture.claimedWorkspace.registerReportedSurfaceTTYName("0", panelId: siblingPanelID)
+        fixture.owningWorkspace.registerReportedSurfaceTTYName("0", panelId: fixture.panelId)
+
+        let result = TerminalController.shared.v2AgentResolveDeliveryTarget(params: [
+            "tty_name": "0",
+            "tty_resolution": "reported_tty",
+            "workspace_id": fixture.claimedWorkspace.id.uuidString,
+            "_cmux_remote_workspace_id": fixture.owningWorkspace.id.uuidString,
+        ])
+        guard case .ok(let payload) = result,
+              let target = payload as? [String: Any] else {
+            Issue.record("Expected authenticated relay TTY resolution, got \(result)")
+            return
+        }
+        #expect(target["source"] as? String == "tty")
+        #expect(target["tty_resolution"] as? String == "reported_tty")
+        #expect(target["workspace_id"] as? String == fixture.owningWorkspace.id.uuidString)
+        #expect(target["surface_id"] as? String == fixture.panelId.uuidString)
+    }
+
+    @Test
     func testSurfaceScopedClearDiscardsStaleKeyedPendingNotification() throws {
         let fixture = try makeLiveRetargetFixture()
         defer { fixture.restore() }
@@ -335,6 +378,35 @@ extension AgentNotificationRegressionTests {
     }
 
     @Test
+    func testMobileTerminalResolutionFollowsMovedSurface() throws {
+        let fixture = try makeLiveRetargetFixture()
+        defer { fixture.restore() }
+
+        // The reply relay carries the workspace captured when the notification
+        // was created, but the surface may have moved (or the workspace may
+        // have been recreated) before the Mac sweeps the inbox. The stable
+        // surface identity must select its current workspace.
+        let routed = fixture.appDelegate.phoneReplyTerminalInputParams([
+            "workspace_id": fixture.claimedWorkspace.id.uuidString,
+            "surface_id": fixture.panelId.uuidString,
+        ], retargetsToLiveSurfaceOwner: true)
+
+        #expect(
+            routed?["workspace_id"] as? String == fixture.owningWorkspace.id.uuidString
+        )
+        #expect(routed?["surface_id"] as? String == fixture.panelId.uuidString)
+
+        let confined = fixture.appDelegate.phoneReplyTerminalInputParams([
+            "workspace_id": fixture.claimedWorkspace.id.uuidString,
+            "surface_id": fixture.panelId.uuidString,
+        ], retargetsToLiveSurfaceOwner: false)
+        #expect(
+            confined?["workspace_id"] as? String == fixture.claimedWorkspace.id.uuidString,
+            "A workspace-confined reply must not follow a moved surface"
+        )
+    }
+
+    @Test
     func testCreateForTargetRejectsSurfaceOutsideClaimedWorkspace() throws {
         let fixture = try makeLiveRetargetFixture()
         defer { fixture.restore() }
@@ -384,13 +456,20 @@ extension AgentNotificationRegressionTests {
             surfaceID: nil,
             paneID: nil
         )
-        #expect(TerminalController.shared.controlNotificationCreate(
+        let primaryResolution = TerminalController.shared.controlNotificationCreate(
             routing: routing,
             explicitSurfaceID: fixture.panelId,
             title: "Primary notify",
             subtitle: "",
             body: "Body"
-        ) == .delivered(workspaceID: fixture.owningWorkspace.id, surfaceID: fixture.panelId))
+        )
+        guard case .delivered(let primaryWorkspaceID, let primarySurfaceID, let primaryNotificationID) = primaryResolution else {
+            Issue.record("Expected a delivered primary notification, got \(primaryResolution)")
+            return
+        }
+        #expect(primaryWorkspaceID == fixture.owningWorkspace.id)
+        #expect(primarySurfaceID == fixture.panelId)
+        #expect(primaryNotificationID != nil)
         let resolution = TerminalController.shared.controlNotificationCreateForSurface(
             routing: routing,
             surfaceID: fixture.panelId,
@@ -398,7 +477,7 @@ extension AgentNotificationRegressionTests {
             subtitle: "",
             body: "Body"
         )
-        guard case .delivered(let workspaceID, let surfaceID, _) = resolution else {
+        guard case .delivered(let workspaceID, let surfaceID, _, _) = resolution else {
             Issue.record("A moved surface must be re-homed, not rejected; got \(resolution)")
             return
         }
@@ -464,7 +543,7 @@ extension AgentNotificationRegressionTests {
     @Test
     func testTTYDeviceMatchRequiresUniqueSurface() throws {
         let workspace = Workspace(), panel = try #require(workspace.focusedPanelId)
-        workspace.surfaceTTYNames[panel] = "/dev/null"
+        workspace.registerReportedSurfaceTTYName("/dev/null", panelId: panel)
         #expect(workspace.surfaceTTYDevices[panel] == CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: "/dev/null"))
         let w1 = UUID(), s1 = UUID(), w2 = UUID(), s2 = UUID()
         let bindings: [(workspaceId: UUID, surfaceId: UUID, ttyDevice: Int64)] = [

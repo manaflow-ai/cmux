@@ -1,15 +1,23 @@
 import AppKit
 import QuartzCore
+import SwiftUI
 
 final class GPUSpinnerNSView: NSView {
-    private static let animationKey = "cmux.gpuSpinner.rotation"
+    static let animationKey = "cmux.gpuSpinner.rotation"
     private static let spokeCount = 8
     private static let cycleDuration: CFTimeInterval = 0.8
     private static let arcDuration: CFTimeInterval = 0.9
 
-    private let contentLayer = CALayer()
+    let contentLayer = CALayer()
     private var spokeLayers: [CALayer] = []
     private let arcLayer = CAShapeLayer()
+
+    var isPresentationActive = true {
+        didSet {
+            guard isPresentationActive != oldValue else { return }
+            updateAnimationState()
+        }
+    }
 
     var style: GPUSpinnerStyle = .macOSSpokes {
         didSet {
@@ -20,6 +28,14 @@ final class GPUSpinnerNSView: NSView {
 
     var color: NSColor = .secondaryLabelColor {
         didSet { applyColor() }
+    }
+
+    /// Concrete cmux scheme used to resolve semantic spinner colors.
+    var colorScheme: ColorScheme = .light {
+        didSet {
+            guard colorScheme != oldValue else { return }
+            applyColor()
+        }
     }
 
     override init(frame frameRect: NSRect) {
@@ -124,9 +140,10 @@ final class GPUSpinnerNSView: NSView {
 
     private func applyColor() {
         var cg = CGColor(gray: 0.6, alpha: 1)
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            cg = Self.resolvedCGColor(color)
-        }
+        cg = Self.resolvedCGColor(
+            SidebarAppearanceColorResolver().resolvedColor(color, for: colorScheme),
+            colorScheme: colorScheme
+        )
         switch style {
         case .macOSSpokes:
             for spoke in spokeLayers {
@@ -168,13 +185,8 @@ final class GPUSpinnerNSView: NSView {
         updateAnimationState()
     }
 
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        // Re-resolve snapshotted semantic colors on light/dark switches.
-        applyColor()
-    }
-
     private var shouldAnimate: Bool {
+        guard isPresentationActive else { return false }
         guard let window else { return false }
         guard window.occlusionState.contains(.visible) else { return false }
         if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion { return false }
@@ -227,9 +239,11 @@ final class GPUSpinnerNSView: NSView {
         }
     }
 
-    private static func resolvedCGColor(_ color: NSColor) -> CGColor {
+    private static func resolvedCGColor(_ color: NSColor, colorScheme: ColorScheme) -> CGColor {
         color.usingColorSpace(.deviceRGB)?.cgColor
-            ?? NSColor.secondaryLabelColor.usingColorSpace(.deviceRGB)?.cgColor
+            ?? SidebarAppearanceColorResolver()
+                .resolvedColor(.secondaryLabelColor, for: colorScheme)
+                .usingColorSpace(.deviceRGB)?.cgColor
             ?? CGColor(gray: 0.6, alpha: 1)
     }
 }

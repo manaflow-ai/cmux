@@ -119,7 +119,7 @@ final class FakeProxyTunnel: RemoteProxyTunneling, @unchecked Sendable {
             token: "tok",
             sessionID: sessionID,
             lifecycleID: lifecycleID,
-            attachmentID: attachmentID
+            attachmentID: attachmentID, daemonVersion: nil
         )
     }
 
@@ -190,7 +190,7 @@ final class FakeTunnelProvider: RemoteProxyTunnelProviding, @unchecked Sendable 
     }
 }
 
-private final class FakeManagedCloudEndpointRefresher: ManagedCloudDaemonEndpointRefreshing, @unchecked Sendable {
+private final class FakeManagedCloudEndpointRefresher: @unchecked Sendable {
     private let endpoint: WorkspaceRemoteWebSocketDaemonEndpoint
     private let lock = NSLock()
     private var _requestedVMIDs: [String] = []
@@ -375,6 +375,9 @@ struct RemoteProxyBrokerTests {
         let first = makeManagedWebSocketConfiguration(token: "old-token", expiresAtUnix: 100)
         let renewed = makeManagedWebSocketConfiguration(token: "new-token", expiresAtUnix: 200)
 
+        #expect(first.hasSamePersistentPTYIdentity(as: renewed))
+        #expect(first.persistentPTYIdentityLookupKeys == renewed.persistentPTYIdentityLookupKeys)
+
         let leaseA = broker.acquire(configuration: first, remotePath: "/usr/local/bin/cmuxd-remote") { _ in }
         defer { leaseA.release() }
         let leaseB = broker.acquire(configuration: renewed, remotePath: "/usr/local/bin/cmuxd-remote") { _ in }
@@ -537,9 +540,13 @@ struct RemoteProxyBrokerTests {
         let refresher = FakeManagedCloudEndpointRefresher(endpoint: renewedEndpoint)
         let broker = RemoteProxyBroker(
             tunnelProvider: provider,
-            endpointRefresher: refresher,
             clock: clock
         )
+        broker.configurationRefresher = { configuration in
+            guard let vmID = configuration.managedCloudVMID,
+                  let endpoint = try? await refresher.refreshDaemonEndpoint(managedCloudVMID: vmID) else { return nil }
+            return configuration.withDaemonWebSocketEndpoint(endpoint)
+        }
         let configuration = makeManagedWebSocketConfiguration(token: "expired-token", expiresAtUnix: 100)
 
         let lease = broker.acquire(configuration: configuration, remotePath: "/usr/local/bin/cmuxd-remote") { _ in }

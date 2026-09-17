@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import SwiftUI
 
 extension View {
@@ -11,54 +12,46 @@ extension View {
         #endif
     }
 
-    /// Translucent "liquid glass" navigation chrome for the terminal detail
-    /// screen: the system bar material (Liquid Glass on iOS 26+, the translucent
-    /// blur bar on iOS 18) lets the terminal / chat behind it show through,
-    /// instead of the previous opaque terminal-colored fill.
+    /// Terminal-colored navigation chrome for the terminal detail screen.
+    /// The selected surface's theme is explicit so both the bar fill and system
+    /// glyph contrast repaint when a live render-grid theme changes.
     ///
-    /// iOS 26: clear the bar's own background so the pane shows through the whole
-    /// header. The readable "liquid glass" then comes from per-element glass —
-    /// toolbar buttons get it automatically, and the title is wrapped in an
-    /// explicit Liquid Glass capsule (`mobileGlassNavigationTitle`) so it stays
-    /// legible over busy terminal text instead of floating bare.
-    ///
-    /// iOS 18 has no per-element glass, so keep a translucent material bar as the
-    /// backing (which also backs the title); `mobileGlassNavigationTitle` is a
-    /// no-op there. Keep the dark color scheme so the title and toolbar buttons
-    /// stay light and legible over the dark panes.
+    /// `scrollEdgeGlass` selects the iOS 26 scroll-edge treatment: the bar
+    /// keeps its system glass (no opaque fill) so the terminal's scroll-edge
+    /// band — live scrollback rows rendered under the bar — shows through
+    /// the scroll edge effect's progressive blur. Glyph contrast still
+    /// follows the terminal theme. Callers pass `false` for non-terminal
+    /// surfaces and on OS versions without scroll edge effects, keeping the
+    /// opaque themed bar.
     @ViewBuilder
-    func mobileTerminalNavigationChrome() -> some View {
+    func mobileTerminalNavigationChrome(
+        theme: TerminalTheme? = nil,
+        scrollEdgeGlass: Bool = false
+    ) -> some View {
         #if os(iOS)
-        if #available(iOS 26.0, *) {
+        let colorScheme = theme.map { $0.terminalColorScheme } ?? .dark
+        if scrollEdgeGlass {
+            // No explicit bar background: the system glass stays, and the
+            // scroll edge effect provides legibility over the band.
             self
                 .navigationBarTitleDisplayMode(.inline)
-                .toolbarBackground(.hidden, for: .navigationBar)
-                .toolbarColorScheme(.dark, for: .navigationBar)
+                .toolbarColorScheme(colorScheme, for: .navigationBar)
+        } else if let theme {
+            self
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbarBackground(theme.terminalBackgroundColor, for: .navigationBar)
+                .toolbarBackground(.visible, for: .navigationBar)
+                .toolbarColorScheme(colorScheme, for: .navigationBar)
         } else {
             self
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
                 .toolbarBackground(.visible, for: .navigationBar)
-                .toolbarColorScheme(.dark, for: .navigationBar)
+                .toolbarColorScheme(colorScheme, for: .navigationBar)
         }
         #else
         self
         #endif
     }
 
-    /// Keeps the legacy chat top gap on pre-iOS 26 material bars. On iOS 26 the
-    /// UIKit chat controller handles the top underlap for native scroll-edge
-    /// blending, so the host should not add an extra spacer.
-    @ViewBuilder
-    func mobileChatTopScrollEdgeLayout(legacyTopPadding length: CGFloat) -> some View {
-        #if os(iOS)
-        if #available(iOS 26.0, *) {
-            self
-        } else {
-            self.safeAreaPadding(.top, length)
-        }
-        #else
-        self
-        #endif
-    }
 }

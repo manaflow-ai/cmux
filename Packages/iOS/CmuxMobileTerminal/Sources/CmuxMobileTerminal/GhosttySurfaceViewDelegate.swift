@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import CMUXMobileCore
+import CmuxMobileTerminalKit
 import Foundation
 import UIKit
 
@@ -9,6 +10,12 @@ import UIKit
 /// surface coordinator; harnesses and tests provide scripted conformers.
 @MainActor
 public protocol GhosttySurfaceViewDelegate: AnyObject {
+    /// The UIKit view entered or left a window.
+    ///
+    /// A host must use this boundary to start and stop any remote output or
+    /// viewport ownership. SwiftUI can retain a representable after removing
+    /// its view from the window, so dismantle alone is not a mount boundary.
+    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didChangeWindowAttachment isAttached: Bool)
     /// Bytes the phone wants to send TO the PTY (typing, paste, mouse
     /// reports). The host forwards them to the Mac, which writes them into
     /// its libghostty surface and down the shared PTY.
@@ -24,11 +31,27 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
     /// (sign = direction), `col`/`row` is the grid cell under the finger (so
     /// alt-screen mouse-wheel reports at the right cell). Optional.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int)
+    /// Whether the phone owns primary-screen scrolling for this surface: the
+    /// same confirmed-primary screen-anchored condition that suppresses the
+    /// Mac scroll RPC. Gates the local mirror's pixel-precise scroll path.
+    /// Optional.
+    func ghosttySurfaceViewOwnsLocalPrimaryScreenScroll(_ surfaceView: GhosttySurfaceView) -> Bool
+    /// Resolves immediate input ownership from a generation-stamped artifact cache.
+    /// Hosts defer when the cache is missing, stale, or contains a candidate.
+    func ghosttySurfaceView(
+        _ surfaceView: GhosttySurfaceView,
+        inputPolicyForTapAtCol col: Int,
+        row: Int
+    ) -> TerminalInputTapIntent
     /// Forward a tap to the Mac's real surface as a left click at the given grid
     /// cell, so TUIs with mouse reporting (lazygit/htop/fzf) receive the click.
     /// The Mac's libghostty self-gates: a normal screen treats it as a harmless
     /// empty selection. Optional.
-    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didTapAtCol col: Int, row: Int)
+    func ghosttySurfaceView(
+        _ surfaceView: GhosttySurfaceView,
+        didTapAtCol col: Int,
+        row: Int
+    ) async -> GhosttySurfaceTapDisposition
     /// The user tapped the "customize" button at the end of the input-accessory
     /// bar; the host should present the toolbar shortcuts editor. Optional.
     func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView)
@@ -53,6 +76,16 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
     /// path into the terminal so a running TUI (e.g. Claude Code) attaches it.
     /// `format` is a lowercase file-extension hint (e.g. `"png"`). Optional.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String)
+    /// A fixed, privacy-safe terminal toolbar control was used.
+    func ghosttySurfaceView(
+        _ surfaceView: GhosttySurfaceView,
+        didUseToolbarAction action: TerminalToolbarDiagnosticAction
+    )
+    /// The terminal's user zoom changed through a fixed control path.
+    func ghosttySurfaceView(
+        _ surfaceView: GhosttySurfaceView,
+        didChangeZoom action: TerminalZoomDiagnosticAction
+    )
     /// The composer accessory button was tapped; the host should toggle the
     /// iMessage-style composer above the terminal. Optional.
     ///
@@ -70,15 +103,37 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
     /// The local Ghostty render pipeline was rebuilt after a stuck render/output
     /// operation. The host should replay authoritative terminal state.
     func ghosttySurfaceViewDidResetRenderPipeline(_ surfaceView: GhosttySurfaceView)
+    /// The mounted output consumer exhausted its bounded restart budget. The
+    /// host should give the user an explicit retry/remount action instead of
+    /// silently leaving the terminal without a stream.
+    func ghosttySurfaceViewDidExhaustOutputConsumerRecovery(_ surfaceView: GhosttySurfaceView)
 }
 
 /// Default no-op implementations for the optional delegate requirements, so
 /// hosts only implement the surfaces they actually route.
 public extension GhosttySurfaceViewDelegate {
+    /// Default no-op so hosts without window-scoped resources can ignore it.
+    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didChangeWindowAttachment isAttached: Bool) {}
     /// Default no-op so hosts without remote scroll forwarding can ignore it.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int) {}
-    /// Default no-op so hosts without remote click forwarding can ignore it.
-    func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didTapAtCol col: Int, row: Int) {}
+    /// Default false so hosts without screen-anchored sessions keep line units.
+    func ghosttySurfaceViewOwnsLocalPrimaryScreenScroll(_ surfaceView: GhosttySurfaceView) -> Bool { false }
+    /// Default to immediate input for hosts without artifact-path interception.
+    func ghosttySurfaceView(
+        _ surfaceView: GhosttySurfaceView,
+        inputPolicyForTapAtCol col: Int,
+        row: Int
+    ) -> TerminalInputTapIntent {
+        .immediateInput
+    }
+    /// Default terminal disposition so hosts without remote click forwarding retain input focus.
+    func ghosttySurfaceView(
+        _ surfaceView: GhosttySurfaceView,
+        didTapAtCol col: Int,
+        row: Int
+    ) async -> GhosttySurfaceTapDisposition {
+        .focusTerminal
+    }
     /// Default no-op so hosts without a toolbar editor can ignore the request.
     func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView) {}
     /// Default no-op so hosts without terminal artifacts can ignore the request.
@@ -95,11 +150,24 @@ public extension GhosttySurfaceViewDelegate {
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didChangeVisibleArtifactCount count: Int) {}
     /// Default no-op so hosts without image upload can ignore pasted images.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String) {}
+    /// Default no-op so hosts without diagnostics can ignore toolbar actions.
+    func ghosttySurfaceView(
+        _ surfaceView: GhosttySurfaceView,
+        didUseToolbarAction action: TerminalToolbarDiagnosticAction
+    ) {}
+    /// Default no-op so hosts without diagnostics can ignore zoom changes.
+    func ghosttySurfaceView(
+        _ surfaceView: GhosttySurfaceView,
+        didChangeZoom action: TerminalZoomDiagnosticAction
+    ) {}
     /// Default no-op so hosts without a composer can ignore the toggle request.
     func ghosttySurfaceViewDidRequestComposerToggle(_ surfaceView: GhosttySurfaceView) {}
     /// Default no-op so hosts without a composer can ignore the focus request.
     func ghosttySurfaceViewDidRequestComposerFocus(_ surfaceView: GhosttySurfaceView) {}
     /// Default no-op so hosts without terminal-output replay can ignore renderer resets.
     func ghosttySurfaceViewDidResetRenderPipeline(_ surfaceView: GhosttySurfaceView) {}
+    /// Default no-op so hosts without terminal-output recovery chrome can
+    /// ignore an exhausted stream.
+    func ghosttySurfaceViewDidExhaustOutputConsumerRecovery(_ surfaceView: GhosttySurfaceView) {}
 }
 #endif

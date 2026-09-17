@@ -1,40 +1,41 @@
 import CmuxSettings
+import CmuxSidebar
+import CmuxSidebarGit
 import Foundation
 
 typealias RightSidebarWidthSettings = CmuxSettings.RightSidebarWidthSettings
 
 enum SidebarWorkspaceDetailDefaults {
-    static let showBranchDirectoryKey = "sidebarShowBranchDirectory"
-    static let showPullRequestsKey = "sidebarShowPullRequest"
-    static let watchGitStatusKey = "sidebarWatchGitStatus"
-    static let showSSHKey = "sidebarShowSSH"
-    static let showPortsKey = "sidebarShowPorts"
-    static let showLogKey = "sidebarShowLog"
-    static let showProgressKey = "sidebarShowProgress"
-    static let showAgentActivityKey = "sidebarShowAgentActivity"
-    static let showCustomMetadataKey = "sidebarShowStatusPills"
+    private static let sidebar = SidebarCatalogSection()
 
-    static let showBranchDirectory = true
-    static let showPullRequests = true
-    static let watchGitStatus = true
-    static let showSSH = true
-    static let showPorts = true
-    static let showLog = true
-    static let showProgress = true
-    static let showAgentActivity = true
-    static let showCustomMetadata = true
+    static let showBranchDirectoryKey = sidebar.showBranchDirectory.userDefaultsKey
+    static let showPullRequestsKey = sidebar.showPullRequests.userDefaultsKey
+    static let watchGitStatusKey = sidebar.watchGitStatus.userDefaultsKey
+    static let showSSHKey = sidebar.showSSH.userDefaultsKey
+    static let showPortsKey = sidebar.showPorts.userDefaultsKey
+    static let showLogKey = sidebar.showLog.userDefaultsKey
+    static let showProgressKey = sidebar.showProgress.userDefaultsKey
+    static let showAgentActivityKey = sidebar.showAgentActivity.userDefaultsKey
+    static let showCustomMetadataKey = sidebar.showCustomMetadata.userDefaultsKey
+
+    static let showBranchDirectory = sidebar.showBranchDirectory.defaultValue
+    static let showPullRequests = sidebar.showPullRequests.defaultValue
+    static let watchGitStatus = sidebar.watchGitStatus.defaultValue
+    static let showSSH = sidebar.showSSH.defaultValue
+    static let showPorts = sidebar.showPorts.defaultValue
+    static let showLog = sidebar.showLog.defaultValue
+    static let showProgress = sidebar.showProgress.defaultValue
+    static let showAgentActivity = sidebar.showAgentActivity.defaultValue
+    static let showCustomMetadata = sidebar.showCustomMetadata.defaultValue
 }
 
 enum SidebarWorkspaceTitleWrapSettings {
-    static let key = "sidebarWrapWorkspaceTitles"
-    static let defaultWrap = false
+    private static let setting = SidebarCatalogSection().wrapWorkspaceTitles
+    static let key = setting.userDefaultsKey
+    static let defaultWrap = setting.defaultValue
 
     static func wraps(defaults: UserDefaults = .standard) -> Bool {
-        SidebarWorkspaceDetailDefaults.boolValue(
-            defaults: defaults,
-            key: key,
-            defaultValue: defaultWrap
-        )
+        UserDefaultsSettingsClient(defaults: defaults).value(for: setting)
     }
 }
 
@@ -47,15 +48,52 @@ extension SidebarWorkspaceDetailDefaults {
     }
 
     static func showPullRequestsValue(defaults: UserDefaults) -> Bool {
-        boolValue(defaults: defaults, key: showPullRequestsKey, defaultValue: showPullRequests)
+        UserDefaultsSettingsClient(defaults: defaults).value(for: SidebarCatalogSection().showPullRequests)
+    }
+
+    static func showBranchDirectoryValue(defaults: UserDefaults) -> Bool {
+        UserDefaultsSettingsClient(defaults: defaults).value(for: SidebarCatalogSection().showBranchDirectory)
     }
 
     static func watchGitStatusValue(defaults: UserDefaults) -> Bool {
-        boolValue(defaults: defaults, key: watchGitStatusKey, defaultValue: watchGitStatus)
+        UserDefaultsSettingsClient(defaults: defaults).value(for: SidebarCatalogSection().watchGitStatus)
     }
 
-    static func pullRequestPollingEnabled(defaults: UserDefaults) -> Bool {
-        watchGitStatusValue(defaults: defaults) && showPullRequestsValue(defaults: defaults)
+    static func auxiliaryDetailVisibility(defaults: UserDefaults) -> SidebarWorkspaceAuxiliaryDetailVisibility {
+        let sidebar = SidebarCatalogSection()
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let details = SidebarWorkspaceDetailSettings(defaults: defaults)
+        return SidebarWorkspaceAuxiliaryDetailVisibility.resolved(
+            showMetadata: details.showCustomMetadata,
+            showLog: details.showLog,
+            showProgress: details.showProgress,
+            showBranchDirectory: details.showBranchDirectory,
+            showPullRequests: details.showPullRequests,
+            showPorts: details.showPorts,
+            hideAllDetails: settings.value(for: sidebar.hideAllDetails)
+        )
+    }
+
+    static func gitMetadataPollingEnabled(defaults: UserDefaults) -> Bool {
+        gitMetadataActivity(defaults: defaults).performsActivePolling
+    }
+
+    static func gitMetadataActivity(defaults: UserDefaults) -> SidebarGitMetadataActivity {
+        guard watchGitStatusValue(defaults: defaults) else {
+            return .disabled
+        }
+        return auxiliaryDetailVisibility(defaults: defaults).requiresGitMetadata
+            ? .activePolling
+            : .passiveReportsOnly
+    }
+
+    static func pullRequestActivity(defaults: UserDefaults) -> SidebarGitMetadataActivity {
+        guard watchGitStatusValue(defaults: defaults) else {
+            return .disabled
+        }
+        return auxiliaryDetailVisibility(defaults: defaults).requiresPullRequestPolling
+            ? .activePolling
+            : .passiveReportsOnly
     }
 }
 
@@ -99,6 +137,10 @@ enum AppSettingsFileMapping {
             invalidPath: "app.workspaceInheritWorkingDirectory"
         ),
         .init(jsonKey: "focusPaneOnFirstClick", defaultsKey: PaneFirstClickFocusSettings.enabledKey),
+        .init(
+            jsonKey: "focusHistoryIncludesPanesAndTabs",
+            defaultsKey: app.focusHistoryIncludesPanesAndTabs.userDefaultsKey
+        ),
         .init(
             jsonKey: "openSupportedFilesInCmux",
             defaultsKey: app.openSupportedFilesInCmux.userDefaultsKey
@@ -171,7 +213,14 @@ enum NotificationSettingsFileMapping {
 }
 
 enum TerminalSettingsFileMapping {
+    private static let terminal = TerminalCatalogSection()
+
     static let booleanSettings: [SettingsFileBooleanMapping] = [
+        .init(
+            jsonKey: "adaptiveDefaultTheme",
+            defaultsKey: terminal.adaptiveDefaultTheme.userDefaultsKey,
+            invalidPath: terminal.adaptiveDefaultTheme.id
+        ),
         .init(
             jsonKey: "showScrollBar",
             defaultsKey: TerminalScrollBarSettings.showScrollBarKey,
@@ -330,7 +379,7 @@ enum BrowserSettingsFileMapping {
         ),
         .init(
             jsonKey: "urlsToAlwaysOpenExternally",
-            defaultsKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey,
+            defaultsKey: BrowserExternalURLPolicy.userDefaultsKey,
             invalidPath: "browser.urlsToAlwaysOpenExternally"
         ),
         .init(
@@ -338,141 +387,10 @@ enum BrowserSettingsFileMapping {
             defaultsKey: BrowserInsecureHTTPSettings.allowlistKey,
             invalidPath: "browser.insecureHttpHostsAllowedInEmbeddedBrowser"
         ),
-    ]
-}
-
-extension CmuxSettingsFileStore {
-    // Keep this in sync with the parser below and the web schema/docs. Settings UI rows
-    // validate against this set so new persisted settings need an explicit cmux.json review.
-    static let supportedSettingsJSONPaths: Set<String> = [
-        PaneChromeSettings.paneBorderColorKey,
-        PaneChromeSettings.activePaneBorderColorKey,
-        "app.language",
-        "app.appearance",
-        "app.appIcon",
-        "app.windowTitleTemplate",
-        "app.menuBarOnly",
-        "app.newWorkspacePlacement",
-        "app.workspaceInheritWorkingDirectory",
-        "app.minimalMode",
-        "app.keepWorkspaceOpenWhenClosingLastSurface",
-        "app.focusPaneOnFirstClick",
-        "app.preferredEditor",
-        "app.openSupportedFilesInCmux",
-        "app.openMarkdownInCmuxViewer",
-        "app.iMessageMode",
-        "app.reorderOnNotification",
-        "app.sendAnonymousTelemetry",
-        "app.confirmQuit",
-        "app.warnBeforeQuit",
-        "app.warnBeforeClosingTab",
-        "app.warnBeforeClosingTabXButton",
-        "app.hideTabCloseButton",
-        "app.renameSelectsExistingName",
-        "app.commandPaletteSearchesAllSurfaces",
-        "workspaceGroups.newWorkspacePlacement",
-        "terminal.showScrollBar",
-        "terminal.scrollSpeed",
-        "terminal.copyOnSelect",
-        "terminal.autoResumeAgentSessions",
-        "terminal.showTextBoxOnNewTerminals",
-        "terminal.focusTextBoxOnNewTerminals",
-        "terminal.textBoxDefaultSubmitAction",
-        "terminal.textBoxSubmitActions",
-        "terminal.agentHibernation.enabled",
-        "terminal.agentHibernation.idleSeconds",
-        "terminal.agentHibernation.maxLiveTerminals",
-        "terminal.rendererRealization.enabled",
-        "terminal.rendererRealization.idleSeconds",
-        "terminal.rendererRealization.maxWarmRenderers",
-        "terminal.textBoxMaxLines",
-        "terminal.resumeCommands",
-        "terminal.uploadCommands",
-        "notifications.dockBadge",
-        "notifications.showInMenuBar",
-        "notifications.unreadPaneRing",
-        "notifications.paneFlash",
-        "notifications.sound",
-        "notifications.customSoundFilePath",
-        "notifications.command",
-        "notifications.hooks",
-        "notifications.hooksMode",
-        "notifications.suppressOnlyFocusedSurface",
-        "notifications.agentPermissionPrompt",
-        "notifications.agentTurnComplete",
-        "notifications.agentIdleReminder",
-        "sidebar.hideAllDetails",
-        "sidebar.wrapWorkspaceTitles",
-        "sidebar.showWorkspaceDescription",
-        "sidebar.beta.workspaceTodos.checklistStyle",
-        "sidebar.branchLayout",
-        "sidebar.stackBranchDirectory",
-        "sidebar.pathLastSegmentOnly",
-        "sidebar.showNotificationMessage",
-        "sidebar.notificationMessageLineLimit",
-        "sidebar.showBranchDirectory",
-        "sidebar.showPullRequests",
-        "sidebar.watchGitStatus",
-        "sidebar.makePullRequestsClickable",
-        "sidebar.openPullRequestLinksInCmuxBrowser",
-        "sidebar.openPortLinksInCmuxBrowser",
-        "sidebar.showSSH",
-        "sidebar.showPorts",
-        "sidebar.showLog",
-        "sidebar.showProgress",
-        "sidebar.showAgentActivity",
-        "sidebar.loadingSpinnerPosition",
-        "sidebar.notificationBadgePosition",
-        "sidebar.showCustomMetadata",
-        RightSidebarWidthSettings.settingsPath,
-        "workspaceColors.indicatorStyle",
-        "workspaceColors.selectionColor",
-        "workspaceColors.notificationBadgeColor",
-        "workspaceColors.colors",
-        "workspaceColors.paletteOverrides",
-        "workspaceColors.customColors",
-        "sidebarAppearance.matchTerminalBackground",
-        "sidebarAppearance.tintColor",
-        "sidebarAppearance.lightModeTintColor",
-        "sidebarAppearance.darkModeTintColor",
-        "sidebarAppearance.tintOpacity",
-        "automation.socketControlMode",
-        "automation.socketPassword",
-        "automation.claudeCodeIntegration",
-        "automation.claudeBinaryPath",
-        "automation.workspaceAutoNaming",
-        "automation.autoNamingAgent",
-        "automation.ripgrepBinaryPath",
-        "automation.suppressSubagentNotifications",
-        "automation.ampIntegration",
-        "automation.cursorIntegration",
-        "automation.geminiIntegration",
-        "automation.kiroIntegration",
-        "automation.kiroNotificationLevel",
-        "automation.portBase",
-        "automation.portRange",
-        "browser.defaultSearchEngine",
-        "browser.customSearchEngineName",
-        "browser.customSearchEngineURLTemplate",
-        "browser.showSearchSuggestions",
-        "browser.theme",
-        "browser.discardHiddenWebViews",
-        "browser.hiddenWebViewDiscardDelaySeconds",
-        "browser.askWhereToSaveDownloads",
-        "browser.openTerminalLinksInCmuxBrowser",
-        "browser.interceptTerminalOpenCommandInCmuxBrowser",
-        "browser.hostsToOpenInEmbeddedBrowser",
-        "browser.urlsToAlwaysOpenExternally",
-        "browser.insecureHttpHostsAllowedInEmbeddedBrowser",
-        "browser.showImportHintOnBlankTabs",
-        "browser.reactGrabVersion",
-        "markdown.fontSize",
-        "markdown.fontFamily",
-        "markdown.maxWidth",
-        "canvas.paneGap",
-        "canvas.snappingEnabled",
-        "fileEditor.wordWrap",
-        "fileExplorer.doubleClickAction",
-        "shortcuts.bindings",
+        .init(
+            jsonKey: "urlAllowlist",
+            defaultsKey: BrowserURLAllowlistPolicy.userDefaultsKey,
+            invalidPath: "browser.urlAllowlist"
+        ),
     ]
 }

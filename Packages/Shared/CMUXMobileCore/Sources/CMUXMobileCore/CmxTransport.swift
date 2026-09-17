@@ -344,7 +344,7 @@ public struct CmxAttachTicket: Codable, Equatable, Sendable {
         self.version = version
         self.workspaceID = workspaceID
         self.terminalID = terminalID
-        self.macDeviceID = macDeviceID
+        self.macDeviceID = cmxCanonicalDeviceID(macDeviceID)
         self.macDisplayName = macDisplayName
         self.macUserEmail = macUserEmail
         self.macUserID = macUserID
@@ -408,6 +408,75 @@ public protocol CmxByteTransport: Sendable {
     func receive() async throws -> Data?
     func send(_ data: Data) async throws
     func close() async
+}
+
+/// Optional privacy-safe identity for the exact native connection underneath a
+/// byte transport.
+///
+/// Release gates use this to prove that credential refresh did not replace a
+/// live transport. The value is process-local and must never be persisted or
+/// sent to a server.
+public protocol CmxByteTransportContinuityIdentifying: CmxByteTransport {
+    /// Returns a process-local identifier for the currently connected native
+    /// transport, or `nil` before connection or after teardown.
+    func transportContinuityID() async -> UInt64?
+}
+
+/// Optional privacy-safe link from a byte dial to the admitted transport
+/// session that backs it. The value is process-local and never leaves the
+/// diagnostic ring.
+public protocol CmxByteTransportDiagnosticSessionIdentifying: CmxByteTransport {
+    /// Returns the current admitted session ID, or `nil` before connection or
+    /// after the session has been released.
+    func transportDiagnosticSessionID() async -> Int?
+}
+
+/// A privacy-safe handle that waits for one exact native transport to close.
+///
+/// The handle captures the transport generation at creation time, so callers
+/// can retain it across owner teardown without accidentally observing a later
+/// replacement connection.
+public struct CmxTransportClosureObservation: Sendable {
+    private let waitUntilClosedOperation: @Sendable () async -> Void
+    private let cancelOperation: @Sendable () -> Void
+
+    /// Creates a cancellable observation of one exact transport generation.
+    /// `cancel` must release the observation's waiter without closing a
+    /// shared transport that may still be used by another lane. It defaults
+    /// to a no-op for source compatibility with the original initializer.
+    public init(
+        waitUntilClosed: @escaping @Sendable () async -> Void,
+        cancel: @escaping @Sendable () -> Void = {}
+    ) {
+        self.waitUntilClosedOperation = waitUntilClosed
+        self.cancelOperation = cancel
+    }
+
+    public func waitUntilClosed() async {
+        await withTaskCancellationHandler(operation: {
+            await waitUntilClosedOperation()
+        }, onCancel: {
+            cancelOperation()
+        })
+    }
+
+    /// Releases the observation waiter while leaving the shared transport open.
+    public func cancel() {
+        cancelOperation()
+    }
+}
+
+/// Optional close notification for the exact native transport currently
+/// installed underneath a byte transport.
+public protocol CmxByteTransportClosureObserving: CmxByteTransport {
+    func transportClosureObservation() async -> CmxTransportClosureObservation?
+}
+
+/// Optional activation notification for deferred transports. A watcher can
+/// wait once for the native transport to appear without polling forever.
+public protocol CmxByteTransportClosureObservationReadiness: CmxByteTransport {
+    /// Returns whether the activated transport supports closure observation.
+    func waitUntilTransportClosureObservationIsReady() async -> Bool
 }
 
 /// Independently framed server-event bytes delivered outside the RPC control stream.

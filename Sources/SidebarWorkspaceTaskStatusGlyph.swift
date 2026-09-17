@@ -1,4 +1,5 @@
 import CmuxWorkspaces
+import Foundation
 import SwiftUI
 
 // MARK: - Status display names
@@ -95,12 +96,94 @@ struct SidebarWorkspaceTaskStatusGlyphModel: Equatable {
     }
 }
 
+/// Policy for the sidebar row's restored status indicator. Rows only show a
+/// glyph for a human-set status while the remote todo-controls flag is on;
+/// inferred/automatic status stays out of the row chrome.
+struct SidebarWorkspaceManualTaskStatusIndicatorModel: Equatable {
+    let featureEnabled: Bool
+    let taskStatus: WorkspaceTaskStatus?
+    let hasManualOverride: Bool
+
+    var showsIndicator: Bool {
+        featureEnabled && hasManualOverride && taskStatus != nil
+    }
+}
+
+// MARK: - Row status menu
+
+/// The interactive wrapper used only by sidebar workspace rows with a
+/// manual status override. It keeps the restored row glyph compact while
+/// sending every selection through the shared workspace todo action path.
+struct SidebarWorkspaceManualStatusIndicatorMenu: View {
+    let status: WorkspaceTaskStatus
+    let model: SidebarWorkspaceCompactStatusMenuModel
+    let workspaceId: UUID
+    let applyTodoStatus: (WorkspaceTaskStatus?, [UUID]) -> Void
+    let hideTodoStatus: ([UUID]) -> Void
+    let usesMonochrome: Bool
+    let monochromeColor: Color
+    let neutralColor: Color
+    let fontScale: CGFloat
+
+    @State private var isStatusPopoverPresented = false
+
+    private var labelText: String {
+        String(localized: "sidebar.status.compactLabel", defaultValue: "Status: \(status.displayName)")
+    }
+
+    var body: some View {
+        Button {
+            isStatusPopoverPresented.toggle()
+        } label: {
+            SidebarWorkspaceTaskStatusGlyph(
+                status: status,
+                hasOverride: true,
+                usesMonochrome: usesMonochrome,
+                monochromeColor: monochromeColor,
+                neutralColor: neutralColor,
+                fontScale: fontScale
+            )
+            .padding(.horizontal, 2)
+            .padding(.vertical, 2)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(
+            SidebarWorkspaceTodoPopoverHost(
+                isPresented: $isStatusPopoverPresented,
+                model: SidebarWorkspaceStatusPopoverModel(
+                    inferred: model.inferred,
+                    activeOverride: model.activeOverride
+                ),
+                minWidth: 200,
+                maxHeight: 400,
+                preferredEdge: .maxY
+            ) { model, close in
+                SidebarWorkspaceStatusPopover(
+                    model: model,
+                    onSelectLane: { status in
+                        applyTodoStatus(status, [workspaceId])
+                    },
+                    onSelectNone: {
+                        hideTodoStatus([workspaceId])
+                    },
+                    onClose: close
+                )
+            }
+        )
+        .fixedSize(horizontal: true, vertical: true)
+        .safeHelp(String(localized: "sidebar.status.compactTooltip", defaultValue: "Change workspace status"))
+        .accessibilityLabel(labelText)
+        .accessibilityIdentifier("SidebarWorkspaceManualStatusIndicatorMenu")
+    }
+}
+
 // MARK: - Glyph view
 
 /// The custom-drawn circular progress-pie status glyph shown in the todo
-/// pane's header and the status popover's lane rows. Deliberately NOT drawn
-/// on sidebar workspace rows (the leading status circles were removed; see
-/// `SidebarWorkspaceRowStatusGlyphRemovalTests`). Drawn in a fixed-width slot
+/// pane's header, the status popover's lane rows, and the sidebar row only
+/// when a manual workspace status is set. Automatic status never draws a row
+/// glyph. Drawn in a fixed-width slot
 /// (~9pt base, font-scaled). Modeled on `PullRequestOpenIcon`/
 /// `PullRequestMergedIcon` (custom `Path` drawing, caller passes resolved
 /// colors; no store access).

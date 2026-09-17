@@ -44,16 +44,46 @@ extension TerminalController {
             return .missingAction
         }
 
-        guard let workspace = controlTabActionResolveWorkspace(routing: routing, tabManager: tabManager) else {
+        let resolvesMirroredTab = action == "rename"
+        let workspace = resolvesMirroredTab
+            ? resolveSurfaceWorkspace(routing: routing, tabManager: tabManager)
+            : controlTabActionResolveWorkspace(routing: routing, tabManager: tabManager)
+        guard let workspace else {
             return .workspaceNotFound
         }
 
-        let resolvedSurfaceId = surfaceID ?? workspace.focusedPanelId
+        let resolvedSurfaceId: UUID?
+        if let surfaceID {
+            resolvedSurfaceId = surfaceID
+        } else if resolvesMirroredTab,
+                  let paneID = routing.paneID,
+                  let location = workspace.remoteTmuxControlPane(paneID: paneID) {
+            resolvedSurfaceId = location.pane.panel.id
+        } else if resolvesMirroredTab {
+            resolvedSurfaceId = workspace.focusedPanelId.flatMap {
+                workspace.controlSurfaceProjection(forContainerPanelID: $0)?.surfaceID
+            }
+        } else {
+            resolvedSurfaceId = workspace.focusedPanelId
+        }
         guard let surfaceId = resolvedSurfaceId else {
             return .noFocusedTab
         }
-        guard workspace.panels[surfaceId] != nil else {
-            return .tabNotFound(surfaceID: surfaceId)
+
+        let panelId: UUID
+        let outcomePaneId: UUID?
+        if resolvesMirroredTab {
+            guard let tabTarget = workspace.controlTabTarget(for: surfaceId) else {
+                return .tabNotFound(surfaceID: surfaceId)
+            }
+            panelId = tabTarget.panelID
+            outcomePaneId = tabTarget.paneID
+        } else {
+            guard workspace.panels[surfaceId] != nil else {
+                return .tabNotFound(surfaceID: surfaceId)
+            }
+            panelId = surfaceId
+            outcomePaneId = workspace.paneId(forPanelId: surfaceId)?.id
         }
 
         let windowId = v2ResolveWindowId(tabManager: tabManager)
@@ -64,7 +94,7 @@ extension TerminalController {
                 workspaceID: workspace.id,
                 surfaceID: surfaceId,
                 windowID: windowId,
-                paneID: workspace.paneId(forPanelId: surfaceId)?.id,
+                paneID: outcomePaneId,
                 extras: extras
             ))
         }
@@ -108,34 +138,34 @@ extension TerminalController {
                 return .invalidTitle
             }
             let trimmedTitle = titleRaw.trimmingCharacters(in: .whitespacesAndNewlines)
-            workspace.setPanelCustomTitle(panelId: surfaceId, title: trimmedTitle)
+            workspace.setPanelCustomTitle(panelId: panelId, title: trimmedTitle)
             return finish(.title(trimmedTitle))
 
         case "clear_name":
-            workspace.setPanelCustomTitle(panelId: surfaceId, title: nil)
+            workspace.setPanelCustomTitle(panelId: panelId, title: nil)
             return finish(.none)
 
         case "pin":
-            workspace.setPanelPinned(panelId: surfaceId, pinned: true)
+            workspace.setPanelPinned(panelId: panelId, pinned: true)
             return finish(.pinned(true))
 
         case "unpin":
-            workspace.setPanelPinned(panelId: surfaceId, pinned: false)
+            workspace.setPanelPinned(panelId: panelId, pinned: false)
             return finish(.pinned(false))
 
         case "mark_read":
-            workspace.markPanelRead(surfaceId)
+            workspace.markPanelRead(panelId)
             return finish(.none)
 
         case "mark_unread", "mark_as_unread":
-            workspace.markPanelUnread(surfaceId)
+            workspace.markPanelUnread(panelId)
             return finish(.none)
 
         case "toggle_full_width_tab", "toggle_full_width", "toggle_full_width_tab_mode":
-            guard let paneId = workspace.paneId(forPanelId: surfaceId) else {
+            guard let paneId = workspace.paneId(forPanelId: panelId) else {
                 return .tabPaneNotFound
             }
-            guard workspace.toggleFullWidthTabMode(panelId: surfaceId) else {
+            guard workspace.toggleFullWidthTabMode(panelId: panelId) else {
                 return .fullWidthTabToggleFailed
             }
             return finish(.fullWidthTabMode(workspace.bonsplitController.isFullWidthTabMode(inPane: paneId)))
@@ -149,7 +179,7 @@ extension TerminalController {
                 params: foundationParams,
                 tabManager: tabManager,
                 workspace: workspace,
-                surfaceId: surfaceId
+                surfaceId: panelId
             ) {
             case let .ok(payload):
                 return .bridged(.ok(JSONValue(foundationObject: payload) ?? .object([:])))
@@ -162,14 +192,14 @@ extension TerminalController {
             }
 
         case "reload", "reload_tab":
-            guard let browserPanel = workspace.browserPanel(for: surfaceId) else {
+            guard let browserPanel = workspace.browserPanel(for: panelId) else {
                 return .reloadNotBrowser
             }
             browserPanel.reload()
             return finish(.none)
 
         case "duplicate", "duplicate_tab":
-            guard let browserPanel = workspace.browserPanel(for: surfaceId) else {
+            guard let browserPanel = workspace.browserPanel(for: panelId) else {
                 return .duplicateNotBrowser
             }
             guard BrowserAvailabilitySettings.isEnabled() else {
@@ -180,14 +210,14 @@ extension TerminalController {
                 ))
             }
 
-            guard let newPanel = workspace.duplicateBrowserToRight(panelId: surfaceId, focus: focus) else {
+            guard let newPanel = workspace.duplicateBrowserToRight(panelId: panelId, focus: focus) else {
                 return .duplicateFailed
             }
             return finish(.created(newPanel.id))
 
         case "new_terminal_right", "new_terminal_to_right", "new_terminal_tab_to_right":
-            guard let anchorTabId = workspace.surfaceIdFromPanelId(surfaceId),
-                  let paneId = workspace.paneId(forPanelId: surfaceId) else {
+            guard let anchorTabId = workspace.surfaceIdFromPanelId(panelId),
+                  let paneId = workspace.paneId(forPanelId: panelId) else {
                 return .tabPaneNotFound
             }
 
@@ -196,7 +226,7 @@ extension TerminalController {
                 inPane: paneId,
                 focus: focus,
                 inheritWorkingDirectoryFallback: true,
-                workingDirectoryFallbackSourcePanelId: surfaceId,
+                workingDirectoryFallbackSourcePanelId: panelId,
                 allowTextBoxFocusDefault: false
             ) {
             case .created(let newPanel):
@@ -211,8 +241,8 @@ extension TerminalController {
             }
 
         case "new_browser_right", "new_browser_to_right", "new_browser_tab_to_right":
-            guard let anchorTabId = workspace.surfaceIdFromPanelId(surfaceId),
-                  let paneId = workspace.paneId(forPanelId: surfaceId) else {
+            guard let anchorTabId = workspace.surfaceIdFromPanelId(panelId),
+                  let paneId = workspace.paneId(forPanelId: panelId) else {
                 return .tabPaneNotFound
             }
 
@@ -241,8 +271,8 @@ extension TerminalController {
             return finish(.created(newPanel.id))
 
         case "close_left", "close_to_left":
-            guard let anchorTabId = workspace.surfaceIdFromPanelId(surfaceId),
-                  let paneId = workspace.paneId(forPanelId: surfaceId) else {
+            guard let anchorTabId = workspace.surfaceIdFromPanelId(panelId),
+                  let paneId = workspace.paneId(forPanelId: panelId) else {
                 return .tabPaneNotFound
             }
             let tabs = workspace.bonsplitController.tabs(inPane: paneId)
@@ -254,8 +284,8 @@ extension TerminalController {
             return finish(.closed(closed: closeResult.closed, skippedPinned: closeResult.skippedPinned))
 
         case "close_right", "close_to_right":
-            guard let anchorTabId = workspace.surfaceIdFromPanelId(surfaceId),
-                  let paneId = workspace.paneId(forPanelId: surfaceId) else {
+            guard let anchorTabId = workspace.surfaceIdFromPanelId(panelId),
+                  let paneId = workspace.paneId(forPanelId: panelId) else {
                 return .tabPaneNotFound
             }
             let tabs = workspace.bonsplitController.tabs(inPane: paneId)
@@ -267,8 +297,8 @@ extension TerminalController {
             return finish(.closed(closed: closeResult.closed, skippedPinned: closeResult.skippedPinned))
 
         case "close_others", "close_other_tabs":
-            guard let anchorTabId = workspace.surfaceIdFromPanelId(surfaceId),
-                  let paneId = workspace.paneId(forPanelId: surfaceId) else {
+            guard let anchorTabId = workspace.surfaceIdFromPanelId(panelId),
+                  let paneId = workspace.paneId(forPanelId: panelId) else {
                 return .tabPaneNotFound
             }
             let targetIds = workspace.bonsplitController.tabs(inPane: paneId)
@@ -282,9 +312,9 @@ extension TerminalController {
         }
     }
 
-    // MARK: - Resolution helpers (private, file-scoped)
-
-    /// The routing-driven twin of the legacy `v2ResolveWorkspace(params:tabManager:)`.
+    /// Preserves the legacy workspace resolver for non-rename tab actions.
+    /// Remote tmux projections are window-tab aliases only for rename;
+    /// unrelated actions retain their existing workspace-panel semantics.
     private func controlTabActionResolveWorkspace(
         routing: ControlRoutingSelectors,
         tabManager: TabManager

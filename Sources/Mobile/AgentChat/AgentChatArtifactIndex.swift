@@ -5,7 +5,6 @@ import Foundation
 actor AgentChatArtifactIndex {
     struct Snapshot: Sendable {
         let referencedPaths: Set<String>
-        let scope: ChatArtifactScope
         let artifacts: [ChatArtifactIndexedReference]
         let generation: String
     }
@@ -37,7 +36,7 @@ actor AgentChatArtifactIndex {
         let snapshot: Snapshot
     }
 
-    private var cacheBySessionID: [String: CacheEntry] = [:]
+    private var cacheBySessionID = ChatArtifactLRUCache<String, CacheEntry>(capacity: 8)
 
     func snapshot(
         sessionID: String,
@@ -46,7 +45,7 @@ actor AgentChatArtifactIndex {
         workingDirectory: String?
     ) async throws -> Snapshot {
         let key = try Self.cacheKey(transcriptPath: transcriptPath, workingDirectory: workingDirectory)
-        if let cached = cacheBySessionID[sessionID], cached.key == key {
+        if let cached = cacheBySessionID.value(forKey: sessionID), cached.key == key {
             return cached.snapshot
         }
         let snapshot = try Self.buildSnapshot(
@@ -55,7 +54,7 @@ actor AgentChatArtifactIndex {
             workingDirectory: workingDirectory,
             generation: key.generation
         )
-        cacheBySessionID[sessionID] = CacheEntry(key: key, snapshot: snapshot)
+        cacheBySessionID.insert(CacheEntry(key: key, snapshot: snapshot), forKey: sessionID)
         return snapshot
     }
 
@@ -65,7 +64,8 @@ actor AgentChatArtifactIndex {
         transcriptPath: String,
         workingDirectory: String?,
         requestedPath: String,
-        operation: Operation
+        operation: Operation,
+        directoryAccessMode: ChatArtifactScope.DirectoryAccessMode
     ) async throws -> CanonicalPathResult {
         let snapshot = try await snapshot(
             sessionID: sessionID,
@@ -78,11 +78,16 @@ actor AgentChatArtifactIndex {
             return .canonicalizationFailed
         }
         let canonicalPath: String?
+        let scope = ChatArtifactScope(
+            referencedPaths: snapshot.referencedPaths,
+            directoryAccessMode: directoryAccessMode,
+            resolver: resolver
+        )
         switch operation {
         case .file:
-            canonicalPath = snapshot.scope.canonicalFilePath(for: requestedPath)
+            canonicalPath = scope.canonicalFilePath(for: requestedPath)
         case .list:
-            canonicalPath = snapshot.scope.canonicalDirectoryListPath(for: requestedPath)
+            canonicalPath = scope.canonicalDirectoryListPath(for: requestedPath)
         }
         return canonicalPath.map(CanonicalPathResult.success) ?? .notInSet
     }
@@ -123,10 +128,6 @@ actor AgentChatArtifactIndex {
         let referencedPaths = Set(artifacts.map(\.path))
         return Snapshot(
             referencedPaths: referencedPaths,
-            scope: ChatArtifactScope(
-                referencedPaths: referencedPaths,
-                resolver: ChatArtifactScope.FoundationResolver()
-            ),
             artifacts: artifacts,
             generation: generation
         )

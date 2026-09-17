@@ -27,11 +27,11 @@ import Testing
             dividerThickness: 1
         )
 
-        // Placement slack belongs to the native divider plan, not the tmux
-        // claim. Width has no chrome; height is two 30pt tab bars minus the
-        // divider-for-separator credit (1 − 10): 800/10 → 80,
-        // (300 − 51)/10 → 24.
-        #expect(grid?.columns == 80)
+        // The claim charges chrome plus one rail-slack point per pane (the
+        // widest child on the cross axis). Width: (800 − 1)/10 → 79; height
+        // is two (30pt tab bar + 1pt slack) minus the divider-for-separator
+        // credit (1 − 10): (300 − 53)/10 → 24.
+        #expect(grid?.columns == 79)
         #expect(grid?.rows == 24)
     }
 
@@ -52,10 +52,10 @@ import Testing
             dividerThickness: 1
         )
 
-        // Width chrome: 0 + 0 + (1 − 10) = −9 → (800 + 9)/10 → 80;
-        // height is one real 30pt tab bar: (300 − 30)/10 → 27.
+        // Width chrome: two slack points + (1 − 10) = −7 → (800 + 7)/10 → 80;
+        // height is one 30pt tab bar + 1pt slack: (300 − 31)/10 → 26.
         #expect(grid?.columns == 80)
-        #expect(grid?.rows == 27)
+        #expect(grid?.rows == 26)
     }
 
     @Test func mixedTreeSubtractsWorstPathChrome() throws {
@@ -234,6 +234,123 @@ import Testing
         ))
         #expect(positive.secondCarry == 0.5)
         #expect(negative.secondCarry == -0.5)
+    }
+
+
+    /// A mirror wired exactly like production (`nativeLayoutMetrics()` from
+    /// calibrated geometry and its own embedded bonsplit appearance), whose
+    /// tmux assignment forces a pane under bonsplit's rendered floor.
+    @MainActor
+    private func makeFloorMirror(
+        layout: RemoteTmuxLayoutNode
+    ) -> (mirror: RemoteTmuxWindowMirror, connection: RemoteTmuxControlConnection) {
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"), sessionName: "work"
+        )
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 0,
+            panelId: UUID(),
+            connection: connection,
+            layout: layout,
+            geometrySource: {
+                RemoteTmuxMirrorGeometry(
+                    cellWidthPx: 16, cellHeightPx: 34,
+                    surfacePadWidthPx: 8, surfacePadHeightPx: 0,
+                    scale: 2
+                )
+            },
+            makePanel: { _ in nil }
+        )
+        return (mirror, connection)
+    }
+
+    /// The plan must never grant a pane an extent the renderer cannot apply.
+    /// bonsplit's pane chrome refuses widths under 32pt — the embedded config
+    /// asks for a 1pt minimum, but the tab-bar controls' required constraints
+    /// hold the floor (observed live: plan=21x192 rendered at 32x192, and
+    /// plan=13x381 at 32x380) — so a sub-32pt planned extent is permanently
+    /// unappliable: the imposition clamps forever and the outcome never
+    /// matches the target. A 2-cell tmux pane at 8pt cells ideals out to 21pt
+    /// (16 + 4 padding + 1 slack); the plan must lift it to the floor and
+    /// take the shortfall from its sibling, keeping the split's sum exact.
+    @Test @MainActor func planLiftsSubFloorPaneExtentsToTheRenderedFloor() throws {
+        let layout = RemoteTmuxLayoutNode(
+            width: 123, height: 35, x: 0, y: 0,
+            content: .horizontal([
+                RemoteTmuxLayoutNode(width: 2, height: 35, x: 0, y: 0, content: .pane(1)),
+                RemoteTmuxLayoutNode(width: 120, height: 35, x: 3, y: 0, content: .pane(2)),
+            ])
+        )
+        let (mirror, _) = makeFloorMirror(layout: layout)
+        let metrics = try #require(mirror.nativeLayoutMetrics())
+        let overhead = metrics.residual(of: layout)
+        let container = CGSize(
+            width: 123 * metrics.cellSize.width + overhead.width,
+            height: 35 * metrics.cellSize.height + overhead.height
+        )
+        let planner = RemoteTmuxNativeSplitLayoutPlanner(metrics: metrics)
+        let plan = planner.plan(
+            tree: RemoteTmuxNativeMeasuredSplitTree(
+                tree: RemoteTmuxNativeSplitTree(layout: layout),
+                metrics: metrics
+            ),
+            parentSize: container
+        )
+        let outers = planner.outerSizes(of: plan)
+        let first = try #require(outers[1])
+        let second = try #require(outers[2])
+        #expect(
+            first.width >= 32,
+            "planned \(first.width)pt for the 2-cell pane — below the 32pt rendered floor, an unappliable plan"
+        )
+        #expect(
+            abs(first.width + metrics.dividerThickness + second.width - container.width) <= 0.6,
+            "the lifted extent must come out of the sibling: \(first.width) + divider + \(second.width) != \(container.width)"
+        )
+        #expect(abs(first.height - container.height) <= 0.6)
+        #expect(abs(second.height - container.height) <= 0.6)
+    }
+
+    /// When a split cannot afford the rendered floor for both children, the
+    /// plan degrades deterministically — the span divides in proportion to
+    /// the two minimums (evenly, for two leaves) and still sums to the
+    /// parent's truth — instead of emitting per-ideal extents the renderer
+    /// resolves unpredictably.
+    @Test @MainActor func planDegradesDeterministicallyWhenBothFloorsCannotFit() throws {
+        let layout = RemoteTmuxLayoutNode(
+            width: 6, height: 35, x: 0, y: 0,
+            content: .horizontal([
+                RemoteTmuxLayoutNode(width: 2, height: 35, x: 0, y: 0, content: .pane(1)),
+                RemoteTmuxLayoutNode(width: 3, height: 35, x: 3, y: 0, content: .pane(2)),
+            ])
+        )
+        let (mirror, _) = makeFloorMirror(layout: layout)
+        let metrics = try #require(mirror.nativeLayoutMetrics())
+        // 50pt of pane span: the two ideals (21 + 29) fit exactly, but two
+        // 32pt floors cannot.
+        let container = CGSize(
+            width: 50 + metrics.dividerThickness,
+            height: 35 * metrics.cellSize.height + metrics.residual(of: layout).height
+        )
+        let planner = RemoteTmuxNativeSplitLayoutPlanner(metrics: metrics)
+        let plan = planner.plan(
+            tree: RemoteTmuxNativeMeasuredSplitTree(
+                tree: RemoteTmuxNativeSplitTree(layout: layout),
+                metrics: metrics
+            ),
+            parentSize: container
+        )
+        let outers = planner.outerSizes(of: plan)
+        let first = try #require(outers[1])
+        let second = try #require(outers[2])
+        #expect(
+            abs(first.width - 25) <= 0.6,
+            "two equal floors over a 50pt span must divide evenly, got \(first.width)pt"
+        )
+        #expect(
+            abs(first.width + metrics.dividerThickness + second.width - container.width) <= 0.6,
+            "the degraded plan must still sum to the parent: \(first.width) + divider + \(second.width) != \(container.width)"
+        )
     }
 
 }

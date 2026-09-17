@@ -14,6 +14,9 @@ extension TerminalController {
     /// Params: `host` (required SSH destination/alias), optional `port` (Int),
     /// optional `identity_file` (String).
     nonisolated func v2RemoteTmuxSessions(id: Any?, params: [String: Any]) -> String {
+        guard ManagedRemoteConnectionsPolicy.isEnabled else {
+            return v2Error(id: id, code: "remote_connections_disabled", message: ManagedRemoteConnectionsPolicy.disabledMessage)
+        }
         guard RemoteTmuxController.isEnabled else {
             return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
         }
@@ -85,6 +88,9 @@ extension TerminalController {
     /// Params: `host` (required), `session` (required tmux session name),
     /// optional `create` (Bool — attach-or-create). Returns the control surface id.
     nonisolated func v2RemoteTmuxAttach(id: Any?, params: [String: Any]) -> String {
+        guard ManagedRemoteConnectionsPolicy.isEnabled else {
+            return v2Error(id: id, code: "remote_connections_disabled", message: ManagedRemoteConnectionsPolicy.disabledMessage)
+        }
         guard RemoteTmuxController.isEnabled else {
             return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
         }
@@ -123,6 +129,9 @@ extension TerminalController {
     /// sidebar workspace in the resolved window. Params: `host` (required),
     /// optional `port`, `identity_file`, `activate`, and routing selectors.
     nonisolated func v2RemoteTmuxMirror(id: Any?, params: [String: Any]) -> String {
+        guard ManagedRemoteConnectionsPolicy.isEnabled else {
+            return v2Error(id: id, code: "remote_connections_disabled", message: ManagedRemoteConnectionsPolicy.disabledMessage)
+        }
         guard RemoteTmuxController.isEnabled else {
             return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
         }
@@ -166,6 +175,9 @@ extension TerminalController {
     /// dedicated new window. Params: `host` (required), optional `port`,
     /// `identity_file`, and `activate`.
     nonisolated func v2RemoteTmuxWindow(id: Any?, params: [String: Any]) -> String {
+        guard ManagedRemoteConnectionsPolicy.isEnabled else {
+            return v2Error(id: id, code: "remote_connections_disabled", message: ManagedRemoteConnectionsPolicy.disabledMessage)
+        }
         guard RemoteTmuxController.isEnabled else {
             return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
         }
@@ -234,6 +246,9 @@ extension TerminalController {
     /// `remote.tmux.detach` — detach a control client and remove its mirror workspace;
     /// leaves the remote session alive.
     nonisolated func v2RemoteTmuxDetach(id: Any?, params: [String: Any]) -> String {
+        guard ManagedRemoteConnectionsPolicy.isEnabled else {
+            return v2Error(id: id, code: "remote_connections_disabled", message: ManagedRemoteConnectionsPolicy.disabledMessage)
+        }
         guard RemoteTmuxController.isEnabled else {
             return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
         }
@@ -257,6 +272,9 @@ extension TerminalController {
     ///
     /// Diagnostics surface for verifying the ghostty → cmux event pipe end to end.
     nonisolated func v2RemoteTmuxState(id: Any?, params: [String: Any]) -> String {
+        guard ManagedRemoteConnectionsPolicy.isEnabled else {
+            return v2Error(id: id, code: "remote_connections_disabled", message: ManagedRemoteConnectionsPolicy.disabledMessage)
+        }
         guard RemoteTmuxController.isEnabled else {
             return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
         }
@@ -298,7 +316,50 @@ extension TerminalController {
         }
     }
 
-    /// `remote.tmux.pane_grids` — per mirrored multi-pane window, each pane's
+    /// `remote.tmux.pane_surfaces` — the tmux pane id → cmux surface id map for
+    /// EVERY mirrored window, single-pane windows included.
+    ///
+    /// Content oracles need this. Reading "the focused surface" cannot verify a
+    /// named pane: cmux does not follow tmux's active pane or current window
+    /// (see handleActivePaneChanged, and %session-window-changed is only
+    /// recorded), so a harness that runs `select-pane` and then reads the
+    /// focused surface silently reads whatever pane the app already showed —
+    /// and passes only when the two panes happen to share dimensions. With this
+    /// map a harness reads the exact pane's surface (`surface.read_text` with
+    /// `surface_id`) and compares it against that pane's `capture-pane`.
+    ///
+    /// Params: `host` (required), `session` (required).
+    nonisolated func v2RemoteTmuxPaneSurfaces(id: Any?, params: [String: Any]) -> String {
+        guard ManagedRemoteConnectionsPolicy.isEnabled else {
+            return v2Error(id: id, code: "remote_connections_disabled", message: ManagedRemoteConnectionsPolicy.disabledMessage)
+        }
+        guard RemoteTmuxController.isEnabled else {
+            return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
+        }
+        guard let host = Self.remoteTmuxHost(from: params),
+              let session = Self.remoteTmuxSessionName(from: params)
+        else {
+            return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.hostAndSessionRequired", defaultValue: "host and session are required"))
+        }
+        return v2VmCall(id: id, timeoutSeconds: 10) {
+            let entries: [[String: Any]]? = await MainActor.run {
+                guard let mirror = AppDelegate.shared?.remoteTmuxController
+                    .sessionMirror(host: host, sessionName: session) else { return nil }
+                return mirror.paneSurfaceEntries()
+            }
+            guard let entries else {
+                return ["host": host.destination, "session": session, "mirrored": false]
+            }
+            return [
+                "host": host.destination,
+                "session": session,
+                "mirrored": true,
+                "panes": entries,
+            ]
+        }
+    }
+
+    /// `remote.tmux.pane_grids` — per mirrored window, each pane's
     /// tmux-assigned dims (from the layout tree) next to the grid its ghostty
     /// surface actually renders, plus the sizing state they converge toward
     /// (summed grid, last requested client size, structure/correction
@@ -308,6 +369,9 @@ extension TerminalController {
     /// this instead of reading pixels off screenshots. Params: `host`
     /// (required), `session` (required).
     nonisolated func v2RemoteTmuxPaneGrids(id: Any?, params: [String: Any]) -> String {
+        guard ManagedRemoteConnectionsPolicy.isEnabled else {
+            return v2Error(id: id, code: "remote_connections_disabled", message: ManagedRemoteConnectionsPolicy.disabledMessage)
+        }
         guard RemoteTmuxController.isEnabled else {
             return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
         }

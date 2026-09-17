@@ -1,98 +1,120 @@
 import CMUXMobileCore
 import CmuxIrohTransport
+import CmuxIrxTransport
 import CmuxMobileShell
+import CmuxMobileShellModel
 import Foundation
 
-/// One bounded personal-account snapshot of authenticated Iroh Mac routes.
-///
-/// The catalog is deliberately separate from the team device registry. It only
-/// supplies routes when the shell asks for an already-paired Mac device ID; it
-/// never contributes device-list rows and therefore cannot auto-pair a newly
-/// discovered device. A lifecycle scope prevents a delayed callback from a
-/// signed-out or prior account runtime from repopulating the current catalog.
+/// Local projection of the permission-filtered team directory into attach routes.
 public actor MobileIrohRouteCatalog {
-    static let maximumBindingCount = 32
     static let preferredRoutePriority = -10_000
-
     private var activeScope: UInt64?
     private var routesByMacDeviceID: [String: [String: [CmxAttachRoute]]] = [:]
-
+    private var liveMacs: [MobileDiscoveredIrohMac] = []
     public init() {}
 
-    /// Activates a fresh account-runtime scope and drops the prior snapshot.
     func activate(scope: UInt64) {
+        guard activeScope != scope else { return }
         activeScope = scope
-        routesByMacDeviceID.removeAll(keepingCapacity: true)
+        routesByMacDeviceID.removeAll()
+        liveMacs.removeAll()
     }
 
-    /// Replaces the catalog from one authenticated, runtime-verified discovery.
+    @discardableResult
+    func replace(with directory: V2Directory, scope: UInt64) -> Bool {
+        guard activeScope == scope else { return false }
+        let pairable = directory.devices.filter {
+            !$0.revoked && $0.descriptor.metadata.platform == .mac && $0.descriptor.metadata.pairingEnabled
+        }
+        let counts = Dictionary(grouping: pairable, by: { $0.descriptor.endpointID }).mapValues(\.count)
+        var routes: [String: [String: [CmxAttachRoute]]] = [:]
+        var candidates: [MobileDiscoveredIrohMac] = []
+        for record in pairable {
+            let descriptor = record.descriptor
+            guard counts[descriptor.endpointID] == 1,
+                  let endpoint = try? CmxIrohPeerIdentity(endpointID: descriptor.endpointID),
+                  let route = try? CmxAttachRoute(id: "iroh-v2-" + record.deviceRecordID, kind: .iroh,
+                    endpoint: .peer(identity: endpoint, pathHints: []), priority: Self.preferredRoutePriority) else { continue }
+            let identity = CmxMacAppInstanceIdentity(macDeviceID: descriptor.identity.deviceID,
+                                                   instanceTag: descriptor.identity.buildTag)
+            let tag = identity.instanceTag ?? ""
+            routes[identity.macDeviceID, default: [:]][tag, default: []].append(route)
+            candidates.append(MobileDiscoveredIrohMac(deviceID: identity.macDeviceID,
+                displayName: descriptor.metadata.displayName, instanceTag: tag, routes: [route],
+                lastSeenAt: Date(timeIntervalSince1970: Double(directory.issuedAt)),
+                capabilities: descriptor.metadata.capabilities, clientNamespace: descriptor.identity.appNamespace.hasPrefix("mac:")
+                    ? descriptor.identity.appNamespace : "mac:" + descriptor.identity.appNamespace))
+        }
+        routesByMacDeviceID = routes
+        liveMacs = candidates
+        return true
+    }
+    /// Returns permitted Macs from the current v2 directory.
     ///
-    /// Only pairable Mac bindings are retained. Broker routes intentionally
-    /// contain no private path hints. The registry decorator may later attach a
-    /// locally known Tailscale address as a fallback, while dial-time discovery
-    /// supplies current authenticated public paths.
-    func replace(
-        with discovery: CmxIrohDiscoveryResponse,
-        scope: UInt64
-    ) {
-        replace(with: discovery.bindings, scope: scope)
+    /// IROH admission establishes reachability. The current build sorts first.
+    public func liveMacCandidates(
+        preferredTag: String,
+        compatibleWith policy: MobileMacBuildCompatibilityPolicy? = nil,
+        limit: Int? = nil
+    ) -> [MobileDiscoveredIrohMac] {
+        guard let limit else {
+            return liveMacs
+                .filter {
+                    policy?.allows(
+                        instanceTag: $0.instanceTag,
+                        clientNamespace: $0.clientNamespace
+                    ) ?? true
+                }
+                .sorted { Self.candidateSortsBefore($0, $1, preferredTag: preferredTag) }
+        }
+        guard limit > 0 else { return [] }
+
+        // Automatic admission only needs the best few candidates. Keep a
+        // bounded ordered buffer so a large authenticated fleet costs O(n*k)
+        // instead of sorting every row at O(n log n), where k is the limit.
+        var best: [MobileDiscoveredIrohMac] = []
+        best.reserveCapacity(min(limit, liveMacs.count))
+        for candidate in liveMacs
+            where policy?.allows(
+                instanceTag: candidate.instanceTag,
+                clientNamespace: candidate.clientNamespace
+            ) ?? true {
+            let insertionIndex = best.firstIndex {
+                Self.candidateSortsBefore(candidate, $0, preferredTag: preferredTag)
+            } ?? best.endIndex
+            guard insertionIndex < limit || best.count < limit else { continue }
+            best.insert(candidate, at: insertionIndex)
+            if best.count > limit { best.removeLast() }
+        }
+        return best
     }
 
-    /// Replaces routes from device-only, cryptographically reverified cache rows.
-    ///
-    /// The caller has already scoped these rows to the current account, app,
-    /// local identity, requested known Mac tuples, keyset, and unexpired grants.
-    func replaceCachedBindings(
-        _ bindings: [CmxIrohBrokerBinding],
-        scope: UInt64
-    ) {
-        replace(with: bindings, scope: scope)
+    private static func candidateSortsBefore(
+        _ left: MobileDiscoveredIrohMac,
+        _ right: MobileDiscoveredIrohMac,
+        preferredTag: String
+    ) -> Bool {
+        let leftRank = tagRank(left.instanceTag, preferred: preferredTag)
+        let rightRank = tagRank(right.instanceTag, preferred: preferredTag)
+        if leftRank != rightRank { return leftRank < rightRank }
+        if left.lastSeenAt != right.lastSeenAt {
+            return left.lastSeenAt > right.lastSeenAt
+        }
+        if left.deviceID != right.deviceID { return left.deviceID < right.deviceID }
+        return left.instanceTag < right.instanceTag
     }
 
-    private func replace(
-        with bindings: [CmxIrohBrokerBinding],
-        scope: UInt64
-    ) {
+    /// Drops live first-pair candidates without disturbing verified routes for
+    /// already-paired Macs.
+    func clearLiveMacCandidates(scope: UInt64) {
         guard activeScope == scope else { return }
+        liveMacs.removeAll(keepingCapacity: false)
+    }
 
-        let pairableMacs = bindings.filter {
-            $0.platform == .mac && $0.pairingEnabled
-        }.prefix(Self.maximumBindingCount)
-        let endpointCounts = Dictionary(
-            grouping: pairableMacs,
-            by: \CmxIrohBrokerBinding.endpointID
-        ).mapValues(\.count)
-        let unambiguousMacs = pairableMacs.filter {
-            endpointCounts[$0.endpointID] == 1
-        }
-        let grouped = Dictionary(grouping: unambiguousMacs) {
-            $0.deviceID.lowercased()
-        }
-
-        var replacement: [String: [String: [CmxAttachRoute]]] = [:]
-        replacement.reserveCapacity(grouped.count)
-        for (deviceID, bindings) in grouped {
-            let bindingsByTag = Dictionary(grouping: bindings, by: \.tag)
-            var routesByTag: [String: [CmxAttachRoute]] = [:]
-            for (tag, taggedBindings) in bindingsByTag {
-                let ordered = taggedBindings.sorted(by: Self.bindingSortsBefore)
-                let routes = ordered.enumerated().compactMap { index, binding in
-                    try? CmxAttachRoute(
-                        id: "iroh-personal-\(binding.bindingID)",
-                        kind: .iroh,
-                        endpoint: .peer(identity: binding.endpointID, pathHints: []),
-                        priority: Self.preferredRoutePriority + index
-                    )
-                }
-                if !routes.isEmpty {
-                    routesByTag[tag] = routes
-                }
-            }
-            if !routesByTag.isEmpty {
-                replacement[deviceID] = routesByTag
-            }
-        }
-        routesByMacDeviceID = replacement
+    private static func tagRank(_ tag: String, preferred: String) -> Int {
+        if tag == preferred { return 0 }
+        if tag == "stable" || tag == "default" { return 1 }
+        return 2
     }
 
     /// Returns authenticated personal-account routes for an already-known Mac.
@@ -100,11 +122,15 @@ public actor MobileIrohRouteCatalog {
         forKnownMacDeviceID macDeviceID: String,
         instanceTag: String?
     ) -> [CmxAttachRoute] {
-        guard let routesByTag = routesByMacDeviceID[macDeviceID.lowercased()] else {
+        guard let routesByTag = routesByMacDeviceID[cmxCanonicalDeviceID(macDeviceID)] else {
             return []
         }
         if let instanceTag {
-            return routesByTag[instanceTag] ?? []
+            let canonicalTag = CmxMacAppInstanceIdentity(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            ).instanceTag ?? ""
+            return routesByTag[canonicalTag] ?? []
         }
         guard routesByTag.count == 1 else { return [] }
         return routesByTag.values.first ?? []
@@ -115,120 +141,14 @@ public actor MobileIrohRouteCatalog {
         guard activeScope == scope else { return }
         activeScope = nil
         routesByMacDeviceID.removeAll(keepingCapacity: false)
+        liveMacs.removeAll(keepingCapacity: false)
     }
 
     /// Clears every scope during explicit local sign-out teardown.
     func clear() {
         activeScope = nil
         routesByMacDeviceID.removeAll(keepingCapacity: false)
+        liveMacs.removeAll(keepingCapacity: false)
     }
 
-    private static func bindingSortsBefore(
-        _ left: CmxIrohBrokerBinding,
-        _ right: CmxIrohBrokerBinding
-    ) -> Bool {
-        let leftDate = parseTimestamp(left.lastSeenAt)
-        let rightDate = parseTimestamp(right.lastSeenAt)
-        if leftDate == rightDate {
-            return left.bindingID < right.bindingID
-        }
-        return leftDate > rightDate
-    }
-
-    private static func parseTimestamp(_ value: String) -> Date {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return fractional.date(from: value)
-            ?? ISO8601DateFormatter().date(from: value)
-            ?? .distantPast
-    }
-}
-
-/// Adds personal-account Iroh routes to paired-Mac refreshes without changing
-/// the team-scoped device list or its authorization semantics.
-public struct PersonalIrohDeviceRegistryDecorator: DeviceRegistryRefreshing {
-    private let base: (any DeviceRegistryRefreshing)?
-    private let catalog: MobileIrohRouteCatalog
-    private let knownRoutes: @Sendable (
-        _ macDeviceID: String,
-        _ instanceTag: String?
-    ) async -> [CmxAttachRoute]?
-
-    public init(
-        base: (any DeviceRegistryRefreshing)?,
-        catalog: MobileIrohRouteCatalog,
-        knownRoutes: @escaping @Sendable (
-            _ macDeviceID: String,
-            _ instanceTag: String?
-        ) async -> [CmxAttachRoute]?
-    ) {
-        self.base = base
-        self.catalog = catalog
-        self.knownRoutes = knownRoutes
-    }
-
-    public func freshRoutes(
-        forMacDeviceID macDeviceID: String,
-        instanceTag: String?
-    ) async -> [CmxAttachRoute]? {
-        async let baseRoutes = base?.freshRoutes(
-            forMacDeviceID: macDeviceID,
-            instanceTag: instanceTag
-        )
-        guard let localRoutes = await knownRoutes(macDeviceID, instanceTag) else {
-            return await baseRoutes
-        }
-        let personalRoutes = await catalog.routes(
-            forKnownMacDeviceID: macDeviceID,
-            instanceTag: instanceTag
-        )
-        let teamRoutes = await baseRoutes
-        guard !personalRoutes.isEmpty else { return teamRoutes }
-        let networkRoutes: [CmxAttachRoute]
-        if let teamRoutes, !teamRoutes.isEmpty {
-            networkRoutes = teamRoutes
-        } else {
-            networkRoutes = localRoutes
-        }
-        return Self.merged(personal: personalRoutes, team: networkRoutes)
-    }
-
-    public func listDevices() async -> DeviceRegistryListOutcome {
-        guard let base else { return .transientFailure }
-        return await base.listDevices()
-    }
-
-    static func merged(
-        personal: [CmxAttachRoute],
-        team: [CmxAttachRoute],
-        now: Date = Date()
-    ) -> [CmxAttachRoute] {
-        let decoratedRoutes = CmxAttachRoute.addingIrohPrivatePaths(
-            to: personal + team,
-            observedAt: now
-        )
-        precondition(
-            decoratedRoutes.count == personal.count + team.count,
-            "Private-path decoration must preserve route count and order"
-        )
-        let personalWithPrivatePaths = Array(decoratedRoutes.prefix(personal.count))
-        var merged = personalWithPrivatePaths
-        var routeIDs = Set(personal.map(\.id))
-        var peerIdentities = Set<CmxIrohPeerIdentity>(personal.compactMap { route in
-            guard case let .peer(identity, _) = route.endpoint else { return nil }
-            return identity
-        })
-        for route in team {
-            guard routeIDs.insert(route.id).inserted else { continue }
-            if case let .peer(identity, _) = route.endpoint,
-               !peerIdentities.insert(identity).inserted {
-                continue
-            }
-            merged.append(route)
-        }
-        return merged.sorted { left, right in
-            if left.priority == right.priority { return left.id < right.id }
-            return left.priority < right.priority
-        }
-    }
 }

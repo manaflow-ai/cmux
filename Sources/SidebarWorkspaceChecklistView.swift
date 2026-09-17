@@ -2,6 +2,23 @@ import AppKit
 import CmuxWorkspaces
 import SwiftUI
 
+// MARK: - Minimal visibility policy
+
+/// Pure mount/compact policy for todo affordances in compact sidebar rows.
+/// Checklist content must stay mounted while it is visible or anchoring an
+/// open/add-requested popover; workspace status is represented by the
+/// title-line glyph when a manual status is set.
+struct SidebarWorkspaceTodoMinimalVisibility: Equatable {
+    let itemCount: Int
+    let addFieldActivationToken: Int
+    let isPopoverPresented: Bool
+    let canAddItems: Bool
+
+    var showsChecklistSection: Bool {
+        itemCount > 0 || (canAddItems && (addFieldActivationToken > 0 || isPopoverPresented))
+    }
+}
+
 // MARK: - Display policy
 
 /// Pure display ordering/clamping for the sidebar checklist. Kept free of
@@ -47,6 +64,85 @@ struct SidebarWorkspaceChecklistActions {
     let moveItem: @MainActor (UUID, Int) -> Void
     /// Opens the workspace's todo pane (checklist popover footer).
     let openPane: @MainActor () -> Void
+    /// Opens an image picker and attaches selected images to one item.
+    let addAttachments: @MainActor (UUID) -> Void
+    /// Removes one attachment reference from one item.
+    let removeAttachment: @MainActor (UUID, UUID) -> Void
+    /// Opens one item's attachments in Quick Look.
+    let openAttachments: @MainActor (UUID, UUID?) -> Void
+}
+
+// MARK: - Attachment menu
+
+struct WorkspaceChecklistAttachmentMenu: View {
+    let item: WorkspaceChecklistItem
+    let iconPointSize: CGFloat
+    let foregroundColor: Color
+    let countFont: Font
+    let addAttachments: @MainActor (UUID) -> Void
+    let removeAttachment: @MainActor (UUID, UUID) -> Void
+    let openAttachments: @MainActor (UUID, UUID?) -> Void
+
+    var body: some View {
+        Menu {
+            Button(String(localized: "sidebar.checklist.attachImages", defaultValue: "Attach Images…")) {
+                addAttachments(item.id)
+            }
+            if !item.attachments.isEmpty {
+                Divider()
+                ForEach(item.attachments) { attachment in
+                    Menu(attachment.displayName) {
+                        Button(String(localized: "sidebar.checklist.openAttachment", defaultValue: "Open")) {
+                            openAttachments(item.id, attachment.id)
+                        }
+                        Button(String(
+                            localized: "sidebar.checklist.removeAttachment",
+                            defaultValue: "Remove Attachment"
+                        )) {
+                            removeAttachment(item.id, attachment.id)
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 2) {
+                CmuxSystemSymbolImage(systemName: "paperclip", pointSize: iconPointSize, tint: foregroundColor)
+                if item.attachmentCount > 0 {
+                    Text(verbatim: "\(item.attachmentCount)")
+                        .font(countFont)
+                        .monospacedDigit()
+                }
+            }
+            .foregroundColor(foregroundColor)
+            .frame(minWidth: iconPointSize + 8, minHeight: iconPointSize + 8, alignment: .center)
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .safeHelp(String(localized: "sidebar.checklist.attachmentsTooltip", defaultValue: "Manage images"))
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityIdentifier("WorkspaceChecklistAttachmentMenu")
+    }
+
+    private var accessibilityLabel: String {
+        switch item.attachmentCount {
+        case 0:
+            return String(
+                localized: "sidebar.checklist.attachments.noneAccessibility",
+                defaultValue: "No images attached. Attach images."
+            )
+        case 1:
+            return String(localized: "sidebar.checklist.attachments.one", defaultValue: "1 image attached")
+        default:
+            return String.localizedStringWithFormat(
+                String(
+                    localized: "sidebar.checklist.attachments.other",
+                    defaultValue: "%lld images attached"
+                ),
+                Int64(item.attachmentCount)
+            )
+        }
+    }
 }
 
 // MARK: - Section (summary line + optional expansion)
@@ -79,6 +175,8 @@ struct SidebarWorkspaceChecklistSection: View {
     let summaryFont: Font
     let itemFont: Font
     let fontScale: CGFloat
+    /// Whether add-item entry points are exposed by the remote controls flag.
+    let canAddItems: Bool
     let onToggleExpansion: () -> Void
     let onPopoverPresentedChange: @MainActor (Bool) -> Void
     let onConsumeAddFieldActivation: () -> Void
@@ -143,7 +241,8 @@ struct SidebarWorkspaceChecklistSection: View {
                 items: items,
                 completedCount: completedCount,
                 totalCount: totalCount,
-                addFieldActivationToken: addFieldActivationToken
+                addFieldActivationToken: addFieldActivationToken,
+                canAddItems: canAddItems
             ),
             actions: actions,
             onConsumeAddFieldActivation: onConsumeAddFieldActivation,
@@ -154,6 +253,7 @@ struct SidebarWorkspaceChecklistSection: View {
             // checklist popover instead; arming the (hidden) inline field
             // here would fight the popover's own add field for focus.
             guard addFieldActivationToken > 0, !presentsPopover else { return }
+            guard canAddItems else { return }
             isAddingItem = true
             inlineAddGeneration += 1
         }
@@ -172,9 +272,9 @@ struct SidebarWorkspaceChecklistSection: View {
             HStack(spacing: 4) {
                 CmuxSystemSymbolImage(
                     magnified: completedCount == totalCount ? "checkmark.circle.fill" : "checklist",
-                    pointSize: 8 * fontScale
+                    pointSize: 8 * fontScale,
+                    tint: secondaryColor
                 )
-                .foregroundColor(secondaryColor)
                 Text(verbatim: "\(completedCount)/\(totalCount)")
                     .font(summaryFont)
                     .foregroundColor(primaryColor)
@@ -219,7 +319,9 @@ struct SidebarWorkspaceChecklistSection: View {
                 }
                 .frame(height: scrollViewportHeight(forItemCount: ordered.count))
             }
-            addItemRow
+            if canAddItems {
+                addItemRow
+            }
         }
         .padding(.leading, 2)
     }
@@ -250,9 +352,9 @@ struct SidebarWorkspaceChecklistSection: View {
             } label: {
                 CmuxSystemSymbolImage(
                     magnified: checkboxSymbolName(for: item.state),
-                    pointSize: 8 * fontScale
+                    pointSize: 8 * fontScale,
+                    tint: isCompleted ? secondaryColor : primaryColor
                 )
-                .foregroundColor(isCompleted ? secondaryColor : primaryColor)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -290,6 +392,16 @@ struct SidebarWorkspaceChecklistSection: View {
                     .onTapGesture { beginItemEdit(item) }
             }
             Spacer(minLength: 0)
+            WorkspaceChecklistAttachmentMenu(
+                item: item,
+                iconPointSize: 9 * fontScale,
+                foregroundColor: secondaryColor,
+                countFont: itemFont,
+                addAttachments: actions.addAttachments,
+                removeAttachment: actions.removeAttachment,
+                openAttachments: actions.openAttachments
+            )
+            .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + firstLineCenterOffset }
             removeItemButton(for: item)
                 .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + firstLineCenterOffset }
         }
@@ -359,8 +471,7 @@ struct SidebarWorkspaceChecklistSection: View {
         return Button {
             actions.removeItem(item.id)
         } label: {
-            CmuxSystemSymbolImage(magnified: "xmark.circle.fill", pointSize: 9 * fontScale)
-                .foregroundColor(secondaryColor)
+            CmuxSystemSymbolImage(magnified: "xmark.circle.fill", pointSize: 9 * fontScale, tint: secondaryColor)
                 .frame(width: 9 * fontScale + 8, height: 9 * fontScale + 8, alignment: .center)
                 .contentShape(Rectangle())
         }
@@ -382,8 +493,7 @@ struct SidebarWorkspaceChecklistSection: View {
                 // the add row never reads as a real (unchecked) item. Uses the
                 // row's secondary color (which inverts on the selected row) so
                 // it never clashes as accent-blue on a blue selected row.
-                CmuxSystemSymbolImage(magnified: "plus.circle", pointSize: 8 * fontScale)
-                    .foregroundColor(secondaryColor)
+                CmuxSystemSymbolImage(magnified: "plus.circle", pointSize: 8 * fontScale, tint: secondaryColor)
                 // AppKit field (like the sidebar rename field): takes first
                 // responder in the main window on appear, so typing works
                 // reliably (a SwiftUI TextField / floating popover does not win
@@ -409,7 +519,7 @@ struct SidebarWorkspaceChecklistSection: View {
                 }
             } label: {
                 HStack(spacing: 4) {
-                    CmuxSystemSymbolImage(magnified: "plus", pointSize: 7 * fontScale)
+                    CmuxSystemSymbolImage(magnified: "plus", pointSize: 7 * fontScale, tint: secondaryColor)
                     Text(String(localized: "sidebar.checklist.addItem", defaultValue: "Add item"))
                         .font(itemFont)
                 }
