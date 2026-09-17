@@ -1182,7 +1182,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var hostIdentityAdoptionTask: Task<Void, Never>?
     /// Retries the authenticated phone-push key exchange while the RPC client
     /// remains connected after a transient failure.
-    private var phonePushKeyExchangeRetryTask: Task<Void, Never>?
+    var phonePushKeyExchangeRetryTask: Task<Void, Never>?
     /// Tail of the serialized paired-Mac store write chain; see
     /// ``performSerializedPairedMacWrite(ifStillCurrent:_:)``.
     private var pairedMacWriteChain: Task<Void, Never>?
