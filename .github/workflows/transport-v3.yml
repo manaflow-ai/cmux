@@ -38,6 +38,10 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
+      - name: Audit dependency vulnerabilities
+        run: |
+          cargo install cargo-audit --version 0.22.2 --locked
+          cargo audit
       - run: cargo build -p cmux-v3-transport --example browser_fixture --locked
       - name: Browser interoperability
         working-directory: services/transport-v3/interop
