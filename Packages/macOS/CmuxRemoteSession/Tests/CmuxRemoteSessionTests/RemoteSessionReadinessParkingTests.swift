@@ -212,6 +212,73 @@ struct RemoteSessionReadinessParkingTests {
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
     }
 
+    @Test(
+        "Reaching readiness ends the seek, so a healthy session can never be parked by a stale deadline",
+        .timeLimit(.minutes(1))
+    )
+    func readinessDisarmsDeadline() async throws {
+        let host = ReadinessRecordingHost()
+        let clock = ManualBrokerClock()
+        let fixture = try await Self.makeCoordinator(
+            host: host,
+            runner: ReadinessScriptedProcessRunner(
+                daemon: .installed(capabilities: Self.requiredCapabilities)
+            ),
+            proxyBroker: RemoteProxyBroker(
+                tunnelProvider: IntentionalCleanupTestTunnelProvider(),
+                clock: clock
+            ),
+            relayPort: nil,
+            clock: clock
+        )
+        let coordinator = fixture.coordinator
+        defer { fixture.cleanUp() }
+
+        coordinator.queue.sync { coordinator.beginConnectionAttemptLocked() }
+        let deadline = await Self.value(within: .seconds(10)) { await clock.nextRequestedDelay() }
+        try #require(deadline == Self.readinessDeadlineMilliseconds)
+        _ = try #require(await host.firstPublication(of: .connected))
+
+        // The wakeup of a disarmed deadline is dropped by its token guard, so
+        // resuming the clock afterwards cannot park the session.
+        #expect(coordinator.queue.sync {
+            coordinator.readinessDeadlineToken == nil &&
+                coordinator.parkedState == nil &&
+                coordinator.canStartPTYBridgeLocked
+        })
+
+        _ = await coordinator.stopAndWait(cleanupScope: .transport)
+    }
+
+    @Test("A later loss of readiness starts a fresh seek with its own deadline")
+    func deadlineIsArmedOncePerSeek() async throws {
+        let fixture = try await Self.makeCoordinator(
+            host: ReadinessRecordingHost(),
+            runner: ReadinessScriptedProcessRunner(daemon: .missing),
+            clock: ManualBrokerClock()
+        )
+        let coordinator = fixture.coordinator
+        defer { fixture.cleanUp() }
+
+        let tokens = coordinator.queue.sync { () -> [UUID?] in
+            coordinator.proxyConnectionDesired = true
+            coordinator.armReadinessDeadlineLocked()
+            let first = coordinator.readinessDeadlineToken
+            // A second hello inside the same seek (an escalate-and-rebootstrap
+            // cycle) must not push the deadline out.
+            coordinator.armReadinessDeadlineLocked()
+            let second = coordinator.readinessDeadlineToken
+            coordinator.endReadinessSeekLocked()
+            coordinator.armReadinessDeadlineLocked()
+            return [first, second, coordinator.readinessDeadlineToken]
+        }
+        #expect(tokens[0] != nil)
+        #expect(tokens[0] == tokens[1])
+        #expect(tokens[2] != nil && tokens[2] != tokens[0])
+
+        _ = await coordinator.stopAndWait(cleanupScope: .transport)
+    }
+
     // MARK: - Fixtures
 
     private static let requiredCapabilities = [

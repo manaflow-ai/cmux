@@ -253,6 +253,12 @@ extension RemoteSessionCoordinator {
                 })
                 return
             }
+            if let parkedState = self.parkedState {
+                // Nothing makes a parked session ready, so parking this
+                // request would only hold it until its timeout.
+                complete(.failure(RemoteSessionParkedError(detail: parkedState.detail)))
+                return
+            }
             guard !isCancelled() else { return }
             self.pendingPTYBridgeStarts[waiterID] = PendingPTYBridgeStart(
                 sessionID: sessionID,
@@ -300,6 +306,7 @@ extension RemoteSessionCoordinator {
         requireExisting: Bool
     ) throws -> RemotePTYBridgeServer.Endpoint {
         guard canStartPTYBridgeLocked else {
+            if let parkedState { throw RemoteSessionParkedError(detail: parkedState.detail) }
             throw NSError(domain: "cmux.remote.pty", code: 5, userInfo: [
                 NSLocalizedDescriptionKey: "remote daemon is not ready",
             ])
@@ -334,12 +341,16 @@ extension RemoteSessionCoordinator {
     }
 
     func failPendingPTYBridgeStartsLocked(_ message: String) {
+        failPendingPTYBridgeStartsLocked(error: NSError(domain: "cmux.remote.pty", code: 10, userInfo: [
+            NSLocalizedDescriptionKey: message,
+        ]))
+    }
+
+    /// Releases every request parked on readiness with `error`.
+    func failPendingPTYBridgeStartsLocked(error: any Error) {
         guard !pendingPTYBridgeStarts.isEmpty else { return }
         let pending = pendingPTYBridgeStarts
         pendingPTYBridgeStarts.removeAll(keepingCapacity: false)
-        let error = NSError(domain: "cmux.remote.pty", code: 10, userInfo: [
-            NSLocalizedDescriptionKey: message,
-        ])
         for request in pending.values {
             request.completion(.failure(error))
         }
