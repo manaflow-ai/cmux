@@ -57,6 +57,9 @@ extension CmuxTuiSurfaceProvider {
                     terminalID: resource.id.key, socketPath: connected.socketPath, link: link,
                     requiresExistingView: remoteTabID != nil, correlationID: correlationID,
                     preferredWorkspaceID: resource.remoteWorkspace?.id
+                        ?? self.catalog.cloudPlacementCoordinator.boundRemoteWorkspaceID(
+                            forLocalWorkspace: destination.workspaceID, on: self.machine
+                        )
                 )
                 return resolved.surfaceID
             },

@@ -52,6 +52,8 @@ final class CloudManualMirrorSocketFixture: @unchecked Sendable {
     private var clientFD: Int32 = -1
     private var received: [CloudManualMirrorFixtureCommand] = []
     private var cursor = 0
+    private var inputAcknowledged = false
+    private var preAcknowledgementInputs: [CloudManualMirrorFixtureCommand] = []
 
     init() throws {
         let name = "cmux-mm-" + UUID().uuidString.prefix(8).lowercased() + ".sock"
@@ -97,6 +99,22 @@ final class CloudManualMirrorSocketFixture: @unchecked Sendable {
         }
     }
 
+    /// Marks the exact point at which the attach acknowledgement is sent.
+    /// Input commands received before this boundary are retained for a
+    /// deterministic assertion instead of being detected by a timeout.
+    func markInputAcknowledged() {
+        lock.lock()
+        inputAcknowledged = true
+        lock.unlock()
+    }
+
+    /// Returns input commands that arrived before the explicit attach ack.
+    func preAcknowledgementInputCount() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return preAcknowledgementInputs.count
+    }
+
     func close() {
         lock.lock()
         if clientFD >= 0 {
@@ -137,6 +155,9 @@ final class CloudManualMirrorSocketFixture: @unchecked Sendable {
                       let command = CloudManualMirrorFixtureCommand(object) else { continue }
                 lock.lock()
                 received.append(command)
+                if command.inputBytes != nil, !inputAcknowledged {
+                    preAcknowledgementInputs.append(command)
+                }
                 lock.unlock()
             }
         }
