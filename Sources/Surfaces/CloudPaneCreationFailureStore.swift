@@ -29,13 +29,13 @@ final class CloudPaneCreationFailureStore {
     }
 
     /// Publishes a newly formatted failure, replacing any older card for this workspace.
-    func present(machine: SurfaceMachineID, error: Error, requestID: UUID, title: String? = nil, recoveryText: String? = nil) {
+    func present(machine: SurfaceMachineID, error: Error, requestID: UUID, title: String? = nil, recoveryText: String? = nil, context: CloudOperationContext? = nil, sourcePanelID: UUID? = nil) {
         guard activeRequestID == requestID else {
             requests.removeValue(forKey: requestID)
             return
         }
         failedRequestID = requestID
-        phase = .failed(CloudPaneCreationFailure(machine: machine, error: error, title: title, recoveryText: recoveryText))
+        phase = .failed(CloudPaneCreationFailure(machine: machine, error: error, title: title, recoveryText: recoveryText, context: context ?? CloudOperationContext.current, sourcePanelID: sourcePanelID))
     }
 
     /// Retains each independent intent until it completes or is dismissed. Retry
