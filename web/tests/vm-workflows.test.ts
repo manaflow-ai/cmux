@@ -6468,6 +6468,8 @@ function testCloudVmRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
     failureCode: null,
     failureMessage: null,
     providerMetadata: {},
+    ownerTeamId: overrides.ownerTeamId ?? overrides.billingTeamId ?? overrides.userId ?? "user-workflow-usage-events",
+    coderouterPoolId: null,
     ...overrides,
   };
   if (!("billingTeamId" in overrides)) {

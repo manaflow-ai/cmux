@@ -666,6 +666,35 @@ struct cmuxApp: App {
                     Button("Cloud Tree Style Gallery…") {
                         CloudTreeStyleGalleryWindowController.shared.show()
                     }
+                    Menu("Cloud Terminal Error Style") {
+                        Button("Preview in Selected Terminal") {
+                            guard let workspace = activeTabManager.selectedWorkspace,
+                                  let panelID = workspace.focusedPanelId,
+                                  workspace.terminalPanel(for: panelID) != nil else { return }
+                            let failure = CloudPaneCreationFailure(
+                                machine: .cloud("preview"),
+                                error: CmuxTuiSurfaceProvider.ProviderError.stateUnavailable("preview")
+                            )
+                            workspace.setCloudMaterializationFailure(
+                                surfaceID: panelID,
+                                detail: failure.errorText,
+                                reference: "Design preview"
+                            )
+                        }
+                        Divider()
+                        Button("Compact") {
+                            UserDefaults.standard.set("compact", forKey: "cloudPaneFailurePrototypeStyle")
+                        }
+                        Button("Compact + 1px Border") {
+                            UserDefaults.standard.set("compact-bordered", forKey: "cloudPaneFailurePrototypeStyle")
+                        }
+                        Button("Dialog") {
+                            UserDefaults.standard.set("dialog", forKey: "cloudPaneFailurePrototypeStyle")
+                        }
+                        Button("Inline") {
+                            UserDefaults.standard.set("inline", forKey: "cloudPaneFailurePrototypeStyle")
+                        }
+                    }
                     Button(
                         String(
                             localized: "debug.menu.browserProfilePopoverDebug",
@@ -1606,7 +1635,6 @@ private struct MainWindowBootstrapView: View {
             })
     }
 }
-
 private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.settings",
     "cmux.about",
@@ -1641,6 +1669,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.devWindowDisplay",
     "cmux.mobilePairingWindow",
     "cmux.sidebarFooterIconBalanceDebug",
+    "cmux.cloudPaneCreationFailure.card",
     "cmux.sudo.approval",
 ]
 
@@ -5274,6 +5303,7 @@ final class AppIconAppearanceObserver: NSObject {
 enum BuildFlavor: String, Sendable {
     case dev
     case nightly
+    case rc
     case stable
 
     static var current: BuildFlavor {
@@ -5304,12 +5334,8 @@ enum BuildFlavor: String, Sendable {
         if SocketControlSettings.isDebugLikeBundleIdentifier(normalizedBundleIdentifier) {
             return .dev
         }
-        if normalizedBundleIdentifier == "com.cmuxterm.app.nightly"
-            || normalizedBundleIdentifier?.hasPrefix("com.cmuxterm.app.nightly.") == true {
-            return .nightly
-        }
-        if bundleNames.contains(where: containsNightlyToken) {
-            return .nightly
+        if let channel = releaseChannel(normalizedBundleIdentifier: normalizedBundleIdentifier, bundleNames: bundleNames) {
+            return channel
         }
         return .stable
     }
@@ -5318,11 +5344,7 @@ enum BuildFlavor: String, Sendable {
         containsToken("DEV", in: name)
     }
 
-    private static func containsNightlyToken(_ name: String) -> Bool {
-        containsToken("NIGHTLY", in: name)
-    }
-
-    private static func containsToken(_ token: String, in name: String) -> Bool {
+    static func containsToken(_ token: String, in name: String) -> Bool {
         name
             .uppercased()
             .split { !$0.isLetter && !$0.isNumber }

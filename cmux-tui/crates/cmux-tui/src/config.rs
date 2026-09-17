@@ -2680,6 +2680,7 @@ impl Default for Keys {
                 alt(KeyCode::Char('t'), Action::NewTab),
                 bind(KeyCode::Char('B'), Action::NewBrowserTab),
                 alt(KeyCode::Char('n'), Action::NewPaneSmart),
+                bind(KeyCode::Char('N'), Action::NewPaneSmart),
                 bind(KeyCode::Tab, Action::NextTab),
                 bind(KeyCode::BackTab, Action::PrevTab),
                 bind(KeyCode::Char('%'), Action::SplitRight),
@@ -2735,7 +2736,9 @@ impl Default for Keys {
                 alt(KeyCode::Char('j'), Action::FocusDown),
                 alt(KeyCode::Down, Action::FocusDown),
                 alt(KeyCode::Char('='), Action::ResizeGrow),
+                bind(KeyCode::Char('+'), Action::ResizeGrow),
                 alt(KeyCode::Char('-'), Action::ResizeShrink),
+                bind(KeyCode::Char('-'), Action::ResizeShrink),
                 bind(KeyCode::Char('z'), Action::ZoomPane),
                 bind(KeyCode::Char('{'), Action::SwapPanePrev),
                 bind(KeyCode::Char('}'), Action::SwapPaneNext),
@@ -9035,8 +9038,8 @@ mod tests {
         collision.apply(&raw);
         assert_eq!(
             collision.shortcut_labels(Action::NewPaneSmart),
-            Vec::<String>::new(),
-            "the prefix chord must not remain advertised as a modeless action"
+            ["Alt-n N"],
+            "the surviving uppercase prefix fallback must remain advertised"
         );
         assert_eq!(collision.shortcut_label(Action::SendPrefix).as_deref(), Some("Alt-n Alt-n"));
     }

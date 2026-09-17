@@ -171,6 +171,45 @@ struct CloudWorkspaceLiveProjectionTests {
         #expect(catalog.projections == [native])
     }
 
+    @Test("Opening one remote terminal repeatedly reuses its exact local projection")
+    func openingOneTerminalRepeatedlyReusesProjection() async throws {
+        let workspaceID = UUID()
+        let remoteWorkspace = SurfaceRemoteWorkspace(
+            id: "remote-main", name: "main", index: 0, focused: true
+        )
+        let remoteView = SurfaceRemoteView(
+            tabID: "tab-shell", workspace: remoteWorkspace,
+            screenID: "screen-main", paneID: "pane-main", focused: true
+        )
+        let resourceID = SurfaceResourceID(
+            machine: machine, kind: .terminal, key: "term-shell"
+        )
+        let resource = SurfaceResource(
+            id: resourceID, title: "shell", detail: "/", lifecycle: .running,
+            agent: nil, remoteWorkspace: remoteWorkspace,
+            remoteViews: [remoteView], port: nil, url: nil
+        )
+        let catalog = SurfaceCatalog()
+        catalog.register(CloudPlacementTestProvider(machine: machine))
+        catalog.upsert(resource)
+
+        let first = try await catalog.project(
+            resourceID,
+            into: .workspace(id: workspaceID, placement: .split),
+            focus: false, reuseExisting: true, remoteView: remoteView
+        )
+        let second = try await catalog.project(
+            resourceID,
+            into: .workspace(id: workspaceID, placement: .split),
+            focus: false, reuseExisting: true, remoteView: remoteView
+        )
+
+        #expect(!first.reused)
+        #expect(second.reused)
+        #expect(first.projection == second.projection)
+        #expect(catalog.projections == [first.projection])
+    }
+
     @Test("Lifecycle cancellation is not retained as a projection failure")
     func cancelledMaterializationIsNotAnError() async throws {
         let local = UUID()

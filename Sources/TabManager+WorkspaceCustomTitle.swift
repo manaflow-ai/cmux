@@ -30,7 +30,7 @@ extension TabManager {
         propagateToCloud: Bool = true,
         catalog: SurfaceCatalog? = nil
     ) -> Bool {
-        let catalog = catalog ?? .shared
+        let catalog = catalog ?? SurfaceCatalog.shared
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return false }
         let previousCustomTitle = tabs[index].customTitle
         let previousSource = tabs[index].effectiveCustomTitleSource
