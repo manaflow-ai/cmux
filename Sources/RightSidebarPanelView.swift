@@ -223,6 +223,14 @@ struct RightSidebarPanelView: View {
     }
 
     var body: some View {
+        // Own the sidebar shape instead of approximating the native window's
+        // corner mask, which varies with OS and window style. Use this same
+        // shape for clipping and the inset stroke so the two cannot diverge.
+        let boundary = UnevenRoundedRectangle(
+            bottomTrailingRadius: 8,
+            topTrailingRadius: 8,
+            style: .continuous
+        )
         VStack(spacing: 0) {
             modeBar
                 .rightSidebarChromeBottomBorder(
@@ -231,8 +239,9 @@ struct RightSidebarPanelView: View {
             contentForMode
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .clipShape(boundary)
         .overlay {
-            Rectangle()
+            boundary
                 .strokeBorder(
                     Color(nsColor: cmuxAccentNSColor(for: windowAppearance.resolvedColorScheme)),
                     lineWidth: 1
@@ -241,6 +250,7 @@ struct RightSidebarPanelView: View {
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         }
+        .padding(8)
         .shortcutHintVisibilityAnimation(value: focusShortcutHintAnimationValue)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // Keep every mode (including Dock and AppKit-backed file rows) on the
