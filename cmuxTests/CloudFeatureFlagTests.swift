@@ -11,7 +11,35 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct CloudFeatureFlagTests {
-    @Test("Cloud defaults off and follows remote values before local overrides")
+
+    #if DEBUG
+    @Test("A Debug Cloud override enables the remote-disabled availability observer immediately")
+    func dogfoodOverrideReopensCloud() throws {
+        let suite = "cmux.cloud.dogfood.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let definition = CmuxFeatureFlags.cloudMachinesFlag
+        let flags = CmuxFeatureFlags(defaults: defaults, remoteFlagValueProvider: { _ in false })
+        flags.applyLoadedFlags()
+        var transitions: [Bool] = []
+        let observer = CloudFeatureAvailabilityObserver(
+            isEnabled: { flags.isCloudMachinesEnabled },
+            didChange: { transitions.append($0) }
+        )
+        #expect(transitions == [false])
+
+        flags.setOverride(true, for: definition)
+        #expect(flags.isCloudMachinesEnabled)
+        #expect(flags.overrideValue(for: definition) == true)
+        #expect(transitions == [false, true])
+
+        flags.setOverride(nil, for: definition)
+        #expect(!flags.isCloudMachinesEnabled)
+        #expect(transitions == [false, true, false])
+        withExtendedLifetime(observer) {}
+    }
+    #endif
+    @Test("Stable Cloud defaults off and only follows remote values")
     func remoteResolution() throws {
         let suite = "cmux.cloud.flag.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
@@ -20,11 +48,15 @@ struct CloudFeatureFlagTests {
         #expect(definition.defaultWhenUnavailable == false)
         for remote in [nil, false, true] as [Bool?] {
             defaults.removePersistentDomain(forName: suite)
-            let flags = CmuxFeatureFlags(defaults: defaults, remoteFlagValueProvider: { _ in remote })
+            let flags = CmuxFeatureFlags(
+                defaults: defaults,
+                overrideCapability: .init(bundleIdentifier: "com.cmuxterm.app", isDebugBuild: false),
+                remoteFlagValueProvider: { _ in remote }
+            )
             flags.applyLoadedFlags()
             #expect(flags.effectiveValue(for: definition) == (remote ?? false))
             flags.setOverride(true, for: definition)
-            #expect(flags.effectiveValue(for: definition) == (remote ?? true))
+            #expect(flags.effectiveValue(for: definition) == (remote ?? false))
             flags.setOverride(false, for: definition)
             #expect(flags.effectiveValue(for: definition) == (remote ?? false))
         }
