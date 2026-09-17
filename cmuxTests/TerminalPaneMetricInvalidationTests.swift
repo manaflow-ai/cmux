@@ -112,10 +112,20 @@ struct TerminalPaneMetricInvalidationTests {
         #expect(fixture.surface.cellSizePoints() == cell)
         #expect(fixture.hosted.surfaceView.cellSize == cell)
         #expect(ghostty_surface_font_size(runtime) == font)
-        let rows = try fixture.physicalRows()
+        // Text selection unwraps soft-wrapped lines even for rectangles.
+        // Inspect the native grid export, including each span's cell extent.
+        let rendered = try #require(fixture.surface.mobileRenderGridFrame(stateSeq: 0, includeTheme: false))
+        #expect(rendered.frame.columns == sample.columns)
+        #expect(rendered.frame.rows == sample.rows)
+        #expect(rendered.frame.rowSpans.allSatisfy {
+            $0.row < sample.rows && $0.column + $0.gridCellWidth <= sample.columns
+        })
+        let rows = rendered.rows
         #expect(rows.allSatisfy { $0.count <= sample.columns })
         let compact = rows.joined().filter { !$0.isWhitespace }
         for index in 1...4 {
+            let expected = "R\(index)" + String(repeating: "=", count: 74) + "END\(index)"
+            #expect(compact.components(separatedBy: expected).count == 2)
             #expect(compact.components(separatedBy: "R\(index)").count == 2)
             #expect(compact.components(separatedBy: "END\(index)").count == 2)
         }

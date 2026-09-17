@@ -99,21 +99,6 @@ final class TerminalPaneMetricsFixture {
         output.withCString { ghostty_surface_process_output(runtime, $0, UInt(output.utf8.count)) }
     }
 
-    func physicalRows() throws -> [String] {
-        let runtime = try #require(surface.surface)
-        var text = ghostty_text_s()
-        let selection = ghostty_selection_s(
-            top_left: ghostty_point_s(tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_TOP_LEFT, x: 0, y: 0),
-            bottom_right: ghostty_point_s(tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT, x: 0, y: 0),
-            rectangle: true
-        )
-        try #require(ghostty_surface_read_text(runtime, selection, &text))
-        defer { ghostty_surface_free_text(runtime, &text) }
-        let pointer = try #require(text.text)
-        return String(decoding: UnsafeBufferPointer(start: pointer, count: Int(text.text_len)).map { UInt8(bitPattern: $0) }, as: UTF8.self)
-            .components(separatedBy: "\n")
-    }
-
     func waitUntil(_ stage: String = "condition", _ predicate: () -> Bool) async throws {
         let deadline = ProcessInfo.processInfo.systemUptime + 5
         while !predicate(), ProcessInfo.processInfo.systemUptime < deadline {
