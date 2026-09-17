@@ -37,10 +37,20 @@ extension AppDelegate {
         guard let coordinator = cloudWorkspaceCoordinator,
               let operationController = cloudWorkspaceOperationController,
               coordinator.isAvailable else { return false }
+        let resolvedDestination = destination ?? mainWindowContext(for: tabManager).flatMap { context in
+            guard let target = workspaceGroupNewWorkspaceTarget(in: context) else { return nil }
+            return CloudWorkspaceGroupDestination(
+                tabManager: tabManager,
+                groupId: target.groupId,
+                placement: target.placement,
+                referenceWorkspaceId: target.referenceWorkspaceId,
+                initialWorkspaceId: nil
+            )
+        }
         return operationController.start(key: "new-cloud-workspace.\(vmID)") {
             guard let workspaceID = try await coordinator.createOnMachine(id: vmID, focus: true),
                   !Task.isCancelled, coordinator.isAvailable else { return }
-            destination?.apply(workspaceID: workspaceID)
+            resolvedDestination?.apply(workspaceID: workspaceID)
         }
     }
 

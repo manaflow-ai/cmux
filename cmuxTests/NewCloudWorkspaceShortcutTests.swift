@@ -2,7 +2,6 @@ import AppKit
 import CmuxSettings
 import Foundation
 import XCTest
-import Testing
 import CmuxCloudMachines
 
 #if canImport(cmux_DEV)
@@ -445,15 +444,11 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
         )
     }
 
-}
 
-@Suite(.serialized)
-@MainActor
-struct CurrentCloudWorkspaceActionTests {
-    @Test func newWorkspaceCapturesSelectedMachineAndDoesNotFallBackToLocalOnRepeat() async throws {
+    func testNewWorkspaceCapturesSelectedMachineAndDoesNotFallBackToLocalOnRepeat() async throws {
         let app = AppDelegate()
         let manager = TabManager()
-        let workspace = try #require(manager.selectedWorkspace)
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
         workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "selected-machine", isBase: false)
         let originalIDs = manager.tabs.map(\.id)
         var targets: [String] = []
@@ -462,30 +457,30 @@ struct CurrentCloudWorkspaceActionTests {
         app.cloudWorkspaceCoordinator = CloudWorkspaceCoordinator(
             defaultMachineStore: store,
             allowsOperation: { true },
-            loadMachines: { Issue.record("Cmd-N must not resolve the default VM"); return [] },
+            loadMachines: { XCTFail("Cmd-N must not resolve the default VM"); return [] },
             createWorkspace: { id, focus in
-                #expect(focus)
+                XCTAssertTrue(focus)
                 targets.append(id)
                 return UUID()
             }
         )
         app.cloudWorkspaceOperationController = CloudWorkspaceOperationController(isAvailable: { true })
-        #expect(app.performNewWorkspaceAction(tabManager: manager))
-        _ = app.performNewWorkspaceAction(tabManager: manager)
-        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "later-selection", isBase: false)
+        XCTAssertTrue(app.performNewWorkspaceAction(tabManager: manager))
+        XCTAssertFalse(app.performNewWorkspaceAction(tabManager: manager))
         await app.cloudWorkspaceOperationController?.waitForPendingOperations()
-        #expect(targets == ["selected-machine"])
-        #expect(manager.tabs.map(\.id) == originalIDs)
-        #expect(store.machineID == "different-default")
+        XCTAssertEqual(targets, ["selected-machine"])
+        XCTAssertEqual(manager.tabs.map(\.id), originalIDs)
+        XCTAssertEqual(store.machineID, "different-default")
     }
 
-    @Test func unavailableCloudDoesNotCreateLocalWorkspace() throws {
+    func testUnavailableCloudDoesNotCreateLocalWorkspace() throws {
         let app = AppDelegate()
         let manager = TabManager()
-        let workspace = try #require(manager.selectedWorkspace)
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
         workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "selected-machine", isBase: false)
         let originalIDs = manager.tabs.map(\.id)
-        #expect(!app.performNewWorkspaceAction(tabManager: manager))
-        #expect(manager.tabs.map(\.id) == originalIDs)
+        XCTAssertFalse(app.performNewWorkspaceAction(tabManager: manager))
+        XCTAssertEqual(manager.tabs.map(\.id), originalIDs)
     }
+
 }

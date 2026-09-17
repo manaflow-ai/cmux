@@ -8386,9 +8386,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         event: NSEvent? = nil,
         debugSource: String = "newWorkspace"
     ) -> Bool {
-        let manager = preferredTabManager
-            ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)?.tabManager
-        if let manager, let vmID = manager.selectedWorkspace?.cloudVMID, !vmID.isEmpty {
+        let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }
+            ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
+        if let manager = context?.tabManager,
+           let vmID = manager.selectedWorkspace?.cloudVMID,
+           !vmID.isEmpty {
             // Once this intent targets a VM, an unavailable or pending cloud
             // operation must never fall through and create a local workspace.
             return performNewCloudWorkspaceOnCurrentMachineAction(tabManager: manager, vmID: vmID)
