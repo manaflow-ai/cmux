@@ -14,6 +14,7 @@ actor CloudTunnelProviderStartGate {
         case alreadyStarted(generation: UInt64)
     }
 
+    /// The callbacks and outcome for one completed start generation.
     struct Finish: Sendable {
         let generation: UInt64
         let succeeded: Bool

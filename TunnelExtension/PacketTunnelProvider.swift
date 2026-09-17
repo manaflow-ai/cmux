@@ -8,10 +8,12 @@ nonisolated private let logger = Logger(subsystem: "com.cmuxterm.app.tunnel", ca
 private final class CloudTunnelProviderCompletionBox: @unchecked Sendable {
     private let completion: (Error?) -> Void
 
+    /// Stores the NetworkExtension completion at the callback boundary.
     init(_ completion: @escaping (Error?) -> Void) {
         self.completion = completion
     }
 
+    /// Delivers one provider error to the original NetworkExtension callback.
     func call(_ error: CloudTunnelProviderError?) {
         completion(error)
     }
