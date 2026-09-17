@@ -98,11 +98,9 @@ extension ExternalTreeNode {
         let orientationMatches = candidates.filter { $0.orientation == direction.splitOrientation }
         guard !orientationMatches.isEmpty else { return nil }
 
-        guard let candidate = orientationMatches.first(where: {
+        let candidate = orientationMatches.first(where: {
             $0.paneInFirstChild == direction.requiresPaneInFirstChild
-        }) else {
-            return nil
-        }
+        }) ?? orientationMatches[0]
 
         let delta = CGFloat(amountPixels) / candidate.axisPixels
         let requested = candidate.dividerPosition + (direction.dividerDeltaSign * delta)
