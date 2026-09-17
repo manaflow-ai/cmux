@@ -1,0 +1,76 @@
+name: publish-pypi
+
+# Publishes the Python distribution in python/ to PyPI with Trusted Publishing
+# (OIDC). No API token is stored in this repository.
+#
+# PyPI pending-publisher settings that must match this file:
+#   PyPI project name : acpmux
+#   Owner             : manaflow-ai
+#   Repository name   : acpmux
+#   Workflow name     : publish-pypi.yml
+#   Environment name  : (leave empty)
+#
+# Run it by hand from the Actions tab. Tag triggers are deliberately absent:
+# the version comes from python/pyproject.toml, so a tag could disagree with it.
+
+on:
+  workflow_dispatch:
+    inputs:
+      repository:
+        description: "Target index"
+        required: true
+        default: pypi
+        type: choice
+        options:
+          - pypi
+          - testpypi
+
+permissions: {}
+
+jobs:
+  build:
+    name: Build distributions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Build sdist and wheel
+        working-directory: python
+        run: |
+          python -m pip install --upgrade build
+          python -m build
+
+      - name: Check metadata
+        working-directory: python
+        run: |
+          python -m pip install --upgrade twine
+          python -m twine check dist/*
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: python/dist/
+
+  publish:
+    name: Publish to ${{ inputs.repository }}
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # required for Trusted Publishing
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+
+      # pypa/gh-action-pypi-publish v1.14.2, pinned to its commit
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33
+        with:
+          repository-url: >-
+            ${{ inputs.repository == 'testpypi'
+                && 'https://test.pypi.org/legacy/'
+                || 'https://upload.pypi.org/legacy/' }}

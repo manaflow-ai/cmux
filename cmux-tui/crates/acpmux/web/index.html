@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>acpmux</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #f2f4f6; --panel: #ffffff; --ink: #17212b; --muted: #5f6d7a; --rule: #cfd6dc; --grid: #e6eaee;
+    --acp: #0d8a7c; --acp-soft: #d7efeb; --warn: #b06a12; --warn-soft: #f6e7cf; --bad: #b3261e; --bad-soft: #f7dcda;
+    --user: #1f5fa8; --user-soft: #e3ecf8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0f1418; --panel: #161c22; --ink: #e6ebef; --muted: #98a5b1; --rule: #2c353e; --grid: #1d252d;
+      --acp: #35c2b0; --acp-soft: #123b36; --warn: #e0a24f; --warn-soft: #3d2c12; --bad: #f28b82; --bad-soft: #3d1a17;
+      --user: #8fb0e6; --user-soft: #1d2a3d; }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--ink); font: 14px/1.5 "IBM Plex Sans", system-ui, sans-serif; display: grid; grid-template-rows: 44px 1fr; }
+  .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
+  header { display: flex; align-items: center; gap: 14px; padding: 0 16px; border-bottom: 1px solid var(--rule); background: var(--panel); }
+  header .brand { font-weight: 600; letter-spacing: .02em; }
+  header .brand b { color: var(--acp); }
+  header .conn { font-size: 12px; color: var(--muted); }
+  header .conn.off { color: var(--bad); }
+  header .spacer { flex: 1; }
+  button, select, input, textarea { font: inherit; color: inherit; }
+  button { background: var(--panel); border: 1px solid var(--rule); border-radius: 5px; padding: 5px 11px; cursor: pointer; }
+  button:hover { border-color: var(--acp); }
+  button.primary { background: var(--acp); border-color: var(--acp); color: #fff; }
+  button.danger { color: var(--bad); }
+  button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--acp); outline-offset: 1px; }
+  main { display: grid; grid-template-columns: 280px 1fr; min-height: 0; }
+  @media (max-width: 760px) { main { grid-template-columns: 1fr; } aside { display: none; } aside.open { display: block; position: fixed; inset: 44px 0 0 0; z-index: 5; } }
+  aside { border-right: 1px solid var(--rule); background: var(--panel); overflow-y: auto; display: flex; flex-direction: column; }
+  aside .top { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid var(--rule); }
+  aside .top h2 { margin: 0; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+  .sess { display: grid; grid-template-columns: 14px 1fr auto; gap: 8px; align-items: center; padding: 9px 12px; cursor: pointer; border-left: 3px solid transparent; }
+  .sess:hover { background: var(--grid); }
+  .sess.sel { background: var(--grid); border-left-color: var(--acp); }
+  .sess .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--rule); }
+  .sess .dot.running { background: var(--warn); animation: pulse 1.2s infinite; }
+  .sess .dot.ready { background: var(--acp); }
+  .sess .dot.waiting { background: var(--bad); animation: pulse .8s infinite; }
+  .sess .dot.disconnected, .sess .dot.unreachable { background: var(--bad); }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .sess .name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sess .sub { grid-column: 2 / 4; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sess .agent { font-size: 11px; color: var(--muted); }
+  .empty { padding: 24px 16px; color: var(--muted); font-size: 13px; }
+  section { display: grid; grid-template-rows: auto 1fr auto; min-height: 0; }
+  .bar { display: flex; align-items: center; gap: 10px; padding: 8px 16px; border-bottom: 1px solid var(--rule); background: var(--panel); flex-wrap: wrap; }
+  .bar h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  .bar .st { font-size: 12px; padding: 2px 8px; border-radius: 4px; background: var(--grid); color: var(--muted); }
+  .bar .st.running { background: var(--warn-soft); color: var(--warn); }
+  .bar .st.waiting { background: var(--bad-soft); color: var(--bad); }
+  .bar .st.ready { background: var(--acp-soft); color: var(--acp); }
+  .bar select { background: var(--panel); border: 1px solid var(--rule); border-radius: 5px; padding: 4px 6px; max-width: 200px; }
+  .bar label { font-size: 12px; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
+  .log { overflow-y: auto; padding: 18px 20px 12px; display: flex; flex-direction: column; gap: 10px; }
+  .msg { max-width: 78ch; white-space: pre-wrap; word-break: break-word; }
+  .msg.user { align-self: flex-end; background: var(--user-soft); color: var(--ink); border-radius: 10px 10px 2px 10px; padding: 8px 12px; border-left: 3px solid var(--user); }
+  .msg.user.steer { border-left-color: var(--warn); }
+  .msg.assistant { padding: 2px 0; }
+  .msg.thought { color: var(--muted); font-size: 13px; border-left: 2px solid var(--rule); padding-left: 10px; }
+  .msg.thought summary { cursor: pointer; }
+  .tool { font-size: 13px; border: 1px solid var(--rule); border-radius: 6px; background: var(--panel); max-width: 78ch; }
+  .tool .head { display: flex; gap: 8px; align-items: center; padding: 6px 10px; cursor: pointer; }
+  .tool .glyph { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); flex: none; }
+  .tool.completed .glyph { background: var(--acp); } .tool.failed .glyph { background: var(--bad); }
+  .tool .kind { color: var(--muted); font-size: 11px; margin-left: auto; }
+  .tool pre { margin: 0; padding: 8px 10px; border-top: 1px solid var(--rule); font-size: 12px; overflow-x: auto; max-height: 260px; color: var(--muted); white-space: pre-wrap; }
+  .plan { font-size: 13px; border-left: 3px solid var(--acp); padding: 4px 10px; max-width: 78ch; }
+  .plan div::before { content: "○ "; color: var(--muted); } .plan div.completed::before { content: "✓ "; color: var(--acp); } .plan div.in_progress::before { content: "▶ "; color: var(--warn); }
+  .note { font-size: 12px; color: var(--muted); }
+  .working { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+  .spin { width: 10px; height: 10px; border: 2px solid var(--rule); border-top-color: var(--acp); border-radius: 50%; animation: spin .9s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .msg.user.local { opacity: .7; }
+  .msg.user.queued { border-left-style: dashed; }
+  .qtag { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  @media (prefers-reduced-motion: reduce) { .spin, .sess .dot { animation: none; } }
+  .note.err { color: var(--bad); }
+  .perm { border: 1px solid var(--bad); background: var(--bad-soft); border-radius: 8px; padding: 10px 12px; max-width: 78ch; display: grid; gap: 8px; }
+  .perm .t { font-weight: 600; }
+  .perm .opts { display: flex; gap: 8px; flex-wrap: wrap; }
+  .perm.decided { border-color: var(--rule); background: var(--grid); }
+  .composer { border-top: 1px solid var(--rule); background: var(--panel); padding: 10px 16px; display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: end; }
+  .composer textarea { width: 100%; min-height: 44px; max-height: 200px; resize: vertical; border: 1px solid var(--rule); border-radius: 6px; padding: 9px 11px; background: var(--bg); }
+  .composer .btns { display: grid; gap: 6px; }
+  .composer .hint { grid-column: 1 / 3; font-size: 11px; color: var(--muted); }
+  dialog { border: 1px solid var(--rule); border-radius: 10px; background: var(--panel); color: var(--ink); padding: 0; width: min(520px, 92vw); }
+  dialog::backdrop { background: rgba(0,0,0,.35); }
+  dialog form { display: grid; gap: 12px; padding: 18px 20px; }
+  dialog h3 { margin: 0; font-size: 16px; }
+  dialog label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+  dialog input, dialog select { border: 1px solid var(--rule); border-radius: 5px; padding: 7px 9px; background: var(--bg); }
+  dialog .row { display: flex; gap: 8px; justify-content: flex-end; }
+  .kbd { font-family: "JetBrains Mono", monospace; font-size: 11px; border: 1px solid var(--rule); border-radius: 3px; padding: 0 4px; }
+  .peerchip { font-size: 10px; color: var(--muted); border: 1px solid var(--rule); border-radius: 3px; padding: 0 4px; margin-right: 4px; }
+</style>
+</head>
+<body>
+<header>
+  <span class="brand"><b>acp</b>mux</span>
+  <span id="conn" class="conn">connecting…</span>
+  <span class="spacer"></span>
+  <button id="toggle-side" class="mobile-only" hidden>sessions</button>
+  <button id="btn-new" class="primary">New session</button>
+</header>
+<main>
+  <aside id="side">
+    <div class="top"><h2>Sessions</h2><span id="count" class="note"></span></div>
+    <div id="list"></div>
+    <div id="empty" class="empty" hidden>No sessions yet. Create one with <b>New session</b>, or from a terminal:<br><code class="mono">acpmux new -a codex -n my-task</code></div>
+  </aside>
+  <section>
+    <div class="bar" id="bar">
+      <h1 id="title">—</h1>
+      <span id="status" class="st"></span>
+      <label>mode <select id="mode"></select></label>
+      <label>model <select id="model"></select></label>
+      <span id="extra"></span>
+      <span class="spacer" style="flex:1"></span>
+      <button id="btn-cancel" title="Cancel the running turn">Cancel</button>
+      <button id="btn-fork" title="Fork this session">Fork</button>
+      <button id="btn-rename" title="Rename">Rename</button>
+      <button id="btn-kill" class="danger" title="Stop the agent; the log stays">Stop</button>
+    </div>
+    <div class="log" id="log"><div class="empty">Pick a session on the left, or create one.</div></div>
+    <div class="composer">
+      <textarea id="input" placeholder="Message the agent…  Enter sends, Shift+Enter is a newline" rows="2"></textarea>
+      <div class="btns"><button id="btn-send" class="primary">Send</button><button id="btn-steer" title="Interrupt the running turn with this message">Steer</button></div>
+      <div class="hint"><span class="kbd">Enter</span> send · <span class="kbd">Shift+Enter</span> newline · <span class="kbd">Esc</span> cancel turn · <span class="kbd">⌘K</span> new session</div>
+    </div>
+  </section>
+</main>
+
+<dialog id="dlg-new">
+  <form method="dialog" id="form-new">
+    <h3>New session</h3>
+    <label>Agent <select id="new-agent"></select></label>
+    <label>Name <input id="new-name" placeholder="backend-review" pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,79}"></label>
+    <label>Directory <input id="new-cwd" placeholder="/path/to/repo"></label>
+    <label>Permissions <select id="new-policy"><option value="ask">ask me</option><option value="approve-reads">approve reads, ask for writes</option><option value="approve-all">approve everything</option><option value="deny-all">deny everything</option></select></label>
+    <label>First message (optional) <input id="new-prompt" placeholder="inspect the failing tests"></label>
+    <div class="row"><button type="button" id="new-cancel">Cancel</button><button type="submit" class="primary">Create</button></div>
+  </form>
+</dialog>
+
+<script>
+(() => {
+  const $ = (s) => document.querySelector(s);
+  const token = new URLSearchParams(location.search).get('token') || '';
+  const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/?token=' + encodeURIComponent(token);
+
+  // ---------- transport
+  let ws, nextId = 1, pending = new Map(), backoff = 500;
+  const call = (method, params = {}) => new Promise((res, rej) => {
+    if (!ws || ws.readyState !== 1) return rej(new Error('not connected'));
+    const id = nextId++;
+    pending.set(id, { res, rej });
+    ws.send(JSON.stringify({ jsonrpc: '2.0', id, method, params }));
+  });
+  const notify = (method, params = {}) => ws && ws.readyState === 1 && ws.send(JSON.stringify({ jsonrpc: '2.0', method, params }));
+  function connect() {
+    ws = new WebSocket(wsUrl);
+    ws.onopen = async () => {
+      backoff = 500;
+      $('#conn').textContent = 'connected'; $('#conn').classList.remove('off');
+      await call('initialize', { protocolVersion: 1, clientCapabilities: {}, clientInfo: { name: 'acpmux-web', version: '0.1' } });
+      const w = await call('_acpmux/watch', { enabled: true });
+      setSessions(w.sessions || []);
+      const a = await call('_acpmux/agents', {});
+      agents = a.agents || {}; defaultAgent = a.defaultAgent;
+      if (selected) attach(selected, true);
+      else if (state.sessions.length) select(state.sessions[0].sessionId);
+      else openNew();
+    };
+    ws.onmessage = (ev) => {
+      const m = JSON.parse(ev.data);
+      if (m.id !== undefined && (m.result !== undefined || m.error)) {
+        const p = pending.get(m.id); pending.delete(m.id);
+        if (!p) return; m.error ? p.rej(new Error(m.error.message)) : p.res(m.result);
+        return;
+      }
+      if (m.method) onNotification(m.method, m.params || {});
+    };
+    ws.onclose = () => {
+      $('#conn').textContent = 'disconnected, retrying…'; $('#conn').classList.add('off');
+      for (const p of pending.values()) p.rej(new Error('disconnected')); pending.clear();
+      setTimeout(connect, backoff); backoff = Math.min(backoff * 2, 8000);
+    };
+  }
+
+  // ---------- state
+  const state = { sessions: [], transcripts: new Map(), details: new Map() };
+  let selected = null, agents = {}, defaultAgent = null, attached = new Set();
+
+  function setSessions(list) { state.sessions = list; sortSessions(); renderList(); }
+  function sortSessions() { state.sessions.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)); }
+  function upsertSession(s) {
+    const i = state.sessions.findIndex((x) => x.sessionId === s.sessionId);
+    if (i >= 0) state.sessions[i] = s; else state.sessions.push(s);
+    sortSessions(); renderList(); if (s.sessionId === selected) renderBar();
+  }
+
+  // ---------- transcript model (mirror of src/transcript.rs)
+  function newTranscript() { return { items: [], status: '', mode: null, model: null, usage: null, pendingUserChunk: false, lastSeq: 0, dirty: new Set(), runningSince: 0 }; }
+  const touch = (t, i) => t.dirty.add(i);
+  // Sequence guard: an attach snapshot can race a live notification; drop anything already applied.
+  const fresh = (t, seq) => { if (typeof seq !== 'number') return true; if (seq <= t.lastSeq) return false; t.lastSeq = seq; return true; };
+  const textOf = (c) => Array.isArray(c) ? c.map(textOf).join('') : (c && typeof c === 'object') ? (typeof c.text === 'string' ? c.text : c.content ? textOf(c.content) : c.type === 'image' ? '[image]' : c.resource ? (c.resource.text || '[resource]') : '') : (typeof c === 'string' ? c : '');
+  function applyUpdate(t, u) {
+    const before = t.items.length;
+    applyUpdateInner(t, u);
+    for (let i = Math.max(0, before - 1); i < t.items.length; i++) touch(t, i);
+  }
+  function applyUpdateInner(t, u) {
+    const k = u.sessionUpdate; const last = t.items[t.items.length - 1];
+    if (k === 'user_message_chunk') { const s = textOf(u.content); if (last && last.type === 'user' && t.pendingUserChunk) last.text += s; else t.items.push({ type: 'user', text: s, steer: false }); t.pendingUserChunk = true; return; }
+    t.pendingUserChunk = false;
+    if (k === 'agent_message_chunk') { const s = textOf(u.content); if (last && last.type === 'assistant') last.text += s; else t.items.push({ type: 'assistant', text: s }); }
+    else if (k === 'agent_thought_chunk') { const s = textOf(u.content); if (last && last.type === 'thought') last.text += s; else t.items.push({ type: 'thought', text: s }); }
+    else if (k === 'tool_call' || k === 'tool_call_update') {
+      let detail = (u.content || []).map(textOf).filter(Boolean).join('\n');
+      if (!detail && u.rawOutput !== undefined) detail = typeof u.rawOutput === 'string' ? u.rawOutput : JSON.stringify(u.rawOutput, null, 1);
+      if (detail.length > 6000) detail = detail.slice(0, 6000) + '\n…';
+      let it = null; for (let i = t.items.length - 1; i >= 0; i--) if (t.items[i].type === 'tool' && t.items[i].id === u.toolCallId) { it = t.items[i]; touch(t, i); break; }
+      if (it) { if (u.title) it.title = u.title; if (u.kind) it.kind = u.kind; if (u.status) it.status = u.status; if (detail) it.detail = detail; }
+      else t.items.push({ type: 'tool', id: u.toolCallId || '', title: u.title || 'tool', kind: u.kind || '', status: u.status || 'pending', detail });
+    }
+    else if (k === 'plan') { const entries = (u.entries || []).map((e) => ({ status: e.status || '', content: e.content || '' })); let p = null; for (let i = t.items.length - 1; i >= 0; i--) if (t.items[i].type === 'plan') { p = t.items[i]; touch(t, i); break; } if (p) p.entries = entries; else t.items.push({ type: 'plan', entries }); }
+    else if (k === 'usage_update') t.usage = { used: u.used || 0, size: u.size || 0 };
+    else if (k === 'current_mode_update') t.mode = u.currentModeId;
+    else if (k === 'config_option_update') { for (const o of u.configOptions || []) if (o.id === 'model') t.model = o.currentValue; }
+  }
+  function applyEvent(t, ev) {
+    const before = t.items.length;
+    applyEventInner(t, ev);
+    for (let i = Math.max(0, before - 1); i < t.items.length; i++) touch(t, i);
+  }
+  function applyEventInner(t, ev) {
+    const { dir, kind, msg } = ev;
+    if (dir === 'in') { if (kind.endsWith('.replay')) return; if (msg && msg.method === 'session/update' && msg.params && msg.params.update) applyUpdate(t, msg.params.update); return; }
+    if (dir !== 'mux') return;
+    t.pendingUserChunk = false;
+    const push = (x) => t.items.push(x);
+    switch (kind) {
+      case 'queued': { const local = t.items.findIndex((x) => x.type === 'user' && x.local && x.text === (msg.text || '')); if (local >= 0) { t.items[local].queued = true; touch(t, local); } else push({ type: 'user', text: msg.text || '', steer: false, queued: true }); break; }
+      case 'user_message': { const local = t.items.findIndex((x) => x.type === 'user' && (x.local || x.queued) && x.text === (msg.text || '')); if (local >= 0) { t.items[local].local = false; t.items[local].queued = false; touch(t, local); } else push({ type: 'user', text: msg.text || '', steer: !!msg.steer }); break; }
+      case 'status': t.status = msg.status || ''; if (t.status === 'running') { if (!t.runningSince) t.runningSince = Date.now(); } else t.runningSince = 0; break;
+      case 'turn_end': push({ type: 'turn_end', stop: msg.stopReason || 'end_turn' }); break;
+      case 'turn_error': push({ type: 'error', text: msg.error || 'turn failed' }); break;
+      case 'permission_request': { const r = msg.request || {}; push({ type: 'permission', id: msg.permissionId, title: (r.toolCall && r.toolCall.title) || 'permission', options: (r.options || []).map((o) => ({ id: o.optionId, name: o.name, kind: o.kind })), decided: null }); break; }
+      case 'permission_decision': case 'permission_auto': { const d = (msg.outcome && (msg.outcome.optionId || msg.outcome.outcome)) || msg.optionId || 'cancelled'; let found = false; for (let i = t.items.length - 1; i >= 0; i--) { const it = t.items[i]; if (it.type === 'permission' && it.id === msg.permissionId) { it.decided = d; found = true; touch(t, i); break; } } if (!found && kind === 'permission_auto') push({ type: 'permission', id: msg.permissionId, title: (msg.request && msg.request.toolCall && msg.request.toolCall.title) || 'permission', options: [], decided: d + ' (policy)' }); break; }
+      case 'stderr': push({ type: 'stderr', text: msg.text || '' }); break;
+      case 'exited': push({ type: 'note', text: 'agent exited unexpectedly' }); break;
+      case 'stopped': push({ type: 'note', text: 'agent stopped' }); break;
+      case 'resumed': push({ type: 'note', text: 'resumed (' + (msg.level || '?') + ')' }); break;
+      case 'resume_failed': push({ type: 'note', text: 'resume failed: ' + (msg.error || '?') }); break;
+      case 'forked': push({ type: 'note', text: 'forked from parent' }); break;
+      case 'mode': t.mode = msg.modeId; push({ type: 'note', text: 'mode: ' + msg.modeId }); break;
+      case 'model': t.model = msg.modelId; push({ type: 'note', text: 'model: ' + msg.modelId }); break;
+      case 'config': if (msg.configId === 'model') t.model = msg.value; push({ type: 'note', text: msg.configId + ' = ' + JSON.stringify(msg.value) }); break;
+      case 'renamed': push({ type: 'note', text: 'renamed to ' + msg.to }); break;
+    }
+  }
+  const pendingPermission = (t) => { for (let i = t.items.length - 1; i >= 0; i--) if (t.items[i].type === 'permission' && !t.items[i].decided) return t.items[i]; return null; };
+
+  // ---------- notifications
+  function onNotification(method, p) {
+    const sid = p.sessionId;
+    if (method === 'session/update' && sid) { const t = state.transcripts.get(sid) || newTranscript(); state.transcripts.set(sid, t); if (!fresh(t, p._meta && p._meta.acpmux && p._meta.acpmux.seq)) return; applyUpdate(t, p.update || {}); if (sid === selected) scheduleRender(); }
+    else if (method === '_acpmux/event' && sid) { const t = state.transcripts.get(sid) || newTranscript(); state.transcripts.set(sid, t); if (!fresh(t, p.seq)) return; applyEvent(t, p); if (sid === selected) scheduleRender(true); }
+    else if (method === '_acpmux/session_changed' && p.session) upsertSession(p.session);
+    else if (method === '_acpmux/permission_pending' && sid && sid !== selected) { document.title = '⚠ acpmux'; }
+  }
+
+  // ---------- actions
+  async function attach(id, force) {
+    if (attached.has(id) && !force) return;
+    attached.add(id);
+    try {
+      const r = await call('_acpmux/attach', { sessionId: id, limit: 3000 });
+      const t = newTranscript(); for (const e of r.events || []) { if (fresh(t, e.seq)) applyEvent(t, e); }
+      const d = r.session || {}; t.status = d.status || t.status; t.mode = d.currentModeId || t.mode; t.model = d.model || t.model; if (t.status === 'running' && d.turn && d.turn.startedAt) t.runningSince = d.turn.startedAt;
+      state.details.set(id, d); state.transcripts.set(id, t);
+      if (id === selected) { renderLog(true); renderBar(); }
+    } catch (e) { attached.delete(id); console.warn('attach', e); }
+  }
+  function select(id) { selected = id; document.title = 'acpmux'; if (workingEl) { workingEl.remove(); workingEl = null; } renderList(); renderBar(); renderLog(true); attach(id); $('#input').focus(); $('#side').classList.remove('open'); }
+  async function send(steer) {
+    const text = $('#input').value.trim(); if (!text || !selected) return;
+    $('#input').value = ''; autosize();
+    const t = state.transcripts.get(selected) || newTranscript(); state.transcripts.set(selected, t);
+    const busy = t.status === 'running' || t.status === 'waiting';
+    t.items.push({ type: 'user', text, steer, local: true, queued: busy && !steer }); touch(t, t.items.length - 1);
+    if (!steer && !busy) { t.status = 'running'; t.runningSince = Date.now(); }
+    scheduleRender(true);
+    call('session/prompt', { sessionId: selected, prompt: [{ type: 'text', text }], _meta: { acpmux: { steer } } }).catch((e) => { toast('error: ' + e.message); t.status = 'ready'; t.runningSince = 0; scheduleRender(); });
+  }
+  const toast = (msg) => { const c = $('#conn'); c.textContent = msg; setTimeout(() => { if (ws && ws.readyState === 1) c.textContent = 'connected'; }, 4000); };
+
+  // ---------- rendering
+  function renderList() {
+    const list = $('#list'); list.innerHTML = '';
+    $('#count').textContent = state.sessions.length ? state.sessions.length + '' : '';
+    $('#empty').hidden = state.sessions.length > 0;
+    for (const s of state.sessions) {
+      const el = document.createElement('div'); el.className = 'sess' + (s.sessionId === selected ? ' sel' : '');
+      const st = (s.pendingPermissions > 0) ? 'waiting' : s.status;
+      const peer = s.peer ? '<span class="peerchip">' + esc(s.peer) + '</span>' : '';
+      const name = s.peer && s.name.startsWith(s.peer + '/') ? s.name.slice(s.peer.length + 1) : s.name;
+      el.innerHTML = '<span class="dot ' + esc(st) + '"></span><span class="name">' + peer + esc(name) + '</span><span class="agent">' + esc(s.agent) + '</span><span class="sub">' + esc(s.lastPrompt || s.preview || st) + '</span>';
+      el.onclick = () => select(s.sessionId);
+      list.appendChild(el);
+    }
+  }
+  function renderBar() {
+    const s = state.sessions.find((x) => x.sessionId === selected);
+    const d = state.details.get(selected) || {};
+    const t = state.transcripts.get(selected);
+    $('#title').textContent = s ? s.name : '—';
+    const st = t ? t.status : (s ? s.status : ''); const stEl = $('#status'); stEl.textContent = st; stEl.className = 'st ' + st;
+    const modeSel = $('#mode'); modeSel.innerHTML = '';
+    const modes = (d.modes && d.modes.availableModes) || [];
+    for (const m of modes) { const o = new Option(m.name || m.id, m.id); modeSel.add(o); }
+    modeSel.value = (t && t.mode) || (d.modes && d.modes.currentModeId) || ''; modeSel.parentElement.hidden = modes.length === 0;
+    const modelSel = $('#model'); modelSel.innerHTML = '';
+    const opts = d.configOptions || []; const modelOpt = opts.find((o) => o.id === 'model');
+    if (modelOpt) { for (const o of modelOpt.options || []) modelSel.add(new Option(o.name || o.value, o.value)); modelSel.value = (t && t.model) || modelOpt.currentValue || ''; }
+    modelSel.parentElement.hidden = !modelOpt;
+    const extra = $('#extra'); extra.innerHTML = '';
+    for (const o of opts) { if (o.id === 'model' || o.id === 'mode') continue; if (!o.options) continue; const lab = document.createElement('label'); lab.textContent = o.id.replace(/_/g, ' ') + ' '; const sel = document.createElement('select'); for (const c of o.options) sel.add(new Option(c.name || c.value, c.value)); sel.value = o.currentValue; sel.onchange = () => call('session/set_config_option', { sessionId: selected, configId: o.id, value: sel.value }).then(() => attach(selected, true)).catch((e) => toast(e.message)); lab.appendChild(sel); extra.appendChild(lab); }
+  }
+  let renderedCount = 0, lastAssistantEl = null, rafPending = false, barPending = false;
+  // Coalesce bursts of streaming chunks into one paint per frame.
+  function scheduleRender(bar) {
+    if (bar) barPending = true;
+    if (rafPending) return; rafPending = true;
+    requestAnimationFrame(() => { rafPending = false; renderLogIncremental(); if (barPending) { barPending = false; renderBar(); } });
+  }
+  function renderLog(full) {
+    const log = $('#log');
+    const t = state.transcripts.get(selected);
+    if (!selected) { log.innerHTML = '<div class="empty">Pick a session on the left, or create one.</div>'; return; }
+    if (!t) { log.innerHTML = '<div class="empty">loading…</div>'; return; }
+    log.innerHTML = ''; renderedCount = 0; lastAssistantEl = null; t.dirty.clear();
+    renderLogIncremental(); log.scrollTop = log.scrollHeight;
+  }
+  function renderLogIncremental() {
+    const log = $('#log'); const t = state.transcripts.get(selected); if (!t) return;
+    const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 60;
+    // Only items marked dirty are re-rendered; new items are appended.
+    for (const i of t.dirty) { if (i < renderedCount) { const old = log.querySelector('[data-idx="' + i + '"]'); if (old) old.replaceWith(renderItem(t.items[i], i)); } }
+    t.dirty.clear();
+    for (; renderedCount < t.items.length; renderedCount++) log.appendChild(renderItem(t.items[renderedCount], renderedCount));
+    renderWorking(t);
+    if (atBottom) log.scrollTop = log.scrollHeight;
+  }
+  // A live "working" row while a turn runs and nothing has streamed yet.
+  let workingEl = null, workingTimer = null;
+  function renderWorking(t) {
+    const log = $('#log');
+    let last = t.items[t.items.length - 1];
+    for (let i = t.items.length - 1; i >= 0 && t.items[i].type === 'user' && t.items[i].queued; i--) last = t.items[i - 1];
+    const streaming = last && (last.type === 'assistant' || (last.type === 'tool' && last.status === 'in_progress'));
+    const show = t.status === 'running' && !streaming;
+    if (show) {
+      if (!workingEl) { workingEl = document.createElement('div'); workingEl.className = 'working'; log.appendChild(workingEl); }
+      else if (log.lastElementChild !== workingEl) log.appendChild(workingEl);
+      const thought = last && last.type === 'thought' ? ' · thinking ' + (last.text.length >= 1000 ? (last.text.length / 1000).toFixed(1) + 'k' : last.text.length) + ' chars' : '';
+      const secs = t.runningSince ? Math.floor((Date.now() - t.runningSince) / 1000) : 0;
+      const queued = t.items.filter((x) => x.type === 'user' && x.queued).length;
+      workingEl.innerHTML = '<span class="spin"></span> working' + (secs ? ' ' + secs + 's' : '') + esc(thought) + (queued ? ' · ' + queued + ' queued' : '');
+      if (!workingTimer) workingTimer = setInterval(() => { const cur = state.transcripts.get(selected); if (cur) renderWorking(cur); }, 1000);
+    } else if (workingEl) { workingEl.remove(); workingEl = null; if (workingTimer) { clearInterval(workingTimer); workingTimer = null; } }
+  }
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  function renderItem(it, idx) {
+    const el = document.createElement('div'); el.dataset.idx = idx;
+    switch (it.type) {
+      case 'user': el.className = 'msg user' + (it.steer ? ' steer' : '') + (it.local ? ' local' : '') + (it.queued ? ' queued' : ''); el.textContent = it.text; if (it.queued) { const q = document.createElement('div'); q.className = 'qtag'; q.textContent = 'queued · sends when the running turn ends'; el.appendChild(q); } break;
+      case 'assistant': el.className = 'msg assistant'; el.innerHTML = renderMd(it.text); break;
+      case 'thought': el.className = 'msg thought'; el.innerHTML = '<details><summary>thinking · ' + it.text.length + ' chars</summary>' + esc(it.text) + '</details>'; break;
+      case 'tool': el.className = 'tool ' + esc(it.status); el.innerHTML = '<div class="head"><span class="glyph"></span><span>' + esc(it.title) + '</span><span class="kind">' + esc(it.kind) + ' · ' + esc(it.status) + '</span></div>' + (it.detail ? '<pre hidden>' + esc(it.detail) + '</pre>' : ''); el.querySelector('.head').onclick = () => { const p = el.querySelector('pre'); if (p) p.hidden = !p.hidden; }; break;
+      case 'plan': el.className = 'plan'; el.innerHTML = it.entries.map((e) => '<div class="' + esc(e.status) + '">' + esc(e.content) + '</div>').join(''); break;
+      case 'permission': el.className = 'perm' + (it.decided ? ' decided' : ''); el.innerHTML = '<div class="t">' + (it.decided ? 'permission: ' : 'permission needed: ') + esc(it.title) + (it.decided ? ' → ' + esc(it.decided) : '') + '</div>' + (it.decided ? '' : '<div class="opts">' + it.options.map((o) => '<button data-opt="' + esc(o.id) + '" class="' + (o.kind.startsWith('allow') ? 'primary' : 'danger') + '">' + esc(o.name) + '</button>').join('') + '</div>'); for (const b of el.querySelectorAll('button')) b.onclick = () => call('_acpmux/permission_respond', { sessionId: selected, permissionId: it.id, optionId: b.dataset.opt }).catch((e) => toast(e.message)); break;
+      case 'turn_end': el.className = 'note'; el.textContent = it.stop === 'end_turn' ? '' : '— ' + it.stop; if (!el.textContent) el.hidden = true; break;
+      case 'error': el.className = 'note err'; el.textContent = 'error: ' + it.text; break;
+      case 'stderr': el.className = 'note'; el.textContent = 'stderr: ' + it.text.slice(0, 300); break;
+      case 'note': el.className = 'note'; el.textContent = '— ' + it.text; break;
+      default: el.className = 'note'; el.textContent = JSON.stringify(it);
+    }
+    return el;
+  }
+  // Very small markdown: fenced code, inline code, bold. Everything else stays literal.
+  function renderMd(s) {
+    const parts = s.split(/```/); let out = '';
+    for (let i = 0; i < parts.length; i++) {
+      if (i % 2 === 1) { const body = parts[i].replace(/^[a-zA-Z0-9_-]*\n/, ''); out += '<pre class="mono" style="background:var(--grid);padding:8px 10px;border-radius:6px;overflow-x:auto">' + esc(body) + '</pre>'; }
+      else out += esc(parts[i]).replace(/`([^`\n]+)`/g, '<code class="mono" style="background:var(--grid);padding:0 4px;border-radius:3px">$1</code>').replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');
+    }
+    return out;
+  }
+
+  // ---------- new session dialog
+  function openNew() {
+    const sel = $('#new-agent'); sel.innerHTML = '';
+    for (const name of Object.keys(agents)) sel.add(new Option(name, name));
+    if (defaultAgent) sel.value = defaultAgent;
+    const cur = state.sessions.find((x) => x.sessionId === selected);
+    $('#new-cwd').value = (cur && cur.cwd) || $('#new-cwd').value || '';
+    $('#new-name').value = ''; $('#new-prompt').value = '';
+    $('#dlg-new').showModal(); $('#new-name').focus();
+  }
+  $('#btn-new').onclick = openNew;
+  $('#new-cancel').onclick = () => $('#dlg-new').close();
+  $('#form-new').onsubmit = async (e) => {
+    e.preventDefault();
+    const meta = { agent: $('#new-agent').value, policy: $('#new-policy').value };
+    if ($('#new-name').value) meta.name = $('#new-name').value;
+    const params = { mcpServers: [], _meta: { acpmux: meta } };
+    if ($('#new-cwd').value) params.cwd = $('#new-cwd').value;
+    try {
+      const r = await call('session/new', params);
+      $('#dlg-new').close();
+      const s = r._meta && r._meta.acpmux; if (s) upsertSession(s);
+      select(r.sessionId);
+      const first = $('#new-prompt').value.trim();
+      if (first) call('session/prompt', { sessionId: r.sessionId, prompt: [{ type: 'text', text: first }] }).catch((e2) => toast(e2.message));
+    } catch (err) { toast('error: ' + err.message); }
+  };
+
+  // ---------- controls
+  $('#btn-send').onclick = () => send(false);
+  $('#btn-steer').onclick = () => send(true);
+  $('#btn-cancel').onclick = () => selected && notify('session/cancel', { sessionId: selected });
+  $('#btn-fork').onclick = async () => { if (!selected) return; const name = prompt('Name for the fork (blank for automatic):') ; if (name === null) return; const p = { sessionId: selected, mcpServers: [], _meta: { acpmux: {} } }; if (name) p._meta.acpmux.name = name; try { const r = await call('session/fork', p); const s = r._meta && r._meta.acpmux; if (s) upsertSession(s); select(r.sessionId); } catch (e) { toast('error: ' + e.message); } };
+  $('#btn-rename').onclick = async () => { if (!selected) return; const s = state.sessions.find((x) => x.sessionId === selected); const name = prompt('New name:', s ? s.name.replace(/^[^/]+\//, '') : ''); if (!name) return; try { await call('_acpmux/rename', { sessionId: selected, newName: name }); } catch (e) { toast('error: ' + e.message); } };
+  $('#btn-kill').onclick = async () => { if (!selected) return; if (!confirm('Stop the agent for this session? The log stays and it can resume later.')) return; try { await call('_acpmux/kill', { sessionId: selected, purge: false }); } catch (e) { toast('error: ' + e.message); } };
+  $('#mode').onchange = () => call('session/set_mode', { sessionId: selected, modeId: $('#mode').value }).catch((e) => toast(e.message));
+  $('#model').onchange = () => call('session/set_model', { sessionId: selected, modelId: $('#model').value }).catch((e) => toast(e.message));
+  const input = $('#input');
+  const autosize = () => { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 200) + 'px'; };
+  input.addEventListener('input', autosize);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(false); }
+    else if (e.key === 'Escape') { notify('session/cancel', { sessionId: selected }); }
+  });
+  document.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openNew(); }
+    const t = selected && state.transcripts.get(selected); const perm = t && pendingPermission(t);
+    if (perm && document.activeElement !== input && !$('#dlg-new').open) {
+      if (e.key === 'y') { const o = perm.options.find((x) => x.kind.startsWith('allow')); if (o) call('_acpmux/permission_respond', { sessionId: selected, permissionId: perm.id, optionId: o.id }); }
+      if (e.key === 'n') { const o = perm.options.find((x) => x.kind.startsWith('reject')); if (o) call('_acpmux/permission_respond', { sessionId: selected, permissionId: perm.id, optionId: o.id }); }
+    }
+  });
+  if (matchMedia('(max-width: 760px)').matches) { const b = $('#toggle-side'); b.hidden = false; b.onclick = () => $('#side').classList.toggle('open'); }
+  connect();
+})();
+</script>
+</body>
+</html>
