@@ -27,7 +27,8 @@ class DeployTests(unittest.TestCase):
         self.assertIn('--restart on-failure',script)
         self.assertIn('--read-only --cap-drop ALL',script)
         self.assertIn('/etc/cmux-v3:/run/cmux-v3:ro',script)
-        self.assertIn('--username test-identity',script)
+        self.assertIn('--client-id test-identity',script)
+        self.assertIn('packages.microsoft.com/repos/azure-cli/',script)
         self.assertIn('exit 1',script)
         self.assertNotIn('SIGNER_SEED',script)
     def test_remote_script_values_cannot_inject_shell(self):

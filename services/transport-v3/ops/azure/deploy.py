@@ -47,14 +47,33 @@ def install_script(image, proxy, hostname, address, keys, identity_client):
     public = base64.b64encode(json.dumps(keys).encode()).decode()
     return f'''#!/bin/bash
 set -euo pipefail
-cloud-init status --wait >/dev/null
+cloud_status=0
+cloud-init status --wait >/dev/null || cloud_status=$?
+# A prior package warning may return 2. Required binaries and readiness below
+# remain mandatory; fatal cloud-init status still aborts installation.
+case "$cloud_status" in 0|2) ;; *) exit "$cloud_status";; esac
 command -v docker >/dev/null
 install -d -m 700 /etc/cmux-v3
 if [ -e /etc/cmux-v3/installed ]; then
-  echo 'Existing node must not be replaced; create a new generation.' >&2
-  exit 1
+  if [ "$(cat /etc/cmux-v3/installed)" != '{image}' ]; then
+    echo 'Existing node must not be replaced; create a new generation.' >&2
+    exit 1
+  fi
+  curl -fsS --max-time 3 http://127.0.0.1:8080/readyz >/dev/null
+  curl -fsS --max-time 3 http://127.0.0.1:8080/healthz
+  echo CMUX_V3_OK
+  exit 0
 fi
-az login --identity --username {identity_client} >/dev/null
+if ! command -v az >/dev/null; then
+  install -d -m 755 /etc/apt/keyrings
+  curl -fsS https://packages.microsoft.com/keys/microsoft.asc -o /etc/apt/keyrings/microsoft.asc
+  gpg --batch --yes --dearmor -o /etc/apt/keyrings/microsoft.gpg /etc/apt/keyrings/microsoft.asc
+  chmod 644 /etc/apt/keyrings/microsoft.gpg
+  printf '%s\\n' 'deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/azure-cli/ noble main' >/etc/apt/sources.list.d/azure-cli.list
+  apt-get update -qq
+  DEBIAN_FRONTEND=noninteractive apt-get install -y azure-cli >/var/log/cmux-v3-cli-install.log
+fi
+az login --identity --client-id {identity_client} >/dev/null
 az acr login --name {ARGS.registry} >/dev/null
 docker pull {image} >/dev/null
 docker pull {proxy} >/dev/null
@@ -130,10 +149,13 @@ def main():
                '--access','Allow','--direction','Inbound','--protocol',protocol,'--source-address-prefixes','Internet',
                '--destination-port-ranges',*ports)
         public=az('network','public-ip','create','-g',group,'-n',node+'-ip','-l',region,'--sku','Standard','--allocation-method','Static','--dns-name',node)['publicIp']
-        bootstrap='#cloud-config\npackage_update: true\npackages: [docker.io, azure-cli, ca-certificates, curl, openssl]\nruncmd:\n  - systemctl enable --now docker\n'
+        bootstrap='#cloud-config\npackage_update: true\npackages: [docker.io, gnupg, ca-certificates, curl, openssl]\nruncmd:\n  - systemctl enable --now docker\n'
+        existing=[vm for vm in az('vm','list','-g',group) if vm['name']==node]
+        if existing and existing[0].get('tags',{}).get('source')!=sha:
+            raise RuntimeError('Existing generation belongs to another source revision')
         with tempfile.NamedTemporaryFile('w',suffix='.yaml') as f:
             f.write(bootstrap);f.flush()
-            az('vm','create','-g',group,'-n',node,'-l',region,'--image','Ubuntu2404','--size',ARGS.size,
+            if not existing: az('vm','create','-g',group,'-n',node,'-l',region,'--image','Ubuntu2404','--size',ARGS.size,
                '--admin-username','azureuser','--ssh-key-values',str(ARGS.ssh_key),'--assign-identity',identity['id'],
                '--public-ip-address',node+'-ip','--nsg',node+'-nsg','--nsg-rule','NONE','--custom-data',f.name,
                '--tags','app=cmux-transport-v3',f'generation={ARGS.generation}',f'source={sha}')
@@ -152,7 +174,7 @@ if __name__=='__main__':
     parser.add_argument('--generation',required=True,type=label)
     parser.add_argument('--built-sha',help='Reuse an already-built immutable relay image from this revision')
     parser.add_argument('--regions',nargs='+',default=['eastus','westeurope'],type=label)
-    parser.add_argument('--size',default='Standard_B2s')
+    parser.add_argument('--size',default='Standard_D2als_v7')
     parser.add_argument('--authority-keys',required=True,type=Path)
     parser.add_argument('--ssh-key',required=True,type=Path)
     parser.add_argument('--receipt',required=True,type=Path)
