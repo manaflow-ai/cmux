@@ -54,6 +54,21 @@ struct SurfaceSocketCommandTests {
         #expect(!response.contains("response-body-private"))
     }
 
+    @Test func tunnelFailureKeepsTheSafeReasonAndDiagnosticReference() async throws {
+        let response = await Task.detached {
+            TerminalController.shared.v2VmCall(id: "tunnel-error", timeoutSeconds: 5) {
+                throw VMClientError.httpStatus(502, #"{"error":"vm_cloud_service_unavailable","ui":{"message":"Could not start the private connection. Try again shortly."},"traceId":"75b1fc0ad4068687505292b9a4a65f7d","retryable":true,"details":{"private":"credential=must-not-leak"}}"#)
+            }
+        }.value
+        let object = try #require(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
+        let error = try Self.error(object)
+        let message = try #require(error["message"] as? String)
+        #expect(message.contains("Could not start the private connection"))
+        #expect(message.contains("75b1fc0ad4068687505292b9a4a65f7d"))
+        #expect((error["data"] as? [String: Any])?["retryable"] as? Bool == true)
+        #expect(!response.contains("must-not-leak"))
+    }
+
     /// A cloud provider whose daemon is a notebook: every verb records what it was asked.
     private final class FakeCloudProvider: SurfaceProvider {
         let machine: SurfaceMachineID
