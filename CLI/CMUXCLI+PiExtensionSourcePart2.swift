@@ -111,7 +111,6 @@ async function clearResumeBinding(
 }
 
 type PiFeedEventName =
-  | "PreToolUse"
   | "PostToolUse"
   | "PreCompact"
   | "PostCompact"
@@ -348,7 +347,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
   };
 
   pi.on("tool_execution_start", (event, ctx) => {
-    enqueueFeed(isSubagentTool(event) ? "SubagentStart" : "PreToolUse", event, ctx);
+    // Pi executes ordinary tools without an approval contract. Older cmux
+    // releases treated an unregistered agent's PreToolUse event as an
+    // approval request, so reserve start telemetry for subagents, which have
+    // their own non-approval event. PostToolUse still reports ordinary tools.
+    if (isSubagentTool(event)) enqueueFeed("SubagentStart", event, ctx);
   });
 
   pi.on("tool_execution_end", (event, ctx) => {
