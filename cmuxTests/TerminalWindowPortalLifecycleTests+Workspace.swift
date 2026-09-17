@@ -9,6 +9,25 @@ import GhosttyKit
 #endif
 
 extension TerminalWindowPortalLifecycleTests {
+    func waitForPortalPresentation(
+        _ surface: TerminalSurface,
+        after baseline: GhosttySurfaceScrollView.DebugRenderStats
+    ) async -> Bool {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while !Task.isCancelled {
+            let stats = surface.hostedView.debugRenderStats()
+            // Embedded Ghostty can present through IOSurfaceLayer instead of
+            // CAMetalLayer; its contents seed is the observable frame change.
+            if stats.metalDrawableCount > baseline.metalDrawableCount ||
+                (stats.layerContentsKey != "nil" && stats.presentCount > baseline.presentCount) { return true }
+            guard ContinuousClock.now < deadline else { return false }
+            await withCheckedContinuation { continuation in
+                DispatchQueue.main.async { continuation.resume() }
+            }
+        }
+        return false
+    }
+
     /// Wait for the queued portal commit and runtime creation without holding
     /// the main actor in a nested run loop.
     func waitForSettledPortalGeometry(_ surface: TerminalSurface, anchor: NSView) async -> Bool {

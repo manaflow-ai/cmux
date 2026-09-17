@@ -88,7 +88,7 @@ extension TerminalWindowPortalLifecycleTests {
     /// host containers inside the SwiftUI update, and the dragged panes'
     /// surfaces hold transaction-coupled presents at exactly that moment.
     @MainActor
-    func testDragPathFailsafeReconcileDefersSurfaceRefreshInsideLayout() throws {
+    func testDragPathFailsafeReconcileDefersSurfaceRefreshInsideLayout() async throws {
         let window = makeTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 340)
         )
@@ -111,19 +111,24 @@ extension TerminalWindowPortalLifecycleTests {
 
         let dragSurface = makeTrackedTerminalSurface()
         let otherSurface = makeTrackedTerminalSurface()
+        dragSurface.hostedView.setVisibleInUI(true)
+        otherSurface.hostedView.setVisibleInUI(true)
         portal.bind(hostedView: dragSurface.hostedView, to: dragAnchor, visibleInUI: true)
         portal.bind(hostedView: otherSurface.hostedView, to: otherAnchor, visibleInUI: true)
         portal.synchronizeHostedViewForAnchor(dragAnchor)
         portal.synchronizeHostedViewForAnchor(otherAnchor)
-        drainMainQueue()
-        realizeWindowLayout(window)
+        guard await waitForSettledPortalGeometry(dragSurface, anchor: dragAnchor),
+              await waitForSettledPortalGeometry(otherSurface, anchor: otherAnchor) else {
+            XCTFail("Both surfaces must establish runtime geometry before the drag")
+            return
+        }
 
         TerminalWindowPortalRegistry.isPointerDragActiveForTesting = true
         dragSurface.resetDebugForceRefreshCount()
         otherSurface.resetDebugForceRefreshCount()
 
-        // Stale-ify the OTHER surface's inner geometry without a portal-visible
-        // frame delta: the failsafe reconcile is what notices and redraws it.
+        // The sibling's stale inner frame must recover after the drag without
+        // forcing a synchronous present from the anchor's layout callback.
         otherSurface.hostedView.surfaceView.setFrameSize(NSSize(width: 10, height: 10))
 
         var refreshCountDuringLayout = -1
@@ -144,13 +149,19 @@ extension TerminalWindowPortalLifecycleTests {
                 "while the anchor callback is inside a layout pass"
         )
 
-        drainMainQueue()
-        drainMainQueue()
-        XCTAssertGreaterThan(
-            otherSurface.debugForceRefreshCount(),
-            0,
-            "The deferred failsafe refresh must still repaint once the layout pass is over"
-        )
+        let presentationBeforeEnd = otherSurface.hostedView.debugRenderStats()
+        // Include a missed final sibling callback: ending the interaction must
+        // discover this new size and repaint it through the normal runtime.
+        otherAnchor.postsFrameChangedNotifications = false
+        otherAnchor.postsBoundsChangedNotifications = false
+        otherAnchor.setFrameSize(NSSize(width: 200, height: 140))
+        TerminalWindowPortalRegistry.isPointerDragActiveForTesting = false
+        // This fixture owns a direct portal rather than a registry portal.
+        NotificationCenter.default.post(name: NSWindow.didEndLiveResizeNotification, object: window)
+        let settled = await waitForSettledPortalGeometry(otherSurface, anchor: otherAnchor)
+        XCTAssertTrue(settled, "Resize end must commit the sibling's final viewport and runtime size")
+        let repainted = await waitForPortalPresentation(otherSurface, after: presentationBeforeEnd)
+        XCTAssertTrue(repainted, "The final geometry must present a new frame after the drag ends")
         withExtendedLifetime((dragSurface, otherSurface)) {}
     }
 
@@ -264,7 +275,7 @@ extension TerminalWindowPortalLifecycleTests {
         XCTAssertLessThan(surface.debugCurrentPixelSize().width, initialPixelSize.width)
     }
 
-    func testInteractiveGeometryResizeIsScopedToOwningWindow() async {
+    func testInteractiveGeometryResizeRegistryRequestsAreScopedToOwningWindow() async {
         let firstWindow = makeTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 760, height: 420)
         )
@@ -315,6 +326,11 @@ extension TerminalWindowPortalLifecycleTests {
             XCTFail("Expected both window portals to establish initial geometry")
             return
         }
+        guard let firstPortal = TerminalWindowPortalRegistry.portalsByWindowId[ObjectIdentifier(firstWindow)],
+              let secondPortal = TerminalWindowPortalRegistry.portalsByWindowId[ObjectIdentifier(secondWindow)] else {
+            XCTFail("Expected both registered window portals")
+            return
+        }
 
         let initialFirstWidth = firstSurface.debugCurrentPixelSize().width
         let initialSecondWidth = secondSurface.debugCurrentPixelSize().width
@@ -322,7 +338,9 @@ extension TerminalWindowPortalLifecycleTests {
         XCTAssertGreaterThan(initialSecondWidth, 0)
 
         firstAnchor.postsFrameChangedNotifications = false
+        firstAnchor.postsBoundsChangedNotifications = false
         secondAnchor.postsFrameChangedNotifications = false
+        secondAnchor.postsBoundsChangedNotifications = false
         let outerInteractionOwner = NSObject()
         let nestedInteractionOwner = NSObject()
         TerminalWindowPortalRegistry.beginInteractiveGeometryResize(
@@ -348,6 +366,8 @@ extension TerminalWindowPortalLifecycleTests {
         XCTAssertFalse(TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: secondWindow))
         firstAnchor.frame.size.width -= 120
         secondAnchor.frame.size.width -= 120
+        let firstRequests = firstPortal.externalGeometrySyncRequestCountForTesting
+        let secondRequests = secondPortal.externalGeometrySyncRequestCountForTesting
 
         TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: outerInteractionOwner)
         outerInteractionIsActive = false
@@ -355,8 +375,15 @@ extension TerminalWindowPortalLifecycleTests {
             TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: firstWindow),
             "Nested resize ownership should keep the window coalescing until every owner ends"
         )
+        XCTAssertEqual(firstPortal.externalGeometrySyncRequestCountForTesting, firstRequests)
+        XCTAssertEqual(secondPortal.externalGeometrySyncRequestCountForTesting, secondRequests)
         TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: nestedInteractionOwner)
         nestedInteractionIsActive = false
+        XCTAssertEqual(firstPortal.externalGeometrySyncRequestCountForTesting, firstRequests + 1)
+        XCTAssertEqual(secondPortal.externalGeometrySyncRequestCountForTesting, secondRequests)
+        XCTAssertEqual(secondSurface.debugCurrentPixelSize().width, initialSecondWidth)
+        // Assert registry routing before yielding: global resize-end subscribers
+        // and each runtime's scrollbar callbacks can independently enqueue layout.
         let firstSettled = await waitForSettledPortalGeometry(firstSurface, anchor: firstAnchor)
         XCTAssertTrue(firstSettled, "The owning window must settle after its last resize owner ends")
 
@@ -365,12 +392,9 @@ extension TerminalWindowPortalLifecycleTests {
             initialFirstWidth,
             "Drag end should flush the owning window's final terminal width"
         )
-        XCTAssertEqual(
-            secondSurface.debugCurrentPixelSize().width,
-            initialSecondWidth,
-            "One window's drag end must not flush unrelated terminal portals"
-        )
-
+        let secondWidthBeforeExplicitSync = secondSurface.debugCurrentPixelSize().width
+        secondAnchor.frame.size.width -= 40
+        XCTAssertEqual(secondSurface.debugCurrentPixelSize().width, secondWidthBeforeExplicitSync)
         TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(
             for: secondWindow,
             forceImmediate: false
@@ -379,7 +403,7 @@ extension TerminalWindowPortalLifecycleTests {
         XCTAssertTrue(secondSettled, "Explicit synchronization must settle the other window")
         XCTAssertLessThan(
             secondSurface.debugCurrentPixelSize().width,
-            initialSecondWidth,
+            secondWidthBeforeExplicitSync,
             "The unrelated window should still adopt its geometry when explicitly synchronized"
         )
     }
