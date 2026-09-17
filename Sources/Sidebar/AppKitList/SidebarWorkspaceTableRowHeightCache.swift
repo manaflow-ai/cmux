@@ -20,7 +20,7 @@ final class SidebarWorkspaceTableRowHeightCache {
             row candidate: SidebarWorkspaceTableRowConfiguration,
             columnWidth candidateWidth: CGFloat
         ) -> Bool {
-            columnWidth == candidateWidth && row.hasEquivalentContent(to: candidate)
+            columnWidth == candidateWidth && row.hasEquivalentHeightContent(to: candidate)
         }
     }
 
@@ -164,7 +164,7 @@ final class SidebarWorkspaceTableRowHeightCache {
         // the lookup still uses the last settled width; a content-matched
         // entry at another width is that fresher measurement, and the settle
         // pass re-measures every width-mismatched entry afterward.
-        guard entry.row.hasEquivalentContent(to: row) else { return nil }
+        guard entry.row.hasEquivalentHeightContent(to: row) else { return nil }
         return entry.height
     }
 

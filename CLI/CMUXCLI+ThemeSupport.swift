@@ -353,6 +353,8 @@ extension CMUXCLI {
             return "com.cmuxterm.app.debug"
         case "cmux-nightly.sock":
             return "com.cmuxterm.app.nightly"
+        case "cmux-rc.sock":
+            return "com.cmuxterm.app.rc"
         case "cmux-staging.sock":
             return "com.cmuxterm.app.staging"
         default:
@@ -368,6 +370,9 @@ extension CMUXCLI {
         }
         if let slug = themeReloadSocketSlug(name, prefix: "cmux-nightly-", suffix: ".sock") {
             return "com.cmuxterm.app.nightly.\(slug)"
+        }
+        if let slug = themeReloadSocketSlug(name, prefix: "cmux-rc-", suffix: ".sock") {
+            return "com.cmuxterm.app.rc.\(slug)"
         }
         if let slug = themeReloadSocketSlug(name, prefix: "cmux-staging-", suffix: ".sock") {
             return "com.cmuxterm.app.staging.\(slug)"
@@ -432,7 +437,7 @@ extension CMUXCLI {
 
     func isRightSidebarCLIMode(_ value: String) -> Bool {
         switch value.lowercased() {
-        case "files", "find", "vault", "sessions", "feed", "dock", "cloud", "machines", "vms":
+        case "files", "find", "vault", "sessions", "feed", "dock", "cloud", "machines", "vms", "custom", "custom-sidebar":
             return true
         default:
             return false
@@ -441,7 +446,7 @@ extension CMUXCLI {
 
     func normalizedRightSidebarCLIArgument(_ value: String) -> String {
         switch value.lowercased() {
-        case "files", "find", "vault", "sessions", "feed", "dock", "machines":
+        case "files", "find", "vault", "sessions", "feed", "dock", "machines", "custom", "custom-sidebar":
             return value.lowercased()
         case "cloud", "vms":
             return "machines"

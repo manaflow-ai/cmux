@@ -1659,14 +1659,14 @@ final class WindowBrowserHostViewTests: XCTestCase {
         contentView.addSubview(wrapper)
 
         var eventNames: [String] = []
-        var changedTranslation: CGFloat?
+        var changedTranslation: Double?
         let liveDivider = SidebarDividerTrackingView(
             frame: NSRect(x: 206, y: 0, width: 10, height: contentView.bounds.height)
         )
         liveDivider.onBegan = { eventNames.append("began") }
         liveDivider.onChanged = { translation in
             eventNames.append("changed")
-            changedTranslation = translation
+            changedTranslation = Double(translation)
             // Post the terminating event only after the tracker has received
             // the drag, so its synchronous loop exercises the real callback
             // path without relying on a timer or a test sleep.
@@ -1737,9 +1737,13 @@ final class WindowBrowserHostViewTests: XCTestCase {
             ["began", "changed", "ended"],
             "A shared browser/Dock divider hit must follow the native sidebar drag lifecycle"
         )
+        guard let forwardedTranslation = changedTranslation else {
+            XCTFail("The forwarded drag must report a native sidebar translation")
+            return
+        }
         XCTAssertEqual(
-            changedTranslation,
-            32,
+            Double(forwardedTranslation),
+            32.0,
             accuracy: 0.5,
             "The forwarded drag must reach the native sidebar tracker"
         )
@@ -1794,9 +1798,13 @@ final class WindowBrowserHostViewTests: XCTestCase {
             ["began", "changed", "ended"],
             "A Dock divider handoff must survive a transient tracker reparent"
         )
+        guard let reparentedTranslation = changedTranslation else {
+            XCTFail("A reparented Dock divider must report a native drag translation")
+            return
+        }
         XCTAssertEqual(
-            changedTranslation,
-            28,
+            Double(reparentedTranslation),
+            28.0,
             accuracy: 0.5,
             "A reparented Dock divider must continue receiving native drag translation"
         )
@@ -3763,6 +3771,12 @@ final class WindowBrowserSlotViewTests: XCTestCase {
 final class BrowserWindowPortalLifecycleTests: XCTestCase {
     private final class TrackingPortalWebView: WKWebView {
         private(set) var displayIfNeededCount = 0
+        private(set) var displayInvalidationCount = 0
+
+        override func setNeedsDisplay(_ invalidRect: NSRect) {
+            displayInvalidationCount += 1
+            super.setNeedsDisplay(invalidRect)
+        }
         private(set) var reattachRenderingStateCount = 0
 
         override func displayIfNeeded() {
@@ -3988,11 +4002,12 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             defer: false
         )
         defer { window.orderOut(nil) }
+        let originalContentView = window.contentView
         let portal = WindowBrowserPortal(window: window)
         _ = portal.webViewAtWindowPoint(NSPoint(x: 1, y: 1))
 
-        guard let contentView = window.contentView,
-              let container = contentView.superview else {
+        guard let contentView = originalContentView,
+              let container = window.contentView else {
             XCTFail("Expected content container")
             return
         }
@@ -4003,6 +4018,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             return
         }
 
+        XCTAssertTrue(contentView.isDescendant(of: container))
         XCTAssertGreaterThan(
             hostIndex,
             contentIndex,
@@ -4183,13 +4199,14 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         defer { window.orderOut(nil) }
         realizeWindowLayout(window)
 
+        let originalContentView = window.contentView
         let browserPortal = WindowBrowserPortal(window: window)
         let terminalPortal = WindowTerminalPortal(window: window)
         _ = browserPortal.webViewAtWindowPoint(NSPoint(x: 1, y: 1))
         _ = terminalPortal.viewAtWindowPoint(NSPoint(x: 1, y: 1))
 
-        guard let contentView = window.contentView,
-              let container = contentView.superview else {
+        guard let contentView = originalContentView,
+              let container = window.contentView else {
             XCTFail("Expected content container")
             return
         }
@@ -4512,7 +4529,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             return
         }
 
-        let initialDisplayCount = webView.displayIfNeededCount
+        let initialInvalidationCount = webView.displayInvalidationCount
         let initialReattachCount = webView.reattachRenderingStateCount
         anchor.frame = NSRect(x: 52, y: 30, width: 248, height: 178)
         contentView.layoutSubtreeIfNeeded()
@@ -4525,9 +4542,9 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertEqual(slot.frame.size.width, 248, accuracy: 0.5)
         XCTAssertEqual(slot.frame.size.height, 178, accuracy: 0.5)
         XCTAssertGreaterThan(
-            webView.displayIfNeededCount,
-            initialDisplayCount,
-            "Pure anchor geometry updates should still repaint the hosted browser"
+            webView.displayInvalidationCount,
+            initialInvalidationCount,
+            "Pure anchor geometry updates should schedule the hosted browser for repaint"
         )
         XCTAssertEqual(
             webView.reattachRenderingStateCount,
@@ -4588,7 +4605,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             return
         }
 
-        let initialDisplayCount = webView.displayIfNeededCount
+        let initialInvalidationCount = webView.displayInvalidationCount
         let initialReattachCount = webView.reattachRenderingStateCount
         let initialWidth = slot.frame.width
 
@@ -4604,9 +4621,9 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             "Moving the app split divider should shrink the hosted browser slot"
         )
         XCTAssertGreaterThan(
-            webView.displayIfNeededCount,
-            initialDisplayCount,
-            "External split resize should still repaint the hosted browser"
+            webView.displayInvalidationCount,
+            initialInvalidationCount,
+            "External split resize should schedule the hosted browser for repaint"
         )
         XCTAssertEqual(
             webView.reattachRenderingStateCount,

@@ -3,17 +3,23 @@ import SwiftUI
 
 /// Shows one ``NewMachineSheet`` at a time as a window sheet on the main cmux
 /// window (floating panel when no main window is on screen) and closes it
-/// when the model finishes. AppKit owns the sheet window; this only keeps it
-/// alive and ends the sheet on the host the presentation started on.
+/// when the model finishes. The sheet only collects the choice: Create hands
+/// the request to ``MachineCreateCoordinator`` and the sheet ends at once, so
+/// the window is modal for exactly as long as the person is choosing.
 @MainActor
-final class NewMachineSheetPresenter {
+final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
     static let shared = NewMachineSheetPresenter()
 
     private var sheetWindow: NSWindow?
     private var hostWindow: NSWindow?
     private var model: NewMachineModel?
+    private var pendingSelectionID: UUID?
+    private var pendingSelectionContinuation: CheckedContinuation<MachineCreateRequest?, Never>?
 
-    private init() {}
+    private var planRefreshTask: Task<Void, Never>?
+    private var planRefreshID: UUID?
+
+    private override init() { super.init() }
 
     var isPresenting: Bool { sheetWindow != nil }
 
@@ -32,11 +38,19 @@ final class NewMachineSheetPresenter {
             ? String(localized: "machines.new.title.base", defaultValue: "Set Up Base")
             : String(localized: "machines.new.title", defaultValue: "New Machine")
         window.isReleasedWhenClosed = false
-        model.onFinished = { [weak self] _ in
+        let previousOnFinished = model.onFinished
+        model.onFinished = { [weak self] outcome in
+            previousOnFinished?(outcome)
             self?.dismiss()
         }
         self.model = model
         sheetWindow = window
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(refreshPresentedPlan),
+            name: NSApplication.didBecomeActiveNotification,
+            object: nil
+        )
 
         if NSApp.activationPolicy() == .regular {
             NSApp.activate(ignoringOtherApps: true)
@@ -55,62 +69,155 @@ final class NewMachineSheetPresenter {
     }
 
     /// The one path every "New Machine" entrypoint (Machines panel ＋, the
-    /// command palette) goes through: paywall check, model, launcher, sheet.
-    /// `plan` and `imageKinds` come from whatever fleet page the caller
-    /// already holds; the panel passes its own and reports progress through
-    /// the operation hooks so its chrome shows the create in flight.
+    /// command palette) goes through: paywall check, model, sheet. Create
+    /// launches `cmux vm new …` through the shared coordinator; the Machines
+    /// panel shows the pending row and the outcome, whichever window it is in.
+    /// `plan`, `memoryOptionsMb`, `lockedMemoryOptionsMb` and
+    /// `memoryUpgradePlanId` come from whatever fleet page the caller already
+    /// holds (`VMPlanLimits`).
     func presentNewMachine(
         plan: MachinePlanSnapshot?,
-        imageKinds: [VMImageKindOption],
+        memoryOptionsMb: [Int],
+        lockedMemoryOptionsMb: [Int]? = nil,
+        memoryUpgradePlanId: String? = nil,
+        memoryUpgradePlansByMb: [String: String]? = nil,
         preferredWindow: NSWindow?,
-        operationDidBegin: (@MainActor () -> Void)? = nil,
-        operationDidEnd: (@MainActor () -> Void)? = nil
+        coordinator: MachineCreateCoordinator? = nil
     ) {
+        // `.shared` is main-actor-isolated, so it cannot be a default argument
+        // (default values evaluate in a nonisolated context); resolve it here.
+        let coordinator = coordinator ?? .shared
         if let plan, plan.isAtLimit, !plan.isPaidPlan {
-            ProUpgradePresenter.present()
+            ProUpgradePresenter.present(source: .newMachineAtLimit)
             return
         }
         let model = NewMachineModel(
             mode: .newMachine,
             plan: plan,
-            imageKinds: imageKinds,
-            launch: { arguments, completion in
-                operationDidBegin?()
-                let didStart = MachineRowActions.openNewMachine(arguments: arguments) { result in
-                    operationDidEnd?()
-                    completion(result)
-                }
-                if !didStart {
-                    // A sign-out can race the click. CloudVMActionLauncher opens
-                    // the shared sign-in flow and returns false; no completion
-                    // follows, so end the operation here.
-                    operationDidEnd?()
-                }
-                return didStart
+            memoryOptionsMb: memoryOptionsMb,
+            lockedMemoryOptionsMb: lockedMemoryOptionsMb,
+            memoryUpgradePlanId: memoryUpgradePlanId,
+            memoryUpgradePlansByMb: memoryUpgradePlansByMb,
+            selectionWindowID: preferredWindow.flatMap { AppDelegate.shared?.mainWindowId(from: $0) },
+            submit: { request in
+                coordinator.start(request, cancellableLaunch: { arguments, progress, completion in
+                    var cancellation: CloudVMActionLauncher.CancellationHandle?
+                    let didStart = MachineRowActions.openNewMachine(
+                        arguments: arguments,
+                        onOutput: progress,
+                        onCompletion: { result in
+                            completion(result)
+                        },
+                        onCancellationReady: { cancellation = $0 }
+                    )
+                    return didStart ? cancellation : nil
+                })
             }
         )
         present(model: model, preferredWindow: preferredWindow)
     }
 
-    /// Entrypoints with no panel state on hand (command palette) read the
-    /// fleet page first for the plan meter and image kinds. A nil page (signed
-    /// out, unreachable) still opens the sheet; the CLI reports the real error
-    /// inline when the person creates.
-    func presentNewMachineFetchingPlan(preferredWindow: NSWindow?) {
-        Task { @MainActor in
-            var page: VMListPage?
-            if let client = VMClient.shared {
-                page = try? await client.listPage()
+    /// Presents provisioning and awaits the exact local workspace receipt.
+    /// Synchronous menu callers own the surrounding Task; the machine coordinator
+    /// continues to publish the pending machine row while this method awaits.
+    func presentNewMachineFetchingPlan(preferredWindow: NSWindow?) async -> UUID? {
+        guard !isPresenting, pendingSelectionID == nil else {
+            (hostWindow ?? sheetWindow)?.makeKeyAndOrderFront(nil)
+            return nil
+        }
+        let selectionID = UUID()
+        pendingSelectionID = selectionID
+        let coordinator = MachineCreateCoordinator.shared
+        var page: VMListPage?
+        if let client = VMClient.shared { page = try? await client.listPage() }
+        guard !Task.isCancelled, !isPresenting else {
+            finishSelection(selectionID, request: nil)
+            return nil
+        }
+        let plan = MachineSnapshotBuilder.planSnapshot(activeCount: page?.vms.count ?? 0, limits: page?.limits)
+        guard !(plan?.isAtLimit == true && plan?.isPaidPlan == false) else {
+            finishSelection(selectionID, request: nil)
+            ProUpgradePresenter.present(source: .newMachineAtLimit)
+            return nil
+        }
+        let request = await withTaskCancellationHandler(operation: {
+            await withCheckedContinuation { (continuation: CheckedContinuation<MachineCreateRequest?, Never>) in
+                pendingSelectionContinuation = continuation
+                guard !Task.isCancelled else {
+                    finishSelection(selectionID, request: nil)
+                    return
+                }
+                let model = NewMachineModel(
+                    mode: .newMachine,
+                    plan: plan,
+                    memoryOptionsMb: page?.limits?.memoryOptionsMb ?? [],
+                    lockedMemoryOptionsMb: page?.limits?.lockedMemoryOptionsMb,
+                    memoryUpgradePlanId: page?.limits?.memoryUpgradePlanId,
+                    memoryUpgradePlansByMb: page?.limits?.memoryUpgradePlansByMb,
+                    selectionWindowID: preferredWindow.flatMap { AppDelegate.shared?.mainWindowId(from: $0) },
+                    submit: { [weak self] request in
+                        guard let self, self.pendingSelectionID == selectionID else { return false }
+                        self.finishSelection(selectionID, request: request)
+                        return true
+                    }
+                )
+                model.onFinished = { [weak self] outcome in
+                    if case .cancelled = outcome {
+                        self?.finishSelection(selectionID, request: nil)
+                    }
+                }
+                present(model: model, preferredWindow: preferredWindow)
             }
-            presentNewMachine(
-                plan: MachineSnapshotBuilder.planSnapshot(activeCount: page?.vms.count ?? 0, limits: page?.limits),
-                imageKinds: page?.limits?.imageKinds ?? [],
-                preferredWindow: preferredWindow
+        }, onCancel: {
+            Task { @MainActor [weak self] in
+                guard let self, self.pendingSelectionID == selectionID else { return }
+                self.model?.cancel()
+                self.finishSelection(selectionID, request: nil)
+            }
+        })
+        guard let request, !Task.isCancelled else { return nil }
+        return await coordinator.startAndAwaitWorkspaceID(request, cancellableLaunch: { arguments, progress, completion in
+            var cancellation: CloudVMActionLauncher.CancellationHandle?
+            let didStart = MachineRowActions.openNewMachine(
+                arguments: arguments,
+                onOutput: progress,
+                onCompletion: { result in completion(result) },
+                onCancellationReady: { cancellation = $0 }
             )
+            return didStart ? cancellation : nil
+        })
+    }
+
+    /// Completes only the active sheet selection; late cancellation cannot dismiss a newer sheet.
+    private func finishSelection(_ selectionID: UUID, request: MachineCreateRequest?) {
+        guard pendingSelectionID == selectionID else { return }
+        pendingSelectionID = nil
+        let continuation = pendingSelectionContinuation
+        pendingSelectionContinuation = nil
+        continuation?.resume(returning: request)
+    }
+
+    /// Only the presenter can apply a refresh to its current sheet. Cancelled
+    /// or replaced requests cannot overwrite a newer plan snapshot.
+    @objc private func refreshPresentedPlan() {
+        guard let model, let client = VMClient.shared else { return }
+        planRefreshTask?.cancel()
+        let refreshID = UUID()
+        planRefreshID = refreshID
+        planRefreshTask = Task { [weak self, weak model] in
+            guard let page = try? await client.listPage(), !Task.isCancelled,
+                  let self, let model, self.model === model,
+                  self.planRefreshID == refreshID else { return }
+            model.applyPage(page)
+            self.planRefreshTask = nil
         }
     }
 
     private func dismiss() {
+        NotificationCenter.default.removeObserver(self, name: NSApplication.didBecomeActiveNotification, object: nil)
+        planRefreshID = nil
+        planRefreshTask?.cancel()
+        planRefreshTask = nil
         guard let window = sheetWindow else { return }
         if let host = hostWindow, host.attachedSheet === window {
             host.endSheet(window)

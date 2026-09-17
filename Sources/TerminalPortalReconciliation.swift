@@ -170,6 +170,34 @@ extension GhosttyTerminalView {
                 hostedView,
                 boundTo: host
             )
+            let hasCurrentHostEntry = TerminalWindowPortalRegistry.hasEntry(
+                for: hostedView,
+                boundTo: host
+            )
+            let isCurrentPortalHost = terminalSurface.ownsPortalHost(
+                hostId: hostId,
+                instanceSerial: host.instanceSerial
+            )
+            // Only the current portal owner may publish a ring. A host that is
+            // still the bound owner may also publish a hide, which clears a
+            // stale ring during a hand-off without allowing an old coordinator
+            // to resurrect one on the replacement host.
+            if hostOwnsPortal || (
+                !coordinator.desiredShowsUnreadNotificationRing
+                    && isCurrentPortalHost
+            ) {
+                hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
+            }
+
+            if !coordinator.desiredIsVisibleInUI,
+               hasCurrentHostEntry,
+               isCurrentPortalHost {
+                TerminalWindowPortalRegistry.updateEntryVisibility(
+                    for: hostedView,
+                    visibleInUI: false
+                )
+            }
+
             switch immediateHostedStateAction(
                 hostOwnsPortal: hostOwnsPortal,
                 portalBindingLive: portalBindingLive,
@@ -188,6 +216,13 @@ extension GhosttyTerminalView {
                 hostedView.setVisibleInUI(false)
             case .deferred:
                 break
+            }
+            if portalBindingLive {
+                hostedView.cloudTerminalOverlay.updateAnchor(
+                    host, visible: coordinator.desiredIsVisibleInUI,
+                    ownershipGeneration: snapshot.ownershipGeneration
+                )
+                hostedView.synchronizeCloudTerminalReconnectOverlay()
             }
             if hostOwnsPortal, reasons.contains(.flushPendingManualSizeReport) {
                 terminalSurface.flushPendingManualSizeReportIfAttached()
@@ -222,7 +257,6 @@ extension GhosttyTerminalView {
             opacity: CGFloat(snapshot.inactiveOverlayOpacity),
             visible: snapshot.showsInactiveOverlay
         )
-        hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
         hostedView.setSearchOverlay(searchState: snapshot.searchState)
         hostedView.syncKeyStateIndicator(text: terminalSurface.currentKeyStateIndicatorText)
         hostedView.setDropZoneOverlay(zone: snapshot.dropZone)
