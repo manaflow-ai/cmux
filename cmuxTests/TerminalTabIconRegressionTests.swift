@@ -56,8 +56,14 @@ struct TerminalTabIconRegressionTests {
         let panel = try #require(workspace.focusedTerminalPanel)
         let tabId = try #require(workspace.surfaceIdFromPanelId(panel.id))
 
-        workspace.restoredAgentSnapshotsByPanelId[panel.id] = restoredAgentSnapshot(kind: .codex)
-        workspace.restoredAgentResumeStatesByPanelId[panel.id] = .awaitingAutoResumeCommand
+        workspace.restoredAgentLifecycle.setSnapshot(
+            restoredAgentSnapshot(kind: .codex),
+            panelId: panel.id
+        )
+        workspace.restoredAgentLifecycle.setResumeState(
+            .awaitingAutoResumeCommand,
+            panelId: panel.id
+        )
         workspace.updatePanelShellActivityState(panelId: panel.id, state: .commandRunning)
 
         try assertReleaseTerminalIcon(workspace: workspace, panel: panel, tabId: tabId)

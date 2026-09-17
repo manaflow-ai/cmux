@@ -168,7 +168,7 @@ doneFlags:
 		socketPath = defaultCloudCLIBridgeSocketIfExists()
 	}
 	if socketPath == "" {
-		fmt.Fprintln(os.Stderr, "cmux: CMUX_SOCKET_PATH not set and --socket not provided")
+		fmt.Fprintln(os.Stderr, "cmux: no relay connection is configured; reconnect this SSH workspace or provide --socket")
 		return 1
 	}
 
@@ -338,6 +338,27 @@ func execV2(socketPath string, spec *commandSpec, args []string, jsonOutput bool
 		fmt.Println(defaultRelayOutput(resp))
 	}
 	return 0
+}
+
+func workspaceGroupRelayOutput(resp string) string {
+	var result map[string]any
+	if err := json.Unmarshal([]byte(resp), &result); err != nil {
+		return defaultRelayOutput(resp)
+	}
+	switch result["operation"] {
+	case "dissolved":
+		return fmt.Sprintf(
+			"OK operation=dissolved kept_workspace_count=%v",
+			result["kept_workspace_count"],
+		)
+	case "closed_workspaces":
+		return fmt.Sprintf(
+			"OK operation=closed_workspaces closed_workspace_count=%v",
+			result["closed_workspace_count"],
+		)
+	default:
+		return defaultRelayOutput(resp)
+	}
 }
 
 // runNewWorkspaceRelay handles "cmux new-workspace" with full flag parity to the
@@ -536,7 +557,12 @@ func runWorkspaceGroupRelay(socketPath string, args []string, jsonOutput bool, r
 		return 2
 	}
 
-	parsed, err := parseFlags(args[1:], flagKeys)
+	subArgs := args[1:]
+	closeWorkspaces := false
+	if sub == "delete" {
+		closeWorkspaces, subArgs = takeStandaloneFlag(subArgs, "close-workspaces")
+	}
+	parsed, err := parseFlags(subArgs, flagKeys)
 	if err != nil {
 		return fail("%v", err)
 	}
@@ -576,15 +602,15 @@ func runWorkspaceGroupRelay(socketPath string, args []string, jsonOutput bool, r
 		if cwd, ok := parsed.flags["cwd"]; ok {
 			params["cwd"] = cwd
 		}
+		ids := []string{}
 		if from, ok := parsed.flags["from"]; ok {
-			ids := []string{}
 			for _, id := range strings.Split(from, ",") {
 				if id = strings.TrimSpace(id); id != "" {
 					ids = append(ids, id)
 				}
 			}
-			params["child_workspace_ids"] = ids
 		}
+		params["child_workspace_ids"] = ids
 
 	case "ungroup", "delete", "collapse", "expand", "pin", "unpin", "focus":
 		if !takeGroupID() {
@@ -672,7 +698,15 @@ func runWorkspaceGroupRelay(socketPath string, args []string, jsonOutput bool, r
 	applyWorkspaceEnvFallback(params)
 	applySurfaceEnvFallback(params)
 
-	method := "workspace.group." + strings.ReplaceAll(sub, "-", "_")
+	methodSubcommand := sub
+	if sub == "delete" {
+		if closeWorkspaces {
+			params["close_workspaces"] = true
+		} else {
+			methodSubcommand = "ungroup"
+		}
+	}
+	method := "workspace.group." + strings.ReplaceAll(methodSubcommand, "-", "_")
 	resp, err := socketRoundTripV2(socketPath, method, params, refreshAddr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cmux: %v\n", err)
@@ -681,7 +715,7 @@ func runWorkspaceGroupRelay(socketPath string, args []string, jsonOutput bool, r
 	if jsonOutput {
 		fmt.Println(resp)
 	} else {
-		fmt.Println(defaultRelayOutput(resp))
+		fmt.Println(workspaceGroupRelayOutput(resp))
 	}
 	return 0
 }
@@ -853,11 +887,9 @@ func applyNotifyCallerEnv(method string, params map[string]any) string {
 	if workspaceID == "" || surfaceID == "" {
 		return method
 	}
-	params["preferred_workspace_id"] = workspaceID
-	params["preferred_surface_id"] = surfaceID
-	delete(params, "workspace_id")
-	delete(params, "surface_id")
-	return "notification.create_for_caller"
+	params["workspace_id"] = workspaceID
+	params["surface_id"] = surfaceID
+	return "notification.create_for_target"
 }
 
 func defaultRelayOutput(resp string) string {
@@ -941,6 +973,27 @@ type parsedFlags struct {
 	flags      map[string]string   // --key value pairs (last wins for duplicates)
 	repeated   map[string][]string // --key values for repeat-allowed keys
 	positional []string            // non-flag arguments
+}
+
+// takeStandaloneFlag removes a valueless --flag before value-option parsing.
+// Tokens after -- remain positional and are never interpreted as flags.
+func takeStandaloneFlag(args []string, key string) (bool, []string) {
+	found := false
+	pastTerminator := false
+	remaining := make([]string, 0, len(args))
+	for _, arg := range args {
+		if arg == "--" {
+			pastTerminator = true
+			remaining = append(remaining, arg)
+			continue
+		}
+		if !pastTerminator && arg == "--"+key {
+			found = true
+			continue
+		}
+		remaining = append(remaining, arg)
+	}
+	return found, remaining
 }
 
 // parseFlags extracts --key value pairs from args for the given allowed keys.

@@ -1,5 +1,6 @@
 import CmuxSettings
 import CmuxSidebar
+import CmuxSidebarGit
 import Foundation
 
 typealias RightSidebarWidthSettings = CmuxSettings.RightSidebarWidthSettings
@@ -74,13 +75,25 @@ extension SidebarWorkspaceDetailDefaults {
     }
 
     static func gitMetadataPollingEnabled(defaults: UserDefaults) -> Bool {
-        watchGitStatusValue(defaults: defaults)
-            && auxiliaryDetailVisibility(defaults: defaults).requiresGitMetadata
+        gitMetadataActivity(defaults: defaults).performsActivePolling
     }
 
-    static func pullRequestPollingEnabled(defaults: UserDefaults) -> Bool {
-        watchGitStatusValue(defaults: defaults)
-            && auxiliaryDetailVisibility(defaults: defaults).requiresPullRequestPolling
+    static func gitMetadataActivity(defaults: UserDefaults) -> SidebarGitMetadataActivity {
+        guard watchGitStatusValue(defaults: defaults) else {
+            return .disabled
+        }
+        return auxiliaryDetailVisibility(defaults: defaults).requiresGitMetadata
+            ? .activePolling
+            : .passiveReportsOnly
+    }
+
+    static func pullRequestActivity(defaults: UserDefaults) -> SidebarGitMetadataActivity {
+        guard watchGitStatusValue(defaults: defaults) else {
+            return .disabled
+        }
+        return auxiliaryDetailVisibility(defaults: defaults).requiresPullRequestPolling
+            ? .activePolling
+            : .passiveReportsOnly
     }
 }
 
@@ -124,6 +137,10 @@ enum AppSettingsFileMapping {
             invalidPath: "app.workspaceInheritWorkingDirectory"
         ),
         .init(jsonKey: "focusPaneOnFirstClick", defaultsKey: PaneFirstClickFocusSettings.enabledKey),
+        .init(
+            jsonKey: "focusHistoryIncludesPanesAndTabs",
+            defaultsKey: app.focusHistoryIncludesPanesAndTabs.userDefaultsKey
+        ),
         .init(
             jsonKey: "openSupportedFilesInCmux",
             defaultsKey: app.openSupportedFilesInCmux.userDefaultsKey
@@ -196,7 +213,14 @@ enum NotificationSettingsFileMapping {
 }
 
 enum TerminalSettingsFileMapping {
+    private static let terminal = TerminalCatalogSection()
+
     static let booleanSettings: [SettingsFileBooleanMapping] = [
+        .init(
+            jsonKey: "adaptiveDefaultTheme",
+            defaultsKey: terminal.adaptiveDefaultTheme.userDefaultsKey,
+            invalidPath: terminal.adaptiveDefaultTheme.id
+        ),
         .init(
             jsonKey: "showScrollBar",
             defaultsKey: TerminalScrollBarSettings.showScrollBarKey,
@@ -355,7 +379,7 @@ enum BrowserSettingsFileMapping {
         ),
         .init(
             jsonKey: "urlsToAlwaysOpenExternally",
-            defaultsKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey,
+            defaultsKey: BrowserExternalURLPolicy.userDefaultsKey,
             invalidPath: "browser.urlsToAlwaysOpenExternally"
         ),
         .init(
@@ -363,145 +387,10 @@ enum BrowserSettingsFileMapping {
             defaultsKey: BrowserInsecureHTTPSettings.allowlistKey,
             invalidPath: "browser.insecureHttpHostsAllowedInEmbeddedBrowser"
         ),
-    ]
-}
-
-extension CmuxSettingsFileStore {
-    // Keep this in sync with the parser below and the web schema/docs. Settings UI rows
-    // validate against this set so new persisted settings need an explicit cmux.json review.
-    static let supportedSettingsJSONPaths: Set<String> = [
-        PaneChromeSettings.paneBorderColorKey,
-        PaneChromeSettings.activePaneBorderColorKey,
-        "app.language",
-        "app.appearance",
-        "app.appIcon",
-        "app.windowTitleTemplate",
-        "app.menuBarOnly",
-        "app.newWorkspacePlacement",
-        "app.workspaceInheritWorkingDirectory",
-        "app.minimalMode",
-        "app.keepWorkspaceOpenWhenClosingLastSurface",
-        "app.focusPaneOnFirstClick",
-        "app.preferredEditor",
-        "app.openSupportedFilesInCmux",
-        "app.openMarkdownInCmuxViewer",
-        "app.iMessageMode",
-        "app.reorderOnNotification",
-        "app.sendAnonymousTelemetry",
-        "app.confirmQuit",
-        "app.warnBeforeQuit",
-        "app.warnBeforeClosingTab",
-        "app.warnBeforeClosingTabXButton",
-        "app.hideTabCloseButton",
-        "app.renameSelectsExistingName",
-        "app.commandPaletteSearchesAllSurfaces",
-        "workspaceGroups.newWorkspacePlacement",
-        "terminal.showScrollBar",
-        "terminal.scrollSpeed",
-        "terminal.copyOnSelect",
-        "terminal.autoResumeAgentSessions",
-        "terminal.showTextBoxOnNewTerminals",
-        "terminal.focusTextBoxOnNewTerminals",
-        "terminal.textBoxDefaultSubmitAction",
-        "terminal.textBoxSubmitActions",
-        "terminal.agentHibernation.enabled",
-        "terminal.agentHibernation.idleSeconds",
-        "terminal.agentHibernation.maxLiveTerminals",
-        "terminal.rendererRealization.enabled",
-        "terminal.rendererRealization.idleSeconds",
-        "terminal.rendererRealization.maxWarmRenderers",
-        SessionContentWidthSettings.settingsPath,
-        SessionContentWidthSettings.alignmentSettingsPath,
-        "terminal.textBoxMaxLines",
-        "terminal.resumeCommands",
-        "terminal.uploadCommands",
-        "notifications.dockBadge",
-        "notifications.showInMenuBar",
-        "notifications.unreadPaneRing",
-        "notifications.paneFlash",
-        "notifications.sound",
-        "notifications.customSoundFilePath",
-        "notifications.command",
-        "notifications.hooks",
-        "notifications.hooksMode",
-        "notifications.suppressOnlyFocusedSurface",
-        "notifications.agentPermissionPrompt",
-        "notifications.agentTurnComplete",
-        "notifications.agentIdleReminder",
-        "sidebar.hideAllDetails",
-        "sidebar.wrapWorkspaceTitles",
-        "sidebar.showWorkspaceDescription",
-        "sidebar.beta.workspaceTodos.controls.enabled",
-        "sidebar.beta.workspaceTodos.checklistStyle",
-        "sidebar.branchLayout",
-        "sidebar.stackBranchDirectory",
-        "sidebar.pathLastSegmentOnly",
-        "sidebar.showNotificationMessage",
-        "sidebar.notificationMessageLineLimit",
-        "sidebar.showBranchDirectory",
-        "sidebar.showPullRequests",
-        "sidebar.watchGitStatus",
-        "sidebar.makePullRequestsClickable",
-        "sidebar.openPullRequestLinksInCmuxBrowser",
-        "sidebar.openPortLinksInCmuxBrowser",
-        "sidebar.showSSH",
-        "sidebar.showPorts",
-        "sidebar.showLog",
-        "sidebar.showProgress",
-        "sidebar.showAgentActivity",
-        "sidebar.loadingSpinnerPosition",
-        "sidebar.notificationBadgePosition",
-        "sidebar.showCustomMetadata",
-        RightSidebarWidthSettings.settingsPath,
-        "workspaceColors.indicatorStyle",
-        "workspaceColors.selectionColor",
-        "workspaceColors.notificationBadgeColor",
-        "workspaceColors.colors",
-        "workspaceColors.paletteOverrides",
-        "workspaceColors.customColors",
-        "sidebarAppearance.matchTerminalBackground",
-        "sidebarAppearance.tintColor",
-        "sidebarAppearance.lightModeTintColor",
-        "sidebarAppearance.darkModeTintColor",
-        "sidebarAppearance.tintOpacity",
-        "automation.socketControlMode",
-        "automation.socketPassword",
-        "automation.claudeCodeIntegration",
-        "automation.claudeBinaryPath",
-        "automation.workspaceAutoNaming",
-        "automation.autoNamingAgent",
-        "automation.ripgrepBinaryPath",
-        "automation.suppressSubagentNotifications",
-        "automation.ampIntegration",
-        "automation.cursorIntegration",
-        "automation.geminiIntegration",
-        "automation.kiroIntegration",
-        "automation.kiroNotificationLevel",
-        "automation.portBase",
-        "automation.portRange",
-        "browser.defaultSearchEngine",
-        "browser.customSearchEngineName",
-        "browser.customSearchEngineURLTemplate",
-        "browser.showSearchSuggestions",
-        "browser.theme",
-        "browser.discardHiddenWebViews",
-        "browser.hiddenWebViewDiscardDelaySeconds",
-        "browser.askWhereToSaveDownloads",
-        "browser.openTerminalLinksInCmuxBrowser",
-        "browser.interceptTerminalOpenCommandInCmuxBrowser",
-        "browser.hostsToOpenInEmbeddedBrowser",
-        "browser.urlsToAlwaysOpenExternally",
-        "browser.insecureHttpHostsAllowedInEmbeddedBrowser",
-        "browser.showImportHintOnBlankTabs",
-        "browser.reactGrabVersion",
-        "mobile.artifactFolderAccess",
-        "markdown.fontSize",
-        "markdown.fontFamily",
-        "markdown.maxWidth",
-        "canvas.paneGap",
-        "canvas.snappingEnabled",
-        "fileEditor.wordWrap",
-        "fileExplorer.doubleClickAction",
-        "shortcuts.bindings",
+        .init(
+            jsonKey: "urlAllowlist",
+            defaultsKey: BrowserURLAllowlistPolicy.userDefaultsKey,
+            invalidPath: "browser.urlAllowlist"
+        ),
     ]
 }

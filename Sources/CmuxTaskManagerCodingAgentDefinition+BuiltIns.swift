@@ -24,7 +24,7 @@ extension CmuxTaskManagerCodingAgentDefinition {
         .init(id: "pi", displayName: "Pi", assetName: "AgentIcons/Pi",
               launchKinds: ["pi"], directBasenames: ["pi", "pi-coding-agent"],
               argumentNeedles: ["@mariozechner/pi-coding-agent", "pi-coding-agent"]),
-        .init(id: "amp", displayName: "Amp", assetName: nil,
+        .init(id: "amp", displayName: "Amp", assetName: "AgentIcons/Amp",
               launchKinds: ["amp"], directBasenames: ["amp"], argumentNeedles: ["@ampcode"]),
         .init(id: "cursor", displayName: "Cursor", assetName: nil,
               launchKinds: ["cursor"], directBasenames: ["cursor-agent"], argumentNeedles: ["cursor-agent"]),
@@ -47,6 +47,17 @@ extension CmuxTaskManagerCodingAgentDefinition {
               launchKinds: ["factory"], directBasenames: ["droid", "factory"], argumentNeedles: ["factory"]),
         .init(id: "qoder", displayName: "Qoder", assetName: nil,
               launchKinds: ["qoder"], directBasenames: ["qoder", "qodercli"], argumentNeedles: ["qoder", "qodercli"]),
+        .init(
+            id: "kimi",
+            displayName: String(localized: "agent.kimi.displayName", defaultValue: "Kimi Code"),
+            assetName: nil,
+            launchKinds: ["kimi"],
+            // Kimi's Python entrypoint deliberately overwrites its OS process title and argv with
+            // "Kimi Code". This is process-status/foreground detection only; session persistence
+            // still requires cmux-owned launch metadata or native executable aliases.
+            directBasenames: ["kimi", "kimi-cli", "kimi-code", "kimi code"],
+            argumentNeedles: ["kimi-cli", "kimi-code"]
+        ),
         .init(
             id: "ollama",
             displayName: String(localized: "agent.ollama.displayName", defaultValue: "Ollama"),

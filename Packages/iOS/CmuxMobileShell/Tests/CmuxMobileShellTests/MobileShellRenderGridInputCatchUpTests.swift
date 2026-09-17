@@ -5,10 +5,122 @@ import Testing
 @testable import CmuxMobileShell
 
 @MainActor
-@Test func renderGridInputAcksDoNotReplayWhileWaitingForCatchUp() async throws {
+@Test func renderGridInputAckRetriesSubscriptionWhenFreshnessWindowExpires() async throws {
+    let clock = TestClock()
+    let retryClock = InputAckRetryClock()
+    let router = LivenessHostRouter()
+    await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
+    await router.enqueueTerminalInputSequences([100])
+    let box = TransportBox()
+    let store = try await makeConnectedStore(
+        router: router,
+        box: box,
+        clock: clock,
+        inputAckRetryClock: retryClock
+    )
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let transport = try #require(box.get())
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 1,
+        text: "fresh-event"
+    ))
+    let freshEventDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("fresh-event") }
+    }
+    #expect(freshEventDelivered)
+    let subscribeCount = await router.count(of: "mobile.events.subscribe")
+
+    await store.submitTerminalRawInput(Data("a".utf8), surfaceID: "live-terminal")
+    let retryArmed = try await pollUntil { retryClock.sleeperCount == 1 }
+    #expect(retryArmed, "a fresh ACK must arm one deferred subscription retry")
+    #expect(await router.count(of: "mobile.events.subscribe") == subscribeCount)
+    let replayCountBeforeRetry = await router.count(of: "mobile.terminal.replay")
+    await router.dropSubscription()
+
+    clock.advance(by: MobileShellComposite.terminalInputAckResubscribeSilenceThreshold)
+    retryClock.advance(
+        by: .seconds(MobileShellComposite.terminalInputAckResubscribeSilenceThreshold)
+    )
+    let retried = await router.waitForCount(
+        of: "mobile.events.subscribe",
+        atLeast: subscribeCount + 1
+    )
+    #expect(retried, "the deferred retry must re-subscribe when the freshness window expires")
+    let replayed = await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCountBeforeRetry + 1
+    )
+    #expect(
+        replayed,
+        "a retry that reinstalls a lost registration must request catch-up replay for the missed render-grid frame"
+    )
+    collector.unmount()
+}
+
+@MainActor
+@Test func renderGridInputAckRetryIsCancelledByArrivingEvent() async throws {
+    let clock = TestClock()
+    let retryClock = InputAckRetryClock()
+    let router = LivenessHostRouter()
+    await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
+    await router.enqueueTerminalInputSequences([100])
+    let box = TransportBox()
+    let store = try await makeConnectedStore(
+        router: router,
+        box: box,
+        clock: clock,
+        inputAckRetryClock: retryClock
+    )
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let transport = try #require(box.get())
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 1,
+        text: "fresh-event"
+    ))
+    let freshEventDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("fresh-event") }
+    }
+    #expect(freshEventDelivered)
+    let subscribeCount = await router.count(of: "mobile.events.subscribe")
+
+    await store.submitTerminalRawInput(Data("a".utf8), surfaceID: "live-terminal")
+    let retryArmed = try await pollUntil { retryClock.sleeperCount == 1 }
+    #expect(retryArmed)
+
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 2,
+        text: "later-event"
+    ))
+    let retryCancelled = try await pollUntil { retryClock.sleeperCount == 0 }
+    #expect(retryCancelled, "any arriving terminal event must cancel the deferred retry")
+
+    clock.advance(by: MobileShellComposite.terminalInputAckResubscribeSilenceThreshold)
+    retryClock.advance(
+        by: .seconds(MobileShellComposite.terminalInputAckResubscribeSilenceThreshold)
+    )
+    let extraSubscribe = await router.waitForCount(
+        of: "mobile.events.subscribe",
+        atLeast: subscribeCount + 1,
+        timeoutNanoseconds: 500_000_000,
+        recordIssueOnTimeout: false
+    )
+    #expect(!extraSubscribe, "a cancelled retry must not issue an extra subscription")
+    collector.unmount()
+}
+
+@MainActor
+@Test func renderGridInputAcksOnlyResubscribeAfterEventStreamSilence() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
     await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
+    await router.enqueueTerminalInputSequences([100, 101])
     let box = TransportBox()
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
 
@@ -19,30 +131,54 @@ import Testing
     let replayCountAfterMount = await router.count(of: "mobile.terminal.replay")
     let subscribed = await router.waitForCount(of: "mobile.events.subscribe", atLeast: 1)
     #expect(subscribed, "connected render-grid transport must establish the event subscription")
-    let subscribeCountAfterMount = await router.count(of: "mobile.events.subscribe")
+    let transport = try #require(box.get())
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 1,
+        text: "fresh-event"
+    ))
+    let freshEventDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("fresh-event") }
+    }
+    #expect(freshEventDelivered, "the active listener must record a fresh terminal event")
+    let subscribeCountAfterFreshEvent = await router.count(of: "mobile.events.subscribe")
 
     await store.submitTerminalRawInput(Data("a".utf8), surfaceID: "live-terminal")
     let firstInputSent = try await pollUntil { await router.count(of: "terminal.input") >= 1 }
     #expect(firstInputSent)
-    let firstRefreshSent = await router.waitForCount(
+    let freshRefreshSent = await router.waitForCount(
         of: "mobile.events.subscribe",
-        atLeast: subscribeCountAfterMount + 1
-    )
-    #expect(firstRefreshSent, "the first ahead-of-render-grid ACK should refresh the event subscription")
-    let subscribeCountAfterFirstAck = await router.count(of: "mobile.events.subscribe")
-
-    await store.submitTerminalRawInput(Data("b".utf8), surfaceID: "live-terminal")
-    let inputSent = try await pollUntil { await router.count(of: "terminal.input") >= 2 }
-    #expect(inputSent)
-    let duplicateRefreshSent = await router.waitForCount(
-        of: "mobile.events.subscribe",
-        atLeast: subscribeCountAfterFirstAck + 1,
+        atLeast: subscribeCountAfterFreshEvent + 1,
         timeoutNanoseconds: 500_000_000,
         recordIssueOnTimeout: false
     )
     #expect(
-        !duplicateRefreshSent,
-        "duplicate ACKs for the same pending sequence must not enqueue another subscription refresh"
+        !freshRefreshSent,
+        "an ahead-of-render-grid ACK must not resubscribe while terminal events are fresh"
+    )
+
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: "live-terminal",
+        seq: 100,
+        text: "first-input-caught-up"
+    ))
+    let firstInputCaughtUp = try await pollUntil {
+        collector.lines.contains { $0.contains("first-input-caught-up") }
+    }
+    #expect(firstInputCaughtUp, "the target frame must settle the first input catch-up episode")
+    clock.advance(by: 2)
+    let subscribeCountBeforeStaleAck = await router.count(of: "mobile.events.subscribe")
+
+    await store.submitTerminalRawInput(Data("b".utf8), surfaceID: "live-terminal")
+    let inputSent = try await pollUntil { await router.count(of: "terminal.input") >= 2 }
+    #expect(inputSent)
+    let staleRefreshSent = await router.waitForCount(
+        of: "mobile.events.subscribe",
+        atLeast: subscribeCountBeforeStaleAck + 1
+    )
+    #expect(
+        staleRefreshSent,
+        "an ahead-of-render-grid ACK must resubscribe after two seconds of terminal-event silence"
     )
 
     let replayRequested = try await pollUntil(attempts: 50) {

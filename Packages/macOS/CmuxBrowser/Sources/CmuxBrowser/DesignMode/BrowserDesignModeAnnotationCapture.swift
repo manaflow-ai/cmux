@@ -1,5 +1,5 @@
 /// Derives a context-rich annotation capture rectangle from freehand stroke bounds.
-public nonisolated struct BrowserDesignModeAnnotationCapture: Equatable, Sendable {
+public struct BrowserDesignModeAnnotationCapture: Equatable, Sendable {
     /// The number of CSS viewport points added around every side of a stroke.
     public let contextPadding: Double
 

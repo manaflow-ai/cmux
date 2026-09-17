@@ -1,4 +1,4 @@
-nonisolated enum BrowserInsecureHTTPNavigationResolution {
+enum BrowserInsecureHTTPNavigationResolution {
     case openedExternally
     case proceededInCurrentTab
     case proceededInNewTab

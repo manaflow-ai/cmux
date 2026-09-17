@@ -1,16 +1,42 @@
+import Bonsplit
 import Foundation
 
 extension Workspace {
+    func configureForkAgentConversationContextMenuAvailability() {
+        bonsplitController.tabContextForkConversationAvailabilityProvider = { [weak self] tabId, _ in
+            guard let self,
+                  let panelId = self.panelIdFromSurfaceId(tabId) else { return .hidden }
+            switch self.forkAgentConversationContextMenuPresentationAvailability(forPanelId: panelId) {
+            case .available:
+                return .available
+            case .agentIndexRefreshing:
+                return .refreshing
+            case .notTerminalPanel,
+                 .noAgentSnapshot,
+                 .unsupported,
+                 .requiresProbe:
+                return .hidden
+            }
+        }
+        bonsplitController.tabContextForkConversationAvailabilityRefreshHandler = { [weak self] tabId, _ in
+            guard let self,
+                  let panelId = self.panelIdFromSurfaceId(tabId) else { return }
+            await self.resolveForkAgentConversationContextMenuAvailability(forPanelId: panelId)
+        }
+    }
+
     func forkAgentConversationContextMenuAvailability(
         forPanelId panelId: UUID
     ) -> WorkspaceForkAgentConversationAvailability {
-        guard panels[panelId] is TerminalPanel else { return .notTerminalPanel }
+        guard surfaceOwnershipTarget(for: panelId)?.panel is TerminalPanel else {
+            return .notTerminalPanel
+        }
         guard let snapshot = forkAgentConversationContextMenuCandidateSnapshot(forPanelId: panelId) else {
             return .noAgentSnapshot
         }
         switch ContentView.commandPaletteSnapshotForkAvailability(
             snapshot,
-            isRemoteTerminal: isRemoteTerminalSurface(panelId)
+            isRemoteTerminal: isRemoteTerminalContext(panelId)
         ) {
         case .supportedWithoutProbe:
             return .available
@@ -65,6 +91,33 @@ extension Workspace {
         )
     }
 
+    func resolveForkAgentConversationContextMenuAvailability(
+        forPanelId panelId: UUID
+    ) async {
+        await resolveForkAgentConversationContextMenuAvailability(
+            forPanelId: panelId,
+            liveAgentIndex: .shared
+        )
+    }
+
+    func resolveForkAgentConversationContextMenuAvailability(
+        forPanelId panelId: UUID,
+        liveAgentIndex: SharedLiveAgentIndex
+    ) async {
+        let selection = forkAgentConversationContextMenuOpenSelection(
+            forPanelId: panelId,
+            liveAgentIndex: liveAgentIndex
+        )
+        guard selection.availability == .agentIndexRefreshing else { return }
+
+        await liveAgentIndex.refreshForkAvailabilityNow(
+            workspaceId: id,
+            panelId: panelId,
+            isRemoteContext: isRemoteTerminalContext(panelId),
+            fallbackSnapshot: selection.validationFallbackSnapshot
+        )
+    }
+
     func forkAgentConversationContextMenuOpenSelection(
         forPanelId panelId: UUID
     ) -> (
@@ -86,9 +139,11 @@ extension Workspace {
         snapshot: SessionRestorableAgentSnapshot?,
         validationFallbackSnapshot: SessionRestorableAgentSnapshot?
     ) {
-        guard panels[panelId] is TerminalPanel else { return (.notTerminalPanel, nil, nil) }
+        guard surfaceOwnershipTarget(for: panelId)?.panel is TerminalPanel else {
+            return (.notTerminalPanel, nil, nil)
+        }
 
-        let isRemoteContext = isRemoteTerminalSurface(panelId)
+        let isRemoteContext = isRemoteTerminalContext(panelId)
         if !allowsAgentContinuation(forPanelId: panelId) {
             if let observation = liveAgentIndex.index?.entry(workspaceId: id, panelId: panelId) {
                 reconcileCompletedRestoredAgent(panelId: panelId, observation: observation)
@@ -156,7 +211,11 @@ extension Workspace {
                     isRemoteContext: isRemoteContext,
                     fallbackSnapshot: snapshotSource.validationFallbackSnapshot
                 ) else {
-                    return (.agentIndexRefreshing, nil, nil)
+                    return (
+                        .agentIndexRefreshing,
+                        nil,
+                        snapshotSource.validationFallbackSnapshot
+                    )
                 }
                 if liveAgentIndex.forkSupportProbeAccepted(
                     workspaceId: id,
@@ -178,26 +237,30 @@ extension Workspace {
                 ) {
                     return (.unsupported, nil, nil)
                 }
-                return (.agentIndexRefreshing, nil, nil)
+                return (
+                    .agentIndexRefreshing,
+                    nil,
+                    snapshotSource.validationFallbackSnapshot
+                )
             }
         }
 
         guard liveAgentIndex.prepareForkAvailabilityProbe(
             workspaceId: id,
             panelId: panelId,
-            isRemoteContext: isRemoteTerminalSurface(panelId)
+            isRemoteContext: isRemoteTerminalContext(panelId)
         ) else {
             return (.agentIndexRefreshing, nil, nil)
         }
         guard let verifiedSnapshot = liveAgentIndex.snapshotForForkAvailability(
             workspaceId: id,
             panelId: panelId,
-            isRemoteContext: isRemoteTerminalSurface(panelId)
+            isRemoteContext: isRemoteTerminalContext(panelId)
         ) else {
             if liveAgentIndex.forkSupportProbeRejected(
                 workspaceId: id,
                 panelId: panelId,
-                isRemoteContext: isRemoteTerminalSurface(panelId)
+                isRemoteContext: isRemoteTerminalContext(panelId)
             ) {
                 return (.unsupported, nil, nil)
             }
@@ -212,7 +275,7 @@ extension Workspace {
 
         switch ContentView.commandPaletteSnapshotForkAvailability(
             verifiedSnapshot,
-            isRemoteTerminal: isRemoteTerminalSurface(panelId)
+            isRemoteTerminal: isRemoteTerminalContext(panelId)
         ) {
         case .supportedWithoutProbe, .requiresProbe:
             return (.available, verifiedSnapshot, nil)

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"bytes"
+	"io"
 	"context"
 	"encoding/json"
 	"net/http/httptest"
@@ -18,7 +18,7 @@ func TestTmuxCorpusWebSocketPTYInitialSizeAndResizeControl(t *testing.T) {
 	server := httptest.NewServer(newWebSocketPTYHandler(wsPTYServerConfig{
 		PTYAuthLeaseFile: leasePath,
 		Shell:            "/bin/sh",
-	}, &bytes.Buffer{}))
+	}, io.Discard))
 	defer server.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)

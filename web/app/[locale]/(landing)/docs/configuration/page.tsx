@@ -67,6 +67,7 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //   "menuBarOnly": false,
   //   "newWorkspacePlacement": "afterCurrent",
   //   "windowTitleTemplate": "[cmux:{windowToken}] {activeWorkspace}",
+  //   "paneResizeStepPixels": 20,
   //   "confirmQuit": "always",
   //   "openSupportedFilesInCmux": true,
   //   "workspaceInheritWorkingDirectory": true,
@@ -478,7 +479,8 @@ working-directory = ~/code`}</CodeBlock>
       <ul>
         <li>
           <code>sidebarFocus</code>, <code>browserFocus</code>, <code>markdownFocus</code>,{" "}
-          <code>filePreviewTextEditorFocus</code>, <code>terminalFocus</code>,{" "}
+          <code>filePreviewTextEditorFocus</code>, <code>simulatorFocus</code>,{" "}
+          <code>terminalFocus</code>,{" "}
           <code>commandPaletteVisible</code>, <code>terminalFindVisible</code>,{" "}
           <code>workspaceCanvasLayout</code> &mdash; {t("shortcutsWhenBooleanKeys")}
         </li>

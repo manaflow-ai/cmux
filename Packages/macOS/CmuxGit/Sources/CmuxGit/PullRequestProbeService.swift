@@ -41,14 +41,19 @@ public struct PullRequestProbeService: Sendable {
     ///
     /// - Parameters:
     ///   - commandRunner: Runs `gh auth token`; tests pass a fake.
+    ///   - requestCoordinator: Shared GitHub transport/cache/backoff policy.
+    ///     Defaults to a process-scoped coordinator; injected (like
+    ///     `commandRunner`) so tests can supply one backed by a stub
+    ///     `URLSession` without contacting GitHub.
     ///   - debugLog: Optional diagnostics sink; defaults to a no-op.
     public init(
         commandRunner: any CommandRunning = CommandRunner(),
+        requestCoordinator: GitHubPullRequestRequestCoordinator? = nil,
         debugLog: @escaping @Sendable (String) -> Void = { _ in }
     ) {
         self.commandRunner = commandRunner
         self.authHeaderCache = GitHubAuthHeaderCache()
-        self.requestCoordinator = GitHubPullRequestRequestCoordinator()
+        self.requestCoordinator = requestCoordinator ?? GitHubPullRequestRequestCoordinator()
         self.debugLog = debugLog
     }
 
@@ -56,10 +61,8 @@ public struct PullRequestProbeService: Sendable {
 
     /// How long a fetched repo cache entry satisfies periodic refreshes.
     static let repoCacheLifetime: TimeInterval = 15
-    /// REST page size for the recent-PRs fetch.
+    /// REST page size for per-branch `head=` pull-request lookups.
     static let repoPageSize = 100
-    /// Maximum REST pages fetched per repository.
-    static let repoPageLimit = 2
     /// Per-request timeout for GitHub API calls and the `gh auth token` probe.
     static let probeTimeout: TimeInterval = 5.0
     /// Merged PRs older than this no longer earn a badge.
@@ -76,12 +79,12 @@ public struct PullRequestProbeService: Sendable {
     /// across seeds); a seed whose directory has no GitHub remote yields a
     /// candidate with empty ``WorkspacePullRequestCandidate/repoSlugs``.
     ///
-    /// Each directory's checked-out branch is also re-detected on disk (once
-    /// per directory per pass) and overrides the seed's projected branch, so a
-    /// stale sidebar branch projection cannot pin the PR association to an old
-    /// branch. Detached HEAD or a missing repository falls back to the seed's
-    /// branch; a re-detected default branch (main/master) stays on the
-    /// candidate but is excluded from the per-repo lookup index.
+    /// Each directory's checked-out branch and remote metadata are also
+    /// re-detected on disk (once per directory per pass) and the verified branch
+    /// overrides the seed's projection, so stale sidebar state cannot pin the PR
+    /// association to an old branch. Detached HEAD or a missing repository falls
+    /// back to the seed's branch; a re-detected default branch (main/master)
+    /// stays on the candidate but is excluded from the per-repo lookup index.
     ///
     /// - Parameters:
     ///   - seeds: One per panel wanting a badge.
@@ -89,37 +92,36 @@ public struct PullRequestProbeService: Sendable {
     /// - Returns: The candidates plus repo-keyed indexes for the fetch stage.
     public nonisolated func resolveCandidateSeeds(
         _ seeds: [WorkspacePullRequestCandidateSeed],
-        gitMetadata: GitMetadataService
+        gitMetadata: any GitRepositoryDiscovering
     ) async -> WorkspacePullRequestCandidateResolution {
         var candidates: [WorkspacePullRequestCandidate] = []
         candidates.reserveCapacity(seeds.count)
         var candidateBranchesByRepo: [String: Set<String>] = [:]
         var repoDirectoriesBySlug: [String: String] = [:]
-        var repoSlugsByDirectory: [String: [String]] = [:]
-        var checkedOutBranchesByDirectory: [String: GitCheckedOutBranch] = [:]
+        var discoveryByDirectory: [String: GitRepositoryDiscoverySnapshot] = [:]
 
         for seed in seeds {
             let repoSlugs: [String]
             let checkedOutBranch: GitCheckedOutBranch
+            let remoteReadFailed: Bool
             if let directory = seed.directory {
-                if let cachedRepoSlugs = repoSlugsByDirectory[directory] {
-                    repoSlugs = cachedRepoSlugs
+                let discovery: GitRepositoryDiscoverySnapshot
+                if let cached = discoveryByDirectory[directory] {
+                    discovery = cached
                 } else {
-                    let resolvedRepoSlugs = await gitMetadata.repositorySlugs(forDirectory: directory)
-                    repoSlugsByDirectory[directory] = resolvedRepoSlugs
-                    repoSlugs = resolvedRepoSlugs
+                    let resolved = await gitMetadata.repositoryDiscoverySnapshot(
+                        forDirectory: directory
+                    )
+                    discoveryByDirectory[directory] = resolved
+                    discovery = resolved
                 }
-
-                if let cachedBranch = checkedOutBranchesByDirectory[directory] {
-                    checkedOutBranch = cachedBranch
-                } else {
-                    let resolvedBranch = await gitMetadata.checkedOutBranch(forDirectory: directory)
-                    checkedOutBranchesByDirectory[directory] = resolvedBranch
-                    checkedOutBranch = resolvedBranch
-                }
+                repoSlugs = discovery.repositorySlugs
+                checkedOutBranch = discovery.checkedOutBranch
+                remoteReadFailed = discovery.remoteReadFailed
             } else {
                 repoSlugs = []
                 checkedOutBranch = .notARepository
+                remoteReadFailed = false
             }
 
             let projectedBranch = GitMetadataService.normalizedBranchName(seed.branch) ?? seed.branch
@@ -128,13 +130,13 @@ public struct PullRequestProbeService: Sendable {
             switch checkedOutBranch {
             case .branch(let detectedBranch):
                 candidateBranch = detectedBranch
-                branchReadFailed = false
+                branchReadFailed = remoteReadFailed
             case .detached, .notARepository:
                 // A legitimate non-branch checkout (or a vanished repository)
                 // keeps the projected association, matching pre-detection
                 // behavior.
                 candidateBranch = projectedBranch
-                branchReadFailed = false
+                branchReadFailed = remoteReadFailed
             case .unreadable:
                 // The repository exists but its branch cannot be verified;
                 // resolve as transient so an existing badge is kept instead
@@ -186,20 +188,20 @@ public struct PullRequestProbeService: Sendable {
         repoResults: [String: WorkspacePullRequestRepoFetchResult]
     ) -> [WorkspacePullRequestRefreshResult] {
         candidates.map { candidate in
-            if candidate.repoSlugs.isEmpty {
-                return WorkspacePullRequestRefreshResult(
-                    workspaceId: candidate.workspaceId,
-                    panelId: candidate.panelId,
-                    resolution: .unsupportedRepository,
-                    usedCachedRepoData: false
-                )
-            }
-
             if candidate.branchReadFailed {
                 return WorkspacePullRequestRefreshResult(
                     workspaceId: candidate.workspaceId,
                     panelId: candidate.panelId,
                     resolution: .transientFailure,
+                    usedCachedRepoData: false
+                )
+            }
+
+            if candidate.repoSlugs.isEmpty {
+                return WorkspacePullRequestRefreshResult(
+                    workspaceId: candidate.workspaceId,
+                    panelId: candidate.panelId,
+                    resolution: .unsupportedRepository,
                     usedCachedRepoData: false
                 )
             }

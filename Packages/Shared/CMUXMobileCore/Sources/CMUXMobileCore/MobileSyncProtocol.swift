@@ -64,7 +64,7 @@ public struct MobileSyncPairingPayload: Equatable, Sendable, Codable {
         transport: MobileSyncTransportKind
     ) throws {
         self.version = version
-        self.macDeviceID = macDeviceID
+        self.macDeviceID = cmxCanonicalDeviceID(macDeviceID)
         self.macDisplayName = macDisplayName
         self.host = host
         self.port = port
@@ -84,7 +84,9 @@ public struct MobileSyncPairingPayload: Equatable, Sendable, Codable {
 
         let container = try decoder.container(keyedBy: CodingKeys.self)
         version = try container.decode(Int.self, forKey: .version)
-        macDeviceID = try container.decode(String.self, forKey: .macDeviceID)
+        macDeviceID = cmxCanonicalDeviceID(
+            try container.decode(String.self, forKey: .macDeviceID)
+        )
         macDisplayName = try container.decodeIfPresent(String.self, forKey: .macDisplayName)
         host = try container.decode(String.self, forKey: .host)
         port = try container.decode(Int.self, forKey: .port)
@@ -114,14 +116,15 @@ public struct MobileSyncPairingPayload: Equatable, Sendable, Codable {
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(self)
         let payload = Self.base64URLEncode(data)
-        guard let url = URL(string: "\(CmxPairingURLScheme.current)://pair?v=\(version)&payload=\(payload)") else {
+        guard let scheme = CmxPairingURLSchemeResolver().resolved?.rawValue,
+              let url = URL(string: "\(scheme)://pair?v=\(version)&payload=\(payload)") else {
             throw MobileSyncPairingPayloadError.invalidURL
         }
         return url
     }
 
     public static func decodeURL(_ url: URL, now: Date = Date()) throws -> MobileSyncPairingPayload {
-        guard CmxPairingURLScheme.isPairingScheme(url.scheme),
+        guard CmxPairingURLScheme(rawValue: url.scheme) != nil,
               url.host == "pair",
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let encodedPayload = components.queryItems?.first(where: { $0.name == "payload" })?.value,
@@ -198,6 +201,10 @@ public struct MobileSyncFrameCodec {
         return frame
     }
 
+    /// Decodes at most one bounded batch, leaving later frames in `buffer`.
+    /// Callers drain another batch before awaiting more network bytes whenever
+    /// the returned count reaches `maximumDecodedFrameCount`. A transport read
+    /// may coalesce any number of valid frames; its boundary is not a message limit.
     public static func decodeFrames(
         from buffer: inout Data,
         maximumFrameByteCount: Int = defaultMaximumFrameByteCount,
@@ -219,7 +226,8 @@ public struct MobileSyncFrameCodec {
             }
         }
 
-        while buffer.count - consumedByteCount >= headerByteCount {
+        while frames.count < maximumDecodedFrameCount,
+              buffer.count - consumedByteCount >= headerByteCount {
             let frameStart = buffer.index(
                 buffer.startIndex,
                 offsetBy: consumedByteCount
@@ -237,11 +245,6 @@ public struct MobileSyncFrameCodec {
             }
             guard buffer.count - consumedByteCount >= headerByteCount + payloadLength else {
                 break
-            }
-            guard frames.count < maximumDecodedFrameCount else {
-                throw MobileSyncFrameCodecError.tooManyFrames(
-                    maximumDecodedFrameCount
-                )
             }
             let payloadStart = headerEnd
             let payloadEnd = buffer.index(

@@ -1,3 +1,4 @@
+public import CmuxFoundation
 public import Foundation
 
 /// Everything needed to establish and operate one remote-workspace connection:
@@ -7,8 +8,14 @@ public import Foundation
 /// This is a pure `Sendable` value; all normalization helpers are pure string
 /// transforms (see `WorkspaceRemoteConfiguration+SSHOptionNormalization.swift`).
 public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
-    /// Transport used to reach the host.
+    /// Management transport used for daemon bootstrap, relay, proxy, and uploads.
     public let transport: WorkspaceRemoteTransport
+    /// Protocol used by the user-facing interactive terminal.
+    public let terminalTransport: WorkspaceRemoteTerminalTransport
+    /// Durable program profile opened in the interactive terminal.
+    public let terminalProfile: WorkspaceRemoteTerminalProfile
+    /// Effective host-configured command chained after cmux's interactive bootstrap.
+    public let configuredRemoteCommand: String?
     /// SSH destination (`user@host` or `host`).
     public let destination: String
     /// Explicit SSH port, when configured.
@@ -54,11 +61,12 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     /// identifies one broker lease, not a user-visible connection setting.
     public let sshControlMasterLeaseGeneration: UUID?
 
-    /// Creates a configuration, normalizing the agent socket path and gating
-    /// the persistent daemon slot on `preserveAfterTerminalExit` exactly like
-    /// the original app-target initializer.
+    /// Creates a configuration, normalizing the agent socket path and allowing
+    /// persistent daemon state only for SSH-backed interactive terminals.
     public init(
         transport: WorkspaceRemoteTransport = .ssh,
+        terminalTransport: WorkspaceRemoteTerminalTransport = .ssh,
+        terminalProfile: WorkspaceRemoteTerminalProfile = .shell,
         destination: String,
         port: Int?,
         identityFile: String?,
@@ -71,6 +79,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         ownerWorkspaceID: UUID? = nil,
         managedCloudVMID: String? = nil,
         terminalStartupCommand: String?,
+        configuredRemoteCommand: String? = nil,
         foregroundAuthToken: String? = nil,
         agentSocketPath: String? = nil,
         daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint? = nil,
@@ -80,6 +89,8 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         sshControlMasterLeaseGeneration: UUID? = nil
     ) {
         self.transport = transport
+        self.terminalTransport = terminalTransport
+        self.terminalProfile = terminalProfile
         self.destination = destination
         self.port = port
         self.identityFile = identityFile
@@ -92,11 +103,13 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         self.ownerWorkspaceID = ownerWorkspaceID
         self.managedCloudVMID = Self.normalizedOptionalValue(managedCloudVMID)
         self.terminalStartupCommand = terminalStartupCommand
+        self.configuredRemoteCommand = Self.normalizedOptionalValue(configuredRemoteCommand)
         self.foregroundAuthToken = foregroundAuthToken
         self.agentSocketPath = Self.normalizedAgentSocketPath(agentSocketPath)
         self.daemonWebSocketEndpoint = daemonWebSocketEndpoint
-        self.preserveAfterTerminalExit = preserveAfterTerminalExit
-        self.persistentDaemonSlot = preserveAfterTerminalExit
+        let preservesPersistentPTY = terminalTransport == .ssh && preserveAfterTerminalExit
+        self.preserveAfterTerminalExit = preservesPersistentPTY
+        self.persistentDaemonSlot = preservesPersistentPTY
             ? Self.normalizedPersistentDaemonSlot(persistentDaemonSlot)
             : nil
         self.skipDaemonBootstrap = skipDaemonBootstrap
@@ -105,6 +118,8 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
 
     public init(
         transport: WorkspaceRemoteTransport = .ssh,
+        terminalTransport: WorkspaceRemoteTerminalTransport = .ssh,
+        terminalProfile: WorkspaceRemoteTerminalProfile = .shell,
         destination: String,
         port: Int?,
         identityFile: String?,
@@ -116,6 +131,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         localSocketPath: String?,
         ownerWorkspaceID: UUID? = nil,
         terminalStartupCommand: String?,
+        configuredRemoteCommand: String? = nil,
         foregroundAuthToken: String? = nil,
         agentSocketPath: String? = nil,
         daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint? = nil,
@@ -126,6 +142,8 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     ) {
         self.init(
             transport: transport,
+            terminalTransport: terminalTransport,
+            terminalProfile: terminalProfile,
             destination: destination,
             port: port,
             identityFile: identityFile,
@@ -138,6 +156,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             ownerWorkspaceID: ownerWorkspaceID,
             managedCloudVMID: nil,
             terminalStartupCommand: terminalStartupCommand,
+            configuredRemoteCommand: configuredRemoteCommand,
             foregroundAuthToken: foregroundAuthToken,
             agentSocketPath: agentSocketPath,
             daemonWebSocketEndpoint: daemonWebSocketEndpoint,
@@ -151,6 +170,9 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     /// Compares user-visible connection settings while ignoring the runtime lease generation.
     public static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.transport == rhs.transport &&
+            lhs.terminalTransport == rhs.terminalTransport &&
+            lhs.terminalProfile == rhs.terminalProfile &&
+            lhs.configuredRemoteCommand == rhs.configuredRemoteCommand &&
             lhs.destination == rhs.destination &&
             lhs.port == rhs.port &&
             lhs.identityFile == rhs.identityFile &&
@@ -211,13 +233,6 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             : ownerWorkspaceID?.uuidString.lowercased() ?? ""
     }
 
-    private func ownerWorkspaceMatchesForPersistentPTY(_ other: WorkspaceRemoteConfiguration) -> Bool {
-        if usesManagedCloudPersistentPTYIdentity && other.usesManagedCloudPersistentPTYIdentity {
-            return true
-        }
-        return ownerWorkspaceID == other.ownerWorkspaceID
-    }
-
     /// The stable key the proxy broker uses to share one daemon tunnel across
     /// workspaces that target the same transport identity.
     public var proxyBrokerTransportKey: String {
@@ -250,6 +265,13 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             .joined(separator: "\u{1e}")
     }
 
+    private func ownerWorkspaceMatchesForPersistentPTY(_ other: WorkspaceRemoteConfiguration) -> Bool {
+        if usesManagedCloudPersistentPTYIdentity && other.usesManagedCloudPersistentPTYIdentity {
+            return true
+        }
+        return ownerWorkspaceID == other.ownerWorkspaceID
+    }
+
     private static func proxyBrokerSSHOptions(_ options: [String]) -> [String] {
         durableSSHOptions(options)
     }
@@ -278,6 +300,46 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             && daemonWebSocketEndpoint?.proxyBrokerKeyComponent == other.daemonWebSocketEndpoint?.proxyBrokerKeyComponent
     }
 
+    /// Returns one or two stable lookup keys for this configuration's persistent PTY.
+    ///
+    /// The exact key includes the owner workspace. Managed Cloud VM identities
+    /// also receive a wildcard key because those identities intentionally
+    /// ignore the local owner when compared with another managed VM. Callers
+    /// should still verify a candidate with
+    /// ``hasSamePersistentPTYIdentity(as:)`` after the dictionary lookup.
+    /// An empty array means this configuration cannot own a persistent PTY.
+    public var persistentPTYIdentityLookupKeys: [String] {
+        guard preserveAfterTerminalExit, let persistentDaemonSlot else {
+            return []
+        }
+        let normalizedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedPort = port.map(String.init) ?? ""
+        let normalizedRelayPort = relayPort.map(String.init) ?? ""
+        let normalizedManagedCloudVMID = managedCloudVMID ?? ""
+        let normalizedIdentity = Self.normalizedIdentityPath(identityFile) ?? ""
+        let normalizedSSHOptions = Self.proxyBrokerSSHOptions(sshOptions)
+            .joined(separator: "\u{1f}")
+        let normalizedWebSocketEndpoint = daemonWebSocketEndpoint?.proxyBrokerKeyComponent ?? ""
+        let components: [String] = [
+            transport.rawValue,
+            skipDaemonBootstrap ? "1" : "0",
+            normalizedDestination,
+            normalizedPort,
+            normalizedRelayPort,
+            normalizedManagedCloudVMID,
+            normalizedIdentity,
+            normalizedSSHOptions,
+            normalizedWebSocketEndpoint,
+            persistentDaemonSlot,
+        ]
+        let base = components.joined(separator: "\u{1e}")
+        let exact = base + "\u{1e}" + (ownerWorkspaceID?.uuidString.lowercased() ?? "")
+        if usesManagedCloudPersistentPTYIdentity {
+            return [exact, base + "\u{1e}*"]
+        }
+        return [exact]
+    }
+
     /// True when `other` addresses the same remote CLI relay metadata namespace.
     ///
     /// Relay metadata lives under `$HOME/.cmux/relay/<relayPort>` on the remote
@@ -303,6 +365,8 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     public func scopedToOwnerWorkspace(_ workspaceID: UUID) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             transport: transport,
+            terminalTransport: terminalTransport,
+            terminalProfile: terminalProfile,
             destination: destination,
             port: port,
             identityFile: identityFile,
@@ -315,6 +379,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             ownerWorkspaceID: workspaceID,
             managedCloudVMID: managedCloudVMID,
             terminalStartupCommand: terminalStartupCommand,
+            configuredRemoteCommand: configuredRemoteCommand,
             foregroundAuthToken: foregroundAuthToken,
             agentSocketPath: agentSocketPath,
             daemonWebSocketEndpoint: daemonWebSocketEndpoint,
@@ -325,9 +390,16 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     }
 
     /// Returns a copy carrying the broker generation for one native-SSH lease.
-    public func withSSHControlMasterLeaseGeneration(_ generation: UUID) -> WorkspaceRemoteConfiguration {
+    /// Copy with a re-minted daemon WebSocket endpoint. Managed Cloud VM previews can rotate
+    /// (sandbox recreation, preview re-creation), so the proxy broker refreshes the endpoint
+    /// through the backend instead of retrying a dead URL forever.
+    public func withDaemonWebSocketEndpoint(
+        _ endpoint: WorkspaceRemoteWebSocketDaemonEndpoint?
+    ) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             transport: transport,
+            terminalTransport: terminalTransport,
+            terminalProfile: terminalProfile,
             destination: destination,
             port: port,
             identityFile: identityFile,
@@ -340,6 +412,35 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             ownerWorkspaceID: ownerWorkspaceID,
             managedCloudVMID: managedCloudVMID,
             terminalStartupCommand: terminalStartupCommand,
+            configuredRemoteCommand: configuredRemoteCommand,
+            foregroundAuthToken: foregroundAuthToken,
+            agentSocketPath: agentSocketPath,
+            daemonWebSocketEndpoint: endpoint,
+            preserveAfterTerminalExit: preserveAfterTerminalExit,
+            persistentDaemonSlot: persistentDaemonSlot,
+            skipDaemonBootstrap: skipDaemonBootstrap,
+            sshControlMasterLeaseGeneration: sshControlMasterLeaseGeneration
+        )
+    }
+
+    public func withSSHControlMasterLeaseGeneration(_ generation: UUID) -> WorkspaceRemoteConfiguration {
+        WorkspaceRemoteConfiguration(
+            transport: transport,
+            terminalTransport: terminalTransport,
+            terminalProfile: terminalProfile,
+            destination: destination,
+            port: port,
+            identityFile: identityFile,
+            sshOptions: sshOptions,
+            localProxyPort: localProxyPort,
+            relayPort: relayPort,
+            relayID: relayID,
+            relayToken: relayToken,
+            localSocketPath: localSocketPath,
+            ownerWorkspaceID: ownerWorkspaceID,
+            managedCloudVMID: managedCloudVMID,
+            terminalStartupCommand: terminalStartupCommand,
+            configuredRemoteCommand: configuredRemoteCommand,
             foregroundAuthToken: foregroundAuthToken,
             agentSocketPath: agentSocketPath,
             daemonWebSocketEndpoint: daemonWebSocketEndpoint,
@@ -387,6 +488,8 @@ extension WorkspaceRemoteConfiguration {
             guard let managedCloudVMID else { return nil }
             return SessionRemoteWorkspaceSnapshot(
                 transport: transport,
+                terminalTransport: terminalTransport,
+                terminalProfile: terminalProfile,
                 destination: normalizedDestination,
                 port: nil,
                 identityFile: nil,
@@ -400,16 +503,20 @@ extension WorkspaceRemoteConfiguration {
         }
 
         guard transport == .ssh else { return nil }
+        let retainsRelayNamespace = preserveAfterTerminalExit || terminalTransport == .mosh
 
         return SessionRemoteWorkspaceSnapshot(
             transport: transport,
+            terminalTransport: terminalTransport,
+            terminalProfile: terminalProfile,
+            configuredRemoteCommand: configuredRemoteCommand,
             destination: normalizedDestination,
             port: port,
             identityFile: Self.normalizedIdentityPath(identityFile),
             sshOptions: sshOptionsOverride ?? Self.durableSSHOptions(sshOptions),
             preserveAfterTerminalExit: preserveAfterTerminalExit ? true : nil,
             skipDaemonBootstrap: skipDaemonBootstrap,
-            relayPort: preserveAfterTerminalExit ? relayPort : nil,
+            relayPort: retainsRelayNamespace ? relayPort : nil,
             persistentDaemonSlot: preserveAfterTerminalExit ? persistentDaemonSlot : nil,
             managedCloudVMID: managedCloudVMID
         )

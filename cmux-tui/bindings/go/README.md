@@ -1,45 +1,58 @@
-# cmux Go Client
+# cmux Go SDK
 
-Stdlib-only Go client for the cmux-tui Unix-socket JSON-lines protocol.
+Package `cmux` exposes the typed `cmux.protocol/2` resource API. Package
+`cmux/raw` preserves the private protocol-v12 API.
 
-Import path remains unchanged:
-
-```go
-import "github.com/manaflow-ai/cmux/cmux-tui/bindings/go"
-```
-
-## Build
+Install the released nested module with its semantic-version tag:
 
 ```bash
-cd cmux-tui/bindings/go
-go build ./...
+go get github.com/manaflow-ai/cmux/cmux-tui/bindings/go@v1.0.0
 ```
-
-## Usage
 
 ```go
-ctx := context.Background()
-client, err := cmux.NewClient(cmux.Options{})
+client, err := cmux.NewClient(ctx, cmux.ClientOptions{})
 if err != nil {
-    panic(err)
+	log.Fatal(err)
 }
-defer client.Close()
-surface, err := client.NewWorkspace(ctx, cmux.NewWorkspaceOptions{})
-if err != nil {
-    panic(err)
-}
-text := "echo hello\r"
-_ = client.Send(ctx, surface.Surface, cmux.SendOptions{Text: &text})
-screen, _ := client.ReadScreen(ctx, surface.Surface)
-fmt.Println(screen.Text)
+defer client.Close(context.Background())
+
+session := client.
+	Machine(cmux.SelectCurrent[cmux.MachineID]()).
+	Session(cmux.SelectCurrent[cmux.SessionID]())
+workspace := session.Workspace(cmux.SelectCurrent[cmux.WorkspaceID]())
+result, err := workspace.Run(ctx, cmux.WorkspaceRunOptions{
+	Command: cmux.Exact("printf", "hello\n"),
+})
+
+agent, err := session.ReportAgent(ctx, cmux.AgentReportOptions{
+	TerminalID: result.Value.Terminal,
+	State:      cmux.AgentStateWorking,
+	Source:     cmux.AgentReportSourceSocket,
+})
 ```
 
-`NewClient` uses `CMUX_TUI_SOCKET` when set, then legacy `CMUX_MUX_SOCKET`, then
-the default session socket path.
+`Exact` preserves argv without shell interpretation. `Shell` requests explicit
+server-side shell execution. Resource handles do not own remote resources.
+Only `Client` and typed streams require explicit close or cancellation.
+`Session.ReportAgent` publishes the first agent state for a terminal and
+returns the typed agent snapshot without requiring an earlier agent listing.
 
-## E2E
+Mutations use caller-provided idempotency keys or keys generated from 128 bits
+of secure random data. The client never retries mutations. `Decimal` encodes
+the full unsigned 64-bit range as a canonical JSON string. Renderer grants
+redact their values from formatted output.
 
-```bash
-cd cmux-tui/bindings/go
-CMUX_TUI_SOCKET=/path/to/session.sock go run ./cmd/e2e
-```
+Each `frame` item from `Browser.Attach` includes `PointerFrameSeq *Decimal`.
+`nil` means the frame cannot authorize pointer input. Pass a non-nil frame's
+exact value to `BrowserInputMouseOptions.PointerFrameSeq` or
+`BrowserInputWheelOptions.PointerFrameSeq`; both inputs always encode the token
+as an unsigned decimal string.
+
+`ClientOptions.DialContext` supports injected transports and tests. The default
+transport uses a Unix session socket, with a Windows-compatible build fallback
+that requires injection.
+
+An empty `ClientOptions.Session` with `SessionSet: false` is omitted and selects
+the `main` session. Set `SessionSet: true` when session text came from user input;
+an explicitly empty session is then rejected before socket discovery. Existing
+non-empty `Session` values remain explicit without requiring `SessionSet`.

@@ -4,6 +4,7 @@ import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } fr
 import { BlogSchema } from "../blog-schema";
 import { Link } from "@/i18n/navigation";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
+import { BlogPostMeta } from "@/app/[locale]/components/blog-author";
 
 export async function generateMetadata({
   params,
@@ -59,9 +60,7 @@ export default async function TaskManagerPage({
       </div>
 
       <h1>{t("title")}</h1>
-      <time dateTime="2026-05-22" className="text-sm text-muted">
-        {t("date")}
-      </time>
+      <BlogPostMeta date={t("date")} dateTime="2026-05-22" />
 
       <p className="mt-6">{t("p1")}</p>
       <p>{t("p2")}</p>

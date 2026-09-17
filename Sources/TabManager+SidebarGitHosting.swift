@@ -25,7 +25,7 @@ extension TabManager: SidebarGitHosting {
 
     func isRemoteWorkspace(_ workspaceId: UUID) -> Bool? {
         guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return nil }
-        return workspace.isRemoteWorkspace || workspace.isRemoteTmuxMirror
+        return workspace.usesRemoteDirectoryProvenance
     }
 
     func panelIds(in workspaceId: UUID) -> [UUID] {
@@ -42,7 +42,9 @@ extension TabManager: SidebarGitHosting {
     }
 
     func isRemoteTerminalPanel(workspaceId: UUID, panelId: UUID) -> Bool {
-        tabs.first(where: { $0.id == workspaceId })?.isRemoteTerminalSurface(panelId) == true
+        guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return false }
+        return workspace.isRemoteTerminalSurface(panelId) ||
+            workspace.cloudDirectoryProvenanceRequired(panelId: panelId)
     }
 
     func gitProbeDirectory(workspaceId: UUID, panelId: UUID) -> String? {
@@ -172,12 +174,12 @@ extension TabManager: SidebarGitHosting {
 
     // MARK: Environment
 
-    var isGitMetadataWatchEnabled: Bool {
-        SidebarWorkspaceDetailDefaults.gitMetadataPollingEnabled(defaults: .standard)
+    var gitMetadataActivity: SidebarGitMetadataActivity {
+        SidebarWorkspaceDetailDefaults.gitMetadataActivity(defaults: .standard)
     }
 
-    var isPullRequestPollingEnabled: Bool {
-        SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard)
+    var pullRequestActivity: SidebarGitMetadataActivity {
+        SidebarWorkspaceDetailDefaults.pullRequestActivity(defaults: .standard)
     }
 
     func mobileHostHasRecentActivity(within interval: TimeInterval) -> Bool {

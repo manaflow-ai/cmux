@@ -5,7 +5,7 @@ import Foundation
 /// @unchecked Sendable: `continuation` is immutable after init, and
 /// `didResume` atomically admits exactly one caller before the continuation is
 /// resumed.
-nonisolated final class AgentForkTimeoutResumeGate<Value>: @unchecked Sendable {
+final class AgentForkTimeoutResumeGate<Value>: @unchecked Sendable {
     private let didResume = AtomicBooleanGate(false)
     private let continuation: CheckedContinuation<Value, Never>
 

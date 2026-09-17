@@ -2,7 +2,122 @@ import AppKit
 import CmuxBrowser
 import WebKit
 
+/// The bounded result of preparing one browser WebView for automation input.
+enum BrowserAutomationDocumentReadinessResult: Sendable, Equatable {
+    case committed
+    case superseded
+    case cancelled
+    case timedOut
+}
+
 extension BrowserPanel {
+    func setupSameDocumentNavigationMessageHandler(for webView: WKWebView) {
+        let observedWebViewInstanceID = webViewInstanceID
+        let handler = BrowserSameDocumentNavigationMessageHandler(
+            webView: webView,
+            onNavigation: { [weak self, weak webView] url in
+                guard let self, let webView,
+                      self.webView === webView,
+                      self.webViewInstanceID == observedWebViewInstanceID else {
+                    return
+                }
+                let displayURL = Self.remoteProxyDisplayURL(for: url) ?? url
+                self.automationNavigationCoordinator.didFinishSameDocumentNavigation(
+                    instanceID: observedWebViewInstanceID,
+                    url: displayURL
+                )
+            }
+        )
+        sameDocumentNavigationMessageHandler = handler
+        let userContentController = webView.configuration.userContentController
+        userContentController.removeScriptMessageHandler(
+            forName: BrowserSameDocumentNavigationMessageHandler.name,
+            contentWorld: BrowserSameDocumentNavigationMessageHandler.contentWorld
+        )
+        userContentController.add(
+            handler,
+            contentWorld: BrowserSameDocumentNavigationMessageHandler.contentWorld,
+            name: BrowserSameDocumentNavigationMessageHandler.name
+        )
+    }
+
+    func beginAutomationNavigation(
+        to targetURL: URL,
+        recordTypedNavigation: Bool
+    ) -> BrowserAutomationNavigationTicket {
+        let ticket = automationNavigationCoordinator.begin(
+            instanceID: webViewInstanceID,
+            targetURL: targetURL,
+            allowsSameDocumentCompletion: navigationDelegate?.activeErrorPageDisplayURL == nil
+                && navigationDelegate?.activePolicyBlockedURL == nil
+        )
+        navigate(
+            to: targetURL,
+            recordTypedNavigation: recordTypedNavigation,
+            onNavigationStarted: { [weak self] navigation in
+                self?.automationNavigationCoordinator.didStart(
+                    ticket,
+                    navigationID: navigation.map { ObjectIdentifier($0) }
+                )
+            }
+        )
+        return ticket
+    }
+
+    func beginAutomationReloadFromCLI() -> (
+        ticket: BrowserAutomationNavigationTicket,
+        targetURL: URL
+    )? {
+        guard let targetURL = automationReloadTargetURL() else { return nil }
+        let ticket = automationNavigationCoordinator.begin(
+            instanceID: webViewInstanceID,
+            targetURL: targetURL
+        )
+        let navigationStarted: (WKNavigation?) -> Void = { [weak self] navigation in
+            self?.automationNavigationCoordinator.didStart(
+                ticket,
+                navigationID: navigation.map { ObjectIdentifier($0) }
+            )
+        }
+
+        switch navigationDelegate?.activeErrorPageRetryForAutomation() {
+        case .request(let request):
+            navigateWithoutInsecureHTTPPrompt(
+                request: request,
+                recordTypedNavigation: false,
+                onNavigationStarted: navigationStarted
+            )
+        case .urlOnly:
+            navigate(
+                to: targetURL,
+                recordTypedNavigation: false,
+                onNavigationStarted: navigationStarted
+            )
+        case .disabled:
+            navigationStarted(nil)
+        case nil:
+            if let navigation = reload() {
+                navigationStarted(navigation)
+            } else {
+                automationNavigationCoordinator.didReturnNoNavigation(
+                    ticket,
+                    hasCurrentHistoryItem: webView.backForwardList.currentItem != nil,
+                    isShowingNewTabPage: isShowingNewTabPage,
+                    waitsForDeferredNavigation: webView.isLoading ||
+                        isMainFrameProvisionalNavigationActive ||
+                        hasPendingRemoteNavigation
+                )
+            }
+        }
+        return (ticket, targetURL)
+    }
+
+    func finishAutomationNavigation(
+        _ ticket: BrowserAutomationNavigationTicket
+    ) async -> BrowserAutomationNavigationOutcome {
+        await automationNavigationCoordinator.wait(for: ticket)
+    }
+
     func registerBrowserAutomationInitScript(_ userScript: WKUserScript) -> Int {
         browserAutomationUserScripts.append(userScript)
         browserAutomationInitScriptCount += 1
@@ -48,6 +163,63 @@ extension BrowserPanel {
     ) async -> BrowserAutomationDocumentReadinessOutcome {
         guard ObjectIdentifier(webView) == expectedWebViewIdentifier else { return .superseded }
         return await automationDocumentReadiness.waitForCommit(instanceID: webViewInstanceID)
+    }
+
+    /// Ensures that the current WebView instance has a committed document without
+    /// blocking the socket worker or the main actor.
+    @MainActor
+    func ensureAutomationDocumentReady(
+        expectedWebViewIdentifier: ObjectIdentifier,
+        timeout: Duration = .seconds(3),
+        reason: String
+    ) async -> BrowserAutomationDocumentReadinessResult {
+        guard !Task.isCancelled else { return .cancelled }
+        guard ObjectIdentifier(webView) == expectedWebViewIdentifier,
+              let blankURL = URL(string: "about:blank") else {
+            return .superseded
+        }
+
+        if webView.url == nil,
+           !webView.isLoading,
+           webView.backForwardList.currentItem == nil {
+            // Discarded tabs preserve the user's page intent. Restore it before
+            // falling back to a real about:blank document for an empty new tab.
+            let restored = restoreDiscardedWebViewIfNeeded(reason: reason)
+            if !restored, let preserved = currentURL {
+                navigate(to: preserved)
+            } else if !restored || Self.isAboutBlankURL(currentURL) {
+                navigate(to: blankURL)
+            }
+        }
+
+        guard ObjectIdentifier(webView) == expectedWebViewIdentifier else {
+            return .superseded
+        }
+
+        return await withTaskGroup(of: BrowserAutomationDocumentReadinessResult.self) { group in
+            group.addTask { [weak self] in
+                guard let self else { return .cancelled }
+                switch await self.waitForAutomationDocumentCommit(
+                    expectedWebViewIdentifier: expectedWebViewIdentifier
+                ) {
+                case .committed: return .committed
+                case .superseded: return .superseded
+                case .cancelled: return .cancelled
+                }
+            }
+            group.addTask {
+                do {
+                    // This is the command's real readiness deadline, not a settle/poll delay.
+                    try await ContinuousClock().sleep(for: timeout)
+                    return .timedOut
+                } catch {
+                    return .cancelled
+                }
+            }
+            let result = await group.next() ?? .cancelled
+            group.cancelAll()
+            return result
+        }
     }
 
     func recoverIfAutomationUnresponsive(

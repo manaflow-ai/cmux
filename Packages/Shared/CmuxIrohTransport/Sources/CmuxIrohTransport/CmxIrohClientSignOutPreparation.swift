@@ -6,6 +6,9 @@ public struct CmxIrohSignOutPreparation: Equatable, Sendable {
     /// Whether the first device-only persistence attempt succeeded.
     public let wasPersisted: Bool
 
+    /// In-memory proof retained across local identity deletion for immediate revoke.
+    public let bindingAuthorization: CmxIrohBindingRequestAuthorization?
+
     /// The broker binding to revoke, or `nil` before registration.
     public var bindingID: String? { pendingRevocation?.bindingID }
 
@@ -14,12 +17,28 @@ public struct CmxIrohSignOutPreparation: Equatable, Sendable {
     /// - Parameters:
     ///   - pendingRevocation: The validated prior binding, or `nil` before registration.
     ///   - wasPersisted: Whether it was durably queued before local teardown.
+    ///   - bindingAuthorization: Ephemeral proof for a fresh captured-token client.
     public init(
         pendingRevocation: CmxIrohPendingRevocation?,
-        wasPersisted: Bool
+        wasPersisted: Bool,
+        bindingAuthorization: CmxIrohBindingRequestAuthorization? = nil
     ) {
         self.pendingRevocation = pendingRevocation
         self.wasPersisted = pendingRevocation == nil || wasPersisted
+        self.bindingAuthorization = bindingAuthorization
+    }
+
+    /// Compares durable state and the authorized binding without exposing key bytes.
+    public static func == (
+        lhs: CmxIrohSignOutPreparation,
+        rhs: CmxIrohSignOutPreparation
+    ) -> Bool {
+        lhs.pendingRevocation == rhs.pendingRevocation
+            && lhs.wasPersisted == rhs.wasPersisted
+            && lhs.bindingAuthorization?.bindingID
+                == rhs.bindingAuthorization?.bindingID
+            && lhs.bindingAuthorization?.clientNamespace
+                == rhs.bindingAuthorization?.clientNamespace
     }
 
     /// Revokes the captured binding with a broker authenticated from captured tokens.
@@ -32,7 +51,7 @@ public struct CmxIrohSignOutPreparation: Equatable, Sendable {
     /// - Parameter pendingRevocations: The same device-only outbox used by the runtime.
     /// - Throws: The broker revocation error for an existing binding.
     public func revoke(
-        using broker: any CmxIrohClientBrokerServing,
+        using broker: any CmxIrohBindingRevoking,
         pendingRevocations: CmxIrohPendingRevocationOutbox
     ) async throws {
         guard let pendingRevocation else { return }

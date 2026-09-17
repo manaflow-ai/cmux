@@ -50,6 +50,15 @@ public protocol CmxIrohConnection: Sendable {
     /// enforcement for the complete connection lifetime.
     func waitUntilClosed() async
 
+    /// Returns the classified terminal cause for this connection.
+    ///
+    /// Implementations consume any raw transport text at their boundary and
+    /// retain only this privacy-safe value.
+    func closeAttribution() async -> CmxIrohConnectionCloseAttribution
+
+    /// Observes redacted per-path lifecycle events for this connection.
+    func observedPathEvents() async -> AsyncStream<CmxIrohConnectionPathEvent>
+
     /// Returns whether this connection already has a terminal close reason.
     ///
     /// Callers use this nonblocking snapshot to reject a cached connection

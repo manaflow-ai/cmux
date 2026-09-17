@@ -25,4 +25,8 @@ final class SidebarWorkspaceTableCellModel {
         )
         return true
     }
+
+    func clear() {
+        state = nil
+    }
 }
