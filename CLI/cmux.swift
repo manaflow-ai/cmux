@@ -4929,9 +4929,8 @@ struct CMUXCLI {
 
         let command = args[index]
         let rawCommandArgs = Array(args[(index + 1)...])
-        if command == "__codex-teams-app-server-supervisor" {
-            let status = try CodexTeamsAppServerSupervisor(arguments: rawCommandArgs).run()
-            exit(status)
+        if let supervisor = try OwnedProcessSupervisor(command: command, arguments: rawCommandArgs) {
+            exit(try supervisor.run())
         }
         // `cmux cr ...` is always the CodeRouter CLI, bootstrapped on first use
         // when this machine has none (CMUXCLI+CoderouterPassthrough.swift).
@@ -5474,6 +5473,29 @@ struct CMUXCLI {
         case "vpn":
             try runVPNCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
 
+        case "billing":
+            let (planOption, rest) = parseOption(Array(commandArgs.dropFirst()), name: "--plan")
+            guard let plan = planOption, commandArgs.first == "checkout", ["go", "pro", "max"].contains(plan), rest.allSatisfy({ $0 == "--no-open" }) else {
+                throw CLIError(message: "Usage: cmux billing checkout --plan <go|pro|max> [--no-open]")
+            }
+            let response = try client.sendV2(method: "vm.billing_checkout", params: ["plan": plan])
+            guard let url = response["url"] as? String else {
+                throw CLIError(message: "Checkout URL is missing. Open https://cmux.com/pricing.")
+            }
+            if !rest.contains("--no-open") && !jsonOutput {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: openToolPath())
+                process.arguments = [url]
+                try process.run()
+                process.waitUntilExit()
+            }
+            if jsonOutput {
+                print(jsonString(response))
+            } else {
+                print(url)
+                print("Review the plan and price in your browser. After payment, retry your VM command.")
+            }
+
         case "auth", "login", "logout":
             let authArgs = command == "auth" ? commandArgs : [command] + commandArgs
             let sub = authArgs.first?.lowercased() ?? "status"
@@ -5860,7 +5882,7 @@ struct CMUXCLI {
                             vm new: unknown size '\(sizeOpt)'.
 
                             Sizes: 4g, 8g, 16g, 24g, 32g, 64g (or memory in MB).
-                            Plans cap the largest size; `cmux vm ls` shows your plan.
+                            Pro starts 4g to 24g; 32g and 64g need cmux Max. `cmux vm ls` shows your plan.
                             """)
                     }
                     memoryMb = parsed
@@ -5876,7 +5898,7 @@ struct CMUXCLI {
                         vm new: unknown flag '\(unknown)'.
 
                         Known flags:
-                          --size <4g|8g|16g|24g|32g|64g>
+                          --size <4g|8g|16g|24g|32g|64g>  4g to 24g on Pro; 32g and 64g need cmux Max
                           --desktop, --base  \(String(localized: "cli.vm.help.legacyKindFlags", defaultValue: "accepted for older scripts; every machine has a screen"))
                           --name <label>    display label (the id stays the address)
                           --image <image-id>  explicit image override (normally omit)
@@ -15161,21 +15183,7 @@ struct CMUXCLI {
                   var decoded = String(data: data, encoding: .utf8) else {
                 throw CLIError(message: "ssh-pty-attach: --command-b64 must be valid UTF-8 base64")
             }
-            decoded = decoded
-                .replacingOccurrences(of: "__CMUX_WORKSPACE_ID__", with: workspaceId)
-                .replacingOccurrences(
-                    of: "__CMUX_SURFACE_ID__",
-                    with: ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] ?? ""
-                )
-                .replacingOccurrences(
-                    of: "__CMUX_TERMINAL_LIFECYCLE_ID__",
-                    with: ProcessInfo.processInfo.environment["CMUX_TERMINAL_LIFECYCLE_ID"] ?? ""
-                )
-                .replacingOccurrences(
-                    of: "__CMUX_SSH_ATTEMPT_ID__",
-                    with: ProcessInfo.processInfo.environment["CMUX_SSH_ATTEMPT_ID"] ?? ""
-                )
-            return decoded
+            return Self.applyingSSHPTYAttachBootstrapSubstitutions(to: decoded, workspaceID: workspaceId)
         }
         var bridgeReachedReady = false
         var sessionLostWillRespawn = false
@@ -18311,6 +18319,8 @@ struct CMUXCLI {
             never leave this Mac. Signed builds fail closed if the Network
             Extension is absent. There is no privileged fallback.
             """
+        case "billing":
+            return "Usage: cmux billing checkout --plan <go|pro|max> [--no-open]\n\nCreate checkout for the signed-in cmux account. Max is $200/month. Payment requires browser confirmation. --no-open or --json returns the URL without opening a browser."
         case "auth":
             return """
             Usage: cmux auth <status|login|logout>

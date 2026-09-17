@@ -108,9 +108,9 @@ enum SurfacePaneFactory {
 
     /// A fresh local workspace (⌘N) titled `title`, returned with the id of the starter
     /// pane it opened with so a caller projecting a group can take that pane's place.
-    static func createLocalWorkspace(title: String) throws -> (workspaceID: UUID, starterPanelID: UUID?) {
+    static func createLocalWorkspace(title: String, titleSource: Workspace.CustomTitleSource = .user) throws -> (workspaceID: UUID, starterPanelID: UUID?) {
         guard let workspace = AppDelegate.shared?.addWorkspaceInPreferredMainWindow(
-            title: title,
+            title: title, titleSource: titleSource,
             shouldBringToFront: false,
             debugSource: "surface.catalog.newWorkspace"
         ) else {
