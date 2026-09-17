@@ -36,6 +36,8 @@ def queries(nodes):
             todouble(payload.disk_free_bytes) / todouble(payload.disk_total_bytes) < 0.1, "disk_under_10_percent",
             todouble(payload.memory_available_bytes) / todouble(payload.memory_total_bytes) < 0.1, "memory_under_10_percent", "")
             | where Reason != "" | project ResourceId, Reason''',
+        'revocation-feed': base + '''| where toint(payload.cmux_v3_feed_healthy) == 0
+            | extend Reason="revocation_feed_unhealthy" | project ResourceId, Reason''',
     }
 
 

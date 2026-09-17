@@ -19,6 +19,9 @@ METRICS = {
     'cmux_v3_auth_accepted_total', 'cmux_v3_auth_denied_total',
     'cmux_v3_reservation_denied_total', 'cmux_v3_circuit_denied_total',
 }
+OPTIONAL_METRICS = {
+    'cmux_v3_feed_sequence', 'cmux_v3_feed_healthy', 'cmux_v3_feed_failures_total',
+}
 LIMIT = 65536
 
 
@@ -45,8 +48,10 @@ def parse_metrics(body):
         if not math.isfinite(value) or value < 0 or parts[0] in result:
             raise ValueError('invalid metric')
         result[parts[0]] = value
-    if result.keys() != METRICS:
+    if not METRICS.issubset(result):
         raise ValueError('missing metric')
+    for name in OPTIONAL_METRICS:
+        result.setdefault(name, -1.0)
     return result
 
 

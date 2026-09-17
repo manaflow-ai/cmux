@@ -110,6 +110,9 @@ struct Metrics {
     auth_denied: Counter,
     reservation_denied: Counter,
     circuit_denied: Counter,
+    feed_sequence: Gauge,
+    feed_healthy: Gauge,
+    feed_failures: Counter,
 }
 impl Metrics {
     fn new(registry: &mut Registry) -> Self {
@@ -123,6 +126,9 @@ impl Metrics {
             auth_denied: Counter::default(),
             reservation_denied: Counter::default(),
             circuit_denied: Counter::default(),
+            feed_sequence: Gauge::default(),
+            feed_healthy: Gauge::default(),
+            feed_failures: Counter::default(),
         };
         registry.register(
             "cmux_v3_reservations",
@@ -168,6 +174,21 @@ impl Metrics {
             "cmux_v3_circuit_denied",
             "Denied circuits",
             m.circuit_denied.clone(),
+        );
+        registry.register(
+            "cmux_v3_feed_sequence",
+            "Last applied revocation feed sequence",
+            m.feed_sequence.clone(),
+        );
+        registry.register(
+            "cmux_v3_feed_healthy",
+            "Revocation feed has responded successfully recently",
+            m.feed_healthy.clone(),
+        );
+        registry.register(
+            "cmux_v3_feed_failures",
+            "Revocation feed request or validation failures",
+            m.feed_failures.clone(),
         );
         m
     }
@@ -263,6 +284,7 @@ async fn main() -> Result<()> {
             read_secret(path, 64)?,
             peer_id,
             gate.clone(),
+            metrics.clone(),
         )),
         (None, None) => None,
         _ => bail!("control URL and control token file must be supplied together"),
@@ -346,6 +368,7 @@ fn spawn_revocation_feed(
     token: Vec<u8>,
     relay: libp2p::PeerId,
     gate: Arc<Gate>,
+    metrics: Metrics,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let url = url.trim_end_matches('/').to_owned();
@@ -354,6 +377,8 @@ fn spawn_revocation_feed(
             || url.starts_with("http://localhost"))
         {
             warn!("refusing non-private revocation feed URL");
+            metrics.feed_healthy.set(0);
+            metrics.feed_failures.inc();
             return;
         }
         let client = match reqwest::Client::builder()
@@ -362,7 +387,11 @@ fn spawn_revocation_feed(
             .build()
         {
             Ok(client) => client,
-            Err(_) => return,
+            Err(_) => {
+                metrics.feed_healthy.set(0);
+                metrics.feed_failures.inc();
+                return;
+            }
         };
         let token = match String::from_utf8(token) {
             Ok(token) => token,
@@ -373,29 +402,49 @@ fn spawn_revocation_feed(
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             ticker.tick().await;
-            let response = client.post(format!("{url}/v3/relay-events"))
+            let response = client
+                .post(format!("{url}/v3/relay-events"))
                 .bearer_auth(&token)
-                .json(&serde_json::json!({"relay_peer":relay.to_string(),"team":"*","after_sequence":sequence,"limit":256}))
-                .send().await;
-            let Ok(response) = response else { continue };
-            if !response.status().is_success() {
-                continue;
-            }
-            let Ok(body) = response.bytes().await else {
-                continue;
+                .json(&serde_json::json!({
+                    "relay_peer": relay.to_string(),
+                    "team": "*",
+                    "after_sequence": sequence,
+                    "limit": 256
+                }))
+                .send()
+                .await;
+            let response = match response {
+                Ok(response) if response.status().is_success() => response,
+                _ => {
+                    metrics.feed_healthy.set(0);
+                    metrics.feed_failures.inc();
+                    continue;
+                }
             };
-            if body.len() > 64 * 1024 {
-                continue;
-            }
-            let Ok(body) = serde_json::from_slice::<FeedResponse>(&body) else {
-                continue;
+            let body = match response.bytes().await {
+                Ok(body) if body.len() <= 64 * 1024 => body,
+                _ => {
+                    metrics.feed_healthy.set(0);
+                    metrics.feed_failures.inc();
+                    continue;
+                }
             };
+            let body = match serde_json::from_slice::<FeedResponse>(&body) {
+                Ok(body) => body,
+                Err(_) => {
+                    metrics.feed_healthy.set(0);
+                    metrics.feed_failures.inc();
+                    continue;
+                }
+            };
+            metrics.feed_healthy.set(1);
             for event in body.events {
                 if event.sequence <= sequence || gate.apply_revocation_token(&event.update).is_err()
                 {
                     break;
                 }
                 sequence = event.sequence;
+                metrics.feed_sequence.set(sequence as i64);
             }
         }
     })
@@ -421,7 +470,7 @@ fn router(state: AppState) -> Router {
 }
 async fn health(State(state): State<AppState>) -> impl IntoResponse {
     Json(
-        serde_json::json!({"peer_id": state.peer_id, "draining": state.gate.draining(), "circuits": state.metrics.circuits.get(), "version": env!("CARGO_PKG_VERSION")}),
+        serde_json::json!({"peer_id": state.peer_id, "draining": state.gate.draining(), "circuits": state.metrics.circuits.get(), "feed_healthy": state.metrics.feed_healthy.get(), "feed_sequence": state.metrics.feed_sequence.get(), "version": env!("CARGO_PKG_VERSION")}),
     )
 }
 async fn readiness(State(state): State<AppState>) -> impl IntoResponse {
