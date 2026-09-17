@@ -79,7 +79,7 @@ const listen = (
 
 const sourceAgentConfig = (home: string, coderouterOrigin: string, fetchOpenCodeConfig = false): Promise<void> =>
   new Promise((resolve, reject) => {
-    const child = spawn("bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}; ${fetchOpenCodeConfig ? "cmux_ensure_opencode_config" : ":"}`], {
+    const child = spawn("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}; ${fetchOpenCodeConfig ? "cmux_ensure_opencode_config" : ":"}`], {
       env: {
         ...process.env,
         HOME: home,
@@ -141,7 +141,7 @@ describe("devbox image template", () => {
     const home = mkdtempSync(path.join(tmpdir(), "cmux-agent-config-origin-"));
     try {
       const run = (extraEnv: Record<string, string>) =>
-        spawnSync("bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}; printf '%s' "\${ANTHROPIC_CUSTOM_HEADERS-}"`], {
+        spawnSync("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}; printf '%s' "\${ANTHROPIC_CUSTOM_HEADERS-}"`], {
           encoding: "utf8",
           env: {
             NODE_ENV: "test",
@@ -171,7 +171,7 @@ describe("devbox image template", () => {
 
   test("every shell file parses", () => {
     for (const name of ["cmux-bashrc", "cmux-prompt.bash", "agent-config.sh", "cmux-terminfo.sh"]) {
-      const result = spawnSync("bash", ["-n", path.join(templateDir, name)]);
+      const result = spawnSync("/bin/bash", ["-n", path.join(templateDir, name)]);
       expect({ name, status: result.status }).toEqual({ name, status: 0 });
     }
     for (const name of ["cmux-devbox-boot", "cmux-motd"]) {
@@ -767,7 +767,7 @@ describe("devbox image template", () => {
         OPENAI_API_KEY: "cmux-vm-edge-placeholder",
         CMUX_CODEROUTER_URL: "https://example.invalid",
       };
-      expect(spawnSync("bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}`], { env }).status).toBe(0);
+      expect(spawnSync("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}`], { env }).status).toBe(0);
       const merged = readFileSync(path.join(home, ".codex/config.toml"), "utf8");
       const parsed = Bun.TOML.parse(merged) as Record<string, unknown>;
       expect(parsed.model_provider).toBe("cmux");
@@ -791,7 +791,7 @@ describe("devbox image template", () => {
       expect(merged.indexOf('model_provider = "cmux"')).toBeLessThan(merged.indexOf("[hooks]"));
       expect(existsSync(path.join(home, ".codex/config.toml.cmux-tmp"))).toBe(false);
       // Idempotent: a second login sees the provider and rewrites nothing.
-      expect(spawnSync("bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}`], { env }).status).toBe(0);
+      expect(spawnSync("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}`], { env }).status).toBe(0);
       expect(readFileSync(path.join(home, ".codex/config.toml"), "utf8")).toBe(merged);
       // A config that already names a provider is the user's, even without
       // ours, however the key is spaced (TOML allows none around "=").
@@ -813,7 +813,7 @@ describe("devbox image template", () => {
         'model_provider = "unterminated\n',
       ]) {
         writeFileSync(path.join(home, ".codex/config.toml"), theirs);
-        expect(spawnSync("bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}`], { env }).status).toBe(0);
+        expect(spawnSync("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}`], { env }).status).toBe(0);
         expect(readFileSync(path.join(home, ".codex/config.toml"), "utf8")).toBe(theirs);
       }
     } finally {
