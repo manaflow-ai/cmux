@@ -21,8 +21,8 @@ extension SurfaceCatalog {
     @discardableResult
     func organizeSidebar(_ action: CloudSidebarOrganizationAction, nodeID: String) -> Bool {
         let nodes = sidebarNodes()
-        guard let parent = CloudSidebarOrganizationTree(nodes: nodes).parent(of: nodeID) else { return false }
-        reconcileSidebarOrganization(on: parent.machine, nodes: nodes)
+        guard let node = CloudTreeNodeBuilder.flattened(nodes).first(where: { $0.id == nodeID && $0.canOrganize }) else { return false }
+        reconcileSidebarOrganization(on: node.machine, nodes: nodes)
         return sidebarOrganization.perform(action, id: nodeID, nodes: nodes)
     }
 

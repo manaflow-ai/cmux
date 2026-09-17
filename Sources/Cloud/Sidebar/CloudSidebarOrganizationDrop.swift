@@ -4,7 +4,8 @@ import AppKit
 /// siblings. The action carries stable IDs into the catalog's mutation path.
 struct CloudSidebarOrganizationDrop {
     let sourceID: String
-    let parent: CloudTreeNode
+    let parent: CloudTreeNode?
+    let siblings: [CloudTreeNode]
     let childIndex: Int
     let action: CloudSidebarOrganizationAction
 
@@ -16,16 +17,16 @@ struct CloudSidebarOrganizationDrop {
         proposedChildIndex: Int,
         dropAfterItem: Bool
     ) {
-        guard let parent = CloudSidebarOrganizationTree(nodes: nodes).parent(of: sourceID),
-              let proposedItem else { return nil }
+        guard let parent = CloudSidebarOrganizationTree(nodes: nodes).siblings(of: sourceID) else { return nil }
         let index: Int
-        if proposedItem.id == parent.id, proposedChildIndex >= 0 {
+        if proposedItem?.id == parent.parent?.id, proposedChildIndex >= 0 {
             guard proposedChildIndex <= parent.children.count else { return nil }
             index = proposedChildIndex
         } else {
             // A folder cannot contain its sibling. AppKit nevertheless proposes
             // drop-on and child insertions while hovering an expanded folder.
             // Retarget to that folder's outer edge without opening or reparenting.
+            guard let proposedItem else { return nil }
             guard let siblingIndex = parent.children.firstIndex(where: { sibling in
                 sibling.canOrganize && CloudTreeNodeBuilder.flattened([sibling]).contains { $0.id == proposedItem.id }
             }) else { return nil }
@@ -48,7 +49,8 @@ struct CloudSidebarOrganizationDrop {
         guard preview.apply(action, id: sourceID, siblings: siblings, parent: parent.id),
               preview.ordered(siblings, parent: parent.id) != state.ordered(siblings, parent: parent.id) else { return nil }
         self.sourceID = sourceID
-        self.parent = parent
+        self.parent = parent.parent
+        self.siblings = parent.children
         self.childIndex = index
         self.action = action
     }

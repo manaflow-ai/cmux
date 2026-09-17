@@ -19,7 +19,7 @@ final class CloudSidebarOrganizationStore {
 
     @discardableResult
     func perform(_ action: CloudSidebarOrganizationAction, id: String, nodes: [CloudTreeNode]) -> Bool {
-        guard let parent = CloudSidebarOrganizationTree(nodes: nodes).parent(of: id) else { return false }
+        guard let parent = CloudSidebarOrganizationTree(nodes: nodes).siblings(of: id) else { return false }
         let siblings = parent.children.filter(\.canOrganize).map(\.id)
         var next = state
         guard next.apply(action, id: id, siblings: siblings, parent: parent.id) else { return false }
@@ -75,7 +75,7 @@ final class CloudSidebarOrganizationStore {
         live[CloudTreeNodeBuilder.nodeID(workspacesGroup: machine)] = folderIDs
         let prefix = CloudTreeNodeBuilder.nodeID(machine: machine) + "/"
         var next = state
-        for parent in Array(next.groups.keys) where parent.hasPrefix(prefix) {
+        for parent in Array(next.groups.keys) where parent == CloudTreeNodeBuilder.nodeID(machine: machine) || parent.hasPrefix(prefix) {
             if let ids = live[parent], var group = next.groups[parent] {
                 group.order.removeAll { !ids.contains($0) }
                 group.pinned.formIntersection(ids)
@@ -92,7 +92,13 @@ final class CloudSidebarOrganizationStore {
     func forget(machine: SurfaceMachineID) {
         let prefix = CloudTreeNodeBuilder.nodeID(machine: machine) + "/"
         var next = state
-        next.groups = next.groups.filter { !$0.key.hasPrefix(prefix) }
+        let machineID = CloudTreeNodeBuilder.nodeID(machine: machine)
+        next.groups = next.groups.filter { $0.key != machineID && !$0.key.hasPrefix(prefix) }
+        if var roots = next.groups[""] {
+            roots.order.removeAll { $0 == machineID }
+            roots.pinned.remove(machineID)
+            next.groups[""] = roots.order.isEmpty ? nil : roots
+        }
         if next != state { commit(next) }
     }
 

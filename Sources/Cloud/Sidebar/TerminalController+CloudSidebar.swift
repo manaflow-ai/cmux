@@ -22,7 +22,7 @@ extension TerminalController {
                     case "after": action = .after(targetID ?? "")
                     default: throw SurfaceCatalogError.destinationNotFound(Self.cloudSidebarInvalidAction)
                     }
-                    guard let nodeID, CloudSidebarOrganizationTree(nodes: nodes).parent(of: nodeID) != nil else {
+                    guard let nodeID, CloudSidebarOrganizationTree(nodes: nodes).siblings(of: nodeID) != nil else {
                         throw SurfaceCatalogError.destinationNotFound(Self.cloudSidebarInvalidAction)
                     }
                     guard catalog.organizeSidebar(action, nodeID: nodeID) else {

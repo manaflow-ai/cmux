@@ -5,7 +5,7 @@ extension CloudTreeOutlineView.Coordinator {
 
     func organizationMenuItems(for node: CloudTreeNode) -> [NSMenuItem] {
         guard node.canOrganize,
-              let parent = CloudSidebarOrganizationTree(nodes: organizationNodes).parent(of: node.id) else { return [] }
+              let parent = CloudSidebarOrganizationTree(nodes: organizationNodes).siblings(of: node.id) else { return [] }
         let state = organization.state
         let pinned = state.isPinned(node.id, parent: parent.id)
         let peers = state.ordered(parent.children.filter(\.canOrganize).map(\.id), parent: parent.id)

@@ -21,12 +21,13 @@ extension CloudTreeNode {
         }
     }
 
-    /// Cloud folders and their leaf rows can be organized within their owning
+    /// Cloud machines, category folders, and their leaf rows can be organized within their owning
     /// group. Local workspaces continue to use the existing left-sidebar owner.
     var canOrganize: Bool {
         guard !machine.isLocal else { return false }
         switch kind {
-        case .workspace, .terminal, .display, .browser, .port: return true
+        case .machine, .terminalsPool, .displaysPool, .workspacesGroup, .browsersGroup, .portsGroup,
+             .workspace, .terminal, .display, .browser, .port: return true
         default: return false
         }
     }
