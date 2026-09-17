@@ -26237,7 +26237,7 @@ mod tests {
         let (mux, _) = test_mux("prefix-pane-shortcuts-test", None);
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         app.sidebar_visible = false;
-        app.config.keys.apply(&std::collections::HashMap::from([(
+        app.config.keys.apply_for_test(&HashMap::from([(
             "alt_shortcuts".to_string(),
             serde_json::json!(false),
         )]));
