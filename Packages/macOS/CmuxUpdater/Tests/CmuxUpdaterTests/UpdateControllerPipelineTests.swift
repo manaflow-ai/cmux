@@ -423,6 +423,58 @@ import Testing
         }
     }
 
+    /// Regression (issue #9262, queued variant): "Attempt Update" issued while another check
+    /// session is still finishing queues the fresh check behind it. If that in-flight session
+    /// resolves "no update", the up-to-date result must stand instead of becoming a red
+    /// "check your internet connection" error.
+    @Test func upToDateResultWhileFreshCheckIsQueuedShowsNoUpdateInsteadOfError() async {
+        let harness = Harness()
+
+        harness.model.setState(.checking(.init(cancel: {})))
+        harness.controller.attemptUpdate()
+        // The fresh check is queued behind the in-flight session; Sparkle was not called yet.
+        #expect(harness.updater.checkForUpdatesCallCount == 0)
+
+        // The in-flight session resolves: already up to date.
+        harness.model.setState(.notFound(.init(acknowledgement: {})))
+
+        // Give any erroneous reaction a chance to replace the state.
+        for _ in 0..<2_000 { await Task.yield() }
+
+        guard case .notFound = harness.model.state else {
+            Issue.record("queued up-to-date attempt replaced notFound with: \(harness.model.state)")
+            return
+        }
+        #expect(!harness.controller.attemptCoordinator.isMonitoring)
+    }
+
+    /// The up-to-date terminal must also survive Sparkle finishing the accepted-install cycle in
+    /// the same actor turn as the no-update resolution, before the reaction stream drains the
+    /// `.notFound` transition: the cycle-finish observer must treat "no update found" as a visible
+    /// outcome, not as an install that never started.
+    @Test func cycleFinishArrivingBeforeNotFoundIsDrainedKeepsUpToDateResult() async {
+        let harness = Harness()
+        let stalePrompt = ChoiceBox()
+
+        harness.model.setState(updateAvailable("0.64.15", replyingInto: stalePrompt))
+        harness.controller.attemptUpdate()
+        harness.finishSparkleCycle()
+        await waitUntil("fresh check to start") { harness.updater.checkForUpdatesCallCount == 1 }
+
+        harness.model.setState(.checking(.init(cancel: {})))
+        // No suspension between these two calls: the cycle finish observes `.notFound` while the
+        // attempt coordinator is still monitoring.
+        harness.model.setState(.notFound(.init(acknowledgement: {})))
+        harness.finishSparkleCycle()
+
+        for _ in 0..<2_000 { await Task.yield() }
+
+        guard case .notFound = harness.model.state else {
+            Issue.record("cycle finish replaced notFound with: \(harness.model.state)")
+            return
+        }
+    }
+
     /// If the live prompt is still visible but already answered before the queued confirm
     /// hand-off runs, the controller must not log a fake install attempt or leave the watchdog
     /// armed for a prompt Sparkle will never accept again.
