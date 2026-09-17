@@ -39,7 +39,7 @@ final class AutomationSocketUITests: XCTestCase {
 
     func testSocketToggleDisablesAndEnables() {
         let app = configuredApp(mode: "cmuxOnly")
-        app.launch()
+        app.launchAllowingHeadlessBackgroundActivation()
         XCTAssertTrue(
             ensureRunningAfterLaunch(app, timeout: 12.0),
             "Expected app to launch for socket toggle test. state=\(app.state.rawValue)"
@@ -56,7 +56,7 @@ final class AutomationSocketUITests: XCTestCase {
 
     func testSocketPathDeletionRecreatesListener() throws {
         let app = configuredApp(mode: "automation")
-        app.launch()
+        app.launchAllowingHeadlessBackgroundActivation()
         XCTAssertTrue(
             ensureRunningAfterLaunch(app, timeout: 12.0),
             "Expected app to launch for socket path recreation test. state=\(app.state.rawValue)"
@@ -83,7 +83,7 @@ final class AutomationSocketUITests: XCTestCase {
         // Backgrounded apps on CI runners get App Nap throttled and can stall
         // main-thread hops indefinitely; simulate_shortcut replies after a main hop.
         app.launchArguments += ["-NSAppSleepDisabled", "YES"]
-        app.launch()
+        app.launchAllowingHeadlessBackgroundActivation()
         XCTAssertTrue(
             ensureRunningAfterLaunch(app, timeout: 12.0),
             "Expected app to launch for plain-char simulation test. state=\(app.state.rawValue)"
@@ -140,7 +140,7 @@ final class AutomationSocketUITests: XCTestCase {
 
     func testSocketDisabledWhenSettingOff() {
         let app = configuredApp(mode: "off")
-        app.launch()
+        app.launchAllowingHeadlessBackgroundActivation()
         XCTAssertTrue(
             ensureRunningAfterLaunch(app, timeout: 12.0),
             "Expected app to launch for socket off test. state=\(app.state.rawValue)"
@@ -214,7 +214,7 @@ final class AutomationSocketUITests: XCTestCase {
         let app = XCUIApplication.cmuxTestApplication()
         configureTextBoxMentionLaunchEnvironment(app)
         defer { app.terminate() }
-        app.launch()
+        app.launchAllowingHeadlessBackgroundActivation()
 
         XCTAssertTrue(
             ensureForegroundAfterLaunch(app, timeout: 12.0),
