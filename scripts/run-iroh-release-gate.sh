@@ -778,6 +778,7 @@ allowed_keys = {
     "routeKind",
     "selectedPath",
     "failure",
+    "uiLatencies",
     "lastDiagnosticEventCode",
     "lastDiagnosticFailureKind",
     "soak",

@@ -101,6 +101,7 @@ final class MobileIrohReleaseGateRunner {
         let routeKind: String?
         let selectedPath: String?
         var failure: String?
+        var uiLatencies: [String: Double]? = nil
         /// Last privacy-safe transport diagnostic observed when readiness timed out.
         /// Raw values belong to the stable ``DiagnosticEventCode`` vocabulary.
         let lastDiagnosticEventCode: UInt16?
@@ -194,6 +195,7 @@ final class MobileIrohReleaseGateRunner {
     ) {
         self.configuration = configuration
         self.fileManager = fileManager
+        MobileReleaseGateUIProbe.reset()
         let soakRunner = configuration.soakProfile.map {
             MobileIrohSoakRunner(profile: $0, requiresRelay: configuration.mode == .relayOnly)
         }
@@ -247,6 +249,7 @@ final class MobileIrohReleaseGateRunner {
         self.fileManager = fileManager
         self.dependencies = dependencies
         self.soakRunner = nil
+        MobileReleaseGateUIProbe.reset()
     }
 
     func run(store: CMUXMobileShellStore) async {
@@ -267,6 +270,7 @@ final class MobileIrohReleaseGateRunner {
         try? fileManager.removeItem(at: configuration.reportURL)
         var report = await boundedReport(store: store)
         report.soak = soakRunner?.evidence
+        report.uiLatencies = MobileReleaseGateUIProbe.latencies()
         do {
             try dependencies.writeReport(report, configuration.reportURL)
             dependencies.postReportReady()
