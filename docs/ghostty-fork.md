@@ -12,15 +12,34 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `abd40f6e4`, reachable from fork `main`
-after Ghostty PR #211 was merged. It includes the incremental embedded
+The submodule pinned by this branch is `574bbf967`, from Ghostty PR #222,
+which adds the embedded helper environment lifetime fix to `abd40f6e4`.
+The dependency PR must land before this pointer update is merged.
+It includes the incremental embedded
 configuration propagation and Fish SSH feature-gating fixes described below,
 plus the renderer/API compatibility pin and the repeated word-selection drag
 anchor fix. Its tree includes the prior fork changes below, including tokened
 iOS render dispositions, VT formatter cursor restoration, VT stream-boundary
 visibility, and Hangul canonical font resolution.
 
-### Current main-aligned feature pin
+### Embedded helper environment lifetime
+
+- Pull request: https://github.com/manaflow-ai/ghostty/pull/222
+- Commits: `01766b8c9` (regression test), `574bbf967` (fix).
+- File: `src/termio/Exec.zig`.
+- `resolveGhosttyBin` may return a borrowed `GHOSTTY_BIN` environment value.
+  Replacing that entry invalidates its directory slice. `exportGhosttyBin`
+  stores the directory first and returns the stable `GHOSTTY_BIN_DIR` value,
+  preventing freed bytes from being appended to child `PATH` values.
+- Conflict note: preserve the directory copy before replacing its source;
+  sanitizing PATH before Ghostty runs cannot prevent this later corruption.
+- The GhosttyKit build workflow runs the focused environment lifetime test.
+- Universal ReleaseFast artifact:
+  https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-574bbf96701fb8e7fc205adb14341b70c57b827e-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+  (`6f1397e1c9d076d7eb607eb9b1e1efecce60aeef17bae52cbd0db18f31a09f46`,
+  pinned in `scripts/ghosttykit-checksums.txt`).
+
+### Previous main-aligned feature pin
 
 - Branch:
   - https://github.com/manaflow-ai/ghostty/tree/main
