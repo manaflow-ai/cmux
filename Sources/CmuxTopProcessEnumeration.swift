@@ -1,11 +1,42 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 
 private nonisolated let cmuxTopPIDPathBufferSize = 4096
 
 extension CmuxTopProcessSnapshot {
+    static func capture(
+        includeProcessDetails: Bool = false,
+        includeCMUXScope: Bool = true
+    ) -> CmuxTopProcessSnapshot {
+        let listing = DarwinProcessEnumerator().capture()
+        return CmuxTopProcessSnapshot(
+            processes: processRecords(
+                from: listing.processes,
+                includeProcessDetails: includeProcessDetails,
+                includeCMUXScope: includeCMUXScope
+            ),
+            sampledAt: Date(),
+            includesProcessDetails: includeProcessDetails,
+            includesCMUXScope: includeCMUXScope,
+            enumerationIsComplete: listing.isComplete,
+            enumerationMissingProcessCount: listing.missingProcessCount
+        )
+    }
+
     static func allProcesses(includeProcessDetails: Bool, includeCMUXScope: Bool) -> [CmuxTopProcessInfo] {
-        let sampledProcesses = allBSDProcesses()
+        processRecords(
+            from: DarwinProcessEnumerator().capture().processes,
+            includeProcessDetails: includeProcessDetails,
+            includeCMUXScope: includeCMUXScope
+        )
+    }
+
+    private static func processRecords(
+        from sampledProcesses: [proc_bsdinfo],
+        includeProcessDetails: Bool,
+        includeCMUXScope: Bool
+    ) -> [CmuxTopProcessInfo] {
         guard !sampledProcesses.isEmpty else { return [] }
 
         var scopeKeyByPID: [Int: CmuxTopProcessScopeCacheKey] = [:]
@@ -152,50 +183,6 @@ extension CmuxTopProcessSnapshot {
             virtualBytes: int64Clamped(taskInfo?.pti_virtual_size ?? 0),
             threadCount: Int(taskInfo?.pti_threadnum ?? 0)
         ), cpuSampleKey)
-    }
-
-    private static func allBSDProcesses() -> [proc_bsdinfo] {
-        let pidStride = MemoryLayout<pid_t>.stride
-        func bsdInfos(from pids: [pid_t], count: Int) -> [proc_bsdinfo] {
-            pids.prefix(count).compactMap { pid in
-                guard pid > 0 else { return nil }
-                return bsdInfo(for: Int(pid))
-            }
-        }
-
-        // proc_listallpids returns a PID count; the buffer size argument is bytes.
-        let initialPIDCount = Int(proc_listallpids(nil, 0))
-        guard initialPIDCount > 0 else { return [] }
-        var capacity = max(1, initialPIDCount + 32)
-        var lastPIDs: [pid_t] = []
-        var lastCount = 0
-        for _ in 0..<3 {
-            var pids = Array(repeating: pid_t(), count: capacity)
-            let returnedCount = pids.withUnsafeMutableBufferPointer { buffer in
-                proc_listallpids(buffer.baseAddress, Int32(buffer.count * pidStride))
-            }
-            guard returnedCount >= 0 else {
-                return lastCount > 0 ? bsdInfos(from: lastPIDs, count: lastCount) : []
-            }
-            let returnedPIDCount = Int(returnedCount)
-            let count = min(pids.count, returnedPIDCount)
-            if count > 0 {
-                lastPIDs = pids
-                lastCount = count
-            }
-            if returnedPIDCount < pids.count {
-                return bsdInfos(from: pids, count: count)
-            }
-            capacity = max(pids.count * 2, returnedPIDCount + 32)
-        }
-        return lastCount > 0 ? bsdInfos(from: lastPIDs, count: lastCount) : []
-    }
-
-    private static func bsdInfo(for pid: Int) -> proc_bsdinfo? {
-        var info = proc_bsdinfo()
-        let expectedSize = MemoryLayout<proc_bsdinfo>.stride
-        let size = proc_pidinfo(pid_t(pid), PROC_PIDTBSDINFO, 0, &info, Int32(expectedSize))
-        return size == expectedSize ? info : nil
     }
 
     private static func taskInfo(for pid: Int) -> proc_taskinfo? {

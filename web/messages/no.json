@@ -22,8 +22,31 @@
       "title": "cmux Pro kreves",
       "message": "Cloud VM-er krever en cmux Pro-plan.",
       "action": "Oppgrader til cmux Pro på {upgradeUrl} for å opprette Cloud VM-er."
+    },
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "Maskiner med {memory} GiB krever cmux {plan}. Abonnementet ditt støtter opptil {max} GiB.",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "RAM-størrelsen på kildemaskinen kunne ikke bekreftes.",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "Denne maskinstørrelsen er ikke tilgjengelig. Velg opptil {max} GiB.",
+      "action": "cmux vm new --size {max}g"
     }
-  },
+  ,
+    "goLimit": {
+      "savedMessage": "Go inkluderer to lagrede VM-er, inkludert den som kjører.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "activeMessage": "Go inkluderer én kjørende VM om gangen.",
+      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "hoursMessage": "Go har brukt sine 40 VM-timer denne måneden. Lagrede VM-er kan brukes igjen i neste faktureringsperiode.",
+      "hoursAction": "cmux billing checkout --plan pro",
+      "shapeMessage": "Go støtter 2 vCPU, 4 GiB RAM og 16 GiB disk.",
+      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    }},
   "billingRecovery": {
     "message": "Hvis vi fant en konto, sjekk e-posten din for neste steg"
   },
@@ -294,7 +317,8 @@
     "nav": {
       "coderouterGroup": "coderouter",
       "coderouterOverview": "oversikt",
-      "team": "team"
+      "team": "team",
+      "irohDevices": "IROH devices"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -338,6 +362,31 @@
         "pro": "Pro",
         "loading": "Laster…"
       }
+    },
+    "iroh": {
+      "title": "IROH devices",
+      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
+      "team": "Team",
+      "loading": "Loading devices…",
+      "empty": "No IROH devices are registered for this team.",
+      "unavailable": "Dashboard authorization is unavailable.",
+      "mutationError": "The device change could not be completed.",
+      "revoke": "Revoke access",
+      "deviceId": "Device",
+      "revision": "Revision",
+      "status": "Status",
+      "active": "Active",
+      "revoked": "Revoked",
+      "relaySettings": "Relay settings",
+      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
+      "saveRelaySettings": "Save relay settings"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "Del med teamet",
+      "makePrivate": "Gjør privat",
+      "privateImportHint": "Nye kontoer er private. Del en konto for å gjøre den tilgjengelig for teamets Cloud-VM-er.",
+      "description": "Delte kontoer er tilgjengelige for dette teamets Cloud-VM-er. Private kontoer kan bare brukes av personen som la dem til.",
+      "cancelAction": "Avbryt"
     }
   },
   "community": {
@@ -912,6 +961,60 @@
     }
   },
   "docs": {
+    "computerUse": {
+      "title": "cmux Computer Use",
+      "metaTitle": "cmux Computer Use: Mac-automatisering med KI-agenter",
+      "metaDescription": "La Claude Code og Codex styre Macen med cmux Computer Use. Automatiser innebygde apper med skjermbilder, tilgjengelighet, klikk, tekst og tastatur.",
+      "docsMetaTitle": "Oppsett og agentverktøy for Computer Use",
+      "docsMetaDescription": "Sett opp cmux Computer Use på macOS: tillatelser, Claude Code- og Codex-verktøy, appvalg, økter, ferdigheter og feilsøking.",
+      "tagline": "La Claude Code og Codex styre Macen din.",
+      "intro": "Gi KI-kodeagenter tilgang til native Mac-apper. Med cmux Computer Use kan de lese grensesnitt, ta skjermbilder, klikke på kontroller og skrive tekst.",
+      "imageAlt": "cmux Computer Use-oppsett med tillatelser til tilgjengelighet og skjermbilder",
+      "caption": "Computer Use-tillatelser håndteres av en egen hjelper, slik at terminaløktene forblir åpne under oppsettet.",
+      "featuresTitle": "Styr native Mac-apper",
+      "featureInspect": "Undersøk appgrensesnitt med tilgjengelighetstrær og skjermbilder.",
+      "featureAct": "Klikk, skriv, rull, dra og bruk hurtigtaster i macOS-apper.",
+      "featureReview": "Følg agentens synlige peker, kontroller resultatet og gå tilbake til terminalen som startet handlingen.",
+      "agentsTitle": "Kodeagentene dine i cmux",
+      "agentsBody": "Kjør {agents} og andre kommandolinjeagenter i cmux.",
+      "supportTitle": "Støttede agenter",
+      "supportBody": "Native Computer Use-verktøy kobles automatisk til Claude Code- og Codex-økter startet i cmux. Andre agenter kan kjøre i terminalen, men får ennå ikke denne automatiske integrasjonen for Mac-styring.",
+      "setupTitle": "Kom i gang",
+      "step1": "Installer og åpne cmux for Mac. Aktiver Computer Use under Innstillinger → Computer Use.",
+      "step2": "Gi cmux Computer Use tilgang til Tilgjengelighet og Skjermopptak via tillatelsesknappene i Systeminnstillinger. Hvis hjelperen mangler i listen, legg til eller dra appruten inn i tillatelsespanelet.",
+      "step3": "Start en ny Claude Code- eller Codex-økt i cmux. Be om Computer Use, og oppgi app og oppgave. Verktøyene kobles automatisk til uten manuelt MCP-oppsett.",
+      "permissionsTitle": "Tillatelser og oppsett",
+      "permissionsBody": "Tilgjengelighet gjør det mulig å lese og betjene appgrensesnitt; Skjermopptak muliggjør skjermbilder. Gi begge tillatelsene til cmux Computer Use. Å åpne cmux eller starte en agent gir ikke tilgang og åpner ikke oppsettet automatisk.",
+      "tahoeBody": "Godkjenn også den ekstra skjermfangstbekreftelsen på macOS Tahoe. Prøv oppgaven igjen først når cmux viser begge tillatelsene som gitt.",
+      "promptTitle": "Prøv med Kalkulator",
+      "prompt": "Bruk cmux Computer Use til å åpne Kalkulator, klikke 100 + 105 og vise meg resultatet.",
+      "workflowBody": "Undersøk målet, bruk kontrollene fra dette øyeblikksbildet og undersøk resultatet på nytt. Elementindekser gjelder bare for det gjeldende øyeblikksbildet; oppdater etter navigering eller layoutendringer. En klikkbekreftelse alene beviser ikke at oppgaven er ferdig.",
+      "toolsTitle": "Agentverktøy",
+      "toolsBody": "cmux-cua er den medfølgende MCP-serveren med strukturerte verktøy for native apper. Dette er verktøynavn, ikke skallkommandoer. Argumentene avhenger av agentprofilen; bruk skjemaene i økten.",
+      "codexBody": "Codex bruker get_app_state med appnavn eller bundle-ID og får skjermbilde og tilgjengelighetstre. Bruk en gjeldende element_index eller bildekoordinater, og kall get_app_state igjen. Verktøy:",
+      "claudeBody": "Claude Code finner mål med list_apps og list_windows og bruker get_window_state med pid og window_id. Foretrekk elementtokener eller ferske indekser. Den native profilen har også perform_actions for handlingsgrupper som ikke ugyldiggjør senere mål.",
+      "controlTitle": "Følg og stopp Computer Use",
+      "controlBody": "Computer Use i menylinjen viser den aktive agenten. Focus Computer Use følger appen som styres; Focus Calling Terminal går tilbake til den opprinnelige terminalen uten å stoppe automatiseringen. Bruk stoppvalget i menyen for å avslutte styringsøkten.",
+      "disableBody": "Slå av Computer Use i Innstillinger. Sett CMUX_COMPUTER_USE_MCP_DISABLED=1 før agentstart for å utelate verktøyene fra en ny økt.",
+      "skillTitle": "Ferdigheter",
+      "skillBody": "Ferdigheten cmux-cua forklarer arbeidsflyten for inspeksjon og handling. Den er valgfri og gir ingen macOS-tillatelser. Bruk agentens ferdighetsinstaller for varig installasjon; cmux installerer ikke globale ferdigheter som standard.",
+      "skillLink": "Les cmux-cua-ferdigheten",
+      "browserTitle": "Native apper og nettleserautomatisering",
+      "browserBody": "Computer Use styrer native Mac-vinduer via skjermbilder og tilgjengelighet. Bruk cmux browser for DOM-øyeblikksbilder, selektorer, skjemaer og JavaScript i cmux-nettleserpaneler. Nettleserflatereferanser er ulike fra native elementindekser.",
+      "browserLink": "Referanse for nettleserautomatisering",
+      "troubleTitle": "Feilsøking",
+      "missingTitle": "Agenten mangler Computer Use-verktøy",
+      "missingBody": "Aktiver Computer Use og start en ny Claude Code- eller Codex-økt i cmux. Eksisterende økter kan beholde de opprinnelige verktøyene. Kontroller at miljøvariabler eller administrerte policyer ikke deaktiverer funksjonen.",
+      "blockedTitle": "Ufullstendig oppsett, mislykkede klikk eller tomme bilder",
+      "blockedBody": "Åpne Innstillinger → Computer Use på nytt og fullfør begge tillatelsene og eventuelle ekstra opptaksbekreftelser. Prøv deretter igjen. Terminalene kan stå åpne om hjelperen må starte på nytt.",
+      "targetTitle": "Feil vindu eller blokkert klikk",
+      "targetBody": "Undersøk appen igjen og velg et gjeldende element. Hvis et annet vindu dekker målet, vis ønsket vindu og undersøk det før du prøver igjen. Ikke gjenbruk gamle koordinater eller indekser.",
+      "productLink": "Oversikt over cmux Computer Use",
+      "copyTitle": "Kopier en Computer Use-ledetekst",
+      "copyPrompt": "Kopier ledetekst",
+      "copiedPrompt": "Kopiert",
+      "installPrompt": "Bruk ferdigheten $cmux-cua. Hvis den mangler, installer den med den vanlige installatøren. Ved manglende tillatelser ber du meg åpne cmux Innstillinger → Computer Use. Undersøk før handling og bekreft hver endring.\n\nOppgave: [beskriv oppgaven her]"
+    },
     "remoteTmux": {
       "moshContrast": "Bruk cmux mosh-tmux for roaming mellom nettverk. Den åpner en fullt integrert Mosh-terminal koblet til en navngitt tmux-økt; den erstatter ikke den innebygde speilingen av arbeidsområder, faner og delinger fra SSH tmux-kontrollmodus."
     },
@@ -1117,6 +1220,7 @@
           "globalFontMagnification": "Skalerer cmux-eide terminaler, fanetitler, sidefelt, innstillinger, overlegg og app-chrome med denne prosenten. Rendret innhold på nettlesersider er utelatt."
         },
         "terminal": {
+          "adaptiveDefaultTheme": "Når true (standard), bruker cmux en standardpalett som følger utseendet, med mindre et Ghostty-tema eller terminalfarger er konfigurert. Skrifttype og andre innstillinger beholdes. Når false, bruker Ghostty sin faste innebygde palett. Eksplisitte temaer og farger har alltid prioritet, inkludert theme = light:X,dark:Y.",
           "sessionContentMaxWidth": "Valgfri maksimal bredde i punkter for terminalinnhold og den innebygde agentchatten. Angi false for å bruke hele rutens bredde.",
           "sessionContentAlignment": "Vannrett plassering av terminalinnhold og den innebygde agentchatten når sessionContentMaxWidth er aktivert.",
           "copyOnSelect": "Når verdien er true, kopieres markert terminaltekst til systemutklippstavlen når markeringen bekreftes. Når verdien er false, sender ikke cmux ut en Ghostty copy-on-select-overstyring; Ghostty-konfigurasjon og standardverdier styrer oppførselen til markeringsutklippstavlen.",
@@ -1591,6 +1695,7 @@
       }
     },
     "navItems": {
+      "computerUse": "Datamaskinstyring",
       "gettingStarted": "Kom i gang",
       "concepts": "Konsepter",
       "workspaceGroups": "Arbeidsområdegrupper",
@@ -3865,5 +3970,12 @@
         "action": "Administrer abonnement"
       }
     }
+  },
+  "cliAuthIdentity": {
+    "email": "E-post",
+    "emailUnavailable": "e-post ikke tilgjengelig",
+    "organization": "Organisasjon",
+    "personalAccount": "personlig konto",
+    "switchAccountButton": "Bruk en annen konto"
   }
 }

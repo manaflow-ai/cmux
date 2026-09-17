@@ -48,6 +48,7 @@ mock.module("next-intl/server", () => ({
 }));
 
 mock.module("next/server", () => ({
+  connection: async () => undefined,
   // The usage ledger defers its ClickHouse insert past the response with
   // `after`; the render under test only needs the callback to be accepted.
   after: (task: () => unknown) => {
@@ -138,8 +139,8 @@ mock.module("../services/vms/auth", () => ({
     error instanceof TestSubrouterAuthorizationUnavailableError,
 }));
 
-mock.module("../services/subrouter/routeHelpers", () => ({
-  authorizedSubrouterTeams: async () => authorizedTeams,
+mock.module("../services/coderouter/permissions", () => ({
+  authorizedCoderouterTeams: async () => authorizedTeams,
 }));
 
 mock.module("../services/subrouter/hostedClient", () => ({

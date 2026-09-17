@@ -31,8 +31,8 @@ struct CloudTreeMachineMenuTests {
         #expect(!workspaceGroup.kind.refreshesOnExpansion)
     }
 
-    @Test("Ports warning context menu routes through the shared VPN setup action")
-    func portsWarningContextMenuOpensSetup() throws {
+    @Test("Ports menu contains refresh without a VPN setup action")
+    func portsMenuHasOnlyRefresh() throws {
         let recorder = CloudTreeMenuVerbRecorder()
         let coordinator = CloudTreeOutlineView.Coordinator(
             machineActions: Self.machineActions(recording: recorder),
@@ -42,7 +42,6 @@ struct CloudTreeMachineMenuTests {
             ),
             tabDragTransferRegistry: { nil }
         )
-        coordinator.showsCloudVPNWarning = true
         let container = CloudTreeContainerView(coordinator: coordinator)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = container
@@ -53,9 +52,7 @@ struct CloudTreeMachineMenuTests {
         )])
 
         let menu = try #require(coordinator.contextMenu(forRow: 0))
-        try Self.choose(Self.title("cloud.ports.vpnOff.setup", "Set Up Cloud VPN"), in: menu)
-        #expect(recorder.vpnSetupCount == 1)
-        #expect(recorder.vpnSetupWindow === window)
+        #expect(menu.items.filter { !$0.isSeparatorItem }.map(\.title) == [Self.title("cloudTree.menu.refresh", "Refresh")])
     }
 
     @Test("A machine's menu exposes grow-only resource resize and wires its targets")
@@ -88,15 +85,11 @@ struct CloudTreeMachineMenuTests {
             Self.title("cloudTree.menu.refresh", "Refresh"),
             Self.title("machines.menu.rename", "Rename\u{2026}"),
             Self.title("machines.menu.copyIPAddress", "Copy IP Address"),
-            Self.title("machines.menu.privateNetwork", "Private Network Access…"),
             Self.title("machines.menu.status", "Status"),
             Self.title("machines.menu.checkpoint", "Checkpoint"),
             Self.title("machines.menu.fork", "Fork"),
             Self.title("machines.menu.delete", "Delete\u{2026}"),
         ])
-        try Self.choose(Self.title("machines.menu.privateNetwork", "Private Network Access…"), in: menu)
-        #expect(recorder.vpnSetupCount == 1)
-        #expect(recorder.vpnSetupWindow === window)
         let resizeRoot = try #require(menu.items.first { $0.title == Self.title("cloud.operation.kind.resize", "Resize machine") })
         let resizeMenu = try #require(resizeRoot.submenu)
         let diskRoot = try #require(resizeMenu.items.first { $0.title == Self.title("machines.menu.increaseDisk", "Increase Disk") })
@@ -279,7 +272,6 @@ struct CloudTreeMachineMenuTests {
 
     private static func machineActions(recording recorder: CloudTreeMenuVerbRecorder) -> MachineRowActions {
         MachineRowActions(
-            setupVPN: { window in recorder.vpnSetupCount += 1; recorder.vpnSetupWindow = window },
             openShell: { _ in },
             openDesktop: { _ in },
             runCommand: { id, verb in recorder.commands.append((id: id, verb: verb)) },
@@ -321,8 +313,6 @@ struct CloudTreeMachineMenuTests {
 /// wired to its closure and not merely titled.
 @MainActor
 private final class CloudTreeMenuVerbRecorder {
-    var vpnSetupCount = 0
-    weak var vpnSetupWindow: NSWindow?
     var newTerminals: [SurfaceMachineID] = []
     var commands: [(id: String, verb: [String])] = []
     var deletions: [String] = []

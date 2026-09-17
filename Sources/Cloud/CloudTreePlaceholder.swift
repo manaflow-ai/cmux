@@ -10,14 +10,9 @@ struct CloudTreePlaceholder: Equatable {
     let style: Style
     /// Only wake placeholders set this. Empty resource categories remain inert.
     let opensMachine: Bool
-    /// A successful empty discovery can offer optional private-network setup.
-    let isEmptyPorts: Bool
-
-    init(text: String, style: Style, opensMachine: Bool = false, isEmptyPorts: Bool = false) {
+    init(text: String, style: Style, opensMachine: Bool = false) {
         self.text = text
         self.style = style
         self.opensMachine = opensMachine
-        self.isEmptyPorts = isEmptyPorts
     }
 }
-

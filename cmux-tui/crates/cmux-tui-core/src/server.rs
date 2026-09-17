@@ -81,6 +81,8 @@ use crate::{
 };
 
 pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
+#[path = "server/image_paste.rs"]
+mod image_paste;
 /// Maximum JSON payload accepted on the Unix JSON-lines control socket.
 const MAX_JSON_LINE_BYTES: usize = crate::REMOTE_CLIENT_MESSAGE_MAX_BYTES;
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
@@ -221,6 +223,8 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
     }
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+    capabilities.push(crate::image_paste::CAPABILITY);
     capabilities
 }
 
@@ -678,6 +682,17 @@ struct BrowserProviderTargetRequest {
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
     Identify,
+    PasteImage {
+        surface: SurfaceId,
+        terminal_id: String,
+        lease: String,
+        upload_id: String,
+        op: String,
+        mime: Option<String>,
+        size: Option<usize>,
+        offset: Option<usize>,
+        data: Option<String>,
+    },
     /// Report where this daemon spends its time: registry lock contention
     /// with holder sites, journal writer batch metrics, and connection
     /// admission. Owner-only diagnostics, never journaled.
@@ -1364,6 +1379,7 @@ enum Command {
 impl Command {
     fn ordering_surface(&self) -> Option<SurfaceId> {
         match self {
+            Self::PasteImage { surface, .. } => Some(*surface),
             Self::SetClientSizing { surface, .. }
             | Self::Send { surface, .. }
             | Self::ReadScreen { surface }
@@ -5529,6 +5545,8 @@ fn disconnect_client_with_notice(
     // published them. Release before announcing detachment so waiters can
     // never observe a stale target after the owning client is gone.
     mux.unregister_browser_provider(client);
+    #[cfg(unix)]
+    mux.image_pastes.disconnect(client);
     if let Some(owner @ BrowserPointerOwner::Client(_)) = record.browser_pointer_owner {
         // Pointer commands do not require a frame-stream attachment, so any
         // browser worker may own this negotiated client. Disconnects are rare;
@@ -11237,6 +11255,28 @@ fn handle_command_with_cancellation(
     cancellation: Option<&AtomicBool>,
 ) -> anyhow::Result<Value> {
     match cmd {
+        Command::PasteImage {
+            surface,
+            terminal_id,
+            lease,
+            upload_id,
+            op,
+            mime,
+            size,
+            offset,
+            data,
+        } => image_paste::ImagePasteRequest {
+            surface,
+            terminal_id,
+            lease,
+            upload_id,
+            op,
+            mime,
+            size,
+            offset,
+            data,
+        }
+        .handle(mux, client),
         Command::ServerStats => {
             if !mux.control_clients.is_unix(client) {
                 anyhow::bail!("server stats requires a trusted local connection");
@@ -13352,6 +13392,10 @@ fn attach_overflow_json(surface: SurfaceId) -> Value {
 pub fn cleanup(path: &Path) {
     let _ = std::fs::remove_file(path);
 }
+
+#[cfg(all(test, unix))]
+#[path = "server/image_paste_tests.rs"]
+mod image_paste_tests;
 
 #[cfg(test)]
 mod tests {
