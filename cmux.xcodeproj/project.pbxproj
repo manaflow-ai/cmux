@@ -1398,6 +1398,8 @@
 		7A0CE1000000000000000049 /* cmuxTunnel.systemextension in Embed System Extensions */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000026 /* cmuxTunnel.systemextension */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		CDFEED0300000000CDFEED03 /* CmuxUpdater in Frameworks */ = {isa = PBXBuildFile; productRef = CDFEED0200000000CDFEED02 /* CmuxUpdater */; };
 		CDFEED0600000000CDFEED06 /* CmuxUpdaterUI in Frameworks */ = {isa = PBXBuildFile; productRef = CDFEED0500000000CDFEED05 /* CmuxUpdaterUI */; };
+		A1B2C3D4E5F60718A1B2C3D6 /* CmuxV3Transport in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F60718A1B2C3D5 /* CmuxV3Transport */; };
+		A1B2C3D4E5F60718A1B2C3D7 /* CmuxV3Transport in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F60718A1B2C3D5 /* CmuxV3Transport */; };
 		9520A0029520A0029520A002 /* CmuxVaultAgentRegistration+Hermes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9520B0029520B0029520B002 /* CmuxVaultAgentRegistration+Hermes.swift */; };
 		858200000000000000000006 /* CmuxVaultAgentRegistration+RegisteredResumeKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = 858200000000000000000005 /* CmuxVaultAgentRegistration+RegisteredResumeKind.swift */; };
 		9520A0059520A0059520A005 /* CmuxVaultAgentRegistry+ProcessMatching.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9520B0059520B0059520B005 /* CmuxVaultAgentRegistry+ProcessMatching.swift */; };
@@ -7727,6 +7729,7 @@
 				CFF12E0000000000000000A3 /* CmuxTestSupport in Frameworks */,
 				CDFEED0300000000CDFEED03 /* CmuxUpdater in Frameworks */,
 				CDFEED0600000000CDFEED06 /* CmuxUpdaterUI in Frameworks */,
+				A1B2C3D4E5F60718A1B2C3D6 /* CmuxV3Transport in Frameworks */,
 				5E55200000000000000000B3 /* CmuxWindowing in Frameworks */,
 				E3B7A3000000000000000103 /* CmuxWorkspaces in Frameworks */,
 				A5001006 /* GhosttyKit.xcframework in Frameworks */,
@@ -7807,6 +7810,7 @@
 				D96970000000000000000003 /* CmuxSudoBroker in Frameworks */,
 				D96970000000000000000005 /* CmuxSudoBrokerUI in Frameworks */,
 				C01E00AA00000000000000A4 /* CmuxSyntaxHighlighting in Frameworks */,
+				A1B2C3D4E5F60718A1B2C3D7 /* CmuxV3Transport in Frameworks */,
 				730600040000000000000001 /* CmuxWindowing in Frameworks */,
 				1A0B0C0D0E0F101112132214 /* IrohLib in Frameworks */,
 				5E2701040000000000000003 /* Sentry in Frameworks */,
@@ -11776,6 +11780,7 @@
 				EFB18E3B3099DFE2ECA57571 /* CmuxSimulatorStreamKit */,
 				1A0B0C0D0E0F101112132002 /* CmuxMobileTransport */,
 				D0F3A0000000000000000002 /* CmuxCloudImagePaste */,
+				A1B2C3D4E5F60718A1B2C3D5 /* CmuxV3Transport */,
 			);
 			productName = cmux;
 			productReference = A5001000 /* cmux.app */;
@@ -11876,6 +11881,7 @@
 				C1A072000000000000000002 /* CmuxMobileRPC */,
 				EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */,
 				1A0B0C0D0E0F101112132002 /* CmuxMobileTransport */,
+				A1B2C3D4E5F60718A1B2C3D5 /* CmuxV3Transport */,
 				CA52A005CA52A005CA52A005 /* CmuxCanvas */,
 				5E2701040000000000000001 /* Sentry */,
 				5E2701040000000000000002 /* CmuxFoundation */,
@@ -12026,6 +12032,7 @@
 				1A0B0C0D0E0F101112132211 /* XCRemoteSwiftPackageReference "iroh-ffi" */,
 				C1A072000000000000000001 /* XCLocalSwiftPackageReference "CmuxMobileRPC" */,
 				1A0B0C0D0E0F101112132001 /* XCLocalSwiftPackageReference "CmuxMobileTransport" */,
+				A1B2C3D4E5F60718A1B2C3D4 /* XCLocalSwiftPackageReference "CmuxV3Transport" */,
 				D0F3A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudImagePaste" */,
 			);
 			productRefGroup = A5001042 /* Products */;
@@ -16535,6 +16542,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/iOS/CmuxMobileTransport;
 		};
+		A1B2C3D4E5F60718A1B2C3D4 /* XCLocalSwiftPackageReference "CmuxV3Transport" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/Shared/CmuxV3Transport;
+		};
 		C1A072000000000000000001 /* XCLocalSwiftPackageReference "CmuxMobileRPC" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/iOS/CmuxMobileRPC;
@@ -17154,6 +17165,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 1A0B0C0D0E0F101112132001 /* XCLocalSwiftPackageReference "CmuxMobileTransport" */;
 			productName = CmuxMobileTransport;
+		};
+		A1B2C3D4E5F60718A1B2C3D5 /* CmuxV3Transport */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A1B2C3D4E5F60718A1B2C3D4 /* XCLocalSwiftPackageReference "CmuxV3Transport" */;
+			productName = CmuxV3Transport;
 		};
 		C1A072000000000000000002 /* CmuxMobileRPC */ = {
 			isa = XCSwiftPackageProductDependency;
