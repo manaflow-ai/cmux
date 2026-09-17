@@ -10,7 +10,7 @@ CLIENT="$TEST_DIR/client"
 cat > "$CLIENT" <<'SH'
 #!/bin/sh
 [ "$1" = remote-probe ] && [ "$2" = --json ] || exit 64
-printf '%s\n' '{"app":"cmux-tui","capabilities":["wireguard-hub","test-capability"]}'
+printf '%s\n' '{"app":"cmux-tui","capabilities":["wireguard-hub","exit-with-parent","test-capability"]}'
 SH
 chmod +x "$CLIENT"
 
@@ -23,9 +23,9 @@ install_client() {
 
 install_client
 cmp "$CLIENT" "$APP/Contents/Resources/bin/cmux-tui"
-install_client --require-capability wireguard-hub
-install_client --require-capability wireguard-hub --require-capability test-capability
-if install_client --require-capability wireguard-hub --require-capability missing > "$TEST_DIR/missing.log" 2>&1; then
+install_client --require-capability wireguard-hub --require-capability exit-with-parent
+install_client --require-capability wireguard-hub --require-capability exit-with-parent --require-capability test-capability
+if install_client --require-capability wireguard-hub --require-capability exit-with-parent --require-capability missing > "$TEST_DIR/missing.log" 2>&1; then
   echo "FAIL: installed a client missing a required capability" >&2
   exit 1
 fi
