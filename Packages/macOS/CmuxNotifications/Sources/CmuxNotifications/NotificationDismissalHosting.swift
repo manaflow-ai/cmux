@@ -82,11 +82,20 @@ public protocol NotificationDismissalHosting: AnyObject {
     /// Whether a visible notification indicator exists for the workspace
     /// (or surface).
     func storeHasVisibleNotificationIndicator(workspaceId: UUID, surfaceId: UUID?) -> Bool
+    /// Whether the workspace's current sidebar preview is a read notification
+    /// that can be retired by a new activity boundary. This is intentionally
+    /// separate from ``storeHasDismissibleState`` because read notifications
+    /// remain in the active store for the sidebar until activity retires them.
+    func storeHasSidebarNotificationPreview(workspaceId: UUID) -> Bool
 
     // MARK: Mutations
 
     /// Marks the workspace's (or surface's) notifications read.
     func storeMarkRead(workspaceId: UUID, surfaceId: UUID?)
+    /// Retires active sidebar notification previews for a workspace while
+    /// leaving the chronological notification feed intact.
+    @discardableResult
+    func storeClearSidebarNotificationPreviews(workspaceId: UUID) -> Bool
     /// Clears the workspace-level manual unread indicator; returns whether
     /// anything was cleared.
     @discardableResult
