@@ -22641,15 +22641,18 @@ mod tests {
             AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, AgentRoster,
         };
 
-        let registry = WorkspaceRegistry::in_memory("roster-ahead-legacy").unwrap();
+        let root = std::env::temp_dir()
+            .join(format!("cmux-roster-ahead-legacy-{}", crate::workspace_registry::new_uuid_v4()));
+        let registry = WorkspaceRegistry::open(&root, "roster-ahead-legacy").unwrap();
+        let connection =
+            rusqlite::Connection::open(registry.session_journal_database_path().unwrap()).unwrap();
         let snapshot = AgentRoster::default().snapshot().to_string();
         let metadata = serde_json::json!({
             "version": AGENT_ROSTER_REDUCER_VERSION,
             "cursor": 42,
             "snapshot": snapshot,
         });
-        registry
-            .connection_for_test()
+        connection
             .execute(
                 "INSERT INTO meta(key, value) VALUES(?1, ?2)
                  ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -22663,15 +22666,21 @@ mod tests {
         let host = restore_agent_roster(&registry, &[]).unwrap();
         assert_eq!(host.cursor, 0, "legacy numeric ahead cursors must be repaired");
         assert!(host.roster.entries.is_empty());
+        drop(connection);
+        drop(registry);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn malformed_agent_roster_cursor_metadata_rebuilds_as_missing_state() {
         use crate::journal_reducers::AGENT_ROSTER_REDUCER_ID;
 
-        let registry = WorkspaceRegistry::in_memory("roster-malformed-cursor").unwrap();
-        registry
-            .connection_for_test()
+        let root = std::env::temp_dir()
+            .join(format!("cmux-roster-malformed-cursor-{}", crate::workspace_registry::new_uuid_v4()));
+        let registry = WorkspaceRegistry::open(&root, "roster-malformed-cursor").unwrap();
+        let connection =
+            rusqlite::Connection::open(registry.session_journal_database_path().unwrap()).unwrap();
+        connection
             .execute(
                 "INSERT INTO meta(key, value) VALUES(?1, ?2)
                  ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -22685,6 +22694,9 @@ mod tests {
         let host = restore_agent_roster(&registry, &[]).unwrap();
         assert_eq!(host.cursor, 0);
         assert!(host.roster.entries.is_empty());
+        drop(connection);
+        drop(registry);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -22693,7 +22705,11 @@ mod tests {
             AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, AgentRoster,
         };
 
-        let registry = WorkspaceRegistry::in_memory("roster-gap").unwrap();
+        let root = std::env::temp_dir()
+            .join(format!("cmux-roster-gap-{}", crate::workspace_registry::new_uuid_v4()));
+        let registry = WorkspaceRegistry::open(&root, "roster-gap").unwrap();
+        let connection =
+            rusqlite::Connection::open(registry.session_journal_database_path().unwrap()).unwrap();
         let snapshot = AgentRoster::default().snapshot().to_string();
         registry
             .put_journal_reducer_state(
@@ -22703,8 +22719,7 @@ mod tests {
                 &snapshot,
             )
             .unwrap();
-        registry
-            .connection_for_test()
+        connection
             .execute(
                 "INSERT INTO journal_segments(
                    segment_id, start_sequence, end_sequence, record_count, codec, content,
@@ -22719,6 +22734,9 @@ mod tests {
         let (_, cursor, _) =
             registry.journal_reducer_state(AGENT_ROSTER_REDUCER_ID).unwrap().unwrap();
         assert_eq!(cursor, 0, "failed recovery must leave the durable snapshot untouched");
+        drop(connection);
+        drop(registry);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
