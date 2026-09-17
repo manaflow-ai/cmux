@@ -5,6 +5,18 @@ import os
 
 nonisolated private let logger = Logger(subsystem: "com.cmuxterm.app.tunnel", category: "PacketTunnelProvider")
 
+private final class CloudTunnelProviderCompletionBox: @unchecked Sendable {
+    private let completion: (Error?) -> Void
+
+    init(_ completion: @escaping (Error?) -> Void) {
+        self.completion = completion
+    }
+
+    func call(_ error: CloudTunnelProviderError?) {
+        completion(error)
+    }
+}
+
 /// The cmux Cloud tunnel: one WireGuard interface into the user's private Cloud
 /// VM network, run as a macOS network system extension.
 ///
@@ -37,32 +49,42 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         }
     }
 
+    /// Admits one NetworkExtension start and coalesces callbacks replayed by macOS.
     override func startTunnel(options: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
         logger.info("startTunnel requested by \(options == nil ? "the system" : "the cmux app", privacy: .public)")
-        let request = startGate.request(completion: completionHandler)
-        switch request {
-        case .begin(let generation):
-            logger.info("startTunnel beginning generation \(generation, privacy: .public)")
-        case .coalesced(let generation, let waiterCount):
-            logger.info("startTunnel coalesced generation \(generation, privacy: .public), callbacks \(waiterCount, privacy: .public)")
-            return
-        case .alreadyStarted(let generation):
-            logger.info("startTunnel replay accepted for running generation \(generation, privacy: .public)")
-            completionHandler(nil)
-            return
+        let completionBox = CloudTunnelProviderCompletionBox(completionHandler)
+        Task { [weak self, completionBox] in
+            guard let self else { return }
+            let request = await startGate.request { error in
+                completionBox.call(error)
+            }
+            switch request {
+            case .begin(let generation):
+                logger.info("startTunnel beginning generation \(generation, privacy: .public)")
+                self.startTunnel()
+            case .coalesced(let generation, let waiterCount):
+                logger.info("startTunnel coalesced generation \(generation, privacy: .public), callbacks \(waiterCount, privacy: .public)")
+            case .alreadyStarted(let generation):
+                logger.info("startTunnel replay accepted for running generation \(generation, privacy: .public)")
+                completionBox.call(nil)
+            }
         }
+    }
+
+    /// Starts WireGuard for the generation admitted by ``startGate``.
+    private func startTunnel() {
         guard let providerProtocol = protocolConfiguration as? NETunnelProviderProtocol,
               let providerConfiguration = providerProtocol.providerConfiguration,
               let wgQuickConfig = providerConfiguration[CloudTunnelProviderConfigurationKeys.wgQuickConfig] as? String,
               !wgQuickConfig.isEmpty else {
             logger.error("startTunnel: the saved VPN configuration carries no wg-quick config")
-            finishStart(error: CloudTunnelProviderError.missingConfiguration)
+            finishStart(error: .missingConfiguration)
             return
         }
         let schemaVersion = providerConfiguration[CloudTunnelProviderConfigurationKeys.schemaVersion] as? Int
         guard schemaVersion == CloudTunnelProviderConfigurationKeys.currentSchemaVersion else {
             logger.error("startTunnel: unsupported provider configuration schema \(schemaVersion.map(String.init) ?? "nil", privacy: .public)")
-            finishStart(error: CloudTunnelProviderError.unsupportedSchema)
+            finishStart(error: .unsupportedSchema)
             return
         }
 
@@ -73,7 +95,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             // Parse errors carry the offending value; the private key is one of
             // them, so log only which rule failed.
             logger.error("startTunnel: wg-quick config rejected (\(Self.caseName(of: error), privacy: .public))")
-            finishStart(error: CloudTunnelProviderError.invalidConfiguration)
+            finishStart(error: .invalidConfiguration)
             return
         }
 
@@ -87,35 +109,39 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             switch adapterError {
             case .cannotLocateTunnelFileDescriptor:
                 logger.error("startTunnel failed: no utun file descriptor")
-                self.finishStart(error: CloudTunnelProviderError.couldNotDetermineFileDescriptor)
+                self.finishStart(error: .couldNotDetermineFileDescriptor)
             case .dnsResolution(let failures):
                 // Endpoint hostnames only; never addresses inside the network.
                 let hosts = failures.map(\.address).joined(separator: ", ")
                 logger.error("startTunnel failed: endpoint DNS resolution failed for \(hosts, privacy: .public)")
-                self.finishStart(error: CloudTunnelProviderError.dnsResolutionFailure)
+                self.finishStart(error: .dnsResolutionFailure)
             case .setNetworkSettings(let error):
                 logger.error("startTunnel failed: setTunnelNetworkSettings: \(error.localizedDescription, privacy: .public)")
-                self.finishStart(error: CloudTunnelProviderError.couldNotSetNetworkSettings)
+                self.finishStart(error: .couldNotSetNetworkSettings)
             case .startWireGuardBackend(let code):
                 logger.error("startTunnel failed: wgTurnOn returned \(code, privacy: .public)")
-                self.finishStart(error: CloudTunnelProviderError.couldNotStartBackend)
+                self.finishStart(error: .couldNotStartBackend)
             case .invalidState:
                 // A duplicate request is coalesced by startGate before it gets here.
                 // Preserve this as a real adapter failure if the adapter reports it
                 // for the generation that owns the start.
                 logger.error("startTunnel failed: adapter rejected generation as invalid state")
-                self.finishStart(error: CloudTunnelProviderError.invalidState)
+                self.finishStart(error: .invalidState)
             }
         }
     }
 
-    private func finishStart(error: Error?) {
-        guard let result = startGate.finish(error: error) else {
-            logger.error("startTunnel completion arrived for an inactive generation")
-            return
+    /// Completes every callback parked behind the current start generation.
+    private func finishStart(error: CloudTunnelProviderError?) {
+        Task { [weak self] in
+            guard let self else { return }
+            guard let result = await startGate.finish(error: error) else {
+                logger.error("startTunnel completion arrived for an inactive generation")
+                return
+            }
+            logger.info("startTunnel finished generation \(result.generation, privacy: .public), success \(result.succeeded, privacy: .public), callbacks \(result.callbackCount, privacy: .public)")
+            result.completions.forEach { $0(error) }
         }
-        logger.info("startTunnel finished generation \(result.generation, privacy: .public), success \(result.succeeded, privacy: .public), callbacks \(result.callbackCount, privacy: .public)")
-        result.completions.forEach { $0(error) }
     }
 
     override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
@@ -155,18 +181,4 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         }
         return String(describing: error)
     }
-}
-
-/// Failures the provider reports to the system (and through it to the app's
-/// `NEVPNStatus` observers). Each maps one adapter failure; the log carries
-/// the detail.
-enum CloudTunnelProviderError: Error {
-    case missingConfiguration
-    case unsupportedSchema
-    case invalidConfiguration
-    case couldNotDetermineFileDescriptor
-    case dnsResolutionFailure
-    case couldNotSetNetworkSettings
-    case couldNotStartBackend
-    case invalidState
 }

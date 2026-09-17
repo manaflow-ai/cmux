@@ -968,8 +968,8 @@
 		7A0CE1000000000000000047 /* CloudTunnelProviderConfigurationKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000013 /* CloudTunnelProviderConfigurationKeys.swift */; };
 		7A0CE1000000000000000314 /* CloudTunnelProviderMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000313 /* CloudTunnelProviderMessage.swift */; };
 		7A0CE1000000000000000315 /* CloudTunnelProviderMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000313 /* CloudTunnelProviderMessage.swift */; };
-		7A0CE1000000000000000805 /* CloudTunnelProviderStartGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000804 /* CloudTunnelProviderStartGate.swift */; };
 		7A0CE1000000000000000806 /* CloudTunnelProviderStartGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000804 /* CloudTunnelProviderStartGate.swift */; };
+		7A0CE1000000000000000807 /* CloudTunnelProviderStartGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000804 /* CloudTunnelProviderStartGate.swift */; };
 		7A0CE1000000000000000803 /* CloudTunnelProviderStartGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000802 /* CloudTunnelProviderStartGateTests.swift */; };
 		7A0CE1000000000000000704 /* CloudTunnelRuntimeConfigurationRedactor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000703 /* CloudTunnelRuntimeConfigurationRedactor.swift */; };
 		7A0CE1000000000000000705 /* CloudTunnelRuntimeConfigurationRedactor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000703 /* CloudTunnelRuntimeConfigurationRedactor.swift */; };
@@ -11652,7 +11652,6 @@
 				7A0CE1000000000000000011 /* CloudTunnelInertController.swift */,
 				7A0CE1000000000000000012 /* CloudTunnelLinkStatus.swift */,
 				7A0CE1000000000000000013 /* CloudTunnelProviderConfigurationKeys.swift */,
-				7A0CE1000000000000000804 /* CloudTunnelProviderStartGate.swift */,
 				7A0CE1000000000000000014 /* CloudTunnelState.swift */,
 				7A0CE1000000000000000703 /* CloudTunnelRuntimeConfigurationRedactor.swift */,
 				7A0CE1000000000000000701 /* CloudTunnelCoordinator+Deadline.swift */,
@@ -11684,6 +11683,7 @@
 			isa = PBXGroup;
 			children = (
 				7A0CE1000000000000000020 /* PacketTunnelProvider.swift */,
+				7A0CE1000000000000000804 /* CloudTunnelProviderStartGate.swift */,
 				7A0CE1000000000000000201 /* main.swift */,
 				7A0CE1000000000000000021 /* Info.plist */,
 				7A0CE1000000000000000022 /* InfoPlist.xcstrings */,
@@ -12892,7 +12892,6 @@
 				7A0CE1000000000000000310 /* CloudTunnelProviderConfiguration.swift in Sources */,
 				7A0CE1000000000000000039 /* CloudTunnelProviderConfigurationKeys.swift in Sources */,
 				7A0CE1000000000000000314 /* CloudTunnelProviderMessage.swift in Sources */,
-				7A0CE1000000000000000805 /* CloudTunnelProviderStartGate.swift in Sources */,
 				7A0CE1000000000000000704 /* CloudTunnelRuntimeConfigurationRedactor.swift in Sources */,
 				07A2A4BA1E16AA3CF2F53FD4 /* CloudTunnelStartRefusal.swift in Sources */,
 				7A0CE1000000000000000040 /* CloudTunnelState.swift in Sources */,
@@ -15327,6 +15326,7 @@
 				7A0CE1000000000000000602 /* CloudTunnelBroadcastTests.swift in Sources */,
 				7A0CE1000000000000000104 /* CloudTunnelCoordinatorTests.swift in Sources */,
 				5C33764324981C59B407B84B /* CloudTunnelLaunchGateTests.swift in Sources */,
+				7A0CE1000000000000000807 /* CloudTunnelProviderStartGate.swift in Sources */,
 				7A0CE1000000000000000803 /* CloudTunnelProviderStartGateTests.swift in Sources */,
 				7A0CE1000000000000000707 /* CloudTunnelRuntimeConfigurationRedactorTests.swift in Sources */,
 				7A0CE100000000000000072E /* CloudTunnelStatusBlockerTests.swift in Sources */,
