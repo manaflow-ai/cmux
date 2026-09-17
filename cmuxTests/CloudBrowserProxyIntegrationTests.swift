@@ -15,6 +15,51 @@ import WebKit
 @MainActor
 @Suite("Cloud browser CONNECT integration", .serialized, .timeLimit(.minutes(2)))
 struct CloudBrowserProxyIntegrationTests {
+    @Test("a cold Cloud page has a loading host and proxy before its first request")
+    func coldCloudNavigationKeepsItsLoadingHost() async throws {
+        let server = try CloudBrowserProxyTestServer(address: "10.16.0.10", marker: "cold")
+        try await server.start()
+        defer { server.stop() }
+        let panel = BrowserPanel(
+            workspaceId: UUID(), initialURL: URL(string: "about:blank"),
+            preloadInitialNavigationInBackground: true, websiteDataStore: .nonPersistent()
+        )
+        defer { panel.close() }
+        let readiness = CloudLinkFirstValue<CloudBrowserProxyEndpoint>()
+        let model = CloudPortAccessModel(
+            target: .init(host: server.address, port: 8000), coordinator: nil,
+            wake: {}, startForward: { _ in Issue.record("Unexpected forward"); return 1 },
+            stopForward: {}, startBrowserProxy: {
+                try #require(await readiness.result)
+            }
+        )
+        let remote = try #require(URL(string: "http://\(server.address):8000/page?source=cold#retained"))
+        panel.cloudAccess.configure(model: model, url: remote)
+        panel.prepareCloudBrowserStore(machineID: server.marker)
+        panel.showCloudAddress(remote)
+        model.connect()
+        #expect(panel.cloudAccess.nextURL() == nil)
+        #expect(server.requests.isEmpty)
+        readiness.resolve(server.endpoint)
+        let readyDeadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while !model.isReady && ContinuousClock.now < readyDeadline { await Task.yield() }
+        let destination = try #require(panel.cloudAccess.nextURL())
+        _ = panel.navigate(to: destination)
+
+        // The native card intentionally withholds the visible browser until
+        // completion. The replacement WebView must still have a loading host.
+        #expect(panel.webView.window != nil, "Cloud loading must not orphan the replacement WebView")
+        #expect(panel.webView.configuration.websiteDataStore.proxyConfigurations.count == 1)
+        let loadedDeadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while !panel.cloudAccess.showsPage && ContinuousClock.now < loadedDeadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(panel.cloudAccess.showsPage, "The initial navigation must complete without Reload")
+        #expect(panel.webView.url == remote)
+        #expect(try await panel.webView.evaluateJavaScript("document.body.dataset.machine") as? String == "cold")
+        await model.retire()
+    }
+
     @Test("two VM origins use the same port without sharing routing or changing document identity")
     func twoMachinesKeepTheirPrivateOrigins() async throws {
         let first = try CloudBrowserProxyTestServer(address: "10.16.0.7", marker: "vm-a")
