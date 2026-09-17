@@ -10,11 +10,11 @@ import Testing
 struct CloudPrivateRouteSelectionTests {
     @Test("Known device identities open one browser carrier without a redundant sidebar link")
     func browserProxyOnlyNeedsPreparationForFirstUse() {
-        #expect(CloudMachineLinkManager.browserProxyNeedsLinkPreparation(deviceFingerprint: nil))
-        #expect(!CloudMachineLinkManager.browserProxyNeedsLinkPreparation(
+        #expect(CloudMachineLinkManager.browserProxyNeedsTrustedListenerPreparation(deviceFingerprint: nil))
+        #expect(!CloudMachineLinkManager.browserProxyNeedsTrustedListenerPreparation(
             deviceFingerprint: CloudTuiClientPaths.carrierDeviceMarker
         ))
-        #expect(!CloudMachineLinkManager.browserProxyNeedsLinkPreparation(deviceFingerprint: "stored-device"))
+        #expect(!CloudMachineLinkManager.browserProxyNeedsTrustedListenerPreparation(deviceFingerprint: "stored-device"))
     }
 
     private func manager() -> CloudMachineLinkManager {

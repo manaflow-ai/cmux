@@ -299,10 +299,8 @@ actor CloudMachineLinkManager {
     }
 
     /// A browser carrier can present the machine's stored device identity directly.
-    /// Only a first-time machine needs the persistent sidebar link to perform the
-    /// one-time trusted-listener preparation. Keeping that link alive for every
-    /// browser-only open would create a second long-lived carrier per VM.
-    nonisolated static func browserProxyNeedsLinkPreparation(deviceFingerprint: String?) -> Bool {
+    /// Only a first-time machine needs the one-time trusted-listener preparation.
+    nonisolated static func browserProxyNeedsTrustedListenerPreparation(deviceFingerprint: String?) -> Bool {
         deviceFingerprint == nil
     }
 
@@ -330,12 +328,30 @@ actor CloudMachineLinkManager {
         browserProxies[machineID] = proxy
         let task = Task<CloudBrowserProxyEndpoint, Error> {
             let knownFingerprint = self.paths.deviceFingerprint(for: machineID)
-            if Self.browserProxyNeedsLinkPreparation(deviceFingerprint: knownFingerprint) {
-                // A first-time machine needs the control-plane preparation and
-                // trusted-listener proof once. Known device identities can be
-                // presented by the browser carrier directly, so do not retain a
-                // redundant headless sidebar carrier just to open a page.
-                _ = try await self.connected(machineID: machineID)
+            let carrier: Bool
+            if Self.browserProxyNeedsTrustedListenerPreparation(deviceFingerprint: knownFingerprint) {
+                // Prepare the trusted listener through the control plane without
+                // starting a second persistent sidebar carrier. The browser
+                // carrier below is the only long-lived machine connection.
+                let client = await MainActor.run { VMClient.shared }
+                guard let client else {
+                    throw VMClientError.malformedResponse("Cloud VM client is not available (not signed in).")
+                }
+                let endpoint = try await client.openCmuxRemote(
+                    id: machineID,
+                    deviceFingerprint: nil,
+                    clientCapabilities: Self.clientCapabilities(clientURL: clientURL)
+                )
+                guard endpoint.trustedCarrier else {
+                    throw ManagerError.retryLater(String(
+                        localized: "cloud.link.trustedListenerPending",
+                        defaultValue: "The Cloud machine is still preparing remote access. Try again shortly."
+                    ))
+                }
+                paths.saveDeviceFingerprint(CloudTuiClientPaths.carrierDeviceMarker, for: machineID)
+                carrier = true
+            } else {
+                carrier = knownFingerprint == CloudTuiClientPaths.carrierDeviceMarker
             }
             try Task.checkCancellation()
             let claim = try await hub.acquire()
@@ -350,7 +366,7 @@ actor CloudMachineLinkManager {
             let arguments = CloudTuiCommandLine.browserProxyArguments(
                 route: route, addresses: addresses, stateDir: self.paths.stateDir.path,
                 wireGuardHubSocket: claim.ready.socketPath,
-                carrier: knownFingerprint == CloudTuiClientPaths.carrierDeviceMarker
+                carrier: carrier
             )
             return try await proxy.start(client: clientURL, arguments: arguments) { await hub.release(claim.lease) }
         }
