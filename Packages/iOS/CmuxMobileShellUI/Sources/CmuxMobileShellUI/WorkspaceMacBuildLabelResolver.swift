@@ -1,6 +1,6 @@
 import CmuxMobilePairedMac
-import CmuxMobileRPC
 import CmuxMobileShell
+import CmuxMobileShellModel
 
 /// Resolves workspace-provided labels before the paired-Mac cache loads.
 struct WorkspaceMacBuildLabelResolver {
