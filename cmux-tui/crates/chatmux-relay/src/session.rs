@@ -1574,7 +1574,6 @@ mod cancellation_tests {
     }
 }
 
-
 #[cfg(all(test, unix))]
 mod tunnel_authority_tests {
     use super::{SessionRuntime, TunnelAuth, reconcile_tunnel_authority};
