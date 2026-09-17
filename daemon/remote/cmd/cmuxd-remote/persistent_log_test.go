@@ -18,7 +18,7 @@ import (
 func TestPersistentDaemonLogsConnectionAndPTYLifecycle(t *testing.T) {
 	const firstAttachmentToken = "secret-token-must-not-be-logged"
 	const secondAttachmentToken = "second-secret-token-must-not-be-logged"
-	const firstCommand = "sleep 60"
+	const firstCommand = "exec cat # command-must-not-be-logged"
 	const secondCommand = "exit 0"
 	const terminalInput = "terminal-input-must-not-be-logged"
 	const requestID = "request-id-must-not-be-logged"

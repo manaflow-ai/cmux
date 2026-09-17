@@ -20,7 +20,7 @@ final class MarkdownFindWebViewEvaluator: BrowserFindScriptEvaluating {
     }
 
     func evaluate(_ script: BrowserFindScript) async throws -> Any? {
-        guard let webView = panel?.rendererSession.findScriptWebView else { return nil }
+        guard let webView = panel?.rendererSession.webView else { return nil }
         return try await webView.evaluateJavaScript(script.source)
     }
 }

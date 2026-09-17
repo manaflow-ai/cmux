@@ -1,0 +1,31 @@
+name: CI status fallback
+
+on:
+  # CI is intentionally path-filtered below. Branch protection still requires
+  # the aggregate `ci-status` context for every pull request, so this small
+  # companion reports a neutral success when the routed CI workflow is skipped.
+  # Keep this list in sync with .github/workflows/ci.yml's pull_request.paths.
+  pull_request:
+    paths-ignore:
+      - ghostty
+      - scripts/download-prebuilt-ghosttykit.sh
+      - scripts/validate-xcframework-archive.py
+      - scripts/ghosttykit-checksums.txt
+      - tests/test_ci_ghosttykit_release_check.sh
+      - tests/test_ci_change_areas.py
+      - .github/workflows/ci.yml
+    types: [opened, edited, reopened, synchronize, ready_for_review]
+  workflow_dispatch: {}
+
+permissions: {}
+
+jobs:
+  ci-status:
+    name: ci-status
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - name: Report filtered CI as successful
+        run: |
+          echo "CI workflow was skipped because no routed CI trigger path changed."
+          echo "No CI area was selected for this pull request; ci-status is satisfied."

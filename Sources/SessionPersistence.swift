@@ -26,7 +26,11 @@ enum SessionPersistencePolicy {
     static let sidebarMinimumWidthRange: ClosedRange<Double> = 120...260
     static let maximumSidebarWidth: Double = 600
     static let minimumWindowWidth: Double = 300
-    static let minimumWindowHeight: Double = 200
+    // Below ~400pt the chrome cannot lay out without overlap: the sidebar
+    // footer (account/help/update pill) collides with workspace rows and the
+    // update pill clips at the window edge. User resizes stop here via
+    // minSize/contentMinSize; programmatic paths via CmuxMainWindow.setFrame.
+    static let minimumWindowHeight: Double = 400
     static let autosaveInterval: TimeInterval = 8.0
     static let maxWindowsPerSnapshot: Int = 12
     static let maxWorkspacesPerWindow: Int = 128
@@ -1712,6 +1716,10 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var customTitle: String?
     /// Provenance of `customTitle`; absent provenance restores as user-set for compatibility.
     var customTitleSource: Workspace.CustomTitleSource? = nil
+    /// Compatibility marker for builds that do not know the `.remote` enum
+    /// case. Older builds ignore this field and read the encoded source as
+    /// `.user`; newer builds restore the remote provenance from the marker.
+    var customTitleWasRemote: Bool? = nil
     var directory: String?
     var directoryIsTrustedRemoteReport: Bool? = nil
     var directoryRequiresRemoteTrust: Bool? = nil
@@ -1832,6 +1840,9 @@ struct SessionCanvasPaneSnapshot: Codable, Equatable, Sendable {
 struct SessionCloudVMBindingSnapshot: Codable, Sendable, Equatable {
     var vmID: String
     var isBase: Bool
+    /// The machine's cmux-tui workspace this local workspace stands for; absent in
+    /// legacy snapshots and for machine-only bindings (`vm shell`).
+    var remoteWorkspaceID: String? = nil
 }
 
 struct SessionWorkspaceSnapshot: Codable, Sendable {
@@ -1845,11 +1856,19 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var customTitle: String?
     /// Provenance of `customTitle`; absent provenance restores as user-set for compatibility.
     var customTitleSource: Workspace.CustomTitleSource? = nil
+    /// Compatibility marker for builds that do not know the `.remote` enum
+    /// case. Older builds ignore this field and read the encoded source as
+    /// `.user`; newer builds restore the remote provenance from the marker.
+    var customTitleWasRemote: Bool? = nil
     var customDescription: String?
     var customColor: String?
     var customizationDirectory: String? = nil
     var usesWorkspaceDirectoryCustomization: Bool? = nil // `nil` infers a legacy local root.
     var isPinned: Bool
+    /// Whether notification side effects are muted for this workspace. The
+    /// optional form keeps manifests written before per-workspace mute support
+    /// backwards-compatible; missing values restore as `false`.
+    var isMuted: Bool? = nil
     var groupId: UUID? = nil
     var isManuallyUnread: Bool? = nil
     var hasUnreadIndicator: Bool? = nil
@@ -1888,6 +1907,24 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
 }
 extension SessionWorkspaceSnapshot: WorkspaceSessionRemoteRestoreSnapshot {}
 
+extension SessionPanelSnapshot {
+    /// The source after applying the forward-compatible remote marker.
+    var effectiveCustomTitleSource: Workspace.CustomTitleSource? {
+        guard customTitle != nil else { return nil }
+        if customTitleWasRemote == true { return .remote }
+        return customTitleSource ?? .user
+    }
+}
+
+extension SessionWorkspaceSnapshot {
+    /// The source after applying the forward-compatible remote marker.
+    var effectiveCustomTitleSource: Workspace.CustomTitleSource? {
+        guard customTitle != nil else { return nil }
+        if customTitleWasRemote == true { return .remote }
+        return customTitleSource ?? .user
+    }
+}
+
 struct SessionWorkspaceGroupSnapshot: Codable, Sendable, Equatable {
     var id: UUID
     var name: String
@@ -1909,6 +1946,10 @@ struct SessionWorkspaceGroupSnapshot: Codable, Sendable, Equatable {
     var isPinned: Bool? = nil
     var customColor: String? = nil
     var iconSymbol: String? = nil
+    /// Optional caller-owned identity for idempotent group creation.
+    var externalID: String? = nil
+    /// Raw ``WorkspaceGroupAnchorProvenance`` value; absent in older snapshots.
+    var anchorWorkspaceProvenance: String? = nil
 }
 
 extension SessionWorkspaceSnapshot {

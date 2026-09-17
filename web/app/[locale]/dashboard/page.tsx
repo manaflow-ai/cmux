@@ -1,10 +1,13 @@
 import { getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
 import { Link } from "@/i18n/navigation";
-import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
-import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
+import { isStackConfigured } from "@/app/lib/stack";
 import { isVaultEnabled } from "@/services/vault/config";
 
+// The overview lists products only. It carries no private data, so it is
+// part of the static shell; the layout's session guard still redirects a
+// rejected session to sign-in.
+export const instant = true;
 
 export default async function DashboardIndexPage({
   params,
@@ -16,13 +19,15 @@ export default async function DashboardIndexPage({
   if (!isStackConfigured()) {
     redirect("/");
   }
-  const user = await getStackServerApp().getUser({ or: "return-null" });
-  if (!user) {
-    redirect(vaultSignInHref(localizedVaultPath(locale, "/dashboard")));
-  }
 
   const t = await getTranslations({ locale, namespace: "dashboard.home" });
   const products = [
+    {
+      href: "/dashboard/cloud",
+      name: t("cloudName"),
+      description: t("cloudDescription"),
+      link: t("cloudLink"),
+    },
     {
       href: "/dashboard/coderouter",
       name: t("coderouterName"),

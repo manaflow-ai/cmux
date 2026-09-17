@@ -137,9 +137,11 @@ struct AgentHibernationPlannerSwiftTests {
             containsUnrelatedProcess: false,
             panelProcessIDs: [],
             processIDs: [],
-            processIdentities: [:]
+            processIdentities: [:],
+            processLiveness: .unknown
         )
         #expect(record.isStillOwnedByOriginalWorkspace)
+        #expect(record.processLiveness == .unknown)
 
         let detached = try #require(source.detachSurface(panelId: panelId))
         let destination = Workspace()
@@ -147,6 +149,62 @@ struct AgentHibernationPlannerSwiftTests {
         #expect(destination.attachDetachedSurface(detached, inPane: destinationPaneId, focus: false) == panelId)
 
         #expect(record.isStillOwnedByOriginalWorkspace == false)
+    }
+
+    @MainActor
+    @Test
+    func hibernationRecordInitializerPreservesExplicitProcessLiveness() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
+        let record = AgentHibernationRecord(
+            key: AgentHibernationPanelKey(workspaceId: workspace.id, panelId: panelId),
+            workspace: workspace,
+            terminalPanel: panel,
+            agent: SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: "codex-live-process",
+                workingDirectory: "/tmp/cmux-agent-hibernation",
+                launchCommand: nil
+            ),
+            lifecycle: .idle,
+            hasUnconfirmedTerminalInput: false,
+            lastActivityAt: 0,
+            isProtected: false,
+            hasLiveProcess: true,
+            containsUnrelatedProcess: false,
+            panelProcessIDs: [42],
+            processIDs: [42],
+            processIdentities: [:],
+            processLiveness: .running
+        )
+
+        #expect(record.processLiveness == .running)
+    }
+
+    @Test
+    func sessionIndexEntryInitializerDefaultsRecordedPIDToFalse() {
+        let entry = RestorableAgentSessionIndex.Entry(
+            snapshot: SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: "codex-no-recorded-pid",
+                workingDirectory: "/tmp/cmux-agent-hibernation",
+                launchCommand: nil
+            ),
+            lifecycle: .idle,
+            updatedAt: 0,
+            processLiveness: .exited,
+            processIDs: [],
+            processIdentities: [:],
+            agentProcessIDs: [],
+            agentProcessIdentities: [:],
+            hibernationPanelProcessIDs: [],
+            terminationProcessIDs: [],
+            terminationProcessIdentities: [:],
+            containsUnrelatedProcess: false
+        )
+
+        #expect(entry.hasRecordedProcessID == false)
     }
 
     @Test
@@ -282,7 +340,49 @@ struct AgentHibernationPlannerSwiftTests {
     }
 
     @Test
-    func criticalPressureSelectsBoundedSafeIdleBatchWhenScheduledHibernationIsDisabled() {
+    func scheduledHibernationOrdersOldestActivityFirst() {
+        let workspaceID = UUID()
+        let older = AgentHibernationPanelKey(workspaceId: workspaceID, panelId: UUID())
+        let newer = AgentHibernationPanelKey(workspaceId: workspaceID, panelId: UUID())
+        let settings = AgentHibernationSettings.Values(
+            enabled: true,
+            idleSeconds: 60,
+            maxLiveTerminals: 1,
+            confirmationSeconds: 5
+        )
+        let ordered = AgentHibernationPlanner.orderedPanelKeys(
+            inputs: [
+                .init(
+                    key: newer,
+                    hasRestorableAgent: true,
+                    isLive: true,
+                    processSafetyAllowsHibernation: true,
+                    isProtected: false,
+                    lifecycle: .idle,
+                    hasUnconfirmedTerminalInput: false,
+                    lastActivityAt: 200
+                ),
+                .init(
+                    key: older,
+                    hasRestorableAgent: true,
+                    isLive: true,
+                    processSafetyAllowsHibernation: true,
+                    isProtected: false,
+                    lifecycle: .idle,
+                    hasUnconfirmedTerminalInput: false,
+                    lastActivityAt: 100
+                ),
+            ],
+            settings: settings,
+            now: 300,
+            trigger: .scheduled
+        )
+
+        #expect(ordered == [older])
+    }
+
+    @Test
+    func aggregatePressureSelectsEverySafeIdleAgentWhenScheduledHibernationIsDisabled() {
         let workspaceId = UUID()
         let now: TimeInterval = 1_000
         let idle = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
@@ -309,7 +409,7 @@ struct AgentHibernationPlannerSwiftTests {
                     isProtected: false,
                     lifecycle: .idle,
                     hasUnconfirmedTerminalInput: false,
-                    lastActivityAt: now
+                    lastActivityAt: now - 120
                 ),
                 .init(
                     key: secondIdle,
@@ -376,10 +476,10 @@ struct AgentHibernationPlannerSwiftTests {
             ],
             settings: settings,
             now: now,
-            trigger: .systemMemoryPressure
+            trigger: .aggregateMemoryPressure
         )
 
-        #expect(selected == Set([secondIdle, liveProcess]))
+        #expect(selected == Set([idle, secondIdle, liveProcess]))
     }
 
     @MainActor
@@ -526,7 +626,8 @@ struct AgentHibernationPlannerSwiftTests {
             containsUnrelatedProcess: false,
             panelProcessIDs: [],
             processIDs: [],
-            processIdentities: [:]
+            processIdentities: [:],
+            processLiveness: .unknown
         )
 
         #expect(controller.postSnapshotLifecycle(for: record, index: index) == .running)

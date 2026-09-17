@@ -35,14 +35,16 @@ struct CodexTurnLifecycleCoordinator {
         sessionID: String,
         turnID: String?,
         workspaceID: String?,
-        surfaceID: String?
+        surfaceID: String?,
+        allowCreate: Bool = true
     ) -> CodexTurnLedgerDecision {
         (try? ledger.promptSubmit(
             sessionID: sessionID,
             turnID: turnID,
             workspaceID: workspaceID,
             surfaceID: surfaceID,
-            invocation: invocation
+            invocation: invocation,
+            allowCreate: allowCreate
         )) ?? .ignored
     }
 
@@ -52,7 +54,8 @@ struct CodexTurnLifecycleCoordinator {
         turnID: String?,
         workspaceID: String?,
         surfaceID: String?,
-        starts: Bool
+        starts: Bool,
+        allowCreate: Bool = true
     ) -> CodexTurnLedgerDecision {
         let result: Result<CodexTurnLedgerDecision, Error>
         if starts {
@@ -63,7 +66,8 @@ struct CodexTurnLifecycleCoordinator {
                     turnID: turnID,
                     workspaceID: workspaceID,
                     surfaceID: surfaceID,
-                    invocation: invocation
+                    invocation: invocation,
+                    allowCreate: allowCreate
                 )
             }
         } else {
@@ -74,7 +78,8 @@ struct CodexTurnLifecycleCoordinator {
                     turnID: turnID,
                     workspaceID: workspaceID,
                     surfaceID: surfaceID,
-                    invocation: invocation
+                    invocation: invocation,
+                    allowCreate: allowCreate
                 )
             }
         }
@@ -85,27 +90,35 @@ struct CodexTurnLifecycleCoordinator {
         sessionID: String,
         turnID: String?,
         workspaceID: String?,
-        surfaceID: String?
+        surfaceID: String?,
+        claimNotification: Bool = true,
+        allowCreate: Bool = true,
+        requireCurrentTurn: Bool = false
     ) -> CodexTurnLedgerDecision {
         (try? ledger.stop(
             sessionID: sessionID,
             turnID: turnID,
             workspaceID: workspaceID,
             surfaceID: surfaceID,
-            invocation: invocation
+            invocation: invocation,
+            claimNotification: claimNotification,
+            allowCreate: allowCreate,
+            requireCurrentTurn: requireCurrentTurn
         )) ?? .ignored
     }
 
     func observe(
         sessionID: String,
         workspaceID: String?,
-        surfaceID: String?
+        surfaceID: String?,
+        allowCreate: Bool = true
     ) -> CodexTurnLedgerDecision {
         (try? ledger.observe(
             sessionID: sessionID,
             workspaceID: workspaceID,
             surfaceID: surfaceID,
-            invocation: invocation
+            invocation: invocation,
+            allowCreate: allowCreate
         )) ?? .ignored
     }
 
@@ -131,7 +144,8 @@ struct CodexTurnLifecycleCoordinator {
         agentID: String?,
         turnID: String?,
         workspaceID: String?,
-        surfaceID: String?
+        surfaceID: String?,
+        allowCreate: Bool = true
     ) -> CodexTurnLedgerDecision {
         let starts: Bool
         switch eventName {
@@ -145,7 +159,8 @@ struct CodexTurnLifecycleCoordinator {
             turnID: turnID,
             workspaceID: workspaceID,
             surfaceID: surfaceID,
-            starts: starts
+            starts: starts,
+            allowCreate: allowCreate
         )
     }
 }

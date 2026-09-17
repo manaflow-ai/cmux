@@ -8,6 +8,10 @@ fi
 if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
   printf '%s\n' "$@" >> "$CMUX_CAPTURE_XCODEBUILD_ARGS"
   printf '%s\n' "${TEST_RUNNER_CMUX_TEST_PROCESS:-<unset>}" >> "$CMUX_CAPTURE_TEST_RUNNER_ENV"
+  if [ -n "${CMUX_CAPTURE_TEST_RUNNER_CI_ENV:-}" ]; then
+    printf '%s|%s\n' "${TEST_RUNNER_CI-<unset>}" "${TEST_RUNNER_GITHUB_ACTIONS-<unset>}" \
+      >> "$CMUX_CAPTURE_TEST_RUNNER_CI_ENV"
+  fi
   printf '%s|%s|%s\n' \
     "${HOME:-<unset>}" \
     "${CFFIXED_USER_HOME:-<unset>}" \
@@ -138,10 +142,13 @@ RESOLVED_APP_HOST_XDG_CONFIG_HOME="$(cd "$APP_HOST_XDG_CONFIG_HOME" && pwd -P)"
 set +e
 /usr/bin/env -u CMUX_APP_HOST_HOME -u CMUX_APP_HOST_XDG_CONFIG_HOME \
   -u CFFIXED_USER_HOME -u XDG_CONFIG_HOME \
+  -u TEST_RUNNER_CI -u TEST_RUNNER_GITHUB_ACTIONS \
+  CI=true GITHUB_ACTIONS=true \
   PATH="$BASH32_BIN_DIR:$TMP_DIR:$PATH" \
   RUNNER_TEMP="$RUNNER_TEMP_DIR" \
   CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/non-isolated-xcodebuild-args.log" \
   CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/non-isolated-test-runner-env.log" \
+  CMUX_CAPTURE_TEST_RUNNER_CI_ENV="$TMP_DIR/non-isolated-ci-env.log" \
   CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/non-isolated-parent-env.log" \
   CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/non-isolated-runner-home-env.log" \
   CMUX_MOCK_XCODEBUILD_PROCESS=1 \
@@ -160,16 +167,24 @@ if [ "$non_isolated_status" -ne 0 ] \
   exit 1
 fi
 
+if ! grep -Fxq 'true|true' "$TMP_DIR/non-isolated-ci-env.log"; then
+  cat "$TMP_DIR/non-isolated-ci-env.log"
+  echo "FAIL: CI identity must reach the app host through Xcode's TEST_RUNNER_ channel"
+  exit 1
+fi
+
 AMBIENT_XDG_CONFIG_HOME="$TMP_DIR/ambient-xdg"
 mkdir -p "$AMBIENT_XDG_CONFIG_HOME"
 set +e
 /usr/bin/env -u CMUX_APP_HOST_HOME -u CMUX_APP_HOST_XDG_CONFIG_HOME \
   -u CFFIXED_USER_HOME \
+  -u CI -u GITHUB_ACTIONS -u TEST_RUNNER_CI -u TEST_RUNNER_GITHUB_ACTIONS \
   PATH="$BASH32_BIN_DIR:$TMP_DIR:$PATH" \
   RUNNER_TEMP="$RUNNER_TEMP_DIR" \
   XDG_CONFIG_HOME="$AMBIENT_XDG_CONFIG_HOME" \
   CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/ambient-xdg-xcodebuild-args.log" \
   CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/ambient-xdg-test-runner-env.log" \
+  CMUX_CAPTURE_TEST_RUNNER_CI_ENV="$TMP_DIR/ambient-xdg-ci-env.log" \
   CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/ambient-xdg-parent-env.log" \
   CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/ambient-xdg-runner-home-env.log" \
   CMUX_MOCK_XCODEBUILD_PROCESS=1 \
@@ -180,6 +195,12 @@ set +e
     >"$TMP_DIR/ambient-xdg-output.log" 2>&1
 ambient_xdg_status=$?
 set -e
+
+if ! grep -Fxq '<unset>|<unset>' "$TMP_DIR/ambient-xdg-ci-env.log"; then
+  cat "$TMP_DIR/ambient-xdg-ci-env.log"
+  echo "FAIL: local app-host launches must not acquire CI identity"
+  exit 1
+fi
 
 if [ "$ambient_xdg_status" -ne 0 ] \
   || [ "$(grep -cx 'test' "$TMP_DIR/ambient-xdg-xcodebuild-args.log" 2>/dev/null || true)" -ne 1 ] \

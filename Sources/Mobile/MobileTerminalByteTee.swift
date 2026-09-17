@@ -51,6 +51,8 @@ final class MobileTerminalByteTee {
         /// Producer capture order, independent of byte sequence. Geometry-only
         /// captures advance this even when `seq` is unchanged.
         var renderRevision: UInt64 = 0
+        /// Opaque marker of the latest accepted input, not proof of output causality.
+        var inputSequence: UInt64?
     }
 
     private var statesBySurfaceID: [UUID: SurfaceState] = [:]
@@ -113,6 +115,33 @@ final class MobileTerminalByteTee {
 
     func currentSequence(surfaceID: UUID) -> UInt64? {
         statesBySurfaceID[surfaceID]?.seq
+    }
+
+    /// Echoes the client's opaque marker only after terminal input is accepted.
+    /// A legacy input clears the watermark instead of inventing a correlation.
+    func recordAcceptedInput(surfaceID: UUID, sequence: UInt64?, result: TerminalSurface.InputSendResult) {
+        guard result.accepted else { return }
+        var state = statesBySurfaceID[surfaceID] ?? SurfaceState()
+        state.inputSequence = sequence
+        statesBySurfaceID[surfaceID] = state
+    }
+
+    /// Runs one mobile input operation and records its accepted marker in the
+    /// same transition for every transport. Queued and immediately sent input
+    /// are both accepted by the terminal and must advance the same watermark.
+    @discardableResult
+    func performMobileInput(
+        surfaceID: UUID,
+        sequence: UInt64?,
+        operation: () -> TerminalSurface.InputSendResult
+    ) -> TerminalSurface.InputSendResult {
+        let result = operation()
+        recordAcceptedInput(surfaceID: surfaceID, sequence: sequence, result: result)
+        return result
+    }
+
+    func currentInputSequence(surfaceID: UUID) -> UInt64? {
+        statesBySurfaceID[surfaceID]?.inputSequence
     }
 
     /// Returns the producer identity that orders every render-grid capture.

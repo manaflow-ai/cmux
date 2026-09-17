@@ -9,7 +9,7 @@ import WebKit
 /// Route app/menu shortcuts first, but allow browser content to try browser-local
 /// Find shortcuts. The configured shortcut stays app-owned so cmux can choose browser
 /// find or right-sidebar file search from the current focus owner.
-final class CmuxWebView: WKWebView {
+final class CmuxWebView: CmuxUndoableWebView {
     var browserViewportModel: BrowserViewportModel?
     var onBrowserViewportHierarchyChanged: (() -> Void)?
 
@@ -37,12 +37,6 @@ final class CmuxWebView: WKWebView {
     func resetTrustedInternalNavigationState() {
         clearTrustedInternalNavigationGrants()
     }
-
-    // WebKit registers web-content edit commands on the view's `undoManager`;
-    // owning one per web view keeps every page's undo stack scoped to this
-    // view's lifetime instead of the window's shared undo manager.
-    // See CmuxWebViewWebContentUndo.swift.
-    let webContentUndoManager = UndoManager()
 
     // Some sites/WebKit paths report middle-click link activations as
     // WKNavigationAction.buttonNumber=4 instead of 2. Track a recent local
