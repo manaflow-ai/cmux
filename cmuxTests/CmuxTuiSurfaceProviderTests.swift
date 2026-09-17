@@ -6,7 +6,6 @@ import Testing
 #elseif canImport(cmux)
 @testable import cmux
 #endif
-
 /// The cmux-tui provider's pure parts: snapshot → resources, the argv it hands the
 /// client, the URLs it opens, and the client identity paths it shares with the CLI.
 @Suite struct CmuxTuiSurfaceProviderTests {
