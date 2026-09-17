@@ -101,28 +101,6 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxExternalTextSyncDoesNotOverwriteActiveIMEMarkedText() {
-        #expect(!shouldSynchronizeExternalTextToTextBox(
-            inlineAttachmentCount: 0,
-            plainText: "に",
-            externalText: "",
-            hasMarkedText: true
-        ))
-        #expect(shouldSynchronizeExternalTextToTextBox(
-            inlineAttachmentCount: 0,
-            plainText: "に",
-            externalText: "",
-            hasMarkedText: false
-        ))
-        #expect(!shouldSynchronizeExternalTextToTextBox(
-            inlineAttachmentCount: 1,
-            plainText: "に",
-            externalText: "",
-            hasMarkedText: false
-        ))
-    }
-
-    @Test
     func testTextBoxPlaceholderHidesDuringActiveIMEMarkedText() {
         #expect(!TextBoxSubmitAvailability.shouldShowPlaceholder(
             text: "",

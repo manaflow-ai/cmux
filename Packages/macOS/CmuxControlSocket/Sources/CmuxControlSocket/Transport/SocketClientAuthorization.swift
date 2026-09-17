@@ -1,6 +1,7 @@
 public import Darwin
+public import CmuxSettings
 
-/// Authorizes peer processes for cmux-only control socket requests.
+/// Authorizes peer processes for control socket requests.
 public struct SocketClientAuthorization {
     /// Creates an authorization helper with no retained process state.
     public init() {}
@@ -27,5 +28,70 @@ public struct SocketClientAuthorization {
             return isDescendant(peerProcessID)
         }
         return false
+    }
+
+    /// Returns the command carried by an authorized cmux-only request.
+    ///
+    /// Descendants retain the existing process-tree authorization. The
+    /// capability parameters form the runtime seam for terminals whose
+    /// process trees are later reparented by a multiplexer.
+    ///
+    /// - Parameters:
+    ///   - command: The raw command line received from the client.
+    ///   - peerProcessID: The PID reported by the accepted socket.
+    ///   - peerHasSameUID: Whether the peer runs as the same user as cmux.
+    ///   - capabilityAuthority: The authority that verifies inherited tokens.
+    ///   - isDescendant: Predicate that verifies current process ancestry.
+    /// - Returns: The unwrapped command when authorized, otherwise `nil`.
+    public func authorizedCommand(
+        _ command: String,
+        peerProcessID: pid_t?,
+        peerHasSameUID: Bool,
+        capabilityAuthority: SocketClientCapabilityAuthority,
+        isDescendant: (pid_t) -> Bool
+    ) -> String? {
+        let envelope = SocketClientCapabilityCommand(command)
+        if let peerProcessID, isDescendant(peerProcessID) {
+            return envelope?.command ?? command
+        }
+        guard peerHasSameUID,
+              let envelope,
+              capabilityAuthority.verifies(envelope.capability) else {
+            return nil
+        }
+        return envelope.command
+    }
+
+    /// Applies the current socket access mode to a received command.
+    ///
+    /// Owner-only modes verify the peer UID for every command instead of
+    /// relying solely on socket-file permissions. This keeps restrictive
+    /// modes fail-closed if a permission change cannot be applied to the
+    /// filesystem entry of an already running listener.
+    public func authorizedCommand(
+        _ command: String,
+        accessMode: SocketControlMode,
+        peerProcessID: pid_t?,
+        peerHasSameUID: Bool,
+        capabilityAuthority: SocketClientCapabilityAuthority,
+        isDescendant: (pid_t) -> Bool
+    ) -> String? {
+        switch accessMode {
+        case .off:
+            return nil
+        case .cmuxOnly:
+            return authorizedCommand(
+                command,
+                peerProcessID: peerProcessID,
+                peerHasSameUID: peerHasSameUID,
+                capabilityAuthority: capabilityAuthority,
+                isDescendant: isDescendant
+            )
+        case .automation, .password:
+            guard peerHasSameUID else { return nil }
+            return SocketClientCapabilityCommand(command)?.command ?? command
+        case .allowAll:
+            return SocketClientCapabilityCommand(command)?.command ?? command
+        }
     }
 }

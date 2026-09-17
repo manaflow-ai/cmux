@@ -1,6 +1,6 @@
 use std::ffi::OsString;
 use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -12,8 +12,16 @@ static PROFILE_SEQ: AtomicU64 = AtomicU64::new(1);
 #[derive(Debug, Clone)]
 pub struct ChromeLaunchOptions {
     pub binary: PathBuf,
+    pub mode: BrowserMode,
     pub user_data_dir: Option<PathBuf>,
     pub ephemeral: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum BrowserMode {
+    #[default]
+    Headful,
+    Headless,
 }
 
 /// A launched Chrome/Chromium process plus its profile dir.
@@ -25,25 +33,29 @@ pub struct Chrome {
 }
 
 impl Chrome {
-    /// Launch Chrome in headless mode and wait for the browser CDP
-    /// endpoint printed on stderr.
+    /// Launch Chrome (headful by default, headless when the launch
+    /// options request it) and wait for the browser CDP endpoint printed
+    /// on stderr.
     pub fn launch(binary: PathBuf) -> anyhow::Result<Self> {
-        Chrome::launch_with(&ChromeLaunchOptions { binary, user_data_dir: None, ephemeral: true })
+        Chrome::launch_with(&ChromeLaunchOptions {
+            binary,
+            mode: BrowserMode::default(),
+            user_data_dir: None,
+            ephemeral: true,
+        })
     }
 
     pub fn launch_with(options: &ChromeLaunchOptions) -> anyhow::Result<Self> {
         let (profile_dir, profile_ephemeral) = profile_dir_for(options)?;
-        std::fs::create_dir_all(&profile_dir)?;
-        let mut child = Command::new(&options.binary)
-            .arg("--headless=new")
-            .arg("--remote-debugging-port=0")
-            .arg("--no-first-run")
-            .arg("--no-default-browser-check")
-            .arg("--disable-background-timer-throttling")
-            .arg("--disable-backgrounding-occluded-windows")
-            .arg("--disable-renderer-backgrounding")
-            .arg(format!("--user-data-dir={}", profile_dir.display()))
-            .arg("about:blank")
+        std::fs::create_dir_all(&profile_dir).map_err(|error| {
+            anyhow::anyhow!(
+                "failed to create Chrome profile directory {}: {error}",
+                profile_dir.display()
+            )
+        })?;
+        let mut command = Command::new(&options.binary);
+        command.args(chrome_args_for(&profile_dir, options.mode));
+        let mut child = command
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -52,37 +64,41 @@ impl Chrome {
                 anyhow::anyhow!("failed to launch Chrome at {}: {e}", options.binary.display())
             })?;
 
-        let stderr = child
-            .stderr
-            .take()
-            .ok_or_else(|| anyhow::anyhow!("failed to capture Chrome stderr"))?;
+        let stderr = match child.stderr.take() {
+            Some(stderr) => stderr,
+            None => {
+                cleanup_failed_launch(&mut child, &profile_dir, profile_ephemeral);
+                anyhow::bail!("failed to capture Chrome stderr");
+            }
+        };
         let (tx, rx) = mpsc::channel();
-        std::thread::Builder::new().name("cmux-tui-cdp-chrome-stderr".into()).spawn(move || {
-            let mut reader = BufReader::new(stderr);
-            let mut line = String::new();
-            let mut sent = false;
-            loop {
-                line.clear();
-                match reader.read_line(&mut line) {
-                    Ok(0) | Err(_) => break,
-                    Ok(_) => {
-                        if !sent && let Some(url) = parse_devtools_url(&line) {
-                            let _ = tx.send(url);
-                            sent = true;
+        if let Err(error) =
+            std::thread::Builder::new().name("cmux-tui-cdp-chrome-stderr".into()).spawn(move || {
+                let mut reader = BufReader::new(stderr);
+                let mut line = String::new();
+                let mut sent = false;
+                loop {
+                    line.clear();
+                    match reader.read_line(&mut line) {
+                        Ok(0) | Err(_) => break,
+                        Ok(_) => {
+                            if !sent && let Some(url) = parse_devtools_url(&line) {
+                                let _ = tx.send(url);
+                                sent = true;
+                            }
                         }
                     }
                 }
-            }
-        })?;
+            })
+        {
+            cleanup_failed_launch(&mut child, &profile_dir, profile_ephemeral);
+            return Err(anyhow::anyhow!("failed to start Chrome stderr reader: {error}"));
+        }
 
         let web_socket_url = match rx.recv_timeout(Duration::from_secs(10)) {
             Ok(url) => url,
             Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                if profile_ephemeral {
-                    let _ = std::fs::remove_dir_all(&profile_dir);
-                }
+                cleanup_failed_launch(&mut child, &profile_dir, profile_ephemeral);
                 anyhow::bail!(
                     "Chrome did not publish a DevTools endpoint within 10s (binary: {})",
                     options.binary.display()
@@ -110,6 +126,14 @@ impl Chrome {
     }
 }
 
+fn cleanup_failed_launch(child: &mut Child, profile_dir: &Path, profile_ephemeral: bool) {
+    let _ = child.kill();
+    let _ = child.wait();
+    if profile_ephemeral {
+        let _ = std::fs::remove_dir_all(profile_dir);
+    }
+}
+
 impl Drop for Chrome {
     fn drop(&mut self) {
         self.kill();
@@ -133,6 +157,28 @@ fn make_profile_dir() -> anyhow::Result<PathBuf> {
     Ok(dir)
 }
 
+fn chrome_args_for(profile_dir: &Path, mode: BrowserMode) -> Vec<String> {
+    let mut args = Vec::new();
+    if mode == BrowserMode::Headless {
+        args.push("--headless=new".to_string());
+    }
+    args.extend([
+        "--remote-debugging-port=0".to_string(),
+        "--no-first-run".to_string(),
+        "--no-default-browser-check".to_string(),
+        "--disable-background-timer-throttling".to_string(),
+        "--disable-backgrounding-occluded-windows".to_string(),
+        "--disable-renderer-backgrounding".to_string(),
+        "--disable-blink-features=AutomationControlled".to_string(),
+        format!("--user-data-dir={}", profile_dir.display()),
+    ]);
+    if mode == BrowserMode::Headful {
+        args.push("--window-size=1280,900".to_string());
+    }
+    args.push("about:blank".to_string());
+    args
+}
+
 fn profile_dir_for(options: &ChromeLaunchOptions) -> anyhow::Result<(PathBuf, bool)> {
     if options.ephemeral {
         return Ok((make_profile_dir()?, true));
@@ -154,6 +200,31 @@ mod tests {
     use super::*;
 
     #[test]
+    fn failed_launch_cleanup_kills_child_and_removes_ephemeral_profile() {
+        let profile_dir =
+            std::env::temp_dir().join(format!("cmux-tui-cdp-cleanup-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&profile_dir);
+        std::fs::create_dir_all(&profile_dir).unwrap();
+
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "failed_launch_cleanup_child"])
+            .env("CMUX_TUI_CDP_CLEANUP_CHILD", "1")
+            .spawn()
+            .unwrap();
+        cleanup_failed_launch(&mut child, &profile_dir, true);
+
+        assert!(!profile_dir.exists());
+        assert!(child.try_wait().unwrap().is_some());
+    }
+
+    #[test]
+    fn failed_launch_cleanup_child() {
+        if std::env::var_os("CMUX_TUI_CDP_CLEANUP_CHILD").is_some() {
+            std::thread::park();
+        }
+    }
+
+    #[test]
     fn parses_devtools_endpoint() {
         assert_eq!(
             parse_devtools_url("DevTools listening on ws://127.0.0.1:1/devtools/browser/x\n"),
@@ -173,6 +244,7 @@ mod tests {
 
         let options = ChromeLaunchOptions {
             binary: PathBuf::from("chrome"),
+            mode: BrowserMode::Headful,
             user_data_dir: Some(explicit_dir.clone()),
             ephemeral: true,
         };
@@ -191,6 +263,7 @@ mod tests {
             std::env::temp_dir().join(format!("cmux-tui-cdp-verbatim-{}", std::process::id()));
         let options = ChromeLaunchOptions {
             binary: PathBuf::from("chrome"),
+            mode: BrowserMode::Headful,
             user_data_dir: Some(explicit_dir.clone()),
             ephemeral: false,
         };
@@ -198,5 +271,35 @@ mod tests {
 
         assert!(!ephemeral);
         assert_eq!(selected, explicit_dir);
+    }
+
+    #[test]
+    fn headful_args_omit_headless_and_keep_stealth_throttle_profile_window() {
+        let profile = PathBuf::from("/tmp/cmux profile");
+        let args = chrome_args_for(&profile, BrowserMode::Headful);
+
+        assert!(!args.iter().any(|arg| arg == "--headless=new"));
+        assert!(args.iter().any(|arg| arg == "--remote-debugging-port=0"));
+        assert!(args.iter().any(|arg| arg == "--no-first-run"));
+        assert!(args.iter().any(|arg| arg == "--no-default-browser-check"));
+        assert!(args.iter().any(|arg| arg == "--disable-background-timer-throttling"));
+        assert!(args.iter().any(|arg| arg == "--disable-backgrounding-occluded-windows"));
+        assert!(args.iter().any(|arg| arg == "--disable-renderer-backgrounding"));
+        assert!(args.iter().any(|arg| arg == "--disable-blink-features=AutomationControlled"));
+        assert!(args.iter().any(|arg| arg == "--user-data-dir=/tmp/cmux profile"));
+        assert!(args.iter().any(|arg| arg == "--window-size=1280,900"));
+        assert_eq!(args.last().map(String::as_str), Some("about:blank"));
+    }
+
+    #[test]
+    fn headless_args_add_headless_and_omit_window_size() {
+        let profile = PathBuf::from("/tmp/cmux-profile");
+        let args = chrome_args_for(&profile, BrowserMode::Headless);
+
+        assert!(args.iter().any(|arg| arg == "--headless=new"));
+        assert!(args.iter().any(|arg| arg == "--disable-blink-features=AutomationControlled"));
+        assert!(args.iter().any(|arg| arg == "--user-data-dir=/tmp/cmux-profile"));
+        assert!(!args.iter().any(|arg| arg == "--window-size=1280,900"));
+        assert_eq!(args.last().map(String::as_str), Some("about:blank"));
     }
 }

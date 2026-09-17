@@ -2,6 +2,8 @@ import Foundation
 
 /// Window-routing intent for a remote-tmux attach, preserved across SSH awaits.
 enum RemoteTmuxAttachWindowTarget: Sendable, Equatable {
+    /// Create a dedicated window after SSH preflight succeeds.
+    case dedicatedNewWindow
     /// A non-null `window_id` that resolved when the request was parsed.
     case explicitWindow(UUID)
     /// A non-null `window_id` that did not resolve; never falls back to active.
@@ -20,6 +22,8 @@ enum RemoteTmuxAttachWindowTarget: Sendable, Equatable {
             return existingMirrorWindowID
         }
         switch self {
+        case .dedicatedNewWindow:
+            return nil
         case .explicitWindow(let windowID):
             return isLive(windowID) ? windowID : nil
         case .unresolvedExplicitWindow:

@@ -16,6 +16,11 @@ on:
         required: false
         default: false
         type: boolean
+      retarget_initial_draft:
+        description: Change the app's sole PREPARE_FOR_SUBMISSION version to the configured initial version
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: ios-app-store-production
@@ -35,9 +40,11 @@ jobs:
       ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
       ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
       ASC_APP_ID: ${{ vars.IOS_APPSTORE_APP_ID }}
+      ASC_TIMEOUT_SECONDS: "120"
       INPUT_BUILD_NUMBER: ${{ github.event.inputs.build_number }}
       INPUT_COPY_METADATA_FROM: ${{ github.event.inputs.copy_metadata_from }}
       INPUT_SUBMIT_FOR_REVIEW: ${{ github.event.inputs.submit_for_review }}
+      INPUT_RETARGET_INITIAL_DRAFT: ${{ github.event.inputs.retarget_initial_draft }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -146,6 +153,119 @@ jobs:
           APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64 }}
         run: ./.github/scripts/install-app-store-provisioning-profile.sh
 
+      - name: Prepare App Store version and metadata
+        run: |
+          set -euo pipefail
+          VERSION="$(sed -nE 's/^[[:space:]]*CMUX_IOS_APPSTORE_MARKETING_VERSION[[:space:]]*=[[:space:]]*([^[:space:]]+).*/\1/p' ios/Config/Shared.xcconfig | tail -n 1)"
+          require_locale_metadata() {
+            local metadata_dir="$1"
+            local metadata_file
+            local locale_file_count=0
+            shopt -s nullglob
+            for metadata_file in "$metadata_dir"/*.json; do
+              if [ "${metadata_file##*/}" != "default.json" ]; then
+                locale_file_count=$((locale_file_count + 1))
+              fi
+            done
+            shopt -u nullglob
+            if [ "$locale_file_count" -eq 0 ]; then
+              echo "No locale-specific App Store metadata found in $metadata_dir" >&2
+              exit 1
+            fi
+          }
+          require_locale_metadata "ios/AppStoreReview/metadata/version/$VERSION"
+          require_locale_metadata "ios/AppStoreReview/metadata/app-info"
+          VERSION_ID="$(
+            asc versions list --app "$ASC_APP_ID" --version "$VERSION" --platform IOS --output json |
+              python3 -c 'import json,sys; body=json.load(sys.stdin); data=body.get("data") if isinstance(body,dict) else body; data=data if isinstance(data,list) else ([data] if isinstance(data,dict) else []); print(data[0].get("id", "") if data else "")'
+          )"
+          if [ -z "$VERSION_ID" ]; then
+            if [ "${INPUT_RETARGET_INITIAL_DRAFT:-false}" = "true" ]; then
+              ALL_VERSIONS_JSON="$(asc versions list --app "$ASC_APP_ID" --platform IOS --paginate --output json)"
+              INITIAL_DRAFT="$(ALL_VERSIONS_JSON="$ALL_VERSIONS_JSON" python3 <<'PY'
+          import json
+          import os
+          import sys
+
+          body = json.loads(os.environ["ALL_VERSIONS_JSON"])
+          data = body.get("data") if isinstance(body, dict) else body
+          items = data if isinstance(data, list) else ([data] if isinstance(data, dict) else [])
+          if len(items) != 1:
+              raise SystemExit(f"retarget_initial_draft requires exactly one existing iOS version; found {len(items)}")
+          item = items[0]
+          attrs = item.get("attributes", item)
+          state = attrs.get("appStoreState") or attrs.get("state")
+          version = attrs.get("versionString") or attrs.get("version") or "unknown"
+          if state != "PREPARE_FOR_SUBMISSION":
+              raise SystemExit(f"refusing to retarget iOS version {version} in state {state or 'unknown'}")
+          print(f"{item.get('id', '')}\t{version}")
+          PY
+              )"
+              IFS=$'\t' read -r INITIAL_DRAFT_ID INITIAL_DRAFT_VERSION <<< "$INITIAL_DRAFT"
+              if [ -z "$INITIAL_DRAFT_ID" ]; then
+                echo "retarget_initial_draft did not resolve a version id" >&2
+                exit 1
+              fi
+              echo "Changing initial App Store draft $INITIAL_DRAFT_VERSION to $VERSION"
+              asc versions update \
+                --version-id "$INITIAL_DRAFT_ID" \
+                --version "$VERSION" \
+                --copyright "2026 Manaflow, Inc." \
+                --release-type MANUAL
+            else
+              asc versions create \
+                --app "$ASC_APP_ID" \
+                --version "$VERSION" \
+                --platform IOS \
+                --copyright "2026 Manaflow, Inc." \
+                --release-type MANUAL
+            fi
+          else
+            asc versions update \
+              --version-id "$VERSION_ID" \
+              --copyright "2026 Manaflow, Inc." \
+              --release-type MANUAL
+          fi
+          asc metadata validate --dir ios/AppStoreReview/metadata
+          asc metadata apply \
+            --app "$ASC_APP_ID" \
+            --version "$VERSION" \
+            --platform IOS \
+            --dir ios/AppStoreReview/metadata \
+            --allow-deletes \
+            --confirm \
+            --dry-run
+          asc metadata apply \
+            --app "$ASC_APP_ID" \
+            --version "$VERSION" \
+            --platform IOS \
+            --dir ios/AppStoreReview/metadata \
+            --allow-deletes \
+            --confirm
+          asc screenshots validate \
+            --path ios/AppStoreReview/screenshots/en-US/iphone \
+            --device-type IPHONE_69
+          asc screenshots upload \
+            --app "$ASC_APP_ID" \
+            --version "$VERSION" \
+            --platform IOS \
+            --path ios/AppStoreReview/screenshots \
+            --device-type IPHONE_69 \
+            --replace
+          asc screenshots validate \
+            --path ios/AppStoreReview/screenshots/en-US/ipad \
+            --device-type IPAD_PRO_3GEN_129
+          asc screenshots upload \
+            --app "$ASC_APP_ID" \
+            --version "$VERSION" \
+            --platform IOS \
+            --path ios/AppStoreReview/screenshots \
+            --device-type IPAD_PRO_3GEN_129 \
+            --replace
+
+      - name: Ensure App Store availability
+        run: python3 ios/scripts/asc_bootstrap_app_availability.py --app "$ASC_APP_ID"
+
       - name: Archive, export, and upload production build
         id: upload
         env:
@@ -171,6 +291,9 @@ jobs:
             --version "$VERSION" \
             --build-number "$FINAL_BUILD_NUMBER" \
             --wait-build \
+            --prepare-submission \
+            --screenshot-device-type IPHONE_69 \
+            --screenshot-device-type IPAD_PRO_3GEN_129 \
             --strict
           if [ -n "${INPUT_COPY_METADATA_FROM:-}" ]; then
             ./ios/scripts/validate-app-store-release.sh \
@@ -179,6 +302,8 @@ jobs:
               --build-number "$FINAL_BUILD_NUMBER" \
               --copy-metadata-from "$INPUT_COPY_METADATA_FROM" \
               --stage-dry-run \
+              --screenshot-device-type IPHONE_69 \
+              --screenshot-device-type IPAD_PRO_3GEN_129 \
               --strict
           fi
           if [ "${INPUT_SUBMIT_FOR_REVIEW:-false}" = "true" ]; then
@@ -188,6 +313,8 @@ jobs:
               --build-number "$FINAL_BUILD_NUMBER" \
               --submit \
               --confirm-submit \
+              --screenshot-device-type IPHONE_69 \
+              --screenshot-device-type IPAD_PRO_3GEN_129 \
               --strict
           fi
 

@@ -935,6 +935,7 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
 
     static let newTerminal = actionReference(CmuxSurfaceTabBarBuiltInAction.newTerminal.configID)
     static let newBrowser = actionReference(CmuxSurfaceTabBarBuiltInAction.newBrowser.configID)
+    static let newSimulator = actionReference(CmuxSurfaceTabBarBuiltInAction.newSimulator.configID)
     static let splitRight = actionReference(CmuxSurfaceTabBarBuiltInAction.splitRight.configID)
     static let splitDown = actionReference(CmuxSurfaceTabBarBuiltInAction.splitDown.configID)
 
@@ -1365,40 +1366,13 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
     }
 
     static func builtIn(_ builtIn: CmuxSurfaceTabBarBuiltInAction) -> CmuxResolvedConfigAction {
-        let title: String
-        let keywords: [String]
-        switch builtIn {
-        case .newWorkspace:
-            title = String(localized: "command.newWorkspace.title", defaultValue: "New Workspace")
-            keywords = ["create", "new", "workspace"]
-        case .newAgentChat:
-            title = String(localized: "command.newAgentChat.title", defaultValue: "New agent chat")
-            keywords = ["create", "new", "agent", "chat", "browser", "codex", "claude"]
-        case .cloudVM:
-            title = String(localized: "command.cloudVM.title", defaultValue: "Open Base")
-            keywords = ["base", "cloud", "vm", "virtual", "machine", "remote"]
-        case .mobileConnect:
-            title = String(localized: "command.mobileConnect.title", defaultValue: "Connect iPhone/iPad")
-            keywords = ["iphone", "ipad", "mobile", "phone", "pair", "connect"]
-        case .newTerminal:
-            title = String(localized: "command.newTerminalTab.title", defaultValue: "New Terminal Tab")
-            keywords = ["new", "terminal", "tab", "surface"]
-        case .newBrowser:
-            title = String(localized: "command.newBrowserTab.title", defaultValue: "New Browser Tab")
-            keywords = ["new", "browser", "tab", "surface"]
-        case .splitRight:
-            title = String(localized: "command.terminalSplitRight.title", defaultValue: "Split Right")
-            keywords = ["terminal", "split", "right"]
-        case .splitDown:
-            title = String(localized: "command.terminalSplitDown.title", defaultValue: "Split Down")
-            keywords = ["terminal", "split", "down"]
-        }
+        let metadata = builtIn.resolvedConfigMetadata
 
         return CmuxResolvedConfigAction(
             id: builtIn.configID,
-            title: title,
+            title: metadata.title,
             subtitle: String(localized: "command.cmuxConfig.builtInSubtitle", defaultValue: "cmux"),
-            keywords: keywords,
+            keywords: metadata.keywords,
             palette: true,
             shortcut: nil,
             icon: .symbol(builtIn.defaultIcon),
@@ -1708,8 +1682,16 @@ struct CmuxConfigIssue: Identifiable, Equatable, Sendable {
 
 @MainActor
 final class CmuxConfigStore: ObservableObject {
-    private static let defaultNewWorkspaceContextMenu: [CmuxConfigContextMenuItem] = [
+    /// Plus-menu rows when `ui.newWorkspace.contextMenu` is not configured.
+    /// Feature-gated rows (Cloud, browser) are filtered at menu-build time by
+    /// `AppDelegate.isBuiltInActionAvailableInNewWorkspaceMenu` so a flag flip
+    /// takes effect without a config reload.
+    static let defaultNewWorkspaceContextMenu: [CmuxConfigContextMenuItem] = [
         .action(CmuxConfigContextMenuActionItem(action: CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID)),
+        .action(CmuxConfigContextMenuActionItem(action: CmuxSurfaceTabBarBuiltInAction.newCloudWorkspace.configID)),
+        .action(CmuxConfigContextMenuActionItem(action: CmuxSurfaceTabBarBuiltInAction.newCloudMachine.configID)),
+        .action(CmuxConfigContextMenuActionItem(action: CmuxSurfaceTabBarBuiltInAction.newTerminal.configID)),
+        .action(CmuxConfigContextMenuActionItem(action: CmuxSurfaceTabBarBuiltInAction.newBrowser.configID)),
     ]
 
     @Published private(set) var loadedCommands: [CmuxCommandDefinition] = []
@@ -1718,7 +1700,6 @@ final class CmuxConfigStore: ObservableObject {
     @Published private(set) var newWorkspaceActionID: String?
     @Published private(set) var newWorkspaceContextMenuItems: [CmuxResolvedConfigContextMenuItem] = []
     @Published private(set) var newWorkspaceContextMenuIsConfigured = false
-    @Published private(set) var newWorkspaceMenuSectionOrder: CmuxNewWorkspaceMenuSectionOrder = .default
     @Published private(set) var agentChat: CmuxAgentChatConfiguration = .default
     /// Resolved per-cwd workspace group customization, keyed by the JSON cwd key.
     /// Use `resolveWorkspaceGroupConfig(forCwd:)` to find the best match for an
@@ -1742,7 +1723,7 @@ final class CmuxConfigStore: ObservableObject {
     let globalConfigPath: String
     private let fileWatchingEnabled: Bool
 
-    nonisolated private static func defaultGlobalConfigPath() -> String {
+    nonisolated static func defaultGlobalConfigPath() -> String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         return (home as NSString).appendingPathComponent(".config/cmux/cmux.json")
     }
@@ -1983,7 +1964,6 @@ final class CmuxConfigStore: ObservableObject {
         var configuredNewWorkspaceActionSourcePath: String?
         var configuredNewWorkspaceContextMenu: [CmuxConfigContextMenuItem]?
         var configuredNewWorkspaceContextMenuSourcePath: String?
-        var configuredNewWorkspaceMenuSectionOrder: CmuxNewWorkspaceMenuSectionOrder?
         var configuredSurfaceTabBarButtons: [CmuxSurfaceTabBarButton]?
         var configuredSurfaceTabBarButtonSourcePath: String?
         let localPath = localConfigPath
@@ -2020,9 +2000,6 @@ final class CmuxConfigStore: ObservableObject {
                 configuredNewWorkspaceContextMenu = contextMenu
                 configuredNewWorkspaceContextMenuSourcePath = localPath
             }
-            if let menuSectionOrder = localConfig.ui?.newWorkspace?.menuSectionOrder {
-                configuredNewWorkspaceMenuSectionOrder = menuSectionOrder
-            }
             if configuredNewWorkspaceActionID == nil,
                let newWorkspaceCommand = localConfig.newWorkspaceCommand {
                 configuredNewWorkspaceCommandName = newWorkspaceCommand
@@ -2055,10 +2032,6 @@ final class CmuxConfigStore: ObservableObject {
                let contextMenu = globalConfig.ui?.newWorkspace?.contextMenu {
                 configuredNewWorkspaceContextMenu = contextMenu
                 configuredNewWorkspaceContextMenuSourcePath = globalConfigPath
-            }
-            if configuredNewWorkspaceMenuSectionOrder == nil,
-               let menuSectionOrder = globalConfig.ui?.newWorkspace?.menuSectionOrder {
-                configuredNewWorkspaceMenuSectionOrder = menuSectionOrder
             }
             if configuredNewWorkspaceActionID == nil,
                configuredNewWorkspaceCommandName == nil,
@@ -2146,7 +2119,6 @@ final class CmuxConfigStore: ObservableObject {
         newWorkspaceCommandName = configuredNewWorkspaceCommandName
         newWorkspaceContextMenuItems = resolvedNewWorkspaceContextMenuItems.items
         newWorkspaceContextMenuIsConfigured = configuredNewWorkspaceContextMenu != nil
-        newWorkspaceMenuSectionOrder = configuredNewWorkspaceMenuSectionOrder ?? .default
         agentChat = CmuxAgentChatConfiguration.resolved(
             local: localConfig?.agentChat, global: globalConfig?.agentChat,
             localSourcePath: localConfig?.agentChat == nil ? nil : localPath, globalSourcePath: globalConfig?.agentChat == nil ? nil : globalConfigPath

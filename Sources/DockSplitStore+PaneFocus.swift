@@ -2,8 +2,191 @@ import AppKit
 import Bonsplit
 
 extension DockSplitStore {
-    func noteKeyboardFocusIntent(window: NSWindow?) {
-        AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: window)
+    /// Returns the live Dock store that owns `panelId`, if one exists.
+    static func liveStore(containingPanel panelId: UUID) -> DockSplitStore? {
+        liveStores.first(where: { $0.containsPanel(panelId) })
+    }
+
+    /// Returns the live Dock store that owns `paneId`, if one exists.
+    static func liveStore(containingPane paneId: UUID) -> DockSplitStore? {
+        liveStores.first(where: { $0.containsPane(paneId) })
+    }
+
+    var focusedPanelId: UUID? {
+        guard let paneId = bonsplitController.focusedPaneId,
+              let tabId = bonsplitController.selectedTab(inPane: paneId)?.id else { return nil }
+        return surfaceIdToPanelId[tabId]
+    }
+
+    /// Whether a panel id is present in the Dock tree.
+    func containsPanel(_ panelId: UUID) -> Bool {
+        panelID(forTerminalLinkSourceID: panelId) != nil
+    }
+
+    /// Resolves a terminal callback identity to the owning Dock panel.
+    ///
+    /// Ghostty callbacks identify the terminal surface, while Dock ownership
+    /// is indexed by panel IDs and Bonsplit tab IDs. Most terminals use the
+    /// same UUID for both, but restored and aliased control surfaces can carry
+    /// a different tab identity. Keep this normalization at the Dock boundary
+    /// so every terminal-link operation uses one ownership lookup.
+    func panelID(forTerminalLinkSourceID sourceID: UUID) -> UUID? {
+        if panels[sourceID] != nil {
+            return sourceID
+        }
+        if let mappedPanelID = surfaceIdToPanelId[TabID(uuid: sourceID)],
+           panels[mappedPanelID] != nil {
+            return mappedPanelID
+        }
+        return panels.first { _, panel in
+            (panel as? TerminalPanel)?.surface.id == sourceID
+        }?.key
+    }
+
+    /// Whether a pane id is present in the Dock tree.
+    func containsPane(_ paneId: UUID) -> Bool {
+        ownedPaneIds.contains(paneId)
+    }
+
+    /// Refreshes indexed pane ownership after a Bonsplit tree mutation.
+    func synchronizeOwnedPaneIds(with controller: BonsplitController) {
+        ownedPaneIds = Set(controller.allPaneIds.map(\.id))
+    }
+
+    /// Resolves a Dock pane for `surface.create --placement dock`. An explicit
+    /// `requestedPaneID` must match a Dock pane; otherwise the focused/first pane
+    /// is used after ensuring the Dock has loaded its root pane.
+    func resolvePane(requestedPaneID: UUID?) -> PaneID? {
+        ensureLoaded()
+        if let requestedPaneID {
+            return bonsplitController.allPaneIds.first(where: { $0.id == requestedPaneID })
+        }
+        return bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first
+    }
+
+    func resolveSourcePanelId(_ requested: UUID?, preferredPaneId: PaneID? = nil) -> UUID? {
+        if let requested, panels[requested] != nil { return requested }
+        if let preferredPaneId,
+           let tabId = bonsplitController.selectedTab(inPane: preferredPaneId)?.id,
+           let panelId = surfaceIdToPanelId[tabId] {
+            return panelId
+        }
+        if let focused = focusedPanelId { return focused }
+        return panels.keys.first
+    }
+
+    func focusPanel(
+        _ panelId: UUID,
+        window: NSWindow? = nil,
+        claimKeyboardFocus: Bool = true
+    ) {
+        guard let paneId = paneId(forPanelId: panelId),
+              let tabId = surfaceId(forPanelId: panelId),
+              let panel = panels[panelId] else { return }
+        if claimKeyboardFocus {
+            noteKeyboardFocusIntent(window: window ?? NSApp.keyWindow ?? NSApp.mainWindow)
+        }
+        // Prime the target before Bonsplit emits its synchronous focus/selection
+        // callbacks.  This keeps terminal/browser focus intent ahead of the
+        // portal reparenting those callbacks can trigger.
+        let activationIntent = panel.preferredFocusIntentForActivation()
+        panel.prepareFocusIntentForActivation(activationIntent)
+        bonsplitController.focusPane(paneId)
+        bonsplitController.selectTab(tabId)
+        applyDockSelection(
+            tabId: tabId,
+            inPane: paneId,
+            focusIntent: activationIntent
+        )
+    }
+
+    /// Applies the complete user-interaction focus transaction for a Dock panel.
+    /// Model selection, window-scoped shortcut intent, and notification
+    /// dismissal move together so AppKit focus, Dock selection, and read state
+    /// converge on the same panel.
+    func focusPanelFromDockInteraction(_ panelId: UUID, window: NSWindow?) {
+        noteKeyboardFocusIntent(window: window)
+        focusPanel(panelId, window: window, claimKeyboardFocus: false)
+        if panels[panelId] is DeferredBrowserPanel {
+            _ = requestDeferredBrowserMaterialization(
+                panelId: panelId,
+                isVisibleInUI: true,
+                reason: "dock.explicitFocus"
+            )
+        }
+        _ = reassertDockPanelInputFocus(panelId)
+        scheduleDockPortalReconcile(reason: "dock.explicitFocus")
+        guard let appDelegate = AppDelegate.shared,
+              let tabManager = appDelegate.dockReferenceTabManager(for: self) else {
+            return
+        }
+        _ = tabManager.dismissNotificationOnDirectInteraction(
+            tabId: workspaceId,
+            surfaceId: panelId
+        )
+    }
+
+    /// Records Dock ownership before a pane-background interaction changes the
+    /// Bonsplit selection.  The focus coordinator is intentionally updated
+    /// before the model mutation so the newly selected panel can acquire its
+    /// AppKit responder during the same focus transaction.
+    func focusPaneFromDockInteraction(_ paneId: PaneID, window: NSWindow?) {
+        noteKeyboardFocusIntent(window: window)
+        bonsplitController.focusPane(paneId)
+        if let panelId = focusedPanelId {
+            _ = reassertDockPanelInputFocus(panelId)
+            scheduleDockPortalReconcile(reason: "dock.paneFocus")
+        }
+    }
+
+    /// Creates a Dock surface from an explicit Dock affordance and carries the
+    /// focus transaction through to the created panel.  Low-level ``newSurface``
+    /// callers remain focus-neutral so socket automation does not redirect the
+    /// user's keyboard unexpectedly.
+    @discardableResult
+    func newSurfaceFromDockAffordance(
+        kind: DockSurfaceKind,
+        inPane paneId: PaneID,
+        window: NSWindow?,
+        sourcePanelId: UUID? = nil
+    ) -> UUID? {
+        noteKeyboardFocusIntent(window: window)
+        guard let panelId = newSurface(
+            kind: kind,
+            inPane: paneId,
+            sourcePanelId: sourcePanelId,
+            focus: false
+        ) else {
+            return nil
+        }
+        focusPanelFromDockInteraction(panelId, window: window)
+        return panelId
+    }
+
+    /// Resolves both workspace and per-window Docks through their shared live
+    /// registry before applying pointer focus. The terminal portal can outlive a
+    /// SwiftUI host callback briefly, so pointer activation cannot depend on that
+    /// callback to update the authoritative Dock selection.
+    static func focusPanelFromDockPointer(_ panelId: UUID, window: NSWindow?) {
+        liveStore(containingPanel: panelId)?.focusPanelFromDockInteraction(panelId, window: window)
+    }
+
+    func triggerFocusFlash(panelId: UUID) {
+        panels[panelId]?.triggerFlash(reason: .navigation)
+    }
+
+    func triggerUserInitiatedFocusFlash(panelId: UUID) {
+        panels[panelId]?.triggerFlash(reason: .userInitiated)
+    }
+
+    func focusFirstControl() -> Bool {
+        guard let paneId = bonsplitController.focusedPaneId
+            ?? bonsplitController.allPaneIds.first else { return false }
+        guard let tabId = bonsplitController.selectedTab(inPane: paneId)?.id,
+              let panelId = surfaceIdToPanelId[tabId],
+              panels[panelId] != nil else { return false }
+        focusPanelFromDockInteraction(panelId, window: nil)
+        return true
     }
 
     func browserPanel(owning responder: NSResponder?, in window: NSWindow?) -> BrowserPanel? {
@@ -43,7 +226,11 @@ extension DockSplitStore {
     func newInFocusedPane(kind: DockSurfaceKind) {
         ensureLoaded()
         guard let paneId = bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first else { return }
-        _ = newSurface(kind: kind, inPane: paneId, focus: true)
+        _ = newSurfaceFromDockAffordance(
+            kind: kind,
+            inPane: paneId,
+            window: nil
+        )
     }
 
     func collapseToSingleEmptyPane() {
@@ -74,7 +261,10 @@ extension DockSplitStore {
     @discardableResult
     func toggleDockPaneZoom(inPane paneId: PaneID) -> Bool {
         guard bonsplitController.togglePaneZoom(inPane: paneId) else { return false }
-        bonsplitController.focusPane(paneId)
+        focusPaneFromDockInteraction(
+            paneId,
+            window: NSApp.keyWindow ?? NSApp.mainWindow
+        )
         applyVisibilityToAllPanels()
         scheduleDockPortalReconcile(reason: "dock.zoom")
         return true
@@ -118,20 +308,59 @@ extension DockSplitStore {
         scheduleDockPortalReconcile(reason: "dock.selection.focused")
     }
 
-    func applyDockSelection(tabId: TabID, inPane pane: PaneID) {
+    func applyDockSelection(
+        tabId: TabID,
+        inPane pane: PaneID,
+        focusIntent: PanelFocusIntent? = nil
+    ) {
         applyVisibilityToAllPanels()
         guard paneIsRenderedInVisibleDock(pane),
               bonsplitController.focusedPaneId == pane,
               let selectedPanel = panel(for: tabId) else { return }
 
-        let activationIntent = selectedPanel.preferredFocusIntentForActivation()
+        focusHistoryNavigation.recordFocusInHistory(
+            workspaceId: workspaceId,
+            panelId: selectedPanel.id,
+            preservingForwardBranch: false
+        )
+        let activationIntent = focusIntent ?? selectedPanel.preferredFocusIntentForActivation()
         selectedPanel.prepareFocusIntentForActivation(activationIntent)
         forEachPanel { panelId, panel in
             if panelId != selectedPanel.id {
                 panel.unfocus()
             }
         }
-        selectedPanel.focus()
+        if selectedPanel is DeferredBrowserPanel {
+            _ = requestDeferredBrowserMaterialization(
+                panelId: selectedPanel.id,
+                isVisibleInUI: true,
+                reason: "dock.selection"
+            )
+            return
+        }
+        if let browser = selectedPanel as? BrowserPanel {
+            _ = browser.restoreFocusIntent(activationIntent)
+        } else {
+            selectedPanel.focus()
+        }
+    }
+
+    func splitTabBarDividerDragDidBegin(_ controller: BonsplitController) {
+        TerminalWindowPortalRegistry.beginInteractiveGeometryResize(
+            owner: controller,
+            in: terminalResizeInteractionWindow()
+        )
+    }
+
+    func splitTabBarDividerDragDidEnd(_ controller: BonsplitController) {
+        TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: controller)
+    }
+
+    private func terminalResizeInteractionWindow() -> NSWindow? {
+        if let eventWindow = NSApp.currentEvent?.window { return eventWindow }
+        return panels.values.lazy.compactMap { panel in
+            (panel as? TerminalPanel)?.hostedView.window
+        }.first
     }
 
     func splitTabBar(_ controller: BonsplitController, didSelectTab tab: Bonsplit.Tab, inPane pane: PaneID) {
@@ -157,6 +386,7 @@ extension DockSplitStore {
         newPane: PaneID,
         orientation: SplitOrientation
     ) {
+        synchronizeOwnedPaneIds(with: controller)
         scheduleDockPortalReconcile(reason: "dock.splitPane")
         // Programmatic splits (config seed, `newSplit`, cross-container transfer)
         // seed their own new-pane tab, so don't auto-create another.
@@ -172,7 +402,14 @@ extension DockSplitStore {
 
         // Split button: the new pane is empty. Seed a terminal in it, matching
         // the main area (which always seeds a terminal on a UI split).
-        _ = newSurface(kind: .terminal, inPane: newPane, focus: true)
+        let sourcePanelId = (controller.selectedTab(inPane: originalPane)?.id)
+            .flatMap { surfaceIdToPanelId[$0] }
+        _ = newSurfaceFromDockAffordance(
+            kind: .terminal,
+            inPane: newPane,
+            window: NSApp.keyWindow ?? NSApp.mainWindow,
+            sourcePanelId: sourcePanelId
+        )
     }
 
     /// Mirrors `Workspace.splitTabBar(_:didMoveTab:…)`: keep the moved panel
@@ -184,17 +421,26 @@ extension DockSplitStore {
         fromPane source: PaneID,
         toPane destination: PaneID
     ) {
-        applyDockSelection(tabId: tab.id, inPane: destination)
-        panel(for: tab.id)?.focus()
+        // Bonsplit auto-closes an emptied source pane during a cross-pane move
+        // without emitting `didClosePane`, so this callback must reconcile the
+        // full ownership snapshot.
+        synchronizeOwnedPaneIds(with: controller)
+        let movedPanel = panel(for: tab.id)
+        (movedPanel as? TerminalPanel)?.recordPortalHostOwnershipChange()
+        if let movedPanel {
+            focusPanelFromDockInteraction(
+                movedPanel.id,
+                window: NSApp.keyWindow ?? NSApp.mainWindow
+            )
+        }
         scheduleDockPortalReconcile(reason: "dock.moveTab")
     }
 
-    /// Replaces a pane that holds only placeholder (panel-less) tabs with a real
-    /// Dock terminal, dropping the placeholders. Used after drag-to-split leaves
-    /// the source pane tabless.
-    private func repairPlaceholderOnlyDockPane(_ pane: PaneID) {
+    /// Replaces an empty or placeholder-only pane with a real Dock terminal,
+    /// dropping any placeholder tabs left behind by the split operation.
+    func repairPlaceholderOnlyDockPane(_ pane: PaneID) {
         let tabs = bonsplitController.tabs(inPane: pane)
-        guard !tabs.isEmpty, !tabs.contains(where: { panel(for: $0.id) != nil }) else { return }
+        guard !tabs.contains(where: { panel(for: $0.id) != nil }) else { return }
         _ = newSurface(kind: .terminal, inPane: pane, focus: false)
         for tab in bonsplitController.tabs(inPane: pane) where panel(for: tab.id) == nil {
             _ = bonsplitController.closeTab(tab.id)

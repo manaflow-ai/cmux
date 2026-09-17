@@ -2,13 +2,13 @@ import Foundation
 import Darwin
 import os
 
-nonisolated struct CmuxTopProcessScopeCacheKey: Hashable {
+struct CmuxTopProcessScopeCacheKey: Hashable {
     let pid: Int
     let startSeconds: Int
     let startMicroseconds: Int
 }
 
-private nonisolated struct CmuxTopProcessScopeCacheValue {
+private struct CmuxTopProcessScopeCacheValue {
     // nil means "this process was probed and has no cmux scope". A negative entry
     // is honored as a hit only until `negativeExpiresAtNanos`, so a non-cmux
     // process is re-probed at most once per TTL window instead of on every
@@ -34,7 +34,7 @@ nonisolated let cmuxTopNegativeScopeTTLNanoseconds: UInt64 = 60 * 1_000_000_000
 // probe completed (the scope may legitimately be absent) and is safe to cache.
 // `unavailable` means a transient failure (process exited mid-probe, pid reuse,
 // or a failed sysctl) and must NOT be cached so the next poll retries.
-nonisolated enum CmuxTopProcessScopeProbeResult: Equatable {
+enum CmuxTopProcessScopeProbeResult: Equatable {
     case resolved(CmuxTopProcessScope?)
     case unavailable
 }
@@ -47,7 +47,7 @@ private nonisolated let cmuxTopScopeCache = OSAllocatedUnfairLock(
     initialState: [CmuxTopProcessScopeCacheKey: CmuxTopProcessScopeCacheValue]()
 )
 
-nonisolated extension CmuxTopProcessSnapshot {
+extension CmuxTopProcessSnapshot {
     static func scopeCacheKey(from kinfo: kinfo_proc) -> CmuxTopProcessScopeCacheKey {
         let startTime = kinfo.kp_proc.p_un.__p_starttime
         return CmuxTopProcessScopeCacheKey(
@@ -281,7 +281,7 @@ nonisolated extension CmuxTopProcessSnapshot {
     }
 }
 
-nonisolated extension CmuxTopProcessArguments {
+extension CmuxTopProcessArguments {
     func matchesCMUXScope(workspaceId: UUID, surfaceId: UUID) -> Bool {
         guard let scope = CmuxTopProcessSnapshot.cmuxScope(arguments: arguments, environment: environment) else {
             return false

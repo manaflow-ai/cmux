@@ -10,9 +10,16 @@ public protocol NotificationDeliveryTerminalNavigating: AnyObject {
     func open(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool
 
     /// Opens a stored terminal notification, preserving any app-side context
-    /// that was not included in the delivered OS notification payload.
+    /// that was not included in the delivered OS notification payload. The
+    /// fallback provenance controls whether a missing stored notification may
+    /// follow its surface into another workspace.
     @discardableResult
-    func openNotification(id: UUID, fallbackTabId: UUID, fallbackSurfaceId: UUID?) -> Bool
+    func openNotification(
+        id: UUID,
+        fallbackTabId: UUID,
+        fallbackSurfaceId: UUID?,
+        fallbackRetargetsToLiveSurfaceOwner: Bool
+    ) -> Bool
 
     /// Performs a terminal notification click action.
     @discardableResult

@@ -65,6 +65,27 @@
         "additionalProperties": true
       }
     },
+    "computerUse": {
+      "title": "computerUse",
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Local computer-use tools and menu-bar visibility.",
+      "descriptionKey": "schemaDescriptions.computerUse.description",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow supported agent launches in cmux terminals to attach the local computer-use tools.",
+          "descriptionKey": "schemaDescriptions.computerUse.enabled"
+        },
+        "showInMenuBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show live computer-use sessions and focus actions in the menu bar.",
+          "descriptionKey": "schemaDescriptions.computerUse.showInMenuBar"
+        }
+      }
+    },
     "agentChat": {
       "title": "agentChat",
       "description": "Agent Chat GUI server settings. The built-in New agent chat action opens this URL in a browser workspace, probing /healthz first and optionally starting the server with startCommand.",
@@ -189,7 +210,8 @@
               "id": {
                 "type": "string",
                 "pattern": "^[A-Za-z0-9._-]+$",
-                "description": "Stable lowercase-ish identifier used in Vault persistence, for example pi."
+                "maxLength": 64,
+                "description": "Stable case-preserving ASCII identifier used in Vault persistence, for example pi."
               },
               "name": {
                 "type": "string",
@@ -434,7 +456,7 @@
         "workspaceInheritWorkingDirectory": {
           "type": "boolean",
           "default": true,
-          "description": "When true, new workspaces inherit the current workspace working directory. When false, new workspaces leave the working directory unset so Ghostty's working-directory setting can provide the default."
+          "description": "When true, new workspaces inherit the current workspace working directory. When false, new workspaces use Ghostty's working-directory setting instead."
         },
         "minimalMode": {
           "type": "boolean",
@@ -450,6 +472,19 @@
           "type": "boolean",
           "default": true,
           "description": "When cmux is inactive, the first click can activate and focus the clicked pane."
+        },
+        "paneResizeStepPixels": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200,
+          "default": 20,
+          "description": "Pixels moved per keypress when using pane-resize shortcuts.",
+          "descriptionKey": "schemaDescriptions.app.paneResizeStepPixels"
+        },
+        "focusHistoryIncludesPanesAndTabs": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, Back and Forward include focus changes between panes and tabs. When false, they navigate between workspaces only."
         },
         "preferredEditor": {
           "type": "string",
@@ -538,6 +573,12 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "adaptiveDefaultTheme": {
+          "type": "boolean",
+          "default": true,
+          "descriptionKey": "schemaDescriptions.terminal.adaptiveDefaultTheme",
+          "description": "When true (the default), cmux supplies an appearance-adaptive default palette unless a Ghostty theme or terminal colors are configured. Font and other settings are preserved. When false, Ghostty uses its fixed built-in palette. Explicit themes and colors always take precedence, including theme = light:X,dark:Y."
+        },
         "showScrollBar": {
           "type": "boolean",
           "default": true,
@@ -550,6 +591,29 @@
           "default": 1.0,
           "descriptionKey": "schemaDescriptions.terminal.scrollSpeed",
           "description": "Multiplier applied to terminal scroll wheel and trackpad deltas. Higher values scroll faster; lower values scroll slower."
+        },
+        "sessionContentMaxWidth": {
+          "oneOf": [
+            {
+              "type": "boolean",
+              "const": false
+            },
+            {
+              "type": "number",
+              "minimum": 320,
+              "multipleOf": 20
+            }
+          ],
+          "default": false,
+          "descriptionKey": "schemaDescriptions.terminal.sessionContentMaxWidth",
+          "description": "Optional maximum width, in points, for terminal and built-in agent chat content. Set false to use the full pane width."
+        },
+        "sessionContentAlignment": {
+          "type": "string",
+          "enum": ["left", "center", "right"],
+          "default": "center",
+          "descriptionKey": "schemaDescriptions.terminal.sessionContentAlignment",
+          "description": "Horizontal placement for terminal and built-in agent chat content when sessionContentMaxWidth is enabled."
         },
         "copyOnSelect": {
           "type": "boolean",
@@ -577,12 +641,14 @@
         "agentHibernation": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Opt-in Agent Hibernation settings. cmux kills idle background agent processes to free RAM and CPU, then resumes them with their saved session when their tab is visited. A terminal is only suspended when it runs a restorable coding agent, the agent lifecycle reports idle, the terminal is off-screen, the live-terminal limit is exceeded, and its output has stayed unchanged for the idle window plus a short confirmation settle window. The placeholder Resume button is a manual fallback.",
+          "descriptionKey": "schemaDescriptions.terminal.agentHibernation",
+          "description": "Routine Agent Hibernation settings. cmux kills idle background agent processes to free RAM and CPU, then resumes them with their saved session when their tab is visited. Routine hibernation requires a restorable coding agent whose lifecycle reports idle, an off-screen terminal, a live-terminal count above the configured limit, and unchanged output through the idle and confirmation windows. Independently, during critical memory pressure cmux may hibernate a bounded batch of safe idle background agents even when enabled is false; visible, running, needs-input, recently changed, and unprotectable agents remain excluded. The placeholder Resume button is a manual fallback.",
           "properties": {
             "enabled": {
               "type": "boolean",
               "default": false,
-              "description": "Enable Agent Hibernation."
+              "descriptionKey": "schemaDescriptions.terminal.agentHibernationEnabled",
+              "description": "Enable routine Agent Hibernation based on the live-terminal limit. Critical-pressure safety hibernation remains active when false."
             },
             "idleSeconds": {
               "type": "integer",
@@ -614,14 +680,14 @@
               "type": "integer",
               "minimum": 5,
               "maximum": 604800,
-              "default": 30,
+              "default": 5,
               "description": "Minimum seconds a terminal must stay off-screen before its GPU renderer memory is reclaimed."
             },
             "maxWarmRenderers": {
               "type": "integer",
               "minimum": 1,
               "maximum": 256,
-              "default": 12,
+              "default": 1,
               "description": "Most recently visible terminals to keep renderer-ready so switching stays instant. Extra off-screen renderers are reclaimed oldest first."
             }
           }
@@ -853,6 +919,12 @@
           "default": true,
           "description": "Flash the focused pane when requested."
         },
+        "paneFlashColor": {
+          "$ref": "#/$defs/colorHexOrNull",
+          "default": null,
+          "descriptionKey": "schemaDescriptions.notifications.paneFlashColor",
+          "description": "Override the pane flash and unread ring color. Null keeps the built-in blue."
+        },
         "suppressOnlyFocusedSurface": {
           "type": "boolean",
           "default": false,
@@ -906,6 +978,33 @@
           "type": "string",
           "default": "",
           "description": "Local path to the custom notification sound file."
+        },
+        "soundOverrides": {
+          "type": "object",
+          "default": {},
+          "maxProperties": 256,
+          "descriptionKey": "schemaDescriptions.notifications.soundOverrides",
+          "description": "Sparse per-agent and per-alert-type notification sound overrides. Missing cells use notifications.sound.",
+          "propertyNames": {
+            "allOf": [
+              { "pattern": "^[A-Za-z0-9._-]+$" },
+              { "maxLength": 64 },
+              { "not": { "enum": [".", ".."] } }
+            ]
+          },
+          "patternProperties": {
+            "^[A-Za-z0-9._-]+$": {
+              "type": "object",
+              "maxProperties": 3,
+              "additionalProperties": false,
+              "properties": {
+                "turnDone": { "$ref": "#/$defs/notificationSoundOverride" },
+                "needsInput": { "$ref": "#/$defs/notificationSoundOverride" },
+                "errorStalled": { "$ref": "#/$defs/notificationSoundOverride" }
+              }
+            }
+          },
+          "additionalProperties": false
         },
         "command": {
           "type": "string",
@@ -975,6 +1074,26 @@
           "default": true,
           "description": "Show custom workspace descriptions in the sidebar."
         },
+        "beta": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Experimental sidebar features.",
+          "properties": {
+            "workspaceTodos": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "Workspace todos checklist presentation.",
+              "properties": {
+                "checklistStyle": {
+                  "type": "string",
+                  "enum": ["popover", "inline"],
+                  "default": "popover",
+                  "description": "How a row's checklist opens from its summary line: an anchored popover or inline expansion."
+                }
+              }
+            }
+          }
+        },
         "branchLayout": {
           "type": "string",
           "enum": ["vertical", "inline"],
@@ -985,6 +1104,14 @@
           "type": "boolean",
           "default": true,
           "description": "Show the latest notification text in the sidebar."
+        },
+        "notificationMessageLineLimit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50,
+          "default": 12,
+          "description": "Maximum lines shown for the latest notification below each workspace title.",
+          "descriptionKey": "schemaDescriptions.sidebar.notificationMessageLineLimit"
         },
         "showBranchDirectory": {
           "type": "boolean",
@@ -1326,6 +1453,14 @@
           "default": "system",
           "description": "Embedded browser theme."
         },
+        "defaultZoomLevel": {
+          "type": "number",
+          "minimum": 0.25,
+          "maximum": 5,
+          "default": 1,
+          "descriptionKey": "schemaDescriptions.browser.defaultZoomLevel",
+          "description": "Default page zoom factor applied to newly opened browser pages (1 = 100%). Zoom In, Zoom Out, and Actual Size still adjust each page."
+        },
         "discardHiddenWebViews": {
           "type": "boolean",
           "default": true,
@@ -1385,6 +1520,22 @@
           ],
           "description": "HTTP hosts allowed in the embedded browser without a warning prompt."
         },
+        "urlAllowlist": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "descriptionKey": "schemaDescriptions.browser.urlAllowlist",
+          "default": [
+            "localhost",
+            "*.localhost",
+            "127.0.0.1",
+            "::1",
+            "0.0.0.0",
+            "*.localtest.me"
+          ],
+          "description": "Host or URL patterns that restrict embedded-browser navigation. The Settings UI suggests local development origins; saving a list opts into the optional restriction. Remove entries to block them, or leave the user value empty to disable it when no managed policy applies."
+        },
         "showImportHintOnBlankTabs": {
           "type": "boolean",
           "default": true,
@@ -1394,6 +1545,20 @@
           "type": "string",
           "default": "0.1.29",
           "description": "Pinned react-grab version for the browser toolbar helper."
+        }
+      }
+    },
+    "mobile": {
+      "title": "mobile",
+      "description": "Mac-side settings for cmux on iOS.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "artifactFolderAccess": {
+          "type": "string",
+          "enum": ["subtree", "oneLevel"],
+          "default": "subtree",
+          "description": "Controls whether a referenced or terminal-visible directory authorizes its full canonical subtree or only immediate children."
         }
       }
     },
@@ -1451,7 +1616,7 @@
     },
     "fileEditor": {
       "title": "fileEditor",
-      "description": "Built-in plain-text file editor settings.",
+      "description": "Built-in file editor settings.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -1460,6 +1625,38 @@
           "default": false,
           "description": "Wrap long lines at the editor's right edge instead of scrolling horizontally.",
           "descriptionKey": "schemaDescriptions.fileEditor.wordWrap"
+        },
+        "syntaxHighlighting": {
+          "type": "boolean",
+          "default": true,
+          "description": "Color source tokens in the built-in file editor.",
+          "descriptionKey": "schemaDescriptions.fileEditor.syntaxHighlighting"
+        },
+        "lineNumbers": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a line-number gutter in the built-in file editor.",
+          "descriptionKey": "schemaDescriptions.fileEditor.lineNumbers"
+        },
+        "indentGuides": {
+          "type": "boolean",
+          "default": true,
+          "description": "Draw vertical indent guides in the built-in file editor.",
+          "descriptionKey": "schemaDescriptions.fileEditor.indentGuides"
+        },
+        "currentLineHighlight": {
+          "type": "boolean",
+          "default": true,
+          "description": "Highlight the caret's line when the selection is empty.",
+          "descriptionKey": "schemaDescriptions.fileEditor.currentLineHighlight"
+        },
+        "tabWidth": {
+          "type": "integer",
+          "default": 4,
+          "minimum": 1,
+          "maximum": 8,
+          "description": "Columns per tab stop for indent guides.",
+          "descriptionKey": "schemaDescriptions.fileEditor.tabWidth"
         }
       }
     },
@@ -1523,6 +1720,8 @@
               "toggleSidebar",
               "newTab",
               "newBrowserWorkspace",
+              "newCloudWorkspace",
+              "newCloudMachine",
               "openFolder",
               "reopenPreviousSession",
               "goToWorkspace",
@@ -1534,30 +1733,49 @@
               "jumpToUnread",
               "toggleUnread",
               "markOldestUnreadAndJumpNext",
+              "markAllNotificationsRead",
+              "clearAllNotifications",
               "focusRightSidebar",
               "switchRightSidebarToFiles",
               "switchRightSidebarToFind",
               "switchRightSidebarToSessions",
               "switchRightSidebarToFeed",
               "switchRightSidebarToDock",
+              "switchRightSidebarToMachines",
               "triggerFlash",
               "nextSurface",
               "prevSurface",
+              "moveSurfaceLeft",
+              "moveSurfaceRight",
+              "moveSurfaceToPreviousPane",
+              "moveSurfaceToNextPane",
+              "moveSurfaceToPaneLeft",
+              "moveSurfaceToPaneRight",
+              "moveSurfaceToPaneUp",
+              "moveSurfaceToPaneDown",
               "selectSurfaceByNumber",
               "nextSidebarTab",
               "prevSidebarTab",
+              "nextSidebarTabInGroup",
+              "prevSidebarTabInGroup",
+              "moveWorkspaceUp",
+              "moveWorkspaceDown",
               "focusHistoryBack",
               "focusHistoryForward",
               "selectWorkspaceByNumber",
               "renameTab",
               "renameWorkspace",
               "editWorkspaceDescription",
+              "markWorkspaceDone",
+              "cycleWorkspaceStatus",
+              "toggleChecklistItemComplete",
               "closeTab",
               "closeOtherTabsInPane",
               "closeWorkspace",
               "newWorkspaceGroup",
               "groupSelectedWorkspaces",
               "toggleFocusedWorkspaceGroupCollapsed",
+              "reopenClosedWorkspace",
               "reopenClosedBrowserPanel",
               "newSurface",
               "toggleTerminalCopyMode",
@@ -1566,14 +1784,28 @@
               "attachTextBoxFile",
               "sendCtrlFToTerminal",
               "clearScreenKeepScrollback",
+              "simulatorHome",
+              "simulatorRotateLeft",
+              "simulatorRotateRight",
+              "simulatorToggleAppearance",
+              "simulatorToggleSoftwareKeyboard",
               "focusLeft",
               "focusRight",
               "focusUp",
               "focusDown",
+              "focusPreviousPane",
+              "focusNextPane",
               "splitRight",
               "splitDown",
               "toggleSplitZoom",
+              "increaseWorkspaceTerminalFontSize",
+              "decreaseWorkspaceTerminalFontSize",
+              "resetWorkspaceTerminalFontSize",
               "equalizeSplits",
+              "resize-pane-left",
+              "resize-pane-right",
+              "resize-pane-up",
+              "resize-pane-down",
               "splitBrowserRight",
               "splitBrowserDown",
               "toggleCanvasLayout",
@@ -1616,13 +1848,20 @@
               "toggleBrowserDeveloperTools",
               "showBrowserJavaScriptConsole",
               "toggleBrowserFocusMode",
+              "toggleBrowserDesignMode",
               "toggleReactGrab",
               "openDiffViewer",
               "diffViewerScrollDown",
               "diffViewerScrollUp",
+              "diffViewerScrollHalfPageDown",
+              "diffViewerScrollHalfPageUp",
+              "diffViewerScrollDownEmacs",
+              "diffViewerScrollUpEmacs",
               "diffViewerScrollToBottom",
               "diffViewerScrollToTop",
-              "diffViewerOpenFileSearch"
+              "diffViewerOpenFileSearch",
+              "diffViewerNextFile",
+              "diffViewerPreviousFile"
             ]
           },
           "properties": {
@@ -1638,6 +1877,18 @@
             "diffViewerScrollUp": {
               "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
+            "diffViewerScrollHalfPageDown": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "diffViewerScrollHalfPageUp": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "diffViewerScrollDownEmacs": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "diffViewerScrollUpEmacs": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
             "diffViewerScrollToBottom": {
               "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
@@ -1645,6 +1896,12 @@
               "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
             "diffViewerOpenFileSearch": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "diffViewerNextFile": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "diffViewerPreviousFile": {
               "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             }
           },
@@ -1655,7 +1912,7 @@
         "when": {
           "type": "object",
           "default": {},
-          "description": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
+          "description": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
           "descriptionKey": "schemaDescriptions.shortcuts.when",
           "additionalProperties": {
             "type": "string"
@@ -1679,6 +1936,36 @@
           "type": "null"
         }
       ]
+    },
+    "notificationSoundOverride": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sound"],
+          "properties": {
+            "sound": {
+              "type": "string",
+              "enum": ["default", "Basso", "Blow", "Bottle", "Frog", "Funk", "Glass", "Hero", "Morse", "Ping", "Pop", "Purr", "Sosumi", "Submarine", "Tink", "none"]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sound", "customSoundFilePath"],
+          "properties": {
+            "sound": { "const": "custom_file" },
+            "customSoundFilePath": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": ".*\\S.*"
+            }
+          }
+        }
+      ],
+      "descriptionKey": "schemaDescriptions.notifications.soundOverride",
+      "description": "A notification sound override. `default` uses notifications.sound, `none` disables playback, and the remaining values select a built-in or custom sound."
     },
     "shortcutBinding": {
       "oneOf": [

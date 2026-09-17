@@ -125,11 +125,52 @@ extension RemoteTmuxControlConnection {
         send(Self.paneReflowSubscriptionCommand(paneId: paneId))
     }
 
+    /// All three live subscriptions (reflow, cwd, header) for a pane in ONE
+    /// `refresh-client`. tmux accepts multiple `-B` directives per command,
+    /// so this is exactly equivalent to the three separate sends but costs
+    /// one FIFO slot instead of three. Under rapid pane churn the per-pane
+    /// subscription sends dominate the command stream, and collapsing 3→1
+    /// keeps the FIFO from backing up faster than tmux drains it.
+    func subscribePaneAll(paneId: Int) {
+        send(
+            "refresh-client"
+                + " -B \"\(Self.reflowSubscriptionPrefix)\(paneId):%\(paneId):"
+                + "#{alternate_on}\(PaneForegroundState.fieldSeparator)#{pane_current_command}\""
+                + " -B \"\(Self.cwdSubscriptionPrefix)\(paneId):%\(paneId):#{pane_current_path}\""
+                + " -B \"\(Self.headerSubscriptionPrefix)\(paneId):%\(paneId):#{T:pane-border-format}\""
+        )
+    }
+
 
     /// Removes the live reflow-classification subscription for `paneId` (issued once
     /// the pane is gone), mirroring ``unsubscribePanePath(paneId:)``.
     func unsubscribePaneReflow(paneId: Int) {
         send("refresh-client -B \(Self.reflowSubscriptionPrefix)\(paneId)")
+    }
+
+
+    /// The exact `refresh-client -B` line that subscribes `windowId`'s
+    /// `pane-border-status`. Same load-bearing quoting as
+    /// ``panePathSubscriptionCommand(paneId:)``.
+    static func windowBorderStatusSubscriptionCommand(windowId: Int) -> String {
+        "refresh-client -B \"\(borderStatusSubscriptionPrefix)\(windowId):@\(windowId):#{pane-border-status}\""
+    }
+
+
+    /// Subscribes to live `pane-border-status` changes for `windowId` — the only
+    /// layout input tmux mutates silently. See
+    /// ``RemoteTmuxControlConnection/borderStatusSubscriptionPrefix`` for why a
+    /// subscription is the only event-driven way to see it.
+    func subscribeWindowBorderStatus(windowId: Int) {
+        send(Self.windowBorderStatusSubscriptionCommand(windowId: windowId))
+    }
+
+
+    /// Removes `windowId`'s `pane-border-status` subscription (issued once the
+    /// window is gone), mirroring ``unsubscribePanePath(paneId:)``.
+    func unsubscribeWindowBorderStatus(windowId: Int) {
+        send("refresh-client -B \(Self.borderStatusSubscriptionPrefix)\(windowId)")
+        borderStatusByWindow.removeValue(forKey: windowId)
     }
 
 

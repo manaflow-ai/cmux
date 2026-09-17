@@ -17,6 +17,26 @@ extension RemoteSessionStrings {
             suspendedDetailFormat: String(
                 localized: "remote.state.suspended.detail",
                 defaultValue: "Can't reach %@ — automatic reconnect is paused. Use Reconnect when your network is back."
+            ),
+            reverseRelayUnavailableRetrying: String(
+                localized: "remoteSession.reverseRelay.unavailableRetrying",
+                defaultValue: "Remote SSH relay unavailable; retrying in 2 seconds"
+            ),
+            reverseRelayPortUnavailableRetrying: String(
+                localized:
+                    "remoteSession.reverseRelay.portUnavailableRetrying",
+                defaultValue:
+                    "Remote SSH relay port unavailable; retrying in 2 seconds"
+            ),
+            controlMasterOwnershipUnavailable: String(
+                localized:
+                    "remoteSession.controlMaster.ownershipUnavailable",
+                defaultValue:
+                    "SSH connection is busy in another cmux process."
+            ),
+            remoteProxyUnavailable: String(
+                localized: "remoteSession.proxy.unavailable",
+                defaultValue: "Remote proxy unavailable"
             )
         )
     }

@@ -41,6 +41,10 @@ extension TerminalController {
         )
     }
 
+    func controlSurfaceNotFoundMessage() -> String {
+        String(localized: "socket.surface.error.surfaceNotFound", defaultValue: "Surface not found")
+    }
+
     /// The byte-faithful twin of `v2BrowserDisabledExternalOpenResult`, mapped onto
     /// the shared ``ControlSurfaceBrowserDisabledOutcome``.
     private func surfaceBrowserDisabledOutcome(
@@ -113,12 +117,20 @@ extension TerminalController {
         guard let targetSurfaceId, ws.panels[targetSurfaceId] != nil else {
             return .noFocusedSurface
         }
+        guard remoteRelayTargetIsCurrent(
+            routing: routing,
+            workspace: ws,
+            surfaceID: targetSurfaceId
+        ) else {
+            return .requestedSurfaceNotFound(targetSurfaceId)
+        }
 
         if ws.isRemoteTmuxMirror, panelType == .terminal {
             let unsupported = mirrorRoutedUnsupportedOptions(
                 insertFirst: direction.insertFirst,
                 workingDirectory: inputs.workingDirectory,
                 initialCommand: inputs.initialCommand,
+                initialInput: inputs.initialInput,
                 tmuxStartCommand: inputs.tmuxStartCommand,
                 startupEnvironment: inputs.startupEnvironment,
                 initialDividerPosition: inputs.initialDividerPosition,
@@ -150,6 +162,14 @@ extension TerminalController {
                 bypassRemoteProxy: useLocalContext,
                 initialDividerPosition: dividerPosition
             )?.id
+        } else if panelType == .simulator {
+            newId = ws.newSimulatorSplit(
+                from: targetSurfaceId,
+                orientation: orientation,
+                insertFirst: insertFirst,
+                focus: focus,
+                initialDividerPosition: dividerPosition
+            )?.id
         } else {
             switch ws.newTerminalSplitOutcome(
                 from: targetSurfaceId,
@@ -158,6 +178,7 @@ extension TerminalController {
                 focus: focus,
                 workingDirectory: inputs.workingDirectory,
                 initialCommand: inputs.initialCommand,
+                initialInput: inputs.initialInput,
                 tmuxStartCommand: inputs.tmuxStartCommand,
                 startupEnvironment: inputs.startupEnvironment,
                 initialDividerPosition: dividerPosition,
@@ -242,6 +263,20 @@ extension TerminalController {
         guard ws.terminalPanel(for: surfaceId) != nil else {
             return .surfaceNotTerminal(surfaceId)
         }
+        guard remoteRelayTargetIsCurrent(
+            routing: routing,
+            workspace: ws,
+            surfaceID: surfaceId
+        ) else {
+            return .surfaceNotFoundForID(surfaceId)
+        }
+
+        let remoteRespawnRouting = ws.remotePTYRespawnRouting(panelId: surfaceId)
+        if remoteRespawnRouting == .unsupportedRemote {
+            // A remote-owned pane must never fall through to a local Ghostty
+            // exec when its transport cannot provide the persistent PTY bridge.
+            return .respawnFailed(surfaceId)
+        }
 
         v2MaybeFocusWindow(for: tabManager)
         v2MaybeSelectWorkspace(tabManager, workspace: ws)
@@ -249,14 +284,36 @@ extension TerminalController {
         let focus: Bool? = inputs.hasFocusParam
             ? v2FocusAllowed(requested: inputs.requestedFocus)
             : nil
-        guard let replacementPanel = ws.respawnTerminalSurface(
-            panelId: surfaceId,
-            command: inputs.command,
-            workingDirectory: inputs.workingDirectory,
-            tmuxStartCommand: inputs.tmuxStartCommand,
-            focus: focus,
-            allowTextBoxFocusDefault: focus == true
-        ) else {
+        let replacementPanel: TerminalPanel?
+        switch remoteRespawnRouting {
+        case .persistentSSH:
+            guard let plan = ws.remotePTYRespawnPlan(
+                panelId: surfaceId,
+                rawCommand: inputs.command,
+                remoteWorkingDirectory: inputs.workingDirectory
+            ) else {
+                return .respawnFailed(surfaceId)
+            }
+            replacementPanel = ws.respawnRemotePTYSurface(
+                panelId: surfaceId,
+                plan: plan,
+                rawStartCommand: inputs.tmuxStartCommand,
+                focus: focus,
+                allowTextBoxFocusDefault: focus == true
+            )
+        case .local:
+            replacementPanel = ws.respawnTerminalSurface(
+                panelId: surfaceId,
+                command: inputs.command,
+                workingDirectory: inputs.workingDirectory,
+                tmuxStartCommand: inputs.tmuxStartCommand,
+                focus: focus,
+                allowTextBoxFocusDefault: focus == true
+            )
+        case .unsupportedRemote:
+            return .respawnFailed(surfaceId)
+        }
+        guard let replacementPanel else {
             return .respawnFailed(surfaceId)
         }
         return .respawned(
@@ -337,7 +394,7 @@ extension TerminalController {
         }
         v2MaybeFocusWindow(for: tabManager)
         v2MaybeSelectWorkspace(tabManager, workspace: ws)
-
+        if let remote = controlRemoteTmuxSurfaceCreate(workspace: ws, tabManager: tabManager, inputs: inputs, panelType: panelType) { return remote }
         let paneId: PaneID? = {
             if let paneUUID = inputs.requestedPaneID {
                 return ws.bonsplitController.allPaneIds.first(where: { $0.id == paneUUID })
@@ -352,6 +409,7 @@ extension TerminalController {
             let unsupported = mirrorRoutedUnsupportedOptions(
                 workingDirectory: inputs.workingDirectory,
                 initialCommand: inputs.initialCommand,
+                initialInput: inputs.initialInput,
                 tmuxStartCommand: inputs.tmuxStartCommand,
                 startupEnvironment: inputs.startupEnvironment,
                 remotePTYSessionID: inputs.remotePTYSessionID
@@ -372,6 +430,11 @@ extension TerminalController {
                 creationPolicy: .automationPreload,
                 bypassRemoteProxy: useLocalContext
             )?.id
+        } else if panelType == .simulator {
+            newPanelId = ws.newSimulatorSurface(
+                inPane: paneId,
+                focus: focus
+            )?.id
         } else if panelType == .agentSession {
             newPanelId = ws.newAgentSessionSurface(
                 inPane: paneId,
@@ -387,6 +450,7 @@ extension TerminalController {
                 workingDirectory: inputs.workingDirectory,
                 initialCommand: inputs.initialCommand,
                 tmuxStartCommand: inputs.tmuxStartCommand,
+                initialInput: inputs.initialInput,
                 startupEnvironment: inputs.startupEnvironment,
                 remotePTYSessionID: inputs.remotePTYSessionID,
                 suppressWorkspaceRemoteStartupCommand: useLocalContext,
@@ -422,12 +486,21 @@ extension TerminalController {
 
     func controlSurfaceClose(
         routing: ControlRoutingSelectors,
-        surfaceID: UUID?
+        surfaceID: UUID?,
+        hasSurfaceIDParam: Bool
     ) -> ControlSurfaceCloseResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
-        if let resolution = controlWindowDockSurfaceClose(routing: routing, surfaceID: surfaceID, tabManager: tabManager) {
+        if hasSurfaceIDParam, surfaceID == nil {
+            return .invalidSurfaceID
+        }
+        if let resolution = controlWindowDockSurfaceClose(
+            routing: routing,
+            surfaceID: surfaceID,
+            hasSurfaceIDParam: hasSurfaceIDParam,
+            tabManager: tabManager
+        ) {
             return resolution
         }
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
@@ -435,10 +508,18 @@ extension TerminalController {
         }
         guard let surfaceId = resolvedSurfaceIdForClose(
             explicitSurfaceID: surfaceID,
+            hasSurfaceIDParam: hasSurfaceIDParam,
             routing: routing,
             fallbackWorkspace: ws
         ) else {
             return .noFocusedSurface
+        }
+        guard remoteRelayTargetIsCurrent(
+            routing: routing,
+            workspace: ws,
+            surfaceID: surfaceId
+        ) else {
+            return .surfaceNotFound(surfaceId)
         }
         if let remote = controlRemoteTmuxSurfaceClose(
             workspace: ws,
@@ -509,21 +590,6 @@ extension TerminalController {
         }
         workspace.markCloseHistoryEligible(panelId: surfaceId)
         return workspace.closePanel(surfaceId, force: force)
-    }
-
-    /// The byte-faithful twin of `v2PanelType`'s token mapping (the `v2PanelType`
-    /// helper takes `[String: Any]`; the coordinator passes the raw token, so this
-    /// maps a token directly, identical to the legacy switch).
-    private func surfacePanelType(forRawToken raw: String) -> PanelType? {
-        switch v2NormalizedToken(raw) {
-        case "terminal": return .terminal
-        case "browser": return .browser
-        case "markdown": return .markdown
-        case "filepreview": return .filePreview
-        case "rightsidebartool": return .rightSidebarTool
-        case "agentsession": return .agentSession
-        default: return nil
-        }
     }
 
     private func surfaceRemoteContextWantsLocal(_ raw: String?) -> Bool {

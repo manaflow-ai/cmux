@@ -109,7 +109,21 @@ class HookSocketServer:
 
         method = request.get("method")
         result: dict[str, object] = {}
-        if method == "surface.list":
+        if method == "agent.resolve_delivery_target":
+            params = request.get("params")
+            if isinstance(params, dict) and "pid" in params:
+                result = {
+                    "source": "pid",
+                    "workspace_id": self.workspace_id,
+                    "surface_id": self.surface_id,
+                }
+            else:
+                result = {
+                    "source": "surface",
+                    "workspace_id": self.workspace_id,
+                    "surface_id": self.surface_id,
+                }
+        elif method == "surface.list":
             result = {
                 "surfaces": [
                     {
@@ -254,8 +268,11 @@ def main() -> int:
         )
         clear_commands = server.commands[clear_start:]
 
-        if not has_command(clear_commands, f"clear_notifications --tab={workspace_id}"):
-            print("FAIL: expected clear SessionStart to clear stale notifications")
+        if not has_command(
+            clear_commands,
+            f"clear_notifications --tab={workspace_id} --panel={surface_id}",
+        ):
+            print("FAIL: expected clear SessionStart to clear only the current panel")
             print(f"clear_commands={clear_commands!r}")
             return 1
         if not has_command_with(

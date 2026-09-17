@@ -25,7 +25,6 @@ extension RemoteTmuxSizingUITests {
         _ = tmux(["select-layout", "-t", "\(sessionName):0", "even-horizontal"])
         _ = tmux(["new-window", "-t", sessionName])
         _ = tmux(["select-window", "-t", "\(sessionName):0"])
-        startWidthProbes()
     }
 
     /// Builds one window per shape (plus the plain single-pane window), all
@@ -72,57 +71,6 @@ extension RemoteTmuxSizingUITests {
         _ = tmux(["select-layout", "-t", "\(sessionName):6", "main-horizontal"])
         _ = tmux(["new-window", "-t", sessionName, "-n", "plain"])
         _ = tmux(["select-window", "-t", "\(sessionName):0"])
-        startWidthProbes()
-    }
-
-    /// Runs `scripts/remote-tmux-width-probe.sh` in the FIRST window's panes:
-    /// continuous (synchronized-output) redraw traffic makes the resize
-    /// scenarios exercise live content, and the recorded CI video shows each
-    /// pane's PTY-wide ruler, bottom sentinel, and two-axis check — a
-    /// human-readable narration of the sizing oracle. One window's worth is
-    /// the ceiling: probes in every zoo pane push enough %output through the
-    /// control stream to stall the app's main thread for tens of seconds
-    /// mid-sweep. Scenarios never PARSE the probe's output; the machine
-    /// truth is the `remote.tmux.pane_grids` assertion.
-    func startWidthProbes() {
-        let probe = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent() // cmuxUITests/
-            .deletingLastPathComponent() // repo root
-            .appendingPathComponent("scripts/remote-tmux-width-probe.sh").path
-        guard FileManager.default.isExecutableFile(atPath: probe) else { return }
-        // Wait on the real readiness signal — every pane's foreground command
-        // is an interactive shell — instead of a fixed grace period.
-        let deadline = Date().addingTimeInterval(10)
-        while Date() < deadline {
-            guard let commands = tmux(["list-panes", "-t", "\(sessionName):@0", "-F", "#{pane_current_command}"]) else { break }
-            let shells: Set<Substring> = ["zsh", "bash", "sh", "fish", "-zsh", "-bash"]
-            if commands.split(separator: "\n").allSatisfy({ shells.contains($0) }) { break }
-            Thread.sleep(forTimeInterval: 0.2)
-        }
-        guard let panes = tmux(["list-panes", "-t", "\(sessionName):@0", "-F", "#{pane_id}"]) else { return }
-        for pane in panes.split(separator: "\n") {
-            // Slow tick: the probes exist for churn and human-readable CI
-            // video, not the oracle. The default 4Hz across a dozen zoo
-            // panes floods %output through the control stream hard enough
-            // to starve the app's main thread mid-sweep.
-            _ = tmux(["send-keys", "-t", String(pane), "PROBE_TICK=2 bash \(probe)", "Enter"])
-        }
-        // Wait for every probe's own liveness marker (it sets the
-        // @probe_alive pane option as its first act) so scenarios never
-        // start measuring before the probes are actually running — on an
-        // overloaded runner the send-keys above can take seconds to land.
-        // Gate on the pane COUNT as well as the flags: tmux(_:) trims
-        // trailing newlines, so a final pane whose @probe_alive is still
-        // unset would otherwise vanish from the split and allSatisfy would
-        // pass with that probe not yet running.
-        let expectedProbePaneCount = panes.split(separator: "\n").count
-        let aliveDeadline = Date().addingTimeInterval(15)
-        while Date() < aliveDeadline {
-            guard let flags = tmux(["list-panes", "-t", "\(sessionName):@0", "-F", "#{@probe_alive}"]) else { return }
-            let perPane = flags.components(separatedBy: "\n")
-            if perPane.count == expectedProbePaneCount, perPane.allSatisfy({ $0 == "1" }) { return }
-            Thread.sleep(forTimeInterval: 0.2)
-        }
     }
 
     /// Maps a window NAME to its tmux window id (the `@N` number).
@@ -161,18 +109,33 @@ extension RemoteTmuxSizingUITests {
         return false
     }
 
-    /// Mirrors the lab host in a dedicated, activated cmux window — the
-    /// `cmux ssh-tmux` entry point. Activation matters: it mounts the mirror
-    /// views, and only mounted views have geometry to feed the client-size
-    /// push (`remote.tmux.mirror` alone creates unselected workspaces whose
-    /// windows never claim a size).
-    func attachSession() {
-        let response = socketJSON(method: "remote.tmux.window", params: [
+    /// Mirrors the lab host via `remote.tmux.mirror` and records the hosting
+    /// window (for `setMirrorWindowSize`). Activation matters: it mounts the
+    /// mirror views, and only mounted views have geometry to feed the
+    /// client-size push. `activate: false` keeps the launch workspace in
+    /// front instead, so the mirror workspace mounts hidden — the birth
+    /// state where the first container reading arrives with no visible
+    /// window to vouch for it. Returns the mirror workspace's id for a
+    /// later reveal via `selectWorkspace`.
+    @discardableResult
+    func attachSession(activate: Bool = true) -> String? {
+        let response = socketJSON(method: "remote.tmux.mirror", params: [
             "host": "e2e-shim-host",
-            "activate": true,
+            "activate": activate,
         ])
-        XCTAssertEqual(response?["ok"] as? Bool, true, "remote.tmux.window failed: \(response ?? [:])")
+        XCTAssertEqual(response?["ok"] as? Bool, true, "remote.tmux.mirror failed: \(response ?? [:])")
         XCTAssertEqual(response?["mirrored"] as? Bool, true, "host not mirrored: \(response ?? [:])")
         mirrorWindowId = response?["window_id"] as? String
+        return (response?["workspace_ids"] as? [Any])?.compactMap { $0 as? String }.first
+    }
+
+    /// Selects a workspace by id via `workspace.select` — the socket twin of
+    /// clicking it in the sidebar, and the reveal step of the hidden-mirror
+    /// lifecycle (`surface.focus` only switches tabs INSIDE the selected
+    /// workspace, so it cannot bring a hidden mirror to the front).
+    @discardableResult
+    func selectWorkspace(id: String) -> Bool {
+        let response = socketJSON(method: "workspace.select", params: ["workspace_id": id])
+        return response?["ok"] as? Bool == true
     }
 }

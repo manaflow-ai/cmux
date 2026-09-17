@@ -20,23 +20,96 @@ enum SettingsWindowFactory {
     /// navigation consumer is installed (instance-scoped: never routed
     /// through the shared singleton, so test presenters using this real
     /// factory drain their own pending navigation).
-    static func makeSettingsWindow(onContentAppear: @escaping @MainActor () -> Void) -> NSWindow {
+    ///
+    /// `initialNavigationTarget` is the section a targeted show is about to
+    /// navigate to (`cmux settings open <target>`, sidebar deep links), so
+    /// the content can mount that section first instead of the last-viewed
+    /// one and then re-mounting on delivery
+    /// (https://github.com/manaflow-ai/cmux/issues/12134).
+    static func makeSettingsWindow(
+        initialNavigationTarget: SettingsNavigationTarget? = nil,
+        onContentAppear: @escaping @MainActor () -> Void
+    ) -> NSWindow {
         if AppDelegate.shared?.settingsRuntime == nil {
             // ``SettingsWindowHostRoot`` presents a visible, localized error
             // in this state — loud, never a silent no-op (issue #7777).
             log.fault("settings.window.factory settingsRuntime unavailable; presenting fallback content")
         }
         let hostingController = NSHostingController(
-            rootView: SettingsWindowHostRoot(onContentAppear: onContentAppear)
+            rootView: SettingsWindowHostRoot(
+                initialSection: initialNavigationTarget.flatMap { SettingsSectionID(rawValue: $0.rawValue) },
+                onContentAppear: onContentAppear
+            )
         )
-        // Bridge SwiftUI's navigation title, the sidebar toggle, and the
-        // search field into the AppKit window's titlebar/toolbar.
-        hostingController.sceneBridgingOptions = [.toolbars, .title]
+        // Bridge only the navigation title. `.toolbars` is deliberately
+        // absent: the scene bridge never materializes NavigationSplitView's
+        // implicit sidebar toggle in an AppKit-hosted window, so the factory
+        // owns the toolbar below instead.
+        hostingController.sceneBridgingOptions = [.title]
         let window = SettingsHostWindow(contentViewController: hostingController)
-        window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+        // Match the chrome SwiftUI applies to its own `WindowGroup` window
+        // (the 0.64.17 Settings scene): `.fullSizeContentView` lets the
+        // NavigationSplitView sidebar extend under the titlebar for the
+        // full-height-sidebar look, while the titlebar itself stays at the
+        // AppKit defaults (visible title, opaque titlebar, automatic
+        // toolbar style and separator). Forcing any of those away from
+        // the defaults is what produced the #8015 hybrid chrome.
+        window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
         window.title = String(localized: "settings.title", defaultValue: "Settings")
+        // [flexible space, sidebar toggle, sidebar tracking separator] is the
+        // exact item layout the SwiftUI-owned 0.64.17 window built for its
+        // NavigationSplitView: the toggle sits at the sidebar's trailing edge
+        // and the title renders bold at the detail column's leading edge.
+        window.toolbar = window.sidebarToolbarController.makeToolbar()
         window.setContentSize(NSSize(width: 980, height: 680))
         return window
+    }
+}
+
+/// AppKit-owned replacement for the sidebar toggle the SwiftUI `WindowGroup`
+/// scene provided implicitly in 0.64.17. The toggle posts the same
+/// notification the app's Toggle Left Sidebar menu command routes to the
+/// Settings window, so both entrypoints share one `columnVisibility`
+/// mutation path in ``SettingsWindowRoot``.
+@MainActor
+final class SettingsSidebarToolbarController: NSObject, NSToolbarDelegate {
+    static let toggleSidebarItemIdentifier = NSToolbarItem.Identifier("cmux.settings.toggleSidebar")
+
+    func makeToolbar() -> NSToolbar {
+        let toolbar = NSToolbar(identifier: "cmux.settings.toolbar")
+        toolbar.delegate = self
+        toolbar.displayMode = .iconOnly
+        toolbar.allowsUserCustomization = false
+        return toolbar
+    }
+
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [.flexibleSpace, Self.toggleSidebarItemIdentifier, .sidebarTrackingSeparator]
+    }
+
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        toolbarDefaultItemIdentifiers(toolbar)
+    }
+
+    func toolbar(
+        _ toolbar: NSToolbar,
+        itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
+        willBeInsertedIntoToolbar flag: Bool
+    ) -> NSToolbarItem? {
+        guard itemIdentifier == Self.toggleSidebarItemIdentifier else { return nil }
+        let label = String(localized: "shortcut.toggleLeftSidebar.label", defaultValue: "Toggle Left Sidebar")
+        let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+        item.isBordered = true
+        item.image = NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: label)
+        item.label = label
+        item.toolTip = String(localized: "titlebar.sidebar.tooltip", defaultValue: "Show or hide the sidebar")
+        item.target = self
+        item.action = #selector(requestSidebarToggle(_:))
+        return item
+    }
+
+    @objc private func requestSidebarToggle(_ sender: Any?) {
+        NotificationCenter.default.post(name: SettingsWindowRoot.sidebarToggleRequestName, object: nil)
     }
 }
 
@@ -62,6 +135,10 @@ extension SettingsWindowPresenter {
 class SettingsHostWindow: NSWindow {
     private(set) var isClosingSettingsWindow = false
 
+    /// Retains the toolbar delegate for the window's lifetime
+    /// (`NSToolbar.delegate` is unretained).
+    let sidebarToolbarController = SettingsSidebarToolbarController()
+
     override func close() {
         isClosingSettingsWindow = true
         super.close()
@@ -74,6 +151,10 @@ class SettingsHostWindow: NSWindow {
 /// inherit the App scene's SwiftUI environment — and delivers any pending
 /// navigation target once the content is live.
 struct SettingsWindowHostRoot: View {
+    /// Section mounted in the first layout pass when the show that built
+    /// this window carries a navigation target; `nil` restores the
+    /// last-viewed section.
+    let initialSection: SettingsSectionID?
     /// Readiness signal back to the presenter instance that owns this
     /// window. The presenter defers its pending-navigation post one
     /// main-actor hop (so the content's restore navigation cannot clobber
@@ -93,7 +174,7 @@ struct SettingsWindowHostRoot: View {
     @ViewBuilder
     private var content: some View {
         if let runtime = AppDelegate.shared?.settingsRuntime {
-            SettingsWindowRoot(runtime: runtime)
+            SettingsWindowRoot(runtime: runtime, initialSection: initialSection)
                 .settingsRuntime(runtime)
         } else {
             // Unreachable in a normally-launched app (the runtime is created

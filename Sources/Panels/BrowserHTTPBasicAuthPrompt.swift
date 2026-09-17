@@ -1,4 +1,5 @@
 import AppKit
+import CMUXMobileCore
 import Foundation
 import WebKit
 
@@ -53,6 +54,7 @@ func browserHandleHTTPBasicAuthenticationChallenge(
     alertFactory: @escaping @MainActor () -> NSAlert = { NSAlert() },
     windowProvider: (() -> NSWindow?)? = nil,
     presentAlert: @escaping BrowserAlertPresenter = browserPresentAlert,
+    browserPanel: BrowserPanel? = nil,
     registerCancelPrompt: ((@escaping () -> Void) -> Void)? = nil,
     completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
 ) -> Bool {
@@ -155,18 +157,71 @@ func browserHandleHTTPBasicAuthenticationChallenge(
             completeOnce(.cancelAuthenticationChallenge, nil)
         }
 
-        registerCancelPrompt? {
-            browserDismissHTTPBasicAuthPrompt(alert)
-            handleCancel()
-        }
-
-        if let windowProvider {
+        if let browserPanel {
+            let signInLabel = alert.buttons[0].title
+            let cancelLabel = alert.buttons[1].title
+            let dialog = browserPanel.presentMobileBrowserDialog(
+                kind: .httpBasicAuthentication,
+                title: alert.messageText,
+                message: accessoryMessage,
+                host: challenge.protectionSpace.host,
+                buttons: [
+                    MobileBrowserDialogButton(id: "sign_in", label: signInLabel, role: .default),
+                    MobileBrowserDialogButton(id: "cancel", label: cancelLabel, role: .cancel),
+                ],
+                textField: MobileBrowserDialogTextField(
+                    placeholder: passwordField.placeholderString,
+                    initial: usernameField.stringValue,
+                    secure: true
+                ),
+                informational: false,
+                alert: alert,
+                response: { buttonID, text in
+                    guard buttonID == "sign_in" else {
+                        completeOnce(.cancelAuthenticationChallenge, nil)
+                        return
+                    }
+                    let components = (text ?? "").split(
+                        separator: "\0",
+                        maxSplits: 1,
+                        omittingEmptySubsequences: false
+                    )
+                    let user = components.count == 2 ? String(components[0]) : usernameField.stringValue
+                    let password = components.count == 2 ? String(components[1]) : (text ?? "")
+                    completeOnce(
+                        .useCredential,
+                        URLCredential(user: user, password: password, persistence: .forSession)
+                    )
+                },
+                macResponse: { response in
+                    let credentials = usernameField.stringValue + "\0" + passwordField.stringValue
+                    return (response == .alertFirstButtonReturn ? "sign_in" : "cancel", credentials)
+                },
+                cancelButtonID: "cancel"
+            )
+            registerCancelPrompt? {
+                _ = browserPanel.mobileBrowserDialogBroker.respond(MobileBrowserDialogRespondParameters(
+                    panelID: dialog.panelID,
+                    dialogID: dialog.dialogID,
+                    buttonID: "cancel",
+                    text: nil
+                ))
+            }
+        } else if let windowProvider {
+            registerCancelPrompt? {
+                browserDismissHTTPBasicAuthPrompt(alert)
+                handleCancel()
+            }
             if let window = windowProvider() {
                 alert.beginSheetModal(for: window, completionHandler: handleResponse)
             } else {
                 handleResponse(alert.runModal())
             }
         } else {
+            registerCancelPrompt? {
+                browserDismissHTTPBasicAuthPrompt(alert)
+                handleCancel()
+            }
             presentAlert(alert, webView, handleResponse, handleCancel)
         }
     }

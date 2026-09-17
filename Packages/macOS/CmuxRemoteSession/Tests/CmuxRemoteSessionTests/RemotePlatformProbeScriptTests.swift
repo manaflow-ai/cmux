@@ -9,10 +9,10 @@ import Testing
 // interpolated into remote shell, and must strip internal markers from the
 // stdout used in user-facing error detail.
 //
-// `.serialized`: each script case spawns a real `Process` with `Pipe`s; the
-// suite shares the process-global fd table and is not parallel-safe, matching
-// RemoteSessionProcessRunnerTests.
-@Suite("RemotePlatformProbeScript", .serialized)
+// Each script case spawns a real `Process` with `Pipe`s, so this suite lives
+// under the shared serialized subprocess parent.
+extension RemoteSubprocessTests {
+@Suite("RemotePlatformProbeScript")
 struct RemotePlatformProbeScriptTests {
     private struct ProcessResult {
         let status: Int32
@@ -113,6 +113,98 @@ struct RemotePlatformProbeScriptTests {
         )
     }
 
+    @Test("A zero-byte executable is reported as not installed")
+    func zeroByteExecutableIsNotInstalled() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-remote-platform-probe-empty-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        let daemonURL = home
+            .appendingPathComponent(".cmux/bin/cmuxd-remote/test-version/linux-amd64", isDirectory: true)
+            .appendingPathComponent("cmuxd-remote", isDirectory: false)
+        try fileManager.createDirectory(at: daemonURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
+        try Data().write(to: daemonURL)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: daemonURL.path)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try Self.writeExecutableShellFile(
+            at: bin.appendingPathComponent("uname"),
+            body: """
+            #!/bin/sh
+            case "${1:-}" in
+              -s) printf '%s\\n' Linux ;;
+              -m) printf '%s\\n' x86_64 ;;
+              *) exit 1 ;;
+            esac
+            """
+        )
+
+        let result = try Self.runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "HOME=\(home.path)",
+                "PATH=\(bin.path):/usr/bin:/bin",
+                "/bin/sh",
+                "-c",
+                RemoteSessionCoordinator.remotePlatformProbeScript(version: "test-version"),
+            ]
+        )
+
+        let outputComment = Comment(rawValue: result.stdout + result.stderr)
+        #expect(result.status == 0, outputComment)
+        #expect(
+            result.stdout.contains("\(RemoteSessionCoordinator.remotePlatformProbeExistsMarker)no"),
+            outputComment
+        )
+        #expect(
+            !result.stdout.contains("\(RemoteSessionCoordinator.remotePlatformProbeExistsMarker)yes"),
+            outputComment
+        )
+    }
+
+    @Test("Bootstrap diagnostics include remote size and the persistent daemon log tail")
+    func diagnosticsIncludeSizeAndLogTail() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-remote-diagnostics-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let remotePath = home.appendingPathComponent(".cmux/bin/cmuxd-remote/test/linux-amd64/cmuxd-remote")
+        let logURL = home.appendingPathComponent(".cmux/daemon/test/repair-slot/daemon.log")
+        try fileManager.createDirectory(at: remotePath.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: logURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("abc".utf8).write(to: remotePath)
+        try Data("daemon_ready\nrepair_reason=integrity\n".utf8).write(to: logURL)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let result = try Self.runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "HOME=\(home.path)",
+                "PATH=/usr/bin:/bin",
+                "/bin/sh",
+                "-c",
+                RemoteSessionCoordinator.remoteDaemonDiagnosticsScript(
+                    remotePath: remotePath.path,
+                    version: "test",
+                    persistentDaemonSlot: "repair-slot"
+                ),
+            ]
+        )
+
+        let outputComment = Comment(rawValue: result.stdout + result.stderr)
+        #expect(result.status == 0, outputComment)
+        #expect(result.stdout.contains("remote_path=\(remotePath.path)"), outputComment)
+        #expect(result.stdout.contains("remote_size=3"), outputComment)
+        #expect(result.stdout.contains("daemon_log_tail:"), outputComment)
+        #expect(result.stdout.contains("repair_reason=integrity"), outputComment)
+    }
+
     @Test("Probe sanitizes the version before shell interpolation")
     func probeScriptSanitizesVersionBeforeShellInterpolation() throws {
         let fileManager = FileManager.default
@@ -195,10 +287,6 @@ struct RemotePlatformProbeScriptTests {
     }
 
     private static func runProcess(executablePath: String, arguments: [String]) throws -> ProcessResult {
-        // Serialize against the other real-subprocess suite; see
-        // ``remoteSubprocessTestLock``.
-        remoteSubprocessTestLock.lock()
-        defer { remoteSubprocessTestLock.unlock() }
         let process = Process()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
@@ -215,4 +303,5 @@ struct RemotePlatformProbeScriptTests {
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         return ProcessResult(status: process.terminationStatus, stdout: stdout, stderr: stderr)
     }
+}
 }
