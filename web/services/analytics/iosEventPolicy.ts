@@ -9,6 +9,22 @@ export const POSTHOG_PROJECT_KEY =
 /** The PostHog capture host (no trailing slash). */
 export const POSTHOG_HOST = (process.env.POSTHOG_HOST ?? "https://r.cmux.com").replace(/\/$/, "");
 
+/**
+ * Test runners must never use the production PostHog transport by default.
+ * The explicit marker is set by the web test preload; NODE_ENV and VITEST
+ * also cover direct module tests that do not load that preload.
+ */
+export function isAnalyticsTestRun(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  return (
+    env.CMUX_ANALYTICS_TEST_MODE === "1" ||
+    env.NODE_ENV === "test" ||
+    env.VITEST === "true" ||
+    env.VITEST === "1"
+  );
+}
+
 /** Max request size for an analytics batch. */
 export const MAX_ANALYTICS_REQUEST_BYTES = 64 * 1024;
 
@@ -35,6 +51,8 @@ const ALLOWED_EVENTS: ReadonlySet<string> = new Set([
   "ios_sign_in_completed",
   "ios_sign_in_failed",
   "ios_sign_in_cancelled",
+  "ios_billing_recovery_attempted",
+  "ios_billing_recovery_failed",
   // Pairing
   "ios_pairing_screen_viewed",
   "ios_pairing_started",

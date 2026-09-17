@@ -6,6 +6,21 @@ import Testing
 @Suite(.serialized)
 struct CmxIrohTrustBrokerClientTests {
     @Test
+    func discoveryScopeNormalizesOnlyPeerTags() throws {
+        let scope = try CmxConnectivityDiscoveryScope(
+            deviceID: "123e4567-e89b-42d3-a456-426614174001",
+            appInstanceID: "123e4567-e89b-42d3-a456-426614174002",
+            tag: "LocalFeatureA",
+            platform: .ios,
+            peerPlatform: .mac,
+            peerTags: ["FeatureA"]
+        )
+
+        #expect(scope.localBinding.tag == "LocalFeatureA")
+        #expect(scope.peerBindings.tags == ["featurea"])
+    }
+
+    @Test
     func challengeUsesNativeStackHeadersAndExactJSON() async throws {
         let transport = RecordingBrokerTransport(responses: [
             .json(
@@ -58,6 +73,86 @@ struct CmxIrohTrustBrokerClientTests {
     }
 
     @Test
+    func postRegistrationRequestsCarryExactBindingProof() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 201,
+                body: #"{"challenge_id":"123e4567-e89b-42d3-a456-426614174000","nonce":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","expires_at":"2026-07-10T01:00:00.000Z"}"#
+            ),
+            .json(status: 201, body: Self.registrationResponse),
+            .json(status: 200, body: Self.discoveryResponse),
+        ])
+        let client = try makeClient(transport: transport)
+        let signer = try registrationSigner()
+        let prepared = try signer.prepare(payload: registrationPayload())
+
+        _ = try await client.register(prepared: prepared, signer: signer)
+        _ = try await client.discover()
+
+        let requests = await transport.requests()
+        let discovery = try #require(requests.last)
+        #expect(
+            discovery.value(forHTTPHeaderField: "X-Cmux-Iroh-Binding-ID")
+                == "123e4567-e89b-42d3-a456-426614174010"
+        )
+        #expect(
+            Int64(
+                discovery.value(
+                    forHTTPHeaderField: "X-Cmux-Iroh-Request-Time"
+                ) ?? ""
+            ) != nil
+        )
+        #expect(
+            discovery.value(
+                forHTTPHeaderField: "X-Cmux-Iroh-Request-Signature"
+            )?.count == 86
+        )
+        #expect(
+            requests.dropLast().allSatisfy {
+                $0.value(
+                    forHTTPHeaderField: "X-Cmux-Iroh-Request-Signature"
+                ) == nil
+            }
+        )
+    }
+
+    @Test
+    func freshManagementClientUsesRetainedBindingProof() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(status: 200, body: Self.discoveryResponse),
+        ])
+        let authorization = try CmxIrohBindingRequestAuthorization(
+            bindingID: Self.bindingID,
+            clientNamespace: "dev.cmux.app.internal",
+            identity: identityMaterial(),
+            endpointID: CmxIrohPeerIdentity(endpointID: Self.endpointID)
+        )
+        let client = try CmxIrohTrustBrokerClient(
+            baseURL: #require(URL(string: "https://cmux.example")),
+            tokenSource: Self.tokenSource,
+            clientNamespace: "dev.cmux.app.internal",
+            bindingAuthorization: authorization,
+            transport: transport
+        )
+
+        _ = try await client.discover()
+
+        let request = try #require(await transport.requests().first)
+        #expect(
+            request.value(forHTTPHeaderField: "X-Cmux-App-Namespace")
+                == "dev.cmux.app.internal"
+        )
+        #expect(
+            request.value(forHTTPHeaderField: "X-Cmux-Iroh-Binding-ID")
+                == Self.bindingID
+        )
+        #expect(
+            request.value(forHTTPHeaderField: "X-Cmux-Iroh-Request-Signature")?
+                .count == 86
+        )
+    }
+
+    @Test
     func registrationDecodesEmbeddedAuthoritativeDiscovery() async throws {
         var responseObject = try #require(
             JSONSerialization.jsonObject(
@@ -85,6 +180,108 @@ struct CmxIrohTrustBrokerClientTests {
         #expect(response.discovery?.revision == 7)
         #expect(response.discovery?.bindings.count == 1)
         #expect(response.discoveryComplete == true)
+    }
+
+    @Test
+    func scopedRegistrationFallsBackWithoutRegeneratingSignedPayload() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 201,
+                body: #"{"challenge_id":"123e4567-e89b-42d3-a456-426614174000","nonce":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","expires_at":"2026-07-10T01:00:00.000Z"}"#
+            ),
+            .json(status: 400, body: #"{"error":"unknown_field"}"#),
+            .json(status: 201, body: Self.registrationResponse),
+        ])
+        let client = try makeClient(
+            transport: transport,
+            discoveryScope: iosDiscoveryScope()
+        )
+        let signer = try registrationSigner()
+        let prepared = try signer.prepare(payload: registrationPayload())
+
+        _ = try await client.register(prepared: prepared, signer: signer)
+
+        let requests = await transport.requests()
+        #expect(requests.compactMap { $0.url?.path } == [
+            "/api/devices/iroh/challenge",
+            "/api/devices/iroh/register",
+            "/api/devices/iroh/register",
+        ])
+        let scopedBody = try #require(requests[1].httpBody)
+        let fallbackBody = try #require(requests[2].httpBody)
+        var scopedObject = try #require(
+            JSONSerialization.jsonObject(with: scopedBody) as? [String: Any]
+        )
+        let fallbackObject = try #require(
+            JSONSerialization.jsonObject(with: fallbackBody) as? [String: Any]
+        )
+        #expect(scopedObject.removeValue(forKey: "discoveryScope") != nil)
+        #expect(scopedObject as NSDictionary == fallbackObject as NSDictionary)
+    }
+
+    @Test
+    func scopedRegistrationAcceptsOnlyItsEchoedCompleteProjection() async throws {
+        let scope = try iosDiscoveryScope()
+        var responseObject = try #require(
+            JSONSerialization.jsonObject(
+                with: Data(Self.registrationResponse.utf8)
+            ) as? [String: Any]
+        )
+        responseObject["revision"] = 7
+        responseObject["discovery"] = try Self.discoveryObject(revision: 7)
+        responseObject["discovery_complete"] = false
+        responseObject["discovery_scope"] = try scopeObject(scope)
+        responseObject["discovery_scope_complete"] = true
+        let transport = RecordingBrokerTransport(responses: [
+            .json(status: 201, body: try Self.jsonString(responseObject)),
+        ])
+        let client = try makeClient(
+            transport: transport,
+            discoveryScope: scope
+        )
+
+        let response = try await client.register(
+            CmxIrohRegisterRequest(
+                challengeID: "123e4567-e89b-42d3-a456-426614174000",
+                nonce: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                payload: "e30",
+                signature: String(repeating: "A", count: 86)
+            )
+        )
+
+        #expect(response.discoveryScope == scope)
+        #expect(response.discoveryScopeComplete == true)
+        #expect(response.embeddedDiscoveryComplete)
+    }
+
+    @Test
+    func scopedRegistrationCompletenessRequiresAnEchoedScope() async throws {
+        var responseObject = try #require(
+            JSONSerialization.jsonObject(
+                with: Data(Self.registrationResponse.utf8)
+            ) as? [String: Any]
+        )
+        responseObject["revision"] = 7
+        responseObject["discovery"] = try Self.discoveryObject(revision: 7)
+        responseObject["discovery_complete"] = false
+        responseObject["discovery_scope_complete"] = true
+        let transport = RecordingBrokerTransport(responses: [
+            .json(status: 201, body: try Self.jsonString(responseObject)),
+        ])
+        let client = try makeClient(transport: transport)
+
+        let response = try await client.register(
+            CmxIrohRegisterRequest(
+                challengeID: "123e4567-e89b-42d3-a456-426614174000",
+                nonce: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                payload: "e30",
+                signature: String(repeating: "A", count: 86)
+            )
+        )
+
+        #expect(response.discoveryScope == nil)
+        #expect(response.discoveryScopeComplete == true)
+        #expect(!response.embeddedDiscoveryComplete)
     }
 
     @Test
@@ -351,6 +548,51 @@ struct CmxIrohTrustBrokerClientTests {
             JSONSerialization.jsonObject(with: body) as? [String: Any]
         )
         #expect(object["bindingId"] as? String == bindingID)
+        #expect(object["intent"] == nil)
+    }
+
+    @Test
+    func forgetMacUsesExplicitAccountManagementIntent() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 200,
+                body: #"{"revoked":true,"lan_rendezvous_rotated":true}"#
+            ),
+        ])
+        let client = try makeClient(transport: transport)
+
+        try await client.forgetMac(bindingID: Self.bindingID)
+
+        let captured = try #require(await transport.requests().first)
+        #expect(captured.url?.path == "/api/devices/iroh")
+        #expect(captured.httpMethod == "DELETE")
+        let body = try #require(captured.httpBody)
+        let object = try #require(
+            JSONSerialization.jsonObject(with: body) as? [String: Any]
+        )
+        #expect(object["bindingId"] as? String == Self.bindingID)
+        #expect(object["intent"] as? String == "forget_mac")
+    }
+
+    @Test
+    func revokeStaleUsesExplicitStaleCleanupIntent() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 200,
+                body: #"{"revoked":true,"lan_rendezvous_rotated":true}"#
+            ),
+        ])
+        let client = try makeClient(transport: transport)
+
+        try await client.revokeStale(bindingID: Self.bindingID)
+
+        let captured = try #require(await transport.requests().first)
+        let body = try #require(captured.httpBody)
+        let object = try #require(
+            JSONSerialization.jsonObject(with: body) as? [String: Any]
+        )
+        #expect(object["bindingId"] as? String == Self.bindingID)
+        #expect(object["intent"] as? String == "revoke_stale")
     }
 
     @Test
@@ -717,6 +959,143 @@ struct CmxIrohTrustBrokerClientTests {
     }
 
     @Test
+    func connectivityV3SendsAndAcceptsOnlyTheEchoedScope() async throws {
+        let scope = try iosDiscoveryScope()
+        let snapshot = try Self.discoveryObject(revision: 2)
+        let responseBody = try Self.jsonString([
+            "protocol_version": 3,
+            "revision": 2,
+            "changed": true,
+            "reset": false,
+            "discovery_scope": try scopeObject(scope),
+            "snapshot": snapshot,
+            "snapshot_scope_complete": true,
+        ])
+        let transport = RecordingBrokerTransport(responses: [
+            .json(status: 200, body: responseBody),
+        ])
+        let client = try makeClient(
+            transport: transport,
+            discoveryScope: scope
+        )
+
+        let response = try await client.syncConnectivity(knownRevision: nil)
+
+        #expect(response.protocolVersion == 3)
+        #expect(response.discoveryScope == scope)
+        #expect(response.snapshotIsComplete)
+        let request = try #require(await transport.requests().first)
+        #expect(request.url?.path == "/api/connectivity/v3/sync")
+        let body = try #require(request.httpBody)
+        let object = try #require(
+            JSONSerialization.jsonObject(with: body) as? [String: Any]
+        )
+        #expect(object["protocol_version"] as? Int == 3)
+        #expect(object["discovery_scope"] != nil)
+    }
+
+    @Test(arguments: [Bool?.none, false])
+    func connectivityV3RejectsChangedSnapshotWithoutScopedCompleteness(
+        completeness: Bool?
+    ) async throws {
+        let scope = try iosDiscoveryScope()
+        let snapshot = try Self.discoveryObject(revision: 2)
+        var responseObject: [String: Any] = [
+            "protocol_version": 3,
+            "revision": 2,
+            "changed": true,
+            "reset": false,
+            "discovery_scope": try scopeObject(scope),
+            "snapshot": snapshot,
+        ]
+        if let completeness {
+            responseObject["snapshot_scope_complete"] = completeness
+        }
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 200,
+                body: try Self.jsonString(responseObject)
+            ),
+        ])
+        let client = try makeClient(
+            transport: transport,
+            discoveryScope: scope
+        )
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.invalidResponse) {
+            _ = try await client.syncConnectivity(knownRevision: nil)
+        }
+        #expect(await transport.requests().compactMap { $0.url?.path } == [
+            "/api/connectivity/v3/sync",
+        ])
+    }
+
+    @Test
+    func scopedDiscoveryRejectsIncompleteV3WithoutFetchingGlobalBindings() async throws {
+        let scope = try iosDiscoveryScope()
+        let snapshot = try Self.discoveryObject(revision: 2)
+        let responseBody = try Self.jsonString([
+            "protocol_version": 3,
+            "revision": 2,
+            "changed": true,
+            "reset": false,
+            "discovery_scope": try scopeObject(scope),
+            "snapshot": snapshot,
+            "snapshot_scope_complete": false,
+        ])
+        let transport = RecordingBrokerTransport(responses: [
+            .json(status: 200, body: responseBody),
+        ])
+        let client = try makeClient(
+            transport: transport,
+            discoveryScope: scope
+        )
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.invalidResponse) {
+            _ = try await client.discover()
+        }
+        #expect(await transport.requests().compactMap { $0.url?.path } == [
+            "/api/connectivity/v3/sync",
+        ])
+    }
+
+    @Test
+    func connectivityV3FallsBackToGlobalV2OnOlderServers() async throws {
+        let snapshot = try Self.discoveryObject(revision: 2)
+        let v2Response = try Self.jsonString([
+            "protocol_version": 2,
+            "revision": 2,
+            "changed": true,
+            "reset": false,
+            "snapshot": snapshot,
+            "snapshot_complete": true,
+        ])
+        let transport = RecordingBrokerTransport(responses: [
+            .json(status: 404, body: #"{"error":"not_found"}"#),
+            .json(status: 200, body: v2Response),
+        ])
+        let client = try makeClient(
+            transport: transport,
+            discoveryScope: iosDiscoveryScope()
+        )
+
+        let response = try await client.syncConnectivity(knownRevision: nil)
+
+        #expect(response.protocolVersion == 2)
+        #expect(response.snapshotComplete == true)
+        let requests = await transport.requests()
+        #expect(requests.compactMap { $0.url?.path } == [
+            "/api/connectivity/v3/sync",
+            "/api/connectivity/v2/sync",
+        ])
+        let v2Body = try #require(requests[1].httpBody)
+        let v2Object = try #require(
+            JSONSerialization.jsonObject(with: v2Body) as? [String: Any]
+        )
+        #expect(v2Object["discovery_scope"] == nil)
+    }
+
+    @Test
     func connectivitySyncRequiresAnAtomicSnapshotAtTheEnvelopeRevision() async throws {
         let snapshot = try Self.discoveryObject(revision: 42)
         let body = try Self.jsonString([
@@ -772,22 +1151,53 @@ struct CmxIrohTrustBrokerClientTests {
     }
 
     private func makeClient(
-        transport: RecordingBrokerTransport
+        transport: RecordingBrokerTransport,
+        discoveryScope: CmxConnectivityDiscoveryScope? = nil
     ) throws -> CmxIrohTrustBrokerClient {
         try CmxIrohTrustBrokerClient(
             baseURL: #require(URL(string: "https://cmux.example")),
             tokenSource: Self.tokenSource,
+            clientNamespace: "dev.cmux.app.internal",
+            discoveryScope: discoveryScope,
             transport: transport
         )
     }
 
+    private func iosDiscoveryScope() throws -> CmxConnectivityDiscoveryScope {
+        try CmxConnectivityDiscoveryScope(
+            deviceID: "123e4567-e89b-42d3-a456-426614174001",
+            appInstanceID: "123e4567-e89b-42d3-a456-426614174002",
+            tag: "stable",
+            platform: .ios,
+            peerPlatform: .mac,
+            peerTags: ["nightly", "default"],
+            peerPairingEnabled: true
+        )
+    }
+
+    private func scopeObject(
+        _ scope: CmxConnectivityDiscoveryScope
+    ) throws -> [String: Any] {
+        try #require(
+            JSONSerialization.jsonObject(
+                with: JSONEncoder().encode(scope)
+            ) as? [String: Any]
+        )
+    }
+
     private func registrationSigner() throws -> CmxIrohRegistrationSigner {
+        try CmxIrohRegistrationSigner(
+            identity: identityMaterial(),
+            endpointID: Self.endpointID
+        )
+    }
+
+    private func identityMaterial() throws -> CmxIrohIdentityMaterial {
         let secret = try CmxIrohSecretKey(bytes: Data((0 ..< 32).map(UInt8.init)))
-        let material = try CmxIrohIdentityMaterial(
+        return try CmxIrohIdentityMaterial(
             secretKey: secret,
             generation: 1
         )
-        return try CmxIrohRegistrationSigner(identity: material, endpointID: Self.endpointID)
     }
 
     private func registrationPayload() throws -> CmxIrohRegistrationPayload {

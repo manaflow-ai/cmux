@@ -8,6 +8,7 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
     nonisolated let currentRemotePTYLifecycleOwnerProvider:
         (@Sendable () -> ControlRemotePTYLifecycleOwner?)?
     nonisolated let beforeMainResolution: (@Sendable () -> Void)?
+    nonisolated let feedJumpMatch: Bool
     var listResolution: ControlWorkspaceListResolution = .tabManagerUnavailable
     var currentResolution: ControlWorkspaceCurrentResolution = .tabManagerUnavailable
     var closeResolution: ControlWorkspaceCloseResolution = .tabManagerUnavailable
@@ -49,11 +50,25 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
         currentRemotePTYLifecycleOwner: ControlRemotePTYLifecycleOwner? = nil,
         currentRemotePTYLifecycleOwnerProvider:
             (@Sendable () -> ControlRemotePTYLifecycleOwner?)? = nil,
-        beforeMainResolution: (@Sendable () -> Void)? = nil
+        beforeMainResolution: (@Sendable () -> Void)? = nil,
+        feedJumpMatch: Bool = false
     ) {
         self.currentRemotePTYLifecycleOwner = currentRemotePTYLifecycleOwner
         self.currentRemotePTYLifecycleOwnerProvider = currentRemotePTYLifecycleOwnerProvider
         self.beforeMainResolution = beforeMainResolution
+        self.feedJumpMatch = feedJumpMatch
+    }
+
+    nonisolated func controlFeedResolvePossibleSurfaceAsync(
+        workstreamID: String
+    ) async -> Bool {
+        feedJumpMatch && workstreamID == "known"
+    }
+
+    nonisolated func controlFeedResolvePossibleSurface(
+        workstreamID: String
+    ) -> Bool {
+        feedJumpMatch && workstreamID == "known"
     }
 
     nonisolated func controlResolveOnMain<T: Sendable>(

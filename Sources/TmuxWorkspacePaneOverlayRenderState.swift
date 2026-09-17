@@ -15,6 +15,7 @@ struct TmuxWorkspacePaneOverlayRenderState: Equatable {
     let activePaneBorderColorHex: String?
     let flashToken: UInt64
     let flashReason: WorkspaceAttentionFlashReason?
+    private(set) var workspaceAttentionColor: WorkspaceAttentionColor
 
     init(
         workspaceId: UUID,
@@ -24,7 +25,8 @@ struct TmuxWorkspacePaneOverlayRenderState: Equatable {
         activePaneBorderRect: CGRect? = nil,
         activePaneBorderColorHex: String? = nil,
         flashToken: UInt64,
-        flashReason: WorkspaceAttentionFlashReason?
+        flashReason: WorkspaceAttentionFlashReason?,
+        workspaceAttentionColor: WorkspaceAttentionColor
     ) {
         self.workspaceId = workspaceId
         self.unreadRects = unreadRects
@@ -34,5 +36,12 @@ struct TmuxWorkspacePaneOverlayRenderState: Equatable {
         self.activePaneBorderColorHex = activePaneBorderColorHex
         self.flashToken = flashToken
         self.flashReason = flashReason
+        self.workspaceAttentionColor = workspaceAttentionColor
+    }
+
+    func replacingWorkspaceAttentionColor(with color: WorkspaceAttentionColor) -> Self {
+        var copy = self
+        copy.workspaceAttentionColor = color
+        return copy
     }
 }

@@ -1,4 +1,4 @@
-import type { SubrouterAccountInput } from "./client";
+import type { SubrouterAccountInput } from "./types";
 import { readBoundedJsonRecord } from "./boundedJson";
 
 const MAX_REQUEST_BYTES = 64 * 1024;

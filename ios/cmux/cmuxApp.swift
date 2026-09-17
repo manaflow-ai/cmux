@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobileShell
+import CmuxMobileSupport
 import CmuxMobileTransport
 import Foundation
 import OSLog
@@ -23,45 +24,37 @@ struct cmuxApp: App {
     @MainActor
     private static let root: AppCompositionRoot = {
         let reachability = ReachabilityService()
-        let auth = MobileAuthComposition(reachability: reachability)
-        auth.start()
         let diagnosticLog = DiagnosticLog(
             buildStamp: AppCompositionRoot.diagnosticBuildStamp,
             role: .iosClient
         )
-        let buildCompatibilityPolicy = MobileMacBuildCompatibilityPolicy.current(
-            buildScope: MobileIOSBuildScope.current()
-        )
-        let iroh = MobileIrohRuntimeComposition(
-            apiBaseURL: auth.config.apiBaseURL,
+        let auth = MobileAuthComposition(
             reachability: reachability,
-            discoveryCompatibilityPolicy: buildCompatibilityPolicy,
             diagnosticLog: diagnosticLog
         )
-        let connectivityInvalidationServiceURL = PresenceClient
-            .resolvedServiceBaseURL(
-                isDevelopmentAuthChannel: auth.authEnvironment == .development
-            )
-        let connectivityInvalidationBaseURL = connectivityInvalidationServiceURL
-            .flatMap { URL(string: $0) }
-        if connectivityInvalidationBaseURL == nil {
-            cmuxAppConnectivityLog.error(
-                "Connectivity invalidation disabled: presence service URL unavailable"
-            )
-        }
-        iroh.configure(
-            auth: auth.coordinator,
-            connectivityInvalidationBaseURL: connectivityInvalidationBaseURL
+        // Per-tag isolation by default: this build pairs only with its own
+        // Mac tag plus the runtime grant set its anchor Mac advertises
+        // (`cmux mobile compatible-tags`), persisted across launches.
+        let buildCompatibilityPolicy = MobileMacBuildCompatibilityPolicy.current(
+            buildScope: MobileIOSBuildScope.current(),
+            additionalInstanceTags: MobileMacTagAllowlist.persisted()
         )
+        let v2Configuration = MobileIrohV2Configuration.current(projectID: auth.config.stack.projectId)
+        let irx = MobileIrxRuntimeComposition(configuration: v2Configuration,
+            keychainAccessGroup: auth.keychainAccessGroup)
+        Task { await irx.configure(auth: auth.coordinator) }
 
         // `debugLoopback` (127.0.0.1) backs the UI-test mock Mac. Enable it on
         // the simulator and on DEBUG device builds so on-device XCUITests can
         // attach to an in-runner mock host; release device builds keep only
-        // real transports.
+        // real transports. Force-relay mode (soak rigs) registers NO fallback
+        // kinds so even a simulator exercises the real relay path.
+        let forceRelay = irx.forceRelayOnly
         #if targetEnvironment(simulator) || DEBUG
-        let supportedKinds: [CmxAttachTransportKind] = [.debugLoopback, .tailscale]
+        let supportedKinds: [CmxAttachTransportKind] =
+            forceRelay ? [] : [.debugLoopback, .tailscale]
         #else
-        let supportedKinds: [CmxAttachTransportKind] = [.tailscale]
+        let supportedKinds: [CmxAttachTransportKind] = forceRelay ? [] : [.tailscale]
         #endif
         let networkFactory = CmxNetworkByteTransportFactory(supportedKinds: supportedKinds)
         let fallbackRegistrations = supportedKinds.map { kind in
@@ -70,7 +63,7 @@ struct cmuxApp: App {
         let registrations = [
             CmxRouteTransportFactoryRegistration(
                 kind: .iroh,
-                factory: iroh.transportFactory
+                factory: irx.transportFactory
             ),
         ] + fallbackRegistrations
         let transportFactory: CmxRouteTransportFactory
@@ -86,31 +79,32 @@ struct cmuxApp: App {
             stackAccessTokenForStatusProvider: CMUXMobileRuntime.stackAccessTokenForStatusProvider(from: auth.coordinator),
             stackAccessTokenForceRefresher: CMUXMobileRuntime.stackAccessTokenForceRefresher(from: auth.coordinator),
             independentEventByteStreamProvider: { request in
-                try await iroh.serverEventByteStream(for: request)
+                try await irx.serverEventByteStream(for: request)
             },
             terminalLaneProvider: { request, surfaceID, cursor in
-                guard let surfaceUUID = UUID(uuidString: surfaceID) else {
-                    throw MobileIrohTerminalLaneError.invalidSurfaceID
-                }
-                return try await iroh.openTerminalLane(
-                    for: request,
-                    surfaceID: surfaceUUID,
-                    cursor: cursor
-                )
+                guard let surfaceUUID = UUID(uuidString: surfaceID) else { throw MobileIrohTerminalLaneError.invalidSurfaceID }
+                return try await irx.openTerminalLane(for: request, surfaceID: surfaceUUID, cursor: cursor)
+            },
+            terminalInputLaneProvider: { request, surfaceID, _ in
+                guard let surfaceUUID = UUID(uuidString: surfaceID) else { throw MobileIrohTerminalLaneError.invalidSurfaceID }
+                return try await irx.openTerminalInputLane(for: request, surfaceID: surfaceUUID)
             },
             artifactLaneProvider: { request, resourceID, offset in
-                try await iroh.openArtifactLane(
-                    for: request,
-                    resourceID: resourceID,
-                    offset: offset
-                )
+                try await irx.openArtifactLane(for: request, resourceID: resourceID, offset: offset)
+            },
+            simulatorStreamLaneProvider: { request, panelID in
+                guard let panelUUID = UUID(uuidString: panelID) else { throw MobileIrohSimulatorStreamLaneError.invalidPanelID }
+                return try await irx.openSimulatorStreamLane(for: request, panelID: panelUUID)
             }
         )
 
         return AppCompositionRoot(
             runtime: runtime,
             auth: auth,
-            iroh: iroh,
+            irx: irx,
+            irxDiscovery: MobileIrxDiscoveryProvider(irx: irx, preferredTag: irx.tag,
+                compatibilityPolicy: buildCompatibilityPolicy),
+            buildCompatibilityPolicy: buildCompatibilityPolicy,
             reachability: reachability,
             diagnosticLog: diagnosticLog
         )
@@ -142,17 +136,19 @@ struct cmuxApp: App {
             #if DEBUG
             MobileIrohReleaseGateScene(
                 root: mobileRootScene,
-                iroh: Self.root.iroh
+                irx: Self.root.irx,
+                settingsController: Self.root.irohSettingsController
             )
             #else
             mobileRootScene
             #endif
         }
-        .environment(\.irohSettingsController, Self.root.iroh)
+        .environment(\.irohSettingsController, Self.root.irohSettingsController)
+        .environment(\.mobileKeyboardFrameTracker, Self.root.keyboardFrameTracker)
         .environment(
             \.dogfoodAttachPreparation,
             DogfoodAttachPreparation {
-                await Self.root.iroh.prepareForConnection()
+                await Self.root.irx.didBecomeActive()
             }
         )
     }
@@ -163,16 +159,25 @@ struct cmuxApp: App {
             auth: Self.root.auth,
             reachability: Self.root.reachability,
             analytics: Self.root.analytics.emitter,
+            terminalLatencyObserver: Self.root.analytics.terminalLatencyReporter,
             pushCoordinator: Self.root.pushCoordinator,
             displaySettings: Self.root.displaySettings,
+            featureFlags: Self.root.featureFlags,
             connectionMethodStore: Self.root.connectionMethodStore,
+            autoConnectMigrationStore: Self.root.autoConnectMigrationStore,
             onboardingStore: Self.root.onboardingStore,
             tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor,
-            personalIrohRouteCatalog: Self.root.iroh.routeCatalog,
-            personalIrohDiscovery: Self.root.iroh,
-            personalIrohForget: Self.root.iroh,
+            // First-pair discovery must come from the ACTIVE transport: the
+            // dormant one answers "endpoint unavailable" and a fresh install
+            // (empty paired-Mac store) then lists zero Macs forever.
+            personalIrohRouteCatalog: Self.root.irxDiscovery.routeCatalog,
+            personalIrohDiscovery: Self.root.irxDiscovery,
+            personalIrohForget: Self.root.irxDiscovery,
+            buildCompatibilityPolicy: Self.root.buildCompatibilityPolicy,
             signOutHook: Self.root.signOutHook,
-            diagnosticLog: Self.root.diagnosticLog
+            diagnosticLog: Self.root.diagnosticLog,
+            appLog: Self.root.appLog,
+            v2Configuration: Self.root.irx.configuration
         )
     }
 }

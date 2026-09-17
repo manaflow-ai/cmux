@@ -42,6 +42,8 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
     /// For terminal surfaces, the resume binding, else `nil`. Emitted as the
     /// `resume_binding` value (a `null` binding still emits the key).
     public let resumeBinding: ControlSurfaceResumeBinding?
+    /// Renderer health for terminal surfaces, or `nil` for other panel types.
+    public let renderHealthRawValue: String?
     /// Persisted Simulator identity, available without starting its worker.
     public let simulatorDeviceID: String?
     /// Persisted Simulator runtime identity, available without discovery.
@@ -88,6 +90,7 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
         tmuxStartCommand: String?,
         isTerminal: Bool,
         resumeBinding: ControlSurfaceResumeBinding?,
+        renderHealthRawValue: String? = nil,
         simulatorDeviceID: String? = nil,
         simulatorRuntimeIdentifier: String? = nil,
         simulatorDeviceTypeIdentifier: String? = nil,
@@ -109,6 +112,7 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
         self.tmuxStartCommand = tmuxStartCommand
         self.isTerminal = isTerminal
         self.resumeBinding = resumeBinding
+        self.renderHealthRawValue = renderHealthRawValue
         self.simulatorDeviceID = simulatorDeviceID
         self.simulatorRuntimeIdentifier = simulatorRuntimeIdentifier
         self.simulatorDeviceTypeIdentifier = simulatorDeviceTypeIdentifier

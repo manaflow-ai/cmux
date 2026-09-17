@@ -112,28 +112,41 @@ jobs:
             next_version="$major.$minor.$patch"
           fi
 
-          if ! version_gt "$next_version" "$latest_version"; then
-            echo "next version $next_version must be greater than latest $latest_version" >&2
-            exit 1
-          fi
-
           tag="cmux-tui-v$next_version"
-          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
-            echo "tag already exists: $tag" >&2
+          tag_exists=false
+          if existing_sha="$(git rev-parse -q --verify "refs/tags/$tag^{commit}" 2>/dev/null)"; then
+            if [[ "$existing_sha" != "$GITHUB_SHA" ]]; then
+              echo "tag already exists at $existing_sha, not release commit $GITHUB_SHA: $tag" >&2
+              exit 1
+            fi
+            if [[ -z "$EXPLICIT_VERSION" ]]; then
+              echo "tag $tag already exists at this commit; rerun with version=$next_version to recover the downstream dispatch" >&2
+              exit 1
+            fi
+            echo "tag $tag already exists at this commit; reusing it without moving the tag"
+            tag_exists=true
+          elif ! version_gt "$next_version" "$latest_version"; then
+            echo "next version $next_version must be greater than latest $latest_version" >&2
             exit 1
           fi
           {
             echo "version=$next_version"
             echo "tag=$tag"
+            echo "tag_exists=$tag_exists"
           } >> "$GITHUB_OUTPUT"
           {
             echo "### TUI release cut"
             echo
             echo "- Latest: $latest_version"
-            echo "- New tag: $tag"
+            if [[ "$tag_exists" == "true" ]]; then
+              echo "- Reused existing tag: $tag"
+            else
+              echo "- New tag: $tag"
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Create annotated tag
+        if: steps.version.outputs.tag_exists != 'true'
         env:
           TAG: ${{ steps.version.outputs.tag }}
           VERSION: ${{ steps.version.outputs.version }}
@@ -144,6 +157,7 @@ jobs:
           git tag -a "$TAG" -m "cmux TUI $VERSION"
 
       - name: Push tag
+        if: steps.version.outputs.tag_exists != 'true'
         env:
           TAG: ${{ steps.version.outputs.tag }}
         run: git push origin "refs/tags/$TAG"
@@ -170,6 +184,8 @@ jobs:
             -f publish_pypi=true \
             -f confirm_tui_cmux=true
           {
-            echo "- Dispatched one build/package run on $TAG"
+            echo "- Release workflow dispatched/queued for $TAG at $GITHUB_SHA"
+            echo "- GitHub accepted the dispatch request; downstream run visibility is eventually consistent"
             echo "- npm and PyPI will reuse that run's verified artifacts"
+            echo "- Recovery is safe: rerun this workflow with version=$VERSION; the existing tag is reused, never moved"
           } >> "$GITHUB_STEP_SUMMARY"

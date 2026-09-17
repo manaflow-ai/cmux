@@ -18,6 +18,7 @@ use std::time::Duration;
 pub(crate) fn stream_item_validator(operation: &str) -> Result<StreamItemValidator> {
     Ok(match operation {
         ops::SESSION_EVENTS => validate_session_stream_item,
+        ops::SESSION_JOURNAL_SUBSCRIBE => validate_session_journal_item,
         ops::TERMINAL_ATTACH => validate_terminal_stream_item,
         ops::BROWSER_ATTACH => validate_browser_stream_item,
         ops::SIDEBAR_VIEW_ATTACH => validate_sidebar_stream_item,
@@ -31,6 +32,10 @@ pub(crate) fn stream_item_validator(operation: &str) -> Result<StreamItemValidat
 
 fn validate_session_stream_item(item: &StreamItem) -> Result<()> {
     decode_session_event(item.value.clone(), item.cursor.clone(), item.sequence).map(drop)
+}
+
+fn validate_session_journal_item(item: &StreamItem) -> Result<()> {
+    decode_session_journal_record(item.value.clone(), item.cursor.clone(), item.sequence).map(drop)
 }
 
 fn validate_terminal_stream_item(item: &StreamItem) -> Result<()> {
@@ -174,6 +179,71 @@ pub enum SessionEvent {
     Snapshot(SessionSnapshotEvent),
     Delta(SessionDeltaEvent),
     Unknown { kind: String, raw: Document },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JournalClass {
+    State,
+    Observation,
+    Effect,
+    Checkpoint,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JournalReplayPolicy {
+    Required,
+    Advisory,
+    Never,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JournalSensitivity {
+    Public,
+    Metadata,
+    Sensitive,
+    Secret,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct JournalProducer {
+    pub kind: String,
+    pub id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct JournalAuthority {
+    pub principal_id: String,
+    pub lease_id: String,
+    pub generation: String,
+    pub role: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct JournalSubject {
+    pub kind: String,
+    pub id: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SessionJournalRecord {
+    pub sequence: u64,
+    pub event_id: String,
+    pub schema_version: u32,
+    pub kind: String,
+    pub class: JournalClass,
+    pub replay: JournalReplayPolicy,
+    pub occurred_at_ms: u64,
+    pub committed_at_ms: u64,
+    pub producer: JournalProducer,
+    pub authority: Option<JournalAuthority>,
+    pub causation_id: Option<String>,
+    pub correlation_id: Option<String>,
+    pub causation_depth: u16,
+    pub subjects: Vec<JournalSubject>,
+    pub sensitivity: JournalSensitivity,
+    pub payload: Value,
+    pub resource_revision: Option<u64>,
+    pub previous_resource_revision: Option<u64>,
 }
 
 /// Validated lowercase `#rrggbb` protocol color.
@@ -417,6 +487,7 @@ macro_rules! typed_stream {
 }
 
 typed_stream!(SessionEventStream, SessionEvent, decode_session_event);
+typed_stream!(SessionJournalStream, SessionJournalRecord, decode_session_journal_record);
 typed_stream!(TerminalAttachment, TerminalAttachmentItem, decode_terminal_item);
 typed_stream!(BrowserAttachment, BrowserAttachmentItem, decode_browser_item);
 typed_stream!(SidebarViewStream, SidebarViewItem, decode_sidebar_item);
@@ -425,18 +496,35 @@ impl TerminalAttachment {
     /// Updates the viewer lease on this attachment's owned stream connection.
     pub fn resize(&mut self, size: Size) -> Result<super::model::ViewerResizeResult> {
         wire::validate_size(size)?;
+        let attachment_lease = self
+            .inner
+            .attachment_lease()
+            .ok_or_else(|| Error::UnexpectedEnvelope("terminal attachment has no lease".into()))?
+            .to_owned();
         wire::decode_exact(
             &self.inner.connection_control(
                 ops::TERMINAL_VIEWER_RESIZE,
-                Params::new().u16(field::COLS, size.cols).u16(field::ROWS, size.rows),
+                Params::new()
+                    .string(field::ATTACHMENT_LEASE, attachment_lease)
+                    .u16(field::COLS, size.cols)
+                    .u16(field::ROWS, size.rows),
             )?,
             "terminal viewer resize result",
         )
     }
 
-    pub fn release(&mut self) -> Result<()> {
-        decode_empty_control(
-            self.inner.connection_control(ops::TERMINAL_VIEWER_RELEASE, Params::new())?,
+    pub fn release(&mut self) -> Result<super::model::ViewerReleaseResult> {
+        let attachment_lease = self
+            .inner
+            .attachment_lease()
+            .ok_or_else(|| Error::UnexpectedEnvelope("terminal attachment has no lease".into()))?
+            .to_owned();
+        wire::decode_exact(
+            &self.inner.connection_control(
+                ops::TERMINAL_VIEWER_RELEASE,
+                Params::new().string(field::ATTACHMENT_LEASE, attachment_lease),
+            )?,
+            "terminal viewer release result",
         )
     }
 
@@ -444,7 +532,7 @@ impl TerminalAttachment {
         self.resize(size)
     }
 
-    pub fn viewer_release(&mut self) -> Result<()> {
+    pub fn viewer_release(&mut self) -> Result<super::model::ViewerReleaseResult> {
         self.release()
     }
 }
@@ -453,10 +541,16 @@ impl BrowserAttachment {
     /// Updates the viewer lease on this attachment's owned stream connection.
     pub fn resize(&mut self, size: PixelSize) -> Result<super::model::BrowserViewerResizeResult> {
         wire::validate_pixel_size(size)?;
+        let attachment_lease = self
+            .inner
+            .attachment_lease()
+            .ok_or_else(|| Error::UnexpectedEnvelope("browser attachment has no lease".into()))?
+            .to_owned();
         wire::decode_exact(
             &self.inner.connection_control(
                 ops::BROWSER_VIEWER_RESIZE,
                 Params::new()
+                    .string(field::ATTACHMENT_LEASE, attachment_lease)
                     .u32(field::WIDTH_PX, size.width_px)
                     .u32(field::HEIGHT_PX, size.height_px),
             )?,
@@ -464,9 +558,18 @@ impl BrowserAttachment {
         )
     }
 
-    pub fn release(&mut self) -> Result<()> {
-        decode_empty_control(
-            self.inner.connection_control(ops::BROWSER_VIEWER_RELEASE, Params::new())?,
+    pub fn release(&mut self) -> Result<super::model::ViewerReleaseResult> {
+        let attachment_lease = self
+            .inner
+            .attachment_lease()
+            .ok_or_else(|| Error::UnexpectedEnvelope("browser attachment has no lease".into()))?
+            .to_owned();
+        wire::decode_exact(
+            &self.inner.connection_control(
+                ops::BROWSER_VIEWER_RELEASE,
+                Params::new().string(field::ATTACHMENT_LEASE, attachment_lease),
+            )?,
+            "browser viewer release result",
         )
     }
 
@@ -477,18 +580,8 @@ impl BrowserAttachment {
         self.resize(size)
     }
 
-    pub fn viewer_release(&mut self) -> Result<()> {
+    pub fn viewer_release(&mut self) -> Result<super::model::ViewerReleaseResult> {
         self.release()
-    }
-}
-
-fn decode_empty_control(value: Value) -> Result<()> {
-    if value.as_object().is_some_and(Map::is_empty) {
-        Ok(())
-    } else {
-        Err(Error::UnexpectedEnvelope(
-            "empty control result must be an object with no fields".to_string(),
-        ))
     }
 }
 
@@ -544,6 +637,141 @@ fn decode_session_event(
         }
         _ => Ok(SessionEvent::Unknown { kind, raw: Document(raw) }),
     }
+}
+
+fn decode_session_journal_record(
+    value: Value,
+    envelope_cursor: Option<Cursor>,
+    _stream_sequence: u64,
+) -> Result<SessionJournalRecord> {
+    let mut object = object(value, "session journal record")?;
+    let sequence = take_decimal(&mut object, "sequence")?;
+    let cursor = envelope_cursor.ok_or_else(|| {
+        Error::UnexpectedEnvelope("journal stream item requires a cursor".to_string())
+    })?;
+    if cursor.revision != sequence {
+        return Err(Error::UnexpectedEnvelope(
+            "journal sequence must equal its stream cursor revision".to_string(),
+        ));
+    }
+    let event_id = take_required_string(&mut object, "event_id")?;
+    let schema_version = take_u32(&mut object, "schema_version")?;
+    let kind = take_required_string(&mut object, "kind")?;
+    if event_id.is_empty() || schema_version == 0 || kind.is_empty() {
+        return Err(Error::UnexpectedEnvelope(
+            "journal event_id and kind must be non-empty and schema_version must be positive"
+                .to_string(),
+        ));
+    }
+    let class = match take_required_string(&mut object, "class")?.as_str() {
+        "state" => JournalClass::State,
+        "observation" => JournalClass::Observation,
+        "effect" => JournalClass::Effect,
+        "checkpoint" => JournalClass::Checkpoint,
+        value => {
+            return Err(Error::UnexpectedEnvelope(format!("invalid journal class {value}")));
+        }
+    };
+    let replay = match take_required_string(&mut object, "replay")?.as_str() {
+        "required" => JournalReplayPolicy::Required,
+        "advisory" => JournalReplayPolicy::Advisory,
+        "never" => JournalReplayPolicy::Never,
+        value => {
+            return Err(Error::UnexpectedEnvelope(format!(
+                "invalid journal replay policy {value}"
+            )));
+        }
+    };
+    let occurred_at_ms = take_decimal(&mut object, "occurred_at_ms")?;
+    let committed_at_ms = take_decimal(&mut object, "committed_at_ms")?;
+    let producer = decode_journal_producer(take_required(&mut object, "producer")?)?;
+    let authority = match take_required(&mut object, "authority")? {
+        Value::Null => None,
+        value => Some(decode_journal_authority(value)?),
+    };
+    let causation_id = take_required_nullable_string(&mut object, "causation_id")?;
+    let correlation_id = take_required_nullable_string(&mut object, "correlation_id")?;
+    let causation_depth = take_u16(&mut object, "causation_depth")?;
+    let subjects = take_array(&mut object, "subjects")?
+        .into_iter()
+        .map(decode_journal_subject)
+        .collect::<Result<Vec<_>>>()?;
+    let sensitivity = match take_required_string(&mut object, "sensitivity")?.as_str() {
+        "public" => JournalSensitivity::Public,
+        "metadata" => JournalSensitivity::Metadata,
+        "sensitive" => JournalSensitivity::Sensitive,
+        "secret" => JournalSensitivity::Secret,
+        value => {
+            return Err(Error::UnexpectedEnvelope(format!("invalid journal sensitivity {value}")));
+        }
+    };
+    let payload = take_required(&mut object, "payload")?;
+    let resource_revision = take_nullable_decimal(&mut object, "resource_revision")?;
+    let previous_resource_revision =
+        take_nullable_decimal(&mut object, "previous_resource_revision")?;
+    finish(object, "session journal record")?;
+    Ok(SessionJournalRecord {
+        sequence,
+        event_id,
+        schema_version,
+        kind,
+        class,
+        replay,
+        occurred_at_ms,
+        committed_at_ms,
+        producer,
+        authority,
+        causation_id,
+        correlation_id,
+        causation_depth,
+        subjects,
+        sensitivity,
+        payload,
+        resource_revision,
+        previous_resource_revision,
+    })
+}
+
+fn decode_journal_producer(value: Value) -> Result<JournalProducer> {
+    let mut object = object(value, "journal producer")?;
+    let kind = take_required_string(&mut object, "kind")?;
+    let id = take_required_string(&mut object, "id")?;
+    finish(object, "journal producer")?;
+    if kind.is_empty() || id.is_empty() {
+        return Err(Error::UnexpectedEnvelope(
+            "journal producer kind and id must be non-empty".to_string(),
+        ));
+    }
+    Ok(JournalProducer { kind, id })
+}
+
+fn decode_journal_authority(value: Value) -> Result<JournalAuthority> {
+    let mut object = object(value, "journal authority")?;
+    let principal_id = take_required_string(&mut object, "principal_id")?;
+    let lease_id = take_required_string(&mut object, "lease_id")?;
+    let generation = take_required_string(&mut object, "generation")?;
+    let role = take_required_string(&mut object, "role")?;
+    finish(object, "journal authority")?;
+    if [principal_id.as_str(), lease_id.as_str(), generation.as_str(), role.as_str()].contains(&"")
+    {
+        return Err(Error::UnexpectedEnvelope(
+            "journal authority fields must be non-empty".to_string(),
+        ));
+    }
+    Ok(JournalAuthority { principal_id, lease_id, generation, role })
+}
+
+fn decode_journal_subject(value: Value) -> Result<JournalSubject> {
+    let mut object = object(value, "journal subject")?;
+    let kind = take_required_string(&mut object, "kind")?;
+    let id = take_required_string(&mut object, "id")?;
+    finish(object, "journal subject")?;
+    if kind.is_empty() || id.is_empty() {
+        return Err(Error::UnexpectedEnvelope(
+            "journal subject kind and id must be non-empty".to_string(),
+        ));
+    }
+    Ok(JournalSubject { kind, id })
 }
 
 fn decode_resource_change(value: Value) -> Result<ResourceChange> {
@@ -960,6 +1188,17 @@ fn take_optional_string(object: &mut Map<String, Value>, key: &str) -> Result<Op
     }
 }
 
+fn take_required_nullable_string(
+    object: &mut Map<String, Value>,
+    key: &str,
+) -> Result<Option<String>> {
+    match take_required(object, key)? {
+        Value::Null => Ok(None),
+        Value::String(value) => Ok(Some(value)),
+        _ => Err(Error::UnexpectedEnvelope(format!("{key} must be a string or null"))),
+    }
+}
+
 fn take_bool(object: &mut Map<String, Value>, key: &str) -> Result<bool> {
     take_required(object, key)?
         .as_bool()
@@ -1206,6 +1445,7 @@ mod tests {
             "value": {
                 "id": TERMINAL,
                 "tab_id": "tab_00000000000000000000000000000002",
+                "tab_ids": ["tab_00000000000000000000000000000002"],
                 "title": "strict",
                 "cols": 80,
                 "rows": 24,

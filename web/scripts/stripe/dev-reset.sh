@@ -116,17 +116,12 @@ resolve_stack_env() {
 resolve_stripe_secret_key() {
   local stripe_config key
   stripe_config="$(stripe config --list 2>/dev/null || true)"
+  # Stripe CLI has printed this as `test_mode_api_key = 'sk_...'` and, in newer
+  # releases, as `test_mode_api_key=sk_...`; accept both.
   key="$(
     printf '%s\n' "$stripe_config" \
-      | awk '
-        $1 == "test_mode_api_key" {
-          value = $0
-          sub(/^[^:=]+[[:space:]]*[:=]?[[:space:]]*/, "", value)
-          gsub(/["'\'']/, "", value)
-          print value
-          exit
-        }
-      '
+      | sed -n -E "s/^[[:space:]]*test_mode_api_key[[:space:]]*[:=][[:space:]]*['\"]?((sk|rk)_(test|live)_[A-Za-z0-9]+)['\"]?.*$/\1/p" \
+      | head -n 1
   )"
 
   if [[ "$key" == sk_live_* || "$key" == rk_live_* ]]; then
@@ -439,9 +434,13 @@ process.stdin.on("end", () => {
   const user = JSON.parse(input);
   const raw = user.client_read_only_metadata ?? user.clientReadOnlyMetadata ?? {};
   const metadata = raw && typeof raw === "object" && !Array.isArray(raw) ? { ...raw } : {};
-  const hadCmuxPlan = Object.prototype.hasOwnProperty.call(metadata, "cmuxPlan");
-  const vmPlan = typeof metadata.cmuxVmPlan === "string" && metadata.cmuxVmPlan.trim() ? metadata.cmuxVmPlan.trim() : "";
+  const hadCmuxPlan = Object.prototype.hasOwnProperty.call(metadata, "cmuxPlan") ||
+    Object.prototype.hasOwnProperty.call(metadata, "cmuxVmPlan");
+  const vmPlan = "";
   delete metadata.cmuxPlan;
+  // dev-grant.sh writes the manual override key; a reset must clear it too or the
+  // account stays entitled after every "un-Pro".
+  delete metadata.cmuxVmPlan;
   console.log(JSON.stringify({
     hadCmuxPlan,
     vmPlan,
@@ -465,7 +464,7 @@ if [[ "$had_cmux_plan" == "1" ]]; then
   )"
   encoded_user_id="$(urlencode "$stack_user_id")"
   stack_request PATCH "/users/${encoded_user_id}" "$patch_body" >/dev/null
-  SUMMARY+=("Removed clientReadOnlyMetadata.cmuxPlan")
+  SUMMARY+=("Removed clientReadOnlyMetadata cmuxPlan/cmuxVmPlan")
 else
   SUMMARY+=("clientReadOnlyMetadata.cmuxPlan was already absent")
 fi

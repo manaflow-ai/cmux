@@ -422,6 +422,15 @@ public protocol CmxByteTransportContinuityIdentifying: CmxByteTransport {
     func transportContinuityID() async -> UInt64?
 }
 
+/// Optional privacy-safe link from a byte dial to the admitted transport
+/// session that backs it. The value is process-local and never leaves the
+/// diagnostic ring.
+public protocol CmxByteTransportDiagnosticSessionIdentifying: CmxByteTransport {
+    /// Returns the current admitted session ID, or `nil` before connection or
+    /// after the session has been released.
+    func transportDiagnosticSessionID() async -> Int?
+}
+
 /// A privacy-safe handle that waits for one exact native transport to close.
 ///
 /// The handle captures the transport generation at creation time, so callers
@@ -429,13 +438,31 @@ public protocol CmxByteTransportContinuityIdentifying: CmxByteTransport {
 /// replacement connection.
 public struct CmxTransportClosureObservation: Sendable {
     private let waitUntilClosedOperation: @Sendable () async -> Void
+    private let cancelOperation: @Sendable () -> Void
 
-    public init(waitUntilClosed: @escaping @Sendable () async -> Void) {
+    /// Creates a cancellable observation of one exact transport generation.
+    /// `cancel` must release the observation's waiter without closing a
+    /// shared transport that may still be used by another lane. It defaults
+    /// to a no-op for source compatibility with the original initializer.
+    public init(
+        waitUntilClosed: @escaping @Sendable () async -> Void,
+        cancel: @escaping @Sendable () -> Void = {}
+    ) {
         self.waitUntilClosedOperation = waitUntilClosed
+        self.cancelOperation = cancel
     }
 
     public func waitUntilClosed() async {
-        await waitUntilClosedOperation()
+        await withTaskCancellationHandler(operation: {
+            await waitUntilClosedOperation()
+        }, onCancel: {
+            cancelOperation()
+        })
+    }
+
+    /// Releases the observation waiter while leaving the shared transport open.
+    public func cancel() {
+        cancelOperation()
     }
 }
 
@@ -443,6 +470,13 @@ public struct CmxTransportClosureObservation: Sendable {
 /// installed underneath a byte transport.
 public protocol CmxByteTransportClosureObserving: CmxByteTransport {
     func transportClosureObservation() async -> CmxTransportClosureObservation?
+}
+
+/// Optional activation notification for deferred transports. A watcher can
+/// wait once for the native transport to appear without polling forever.
+public protocol CmxByteTransportClosureObservationReadiness: CmxByteTransport {
+    /// Returns whether the activated transport supports closure observation.
+    func waitUntilTransportClosureObservationIsReady() async -> Bool
 }
 
 /// Independently framed server-event bytes delivered outside the RPC control stream.
