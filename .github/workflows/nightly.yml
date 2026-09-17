@@ -1008,10 +1008,20 @@ jobs:
             exit 1
           fi
 
-          WEBAUTHN_ENTITLEMENT="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.developer.web-browser.public-key-credential" "$TMP_PLIST")"
-          if [ "$WEBAUTHN_ENTITLEMENT" != "true" ]; then
-            echo "$CHANNEL provisioning profile is missing WebAuthn browser entitlement" >&2
-            exit 1
+          # The WebAuthn browser entitlement is an Apple-approved capability
+          # request. Nightly has it; the RC App ID's request has been pending
+          # since 2026-07-10, so cmux.rc.entitlements does not ask for it and
+          # RC ships without passkey sign-in in the embedded browser until Apple
+          # approves. The check follows the channel's entitlements file so the
+          # profile can never silently lag behind what the app requests.
+          if /usr/libexec/PlistBuddy -c "Print :com.apple.developer.web-browser.public-key-credential" "$CHANNEL_ENTITLEMENTS" >/dev/null 2>&1; then
+            WEBAUTHN_ENTITLEMENT="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.developer.web-browser.public-key-credential" "$TMP_PLIST" 2>/dev/null || true)"
+            if [ "$WEBAUTHN_ENTITLEMENT" != "true" ]; then
+              echo "$CHANNEL provisioning profile is missing WebAuthn browser entitlement" >&2
+              exit 1
+            fi
+          else
+            echo "$CHANNEL entitlements do not request the WebAuthn browser entitlement; skipping the profile check"
           fi
 
           PROVISIONS_ALL_DEVICES="$(/usr/libexec/PlistBuddy -c "Print :ProvisionsAllDevices" "$TMP_PLIST")"
