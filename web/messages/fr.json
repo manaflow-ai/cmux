@@ -380,6 +380,13 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "Partager avec l’équipe",
+      "makePrivate": "Rendre privé",
+      "privateImportHint": "Les nouveaux comptes sont privés. Partagez un compte pour le rendre accessible aux VM Cloud de cette équipe.",
+      "description": "Les comptes partagés sont accessibles aux VM Cloud de cette équipe. Les comptes privés restent réservés à la personne qui les a ajoutés.",
+      "cancelAction": "Annuler"
     }
   },
   "community": {
@@ -1003,10 +1010,10 @@
       "targetTitle": "Mauvaise fenêtre ciblée ou clic bloqué",
       "targetBody": "Inspectez à nouveau l’app et choisissez un élément de son état actuel. Si une autre fenêtre masque la cible, affichez la fenêtre voulue et inspectez-la avant de réessayer. Ne réutilisez pas d’anciens index ou coordonnées.",
       "productLink": "Présentation de cmux Computer Use",
-    "copyTitle": "Copier un prompt Computer Use",
-    "copyPrompt": "Copier le prompt",
-    "copiedPrompt": "Copié",
-    "installPrompt": "Utilise la compétence $cmux-cua. Si elle manque, installe-la avec ton installateur habituel. Si les autorisations manquent, demande-moi d’ouvrir Réglages cmux → Computer Use. Inspecte avant d’agir et vérifie chaque changement.\n\nTâche : [décris la tâche ici]"
+      "copyTitle": "Copier un prompt Computer Use",
+      "copyPrompt": "Copier le prompt",
+      "copiedPrompt": "Copié",
+      "installPrompt": "Utilise la compétence $cmux-cua. Si elle manque, installe-la avec ton installateur habituel. Si les autorisations manquent, demande-moi d’ouvrir Réglages cmux → Computer Use. Inspecte avant d’agir et vérifie chaque changement.\n\nTâche : [décris la tâche ici]"
     },
     "remoteTmux": {
       "moshContrast": "Pour passer d’un réseau à l’autre, utilisez cmux mosh-tmux. Il ouvre un terminal Mosh pleinement intégré attaché à une session tmux nommée ; il ne remplace pas le miroir natif des espaces, onglets et divisions fourni par le mode de contrôle tmux via SSH."

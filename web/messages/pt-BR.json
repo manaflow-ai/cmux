@@ -380,6 +380,13 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "Compartilhar com a equipe",
+      "makePrivate": "Tornar privado",
+      "privateImportHint": "Novas contas são privadas. Compartilhe uma conta para disponibilizá-la às VMs Cloud desta equipe.",
+      "description": "As contas compartilhadas ficam disponíveis para as VMs Cloud desta equipe. As contas privadas ficam disponíveis apenas para quem as adicionou.",
+      "cancelAction": "Cancelar"
     }
   },
   "community": {
@@ -1003,10 +1010,10 @@
       "targetTitle": "Janela errada ou clique bloqueado",
       "targetBody": "Inspecione o app novamente e selecione um elemento atual. Se outra janela cobrir o alvo, revele a janela desejada e inspecione antes de repetir. Não reutilize coordenadas ou índices antigos.",
       "productLink": "Visão geral do cmux Computer Use",
-    "copyTitle": "Copiar prompt do Computer Use",
-    "copyPrompt": "Copiar prompt",
-    "copiedPrompt": "Copiado",
-    "installPrompt": "Use a habilidade $cmux-cua. Se não estiver disponível, instale-a com o instalador normal. Se faltarem permissões, peça para eu abrir Ajustes do cmux → Computer Use. Inspecione antes e verifique cada alteração.\n\nTarefa: [descreva a tarefa aqui]"
+      "copyTitle": "Copiar prompt do Computer Use",
+      "copyPrompt": "Copiar prompt",
+      "copiedPrompt": "Copiado",
+      "installPrompt": "Use a habilidade $cmux-cua. Se não estiver disponível, instale-a com o instalador normal. Se faltarem permissões, peça para eu abrir Ajustes do cmux → Computer Use. Inspecione antes e verifique cada alteração.\n\nTarefa: [descreva a tarefa aqui]"
     },
     "remoteTmux": {
       "moshContrast": "Para alternar entre redes, use cmux mosh-tmux. Ele abre um terminal Mosh totalmente integrado conectado a uma sessão tmux nomeada; não substitui o espelhamento nativo de workspaces, abas e divisões oferecido pelo modo de controle tmux via SSH."

@@ -380,6 +380,13 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "Podijeli s timom",
+      "makePrivate": "Učini privatnim",
+      "privateImportHint": "Novi računi su privatni. Podijelite račun da bude dostupan Cloud VM mašinama ovog tima.",
+      "description": "Dijeljeni računi dostupni su Cloud VM-ovima ovog tima. Privatni računi ostaju dostupni samo osobi koja ih je dodala.",
+      "cancelAction": "Otkaži"
     }
   },
   "community": {
@@ -1003,10 +1010,10 @@
       "targetTitle": "Pogrešan prozor ili blokiran klik",
       "targetBody": "Ponovo pregledajte aplikaciju i izaberite element iz trenutnog stanja. Ako drugi prozor prekriva cilj, otkrijte željeni prozor i pregledajte ga prije ponavljanja. Ne koristite zastarjele koordinate ili indekse.",
       "productLink": "Pregled cmux Computer Use",
-    "copyTitle": "Kopiraj Computer Use prompt",
-    "copyPrompt": "Kopiraj prompt",
-    "copiedPrompt": "Kopirano",
-    "installPrompt": "Koristi vještinu $cmux-cua. Ako nedostaje, instaliraj je uobičajenim instalaterom. Ako nema dozvola, reci mi da otvorim cmux Postavke → Computer Use. Pregledaj prije rada i provjeri svaku promjenu.\n\nZadatak: [opišite zadatak ovdje]"
+      "copyTitle": "Kopiraj Computer Use prompt",
+      "copyPrompt": "Kopiraj prompt",
+      "copiedPrompt": "Kopirano",
+      "installPrompt": "Koristi vještinu $cmux-cua. Ako nedostaje, instaliraj je uobičajenim instalaterom. Ako nema dozvola, reci mi da otvorim cmux Postavke → Computer Use. Pregledaj prije rada i provjeri svaku promjenu.\n\nZadatak: [opišite zadatak ovdje]"
     },
     "remoteTmux": {
       "moshContrast": "Za roaming između mreža koristite cmux mosh-tmux. Otvara punopravni Mosh terminal spojen na imenovanu tmux sesiju; ne zamjenjuje izvorno preslikavanje radnih prostora, kartica i podjela koje pruža SSH tmux kontrolni režim."
