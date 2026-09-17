@@ -6,7 +6,6 @@ import CmuxMobileSupport
 import CmuxMobileTerminalKit
 import GhosttyKit
 import OSLog
-import Synchronization
 import UIKit
 import os
 
@@ -1425,7 +1424,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard let surface, !isDismantled else { return }
         let workQueue = outputQueue
         let generation = surfaceGeneration
-        workQueue.queue.async { [weak self] in
+        workQueue.async { [weak self] in
             workQueue.lastContentBottomTime = CACurrentMediaTime()
             guard let viewportText = Self.surfaceText(surface, pointTag: GHOSTTY_POINT_VIEWPORT),
                   viewportText.utf8.count <= 131_072 else { return }
@@ -4414,7 +4413,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         renderInFlightSince = CACurrentMediaTime()
         let enqueuedAt = CACurrentMediaTime()
         let workQueue = outputQueue
-        workQueue.async { [weak self] in
+        let accepted = workQueue.async({ [weak self] in
             let lagMs = (CACurrentMediaTime() - enqueuedAt) * 1000
             if lagMs > 150 { MobileDebugLog.anchormux("oq.render.LAG \(Int(lagMs))ms") }
             switch submission.kind {
@@ -4482,6 +4481,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     }
                 }
             }
+        }, priority: submission.kind == .localScroll)
+        guard accepted else {
+            repairRenderAdmissionAfterFailedStart()
+            return false
         }
         return true
     }
@@ -5838,22 +5841,6 @@ private struct CopyableTextRead: @unchecked Sendable {
     let surface: ghostty_surface_t
     let generation: UInt64
     let cancellation: SurfaceOperationCancellationToken
-}
-
-private final class SurfaceOperationCancellationToken: Sendable {
-    // lint:allow lock - tiny cross-queue cancellation flag for already-enqueued
-    // libghostty work; actor hops would put the serial surface queue back behind
-    // the main actor and defeat the stale-read fast path.
-    private let cancelled: Mutex
-        <Bool> = .init(false)
-
-    var isCancelled: Bool {
-        cancelled.withLock { $0 }
-    }
-
-    func cancel() {
-        cancelled.withLock { $0 = true }
-    }
 }
 
 private class DisplayLinkProxy {

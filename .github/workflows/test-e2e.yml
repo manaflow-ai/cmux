@@ -582,6 +582,15 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: test-results
+          path: ${{ env.CMUX_DERIVED_DATA_PATH }}/Logs/Test/*.xcresult
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Publish test summary
         if: always()
         env:

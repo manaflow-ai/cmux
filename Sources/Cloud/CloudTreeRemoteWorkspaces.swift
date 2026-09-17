@@ -34,8 +34,9 @@ enum CloudTreeRemoteWorkspaceLookup: Equatable {
 
 extension CloudTreeNodeBuilder {
     /// Every cmux-tui workspace on a machine, in the daemon's order: the ones the
-    /// machine itself reports (so an empty workspace still gets a row) plus any
-    /// that a resource's views name before the machine list has caught up.
+    /// machine itself reports (including empty workspaces needed by lookup and
+    /// persistence) plus any that a resource's views name before the machine list
+    /// has caught up. The sidebar applies its terminal-membership filter separately.
     static func remoteWorkspaces(info: SurfaceMachineInfo?, resources: [SurfaceResource]) -> [SurfaceRemoteWorkspace] {
         var byID: [String: SurfaceRemoteWorkspace] = [:]
         for workspace in info?.remoteWorkspaces ?? [] {
