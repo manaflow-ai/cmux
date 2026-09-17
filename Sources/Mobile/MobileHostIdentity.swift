@@ -248,7 +248,7 @@ enum MobileHostIdentity {
 
     /// Resolves the app-instance tag from explicit launch metadata first, then
     /// from the bundle channel. Stable keeps the historical `"default"` tag;
-    /// Nightly and Staging must be distinct now that every app bundle on one
+    /// Nightly, RC, and Staging must be distinct now that every app bundle on one
     /// Mac intentionally shares the same physical device identifier.
     static func instanceTag(
         environment: [String: String],
@@ -261,15 +261,6 @@ enum MobileHostIdentity {
         let normalizedBundleID = bundleIdentifier?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() ?? ""
-        let releaseCandidateBundleID = stableBundleIdentifier + ".rc"
-        if normalizedBundleID == releaseCandidateBundleID {
-            return "rc"
-        }
-        if normalizedBundleID.hasPrefix(releaseCandidateBundleID + ".") {
-            let suffix = String(normalizedBundleID.dropFirst(releaseCandidateBundleID.count + 1))
-            return SocketPathMarkerFiles.sanitizeSocketSlug(suffix) ?? "rc"
-        }
-
         switch SocketPathMarkerFiles.variant(
             bundleIdentifier: normalizedBundleID,
             environment: environment
@@ -278,6 +269,8 @@ enum MobileHostIdentity {
             return "default"
         case .nightly(let slug):
             return slug ?? "nightly"
+        case .rc(let slug):
+            return slug ?? "rc"
         case .staging(let slug):
             return slug ?? "staging"
         case .dev(let slug):

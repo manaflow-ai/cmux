@@ -68,6 +68,8 @@ enum StartupBreadcrumbLog {
         let bundleIdentifier = Bundle.main.bundleIdentifier ?? ""
         return bundleIdentifier == "com.cmuxterm.app.nightly"
             || bundleIdentifier.hasPrefix("com.cmuxterm.app.nightly.")
+            || bundleIdentifier == "com.cmuxterm.app.rc"
+            || bundleIdentifier.hasPrefix("com.cmuxterm.app.rc.")
             || bundleIdentifier == "com.cmuxterm.app.debug"
             || bundleIdentifier.hasPrefix("com.cmuxterm.app.debug.")
     }

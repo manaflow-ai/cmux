@@ -20,7 +20,9 @@ case "$1 $2" in
  {"name":"cmux-nightly-macos-arm64-200.dmg"},
  {"name":"cmux-nightly-macos-arm64-300-200.delta"},
  {"name":"cmux-nightly-macos-arm64.dmg"},
- {"name":"cmux-nightly-macos-arm64-50.dmg"}
+ {"name":"cmux-nightly-macos-arm64-50.dmg"},
+ {"name":"cmux-rc-macos-arm64-400.dmg"},
+ {"name":"cmux-rc-macos-arm64-410.dmg"}
 ]}
 JSON
     ;;
@@ -44,4 +46,12 @@ PATH="$TMP_DIR/bin:$PATH" python3 "$TOOL" --repo o/r --release-tag nightly --var
 : > "$CMUX_TEST_CALL_LOG"
 PATH="$TMP_DIR/bin:$PATH" python3 "$TOOL" --repo o/r --release-tag nightly --variant universal --exclude-build 300 --count 2 --out "$TMP_DIR/none" >/dev/null || fail "no previous build must not fail the job"
 [ -z "$(ls -A "$TMP_DIR/none")" ] || fail "unexpected download for a track with no history"
+# The RC channel names its immutable DMGs cmux-rc-macos-<variant>-<build>.dmg and
+# must never pick up nightly assets that share the release listing shape.
+: > "$CMUX_TEST_CALL_LOG"
+PATH="$TMP_DIR/bin:$PATH" python3 "$TOOL" --repo o/r --release-tag rc --name-prefix cmux-rc-macos- --variant arm64 --exclude-build 410 --count 2 --out "$TMP_DIR/rc" >/dev/null
+[ -f "$TMP_DIR/rc/cmux-rc-macos-arm64-400.dmg" ] || fail "previous rc build was not downloaded"
+[ ! -f "$TMP_DIR/rc/cmux-rc-macos-arm64-410.dmg" ] || fail "the current rc build was downloaded as a previous build"
+[ -z "$(ls "$TMP_DIR/rc" | grep nightly || true)" ] || fail "nightly assets leaked into the rc track"
+[ "$(grep -c '^gh release download' "$CMUX_TEST_CALL_LOG")" -eq 1 ] || fail "expected exactly one rc download"
 echo "PASS: previous nightly builds are fetched per track, newest first, excluding the current build"
