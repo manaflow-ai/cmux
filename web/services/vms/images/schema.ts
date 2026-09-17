@@ -77,6 +77,20 @@ export type VmImageManifestEntry = {
   readonly imageId: string;
   readonly envVar: string;
   readonly defaultForLocalDev?: boolean;
+  /** Current Freestyle devbox catalog fields. */
+  readonly kind?: "desktop" | "base";
+  readonly defaultForKind?: boolean;
+  readonly size?: {
+    readonly name: string;
+    readonly cpu: number;
+    readonly memoryMb: number;
+    readonly storageMb: number;
+  };
+  readonly repoCommit?: string;
+  readonly cmuxTuiCommit?: string;
+  readonly cmuxTuiSha256?: string;
+  readonly epoch?: string;
+  readonly devboxSource?: Record<string, unknown>;
   readonly features?: {
     readonly bakedFreestyleSignedAdmin?: boolean;
   };
@@ -90,7 +104,9 @@ export type VmImageManifestEntry = {
 };
 
 export type VmImageManifest = {
-  readonly schemaVersion: 2;
+  /** Schema 1 is retained for the existing Freestyle catalog. Both versions
+   * use the same fail-closed machineRuntime interpretation. */
+  readonly schemaVersion: 1 | 2;
   readonly images: readonly VmImageManifestEntry[];
 };
 
@@ -142,14 +158,14 @@ const MACHINE_CONNECTABLE_PROVIDER_CONTRACTS = {
 
 export function parseVmImageManifest(value: unknown): VmImageManifest {
   const manifest = requireRecord(value, "Cloud VM image manifest");
-  if (manifest.schemaVersion !== 2) {
-    throw new Error("Cloud VM image manifest schemaVersion must be 2");
+  if (manifest.schemaVersion !== 1 && manifest.schemaVersion !== 2) {
+    throw new Error("Cloud VM image manifest schemaVersion must be 1 or 2");
   }
   if (!Array.isArray(manifest.images)) {
     throw new Error("Cloud VM image manifest images must be an array");
   }
   return {
-    schemaVersion: 2,
+    schemaVersion: manifest.schemaVersion,
     images: manifest.images.map((entry, index) => parseManifestEntry(entry, index)),
   };
 }
@@ -270,7 +286,15 @@ function parseManifestEntry(value: unknown, index: number): VmImageManifestEntry
   );
   const notes = optionalString(entry.notes, `${label}.notes`);
 
+  // The current Freestyle manifest predates schema v2 and therefore has no
+  // machineRuntime field. Treat those rows as legacy, preserving the image
+  // catalog while making machine connectability fail closed.
+  const machineRuntime = entry.machineRuntime === undefined
+    ? { readiness: "legacy" as const }
+    : parseMachineRuntime(entry.machineRuntime, `${label}.machineRuntime`);
+
   return {
+    ...entry,
     provider,
     version: requireNonemptyString(entry.version, `${label}.version`),
     imageId: requireNonemptyString(entry.imageId, `${label}.imageId`),
@@ -289,8 +313,8 @@ function parseManifestEntry(value: unknown, index: number): VmImageManifestEntry
       ["passed", "failed", "unknown"] as const,
       `${label}.validationStatus`,
     ),
-    machineRuntime: parseMachineRuntime(entry.machineRuntime, `${label}.machineRuntime`),
     ...(notes === undefined ? {} : { notes }),
+    machineRuntime,
   };
 }
 

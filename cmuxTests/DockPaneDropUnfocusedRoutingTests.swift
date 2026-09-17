@@ -87,26 +87,36 @@ struct DockPaneDropUnfocusedRoutingTests {
             let targetPane = try #require(workspace.paneId(forPanelId: targetPanel.id))
             let sourcePanel = try #require(workspace.newTerminalSurface(inPane: targetPane, focus: true))
             let sourceTabId = try #require(workspace.surfaceIdFromPanelId(sourcePanel.id))
-            let payload = try Self.makePaneDragPayload(tabId: sourceTabId.uuid, sourcePaneId: targetPane.id)
             let dragPasteboard = NSPasteboard(name: .drag)
             dragPasteboard.clearContents()
-            dragPasteboard.setData(payload, forType: DragOverlayRoutingPolicy.bonsplitTabTransferType)
-            defer { dragPasteboard.clearContents() }
+            let registration = try Self.registerPaneDrag(
+                tabId: sourceTabId.uuid,
+                sourcePaneId: targetPane.id,
+                registry: appDelegate.tabDragTransferRegistry,
+                pasteboard: dragPasteboard
+            )
+            defer {
+                appDelegate.tabDragTransferRegistry.end(registration)
+                dragPasteboard.clearContents()
+            }
 
             let pasteboardTypes = dragPasteboard.types
             #expect(TerminalPaneDropTargetView.shouldCaptureHitTesting(
                 pasteboardTypes: pasteboardTypes,
-                eventType: .leftMouseDragged
+                eventType: .leftMouseDragged,
+                hasLiveTabTransfer: true
             ))
             #expect(TerminalPaneDropTargetView.shouldCaptureHitTesting(
                 pasteboardTypes: pasteboardTypes,
-                eventType: .leftMouseUp
+                eventType: .leftMouseUp,
+                hasLiveTabTransfer: true
             ))
             #expect(WindowInputRoutingContext(eventType: .leftMouseDragged).allowsTerminalPortalDragRouting)
             #expect(WindowInputRoutingContext(eventType: .leftMouseUp).allowsTerminalPortalDragRouting)
             #expect(DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
                 pasteboardTypes: pasteboardTypes,
-                eventType: .leftMouseDragged
+                eventType: .leftMouseDragged,
+                hasLiveTabTransfer: true
             ))
             #expect(!DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
                 pasteboardTypes: pasteboardTypes,
@@ -147,7 +157,8 @@ struct DockPaneDropUnfocusedRoutingTests {
             #expect(DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
                 pasteboardTypes: pasteboardTypes,
                 eventType: .leftMouseUp,
-                hasActiveDropDrag: host.hasActivePaneDropDrag
+                hasActiveDropDrag: host.hasActivePaneDropDrag,
+                hasLiveTabTransfer: true
             ))
             target.draggingExited(draggingInfo)
             let filePasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.issue-7529.file.\(UUID().uuidString)"))
@@ -189,20 +200,30 @@ struct DockPaneDropUnfocusedRoutingTests {
     func dropMouseUpUsesSameBrowserPortalRouteAsHover() throws {
         let tabId = UUID()
         let sourcePaneId = UUID()
-        let payload = try Self.makePaneDragPayload(tabId: tabId, sourcePaneId: sourcePaneId)
         let dragPasteboard = NSPasteboard(name: .drag)
         dragPasteboard.clearContents()
-        dragPasteboard.setData(payload, forType: DragOverlayRoutingPolicy.bonsplitTabTransferType)
-        defer { dragPasteboard.clearContents() }
+        let registry = TabDragTransferRegistry()
+        let registration = try Self.registerPaneDrag(
+            tabId: tabId,
+            sourcePaneId: sourcePaneId,
+            registry: registry,
+            pasteboard: dragPasteboard
+        )
+        defer {
+            registry.end(registration)
+            dragPasteboard.clearContents()
+        }
 
         let pasteboardTypes = dragPasteboard.types
         #expect(BrowserPaneDropTargetView.shouldCaptureHitTesting(
             pasteboardTypes: pasteboardTypes,
-            eventType: .leftMouseDragged
+            eventType: .leftMouseDragged,
+            hasLiveTabTransfer: true
         ))
         #expect(BrowserPaneDropTargetView.shouldCaptureHitTesting(
             pasteboardTypes: pasteboardTypes,
-            eventType: .leftMouseUp
+            eventType: .leftMouseUp,
+            hasLiveTabTransfer: true
         ))
         #expect(WindowInputRoutingContext(eventType: .leftMouseDragged).allowsBrowserPortalDragRouting)
         #expect(!WindowInputRoutingContext(eventType: .leftMouseUp).allowsBrowserPortalDragRouting)
@@ -210,7 +231,8 @@ struct DockPaneDropUnfocusedRoutingTests {
         #expect(WindowInputRoutingContext(eventType: .leftMouseUp).allowsPaneDropHitTesting)
         #expect(WindowBrowserHostView.shouldPassThroughToDragTargets(
             pasteboardTypes: pasteboardTypes,
-            eventType: .leftMouseDragged
+            eventType: .leftMouseDragged,
+            hasLiveTabTransfer: true
         ))
         #expect(!WindowBrowserHostView.shouldPassThroughToDragTargets(
             pasteboardTypes: pasteboardTypes,
@@ -222,9 +244,9 @@ struct DockPaneDropUnfocusedRoutingTests {
         ))
     }
 
-    @Test("Sidebar reorder mouse-up routing uses the active sidebar drag registry")
+    @Test("Sidebar reorder never authorizes terminal mouse-up routing")
     @MainActor
-    func sidebarReorderMouseUpRoutingUsesActiveSidebarDragRegistry() async throws {
+    func sidebarReorderNeverAuthorizesTerminalMouseUpRouting() async throws {
         await AppContextSerialGate.withExclusiveAppContext {
             let previousAppDelegate = AppDelegate.shared
             let appDelegate = AppDelegate()
@@ -241,7 +263,7 @@ struct DockPaneDropUnfocusedRoutingTests {
             let workspaceId = UUID()
             appDelegate.sidebarWorkspaceDragRegistry.begin(workspaceId: workspaceId)
             defer { appDelegate.sidebarWorkspaceDragRegistry.end(workspaceId: workspaceId) }
-            #expect(DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
+            #expect(!DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
                 pasteboardTypes: pasteboardTypes,
                 eventType: .leftMouseUp,
                 hasActiveDropDrag: appDelegate.sidebarWorkspaceDragRegistry.currentWorkspaceId != nil
@@ -273,8 +295,6 @@ struct DockPaneDropUnfocusedRoutingTests {
             let targetPane = try #require(workspace.paneId(forPanelId: targetPanel.id))
             let sourcePanel = try #require(workspace.newTerminalSurface(inPane: targetPane, focus: true))
             let sourceTabId = try #require(workspace.surfaceIdFromPanelId(sourcePanel.id))
-            let payload = try Self.makePaneDragPayload(tabId: sourceTabId.uuid, sourcePaneId: targetPane.id)
-
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 240, height: 180),
                 styleMask: [.titled, .closable],
@@ -297,9 +317,14 @@ struct DockPaneDropUnfocusedRoutingTests {
             let secondPasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.issue-7529.second.\(UUID().uuidString)"))
             firstPasteboard.clearContents()
             secondPasteboard.clearContents()
-            firstPasteboard.setData(payload, forType: DragOverlayRoutingPolicy.bonsplitTabTransferType)
-            secondPasteboard.setData(payload, forType: DragOverlayRoutingPolicy.bonsplitTabTransferType)
+            let registration = try Self.registerPaneDrag(
+                tabId: sourceTabId.uuid,
+                sourcePaneId: targetPane.id,
+                registry: appDelegate.tabDragTransferRegistry,
+                pasteboards: [firstPasteboard, secondPasteboard]
+            )
             defer {
+                appDelegate.tabDragTransferRegistry.end(registration)
                 firstPasteboard.clearContents()
                 secondPasteboard.clearContents()
             }
@@ -425,15 +450,22 @@ struct DockPaneDropUnfocusedRoutingTests {
             let sourcePane = try #require(workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first)
             let sourcePanel = try #require(workspace.newTerminalSurface(inPane: sourcePane, focus: true))
             let sourceTabId = try #require(workspace.surfaceIdFromPanelId(sourcePanel.id))
-            let dock = workspace.dockSplit
+            let dock = workspace.requiredDockSplitForTesting
             let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
             let existingDockPanelId = try #require(dock.newSurface(kind: .terminal, inPane: dockPane, focus: false))
 
-            let payload = try Self.makePaneDragPayload(tabId: sourceTabId.uuid, sourcePaneId: sourcePane.id)
             let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.issue-7529.\(UUID().uuidString)"))
             pasteboard.clearContents()
-            pasteboard.setData(payload, forType: DragOverlayRoutingPolicy.bonsplitTabTransferType)
-            defer { pasteboard.clearContents() }
+            let registration = try Self.registerPaneDrag(
+                tabId: sourceTabId.uuid,
+                sourcePaneId: sourcePane.id,
+                registry: appDelegate.tabDragTransferRegistry,
+                pasteboard: pasteboard
+            )
+            defer {
+                appDelegate.tabDragTransferRegistry.end(registration)
+                pasteboard.clearContents()
+            }
 
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
@@ -490,17 +522,24 @@ struct DockPaneDropUnfocusedRoutingTests {
             let workspace = try #require(manager.tabs.first)
             let targetPanel = try #require(workspace.panels.values.first)
             let targetPane = try #require(workspace.paneId(forPanelId: targetPanel.id))
-            let dock = workspace.dockSplit
+            let dock = workspace.requiredDockSplitForTesting
             let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
             let dockPanelId = try #require(dock.newSurface(kind: .terminal, inPane: dockPane, focus: false))
             let dockTabId = try #require(dock.surfaceId(forPanelId: dockPanelId))
             let dockSourcePane = try #require(dock.paneId(forPanelId: dockPanelId))
 
-            let payload = try Self.makePaneDragPayload(tabId: dockTabId.uuid, sourcePaneId: dockSourcePane.id)
             let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.issue-7529.\(UUID().uuidString)"))
             pasteboard.clearContents()
-            pasteboard.setData(payload, forType: DragOverlayRoutingPolicy.bonsplitTabTransferType)
-            defer { pasteboard.clearContents() }
+            let registration = try Self.registerPaneDrag(
+                tabId: dockTabId.uuid,
+                sourcePaneId: dockSourcePane.id,
+                registry: appDelegate.tabDragTransferRegistry,
+                pasteboard: pasteboard
+            )
+            defer {
+                appDelegate.tabDragTransferRegistry.end(registration)
+                pasteboard.clearContents()
+            }
 
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
@@ -535,12 +574,44 @@ struct DockPaneDropUnfocusedRoutingTests {
         }
     }
 
-    private static func makePaneDragPayload(tabId: UUID, sourcePaneId: UUID) throws -> Data {
-        try JSONSerialization.data(withJSONObject: [
-            "tab": ["id": tabId.uuidString, "kind": "terminal"],
-            "sourcePaneId": sourcePaneId.uuidString,
-            "sourceProcessId": Int(ProcessInfo.processInfo.processIdentifier),
-        ])
+    @MainActor
+    private static func registerPaneDrag(
+        tabId: UUID,
+        sourcePaneId: UUID,
+        registry: TabDragTransferRegistry,
+        pasteboard: NSPasteboard
+    ) throws -> TabDragTransferRegistration {
+        try registerPaneDrag(
+            tabId: tabId,
+            sourcePaneId: sourcePaneId,
+            registry: registry,
+            pasteboards: [pasteboard]
+        )
+    }
+
+    @MainActor
+    private static func registerPaneDrag(
+        tabId: UUID,
+        sourcePaneId: UUID,
+        registry: TabDragTransferRegistry,
+        pasteboards: [NSPasteboard]
+    ) throws -> TabDragTransferRegistration {
+        let registration = try #require(
+            registry.register(
+                TabDragTransfer(
+                    tab: Tab(
+                        id: TabID(uuid: tabId),
+                        title: "Terminal",
+                        kind: "terminal"
+                    ),
+                    sourcePaneId: PaneID(id: sourcePaneId)
+                )
+            )
+        )
+        for pasteboard in pasteboards {
+            #expect(registration.write(to: pasteboard))
+        }
+        return registration
     }
 
     @MainActor

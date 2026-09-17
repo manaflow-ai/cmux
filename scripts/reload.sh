@@ -23,12 +23,16 @@ CMUX_DEV_PORT_RANGE=""
 CMUX_DEV_ORIGIN=""
 CMUX_DEV_API_BASE_URL_VALUE=""
 CMUX_IROH_BROKER_BASE_URL_VALUE=""
+CMUX_IROH_V2_ENVIRONMENT_VALUE=""
+CMUX_IROH_V2_BASE_URL_VALUE=""
+CMUX_IROH_V2_FORCE_RELAY_VALUE="0"
 CMUX_AUTH_WWW_ORIGIN_VALUE=""
 CMUX_WWW_ORIGIN_VALUE=""
 PROD_AUTH=0
 AUTH_CREDENTIALS_FILE=""
 AUTH_PROFILE=""
 AUTH_EXPECTED_ACCOUNT=""
+CMUX_TUI_CLIENT_MANIFEST_URL_VALUE=""
 CLI_PATH=""
 NO_GLOBAL_CLI_LINKS="${CMUX_RELOAD_NO_GLOBAL_CLI_LINKS:-0}"
 # Matches CmuxStateDirectory (non-TCC ~/.local/state/cmux) where the app/CLI now
@@ -42,7 +46,6 @@ NO_GLOBAL_CLI_LINKS="${CMUX_RELOAD_NO_GLOBAL_CLI_LINKS:-0}"
 _cmux_account_home="$(perl -e 'print((getpwuid($<))[7])' 2>/dev/null || true)"
 LAST_SOCKET_PATH_DIR="${_cmux_account_home:-$HOME}/.local/state/cmux"
 LEGACY_SOCKET_PATH_DIR="${_cmux_account_home:-$HOME}/Library/Application Support/cmux"
-AUTO_SKIP_ZIG_BUILD_REASON=""
 SWIFT_FRONTEND_WORKAROUND=0
 XCODEBUILD_STARTED=0
 XCODEBUILD_OUTPUT_VALID=0
@@ -392,7 +395,7 @@ derive_socket_marker_names() {
   # Keep this table in lockstep with SocketPathMarkerFiles.variant. In
   # particular, an identifier that is not one of the known cmux flavors is
   # stable (rather than an implicitly-tagged dev build), and an empty suffix
-  # uses the unscoped nightly/staging/dev marker name.
+  # uses the unscoped nightly/rc/staging/dev marker name.
   bundle_id="$(printf '%s' "$bundle_id" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
   CMUX_RELOAD_MARKER_NAME="last-socket-path"
   CMUX_RELOAD_TMP_MARKER="/tmp/cmux-last-socket-path"
@@ -409,6 +412,20 @@ derive_socket_marker_names() {
       else
         CMUX_RELOAD_MARKER_NAME="nightly-last-socket-path"
         CMUX_RELOAD_TMP_MARKER="/tmp/cmux-nightly-last-socket-path"
+      fi
+      ;;
+    com.cmuxterm.app.rc)
+      CMUX_RELOAD_MARKER_NAME="rc-last-socket-path"
+      CMUX_RELOAD_TMP_MARKER="/tmp/cmux-rc-last-socket-path"
+      ;;
+    com.cmuxterm.app.rc.*)
+      variant_slug="$(sanitize_path "${bundle_id#com.cmuxterm.app.rc.}")"
+      if [[ -n "$variant_slug" ]]; then
+        CMUX_RELOAD_MARKER_NAME="rc-${variant_slug}-last-socket-path"
+        CMUX_RELOAD_TMP_MARKER="/tmp/cmux-rc-${variant_slug}-last-socket-path"
+      else
+        CMUX_RELOAD_MARKER_NAME="rc-last-socket-path"
+        CMUX_RELOAD_TMP_MARKER="/tmp/cmux-rc-last-socket-path"
       fi
       ;;
     com.cmuxterm.app.staging)
@@ -548,13 +565,7 @@ wait_for_tag_socket_lock_release() {
 }
 
 should_skip_ghostty_cli_helper_zig_build() {
-  if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
-    AUTO_SKIP_ZIG_BUILD_REASON="CMUX_SKIP_ZIG_BUILD=1"
-    return 0
-  fi
-
-  AUTO_SKIP_ZIG_BUILD_REASON=""
-  return 1
+  [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]
 }
 
 write_dev_cli_shim() {
@@ -707,8 +718,10 @@ select_cmux_shim_target() {
   IFS=':' read -r -a path_entries <<< "${PATH:-}"
   for path_entry in "${path_entries[@]}"; do
     [[ -z "$path_entry" ]] && continue
+    # PATH may contain a literal ~/ prefix; expand that spelling deliberately.
+    # shellcheck disable=SC2088
     if [[ "$path_entry" == "~/"* ]]; then
-      path_entry="$HOME/${path_entry#~/}"
+      path_entry="$HOME/${path_entry:2}"
     fi
     if [[ "$path_entry" == "$app_cli_dir" ]]; then
       break
@@ -893,6 +906,8 @@ Options:
   --expected-account <email>
                          Fail before building unless the selected profile/file
                          resolves to this normalized account.
+  --cmux-tui-manifest-url <url>
+                         Install the cmux-tui client from this immutable manifest.
   --name <app name>      Override app display/bundle name.
   --bundle-id <id>       Override bundle identifier.
   --derived-data <path>  Override derived data path.
@@ -1047,7 +1062,7 @@ print_tag_cleanup_reminder() {
     if [[ "$path" == /tmp/cmux-* ]]; then
       tag="${path#/tmp/cmux-}"
     elif [[ "$path" == "$HOME/Library/Developer/Xcode/DerivedData/cmux-"* ]]; then
-      tag="${path#$HOME/Library/Developer/Xcode/DerivedData/cmux-}"
+      tag="${path#"$HOME"/Library/Developer/Xcode/DerivedData/cmux-}"
     else
       continue
     fi
@@ -1148,6 +1163,14 @@ while [[ $# -gt 0 ]]; do
       [[ -n "$AUTH_EXPECTED_ACCOUNT" ]] || { echo "error: --expected-account requires an email" >&2; exit 1; }
       shift 2
       ;;
+    --cmux-tui-manifest-url)
+      CMUX_TUI_CLIENT_MANIFEST_URL_VALUE="${2:-}"
+      [[ -n "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE" ]] \
+        || { echo "error: --cmux-tui-manifest-url requires a URL" >&2; exit 1; }
+      [[ "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE" == https://* ]] \
+        || { echo "error: --cmux-tui-manifest-url requires HTTPS" >&2; exit 1; }
+      shift 2
+      ;;
     --derived-data)
       DERIVED_DATA="${2:-}"
       if [[ -z "$DERIVED_DATA" ]]; then
@@ -1185,6 +1208,26 @@ if [[ -z "$TAG" ]]; then
   echo "error: --tag is required (example: ./scripts/reload.sh --tag fix-sidebar-theme)" >&2
   usage
   exit 1
+fi
+
+# A tagged launch is a dogfood surface, so it must have an explicit identity
+# before the app is started.  Keeping this gate here covers agents that call
+# reload.sh directly instead of the higher-level dev-setup wrapper.
+if [[ "$LAUNCH" -eq 1 && -n "$TAG" && -z "$AUTH_PROFILE" ]]; then
+  AUTH_PROFILE="personal"
+  if [[ -z "$AUTH_CREDENTIALS_FILE" ]]; then
+    for candidate in "${HOME:-}/.secrets/cmuxterm-dev.env" "${HOME:-}/.secrets/cmux.env"; do
+      if [[ -f "$candidate" ]]; then
+        AUTH_CREDENTIALS_FILE="$candidate"
+        break
+      fi
+    done
+  fi
+  if [[ -z "$AUTH_CREDENTIALS_FILE" || ! -f "$AUTH_CREDENTIALS_FILE" ]]; then
+    echo "error: tagged launches require authenticated dev credentials" >&2
+    echo "error: configure ~/.secrets/cmuxterm-dev.env with scripts/setup-team-dev.sh" >&2
+    exit 2
+  fi
 fi
 
 if [[ -n "$AUTH_CREDENTIALS_FILE" ]]; then
@@ -1234,11 +1277,22 @@ CMUX_DEV_PORT_END="$(choose_cmux_dev_port_end "$CMUX_DEV_PORT" "$CMUX_DEV_PORT_R
 CMUX_DEV_ORIGIN="http://localhost:${CMUX_DEV_PORT}"
 CMUX_DEV_API_BASE_URL_VALUE="$(cmux_attach_resolve_dev_api_base_url "$CMUX_DEV_ORIGIN")"
 CMUX_IROH_BROKER_BASE_URL_VALUE="${CMUX_IROH_BROKER_BASE_URL:-https://cmux-staging.vercel.app}"
+CMUX_IROH_V2_ENVIRONMENT_VALUE="${CMUX_IROH_V2_ENVIRONMENT:-development}"
+CMUX_IROH_V2_BASE_URL_VALUE="${CMUX_IROH_V2_BASE_URL:-https://cmux-iroh-v2-development.debussy.workers.dev}"
+CMUX_IROH_V2_FORCE_RELAY_VALUE="${CMUX_IROH_V2_FORCE_RELAY:-0}"
 CMUX_AUTH_WWW_ORIGIN_VALUE="$CMUX_DEV_ORIGIN"
 CMUX_WWW_ORIGIN_VALUE="$CMUX_DEV_ORIGIN"
 if [[ "$PROD_AUTH" -eq 1 ]]; then
-  CMUX_DEV_API_BASE_URL_VALUE="${CMUX_DEV_API_BASE_URL:-https://cmux.com}"
-  CMUX_IROH_BROKER_BASE_URL_VALUE="${CMUX_IROH_BROKER_BASE_URL:-https://cmux.com}"
+  if [[ -n "${CMUX_DEV_API_BASE_URL:-}" && "$CMUX_DEV_API_BASE_URL" != "https://cmux.com" ]]; then
+    echo "error: --prod-auth cannot use API origin '$CMUX_DEV_API_BASE_URL'; production builds must use https://cmux.com" >&2
+    exit 1
+  fi
+  if [[ -n "${CMUX_IROH_BROKER_BASE_URL:-}" && "$CMUX_IROH_BROKER_BASE_URL" != "https://cmux.com" ]]; then
+    echo "error: --prod-auth cannot use Iroh broker origin '$CMUX_IROH_BROKER_BASE_URL'; production builds must use https://cmux.com" >&2
+    exit 1
+  fi
+  CMUX_DEV_API_BASE_URL_VALUE="https://cmux.com"
+  CMUX_IROH_BROKER_BASE_URL_VALUE="https://cmux.com"
   CMUX_AUTH_WWW_ORIGIN_VALUE="https://cmux.com"
   CMUX_WWW_ORIGIN_VALUE="https://cmux.com"
 fi
@@ -1346,7 +1400,17 @@ trap reload_finalize EXIT
 # Tell the user we're starting (visible even though body output is redirected).
 echo "==> reload starting (tag: ${TAG}, log: ${RELOAD_LOG})" >&3
 
-"$PWD/scripts/ensure-ghosttykit.sh"
+# CI can verify/download the xcframework before deciding whether Zig is needed.
+# Fail closed if that caller assertion is inconsistent with the checkout.
+if [[ "${CMUX_GHOSTTYKIT_PREPROVISIONED:-0}" == "1" ]]; then
+  if [[ ! -d "$PWD/GhosttyKit.xcframework" ]]; then
+    echo "error: CMUX_GHOSTTYKIT_PREPROVISIONED=1 but GhosttyKit.xcframework is missing" >&2
+    exit 1
+  fi
+  echo "==> Reusing caller-provisioned GhosttyKit.xcframework"
+else
+  "$PWD/scripts/ensure-ghosttykit.sh"
+fi
 
 if should_skip_ghostty_cli_helper_zig_build; then
   export CMUX_SKIP_ZIG_BUILD=1
@@ -1375,6 +1439,10 @@ if [[ -z "$TAG" ]]; then
   )
 fi
 XCODEBUILD_ARGS+=(PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID")
+# The helper is assembled before Xcode emits the host's processed Info.plist.
+# Pass the final tagged display name explicitly so its TCC entry matches the
+# app the user is dogfooding instead of falling back to the untagged product.
+XCODEBUILD_ARGS+=(CMUX_CUA_HELPER_DISPLAY_NAME="cmux Computer Use")
 if [[ "$PROD_AUTH" -eq 1 ]]; then
   XCODEBUILD_ARGS+=(-xcconfig "$SCRIPT_DIR/../config/IrohRelayPolicyProduction.xcconfig")
 fi
@@ -1394,6 +1462,7 @@ if [[ "$SWIFT_FRONTEND_WORKAROUND" -eq 1 || "${CMUX_SWIFT_FRONTEND_WORKAROUND:-}
   XCODEBUILD_ARGS+=(SWIFT_ENABLE_BATCH_MODE=NO)
   XCODEBUILD_ARGS+=(DEBUG_INFORMATION_FORMAT=)
   XCODEBUILD_ARGS+=(GCC_GENERATE_DEBUGGING_SYMBOLS=NO)
+  # shellcheck disable=SC2016 # Xcode expands $(inherited), not this shell.
   XCODEBUILD_ARGS+=('OTHER_SWIFT_FLAGS=$(inherited) -Xllvm -aarch64-enable-global-isel-at-O=-1')
 else
   SWIFT_FRONTEND_WORKAROUND_EFFECTIVE=0
@@ -1663,6 +1732,9 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       set_plist_env "$INFO_PLIST" CMUX_API_BASE_URL "$CMUX_DEV_API_BASE_URL_VALUE"
       set_plist_env "$INFO_PLIST" CMUX_VM_API_BASE_URL "$CMUX_DEV_API_BASE_URL_VALUE"
       set_plist_env "$INFO_PLIST" CMUX_IROH_BROKER_BASE_URL "$CMUX_IROH_BROKER_BASE_URL_VALUE"
+      set_plist_env "$INFO_PLIST" CMUX_IROH_V2_ENVIRONMENT "$CMUX_IROH_V2_ENVIRONMENT_VALUE"
+      set_plist_env "$INFO_PLIST" CMUX_IROH_V2_BASE_URL "$CMUX_IROH_V2_BASE_URL_VALUE"
+      set_plist_env "$INFO_PLIST" CMUX_IROH_V2_FORCE_RELAY "$CMUX_IROH_V2_FORCE_RELAY_VALUE"
       if [[ "$PROD_AUTH" -eq 1 ]]; then
         set_plist_env "$INFO_PLIST" CMUX_AUTH_ENVIRONMENT production
       fi
@@ -1703,11 +1775,37 @@ if [[ -d "$PWD/ghostty" ]]; then
     "$PWD/scripts/build-ghostty-cli-helper.sh" --output "$GHOSTTY_HELPER_DEST"
   fi
 fi
+BIN_DIR="$APP_PATH/Contents/Resources/bin"
+CMUX_CUA_DEST="$BIN_DIR/cmux-cua"
+if [[ -x "$CMUX_CUA_DEST" ]]; then
+  echo "Preserving Xcode-built cmux Computer Use client at $CMUX_CUA_DEST"
+else
+  mkdir -p "$BIN_DIR"
+  "$PWD/scripts/build-cmux-cua.sh" --output "$CMUX_CUA_DEST"
+fi
 if [[ -x "$CMUXD_SRC" ]]; then
   BIN_DIR="$APP_PATH/Contents/Resources/bin"
   mkdir -p "$BIN_DIR"
   cp "$CMUXD_SRC" "$BIN_DIR/cmuxd"
   chmod +x "$BIN_DIR/cmuxd"
+fi
+# The cmux-tui client the Machines panel uses for cloud sessions ships inside the
+# bundle like the Ghostty helper. Dev builds take the rolling latest manifest (or
+# CMUX_TUI_CLIENT_MANIFEST_URL / CMUX_TUI_CLIENT_LOCAL); CMUX_SKIP_CMUX_TUI_CLIENT=1
+# leaves an existing copy alone for offline reloads.
+if [[ "${CMUX_SKIP_CMUX_TUI_CLIENT:-}" == "1" && -x "$APP_PATH/Contents/Resources/bin/cmux-tui" ]]; then
+  echo "Preserving bundled cmux-tui client (CMUX_SKIP_CMUX_TUI_CLIENT=1)"
+else
+  cmux_tui_install_args=(
+    "$APP_PATH"
+    --require-capability wireguard-hub
+  )
+  if [[ -n "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE" ]]; then
+    cmux_tui_install_args+=(
+      --manifest-url "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE"
+    )
+  fi
+  "$PWD/scripts/install-cmux-tui-client.sh" "${cmux_tui_install_args[@]}"
 fi
 if command -v xattr >/dev/null 2>&1; then
   xattr -cr "$APP_PATH" || true
@@ -1727,6 +1825,13 @@ if [[ -n "${TAG_APP_FINAL_PATH:-}" && -n "${TAG_APP_STAGING_PATH:-}" ]]; then
 fi
 CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
 
+TAG_LAUNCHD_LABEL=""
+TAG_LAUNCHD_DOMAIN=""
+if [[ -n "${TAG_SLUG:-}" ]]; then
+  TAG_LAUNCHD_LABEL="${BUNDLE_ID}.reload"
+  TAG_LAUNCHD_DOMAIN="gui/$(id -u)"
+fi
+
 # Tag mode: always terminate the existing same-tag instance after a successful build,
 # even without --launch. A stale tagged app pinned to this bundle id would otherwise
 # keep running against freshly-overwritten resources, and macOS would foreground it
@@ -1736,6 +1841,11 @@ if [[ -n "$TAG" ]]; then
   sleep 0.3
   pkill -f "${APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
   sleep 0.3
+  # Tagged --launch runs are handed off to launchd so they survive the terminal or
+  # automation process that invoked reload.sh. Remove a still-registered prior job
+  # after giving the app a chance to quit gracefully.
+  /bin/launchctl bootout "$TAG_LAUNCHD_DOMAIN/$TAG_LAUNCHD_LABEL" >/dev/null 2>&1 || true
+  /bin/launchctl remove "$TAG_LAUNCHD_LABEL" >/dev/null 2>&1 || true
 fi
 
 if [[ -n "$TAG" ]] && ! wait_for_tag_socket_lock_release "/tmp/cmux-debug-${TAG_SLUG}.sock"; then
@@ -1854,6 +1964,9 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     CMUX_API_BASE_URL="$CMUX_DEV_API_BASE_URL_VALUE"
     CMUX_VM_API_BASE_URL="$CMUX_DEV_API_BASE_URL_VALUE"
     CMUX_IROH_BROKER_BASE_URL="$CMUX_IROH_BROKER_BASE_URL_VALUE"
+    CMUX_IROH_V2_ENVIRONMENT="$CMUX_IROH_V2_ENVIRONMENT_VALUE"
+    CMUX_IROH_V2_BASE_URL="$CMUX_IROH_V2_BASE_URL_VALUE"
+    CMUX_IROH_V2_FORCE_RELAY="$CMUX_IROH_V2_FORCE_RELAY_VALUE"
   )
   if [[ "$PROD_AUTH" -eq 1 ]]; then
     TAG_LAUNCH_ENV+=(CMUX_AUTH_ENVIRONMENT=production)
@@ -1871,22 +1984,64 @@ if [[ "$LAUNCH" -eq 1 ]]; then
   LAUNCH_CMD=()
   LAUNCH_RETRY_CMD=()
   if [[ -n "${TAG_SLUG:-}" ]]; then
-    # Launch tagged apps directly so LaunchServices cannot reuse a stale
-    # LSEnvironment for the tag's bundle id.
+    # Launch tagged apps through an explicit one-shot launchd job. `launchctl
+    # submit` infers KeepAlive for app executables, which relaunches the app after
+    # the user chooses Quit. A loaded plist with KeepAlive=false still survives
+    # the invoking terminal/automation process, while a normal exit stays exited.
+    # It also avoids LaunchServices reusing stale LSEnvironment values.
     APP_EXECUTABLE="$APP_PATH/Contents/MacOS/${BASE_APP_NAME}"
     if [[ ! -x "$APP_EXECUTABLE" ]]; then
       echo "error: tagged app executable not found: $APP_EXECUTABLE" >&2
       exit 1
     fi
-    TAG_LAUNCH_LOG="/tmp/cmux-launch-${TAG_SLUG}.out"
+    CMUX_TAG_LAUNCH_LOG_DIRECTORY="$(mktemp -d "${TMPDIR:-/tmp}/cmux-launch-${TAG_SLUG}.XXXXXX")"
+    chmod 0700 "$CMUX_TAG_LAUNCH_LOG_DIRECTORY"
+    TAG_LAUNCH_LOG="$CMUX_TAG_LAUNCH_LOG_DIRECTORY/launch.out"
+    (umask 077 && : > "$TAG_LAUNCH_LOG")
+    chmod 0600 "$TAG_LAUNCH_LOG"
     if [[ -n "${CMUX_SOCKET_PATH_VALUE:-}" ]]; then
-      # 3>&- 4>&-: close the script's saved-stdout/stderr dups (exec 3>&1 4>&2
-      # above) so the long-lived app can't inherit a caller's pipe write end —
-      # an `ssh host reload.sh --launch | …` pipeline would otherwise never see
-      # EOF and hang until the app dies.
-      nohup "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" "$APP_EXECUTABLE" >"$TAG_LAUNCH_LOG" 2>&1 3>&- 4>&- &
-    else
-      nohup "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" "$APP_EXECUTABLE" >"$TAG_LAUNCH_LOG" 2>&1 3>&- 4>&- &
+      TAG_LAUNCH_ENV+=(
+        CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE"
+        CMUXD_UNIX_PATH="$CMUXD_SOCKET"
+      )
+    fi
+    TAG_LAUNCH_PLIST="$CMUX_TAG_LAUNCH_LOG_DIRECTORY/$TAG_LAUNCHD_LABEL.plist"
+    /usr/bin/plutil -create xml1 "$TAG_LAUNCH_PLIST"
+    /usr/bin/plutil -insert Label -string "$TAG_LAUNCHD_LABEL" "$TAG_LAUNCH_PLIST"
+    # A launchd job inherits the GUI domain environment even when the plist has
+    # its own EnvironmentVariables dictionary. That domain can contain stale
+    # test/socket overrides from another dev session. Run through `env -i` so
+    # the app receives only the ordinary user context and this tag's explicit
+    # values; `env` execs the app in place, so launchd still tracks its lifetime.
+    TAG_LAUNCH_PROGRAM_ARGUMENTS=(
+      /usr/bin/env
+      -i
+      HOME="${HOME:-/Users/$(id -un)}"
+      USER="$(id -un)"
+      LOGNAME="$(id -un)"
+      SHELL="${SHELL:-/bin/zsh}"
+      PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+      TMPDIR="${TMPDIR:-/tmp}"
+    )
+    if [[ -n "${SSH_AUTH_SOCK:-}" ]]; then
+      TAG_LAUNCH_PROGRAM_ARGUMENTS+=(SSH_AUTH_SOCK="$SSH_AUTH_SOCK")
+    fi
+    TAG_LAUNCH_PROGRAM_ARGUMENTS+=("${TAG_LAUNCH_ENV[@]}" "$APP_EXECUTABLE")
+    /usr/bin/plutil -insert ProgramArguments -array "$TAG_LAUNCH_PLIST"
+    for TAG_LAUNCH_ARGUMENT_INDEX in "${!TAG_LAUNCH_PROGRAM_ARGUMENTS[@]}"; do
+      /usr/bin/plutil -insert "ProgramArguments.$TAG_LAUNCH_ARGUMENT_INDEX" \
+        -string "${TAG_LAUNCH_PROGRAM_ARGUMENTS[$TAG_LAUNCH_ARGUMENT_INDEX]}" \
+        "$TAG_LAUNCH_PLIST"
+    done
+    /usr/bin/plutil -insert RunAtLoad -bool true "$TAG_LAUNCH_PLIST"
+    /usr/bin/plutil -insert KeepAlive -bool false "$TAG_LAUNCH_PLIST"
+    /usr/bin/plutil -insert ProcessType -string Interactive "$TAG_LAUNCH_PLIST"
+    /usr/bin/plutil -insert StandardOutPath -string "$TAG_LAUNCH_LOG" "$TAG_LAUNCH_PLIST"
+    /usr/bin/plutil -insert StandardErrorPath -string "$TAG_LAUNCH_LOG" "$TAG_LAUNCH_PLIST"
+    chmod 0600 "$TAG_LAUNCH_PLIST"
+    if ! /bin/launchctl bootstrap "$TAG_LAUNCHD_DOMAIN" "$TAG_LAUNCH_PLIST"; then
+      echo "error: failed to bootstrap one-shot tagged launch job: $TAG_LAUNCHD_LABEL" >&2
+      exit 1
     fi
   else
     echo "/tmp/cmux-debug.sock" > /tmp/cmux-last-socket-path || true
@@ -1908,6 +2063,8 @@ if [[ "$LAUNCH" -eq 1 ]]; then
 
   # Safety: ensure only one instance is running.
   sleep 0.2
+  # macOS ships Bash 3.2 without mapfile/readarray; pgrep emits one PID per line.
+  # shellcheck disable=SC2207
   PIDS=($(pgrep -f "${APP_PATH}/Contents/MacOS/" || true))
   if [[ -n "${TAG_SLUG:-}" && "${#PIDS[@]}" -eq 0 ]]; then
     echo "error: tagged app exited immediately after launch" >&2

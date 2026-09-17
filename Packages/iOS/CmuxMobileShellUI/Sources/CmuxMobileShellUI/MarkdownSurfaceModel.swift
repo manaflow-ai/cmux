@@ -121,6 +121,8 @@ final class MarkdownSurfaceModel {
             // A markdown panel path that stops decoding as text is a data
             // problem on the Mac side, not connectivity.
             return .loadFailed(code: nil)
+        case .unknown(let code):
+            return .loadFailed(code: code)
         }
     }
 }

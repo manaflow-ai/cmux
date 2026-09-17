@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CryptoKit
 public import Foundation
 
@@ -285,8 +286,12 @@ public actor CmxIrohBrokerBackpressureGate {
         let remaining = Self.remainingSeconds(floor: floor, now: now())
         switch floor.errorKind {
         case let .brokerRateLimit(code):
+            // "cooldown:" marks a LOCAL fail-fast waiting out a prior 429;
+            // without it these are indistinguishable from real server
+            // rejections in journals (08-27: hundreds of countdown lines
+            // read as a server hammer that never happened).
             throw CmxIrohTrustBrokerClientError.rateLimited(
-                code: code,
+                code: "cooldown:" + (code ?? "rate_limited"),
                 retryAfterSeconds: remaining
             )
         case .cooldown:
@@ -338,7 +343,7 @@ public actor CmxIrohBrokerBackpressureGate {
         switch error as? CmxIrohTrustBrokerClientError {
         case let .rateLimited(code, retryAfterSeconds):
             directive = (
-                Self.boundedRetryAfter(retryAfterSeconds),
+                Self.normalizedRetryAfter(retryAfterSeconds),
                 .brokerRateLimit(code: code)
             )
         case let .rejected(statusCode, _) where statusCode == 429:
@@ -508,10 +513,7 @@ public actor CmxIrohBrokerBackpressureGate {
             && floor.retryAt.timeIntervalSince1970.isFinite
             && floor.recordedAt <= current
             && floor.retryAt > current
-            && floor.retryAt.timeIntervalSince(current)
-                <= TimeInterval(CmxIrohBrokerCooldown.maximumRetryAfterSeconds)
             && duration >= 1
-            && duration <= TimeInterval(CmxIrohBrokerCooldown.maximumRetryAfterSeconds)
     }
 
     private static func precedesForPersistence(
@@ -529,14 +531,11 @@ public actor CmxIrohBrokerBackpressureGate {
     private static func remainingSeconds(floor: Floor, now: Date) -> Int {
         let remaining = floor.retryAt.timeIntervalSince(now)
         let original = floor.retryAt.timeIntervalSince(floor.recordedAt)
-        return min(
-            CmxIrohBrokerCooldown.maximumRetryAfterSeconds,
-            max(1, Int(min(remaining, original).rounded(.up)))
-        )
+        return max(1, CmxRetryAfterPolicy.roundedUpSeconds(min(remaining, original)))
     }
 
-    private static func boundedRetryAfter(_ seconds: Int) -> Int {
-        min(CmxIrohBrokerCooldown.maximumRetryAfterSeconds, max(1, seconds))
+    private static func normalizedRetryAfter(_ seconds: Int) -> Int {
+        max(1, seconds)
     }
 
     private static func accountScope(_ accountID: String) -> String {

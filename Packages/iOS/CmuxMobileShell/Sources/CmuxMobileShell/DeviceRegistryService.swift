@@ -47,6 +47,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     private let teamIDProvider: @Sendable () async -> String?
     private let session: CmxCredentialedHTTPSession
     private let requestTimeout: TimeInterval
+    private let retryAfterGate = CmxRetryAfterGate()
     private struct RegistryResponse: Sendable {
         let data: Data
         let statusCode: Int
@@ -137,7 +138,6 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
             evidence: evidence
         )
     }
-
     /// Testable core of ``deviceID(defaults:)`` with an injectable identity store.
     static func deviceID(
         store: any DeviceIdentityStoring,
@@ -223,7 +223,6 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         KeychainDeviceIdentityStore()
         #endif
     }
-
     /// Testable core of ``durableDeviceID(defaults:)`` with an injectable store.
     static func durableDeviceID(
         store: any DeviceIdentityStoring,
@@ -582,13 +581,18 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     /// team scope. This removes duplicate provider work without returning an old
     /// account or team's response after a session switch.
     private func fetchListResponse() async -> RegistryResponse? {
+        // A cached registry snapshot remains usable while the backend owns the
+        // next request time. Foreground and reconnect triggers must not bypass it.
+        guard await retryAfterGate.remainingSeconds() == nil else { return nil }
         guard let input = await makeListRequest() else { return nil }
         if let inFlight = listResponseTasks[input.scope] {
             return await inFlight.task.value
         }
         let id = UUID()
         let task = Task { [self] in
-            await performListResponseRequest(input.request)
+            try? await retryAfterGate.perform(waitForCooldown: false) { [self] in
+                await performListResponseRequest(input.request)
+            }
         }
         listResponseTasks[input.scope] = InFlightRegistryRequest(id: id, task: task)
         let response = await task.value
@@ -603,6 +607,13 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
             let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse else {
                 return nil
+            }
+            if http.statusCode == 429 {
+                let seconds = CmxRetryAfterPolicy.seconds(
+                    from: http,
+                    defaultSeconds: CmxRetryAfterPolicy.defaultRateLimitSeconds
+                ) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+                await retryAfterGate.extend(by: seconds)
             }
             return RegistryResponse(data: data, statusCode: http.statusCode)
         } catch {
@@ -751,6 +762,76 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
                 refreshToken: refreshToken,
                 teamID: teamID
             )
+        )
+    }
+}
+
+/// Provides Keychain-scoped device identities for one exact iOS app namespace.
+public extension MobileIOSAppNamespace {
+    /// Returns this app bundle's stable device-registry identity.
+    ///
+    /// The exact bundle namespace selects a device-only Keychain service. The
+    /// best-effort registry read may return a process-stable ephemeral value
+    /// when protected storage is unavailable, but that value is never used for
+    /// an Iroh binding.
+    ///
+    /// - Parameters:
+    ///   - keychainAccessGroup: This app's exact signed Keychain access group.
+    ///   - defaults: Legacy mirror storage, injectable for tests.
+    func deviceRegistryDeviceID(
+        keychainAccessGroup: String?,
+        defaults: UserDefaults = .standard,
+        deviceWitness: String? = nil,
+        evidence: any SameDeviceEvidenceProbing = IrohEndpointIdentityEvidenceProbe()
+    ) -> String {
+        DeviceRegistryService.deviceID(
+            store: KeychainDeviceIdentityStore(
+                service: keychainService(
+                    base: "com.cmuxterm.deviceRegistry.iosDeviceID.v1"
+                ),
+                accessGroup: keychainAccessGroup,
+                legacyService: "com.cmuxterm.deviceRegistry.iosDeviceID.v1"
+            ),
+            defaults: defaults,
+            deviceWitness: deviceWitness,
+            evidence: evidence
+        )
+    }
+
+    /// Returns this app bundle's durable Iroh device identity.
+    ///
+    /// A `nil` result means protected storage is unavailable or a fresh value
+    /// could not be persisted. Callers must defer broker registration instead
+    /// of substituting an ephemeral identity.
+    ///
+    /// - Parameters:
+    ///   - keychainAccessGroup: This app's exact signed Keychain access group.
+    ///   - defaults: Legacy mirror storage, injectable for tests.
+    func durableDeviceRegistryDeviceID(
+        keychainAccessGroup: String?,
+        defaults: UserDefaults = .standard,
+        deviceWitness: String? = nil,
+        evidence: any SameDeviceEvidenceProbing = IrohEndpointIdentityEvidenceProbe()
+    ) -> String? {
+        #if targetEnvironment(simulator)
+        let store: any DeviceIdentityStoring = SimulatorDeviceIdentityStore(
+            defaults: defaults,
+            seededDeviceID: ProcessInfo.processInfo.environment["CMUX_SIMULATOR_DEVICE_ID"]
+        )
+        #else
+        let store: any DeviceIdentityStoring = KeychainDeviceIdentityStore(
+            service: keychainService(
+                base: "com.cmuxterm.deviceRegistry.iosDeviceID.v1"
+            ),
+            accessGroup: keychainAccessGroup,
+            legacyService: "com.cmuxterm.deviceRegistry.iosDeviceID.v1"
+        )
+        #endif
+        return DeviceRegistryService.durableDeviceID(
+            store: store,
+            defaults: defaults,
+            deviceWitness: deviceWitness,
+            evidence: evidence
         )
     }
 }

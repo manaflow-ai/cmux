@@ -48,12 +48,48 @@ import Testing
 
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(1))
-        while await log.processedCount() < 1, clock.now < deadline {
+        while await log.processedCount() < 2, clock.now < deadline {
             await Task.yield()
         }
-        #expect(await log.processedCount() >= 1)
-        let event = await log.snapshot().events.first
-        #expect(event?.a == DiagnosticAppEventKind.connectionMethodPreferenceChanged.rawValue)
-        #expect(event?.c == 1)
+        #expect(await log.processedCount() >= 2)
+        let events = await log.snapshot().events
+        #expect(events.first?.a
+            == DiagnosticAppEventKind.connectionMethodConfigured.rawValue)
+        #expect(events.first?.c == 0)
+        let change = events.last
+        #expect(change?.a
+            == DiagnosticAppEventKind.connectionMethodPreferenceChanged.rawValue)
+        #expect(change?.c == 1)
+    }
+
+    /// A shared report window must state the configured method even when the
+    /// bounded ring rolled past app launch, so the configured-method event is
+    /// re-recordable on demand (the composition root calls it per foreground).
+    @Test func recordsConfiguredMethodAtInitAndOnDemand() async {
+        let defaults = makeDefaults()
+        defaults.set(
+            MobileConnectionMethod.tailscale.rawValue,
+            forKey: MobileConnectionMethodStore.methodKey
+        )
+        let log = DiagnosticLog(capacity: 4)
+        let store = MobileConnectionMethodStore(
+            defaults: defaults,
+            diagnosticLog: log
+        )
+
+        store.recordConfiguredMethodDiagnostic()
+
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while await log.processedCount() < 2, clock.now < deadline {
+            await Task.yield()
+        }
+        let events = await log.snapshot().events
+        #expect(events.count == 2)
+        for event in events {
+            #expect(event.a
+                == DiagnosticAppEventKind.connectionMethodConfigured.rawValue)
+            #expect(event.c == 1)
+        }
     }
 }

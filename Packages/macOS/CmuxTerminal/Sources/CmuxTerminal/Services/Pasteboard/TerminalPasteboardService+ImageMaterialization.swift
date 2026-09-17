@@ -1,6 +1,5 @@
 public import AppKit
 public import CmuxTerminalCore
-internal import UniformTypeIdentifiers
 #if DEBUG
 internal import CMUXDebugLog
 #endif

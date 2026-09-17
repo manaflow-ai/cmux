@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '0f28922d64be59160110a6e7bf5a7656132ce163e82792c474c29c26a1bee529'
+IR_SHA256 = 'd9db9b34a8e4f367ce1aae230fcd188796903d6adf169f9675872a48d9fd1f25'
 
 
 @dataclass(frozen=True)
@@ -264,6 +264,17 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+        },
+    ),
+    'client-focus': CommandMetadata(
+        'client-focus',
+        'control',
+        12,
+        'client-focus-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'client_id': CommandFieldMetadata(None, None),
         },
     ),
     'close-pane': CommandMetadata(
@@ -583,6 +594,26 @@ COMMANDS = {
         {
         },
     ),
+    'machine-listening-tcp': CommandMetadata(
+        'machine-listening-tcp',
+        'control',
+        12,
+        'machine-listening-tcp-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+        },
+    ),
+    'machine-usage': CommandMetadata(
+        'machine-usage',
+        'control',
+        12,
+        'machine-usage-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+        },
+    ),
     'mark-workspaces-provider-managed': CommandMetadata(
         'mark-workspaces-provider-managed',
         'provider-authority',
@@ -784,6 +815,25 @@ COMMANDS = {
             'pane': CommandFieldMetadata(None, None),
         },
     ),
+    'paste-image': CommandMetadata(
+        'paste-image',
+        'control',
+        12,
+        'terminal-image-paste-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'data': CommandFieldMetadata(None, None),
+            'lease': CommandFieldMetadata(None, None),
+            'mime': CommandFieldMetadata(None, None),
+            'offset': CommandFieldMetadata(None, None),
+            'op': CommandFieldMetadata(None, None),
+            'size': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(None, None),
+            'upload_id': CommandFieldMetadata(None, None),
+        },
+    ),
     'ping': CommandMetadata(
         'ping',
         'control',
@@ -978,6 +1028,19 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
         },
     ),
+    'report-focus': CommandMetadata(
+        'report-focus',
+        'control',
+        12,
+        'client-focus-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'client_id': CommandFieldMetadata(None, None),
+            'pane': CommandFieldMetadata(None, None),
+            'tab': CommandFieldMetadata(None, None),
+        },
+    ),
     'resize-attached-view': CommandMetadata(
         'resize-attached-view',
         'frontend',
@@ -1108,6 +1171,16 @@ COMMANDS = {
         {
             'keys': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'server-stats': CommandMetadata(
+        'server-stats',
+        'local-admin',
+        12,
+        'server-stats-v1',
+        ('local-admin',),
+        None,
+        {
         },
     ),
     'set-cell-pixels': CommandMetadata(
@@ -1365,12 +1438,14 @@ EVENTS = {
     'client-list-invalidated': EventMetadata('client-list-invalidated', 9, None, ('subscribe',), 'serialized-never-emitted'),
     'colors-changed': EventMetadata('colors-changed', 6, None, ('attach-byte',), 'emitted'),
     'config-reload-requested': EventMetadata('config-reload-requested', 6, None, ('subscribe',), 'emitted'),
+    'daemon-shutdown': EventMetadata('daemon-shutdown', 12, None, ('control',), 'emitted'),
     'detached': EventMetadata('detached', 5, None, ('attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
     'empty': EventMetadata('empty', 5, None, ('subscribe',), 'emitted'),
     'frame': EventMetadata('frame', 6, None, ('attach-browser',), 'emitted'),
     'frontend-projection-changed': EventMetadata('frontend-projection-changed', 7, None, ('subscribe',), 'emitted'),
     'graphics-status': EventMetadata('graphics-status', 10, None, ('subscribe',), 'emitted'),
     'layout-changed': EventMetadata('layout-changed', 6, None, ('subscribe',), 'emitted'),
+    'machine-usage-changed': EventMetadata('machine-usage-changed', 12, 'machine-usage-v1', ('subscribe',), 'emitted'),
     'notification': EventMetadata('notification', 6, None, ('subscribe', 'attach-byte', 'attach-browser'), 'emitted'),
     'output': EventMetadata('output', 5, None, ('attach-byte',), 'emitted'),
     'overflow': EventMetadata('overflow', 7, None, ('subscribe', 'attach-byte', 'attach-render', 'attach-browser'), 'emitted'),

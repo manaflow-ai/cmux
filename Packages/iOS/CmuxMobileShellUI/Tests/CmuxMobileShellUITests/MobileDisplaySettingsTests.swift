@@ -108,22 +108,6 @@ import Testing
         #expect(!MobileDisplaySettings(defaults: defaults).terminalFolderTapEnabled)
     }
 
-    @Test func taskComposerDefaultsToFalseWithoutAWrite() throws {
-        let defaults = try makeDefaults("taskComposerDefaults")
-        let settings = MobileDisplaySettings(defaults: defaults)
-        #expect(!settings.taskComposerEnabled)
-        #expect(defaults.object(forKey: "cmux.mobile.taskComposerEnabled") == nil)
-    }
-
-    @Test func taskComposerPersistsAcrossInstances() throws {
-        let defaults = try makeDefaults("taskComposerPersists")
-        let settings = MobileDisplaySettings(defaults: defaults)
-        settings.taskComposerEnabled = true
-        #expect(MobileDisplaySettings(defaults: defaults).taskComposerEnabled)
-        settings.taskComposerEnabled = false
-        #expect(!MobileDisplaySettings(defaults: defaults).taskComposerEnabled)
-    }
-
     @Test func previewLineCountPersistsAcrossInstances() throws {
         let defaults = try makeDefaults("persists")
         let settings = MobileDisplaySettings(defaults: defaults)
@@ -178,6 +162,27 @@ import Testing
     }
 
     #if DEBUG
+    @Test func taskComposerLiquidGlassDefaultsToOffWithoutAWrite() throws {
+        let defaults = try makeDefaults("taskComposerLiquidGlassDefaults")
+        let settings = MobileDisplaySettings(defaults: defaults)
+
+        #expect(!settings.taskComposerFullLiquidGlass)
+        #expect(
+            defaults.object(forKey: "cmux.mobile.debug.taskComposerFullLiquidGlass.v1") == nil
+        )
+    }
+
+    @Test func taskComposerLiquidGlassPersistsAcrossInstances() throws {
+        let defaults = try makeDefaults("taskComposerLiquidGlassPersists")
+        let settings = MobileDisplaySettings(defaults: defaults)
+
+        settings.taskComposerFullLiquidGlass = true
+        #expect(MobileDisplaySettings(defaults: defaults).taskComposerFullLiquidGlass)
+
+        settings.taskComposerFullLiquidGlass = false
+        #expect(!MobileDisplaySettings(defaults: defaults).taskComposerFullLiquidGlass)
+    }
+
     @Test func shellIconVariantPersistsAndRejectsUnknownValues() throws {
         let defaults = try makeDefaults("shellIconVariant")
         let settings = MobileDisplaySettings(defaults: defaults)

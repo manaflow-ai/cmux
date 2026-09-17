@@ -188,4 +188,127 @@ final class MainWindowSelfSizingTests: XCTestCase {
             "The hosting view accepted a frame taller than its window"
         )
     }
+
+    /// `minSize`/`contentMinSize` bound only USER resizes; a programmatic
+    /// `setFrame` (session restore math, display reconfiguration, automation)
+    /// can still deliver a frame below the layout floor, where the sidebar
+    /// footer, update pill, and tab bar overlap and clip. The window must
+    /// enforce the floor on every setFrame path, keeping the top edge (the
+    /// titlebar the user can grab) where the caller put it.
+    @MainActor
+    func testSetFrameRaisesUndersizedFrameToMinimumContentSize() {
+        let window = CmuxMainWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+
+        let minimum = CmuxMainWindow.minimumContentSize
+        let undersized = NSRect(x: 80, y: 500, width: 220, height: 120)
+        window.setFrame(undersized, display: false)
+
+        XCTAssertGreaterThanOrEqual(
+            window.frame.width, minimum.width - 0.5,
+            "A programmatic setFrame below the minimum width must be raised to the floor"
+        )
+        XCTAssertGreaterThanOrEqual(
+            window.frame.height, minimum.height - 0.5,
+            "A programmatic setFrame below the minimum height must be raised to the floor"
+        )
+        XCTAssertEqual(
+            window.frame.maxY, undersized.maxY, accuracy: 0.5,
+            "Raising an undersized frame must keep the top edge put and extend the window downward"
+        )
+    }
+
+    /// Ordinary frames must flow through the undersized raise untouched so
+    /// user-owned placement (partial off-screen, multi-display) is never
+    /// perturbed by the floor.
+    func testFrameRaiseReturnsFittingFramesByteForByte() {
+        let fitting = NSRect(x: -120.5, y: 33.25, width: 901.5, height: 612.75)
+        XCTAssertEqual(
+            CmuxMainWindow.frameByRaisingUndersizedDimensions(
+                fitting,
+                minimumSize: CmuxMainWindow.minimumContentSize,
+                currentFrame: NSRect(x: 0, y: 0, width: 1_000, height: 700),
+                isLiveResize: true
+            ),
+            fitting,
+            "A frame at or above the minimum must be returned unchanged"
+        )
+    }
+
+    /// A top-edge drag keeps the window's bottom still and walks maxY down;
+    /// once the proposal dips under the floor the raise must pin the kept
+    /// bottom edge so the top edge stops — anchoring the top instead would
+    /// make the whole window slide down with the cursor (observed live on
+    /// macOS 26, whose edge drags deliver below-minSize frames to setFrame).
+    func testFrameRaisePinsKeptBottomEdgeDuringTopEdgeDrag() {
+        let current = NSRect(x: 100, y: 100, width: 1_000, height: 694)
+        let proposed = NSRect(x: 100, y: 100, width: 1_000, height: 95)
+        let minimum = NSSize(width: 300, height: 400)
+        let raised = CmuxMainWindow.frameByRaisingUndersizedDimensions(
+            proposed,
+            minimumSize: minimum,
+            currentFrame: current,
+            isLiveResize: true
+        )
+        XCTAssertEqual(raised.minY, current.minY, accuracy: 0.01, "Kept bottom edge must stay pinned")
+        XCTAssertEqual(raised.height, minimum.height, accuracy: 0.01)
+    }
+
+    /// A bottom-edge drag keeps the window's top still and walks minY up; the
+    /// raise must pin the kept top edge so the bottom edge stops at the floor.
+    func testFrameRaisePinsKeptTopEdgeDuringBottomEdgeDrag() {
+        let current = NSRect(x: 100, y: 100, width: 1_000, height: 694)
+        let proposed = NSRect(x: 100, y: 699, width: 1_000, height: 95)
+        let minimum = NSSize(width: 300, height: 400)
+        let raised = CmuxMainWindow.frameByRaisingUndersizedDimensions(
+            proposed,
+            minimumSize: minimum,
+            currentFrame: current,
+            isLiveResize: true
+        )
+        XCTAssertEqual(raised.maxY, current.maxY, accuracy: 0.01, "Kept top edge must stay pinned")
+        XCTAssertEqual(raised.height, minimum.height, accuracy: 0.01)
+    }
+
+    /// Outside live resize a shrink that happens to share the window's
+    /// current origin is not a drag — the raise must still keep the
+    /// proposal's top edge (the titlebar) rather than pinning the bottom.
+    func testFrameRaiseKeepsTopEdgeForProgrammaticShrinkSharingOrigin() {
+        let current = NSRect(x: 100, y: 100, width: 1_000, height: 694)
+        let proposed = NSRect(x: 100, y: 100, width: 1_000, height: 95)
+        let minimum = NSSize(width: 300, height: 400)
+        let raised = CmuxMainWindow.frameByRaisingUndersizedDimensions(
+            proposed,
+            minimumSize: minimum,
+            currentFrame: current,
+            isLiveResize: false
+        )
+        XCTAssertEqual(raised.maxY, proposed.maxY, accuracy: 0.01, "Programmatic raises keep the proposal's top edge")
+        XCTAssertEqual(raised.height, minimum.height, accuracy: 0.01)
+    }
+
+    /// A left-edge drag keeps the window's right edge still; the raise must
+    /// pin that kept right edge so the left edge stops at the width floor.
+    func testFrameRaisePinsKeptRightEdgeDuringLeftEdgeDrag() {
+        let current = NSRect(x: 100, y: 100, width: 1_000, height: 694)
+        let proposed = NSRect(x: 1_020, y: 100, width: 80, height: 694)
+        let minimum = NSSize(width: 300, height: 400)
+        let raised = CmuxMainWindow.frameByRaisingUndersizedDimensions(
+            proposed,
+            minimumSize: minimum,
+            currentFrame: current,
+            isLiveResize: true
+        )
+        XCTAssertEqual(raised.maxX, current.maxX, accuracy: 0.01, "Kept right edge must stay pinned")
+        XCTAssertEqual(raised.width, minimum.width, accuracy: 0.01)
+    }
 }

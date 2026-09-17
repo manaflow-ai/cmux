@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: ios/scripts/reload.sh --tag <tag> [--compatible-mac-tags <tag,...>] [--simulator <name>] [--simulator-id <id>] [--no-launch]
+Usage: ios/scripts/reload.sh --tag <tag> [--simulator <name>] [--simulator-id <id>] [--no-launch]
        ios/scripts/reload.sh --tag <tag> --device [--device-id <id>] [--device-name <name>] [--team <team-id>] [--no-launch]
        ios/scripts/reload.sh --tag <tag> --device-only [--device-id <id>] [--device-name <name>] [--team <team-id>] [--no-launch]
        ios/scripts/reload.sh --tag <tag> --simulator-only
@@ -19,6 +19,10 @@ queue (scripts/iphone-install-queue.sh) and auto-installs when the phone
 reconnects. Unless a simulator is named explicitly, the simulator leg uses the
 tag's own isolated device ("cmux-dev-<slug>"), created on demand.
 
+When a trusted phone leg is enabled, the simulator app is installed but not
+launched. The simulator's agent auto-pair would replace the phone's personal
+Mac pairing; use --simulator-only for a connected simulator run.
+
 Every device build requires the same-tag Mac dev build (the iOS app is unusable
 without its Mac); when it is missing, the Mac tag is built first, and the reload
 refuses to ship a phone-only build if that fails.
@@ -29,16 +33,9 @@ the tagged Mac app. Opt out granularly:
   --no-attach    sign in, but do not auto-pair to the Mac
   --no-setup     plain install + launch (today's behavior)
 
-  --compatible-mac-tags <tag,...>
-                 intentionally admits additional Mac DEV tags while keeping this
-                 iOS bundle and its saved data under --tag. At most five total
-                 tags, including --tag, may be admitted.
-
   --prod-auth    sign this DEV build in against PRODUCTION auth (bakes
                  CMUXAuthEnvironment=production into Info.plist; the presence
-                 worker and API base follow the channel in-app). This does not
-                 change build compatibility unless --compatible-mac-tags is
-                 also supplied. Implies
+                 worker and API base follow the channel in-app). Implies
                  --no-sign-in (dogfood auto-login creds are dev-channel);
                  sign in in-app with your real account and use the IN-APP
                  scanner.
@@ -67,7 +64,6 @@ require_option_value() {
 }
 
 TAG=""
-COMPATIBLE_MAC_TAGS="${CMUX_IOS_COMPATIBLE_MAC_TAGS:-}"
 SIMULATOR_NAME="${IOS_SIMULATOR_NAME:-iPhone 17}"
 SIMULATOR_ID="${IOS_SIMULATOR_ID:-}"
 # Track whether the caller picked a simulator explicitly (flag or env); when
@@ -88,14 +84,19 @@ ALLOW_DEVICE_REGISTRATION=0
 NO_SIGN_IN=0
 NO_ATTACH=0
 NO_SETUP=0
+# A combined phone + simulator reload uses different auth profiles for each
+# surface. Launching the simulator first would sign the shared tagged Mac into
+# the agent account and invalidate the physical phone's personal pairing. Keep
+# the simulator installed but unlaunched during a trusted phone reload; use
+# --simulator-only for a connected simulator run.
+SIMULATOR_LAUNCH=1
 # Disable AArch64 GlobalISel codegen for this build. Xcode 26's Swift frontend
 # can miscompile under -O/wholemodule on the GlobalISel path, surfacing as bogus
 # "undefined symbol: _abort/_free/..." link failures. Mirrors scripts/reload.sh.
 # Also honored via CMUX_SWIFT_FRONTEND_WORKAROUND=1.
 SWIFT_FRONTEND_WORKAROUND="${CMUX_SWIFT_FRONTEND_WORKAROUND:-0}"
 # --prod-auth: bake CMUXAuthEnvironment=production so the dev build signs in
-# against the production Stack project. Build compatibility remains exact-tag
-# unless the caller explicitly supplies sibling Mac tags.
+# against the production Stack project.
 PROD_AUTH=0
 
 while [[ $# -gt 0 ]]; do
@@ -103,11 +104,6 @@ while [[ $# -gt 0 ]]; do
     --tag)
       require_option_value "$1" "${2:-}"
       TAG="${2:-}"
-      shift 2
-      ;;
-    --compatible-mac-tags)
-      require_option_value "$1" "${2:-}"
-      COMPATIBLE_MAC_TAGS="${2:-}"
       shift 2
       ;;
     --simulator)
@@ -271,15 +267,30 @@ fi
 # server. A physical device cannot: localhost is the phone itself, so Debug
 # device builds use staging unless the caller supplies a reachable override.
 # Production-auth builds retain production origins. Explicit overrides always
-# win, including the shared CMUX_DEV_API_BASE_URL used by tagged Mac builds.
+# win for Debug builds, including the shared CMUX_DEV_API_BASE_URL used by
+# tagged Mac builds. --prod-auth is fail-closed: it cannot be combined with a
+# staging/loopback origin.
+cmux_ios_require_production_origin() {
+  local label="$1"
+  local value="$2"
+  if [[ -n "$value" && "$value" != "https://cmux.com" ]]; then
+    echo "error: --prod-auth cannot use $label '$value'; production builds must use https://cmux.com" >&2
+    return 1
+  fi
+}
+
 cmux_ios_resolve_api_base_url() {
   local target="$1"
   local explicit_base_url="${CMUX_IOS_API_BASE_URL:-${CMUX_DEV_API_BASE_URL:-}}"
 
+  if [[ "$PROD_AUTH" -eq 1 ]]; then
+    cmux_ios_require_production_origin "the API origin" "$explicit_base_url" || return 1
+    printf '%s' "https://cmux.com"
+    return 0
+  fi
+
   if [[ -n "$explicit_base_url" ]]; then
     printf '%s' "$explicit_base_url"
-  elif [[ "$PROD_AUTH" -eq 1 ]]; then
-    printf '%s' "https://cmux.com"
   elif [[ -n "${CMUX_VM_API_BASE_URL:-}" ]]; then
     printf '%s' "$CMUX_VM_API_BASE_URL"
   elif [[ "$target" == "physical_device" ]]; then
@@ -297,14 +308,24 @@ cmux_ios_resolve_api_base_url() {
 cmux_ios_resolve_iroh_broker_base_url() {
   local explicit_base_url="${CMUX_IOS_IROH_BROKER_BASE_URL:-${CMUX_IROH_BROKER_BASE_URL:-}}"
 
+  if [[ "$PROD_AUTH" -eq 1 ]]; then
+    cmux_ios_require_production_origin "the Iroh broker origin" "$explicit_base_url" || return 1
+    printf '%s' "https://cmux.com"
+    return 0
+  fi
+
   if [[ -n "$explicit_base_url" ]]; then
     printf '%s' "$explicit_base_url"
-  elif [[ "$PROD_AUTH" -eq 1 ]]; then
-    printf '%s' "https://cmux.com"
   else
     printf '%s' "https://cmux-staging.vercel.app"
   fi
 }
+
+if [[ "$PROD_AUTH" -eq 1 ]]; then
+  cmux_ios_require_production_origin "the presence origin" "${CMUX_PRESENCE_BASE_URL:-}" || exit 1
+  CMUX_PRESENCE_BASE_URL="https://presence.cmux.dev"
+  export CMUX_PRESENCE_BASE_URL
+fi
 
 CMUX_IOS_SIMULATOR_API_BASE_URL_VALUE="$(cmux_ios_resolve_api_base_url simulator)"
 CMUX_IOS_DEVICE_API_BASE_URL_VALUE="$(cmux_ios_resolve_api_base_url physical_device)"
@@ -326,44 +347,6 @@ source "$IOS_DIR/../scripts/lib/mobile-attach.sh"
 # Fail before building if the tag would collide with a fallback/reserved identity
 # or exceed the cloud presence limit.
 if ! cmux_attach_validate_dev_tag "$TAG"; then
-  exit 1
-fi
-compatible_tag_count=1
-if [[ -n "$COMPATIBLE_MAC_TAGS" ]]; then
-  case "$COMPATIBLE_MAC_TAGS" in
-    ,*|*,|*,,*)
-      echo "error: --compatible-mac-tags contains an empty tag" >&2
-      exit 1
-      ;;
-  esac
-  previous_ifs="$IFS"
-  normalized_primary_tag="$(printf '%s' "$TAG" | tr '[:upper:]' '[:lower:]')"
-  seen_compatible_tags=",$normalized_primary_tag,"
-  IFS=','
-  for compatible_tag in $COMPATIBLE_MAC_TAGS; do
-    IFS="$previous_ifs"
-    compatible_tag="$(printf '%s' "$compatible_tag" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
-    if [[ -z "$compatible_tag" ]]; then
-      echo "error: --compatible-mac-tags contains an empty tag" >&2
-      exit 1
-    fi
-    if ! cmux_attach_validate_dev_tag "$compatible_tag"; then
-      exit 1
-    fi
-    normalized_compatible_tag="$(printf '%s' "$compatible_tag" | tr '[:upper:]' '[:lower:]')"
-    case "$seen_compatible_tags" in
-      *",$normalized_compatible_tag,"*) ;;
-      *)
-        compatible_tag_count=$((compatible_tag_count + 1))
-        seen_compatible_tags="${seen_compatible_tags}${normalized_compatible_tag},"
-        ;;
-    esac
-    IFS=','
-  done
-  IFS="$previous_ifs"
-fi
-if (( compatible_tag_count > 5 )); then
-  echo "error: --compatible-mac-tags may admit at most five total tags including --tag" >&2
   exit 1
 fi
 WORKSPACE="$IOS_DIR/cmux.xcworkspace"
@@ -505,7 +488,9 @@ auto_setup_launch() {
     echo "warning: $MOBILE_DEV_LAUNCH not found/executable; cannot auto-sign-in" >&2
     return 1
   fi
-  "$MOBILE_DEV_LAUNCH" "${args[@]}"
+  local installed_app_path="${APP_PATH:-${device_app_path:-}}"
+  CMUX_INSTALLED_APP_PATH="$installed_app_path" \
+    "$MOBILE_DEV_LAUNCH" "${args[@]}"
 }
 
 # Dev-build identity baked into the app's Info.plist (CMUXGitSHA / CMUXDevTag),
@@ -778,7 +763,6 @@ reload_simulator() {
     PRODUCT_DISPLAY_NAME="$DISPLAY_NAME" \
     CMUX_GIT_SHA="$GIT_SHA" \
     CMUX_DEV_TAG="$TAG" \
-    CMUX_COMPATIBLE_MAC_TAGS="$COMPATIBLE_MAC_TAGS" \
     CMUX_PRESENCE_BASE_URL="${CMUX_PRESENCE_BASE_URL:-}" \
     CMUX_IOS_AUTH_ENV="$CMUX_IOS_AUTH_ENV_VALUE" \
     CMUX_API_BASE_URL="$CMUX_IOS_SIMULATOR_API_BASE_URL_VALUE" \
@@ -822,7 +806,7 @@ PY
   xcrun simctl boot "$SIM_ID" >/dev/null 2>&1 || true
   xcrun simctl install "$SIM_ID" "$APP_PATH"
 
-  if [[ "$LAUNCH" -eq 1 ]]; then
+  if [[ "$LAUNCH" -eq 1 && "$SIMULATOR_LAUNCH" -eq 1 ]]; then
     xcrun simctl terminate "$SIM_ID" "$BUNDLE_ID" >/dev/null 2>&1 || true
     if [[ "$NO_SETUP" -eq 1 || "$NO_SIGN_IN" -eq 1 ]]; then
       xcrun simctl launch "$SIM_ID" "$BUNDLE_ID" >/dev/null
@@ -831,6 +815,8 @@ PY
       echo "error: repair the tagged Mac/Iroh route, or pass --no-attach, --no-sign-in, or --no-setup explicitly" >&2
       return 1
     fi
+  elif [[ "$LAUNCH" -eq 1 ]]; then
+    echo "==> simulator installed but not launched because the trusted phone reload owns the tagged Mac pairing"
   fi
 
   cat <<EOF
@@ -987,7 +973,6 @@ reload_device() {
     PRODUCT_DISPLAY_NAME="$DISPLAY_NAME"
     CMUX_GIT_SHA="$GIT_SHA"
     CMUX_DEV_TAG="$TAG"
-    CMUX_COMPATIBLE_MAC_TAGS="$COMPATIBLE_MAC_TAGS"
     CMUX_PRESENCE_BASE_URL="${CMUX_PRESENCE_BASE_URL:-}"
     CMUX_IOS_AUTH_ENV="$CMUX_IOS_AUTH_ENV_VALUE"
     CMUX_API_BASE_URL="$CMUX_IOS_DEVICE_API_BASE_URL_VALUE"
@@ -1163,6 +1148,11 @@ EOF
 }
 
 echo "==> iOS reload starting (tag: $TAG)"
+
+if [[ "$RELOAD_DEVICE" -eq 1 && "$LAUNCH" -eq 1 && "$NO_SETUP" -eq 0 && "$NO_SIGN_IN" -eq 0 && "$NO_ATTACH" -eq 0 ]]; then
+  SIMULATOR_LAUNCH=0
+  echo "==> combined phone reload will install but not launch the simulator to preserve the personal Mac pairing"
+fi
 
 if [[ "$RELOAD_SIMULATOR" -eq 1 ]]; then
   reload_simulator

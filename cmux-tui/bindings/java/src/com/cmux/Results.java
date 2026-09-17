@@ -295,6 +295,7 @@ public final class Results {
         Optional<String> executable,
         List<String> argv,
         Optional<String> cwd,
+        Optional<String> foregroundCwd,
         List<Long> children
     ) {
         public ProcessInfoResult {
@@ -302,6 +303,7 @@ public final class Results {
             executable = executable == null ? Optional.empty() : executable;
             argv = List.copyOf(argv);
             cwd = cwd == null ? Optional.empty() : cwd;
+            foregroundCwd = foregroundCwd == null ? Optional.empty() : foregroundCwd;
             children = List.copyOf(children);
             children.forEach(value -> uint32(value, "child pid"));
         }

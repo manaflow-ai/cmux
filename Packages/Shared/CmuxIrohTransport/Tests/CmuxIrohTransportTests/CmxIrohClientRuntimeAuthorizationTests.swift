@@ -21,6 +21,7 @@ extension CmxIrohClientRuntimeTests {
             accountID: "account-a",
             deviceID: fixture.initiator.deviceID,
             appInstanceID: discovery.bindings[0].appInstanceID,
+            clientNamespace: discovery.bindings[0].clientNamespace,
             tag: fixture.initiator.tag,
             displayName: nil,
             identity: identity,
@@ -92,6 +93,7 @@ extension CmxIrohClientRuntimeTests {
             accountID: "account-a",
             deviceID: fixture.initiator.deviceID,
             appInstanceID: discovery.bindings[0].appInstanceID,
+            clientNamespace: discovery.bindings[0].clientNamespace,
             tag: fixture.initiator.tag,
             displayName: nil,
             identity: identity,
@@ -164,6 +166,7 @@ extension CmxIrohClientRuntimeTests {
             accountID: "account-a",
             deviceID: fixture.initiator.deviceID,
             appInstanceID: discovery.bindings[0].appInstanceID,
+            clientNamespace: discovery.bindings[0].clientNamespace,
             tag: fixture.initiator.tag,
             displayName: nil,
             identity: identity,
@@ -180,7 +183,7 @@ extension CmxIrohClientRuntimeTests {
             binding: discovery.bindings[0],
             discovery: discovery,
             relay: relay,
-            registrationError: CmxIrohTrustBrokerClientError.connectivity
+            registrationError: CmxIrohTrustBrokerClientError.connectivity(nil)
         )
         let recorder = ClientRuntimeTestRecorder()
         let runtime = try CmxIrohClientRuntime(
