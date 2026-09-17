@@ -1406,6 +1406,7 @@ pub struct SessionCompletion {
 }
 
 enum SessionCompletionAction {
+    SurfaceMoved { surface: SurfaceId },
     SurfaceCreated { surface: SurfaceId },
     BrowserTabCreated { surface: SurfaceId },
     LayoutUndoConfirmation { pane: PaneId, revision: u64, closes_panes: Vec<PaneId> },
@@ -3934,9 +3935,14 @@ impl OrderedSession {
     }
 
     pub fn move_tab_to_workspace(&self, surface: SurfaceId, workspace: Option<WorkspaceId>) {
-        self.enqueue_destination_mutation("move tab to workspace", move |session| {
-            session.move_tab_to_workspace(surface, workspace)
-        });
+        self.enqueue_with_completion(
+            localization::catalog().menu.move_tab_workspace,
+            MutationImpact::Destination,
+            move |session| {
+                session.move_tab_to_workspace(surface, workspace)?;
+                Ok(Some(SessionCompletionAction::SurfaceMoved { surface }))
+            },
+        );
     }
 
     pub fn move_workspace(&self, workspace: WorkspaceId, index: usize) {
@@ -13038,13 +13044,14 @@ impl App {
         }
         let semantic_intent = completion.semantic_intent;
         match completion.action {
-            SessionCompletionAction::SurfaceCreated { surface } => {
+            SessionCompletionAction::SurfaceCreated { surface }
+            | SessionCompletionAction::SurfaceMoved { surface } => {
                 self.resolve_semantic_destination(semantic_intent, surface);
-                self.select_created_surface(surface);
+                self.select_completed_surface(surface);
             }
             SessionCompletionAction::BrowserTabCreated { surface } => {
                 self.resolve_semantic_destination(semantic_intent, surface);
-                self.select_created_surface(surface);
+                self.select_completed_surface(surface);
                 let pane = self
                     .tab_locations
                     .get(&surface)
@@ -13125,7 +13132,7 @@ impl App {
         localization::catalog().sidebar.confirm_layout_undo.replace("{items}", &identities)
     }
 
-    fn select_created_surface(&mut self, surface: SurfaceId) {
+    fn select_completed_surface(&mut self, surface: SurfaceId) {
         let Some([workspace_index, screen_index, pane_index, tab_index]) =
             self.tab_locations.get(&surface).copied()
         else {
@@ -26409,6 +26416,7 @@ mod tests {
         let destination = mux.with_state(|state| state.workspaces[state.active_workspace].id);
         mux.select_workspace(Some(0), None);
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_view = SidebarView::Workspaces;
         app.replace_tree(app.session.tree());
         app.sync_layout((120, 30));
         let mut terminal = Terminal::new(TestBackend::new(120, 30)).unwrap();
@@ -26438,6 +26446,7 @@ mod tests {
             mux.with_state(|state| state.pane_of(first.id)),
             mux.with_state(|state| state.pane_of(second.id))
         );
+        assert_eq!(app.tree.active_surface(), Some(first.id));
         app.menu = None;
         terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
         let footer = app
@@ -38015,6 +38024,20 @@ mod tests {
         assert!(app.pending_session_completions.is_empty());
         assert_eq!(app.tree.active_surface(), Some(created_surface));
         assert_eq!(app.omnibar.as_ref().map(|state| state.surface), Some(created_surface));
+    }
+
+    #[test]
+    fn tab_workspace_completion_selects_the_moved_tab_without_opening_browser_omnibar() {
+        let mux = Mux::new("tab-workspace-completion", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.replace_tree(browser_completion_tree(41, 42));
+        app.apply_session_completion(SessionCompletion {
+            mutation_generation: 1,
+            semantic_intent: None,
+            action: SessionCompletionAction::SurfaceMoved { surface: 41 },
+        });
+        assert_eq!(app.tree.active_surface(), Some(41));
+        assert!(app.omnibar.is_none());
     }
 
     #[test]
