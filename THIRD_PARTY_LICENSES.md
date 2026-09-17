@@ -4,6 +4,18 @@ cmux includes the following third-party software:
 
 ---
 
+## Lobe Icons (selected agent marks)
+
+- **License:** MIT License
+- **Copyright:** Copyright (c) 2023 LobeHub
+- **Source:** https://github.com/lobehub/lobe-icons/tree/a94750e3f5f8fc33757b839d85030e742284e43a/packages/static-svg/icons
+
+Selected Cursor, Gemini, Kiro, GitHub Copilot, CodeBuddy, Qoder, Kimi, and
+Ollama SVG marks are bundled under `Assets.xcassets/AgentIcons`. The complete
+license text is in `Assets.xcassets/AgentIcons/LOBE-LICENSE.txt`.
+
+---
+
 ## Ghostty
 
 - **License:** MIT License

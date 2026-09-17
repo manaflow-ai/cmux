@@ -28,6 +28,7 @@ extension Workspace {
     func addCloudManualMirrorPane(
         at destination: SurfaceDestination,
         focus: Bool,
+        iconAssetName: String? = nil,
         onInput: @escaping @Sendable (TerminalManualInput) -> Void,
         keyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
         onResize: @escaping @MainActor @Sendable (TerminalSurfaceRawSizingSample) -> Void,
@@ -52,7 +53,9 @@ extension Workspace {
             onFocus: onFocus,
             attachment: attachment
         )
-        let panelID = try workspace.insertCloudManualMirrorPanel(panel, at: destination, focus: focus, isLoading: false)
+        let panelID = try workspace.insertCloudManualMirrorPanel(
+            panel, at: destination, focus: focus, isLoading: false, iconAssetName: iconAssetName
+        )
         return (workspace.id, panelID, panel.surface)
     }
 
@@ -81,7 +84,8 @@ extension Workspace {
         _ panel: TerminalPanel,
         at destination: SurfaceDestination,
         focus: Bool,
-        isLoading: Bool
+        isLoading: Bool,
+        iconAssetName: String? = nil
     ) throws -> UUID {
         switch destination {
         case .workspace(_, let placement):
@@ -89,20 +93,20 @@ extension Workspace {
             guard let pane else { throw SurfaceCatalogError.destinationNotFound("focused pane") }
             switch placement {
             case .tab:
-                return try insertCloudManualMirrorTab(panel, in: pane, focus: focus, isLoading: isLoading)
+                return try insertCloudManualMirrorTab(panel, in: pane, focus: focus, isLoading: isLoading, iconAssetName: iconAssetName)
             case .split:
-                return try splitCloudManualMirrorPane(panel, target: pane, direction: .right, focus: focus, isLoading: isLoading)
+                return try splitCloudManualMirrorPane(panel, target: pane, direction: .right, focus: focus, isLoading: isLoading, iconAssetName: iconAssetName)
             }
         case .tab(_, let paneID, _):
             guard let pane = Self.pane(paneID, in: self) else {
                 throw SurfaceCatalogError.destinationNotFound("pane (paneID)")
             }
-            return try insertCloudManualMirrorTab(panel, in: pane, focus: focus, isLoading: isLoading)
+            return try insertCloudManualMirrorTab(panel, in: pane, focus: focus, isLoading: isLoading, iconAssetName: iconAssetName)
         case .split(_, let paneID, let direction):
             guard let pane = Self.pane(paneID, in: self) else {
                 throw SurfaceCatalogError.destinationNotFound("pane (paneID)")
             }
-            return try splitCloudManualMirrorPane(panel, target: pane, direction: direction, focus: focus, isLoading: isLoading)
+            return try splitCloudManualMirrorPane(panel, target: pane, direction: direction, focus: focus, isLoading: isLoading, iconAssetName: iconAssetName)
         }
     }
 
@@ -110,13 +114,15 @@ extension Workspace {
         _ panel: TerminalPanel,
         in pane: PaneID,
         focus: Bool,
-        isLoading: Bool
+        isLoading: Bool,
+        iconAssetName: String?
     ) throws -> UUID {
         panels[panel.id] = panel
         panelTitles[panel.id] = panel.displayTitle
         guard let tab = bonsplitController.createTab(
             title: panel.displayTitle,
             icon: panel.displayIcon,
+            iconAsset: iconAssetName,
             kind: SurfaceKind.terminal.rawValue,
             isDirty: panel.isDirty,
             isLoading: isLoading,
@@ -143,7 +149,8 @@ extension Workspace {
         target: PaneID,
         direction: SurfaceSplitDirection,
         focus: Bool,
-        isLoading: Bool
+        isLoading: Bool,
+        iconAssetName: String?
     ) throws -> UUID {
         let previousPane = bonsplitController.focusedPaneId
         let previousTab = previousPane.flatMap { bonsplitController.selectedTab(inPane: $0)?.id }
@@ -152,6 +159,7 @@ extension Workspace {
         let tab = Bonsplit.Tab(
             title: panel.displayTitle,
             icon: panel.displayIcon,
+            iconAsset: iconAssetName,
             kind: SurfaceKind.terminal.rawValue,
             isDirty: panel.isDirty,
             isLoading: isLoading,
@@ -190,6 +198,13 @@ extension Workspace {
     func setCloudManualMirrorTabLoading(panelID: UUID, _ isLoading: Bool) {
         guard let tabID = surfaceIdFromPanelId(panelID) else { return }
         bonsplitController.updateTab(tabID, isLoading: isLoading)
+    }
+
+    /// Updates a Cloud terminal tab after the daemon reports a provider identity change.
+    func updateCloudTerminalTabIcon(panelID: UUID, assetName: String?) {
+        guard let tabID = surfaceIdFromPanelId(panelID),
+              let tab = bonsplitController.tab(tabID), tab.iconAsset != assetName else { return }
+        bonsplitController.updateTab(tabID, iconAsset: .some(assetName))
     }
 
     /// The live workspace with `id` in any window, or nil once it was retired.
