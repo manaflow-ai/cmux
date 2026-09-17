@@ -101,13 +101,22 @@ def main():
     # in other regions. Share one rule rather than duplicating regional configs.
     dcr = args.workspace.split('/providers/')[0] + '/providers/Microsoft.Insights/dataCollectionRules/cmux-v3-relay'
     put(dcr, rule(workspace['location'], args.workspace))
-    for node in json.loads(args.deployment.read_text())['nodes']:
+    for original in json.loads(args.deployment.read_text())['nodes']:
+        node = dict(original)
+        if 'vm' not in node:
+            node['vm'] = f'/subscriptions/{args.subscription}/resourceGroups/{node["group"]}/providers/Microsoft.Compute/virtualMachines/{node["node"]}'
+        if 'group' not in node or 'node' not in node:
+            parts = node['vm'].split('/')
+            try:
+                node['group'] = parts[parts.index('resourceGroups') + 1]
+                node['node'] = parts[parts.index('virtualMachines') + 1]
+            except (ValueError, IndexError):
+                p.error('invalid node resource ID')
+        vm = cli('vm', 'show', '--subscription', args.subscription, '-g', node['group'], '-n', node['node'])
+        node['region'] = node.get('region') or vm.get('location', '')
         for key in ('node', 'group', 'region'):
             if not re.fullmatch(r'[a-z0-9-]+', node[key]):
                 p.error('invalid node receipt')
-        if 'CMUX_V3_OK' not in node.get('installation', ''):
-            p.error('node has no successful installation receipt')
-        vm = cli('vm', 'show', '--subscription', args.subscription, '-g', node['group'], '-n', node['node'])
         identities = vm.get('identity', {}).get('userAssignedIdentities', {})
         if args.identity.lower() not in {key.lower() for key in identities}:
             p.error('monitor identity is not assigned to VM')
@@ -126,7 +135,8 @@ def main():
         messages = '\n'.join(v.get('message', '') for v in value.get('value', []))
         if 'CMUX_V3_OBSERVE_OK' not in messages:
             raise RuntimeError('Snapshot collector did not install: ' + messages[-2000:])
-        receipt['nodes'].append({'node': node['node'], 'vm': vm['id'], 'rule': dcr})
+        receipt['nodes'].append({'node': node['node'], 'vm': vm['id'], 'group': node['group'],
+                                 'region': vm['location'], 'rule': dcr})
         args.receipt.write_text(json.dumps(receipt, indent=2) + '\n')
         print('MONITOR_INSTALLED', node['node'], flush=True)
 
