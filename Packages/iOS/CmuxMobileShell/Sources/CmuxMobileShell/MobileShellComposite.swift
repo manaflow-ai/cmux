@@ -15079,6 +15079,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     return
                 }
                 guard self.remoteClient === client else {
+                    self.recordTerminalTrace(
+                        operation: .replay,
+                        phase: .discarded,
+                        traceID: terminalTraceID,
+                        surfaceID: surfaceID,
+                        startedAt: diagnosticStartedAt
+                    )
                     self.clearTerminalReplayInFlightIfCurrent(
                         surfaceID: surfaceID,
                         requestID: replayRequestID
@@ -15108,6 +15115,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 if let replayBarrierTokenForRequest {
                     guard self.terminalReplayBarrierTokensBySurfaceID[surfaceID] == replayBarrierTokenForRequest else {
                         MobileDebugLog.anchormux("CMUX_REPLAY barrier_stale surface=\(surfaceID)")
+                        self.recordTerminalTrace(
+                            operation: .replay,
+                            phase: .discarded,
+                            traceID: terminalTraceID,
+                            surfaceID: surfaceID,
+                            startedAt: diagnosticStartedAt
+                        )
                         return
                     }
                 }
@@ -15160,6 +15174,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
                 if let renderGrid {
                     guard !self.shouldDropRenderGridBehindPendingInput(renderGrid, source: "replay") else {
+                        self.recordTerminalTrace(
+                            operation: .replay,
+                            phase: .discarded,
+                            traceID: terminalTraceID,
+                            surfaceID: surfaceID,
+                            startedAt: diagnosticStartedAt,
+                            detail: renderGrid.rowSpans.count
+                        )
                         transferredInFlightToRetry = self.recoverAfterDroppedReplayFrame(
                             surfaceID: surfaceID,
                             replayBarrierToken: replayBarrierTokenForRequest,
@@ -15175,6 +15197,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         bypassReplayBarrier: replayBarrierTokenForRequest != nil
                     )
                     guard accepted else {
+                        self.recordTerminalTrace(
+                            operation: .replay,
+                            phase: .discarded,
+                            traceID: terminalTraceID,
+                            surfaceID: surfaceID,
+                            startedAt: diagnosticStartedAt,
+                            detail: renderGrid.rowSpans.count
+                        )
                         transferredInFlightToRetry = self.recoverAfterDroppedReplayFrame(
                             surfaceID: surfaceID,
                             replayBarrierToken: replayBarrierTokenForRequest,
@@ -15225,6 +15255,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         surfaceID: surfaceID,
                         replayBarrierToken: replayBarrierTokenForRequest
                        ) {
+                        self.recordTerminalTrace(
+                            operation: .replay,
+                            phase: .discarded,
+                            traceID: terminalTraceID,
+                            surfaceID: surfaceID,
+                            startedAt: diagnosticStartedAt
+                        )
                         self.clearTerminalReplayInFlightIfCurrent(
                             surfaceID: surfaceID,
                             requestID: replayRequestID
@@ -15311,6 +15348,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             case .failure(let error):
                 guard self.terminalReplayRequestIDsInFlightBySurfaceID[surfaceID] == replayRequestID else {
                     MobileDebugLog.anchormux("CMUX_REPLAY stale_request_failed surface=\(surfaceID)")
+                    self.recordTerminalTrace(
+                        operation: .replay,
+                        phase: .discarded,
+                        traceID: terminalTraceID,
+                        surfaceID: surfaceID,
+                        startedAt: diagnosticStartedAt
+                    )
                     return
                 }
                 // A viewport transition is the host's expected readiness
@@ -15337,6 +15381,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     )
                 }
                 guard self.remoteClient === client else {
+                    if self.isTerminalReplayViewportTransition(error) {
+                        self.recordTerminalTrace(
+                            operation: .replay,
+                            phase: .discarded,
+                            traceID: terminalTraceID,
+                            surfaceID: surfaceID,
+                            startedAt: diagnosticStartedAt
+                        )
+                    }
                     self.clearTerminalReplayInFlightIfCurrent(
                         surfaceID: surfaceID,
                         requestID: replayRequestID
@@ -15369,6 +15422,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // full grid. The next live grid is the synchronization
                     // signal; a dropped grid will request the replay through
                     // the normal barrier path once this task has settled.
+                    self.recordTerminalTrace(
+                        operation: .replay,
+                        phase: .failed,
+                        traceID: terminalTraceID,
+                        surfaceID: surfaceID,
+                        startedAt: diagnosticStartedAt
+                    )
                     _ = self.armTerminalReplayBarrierForViewportTransition(
                         surfaceID: surfaceID,
                         token: replayBarrierTokenForRequest
