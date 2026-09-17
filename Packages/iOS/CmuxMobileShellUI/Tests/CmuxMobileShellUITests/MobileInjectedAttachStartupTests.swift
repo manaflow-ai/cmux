@@ -174,6 +174,18 @@ struct MobileInjectedAttachStartupTests {
         #expect(!coordinator.cancelInjectedAttach(staleAttempt))
         #expect(coordinator.claimStoredReconnect() != nil)
     }
+
+    @Test
+    @MainActor
+    func storedReconnectClaimDeduplicatesParallelRetryRequests() throws {
+        let coordinator = MobileStartupConnectionCoordinator()
+        let firstAttempt = try #require(coordinator.claimStoredReconnect())
+
+        #expect(coordinator.claimStoredReconnect() == nil)
+
+        coordinator.finishStoredReconnect(firstAttempt)
+        #expect(coordinator.claimStoredReconnect() != nil)
+    }
 }
 
 private actor MobileInjectedAttachURLRecorder {

@@ -1,7 +1,7 @@
 #if os(iOS)
+import Foundation
 import CmuxMobileSupport
 import CmuxMobileWorkspace
-import Foundation
 
 /// The static guidance shown for one setup gate in ``SetupHelpView``.
 struct SetupHelpGateContent {
@@ -11,6 +11,10 @@ struct SetupHelpGateContent {
     let link: SetupHelpGateLink?
     let identifierSuffix: String
     let linkAccessibilityIdentifier: String
+
+    /// Stable public contract for the iOS connection guide. The companion
+    /// guide screenshots can evolve without changing the app's deep link.
+    static let macOSSetupGuideURL = URL(string: "https://cmux.com/docs/ios")!
 
     /// Maps a setup gate to its title, icon, copy, and optional link. Pure and
     /// scoped to the content type so the gate guidance is data, separate from
@@ -44,7 +48,13 @@ struct SetupHelpGateContent {
                     numeric Tailscale IP and port.
                     """
                 ) + " " + MobilePairingCopy().enableOnMac,
-                link: nil,
+                link: SetupHelpGateLink(
+                    title: L10n.string(
+                        "mobile.setupHelp.macAppGuideLink",
+                        defaultValue: "Mac setup guide"
+                    ),
+                    url: macOSSetupGuideURL
+                ),
                 identifierSuffix: "signedInNeverPaired",
                 linkAccessibilityIdentifier: "MobileSetupHelpMacAppLink"
             )
@@ -56,7 +66,13 @@ struct SetupHelpGateContent {
                     "mobile.setupHelp.unreachableBody",
                     defaultValue: "You paired this computer before, but it is not reachable now. Wake it and make sure cmux is running; this phone reconnects on its own."
                 ),
-                link: nil,
+                link: SetupHelpGateLink(
+                    title: L10n.string(
+                        "mobile.setupHelp.macAppGuideLink",
+                        defaultValue: "Mac setup guide"
+                    ),
+                    url: macOSSetupGuideURL
+                ),
                 identifierSuffix: "macUnreachable",
                 linkAccessibilityIdentifier: "MobileSetupHelpUnreachableLink"
             )

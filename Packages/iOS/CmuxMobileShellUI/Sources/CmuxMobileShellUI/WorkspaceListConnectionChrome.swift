@@ -55,7 +55,9 @@ enum WorkspaceListConnectionChrome: Equatable {
             // automatic retries armed. A stale recovery-failed flag also
             // must not override a connected aggregate (a healthy secondary
             // Mac keeps the visible list healthy).
-            self = .statusLine(hasLiveTransportPath ? .reconnecting : .notConnected)
+            self = hasLiveTransportPath
+                ? .statusLine(.reconnecting)
+                : .macStatusRow
         } else {
             self = .none
         }

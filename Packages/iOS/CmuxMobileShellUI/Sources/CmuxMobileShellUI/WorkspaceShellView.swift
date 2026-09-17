@@ -301,6 +301,50 @@ struct WorkspaceShellView: View {
         return store.workspaceListConnectionStatus
     }
 
+    #if os(iOS)
+    private var workspaceListConnectionFailureKind: MobileMacConnectionFailureKind? {
+        let snapshots = MacComputerSnapshot.snapshots(from: store)
+        let workspacePairingIDs = Set<String>(store.workspaces.compactMap { workspace in
+            guard let macDeviceID = workspace.macDeviceID else { return nil }
+            return MobilePairedMac.pairingID(
+                macDeviceID: macDeviceID,
+                instanceTag: workspace.macInstanceTag
+            )
+        })
+        let presence: MobileMacPresenceSignal
+        if workspacePairingIDs.count == 1,
+           let pairingID = workspacePairingIDs.first,
+           let snapshot = snapshots.first(where: { $0.id == pairingID }) {
+            presence = Self.presenceSignal(for: snapshot.presence)
+        } else if snapshots.count == 1, let snapshot = snapshots.first {
+            presence = Self.presenceSignal(for: snapshot.presence)
+        } else {
+            presence = .unknown
+        }
+        return MobileMacConnectionFailureKind.resolve(
+            connectionStatus: listConnectionStatus,
+            presence: presence
+        )
+    }
+
+    private static func presenceSignal(
+        for presence: DeviceTreePresence?
+    ) -> MobileMacPresenceSignal {
+        switch presence {
+        case .online:
+            return .online
+        case .offline:
+            return .offline
+        case nil:
+            return .unknown
+        }
+    }
+    #else
+    private var workspaceListConnectionFailureKind: MobileMacConnectionFailureKind? {
+        nil
+    }
+    #endif
+
     private var workspaceListIsAuthoritative: Bool {
         guard !isInitialConnectionLoading, !initialConnectionTimedOut else {
             return false
@@ -1230,6 +1274,7 @@ struct WorkspaceShellView: View {
             selectedWorkspaceID: store.selectedWorkspaceID,
             host: store.connectedHostName,
             connectionStatus: listConnectionStatus,
+            connectionFailureKind: workspaceListConnectionFailureKind,
             workspaceChangesCapable: store.workspaceChangesCapable,
             workspaceChangeChipsByWorkspaceID: store.workspaceChangeChipsByWorkspaceID,
             macUpdateHint: store.macUpdateHint,
@@ -1259,7 +1304,9 @@ struct WorkspaceShellView: View {
             cancelMacSwitch: cancelMacSwitchFromWorkspacePicker,
             refresh: refreshWorkspacesClosure,
             signOut: signOut,
-            reconnect: tailscalePairingRequired ? showPairingScanner : reconnectClosure,
+            reconnect: tailscalePairingRequired
+                ? showPairingScanner
+                : (retryInitialConnection ?? reconnectClosure),
             tailscalePairingRequired: tailscalePairingRequired,
             showAddDevice: showAddDevice,
             showComputers: showComputers,
@@ -1646,7 +1693,7 @@ struct WorkspaceShellView: View {
         return { await store.reconnectOrRefresh() }
     }
 
-    /// Manual reconnect for the offline status row's Reconnect button.
+    /// Manual retry for the offline status row.
     private var reconnectClosure: () -> Void {
         let store = store
         return { Task { await store.reconnectOrRefresh() } }

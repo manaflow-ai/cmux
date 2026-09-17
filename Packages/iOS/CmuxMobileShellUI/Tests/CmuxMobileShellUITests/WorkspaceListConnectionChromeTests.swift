@@ -16,15 +16,23 @@ import Testing
         ) == .statusLine(.reconnecting))
     }
 
-    @Test func unavailableStatusShowsNotConnectedStatusLine() {
-        #expect(chrome(connectionStatus: .unavailable) == .statusLine(.notConnected))
+    @Test func unavailableStatusShowsMacStatusRow() {
+        #expect(chrome(connectionStatus: .unavailable) == .macStatusRow)
     }
 
-    @Test func recoveryFailureShowsNotConnectedStatusLine() {
+    @Test func recoveryFailureShowsMacStatusRow() {
         #expect(chrome(
             connectionRecoveryFailed: true,
             connectionStatus: .unavailable
-        ) == .statusLine(.notConnected))
+        ) == .macStatusRow)
+    }
+
+    @Test func liveTransportKeepsRecoveryFailureAsReconnectingStatusLine() {
+        #expect(chrome(
+            connectionRecoveryFailed: true,
+            connectionStatus: .unavailable,
+            hasLiveTransportPath: true
+        ) == .statusLine(.reconnecting))
     }
 
     /// A live reconnect attempt outranks a stale failure flag: the line shows
@@ -181,7 +189,7 @@ import Testing
 
     @Test func statusLineAccessorExposesOnlyStatusLineCases() {
         #expect(chrome(connectionStatus: .reconnecting).statusLine == .reconnecting)
-        #expect(chrome(connectionStatus: .unavailable).statusLine == .notConnected)
+        #expect(chrome(connectionStatus: .unavailable).statusLine == nil)
         #expect(chrome(connectionStatus: .connected).statusLine == nil)
         #expect(chrome(
             connectionRequiresReauth: true,
@@ -227,7 +235,8 @@ import Testing
         connectionStatus: MobileMacConnectionStatus,
         tailscalePairingRequired: Bool = false,
         isInitialConnectionLoading: Bool = false,
-        initialConnectionTimedOut: Bool = false
+        initialConnectionTimedOut: Bool = false,
+        hasLiveTransportPath: Bool = false
     ) -> WorkspaceListConnectionChrome {
         WorkspaceListConnectionChrome(
             hasStore: hasStore,
@@ -237,7 +246,8 @@ import Testing
             connectionStatus: connectionStatus,
             tailscalePairingRequired: tailscalePairingRequired,
             isInitialConnectionLoading: isInitialConnectionLoading,
-            initialConnectionTimedOut: initialConnectionTimedOut
+            initialConnectionTimedOut: initialConnectionTimedOut,
+            hasLiveTransportPath: hasLiveTransportPath
         )
     }
 

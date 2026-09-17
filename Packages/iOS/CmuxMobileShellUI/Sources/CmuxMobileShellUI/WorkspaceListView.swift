@@ -1,3 +1,4 @@
+import Foundation
 import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -20,6 +21,7 @@ struct WorkspaceListView: View {
     let selectedWorkspaceID: MobileWorkspacePreview.ID?
     let host: String
     let connectionStatus: MobileMacConnectionStatus
+    var connectionFailureKind: MobileMacConnectionFailureKind? = nil
     /// Capability and summary snapshots mapped into immutable row values above `List`.
     var workspaceChangesCapable = false
     var workspaceChangeChipsByWorkspaceID: [String: MobileWorkspaceChangesChip] = [:]
@@ -568,18 +570,11 @@ struct WorkspaceListView: View {
                         host: host,
                         status: connectionStatus,
                         showsSpinner: isInitialConnectionLoading,
-                        titleOverride: initialConnectionTimedOut
-                            ? L10n.string("mobile.loading.timeout.title", defaultValue: "Still loading")
-                            : nil,
-                        descriptionOverride: initialConnectionTimedOut
-                            ? L10n.string(
-                                "mobile.loading.timeout.message",
-                                defaultValue: "cmux could not finish restoring this session. Check that the selected cmux build is running, then retry."
-                            )
-                            : disconnectedConnectionFailureDescription,
-                        retry: initialConnectionTimedOut ? retryInitialConnection : nil,
+                        titleOverride: connectionStatusTitleOverride,
+                        descriptionOverride: connectionStatusDescriptionOverride,
+                        retry: connectionRetryAction,
                         addDevice: initialConnectionTimedOut ? showAddDevice : nil,
-                        reconnect: reconnect
+                        setupGuideURL: connectionSetupGuideURL
                     )
                         .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
                         .listRowSeparator(.hidden)
@@ -943,11 +938,53 @@ struct WorkspaceListView: View {
         )
     }
 
+    var connectionRetryAction: (() -> Void)? {
+        guard connectionStatus == .unavailable || initialConnectionTimedOut else {
+            return nil
+        }
+        return retryInitialConnection ?? reconnect
+    }
+
+    var connectionSetupGuideURL: URL? {
+        guard initialConnectionTimedOut
+            || (connectionStatus == .unavailable && !isInitialConnectionLoading) else {
+            return nil
+        }
+        return SetupHelpGateContent.macOSSetupGuideURL
+    }
+
+    var connectionStatusTitleOverride: String? {
+        if initialConnectionTimedOut {
+            return L10n.string("mobile.loading.timeout.title", defaultValue: "Still loading")
+        }
+        guard connectionFailureKind == .knownOffline else { return nil }
+        return L10n.string(
+            "mobile.setupHelp.unreachableTitle",
+            defaultValue: "Wake the computer"
+        )
+    }
+
+    var connectionStatusDescriptionOverride: String? {
+        if initialConnectionTimedOut {
+            return L10n.string(
+                "mobile.loading.timeout.message",
+                defaultValue: "cmux could not finish restoring this session. Check that the selected cmux build is running, then retry."
+            )
+        }
+        return disconnectedConnectionFailureDescription
+    }
+
     /// Prefer the classified migration/reconnect failure over the generic
     /// unavailable description. Guidance stays attached to its headline so a
     /// saved legacy pairing never looks like an account or QR failure.
     private var disconnectedConnectionFailureDescription: String? {
         guard connectionStatus == .unavailable else { return nil }
+        if connectionFailureKind == .knownOffline {
+            return L10n.string(
+                "mobile.setupHelp.unreachableBody",
+                defaultValue: "You paired this computer before, but it is not reachable now. Wake it and make sure cmux is running; this phone reconnects on its own."
+            )
+        }
         return MobileDisconnectedFailureCopy(
             error: store?.connectionError,
             guidance: store?.connectionErrorGuidance

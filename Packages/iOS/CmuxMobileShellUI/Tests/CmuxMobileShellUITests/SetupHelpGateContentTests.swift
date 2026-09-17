@@ -18,8 +18,22 @@ import Testing
         }
     }
 
-    @Test func signedInNeverPairedGateUsesInAppInstructionsOnly() {
-        let content = SetupHelpGateContent.content(for: .signedInNeverPaired)
+    @Test(arguments: [
+        MobileSetupGuidanceState.signedInNeverPaired,
+        .macUnreachable,
+    ])
+    func MacSetupGatesLinkToTheCanonicalGuide(
+        gate: MobileSetupGuidanceState
+    ) throws {
+        let content = SetupHelpGateContent.content(for: gate)
+        let link = try #require(content.link)
+
+        #expect(link.url == SetupHelpGateContent.macOSSetupGuideURL)
+        #expect(link.title == "Mac setup guide")
+    }
+
+    @Test func signInGateStaysInApp() {
+        let content = SetupHelpGateContent.content(for: .notSignedIn)
 
         #expect(content.link == nil)
     }
