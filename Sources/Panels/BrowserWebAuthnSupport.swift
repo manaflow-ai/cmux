@@ -14,17 +14,32 @@ import WebKit
 /// marshalled back into JS objects that match the browser credential shape.
 enum BrowserWebAuthnBridgeContract {
     static let handlerName = "cmuxWebAuthn"
+    static let contentWorld = WKContentWorld.world(name: "cmux.webauthn")
 
-    static let scriptSource: String = {
+    private static let requestEventName = "__cmuxWebAuthnRequest"
+    private static let acknowledgeEventName = "__cmuxWebAuthnRequestAcknowledged"
+    private static let responseEventName = "__cmuxWebAuthnResponse"
+
+    static let relayScriptSource: String = {
         let handlerName = BrowserWebAuthnBridgeContract.handlerName
+        let requestEventName = BrowserWebAuthnBridgeContract.requestEventName
+        let acknowledgeEventName = BrowserWebAuthnBridgeContract.acknowledgeEventName
+        let responseEventName = BrowserWebAuthnBridgeContract.responseEventName
         return #"""
         (() => {
-          if (window.__cmuxWebAuthnBridgeInstalled) {
+          if (window.__cmuxWebAuthnNativeRelayInstalled) {
             return true;
           }
-          window.__cmuxWebAuthnBridgeInstalled = true;
+          window.__cmuxWebAuthnNativeRelayInstalled = true;
 
           const handlerName = "\#(handlerName)";
+          const requestEventName = "\#(requestEventName)";
+          const acknowledgeEventName = "\#(acknowledgeEventName)";
+          const responseEventName = "\#(responseEventName)";
+          const maximumIDLength = 128;
+          const maximumKindLength = 64;
+          const maximumPayloadBytes = 512 * 1024;
+          const textEncoder = typeof TextEncoder === "function" ? new TextEncoder() : null;
 
           const nativeHandler = () => {
             try {
@@ -35,6 +50,142 @@ enum BrowserWebAuthnBridgeContract {
               return null;
             }
           };
+
+          const utf8ByteLength = (value) =>
+            textEncoder ? textEncoder.encode(value).byteLength : value.length;
+
+          const errorReply = (name, message) => ({
+            ok: false,
+            error: {
+              name: name || "UnknownError",
+              message: message || "The passkey request failed.",
+            },
+          });
+
+          const send = (eventName, detail) => {
+            window.dispatchEvent(new CustomEvent(eventName, { detail }));
+          };
+
+          const validateMessage = (detail) => {
+            if (!detail || typeof detail !== "object") {
+              return { error: errorReply("TypeError", "Malformed browser passkey request.") };
+            }
+
+            const id = detail.id;
+            const kind = detail.kind;
+            if (
+              typeof id !== "string" ||
+              id.length === 0 ||
+              id.length > maximumIDLength
+            ) {
+              return { error: errorReply("TypeError", "Malformed browser passkey request.") };
+            }
+
+            if (
+              typeof kind !== "string" ||
+              kind.length === 0 ||
+              kind.length > maximumKindLength
+            ) {
+              return { id, error: errorReply("TypeError", "Malformed browser passkey request.") };
+            }
+
+            const hasPayload = Object.prototype.hasOwnProperty.call(detail, "payload");
+            if (!hasPayload) {
+              return { id, message: { kind } };
+            }
+
+            const payload = detail.payload;
+            if (
+              typeof payload !== "string" ||
+              payload.length > maximumPayloadBytes ||
+              utf8ByteLength(payload) > maximumPayloadBytes
+            ) {
+              return { id, error: errorReply("TypeError", "Malformed browser passkey request.") };
+            }
+
+            return { id, message: { kind, payload } };
+          };
+
+          window.addEventListener(requestEventName, (event) => {
+            let validated;
+            try {
+              validated = validateMessage(event.detail);
+            } catch (_) {
+              return;
+            }
+
+            const id = validated.id;
+            if (!id) {
+              return;
+            }
+            send(acknowledgeEventName, { id });
+
+            if (validated.error) {
+              send(responseEventName, { id, reply: validated.error });
+              return;
+            }
+
+            const handler = nativeHandler();
+            if (!handler) {
+              send(
+                responseEventName,
+                {
+                  id,
+                  reply: errorReply(
+                    "NotSupportedError",
+                    "Native passkey support is unavailable."
+                  ),
+                }
+              );
+              return;
+            }
+
+            handler
+              .postMessage(validated.message)
+              .then((reply) => {
+                send(responseEventName, { id, reply });
+              })
+              .catch(() => {
+                send(
+                  responseEventName,
+                  { id, reply: errorReply("UnknownError", "The passkey request failed.") }
+                );
+              });
+          });
+
+          return true;
+        })();
+        """#
+    }()
+
+    static let scriptSource: String = {
+        let requestEventName = BrowserWebAuthnBridgeContract.requestEventName
+        let acknowledgeEventName = BrowserWebAuthnBridgeContract.acknowledgeEventName
+        let responseEventName = BrowserWebAuthnBridgeContract.responseEventName
+        return #"""
+        (() => {
+          const currentFrameMayUseWebAuthn = () => {
+            if (window.isSecureContext !== true) {
+              return false;
+            }
+            return window.self === window.top;
+          };
+
+          if (!currentFrameMayUseWebAuthn()) {
+            return false;
+          }
+
+          if (window.__cmuxWebAuthnBridgeInstalled) {
+            return true;
+          }
+          window.__cmuxWebAuthnBridgeInstalled = true;
+
+          const requestEventName = "\#(requestEventName)";
+          const acknowledgeEventName = "\#(acknowledgeEventName)";
+          const responseEventName = "\#(responseEventName)";
+          const maximumPayloadBytes = 512 * 1024;
+          const textEncoder = typeof TextEncoder === "function" ? new TextEncoder() : null;
+          let nextRequestID = 0;
 
           const normalizedString = (value) =>
             typeof value === "string" ? value.trim().toLowerCase() : "";
@@ -104,14 +255,79 @@ enum BrowserWebAuthnBridgeContract {
             throw makeError(error.name, error.message);
           };
 
+          const utf8ByteLength = (value) =>
+            textEncoder ? textEncoder.encode(value).byteLength : value.length;
+
+          const nextNativeRequestID = () => {
+            nextRequestID += 1;
+            return `cmux-webauthn-${Date.now()}-${nextRequestID}`;
+          };
+
           const callNative = (kind, payload) => {
-            const handler = nativeHandler();
-            if (!handler) {
+            if (
+              typeof kind !== "string" ||
+              kind.length === 0 ||
+              kind.length > 64 ||
+              (payload !== undefined &&
+                (typeof payload !== "string" ||
+                  payload.length > maximumPayloadBytes ||
+                  utf8ByteLength(payload) > maximumPayloadBytes))
+            ) {
               return Promise.reject(
-                makeError("NotSupportedError", "Native passkey support is unavailable.")
+                makeError("TypeError", "Malformed browser passkey request.")
               );
             }
-            return handler.postMessage({ kind, payload }).then(ensureReplySuccess);
+
+            return new Promise((resolve, reject) => {
+              const id = nextNativeRequestID();
+              let acknowledged = false;
+              let acknowledgeTimer = null;
+
+              const cleanup = () => {
+                if (acknowledgeTimer !== null) {
+                  clearTimeout(acknowledgeTimer);
+                }
+                window.removeEventListener(acknowledgeEventName, handleAcknowledge);
+                window.removeEventListener(responseEventName, handleResponse);
+              };
+
+              const handleAcknowledge = (event) => {
+                if (!event.detail || event.detail.id !== id) {
+                  return;
+                }
+                acknowledged = true;
+                if (acknowledgeTimer !== null) {
+                  clearTimeout(acknowledgeTimer);
+                  acknowledgeTimer = null;
+                }
+              };
+
+              const handleResponse = (event) => {
+                if (!event.detail || event.detail.id !== id) {
+                  return;
+                }
+                cleanup();
+                try {
+                  resolve(ensureReplySuccess(event.detail.reply));
+                } catch (error) {
+                  reject(error);
+                }
+              };
+
+              window.addEventListener(acknowledgeEventName, handleAcknowledge);
+              window.addEventListener(responseEventName, handleResponse);
+              acknowledgeTimer = setTimeout(() => {
+                if (!acknowledged) {
+                  cleanup();
+                  reject(
+                    makeError("NotSupportedError", "Native passkey support is unavailable.")
+                  );
+                }
+              }, 1000);
+
+              const detail = payload === undefined ? { id, kind } : { id, kind, payload };
+              window.dispatchEvent(new CustomEvent(requestEventName, { detail }));
+            });
           };
 
           const serializeCredentialDescriptor = (descriptor) => {
@@ -338,32 +554,47 @@ enum BrowserWebAuthnBridgeContract {
               })
               .catch(() => (typeof fallback === "function" ? fallback() : !!fallback));
 
-          if (window.CredentialsContainer && window.CredentialsContainer.prototype) {
-            const prototype = window.CredentialsContainer.prototype;
-            const originalCreate = prototype.create;
-            const originalGet = prototype.get;
+          const credentialsPatchTarget = () => {
+            if (!navigator.credentials) {
+              return null;
+            }
+            if (window.CredentialsContainer && window.CredentialsContainer.prototype) {
+              return window.CredentialsContainer.prototype;
+            }
+            const prototype = Object.getPrototypeOf(navigator.credentials);
+            return prototype && prototype !== Object.prototype ? prototype : navigator.credentials;
+          };
 
-            Object.defineProperty(prototype, "create", {
-              configurable: true,
-              writable: true,
-              value: function create(options) {
-                if (!options || !options.publicKey) {
-                  return originalCreate.call(this, options);
-                }
-                return nativeCreateCredential(originalCreate, this, options);
-              },
-            });
+          const credentialsTarget = credentialsPatchTarget();
+          if (credentialsTarget) {
+            const originalCreate = credentialsTarget.create;
+            const originalGet = credentialsTarget.get;
 
-            Object.defineProperty(prototype, "get", {
-              configurable: true,
-              writable: true,
-              value: function get(options) {
-                if (!options || !options.publicKey) {
-                  return originalGet.call(this, options);
-                }
-                return nativeGetCredential(originalGet, this, options);
-              },
-            });
+            if (typeof originalCreate === "function") {
+              Object.defineProperty(credentialsTarget, "create", {
+                configurable: true,
+                writable: true,
+                value: function create(options) {
+                  if (!options || !options.publicKey) {
+                    return originalCreate.call(this, options);
+                  }
+                  return nativeCreateCredential(originalCreate, this, options);
+                },
+              });
+            }
+
+            if (typeof originalGet === "function") {
+              Object.defineProperty(credentialsTarget, "get", {
+                configurable: true,
+                writable: true,
+                value: function get(options) {
+                  if (!options || !options.publicKey) {
+                    return originalGet.call(this, options);
+                  }
+                  return nativeGetCredential(originalGet, this, options);
+                },
+              });
+            }
           }
 
           if (window.PublicKeyCredential) {
@@ -406,60 +637,6 @@ enum BrowserWebAuthnBridgeContract {
     }()
 }
 
-private enum BrowserWebAuthnBridgeMessageKind: String {
-    case capabilities
-    case createCredential
-    case getCredential
-}
-
-private enum BrowserWebAuthnErrorName: String {
-    case invalidState = "InvalidStateError"
-    case notAllowed = "NotAllowedError"
-    case notSupported = "NotSupportedError"
-    case security = "SecurityError"
-    case type = "TypeError"
-    case unknown = "UnknownError"
-}
-
-private struct BrowserWebAuthnBridgeError: Error {
-    let name: BrowserWebAuthnErrorName
-    let message: String
-
-    func replyObject() -> [String: Any] {
-        [
-            "ok": false,
-            "error": [
-                "name": name.rawValue,
-                "message": message,
-            ],
-        ]
-    }
-
-    static func invalidState(_ message: String) -> Self {
-        .init(name: .invalidState, message: message)
-    }
-
-    static func notAllowed(_ message: String) -> Self {
-        .init(name: .notAllowed, message: message)
-    }
-
-    static func notSupported(_ message: String) -> Self {
-        .init(name: .notSupported, message: message)
-    }
-
-    static func security(_ message: String) -> Self {
-        .init(name: .security, message: message)
-    }
-
-    static func type(_ message: String) -> Self {
-        .init(name: .type, message: message)
-    }
-
-    static func unknown(_ message: String) -> Self {
-        .init(name: .unknown, message: message)
-    }
-}
-
 func browserWebAuthnAdvertisedPlatformPasskeyAvailability(
     authorizationState: ASAuthorizationWebBrowserPublicKeyCredentialManager.AuthorizationState,
     deviceConfiguredForPasskeys: Bool?,
@@ -476,269 +653,6 @@ func browserWebAuthnAdvertisedPlatformPasskeyAvailability(
     return deviceConfiguredForPasskeys
 }
 
-private struct BrowserWebAuthnMessageEnvelope {
-    let kind: BrowserWebAuthnBridgeMessageKind
-    let payloadJSON: String?
-}
-
-private enum BrowserWebAuthnRequestParser {
-    static func parseEnvelope(from body: Any) throws -> BrowserWebAuthnMessageEnvelope {
-        guard let root = body as? [String: Any],
-              let rawKind = root["kind"] as? String,
-              let kind = BrowserWebAuthnBridgeMessageKind(rawValue: rawKind) else {
-            throw BrowserWebAuthnBridgeError.type("Malformed browser passkey request.")
-        }
-
-        return .init(kind: kind, payloadJSON: root["payload"] as? String)
-    }
-
-    static func decodePayload<T: Decodable>(
-        _ type: T.Type,
-        from envelope: BrowserWebAuthnMessageEnvelope
-    ) throws -> T {
-        guard let payloadJSON = envelope.payloadJSON,
-              let payloadData = payloadJSON.data(using: .utf8) else {
-            throw BrowserWebAuthnBridgeError.type("Malformed browser passkey request.")
-        }
-
-        do {
-            return try JSONDecoder().decode(T.self, from: payloadData)
-        } catch {
-            throw BrowserWebAuthnBridgeError.type("Malformed browser passkey request.")
-        }
-    }
-}
-
-private struct BrowserWebAuthnBinaryData: Decodable {
-    let data: Data
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        let encoded = try container.decode(String.self)
-        guard let data = Data(base64URLEncoded: encoded) else {
-            throw DecodingError.dataCorruptedError(
-                in: container,
-                debugDescription: "Invalid base64url-encoded WebAuthn binary value."
-            )
-        }
-        self.data = data
-    }
-}
-
-private struct BrowserWebAuthnCredentialDescriptor: Decodable {
-    let type: String?
-    let id: BrowserWebAuthnBinaryData
-    let transports: [String]?
-
-    var normalizedType: String {
-        type?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "public-key"
-    }
-
-    var normalizedTransports: [BrowserWebAuthnTransport] {
-        (transports ?? []).compactMap(BrowserWebAuthnTransport.init(rawValue:))
-    }
-
-    var isPublicKeyCredential: Bool {
-        normalizedType == "public-key"
-    }
-}
-
-private struct BrowserWebAuthnCreationRequest: Decodable {
-    let mediation: String?
-    let publicKey: BrowserWebAuthnCreationPublicKeyOptions
-}
-
-private struct BrowserWebAuthnCreationPublicKeyOptions: Decodable {
-    let challenge: BrowserWebAuthnBinaryData
-    let rp: BrowserWebAuthnRelyingPartyDescriptor?
-    let user: BrowserWebAuthnUserDescriptor
-    let pubKeyCredParams: [BrowserWebAuthnCredentialParameter]
-    let excludeCredentials: [BrowserWebAuthnCredentialDescriptor]?
-    let authenticatorSelection: BrowserWebAuthnAuthenticatorSelection?
-    let attestation: String?
-}
-
-private struct BrowserWebAuthnAssertionRequest: Decodable {
-    let mediation: String?
-    let publicKey: BrowserWebAuthnAssertionPublicKeyOptions
-}
-
-private struct BrowserWebAuthnAssertionPublicKeyOptions: Decodable {
-    let challenge: BrowserWebAuthnBinaryData
-    let rpId: String?
-    let allowCredentials: [BrowserWebAuthnCredentialDescriptor]?
-    let userVerification: String?
-    let extensions: BrowserWebAuthnAssertionExtensions?
-}
-
-private struct BrowserWebAuthnRelyingPartyDescriptor: Decodable {
-    let id: String?
-    let name: String?
-}
-
-private struct BrowserWebAuthnUserDescriptor: Decodable {
-    let id: BrowserWebAuthnBinaryData
-    let name: String?
-    let displayName: String?
-}
-
-private struct BrowserWebAuthnCredentialParameter: Decodable {
-    let type: String?
-    let alg: Int
-
-    var normalizedType: String {
-        type?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "public-key"
-    }
-
-    var isPublicKeyCredential: Bool {
-        normalizedType == "public-key"
-    }
-}
-
-private struct BrowserWebAuthnAuthenticatorSelection: Decodable {
-    let authenticatorAttachment: String?
-    let residentKey: String?
-    let requireResidentKey: Bool?
-    let userVerification: String?
-}
-
-private struct BrowserWebAuthnAssertionExtensions: Decodable {
-    let appid: String?
-}
-
-private enum BrowserWebAuthnTransport: String {
-    case ble
-    case hybrid
-    case `internal`
-    case nfc
-    case usb
-}
-
-private struct BrowserWebAuthnTransportSummary {
-    let containsBluetooth: Bool
-    let containsHybrid: Bool
-    let containsInternal: Bool
-    let containsSecurityKeyTransport: Bool
-    let containsUnspecifiedTransport: Bool
-
-    init(descriptors: [BrowserWebAuthnCredentialDescriptor]) {
-        var containsBluetooth = false
-        var containsHybrid = false
-        var containsInternal = false
-        var containsSecurityKeyTransport = false
-        var containsUnspecifiedTransport = false
-
-        for descriptor in descriptors where descriptor.isPublicKeyCredential {
-            let transports = descriptor.normalizedTransports
-            if transports.isEmpty {
-                containsUnspecifiedTransport = true
-                continue
-            }
-
-            for transport in transports {
-                switch transport {
-                case .ble:
-                    containsBluetooth = true
-                    containsSecurityKeyTransport = true
-                case .hybrid:
-                    containsHybrid = true
-                case .internal:
-                    containsInternal = true
-                case .nfc, .usb:
-                    containsSecurityKeyTransport = true
-                }
-            }
-        }
-
-        self.containsBluetooth = containsBluetooth
-        self.containsHybrid = containsHybrid
-        self.containsInternal = containsInternal
-        self.containsSecurityKeyTransport = containsSecurityKeyTransport
-        self.containsUnspecifiedTransport = containsUnspecifiedTransport
-    }
-
-    var allowsPlatformCredentials: Bool {
-        containsInternal || containsHybrid || containsUnspecifiedTransport
-    }
-
-    var allowsSecurityKeyCredentials: Bool {
-        containsSecurityKeyTransport || containsHybrid || containsUnspecifiedTransport
-    }
-
-    var needsBluetoothPreparation: Bool {
-        containsBluetooth || containsHybrid
-    }
-
-    var prefersSecurityKeysFirst: Bool {
-        containsSecurityKeyTransport &&
-            !containsInternal &&
-            !containsHybrid &&
-            !containsUnspecifiedTransport
-    }
-
-    var shouldShowHybridTransport: Bool {
-        containsHybrid || containsUnspecifiedTransport
-    }
-}
-
-private struct BrowserWebAuthnSecurityOrigin {
-    let scheme: String
-    let host: String
-    let port: Int
-
-    init(origin: WKSecurityOrigin) {
-        scheme = origin.protocol.lowercased()
-        host = origin.host.lowercased()
-        port = Self.normalizedPort(scheme: scheme, port: origin.port)
-    }
-
-    init?(url: URL) {
-        guard let scheme = url.scheme?.lowercased(),
-              let host = url.host?.lowercased() else {
-            return nil
-        }
-
-        self.scheme = scheme
-        self.host = host
-        port = Self.normalizedPort(scheme: scheme, port: url.port)
-    }
-
-    var serializedString: String {
-        let isDefaultHTTPS = scheme == "https" && port == 443
-        let isDefaultHTTP = scheme == "http" && port == 80
-        if isDefaultHTTPS || isDefaultHTTP || port < 0 {
-            return "\(scheme)://\(host)"
-        }
-        return "\(scheme)://\(host):\(port)"
-    }
-
-    func matches(_ origin: WKSecurityOrigin) -> Bool {
-        let other = Self(origin: origin)
-        return scheme == other.scheme && host == other.host && port == other.port
-    }
-
-    func permits(relyingPartyIdentifier: String) -> Bool {
-        let normalizedIdentifier = relyingPartyIdentifier.lowercased()
-        guard !normalizedIdentifier.isEmpty else { return false }
-        return host == normalizedIdentifier || host.hasSuffix(".\(normalizedIdentifier)")
-    }
-
-    private static func normalizedPort(scheme: String, port: Int?) -> Int {
-        if let port, port > 0 {
-            return port
-        }
-
-        switch scheme {
-        case "http":
-            return 80
-        case "https":
-            return 443
-        default:
-            return -1
-        }
-    }
-}
-
 @MainActor
 private struct BrowserWebAuthnClientDataContext {
     let callerOrigin: BrowserWebAuthnSecurityOrigin
@@ -747,7 +661,9 @@ private struct BrowserWebAuthnClientDataContext {
 
     static func resolve(for message: WKScriptMessage) throws -> Self {
         let callerOrigin = BrowserWebAuthnSecurityOrigin(origin: message.frameInfo.securityOrigin)
-        let topLevelOrigin = message.webView?.url.flatMap(BrowserWebAuthnSecurityOrigin.init(url:))
+        let topLevelOrigin =
+            message.webView?.url.flatMap(BrowserWebAuthnSecurityOrigin.init(url:)) ??
+            (message.frameInfo.isMainFrame ? callerOrigin : nil)
 
         let crossOrigin: ASPublicKeyCredentialClientData.CrossOriginValue?
         if message.frameInfo.isMainFrame {
@@ -765,10 +681,28 @@ private struct BrowserWebAuthnClientDataContext {
         )
     }
 
+    static func resolvePermitted(for message: WKScriptMessage) throws -> Self {
+        let context = try resolve(for: message)
+        try context.validatePermitted()
+        return context
+    }
+
+    func validatePermitted() throws {
+        guard let topLevelOrigin,
+              callerOrigin.isPotentiallyTrustworthyWebAuthnOrigin,
+              topLevelOrigin.isPotentiallyTrustworthyWebAuthnOrigin else {
+            throw BrowserWebAuthnBridgeError.security("Passkey access requires a secure origin.")
+        }
+        guard crossOrigin == nil else {
+            throw BrowserWebAuthnBridgeError.security("Passkey access is not available.")
+        }
+    }
+
     func clientData(challenge: Data) throws -> ASPublicKeyCredentialClientData {
         guard #available(macOS 13.5, *) else {
             throw BrowserWebAuthnBridgeError.notSupported("Native passkey support is unavailable.")
         }
+        try validatePermitted()
 
         let topOrigin: String?
         if let topLevelOrigin, topLevelOrigin.serializedString != callerOrigin.serializedString {
@@ -785,17 +719,27 @@ private struct BrowserWebAuthnClientDataContext {
         )
     }
 
-    func resolveRelyingPartyIdentifier(_ explicitIdentifier: String?) throws -> String {
+    func resolveRelyingPartyIdentifier(_ explicitIdentifier: String?) throws -> String? {
         let requestedIdentifier =
             explicitIdentifier?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased() ?? callerOrigin.host
 
         #if DEBUG
-        cmuxDebugLog("webauthn.resolveRP explicit=\(explicitIdentifier ?? "(nil)") resolved=\(requestedIdentifier) callerHost=\(callerOrigin.host) permitted=\(callerOrigin.permits(relyingPartyIdentifier: requestedIdentifier))")
+        cmuxDebugLog(
+            "webauthn.resolveRP explicit=\(explicitIdentifier ?? "(nil)") " +
+            "resolved=\(requestedIdentifier) callerHost=\(callerOrigin.host) " +
+            "scopeOK=\(callerOrigin.isWithinRelyingPartyScope(requestedIdentifier)) " +
+            "nativeOK=\(callerOrigin.permits(relyingPartyIdentifier: requestedIdentifier))"
+        )
         #endif
-        guard callerOrigin.permits(relyingPartyIdentifier: requestedIdentifier) else {
+        guard callerOrigin.isWithinRelyingPartyScope(requestedIdentifier) else {
             throw BrowserWebAuthnBridgeError.security("Passkey access is not available.")
+        }
+        guard callerOrigin.permits(relyingPartyIdentifier: requestedIdentifier) else {
+            // Keep native parent-domain handling limited to explicitly reviewed
+            // first-party RP IDs; WebKit owns all other public-suffix cases.
+            return nil
         }
 
         return requestedIdentifier
@@ -839,84 +783,11 @@ private struct BrowserWebAuthnNativeRequestPlan {
 }
 
 private extension Data {
-    init?(base64URLEncoded encoded: String) {
-        let normalized = encoded
-            .replacingOccurrences(of: "-", with: "+")
-            .replacingOccurrences(of: "_", with: "/")
-        let paddingLength = (4 - normalized.count % 4) % 4
-        let padded = normalized + String(repeating: "=", count: paddingLength)
-        self.init(base64Encoded: padded)
-    }
-
     func base64URLEncodedString() -> String {
         base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
-    }
-}
-
-private extension BrowserWebAuthnAuthenticatorSelection {
-    var attachment: String? {
-        authenticatorAttachment?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    }
-
-    var userVerificationPreference: String {
-        switch userVerification?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "required":
-            return "required"
-        case "discouraged":
-            return "discouraged"
-        default:
-            return "preferred"
-        }
-    }
-
-    var residentKeyPreference: String {
-        switch residentKey?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "required":
-            return "required"
-        case "preferred":
-            return "preferred"
-        case "discouraged":
-            return "discouraged"
-        default:
-            return requireResidentKey == true ? "required" : "discouraged"
-        }
-    }
-}
-
-private extension BrowserWebAuthnAssertionPublicKeyOptions {
-    var normalizedUserVerificationPreference: String {
-        switch userVerification?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "required":
-            return "required"
-        case "discouraged":
-            return "discouraged"
-        default:
-            return "preferred"
-        }
-    }
-}
-
-private extension BrowserWebAuthnCreationPublicKeyOptions {
-    var normalizedAttestationPreference: String {
-        switch attestation?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "direct":
-            return "direct"
-        case "enterprise":
-            return "enterprise"
-        case "indirect":
-            return "indirect"
-        default:
-            return "none"
-        }
-    }
-
-    var requestedAlgorithms: [Int] {
-        pubKeyCredParams
-            .filter(\.isPublicKeyCredential)
-            .map(\.alg)
     }
 }
 
@@ -1132,7 +1003,9 @@ private final class BrowserPasskeyAuthorizationGate {
     }
 }
 
+@MainActor
 final class BrowserWebAuthnCoordinator: NSObject, WKScriptMessageHandlerWithReply {
+    private weak var installedWebView: WKWebView?
     private var activeAuthorizationController: ASAuthorizationController?
     private var activeAuthorizationContinuation: CheckedContinuation<[String: Any], Error>?
     private var activePresentationWindow: NSWindow?
@@ -1141,23 +1014,49 @@ final class BrowserWebAuthnCoordinator: NSObject, WKScriptMessageHandlerWithRepl
         super.init()
     }
 
-    #if DEBUG
-    private func debugHasValue(_ value: String?) -> Int {
-        value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? 1 : 0
-    }
-    #endif
-
     func install(on webView: WKWebView) {
         let controller = webView.configuration.userContentController
-        controller.removeScriptMessageHandler(forName: BrowserWebAuthnBridgeContract.handlerName, contentWorld: .page)
-        controller.addScriptMessageHandler(self, contentWorld: .page, name: BrowserWebAuthnBridgeContract.handlerName)
+        controller.removeScriptMessageHandler(
+            forName: BrowserWebAuthnBridgeContract.handlerName,
+            contentWorld: BrowserWebAuthnBridgeContract.contentWorld
+        )
+        controller.addScriptMessageHandler(
+            self,
+            contentWorld: BrowserWebAuthnBridgeContract.contentWorld,
+            name: BrowserWebAuthnBridgeContract.handlerName
+        )
+        installedWebView = webView
     }
 
     func uninstall(from webView: WKWebView) {
         webView.configuration.userContentController.removeScriptMessageHandler(
             forName: BrowserWebAuthnBridgeContract.handlerName,
-            contentWorld: .page
+            contentWorld: BrowserWebAuthnBridgeContract.contentWorld
         )
+        if installedWebView === webView {
+            installedWebView = nil
+        }
+    }
+
+    @MainActor
+    func tearDown(from webView: WKWebView) {
+        cancelActiveAuthorization()
+        uninstall(from: webView)
+    }
+
+    @MainActor
+    private func cancelActiveAuthorization() {
+        let controller = activeAuthorizationController
+        let continuation = activeAuthorizationContinuation
+        activeAuthorizationController = nil
+        activeAuthorizationContinuation = nil
+        activePresentationWindow = nil
+        controller?.delegate = nil
+        controller?.presentationContextProvider = nil
+        if #available(macOS 13.0, *) {
+            controller?.cancel()
+        }
+        continuation?.resume(throwing: BrowserWebAuthnBridgeError.notAllowed("The passkey request failed."))
     }
 
     func userContentController(
@@ -1173,6 +1072,7 @@ final class BrowserWebAuthnCoordinator: NSObject, WKScriptMessageHandlerWithRepl
                 #endif
                 switch envelope.kind {
                 case .capabilities:
+                    _ = try BrowserWebAuthnClientDataContext.resolvePermitted(for: message)
                     let callerMayPrompt = callerMayPromptForPlatformAuthorization(message)
                     let capReply = capabilityReply(
                         for: BrowserPasskeyAuthorizationGate.shared.currentAuthorizationState(),
@@ -1190,8 +1090,8 @@ final class BrowserWebAuthnCoordinator: NSObject, WKScriptMessageHandlerWithRepl
                     )
                     #if DEBUG
                     cmuxDebugLog(
-                        "webauthn.createCredential hasRP=\(debugHasValue(request.publicKey.rp?.id)) " +
-                        "hasUserName=\(debugHasValue(request.publicKey.user.name)) " +
+                        "webauthn.createCredential hasRP=\((request.publicKey.rp?.id?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false) ? 1 : 0) " +
+                        "hasUserName=\((request.publicKey.user.name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false) ? 1 : 0) " +
                         "userIDBytes=\(request.publicKey.user.id.data.count) " +
                         "attachment=\(request.publicKey.authenticatorSelection?.attachment ?? "(nil)") " +
                         "algorithmCount=\(request.publicKey.requestedAlgorithms.count)"
@@ -1209,7 +1109,7 @@ final class BrowserWebAuthnCoordinator: NSObject, WKScriptMessageHandlerWithRepl
                     )
                     #if DEBUG
                     cmuxDebugLog(
-                        "webauthn.getCredential hasRPID=\(debugHasValue(request.publicKey.rpId)) " +
+                        "webauthn.getCredential hasRPID=\((request.publicKey.rpId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false) ? 1 : 0) " +
                         "allowCredentials=\(request.publicKey.allowCredentials?.count ?? 0) " +
                         "mediation=\(request.mediation ?? "(nil)")"
                     )
@@ -1306,7 +1206,7 @@ private extension BrowserWebAuthnCoordinator {
             "webViewHost=\(message.webView?.url?.host ?? "(nil)") hasWebViewURL=\(message.webView?.url == nil ? 0 : 1)"
         )
         #endif
-        let clientDataContext = try BrowserWebAuthnClientDataContext.resolve(for: message)
+        let clientDataContext = try BrowserWebAuthnClientDataContext.resolvePermitted(for: message)
         guard let plan = try buildCreationPlan(request, clientDataContext: clientDataContext) else {
             #if DEBUG
             cmuxDebugLog("webauthn.handleCreate no plan — returning fallback")
@@ -1314,6 +1214,7 @@ private extension BrowserWebAuthnCoordinator {
             return fallbackReply()
         }
 
+        _ = try interactivePresentationWindow(for: message)
         let requests = try await authorizationRequests(for: plan, message: message)
         guard !requests.isEmpty else {
             #if DEBUG
@@ -1321,10 +1222,11 @@ private extension BrowserWebAuthnCoordinator {
             #endif
             return fallbackReply()
         }
+        let presentationWindow = try interactivePresentationWindow(for: message)
 
         return try await performAuthorization(
             requests: requests,
-            window: message.webView?.window,
+            window: presentationWindow,
             prefersImmediatelyAvailableCredentials: plan.prefersImmediatelyAvailableCredentials
         )
     }
@@ -1339,7 +1241,7 @@ private extension BrowserWebAuthnCoordinator {
             "webViewHost=\(message.webView?.url?.host ?? "(nil)") hasWebViewURL=\(message.webView?.url == nil ? 0 : 1)"
         )
         #endif
-        let clientDataContext = try BrowserWebAuthnClientDataContext.resolve(for: message)
+        let clientDataContext = try BrowserWebAuthnClientDataContext.resolvePermitted(for: message)
         guard let plan = try buildAssertionPlan(request, clientDataContext: clientDataContext) else {
             #if DEBUG
             cmuxDebugLog("webauthn.handleGet no plan — returning fallback")
@@ -1347,6 +1249,7 @@ private extension BrowserWebAuthnCoordinator {
             return fallbackReply()
         }
 
+        _ = try interactivePresentationWindow(for: message)
         let requests = try await authorizationRequests(for: plan, message: message)
         guard !requests.isEmpty else {
             #if DEBUG
@@ -1354,12 +1257,29 @@ private extension BrowserWebAuthnCoordinator {
             #endif
             return fallbackReply()
         }
+        let presentationWindow = try interactivePresentationWindow(for: message)
 
         return try await performAuthorization(
             requests: requests,
-            window: message.webView?.window,
+            window: presentationWindow,
             prefersImmediatelyAvailableCredentials: plan.prefersImmediatelyAvailableCredentials
         )
+    }
+
+    func interactivePresentationWindow(for message: WKScriptMessage) throws -> NSWindow {
+        guard let webView = message.webView,
+              installedWebView === webView,
+              let window = browserInteractiveModalHostWindow(for: webView) else {
+            #if DEBUG
+            cmuxDebugLog(
+                "webauthn.presentationWindow unavailable hasWebView=\(message.webView == nil ? 0 : 1) " +
+                "hasWindow=\(message.webView?.window == nil ? 0 : 1) " +
+                "isCurrent=\((message.webView != nil && installedWebView === message.webView) ? 1 : 0)"
+            )
+            #endif
+            throw BrowserWebAuthnBridgeError.notAllowed("Passkey access is not available.")
+        }
+        return window
     }
 
     func authorizationRequests(
@@ -1435,11 +1355,11 @@ private extension BrowserWebAuthnCoordinator {
         guard !requests.isEmpty else {
             throw BrowserWebAuthnBridgeError.notSupported("Native passkey support is unavailable.")
         }
-        guard let window else {
+        guard let window = browserInteractiveModalHostWindow(window) else {
             #if DEBUG
-            cmuxDebugLog("webauthn.performAuth FAIL: no window")
+            cmuxDebugLog("webauthn.performAuth FAIL: no interactive window")
             #endif
-            throw BrowserWebAuthnBridgeError.notSupported("Native passkey support is unavailable.")
+            throw BrowserWebAuthnBridgeError.notAllowed("Passkey access is not available.")
         }
         guard activeAuthorizationContinuation == nil else {
             #if DEBUG
@@ -1484,13 +1404,15 @@ private extension BrowserWebAuthnCoordinator {
         _ request: BrowserWebAuthnCreationRequest,
         clientDataContext: BrowserWebAuthnClientDataContext
     ) throws -> BrowserWebAuthnNativeRequestPlan? {
+        try request.validateNativeRequestShape()
+
         guard let userName = request.publicKey.user.name, !userName.isEmpty else {
             throw BrowserWebAuthnBridgeError.type("Malformed browser passkey request.")
         }
 
-        let relyingPartyIdentifier = try clientDataContext.resolveRelyingPartyIdentifier(
+        guard let relyingPartyIdentifier = try clientDataContext.resolveRelyingPartyIdentifier(
             request.publicKey.rp?.id
-        )
+        ) else { return nil }
         let clientData = try clientDataContext.clientData(challenge: request.publicKey.challenge.data)
         let selection = request.publicKey.authenticatorSelection
         let attachment = selection?.attachment
@@ -1501,7 +1423,8 @@ private extension BrowserWebAuthnCoordinator {
         }
 
         var platformRequests: [ASAuthorizationRequest] = []
-        if #available(macOS 13.5, *),
+        if attachment != "cross-platform",
+           #available(macOS 13.5, *),
            requestedAlgorithms.contains(-7) {
             let provider = ASAuthorizationPlatformPublicKeyCredentialProvider(
                 relyingPartyIdentifier: relyingPartyIdentifier
@@ -1587,9 +1510,15 @@ private extension BrowserWebAuthnCoordinator {
         _ request: BrowserWebAuthnAssertionRequest,
         clientDataContext: BrowserWebAuthnClientDataContext
     ) throws -> BrowserWebAuthnNativeRequestPlan? {
-        let relyingPartyIdentifier = try clientDataContext.resolveRelyingPartyIdentifier(
+        try request.validateNativeRequestShape()
+
+        guard let relyingPartyIdentifier = try clientDataContext.resolveRelyingPartyIdentifier(
             request.publicKey.rpId
-        )
+        ) else { return nil }
+        if let appID = request.publicKey.extensions?.appid, !appID.isEmpty {
+            // U2F AppID/facet validation is a separate browser trust boundary; keep it on WebKit.
+            return nil
+        }
         let clientData = try clientDataContext.clientData(challenge: request.publicKey.challenge.data)
         let allowCredentials = (request.publicKey.allowCredentials ?? []).filter(\.isPublicKeyCredential)
         let transportSummary = BrowserWebAuthnTransportSummary(descriptors: allowCredentials)
@@ -1859,11 +1788,8 @@ private extension BrowserWebAuthnCoordinator {
         bluetoothState: BrowserBluetoothAuthorizationState,
         callerMayPromptForPlatformAuthorization: Bool
     ) -> [String: Any] {
-        let authorized = state == .authorized
         let denied = state == .denied
-        let canPromptForAccess = state == .notDetermined && callerMayPromptForPlatformAuthorization
         let platformRequestSupport = supportsPlatformCredentialRequests
-        let securityKeySupport = supportsSecurityKeyCredentialRequests
         let deviceConfiguredForPasskeys = denied ? nil : self.deviceConfiguredForPasskeys()
         let platformPasskeyAvailability = browserWebAuthnAdvertisedPlatformPasskeyAvailability(
             authorizationState: state,
@@ -1871,22 +1797,13 @@ private extension BrowserWebAuthnCoordinator {
             callerMayPromptForPlatformAuthorization: callerMayPromptForPlatformAuthorization
         )
         #if DEBUG
+        let authorized = state == .authorized
+        let canPromptForAccess = state == .notDetermined && callerMayPromptForPlatformAuthorization
+        let securityKeySupport = supportsSecurityKeyCredentialRequests
         cmuxDebugLog("webauthn.capability state=\(state.rawValue) authorized=\(authorized) denied=\(denied) canPrompt=\(canPromptForAccess) callerMayPrompt=\(callerMayPromptForPlatformAuthorization) platformSupport=\(platformRequestSupport) securityKeySupport=\(securityKeySupport) deviceConfigured=\(deviceConfiguredForPasskeys as Any) advertisedPlatform=\(platformPasskeyAvailability as Any) btAuth=\(bluetoothState.isAuthorized) btHybrid=\(bluetoothState.canUseHybridTransport)")
         #endif
 
-        var payload: [String: Any] = [
-            "authorized": authorized,
-            "denied": denied,
-            "canPromptForAccess": canPromptForAccess,
-            "bluetoothAuthorized": bluetoothState.isAuthorized,
-            "hybridTransportAvailable": platformRequestSupport && bluetoothState.canUseHybridTransport,
-            "securityKeysAvailable": securityKeySupport,
-        ]
-
-        if let bluetoothPoweredOn = bluetoothState.isPoweredOn {
-            payload["bluetoothPoweredOn"] = bluetoothPoweredOn
-        }
-
+        var payload: [String: Any] = [:]
         if platformRequestSupport,
            let platformPasskeyAvailability {
             payload["userVerifyingPlatformAuthenticatorAvailable"] = platformPasskeyAvailability

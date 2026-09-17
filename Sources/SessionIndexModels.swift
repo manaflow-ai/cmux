@@ -188,21 +188,24 @@ enum OpenCodeDatabaseSnapshot {
 
 // MARK: - Session entry
 
-struct PullRequestLink: Hashable {
+struct PullRequestLink: Hashable, Sendable {
     let number: Int
     let url: String
     let repository: String?
 }
 
 /// Agent-specific fields used to build the resume command with appropriate flags.
-enum AgentSpecifics: Hashable {
+enum AgentSpecifics: Hashable, Sendable {
     case claude(model: String?, permissionMode: String?, configDirectoryForResume: String?)
     case codex(model: String?, approvalPolicy: String?, sandboxMode: String?, effort: String?)
     case grok(model: String?, permissionMode: String?, sandboxMode: String?, grokHome: String?)
     case opencode(providerModel: String?, agentName: String?)
     case rovodev
     case hermesAgent(source: String?, model: String?, hermesHome: String?)
-    case registered(CmuxVaultAgentRegistration)
+    case registered(
+        CmuxVaultAgentRegistration,
+        launchCommand: AgentLaunchCommandSnapshot? = nil
+    )
 }
 
 enum ClaudeConfigurationRoot {
@@ -252,7 +255,7 @@ enum ClaudeConfigurationRoot {
     }
 }
 
-struct SessionEntry: Identifiable, Hashable {
+struct SessionEntry: Identifiable, Hashable, Sendable {
     let id: String
     let agent: SessionAgent
     /// Native session identifier for the agent's CLI (used to build the resume command).
@@ -264,10 +267,45 @@ struct SessionEntry: Identifiable, Hashable {
     let modified: Date
     let fileURL: URL?
     let specifics: AgentSpecifics
+    /// Session creation time when the source exposes it cheaply (file birth
+    /// time, SQL column); nil otherwise.
+    let created: Date?
+    /// Exact conversation message count when it is knowable without extra
+    /// scanning (whole file inside the metadata read cap, SQL count); nil when
+    /// unknown or approximate.
+    let messageCount: Int?
+
+    init(
+        id: String,
+        agent: SessionAgent,
+        sessionId: String,
+        title: String,
+        cwd: String?,
+        gitBranch: String?,
+        pullRequest: PullRequestLink?,
+        modified: Date,
+        fileURL: URL?,
+        specifics: AgentSpecifics,
+        created: Date? = nil,
+        messageCount: Int? = nil
+    ) {
+        self.id = id
+        self.agent = agent
+        self.sessionId = sessionId
+        self.title = title
+        self.cwd = cwd
+        self.gitBranch = gitBranch
+        self.pullRequest = pullRequest
+        self.modified = modified
+        self.fileURL = fileURL
+        self.specifics = specifics
+        self.created = created
+        self.messageCount = messageCount
+    }
 
     var resumeWorkingDirectory: String? {
         guard let cwd, !cwd.isEmpty else { return nil }
-        if case .registered(let registration) = specifics,
+        if case .registered(let registration, _) = specifics,
            registration.cwd == .ignore {
             return nil
         }
@@ -293,35 +331,31 @@ struct SessionEntry: Identifiable, Hashable {
                 model: model,
                 permissionMode: permissionMode,
                 configDirectoryForResume: configDirectory
-            )
+            ),
+            created: created,
+            messageCount: messageCount
         )
     }
 
-    /// Shell command that resumes this session in a new terminal, with the agent's
-    /// known per-session settings injected as CLI flags.
-    var resumeCommand: String? {
-        resumeCommandWithCwd
-    }
-
-    /// Shell command that resumes this session after guarding the launch directory.
-    var resumeCommandWithCwd: String? {
-        guard let command = resumeCommandWithoutWorkingDirectory else { return nil }
+    /// Shell command exposed by the Copy Resume Command menu item.
+    var copyResumeCommand: String? {
+        guard let command = copyResumeCommandWithoutWorkingDirectory else { return nil }
         guard let cwd = resumeWorkingDirectory else {
             return command
         }
-        return "cd \(Self.shellQuote(cwd)) && \(command)"
+        return TerminalStartupWorkingDirectoryPrefix.prefix(command, workingDirectory: cwd)
     }
 
-    private var resumeCommandWithoutWorkingDirectory: String? {
+    private var copyResumeCommandWithoutWorkingDirectory: String? {
         switch specifics {
         case let .claude(model, permissionMode, configDirectoryForResume):
-            // Route through the wrapper shim token so a manually-resumed claude session
+            // Route through the wrapper resolver token so a manually-resumed claude session
             // re-injects cmux hooks even when the command runs in a shell where the
             // integration's PATH shim / `claude()` function are not active (e.g. the
             // `$SHELL -lic` restore launcher). The token is POSIX-only and this command
             // is typed into — and copy-pasted into — the user's own shell (fish/csh
             // included), so the rendered command is wrapped in `/bin/sh -c '…'` to parse
-            // everywhere; the `cd` guard stays outside in `resumeCommandWithCwd`.
+            // everywhere; the `cd` guard stays outside in `copyResumeCommand`.
             // https://github.com/manaflow-ai/cmux/issues/5639
             var parts = ["\(AgentResumeArgv.claudeWrapperShellExecutableToken) --resume \(sessionId)"]
             if let model, !model.isEmpty {
@@ -337,18 +371,31 @@ struct SessionEntry: Identifiable, Hashable {
                 posixCommand: Self.withShellEnvironment(environment, command: parts.joined(separator: " "))
             )
         case let .codex(model, approval, sandbox, effort):
-            var parts = ["codex resume \(sessionId)"]
+            // Route through the codex wrapper-resolver token so a manually- or
+            // auto-resumed codex session re-injects cmux hooks even when the
+            // command runs in a shell where the integration's PATH shim is not
+            // active (e.g. the `$SHELL -lic` restore launcher). Without this the
+            // bare `codex resume <id>` resolves to the real codex binary,
+            // bypassing cmux-codex-wrapper, so no SessionStart fires and the iOS
+            // GUI stays read-only. Mirror of the claude case: the token is
+            // POSIX-only and this command is typed into / copy-pasted into the
+            // user's own shell (fish/csh included), so the rendered command is
+            // wrapped in `/bin/sh -c '…'`; the `cd` guard stays outside in
+            // `copyResumeCommand`. https://github.com/manaflow-ai/cmux/issues/5639
+            var parts = ["\(AgentResumeArgv.codexWrapperShellExecutableToken) resume \(sessionId)", AgentResumeArgv.codexUpdateCheckSuppressionOverride.joined(separator: " ")]
             if let model, !model.isEmpty {
                 parts.append("-m \(Self.shellQuote(model))")
             }
-            parts.append(contentsOf: Self.codexApprovalSandboxArguments(
+            parts.append(contentsOf: Self.codexApprovalSandboxArgumentTokens(
                 approvalPolicy: approval,
                 sandboxMode: sandbox
-            ))
+            ).map(Self.shellQuote))
             if let effort, !effort.isEmpty {
                 parts.append("-c model_reasoning_effort=\(Self.shellQuote(effort))")
             }
-            return parts.joined(separator: " ")
+            return AgentResumeArgv.portableCodexResumeShellCommand(
+                posixCommand: parts.joined(separator: " ")
+            )
         case let .grok(model, permissionMode, sandboxMode, grokHome):
             var argv = ["grok", "-r", sessionId]
             if let model, !model.isEmpty {
@@ -383,19 +430,20 @@ struct SessionEntry: Identifiable, Hashable {
                 model: model,
                 hermesHome: hermesHome
             )
-        case .registered(let registration):
+        case .registered(let registration, let launchCommand):
+            let capturedLaunch = launchCommand ?? AgentLaunchCommandSnapshot(
+                launcher: registration.id,
+                executablePath: nil,
+                arguments: [registration.defaultExecutable],
+                workingDirectory: resumeWorkingDirectory,
+                environment: nil,
+                capturedAt: nil,
+                source: "vault"
+            )
             if let command = AgentResumeCommandBuilder.resumeShellCommand(
                 kind: .custom(registration.id),
                 sessionId: sessionId,
-                launchCommand: AgentLaunchCommandSnapshot(
-                    launcher: registration.id,
-                    executablePath: nil,
-                    arguments: [registration.defaultExecutable],
-                    workingDirectory: resumeWorkingDirectory,
-                    environment: nil,
-                    capturedAt: nil,
-                    source: "vault"
-                ),
+                launchCommand: capturedLaunch,
                 workingDirectory: resumeWorkingDirectory,
                 registrationOverride: registration,
                 includeWorkingDirectoryPrefix: false
@@ -446,49 +494,6 @@ struct SessionEntry: Identifiable, Hashable {
     /// Single-quote a value for safe shell injection. Escapes embedded single quotes.
     static func shellQuote(_ value: String) -> String {
         TerminalStartupShellQuoting.shellToken(value, allowingBareASCII: true)
-    }
-
-    /// Sandbox-policy values the Codex CLI `--sandbox` flag accepts.
-    ///
-    /// cmux captures Codex's *internal* sandbox-policy `type`, which is a
-    /// superset of the CLI vocabulary (it also includes `disabled`, `managed`,
-    /// and may grow further). Those extra types have no `--sandbox` equivalent
-    /// and must never be forwarded as `-s`, or Codex rejects the resumed command
-    /// (see https://github.com/manaflow-ai/cmux/issues/5262).
-    static let codexCLISandboxModes: Set<String> = [
-        "read-only",
-        "workspace-write",
-        "danger-full-access",
-    ]
-
-    /// Builds the approval/sandbox CLI tokens for a `codex resume` command from
-    /// the per-session policy cmux captured, always yielding a valid invocation.
-    ///
-    /// A `--dangerously-bypass-approvals-and-sandbox` launch round-trips to a
-    /// captured `(approval: "never", sandbox: "disabled")`. This reproduces that
-    /// single combined flag rather than the invalid, contradictory `-a never -s
-    /// disabled`. Sandbox types with no CLI equivalent (`disabled`, `managed`,
-    /// future values) are dropped instead of emitted as an invalid `-s`; valid
-    /// values pass through unchanged.
-    static func codexApprovalSandboxArguments(
-        approvalPolicy: String?,
-        sandboxMode: String?
-    ) -> [String] {
-        // The exact inverse of `--dangerously-bypass-approvals-and-sandbox`:
-        // emit that one flag and nothing else, since `-a`/`-s` here would be both
-        // invalid (`-s disabled`) and contradictory with the bypass flag.
-        if approvalPolicy == "never", sandboxMode == "disabled" {
-            return ["--dangerously-bypass-approvals-and-sandbox"]
-        }
-
-        var parts: [String] = []
-        if let approvalPolicy, !approvalPolicy.isEmpty {
-            parts.append("-a \(shellQuote(approvalPolicy))")
-        }
-        if let sandboxMode, !sandboxMode.isEmpty, codexCLISandboxModes.contains(sandboxMode) {
-            parts.append("-s \(shellQuote(sandboxMode))")
-        }
-        return parts
     }
 
     var displayTitle: String {

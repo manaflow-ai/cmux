@@ -18,6 +18,22 @@ private typealias StoredShortcut = cmux.StoredShortcut
 private typealias ShortcutStroke = CmuxSettings.ShortcutStroke
 
 final class KeyboardShortcutContextTests: XCTestCase {
+    func testSimulatorShortcutsYieldToTextEditors() {
+        let textView = NSTextView()
+        textView.isEditable = true
+        XCTAssertTrue(shortcutResponderAcceptsTextEditing(textView))
+
+        let fieldEditor = NSTextView()
+        fieldEditor.isFieldEditor = true
+        XCTAssertTrue(shortcutResponderAcceptsTextEditing(fieldEditor))
+
+        let textField = NSTextField()
+        textField.isEditable = true
+        XCTAssertTrue(shortcutResponderAcceptsTextEditing(textField))
+
+        XCTAssertFalse(shortcutResponderAcceptsTextEditing(NSView()))
+    }
+
     func testRenameTabAndBrowserReloadCanShareDefaultChordAcrossContexts() {
         let renameTabShortcut = KeyboardShortcutSettings.Action.renameTab.defaultShortcut
 
@@ -132,6 +148,14 @@ final class KeyboardShortcutContextTests: XCTestCase {
 
     func testRenameWorkspaceIsScopedOutsideBrowserPanels() {
         XCTAssertEqual(KeyboardShortcutSettings.Action.renameWorkspace.shortcutContext, .nonBrowserPanel)
+    }
+
+    func testShowNotificationsStaysGenerallyAvailableForCustomBrowserBindings() {
+        // The Cmd+I italics collision is special-cased in the browser routing path,
+        // not by scoping the whole action out of browser panes. Show Notifications
+        // therefore stays `.application` so non-colliding custom bindings (e.g.
+        // Cmd+Shift+I) still open it from a browser pane (issue #6776).
+        XCTAssertEqual(KeyboardShortcutSettings.Action.showNotifications.shortcutContext, .application)
     }
 
     func testRightSidebarContextIsOnlyAvailableWhenRightSidebarHasFocus() {
@@ -449,14 +473,14 @@ final class KeyboardShortcutContextTests: XCTestCase {
         let button = RecorderHostButton(frame: .zero)
         defer {
             if RecorderHostButton.isActivelyRecording {
-                button.debugStopRecording()
+                button.stopRecording()
             }
         }
 
         XCTAssertFalse(RecorderHostButton.isActivelyRecording)
         XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .closeTab), KeyboardShortcutSettings.shortcut(for: .closeTab))
 
-        button.debugStartRecording()
+        button.startRecording()
 
         XCTAssertTrue(RecorderHostButton.isActivelyRecording)
         XCTAssertEqual(KeyboardShortcutSettings.menuShortcut(for: .closeTab), .unbound)

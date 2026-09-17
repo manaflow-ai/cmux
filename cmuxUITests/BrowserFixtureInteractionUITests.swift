@@ -42,13 +42,13 @@ class BrowserFixtureSocketTestCase: XCTestCase {
     // MARK: - Launch
 
     @discardableResult
-    func launchApp() throws -> XCUIApplication {
-        let app = XCUIApplication()
+    func launchApp(additionalLaunchArguments: [String] = []) throws -> XCUIApplication {
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += [
             "-socketControlMode", "allowAll",
             "-AppleLanguages", "(en)",
             "-AppleLocale", "en_US",
-        ]
+        ] + additionalLaunchArguments
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
         app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
@@ -272,28 +272,32 @@ class BrowserFixtureSocketTestCase: XCTestCase {
     // MARK: - Socket plumbing (mirrors AutomationSocketUITests)
 
     private func waitForSocketPong(timeout: TimeInterval) -> Bool {
-        var resolvedPath: String?
-        let expectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
-                let originalPath = self.socketPath
+        let ready = waitForControlSocketReady(
+            pingTimeout: timeout,
+            socketFileExists: {
+                self.socketCandidates().contains { FileManager.default.fileExists(atPath: $0) }
+            },
+            pingReturnsPong: {
                 for candidate in self.socketCandidates() {
                     guard FileManager.default.fileExists(atPath: candidate) else { continue }
-                    self.socketPath = candidate
                     if ControlSocketClient(path: candidate, responseTimeout: 1.0).sendLine("ping") == "PONG" {
-                        resolvedPath = candidate
+                        self.socketPath = candidate
                         return true
                     }
-                    self.socketPath = originalPath
                 }
                 return false
-            },
-            object: NSObject()
+            }
         )
-        let completed = XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
-        if let resolvedPath {
-            socketPath = resolvedPath
+        if ready { return true }
+
+        let diagnostics = loadDiagnostics()
+        guard controlSocketDiagnosticsReportReady(diagnostics),
+              let expectedPath = diagnostics["socketExpectedPath"],
+              socketCandidates().contains(expectedPath) else {
+            return false
         }
-        return completed
+        socketPath = expectedPath
+        return true
     }
 
     private func socketCandidates() -> [String] {
@@ -657,33 +661,91 @@ final class BrowserFixtureInteractionUITests: BrowserFixtureSocketTestCase {
         XCTAssertEqual(try statusText(surfaceID: sid), "PASS")
     }
 
+    /// Browser keyboard automation must enter WebKit through its native input
+    /// path. A synthetic DOM KeyboardEvent reaches the page listener but does
+    /// not run the contenteditable's vertical-caret default action.
+    func testContenteditableArrowDownUsesTrustedNativeInput() throws {
+        try launchApp()
+        let sid = try openFixture("contenteditable-arrow")
+
+        try socketResult(method: "browser.focus", params: ["surface_id": sid, "selector": "#editor"])
+        let before = try XCTUnwrap(
+            try evalValue("window.__cmuxArrowState()", surfaceID: sid) as? [String: Any],
+            "Expected the contenteditable fixture to expose caret state"
+        )
+        XCTAssertEqual(before["line"] as? Int, 0, "Focus should place the caret on the first line")
+
+        try socketResult(method: "browser.press", params: ["surface_id": sid, "key": "ArrowDown"])
+        let after = try XCTUnwrap(
+            try evalValue("window.__cmuxArrowState()", surfaceID: sid) as? [String: Any],
+            "Expected caret state after ArrowDown"
+        )
+        XCTAssertEqual(after["line"] as? Int, 1, "ArrowDown should move the caret to the second line")
+        XCTAssertEqual(after["lastArrowTrusted"] as? Bool, true, "WebKit must receive a trusted ArrowDown")
+        XCTAssertEqual(after["arrowKeydownCount"] as? Int, 1)
+    }
+
+    /// A held modifier must travel through AppKit's flagsChanged path so
+    /// WebKit extends a contenteditable selection instead of merely moving
+    /// the caret.
+    func testContenteditableShiftArrowDownExtendsSelectionWithTrustedInput() throws {
+        try launchApp()
+        let sid = try openFixture("contenteditable-arrow")
+
+        try socketResult(method: "browser.focus", params: ["surface_id": sid, "selector": "#editor"])
+        try socketResult(method: "browser.keydown", params: ["surface_id": sid, "key": "Shift"])
+        try socketResult(method: "browser.press", params: ["surface_id": sid, "key": "ArrowDown"])
+        try socketResult(method: "browser.keyup", params: ["surface_id": sid, "key": "Shift"])
+
+        let after = try XCTUnwrap(
+            try evalValue("window.__cmuxArrowState()", surfaceID: sid) as? [String: Any],
+            "Expected selection state after Shift+ArrowDown"
+        )
+        XCTAssertEqual(after["anchorLine"] as? Int, 0)
+        XCTAssertEqual(after["focusLine"] as? Int, 1)
+        XCTAssertEqual(after["lastArrowTrusted"] as? Bool, true)
+        XCTAssertEqual(after["lastArrowShift"] as? Bool, true)
+        XCTAssertEqual(after["arrowKeydownCount"] as? Int, 1)
+    }
+
     func testKeyboardWidget() throws {
         try launchApp()
         let sid = try openFixture("keyboard-widget")
 
         try socketResult(method: "browser.focus", params: ["surface_id": sid, "selector": "#pad"])
-        XCTAssertTrue(
-            try evalBool("document.activeElement && document.activeElement.id === 'pad'", surfaceID: sid),
-            "browser.focus should make #pad the active element"
-        )
+        XCTAssertTrue(try evalBool("document.activeElement?.id === 'pad'", surfaceID: sid), "browser.focus should focus #pad")
         for _ in 0..<3 {
             try socketResult(method: "browser.press", params: ["surface_id": sid, "key": "ArrowRight"])
         }
-        XCTAssertEqual(
-            try evalString("document.getElementById('pad-status').textContent", surfaceID: sid),
-            "PASS",
-            "three ArrowRight keydowns should be observed on #pad"
-        )
+        XCTAssertEqual(try evalString("document.getElementById('pad-status').textContent", surfaceID: sid), "PASS")
 
         // fill focuses #entry before setting the value; press targets the active element.
         try socketResult(method: "browser.fill", params: ["surface_id": sid, "selector": "#entry", "text": "go"])
         try socketResult(method: "browser.press", params: ["surface_id": sid, "key": "Enter"])
-        XCTAssertEqual(
-            try evalString("document.getElementById('entry-status').textContent", surfaceID: sid),
-            "PASS",
-            "Enter keypress should be observed on #entry"
-        )
+        XCTAssertEqual(try evalString("document.getElementById('entry-status').textContent", surfaceID: sid), "PASS")
 
+        try socketResult(method: "browser.focus", params: ["surface_id": sid, "selector": "#space-button"])
+        try socketResult(method: "browser.press", params: ["surface_id": sid, "key": "Space"])
+        let canonicalSpaceKeyDown = try evalBool(
+            "window.__cmuxLog.filter(e => e.type === 'keydown' && e.target === '#space-button' && e.key === ' ' && e.code === 'Space').length === 1",
+            surfaceID: sid
+        )
+        XCTAssertTrue(canonicalSpaceKeyDown, "Space should emit exactly one canonical keydown")
+        XCTAssertEqual(try evalString("document.getElementById('space-status').textContent", surfaceID: sid), "PASS")
+
+        try socketResult(method: "browser.keydown", params: ["surface_id": sid, "key": " "])
+        try socketResult(method: "browser.keyup", params: ["surface_id": sid, "key": " "])
+        let canonicalRawSpacePair = try evalBool(
+            """
+            window.__cmuxLog
+              .filter(e => e.target === '#space-button' && e.key === ' ' && e.code === 'Space')
+              .slice(-2)
+              .map(e => e.type)
+              .join(',') === 'keydown,keyup'
+            """,
+            surfaceID: sid
+        )
+        XCTAssertTrue(canonicalRawSpacePair, "Raw Space should add one canonical keydown/keyup pair")
         XCTAssertEqual(try statusText(surfaceID: sid), "PASS")
     }
 

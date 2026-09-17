@@ -287,7 +287,7 @@
 			mainGroup = A3685BE02FCA3AEE00009F1B;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				C0DE47000000000000000003 /* XCLocalSwiftPackageReference "../../Packages/CmuxExtensionKit" */,
+				C0DE47000000000000000003 /* XCLocalSwiftPackageReference "../../Packages/macOS/CmuxExtensionKit" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A3685BEA2FCA3AEE00009F1B /* Products */;
@@ -773,16 +773,16 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		C0DE47000000000000000003 /* XCLocalSwiftPackageReference "../../Packages/CmuxExtensionKit" */ = {
+		C0DE47000000000000000003 /* XCLocalSwiftPackageReference "../../Packages/macOS/CmuxExtensionKit" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = ../../Packages/CmuxExtensionKit;
+			relativePath = ../../Packages/macOS/CmuxExtensionKit;
 		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
 		C0DE47000000000000000002 /* CmuxExtensionKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = C0DE47000000000000000003 /* XCLocalSwiftPackageReference "../../Packages/CmuxExtensionKit" */;
+			package = C0DE47000000000000000003 /* XCLocalSwiftPackageReference "../../Packages/macOS/CmuxExtensionKit" */;
 			productName = CmuxExtensionKit;
 		};
 /* End XCSwiftPackageProductDependency section */

@@ -1,5 +1,5 @@
 import AppKit
-import CmuxWorkspaceWindow
+import CmuxWorkspaces
 
 /// App-side `UserDefaults`-backed conformance to the window-background settings
 /// seam. The default values match the legacy god-file reads byte-for-byte:

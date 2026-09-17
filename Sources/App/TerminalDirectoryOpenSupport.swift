@@ -945,7 +945,7 @@ extension CommandPaletteContextKeys {
     /// Typed app-side overload over the package's raw-value key builder, so
     /// palette context keys keep the exact `terminal.openTarget.<raw>.available`
     /// format without the package importing the terminal domain.
-    static func terminalOpenTargetAvailable(_ target: TerminalDirectoryOpenTarget) -> String {
+    static func terminalOpenTargetAvailable(_ target: TerminalDirectoryOpenTarget) -> CommandPaletteContextKeys {
         terminalOpenTargetAvailable(rawValue: target.rawValue)
     }
 }

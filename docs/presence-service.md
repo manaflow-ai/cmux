@@ -39,7 +39,7 @@ GET  /v1/presence/subscribe -> forward w/ verified team ------> WS (hibernation)
 
 - **State machine** (`src/core.ts`): pure and synchronous. A team's presence
   is a map of app instances keyed by `(deviceId, tag)`, the same identity as
-  the Aurora registry (`devices.device_uuid` + `device_app_instances.tag`).
+  the PlanetScale Postgres registry (`devices.device_uuid` + `device_app_instances.tag`).
   Online is set by a heartbeat; offline is an explicit event, produced either
   by a goodbye heartbeat (`stopping: true`, clean shutdown) or by the DO alarm
   when heartbeats stop.
@@ -79,8 +79,8 @@ GET  /v1/presence/subscribe -> forward w/ verified team ------> WS (hibernation)
 ## Migrations and durability
 
 Presence is deliberately ephemeral. The durable source of device identity is
-the Aurora `devices` / `device_app_instances` registry
-(https://github.com/manaflow-ai/cmux/pull/5626); this service adds no Aurora
+the PlanetScale Postgres `devices` / `device_app_instances` registry
+(https://github.com/manaflow-ai/cmux/pull/5626); this service adds no Postgres
 columns and therefore ships no Drizzle migration. DO storage keeps the live
 instance map plus a 24h offline tail for "last seen", pruned by the same
 alarm, and the durable per-device owner pins. Losing the service's storage
@@ -91,7 +91,7 @@ The service's own schema story is the `[[migrations]]` block in
 `wrangler.toml`: Durable Object class migrations are applied by
 `wrangler deploy` in the deploy-on-push workflow, atomically with the code, so
 storage classes can never lag the deployed code the way the prod Aurora
-migrations once lagged the web deploy. If presence ever does need an Aurora
+migrations once lagged the web deploy. If presence ever does need a Postgres
 column, the Drizzle migration must land in `web/db/migrations` and is applied
 by the `web-db-migrations` CI job and the cloud-vm migrate workflow
 (`.github/workflows/cloud-vm-migrate.yml`), per the cloud-vm-ops runbook.
@@ -160,7 +160,7 @@ the first production deploy and dogfood.
   tag, best-effort, never disturbs the Mac. Every beat carries the full
   current attach-route set, a route change triggers one immediate
   out-of-cadence beat, and a clean quit sends a goodbye.
-- **iOS** (`Packages/CmuxMobileShell/Sources/CmuxMobileShell/PresenceClient.swift`):
+- **iOS** (`Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/PresenceClient.swift`):
   typed WebSocket subscribe client. `MobileShellComposite` owns the
   subscription (starts on sign-in, blanks and stops on sign-out, backoff
   reconnect with snapshot-first resync), reduces frames into `PresenceMap`,

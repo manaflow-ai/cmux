@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { pngDimensions } from "../app/[locale]/docs/changelog/png-dimensions";
+import { pngDimensions } from "../app/[locale]/(landing)/docs/changelog/png-dimensions";
 
 describe("pngDimensions", () => {
   test("reads true width and height from the IHDR chunk", () => {

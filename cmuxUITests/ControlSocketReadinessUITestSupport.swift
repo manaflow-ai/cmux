@@ -118,4 +118,81 @@ extension XCTestCase {
             pingReturnsPong: pingReturnsPong
         )
     }
+
+    /// Sends one line to a Unix-domain control socket through `/usr/bin/nc`.
+    ///
+    /// This is a fallback for hosted macOS UI tests where the in-process
+    /// Darwin socket client can occasionally fail to connect even though the
+    /// app's own diagnostics and `nc -U` both prove the listener is accepting.
+    func controlSocketCommandViaNetcat(
+        _ command: String,
+        socketPath: String,
+        responseTimeout: TimeInterval = 2.0
+    ) -> String? {
+        let nc = "/usr/bin/nc"
+        guard FileManager.default.isExecutableFile(atPath: nc) else { return nil }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        let timeoutSeconds = max(1, Int(ceil(responseTimeout)))
+        process.arguments = [
+            "-lc",
+            "printf '%s\\n' \(controlSocketShellSingleQuote(command)) | \(nc) -U \(controlSocketShellSingleQuote(socketPath)) -w \(timeoutSeconds) 2>/dev/null"
+        ]
+
+        let output = Pipe()
+        process.standardOutput = output
+
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+
+        process.waitUntilExit()
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        guard let text = String(data: data, encoding: .utf8) else { return nil }
+        if let first = text.split(separator: "\n", maxSplits: 1).first {
+            return String(first).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// Returns true when the app-side socket sanity probe confirmed that the
+    /// configured listener path is bound by the app and answers `ping`.
+    func controlSocketDiagnosticsReportReady(_ diagnostics: [String: String]) -> Bool {
+        diagnostics["socketReady"] == "1" &&
+            diagnostics["socketPingResponse"] == "PONG" &&
+            diagnostics["socketPathExists"] == "1" &&
+            diagnostics["socketPathMatches"] == "1" &&
+            diagnostics["socketPathOwnedByListener"] == "1"
+    }
+
+    /// Sends a JSON-RPC object through the same `nc -U` fallback as line-based
+    /// socket commands and decodes one JSON response object.
+    func controlSocketJSONViaNetcat(
+        _ object: [String: Any],
+        socketPath: String,
+        responseTimeout: TimeInterval = 2.0
+    ) -> [String: Any]? {
+        guard JSONSerialization.isValidJSONObject(object),
+              let data = try? JSONSerialization.data(withJSONObject: object),
+              let line = String(data: data, encoding: .utf8),
+              let response = controlSocketCommandViaNetcat(
+                line,
+                socketPath: socketPath,
+                responseTimeout: responseTimeout
+              ),
+              let responseData = response.data(using: .utf8),
+              let decoded = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
+            return nil
+        }
+        return decoded
+    }
+
+    private func controlSocketShellSingleQuote(_ value: String) -> String {
+        if value.isEmpty { return "''" }
+        return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
 }

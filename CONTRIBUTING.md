@@ -3,8 +3,25 @@
 ## Prerequisites
 
 - macOS 14+
-- Xcode 15+
+- Xcode 26 (the pinned toolchain); Xcode 16.2 on Intel Macs running macOS 14 also builds the macOS app (best effort)
 - [Zig](https://ziglang.org/) (install via `brew install zig`)
+- [Rust](https://rustup.rs) — `scripts/setup.sh` requires `rustup`, and every app build compiles
+  the bundled `cmux-cua` engine with `cargo`. The official installer puts both in `~/.cargo/bin`,
+  which is where `setup.sh` looks:
+
+  ```bash
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+  ```
+
+  Homebrew's `rustup` formula works too, but it is keg-only and no longer ships `rustup-init`, so
+  add `$(brew --prefix rustup)/bin` to `PATH` and run `rustup default stable` yourself.
+- On Xcode 26 the Metal compiler is a separately downloaded component, and the build fails
+  without it. Select the intended full Xcode installation first (`DEVELOPER_DIR`, if
+  exported, overrides `xcode-select`), then install the component:
+
+  ```bash
+  xcodebuild -downloadComponent MetalToolchain
+  ```
 
 ## Getting Started
 
@@ -21,7 +38,9 @@
 
    This will:
    - Initialize git submodules (ghostty, homebrew-cmux)
-   - Build the GhosttyKit.xcframework from source
+   - Install the pinned Rust toolchain
+   - Fetch a checksum-pinned prebuilt GhosttyKit.xcframework, falling back to building it
+     from source with Zig (force the source build with `CMUX_GHOSTTYKIT_NO_PREBUILT=1`)
    - Create the necessary symlinks
 
 3. Build the debug app:
@@ -39,6 +58,28 @@
 | `./scripts/reloadp.sh` | Build and launch Release app |
 | `./scripts/reload2.sh` | Reload both Debug and Release |
 | `./scripts/rebuild.sh` | Clean rebuild |
+
+## Team dogfood setup
+
+DEBUG builds can auto-sign-in as you and auto-attach an iOS build to your Mac with no manual steps. Each developer does a one-time setup with their own Stack account.
+
+Run this once:
+
+```bash
+scripts/setup-team-dev.sh
+```
+
+It prompts for your Stack email and password (the password is never echoed), verifies them against Stack, and writes `~/.secrets/cmuxterm-dev.env` with `chmod 600`. Re-running it is safe; if you are already configured it prints the account and exits. To reset, delete `~/.secrets/cmuxterm-dev.env` and run it again.
+
+After that, every dev build signs you in automatically:
+
+```bash
+scripts/dev-setup.sh --tag <your-initials>
+```
+
+That builds the tagged macOS DEBUG app auto-signed-in as you, enables the iOS pairing host, mints an attach ticket, and launches the iOS dev build auto-attached to your Mac. Use `--surface mac` for macOS only. See `scripts/dev-setup.sh --help` for all flags.
+
+This is DEBUG-only and per-user. The credentials file lives outside the repo and is never committed; `scripts/cmuxterm-dev.env.example` is the in-repo template. Release builds never read these credentials (the auto-sign-in path is compiled out of release).
 
 ## Web and JS Tooling
 
@@ -68,7 +109,7 @@ zig build -Demit-xcframework=true -Doptimize=ReleaseFast
 ### Basic tests (run on VM)
 
 ```bash
-ssh cmux-vm 'cd /Users/cmux/cmux && xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" build && pkill -x "cmux DEV" || true && APP=$(find /Users/cmux/Library/Developer/Xcode/DerivedData -path "*/Build/Products/Debug/cmux DEV.app" -print -quit) && open "$APP" && for i in {1..20}; do [ -S /tmp/cmux.sock ] && break; sleep 0.5; done && python3 tests/test_update_timing.py && python3 tests/test_signals_auto.py && python3 tests/test_ctrl_socket.py && python3 tests/test_notifications.py'
+ssh cmux-vm 'cd /Users/cmux/cmux && xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" build && pkill -x "cmux DEV" || true && APP=$(find /Users/cmux/Library/Developer/Xcode/DerivedData -path "*/Build/Products/Debug/cmux DEV.app" -print -quit) && open "$APP" && for i in {1..20}; do [ -S /tmp/cmux.sock ] && break; sleep 0.5; done && python3 tests_v2/test_update_timing.py && python3 tests_v2/test_signals_auto.py && python3 tests_v2/test_ctrl_socket.py && python3 tests_v2/test_notifications.py'
 ```
 
 ### UI tests (run on VM)

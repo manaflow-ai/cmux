@@ -2,7 +2,8 @@ import CmuxFoundation
 import SwiftUI
 
 enum ShortcutHintAnimation {
-    static let visibility: Animation = .easeOut(duration: 0.12)
+    static let visibilityDuration: TimeInterval = 0.12
+    static let visibility: Animation = .easeOut(duration: visibilityDuration)
     static let transition: AnyTransition = .opacity
 }
 
@@ -50,7 +51,7 @@ struct ShortcutHintPill: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: fontSize, weight: .semibold, design: .rounded))
+            .cmuxFont(size: fontSize, weight: .semibold, design: .rounded)
             .monospacedDigit()
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)

@@ -21,18 +21,20 @@ enum PresenceSettings {
     /// See workers/presence/README.md.
     static let debugDefaultServiceURL = "https://cmux-presence-dev.debussy.workers.dev"
 
-    /// Whether the heartbeat gate is on. An explicitly written value always
-    /// wins; with no stored value, Debug builds default to enabled (dev Stack
-    /// identity + dev service URL make this safe and dogfood-ready) and
-    /// Release builds to disabled.
+    /// The production presence worker (prod Stack project), the Release-build
+    /// default so stable cmux can announce presence once the user enables mobile.
+    /// See workers/presence/README.md.
+    static let productionServiceURL = "https://presence.cmux.dev"
+
+    /// Whether the heartbeat gate is on. Pairing opt-in is the outer gate, so an
+    /// explicit presence value cannot publish a Mac that has iOS pairing off.
     static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard MobileHostService.isListeningEnabled(defaults: defaults) else {
+            return false
+        }
         if defaults.object(forKey: enabledKey) != nil {
             return defaults.bool(forKey: enabledKey)
         }
-        #if DEBUG
         return true
-        #else
-        return false
-        #endif
     }
 }

@@ -185,7 +185,7 @@ def main() -> int:
     stamp = secrets.token_hex(4)
     page_token = f"CMUX_REMOTE_FAVICON_PAGE_{stamp}"
     server_ready_token = f"CMUX_REMOTE_FAVICON_READY_{stamp}"
-    default_web_port = 23000 + (os.getpid() % 4000)
+    default_web_port = 25000 + (os.getpid() % 2000)
     ssh_web_port = int(os.environ.get("CMUX_SSH_TEST_WEB_PORT", str(default_web_port)))
     url = f"http://localhost:{ssh_web_port}/"
     png_base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9WewAAAABJRU5ErkJggg=="

@@ -10,22 +10,35 @@ import Network
 /// `WKWebsiteDataStore` has no explicit `proxyConfigurations`, every request —
 /// including `http://localhost:PORT` — follows the macOS system proxy and
 /// fails whenever that proxy is not running on this Mac (Clash/Surge global
-/// mode, LAN proxy box). Mirroring an active system proxy into explicit
-/// configurations keeps normal traffic on a faithfully representable proxy
-/// while loopback connects directly, matching Chromium's implicit proxy-bypass
-/// rules.
+/// mode, LAN proxy box). macOS bypasses the system proxy for the bare
+/// `localhost` hostname but not for `*.localhost` subdomains (its proxy
+/// exception matching is exact, not suffix-based), so subdomain-routed dev
+/// servers like `tenant.localhost:PORT` stay broken even when `localhost`
+/// works (#5703). Mirroring an active system proxy into explicit configurations
+/// keeps normal traffic on a faithfully representable proxy while the whole
+/// loopback family (including `*.localhost`) connects directly, matching
+/// Chromium's implicit proxy-bypass rules.
 /// https://github.com/manaflow-ai/cmux/issues/5888
+/// https://github.com/manaflow-ai/cmux/issues/5703
 struct BrowserSystemProxyMirror: Equatable {
     /// A system proxy expressible as a Network.framework `ProxyConfiguration`.
     ///
-    /// `ProxyConfiguration` routes every non-excluded connection the same way.
-    /// The mirror therefore only claims SOCKSv5 settings with no web proxy
-    /// enabled. HTTP and HTTPS system web proxies are ordinary forward-proxy
-    /// settings; Network.framework's HTTP CONNECT configuration is not a
-    /// faithful replacement for that policy, so those settings are never
-    /// mirrored and WebKit keeps its default system-proxy behavior.
+    /// `ProxyConfiguration` routes every non-excluded connection the same way,
+    /// so the mirror only claims a system proxy that one configuration can
+    /// represent for browser (HTTP/HTTPS) traffic:
+    /// - `socksV5`: a SOCKSv5 proxy with no web proxy enabled.
+    /// - `httpCONNECT`: a matched HTTP+HTTPS system web proxy on a *loopback*
+    ///   endpoint — both enabled and pointing at the same local address (the
+    ///   common Clash/Surge/mihomo mixed-port setup on `127.0.0.1`). It is
+    ///   mirrored as a CONNECT proxy so the loopback family can be excluded and
+    ///   `*.localhost` reaches local dev servers directly (#5703). Because
+    ///   CONNECT forces tunneling for plain-HTTP loads and cannot carry
+    ///   system-managed credentials, this is scoped to loopback proxy tools the
+    ///   user runs locally; a remote/corporate web proxy, or an HTTP-only,
+    ///   HTTPS-only, or split web proxy, is still declined (see `init?`).
     enum Proxy: Equatable {
         case socksV5(host: String, port: UInt16)
+        case httpCONNECT(host: String, port: UInt16)
     }
 
     /// The proxy every non-excluded connection should use.
@@ -78,25 +91,13 @@ struct BrowserSystemProxyMirror: Equatable {
             return nil
         }
 
-        // System web proxies are forward-proxy settings. Mapping them to
-        // `ProxyConfiguration(httpCONNECTProxy:)` would force CONNECT
-        // semantics for ordinary HTTP loads and can lose system-managed proxy
-        // authentication, so leave WebKit on its native system-proxy path.
-        guard !Self.isEnabled(kCFNetworkProxiesHTTPEnable, in: settings),
-              !Self.isEnabled(kCFNetworkProxiesHTTPSEnable, in: settings) else {
+        // Resolve the single proxy that represents the system policy for
+        // browser traffic (a matched web proxy as CONNECT, otherwise SOCKS), or
+        // decline when no `ProxyConfiguration` can express it.
+        guard let resolvedProxy = Self.resolveProxy(in: settings) else {
             return nil
         }
-
-        if let socks = Self.endpoint(
-            in: settings,
-            enableKey: kCFNetworkProxiesSOCKSEnable,
-            hostKey: kCFNetworkProxiesSOCKSProxy,
-            portKey: kCFNetworkProxiesSOCKSPort
-        ) {
-            proxy = .socksV5(host: socks.host, port: socks.port)
-        } else {
-            return nil
-        }
+        proxy = resolvedProxy
 
         let bypassList = (settings[kCFNetworkProxiesExceptionsList as String] as? [Any] ?? [])
             .compactMap { $0 as? String }
@@ -123,6 +124,81 @@ struct BrowserSystemProxyMirror: Equatable {
         guard let port = (settings[portKey as String] as? NSNumber)?.intValue,
               port > 0, port <= 65535 else { return nil }
         return (host: host, port: UInt16(port))
+    }
+
+    /// Resolves the system proxy settings to the single proxy that represents
+    /// the policy for browser (HTTP/HTTPS) traffic, or `nil` when no
+    /// `ProxyConfiguration` can express it.
+    ///
+    /// A system web proxy takes precedence — it is what the system uses for
+    /// HTTP/HTTPS — but it is mirrored only when it is a matched HTTP+HTTPS pair
+    /// pointing at one **loopback** endpoint. That scopes the CONNECT mirror to
+    /// local proxy tools the user runs on this Mac (Clash/Surge/mihomo in "set
+    /// as system proxy" mode), which are reachable and — being general-purpose
+    /// tunnels with HTTPS already enabled — support CONNECT.
+    ///
+    /// The accepted residual (#5703): a *loopback* proxy that is forward-only or
+    /// requires client credentials would see ordinary `http://` loads tunneled
+    /// via CONNECT without auth. That is rare for a localhost proxy and is the
+    /// deliberate trade for reaching `*.localhost` dev servers at all; it cannot
+    /// be detected from the settings dictionary (no CONNECT-capability or
+    /// credential keys), so it is not gated further. A remote or corporate web
+    /// proxy — where forward-only routing and authentication are common — is
+    /// left on WebKit's native system-proxy path (#5959). An HTTP-only,
+    /// HTTPS-only, or split web proxy is likewise unrepresentable and declines,
+    /// even when a SOCKS proxy is also configured. With no web proxy, a SOCKS
+    /// proxy (which faithfully tunnels every scheme) is mirrored directly.
+    private static func resolveProxy(in settings: [String: Any]) -> Proxy? {
+        let httpEnabled = isEnabled(kCFNetworkProxiesHTTPEnable, in: settings)
+        let httpsEnabled = isEnabled(kCFNetworkProxiesHTTPSEnable, in: settings)
+        if httpEnabled || httpsEnabled {
+            guard httpEnabled, httpsEnabled,
+                  let http = endpoint(
+                      in: settings,
+                      enableKey: kCFNetworkProxiesHTTPEnable,
+                      hostKey: kCFNetworkProxiesHTTPProxy,
+                      portKey: kCFNetworkProxiesHTTPPort
+                  ),
+                  let https = endpoint(
+                      in: settings,
+                      enableKey: kCFNetworkProxiesHTTPSEnable,
+                      hostKey: kCFNetworkProxiesHTTPSProxy,
+                      portKey: kCFNetworkProxiesHTTPSPort
+                  ),
+                  http.host.caseInsensitiveCompare(https.host) == .orderedSame,
+                  http.port == https.port,
+                  isLoopbackProxyHost(http.host) else {
+                return nil
+            }
+            return .httpCONNECT(host: http.host, port: http.port)
+        }
+        if let socks = endpoint(
+            in: settings,
+            enableKey: kCFNetworkProxiesSOCKSEnable,
+            hostKey: kCFNetworkProxiesSOCKSProxy,
+            portKey: kCFNetworkProxiesSOCKSPort
+        ) {
+            return .socksV5(host: socks.host, port: socks.port)
+        }
+        return nil
+    }
+
+    /// Whether a proxy endpoint host is loopback (this Mac). Used to scope the
+    /// web-proxy CONNECT mirror to local proxy tools the user runs themselves;
+    /// see `resolveProxy(in:)`. Covers `localhost`, the IPv6 loopback `::1`
+    /// (with or without brackets), and the `127.0.0.0/8` IPv4 loopback block.
+    private static func isLoopbackProxyHost(_ host: String) -> Bool {
+        var value = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if value.hasPrefix("["), value.hasSuffix("]") {
+            value = String(value.dropFirst().dropLast())
+        }
+        if value == "localhost" || value == "::1" { return true }
+        // 127.0.0.0/8: require a real dotted-quad IPv4 literal whose first octet
+        // is 127, so a DNS name like "127.proxy.corp.example" is not loopback.
+        let octets = value.split(separator: ".", omittingEmptySubsequences: false)
+        guard octets.count == 4 else { return false }
+        let parsedOctets = octets.compactMap { UInt8($0) }
+        return parsedOctets.count == 4 && parsedOctets[0] == 127
     }
 
     /// How a single system bypass-list entry maps onto `excludedDomains`.
@@ -215,15 +291,21 @@ extension BrowserSystemProxyMirror {
     func proxyConfigurations() -> [ProxyConfiguration] {
         let host: String
         let port: UInt16
+        let makeConfiguration: (NWEndpoint) -> ProxyConfiguration
         switch proxy {
         case .socksV5(let proxyHost, let proxyPort):
             host = proxyHost
             port = proxyPort
+            makeConfiguration = { ProxyConfiguration(socksv5Proxy: $0) }
+        case .httpCONNECT(let proxyHost, let proxyPort):
+            host = proxyHost
+            port = proxyPort
+            makeConfiguration = { ProxyConfiguration(httpCONNECTProxy: $0) }
         }
         guard let nwPort = NWEndpoint.Port(rawValue: port) else { return [] }
         let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(host), port: nwPort)
 
-        var configuration = ProxyConfiguration(socksv5Proxy: endpoint)
+        var configuration = makeConfiguration(endpoint)
         configuration.excludedDomains = excludedDomains
         return [configuration]
     }

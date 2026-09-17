@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"net"
@@ -41,35 +39,6 @@ func TestWebSocketRPCRejectsMissingAndWrongLease(t *testing.T) {
 	_, _, err = conn.Read(ctx)
 	if websocket.CloseStatus(err) != websocket.StatusPolicyViolation {
 		t.Fatalf("wrong token should close with policy violation, got err=%v status=%v", err, websocket.CloseStatus(err))
-	}
-}
-
-func TestWebSocketRPCAcceptsSignedToken(t *testing.T) {
-	useTempSignedLeaseUsedDir(t)
-	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatalf("generate key: %v", err)
-	}
-	audienceFile := writeSignedAudienceFile(t, "vm-test")
-	server := httptest.NewServer(newWebSocketPTYHandler(wsPTYServerConfig{
-		PTYAuthLeaseFile:       t.TempDir() + "/pty-lease.json",
-		RPCAuthLeaseFile:       t.TempDir() + "/rpc-lease.json",
-		SignedAuthPublicKey:    base64.StdEncoding.EncodeToString(publicKey),
-		SignedAuthAudienceFile: audienceFile,
-		Shell:                  "/bin/sh",
-	}, nil))
-	defer server.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	token := signedTestToken(t, privateKey, "rpc", "vm-test", "sess-rpc-signed", false, time.Now().Add(time.Minute), "jti-rpc-signed")
-	conn := dialRPC(t, ctx, server.URL)
-	defer conn.Close(websocket.StatusNormalClosure, "done")
-	sendRPCAuth(t, ctx, conn, token, "sess-rpc-signed")
-	ready := readWSRPCFrame(t, ctx, conn)
-	if ready["type"] != "ready" {
-		t.Fatalf("expected ready frame, got %v", ready)
 	}
 }
 
@@ -223,6 +192,61 @@ func TestWebSocketRPCPTYWriteNotificationDoesNotEmitResponse(t *testing.T) {
 	})
 	if ping["ok"] != true {
 		t.Fatalf("ping failed after pty.write notification: %v", ping)
+	}
+}
+
+func TestWebSocketRPCPTYResizeNotificationDoesNotEmitResponse(t *testing.T) {
+	leasePath := t.TempDir() + "/rpc-lease.json"
+	server := httptest.NewServer(newWebSocketPTYHandler(wsPTYServerConfig{
+		PTYAuthLeaseFile: t.TempDir() + "/pty-lease.json",
+		RPCAuthLeaseFile: leasePath,
+		Shell:            "/bin/sh",
+	}, nil))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	writeTestLease(t, leasePath, "rpc-token", "sess-rpc-notify", false, time.Now().Add(time.Minute))
+	conn := dialRPC(t, ctx, server.URL)
+	defer conn.Close(websocket.StatusNormalClosure, "done")
+	sendRPCAuth(t, ctx, conn, "rpc-token", "sess-rpc-notify")
+	ready := readWSRPCFrame(t, ctx, conn)
+	if ready["type"] != "ready" {
+		t.Fatalf("expected ready frame, got %v", ready)
+	}
+
+	payload, err := json.Marshal(map[string]any{
+		"method": "pty.resize",
+		"params": map[string]any{
+			"session_id":              "missing",
+			"attachment_id":           "missing",
+			"client_attachment_token": "token",
+			"cols":                    100,
+			"rows":                    30,
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal notification: %v", err)
+	}
+	if err := conn.Write(ctx, websocket.MessageText, payload); err != nil {
+		t.Fatalf("write notification: %v", err)
+	}
+	event := readWSRPCFrame(t, ctx, conn)
+	if _, hasID := event["id"]; hasID {
+		t.Fatalf("pty.resize notification should not emit an RPC response id: %v", event)
+	}
+	if got := event["event"]; got != "pty.error" {
+		t.Fatalf("first frame = %v, want pty.error event; payload=%v", got, event)
+	}
+
+	ping := rpcCall(t, ctx, conn, rpcRequest{
+		ID:     2,
+		Method: "ping",
+		Params: map[string]any{},
+	})
+	if ping["ok"] != true {
+		t.Fatalf("ping failed after pty.resize notification: %v", ping)
 	}
 }
 

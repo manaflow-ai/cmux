@@ -1,4 +1,16 @@
+import AppKit
+import CmuxFoundation
+import CmuxAppKitSupportUI
+import CmuxSettings
 import SwiftUI
+
+func titlebarShortcutHintShouldShow(
+    shortcut: StoredShortcut,
+    alwaysShowShortcutHints: Bool,
+    modifierPressed: Bool
+) -> Bool {
+    !shortcut.isUnbound && (alwaysShowShortcutHints || (shortcut.command && modifierPressed))
+}
 
 enum HeaderChromeIconStyle {
     static let opacity = 0.86
@@ -6,7 +18,7 @@ enum HeaderChromeIconStyle {
     static let pressedOpacity = 1.0
     static let disabledOpacity = 0.34
     static let weight: Font.Weight = .regular
-    static let foregroundColor = Color(nsColor: .secondaryLabelColor)
+    static let foregroundColor = Color.secondary
     static let sidebarGlyphStrokeWidth: CGFloat = 1
 
     static func iconFrameSize(forIconSize iconSize: CGFloat) -> CGFloat {
@@ -14,8 +26,12 @@ enum HeaderChromeIconStyle {
     }
 
     static func symbol(_ systemName: String) -> some View {
-        Image(systemName: systemName)
-            .cmuxSymbolRasterSize(RightSidebarChromeMetrics.headerIconSize, weight: weight)
+        CmuxSystemSymbolImage(
+            systemName: systemName,
+            pointSize: RightSidebarChromeMetrics.headerIconSize,
+            weight: weight,
+            tint: foregroundColor
+        )
     }
 
     static func foregroundOpacity(isHovering: Bool, isPressed: Bool, isEnabled: Bool = true) -> Double {
@@ -70,6 +86,17 @@ enum RightSidebarChromeControlStyle {
     static let labelWeight = HeaderChromeIconStyle.weight
     static let foregroundColor = HeaderChromeIconStyle.foregroundColor
 
+    /// Pill tint for a mode/grouping control, shared by the pill modifier's
+
+    /// text foreground and the hosted symbol's baked-in tint.
+
+    static func pillForegroundColor(isSelected: Bool, isHovered: Bool) -> Color {
+
+        foregroundColor.opacity(foregroundOpacity(isSelected: isSelected, isHovered: isHovered))
+
+    }
+
+
     static func foregroundOpacity(isSelected: Bool, isHovered: Bool, isEnabled: Bool = true) -> Double {
         guard isEnabled else { return HeaderChromeIconStyle.disabledOpacity }
         if isSelected {
@@ -87,13 +114,19 @@ struct RightSidebarChromeBarModifier: ViewModifier {
     var leadingPadding: CGFloat
     var trailingPadding: CGFloat
     var height: CGFloat
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
 
     func body(content: Content) -> some View {
         content
             .padding(.leading, leadingPadding)
             .padding(.trailing, trailingPadding)
             .padding(.vertical, RightSidebarChromeMetrics.barVerticalPadding)
-            .frame(height: height)
+            .frame(height: resolvedHeight)
+    }
+
+    private var resolvedHeight: CGFloat {
+        _ = globalFontPercent
+        return max(height, RightSidebarChromeMetrics.secondaryBarHeight)
     }
 }
 
@@ -102,14 +135,15 @@ struct RightSidebarChromePillModifier: ViewModifier {
     var isHovered: Bool
     var horizontalPadding: CGFloat = RightSidebarChromeMetrics.controlHorizontalPadding
     var geometryKeyPrefix: String?
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
 
     func body(content: Content) -> some View {
         content
             .foregroundStyle(
-                RightSidebarChromeControlStyle.foregroundColor.opacity(foregroundOpacity)
+                RightSidebarChromeControlStyle.pillForegroundColor(isSelected: isSelected, isHovered: isHovered)
             )
             .padding(.horizontal, horizontalPadding)
-            .frame(height: RightSidebarChromeMetrics.controlHeight)
+            .frame(height: controlHeight)
             .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
                 keyPrefix: geometryKeyPrefix,
                 isVisible: true
@@ -121,6 +155,11 @@ struct RightSidebarChromePillModifier: ViewModifier {
             .contentShape(
                 RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.controlCornerRadius, style: .continuous)
             )
+    }
+
+    private var controlHeight: CGFloat {
+        _ = globalFontPercent
+        return RightSidebarChromeMetrics.controlHeight
     }
 
     private var foregroundOpacity: Double {
@@ -142,9 +181,15 @@ struct RightSidebarChromePillModifier: ViewModifier {
 }
 
 struct RightSidebarChromeBottomBorderModifier: ViewModifier {
+    let backgroundColor: NSColor
+
     func body(content: Content) -> some View {
         content.overlay(alignment: .bottom) {
-            WindowChromeBorder(orientation: .horizontal, ignoresSafeArea: false)
+            WindowChromeBorder(
+                orientation: .horizontal,
+                ignoresSafeArea: false,
+                backgroundColor: backgroundColor
+            )
         }
     }
 }
@@ -181,7 +226,10 @@ private struct RightSidebarHeaderIconButtonStyleBody: View {
                 width: RightSidebarChromeMetrics.headerControlSize,
                 height: RightSidebarChromeMetrics.headerControlSize
             )
-            .foregroundStyle(HeaderChromeIconStyle.foregroundColor.opacity(foregroundOpacity))
+            // The hosted symbol bakes `HeaderChromeIconStyle.foregroundColor`
+            // into its bitmap; hover/pressed dimming applies as view opacity.
+            .foregroundStyle(HeaderChromeIconStyle.foregroundColor)
+            .opacity(foregroundOpacity)
             .background {
                 if backgroundOpacity > 0 {
                     RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.headerControlCornerRadius, style: .continuous)
@@ -243,13 +291,149 @@ extension View {
         )
     }
 
-    func rightSidebarChromeBottomBorder() -> some View {
-        modifier(RightSidebarChromeBottomBorderModifier())
+    func rightSidebarChromeBottomBorder(backgroundColor: NSColor) -> some View {
+        modifier(RightSidebarChromeBottomBorderModifier(backgroundColor: backgroundColor))
     }
 
     func rightSidebarHeaderControlAlignment() -> some View {
         alignmentGuide(VerticalAlignment.center) { dimensions in
             dimensions[VerticalAlignment.center] + RightSidebarChromeMetrics.headerControlCenterAlignmentAdjustment
         }
+    }
+}
+
+struct RightSidebarModeBarItem: Identifiable, Equatable, Sendable {
+    enum Kind: Equatable, Sendable {
+        case mode(RightSidebarMode)
+    }
+
+    let kind: Kind
+
+    var id: String {
+        switch kind {
+        case .mode(let mode):
+            return mode.rawValue
+        }
+    }
+
+    var label: String {
+        switch kind {
+        case .mode(let mode):
+            return mode.label
+        }
+    }
+
+    var symbolName: String {
+        switch kind {
+        case .mode(let mode):
+            return mode.symbolName
+        }
+    }
+
+    var shortcutAction: KeyboardShortcutSettings.Action? {
+        switch kind {
+        case .mode(let mode):
+            return mode.shortcutAction
+        }
+    }
+
+    var mode: RightSidebarMode {
+        switch kind {
+        case .mode(let mode):
+            return mode
+        }
+    }
+
+    func isSelected(mode: RightSidebarMode) -> Bool {
+        switch kind {
+        case .mode(let itemMode):
+            return mode == itemMode
+        }
+    }
+}
+
+struct ModeBarButton: View {
+    let item: RightSidebarModeBarItem
+    let isSelected: Bool
+    var badgeCount: Int = 0
+    let shortcutHint: StoredShortcut
+    let showsShortcutHint: Bool
+    let action: () -> Void
+
+    @State private var isHovered: Bool = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                CmuxSystemSymbolImage(
+                    systemName: item.symbolName,
+                    pointSize: RightSidebarChromeControlStyle.modeIconSize,
+                    weight: RightSidebarChromeControlStyle.iconWeight,
+                    tint: RightSidebarChromeControlStyle.pillForegroundColor(isSelected: isSelected, isHovered: isHovered),
+                    appliesGlobalFontMagnification: true
+                )
+                    .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
+                        keyPrefix: "rightSidebarModeIcon_\(item.id)",
+                        isVisible: true
+                    )
+                Text(item.label)
+                    .cmuxFont(
+                        size: RightSidebarChromeControlStyle.labelSize,
+                        weight: RightSidebarChromeControlStyle.labelWeight
+                    )
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                if badgeCount > 0 {
+                    pendingChip
+                }
+            }
+            .rightSidebarChromePill(
+                isSelected: isSelected,
+                isHovered: isHovered,
+                geometryKeyPrefix: "rightSidebarModeControl_\(item.id)"
+            )
+            .overlay(alignment: .trailing) {
+                if showsShortcutHint {
+                    ShortcutHintPill(shortcut: shortcutHint, fontSize: 9, emphasis: isSelected ? 1.15 : 0.95)
+                        .offset(x: 5)
+                        .shortcutHintTransition()
+                        .accessibilityIdentifier("rightSidebarModeShortcutHint.\(item.id)")
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .titlebarInteractiveControl()
+        .onHover { isHovered = $0 }
+        .help(helpText)
+        .accessibilityIdentifier("RightSidebarModeButton.\(item.id)")
+        .shortcutHintVisibilityAnimation(value: showsShortcutHint)
+    }
+
+    private var helpText: String {
+        if badgeCount > 0 {
+            return String(
+                localized: "rightSidebar.mode.pendingHelp",
+                defaultValue: "\(item.label) · \(badgeCount) pending"
+            )
+        }
+        return item.label
+    }
+
+    private var pendingChip: some View {
+        let countText = badgeCount > 9 ? "9+" : String(badgeCount)
+        return Text(countText)
+            .cmuxFont(size: 10, weight: .bold, monospacedDigit: true)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: true)
+            .foregroundColor(.orange)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color.orange.opacity(0.20))
+            )
+            .fixedSize(horizontal: true, vertical: true)
+            .layoutPriority(2)
     }
 }

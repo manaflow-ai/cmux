@@ -1,4 +1,4 @@
-import CmuxWorkspaceNavigation
+import CmuxWorkspaces
 import Foundation
 
 // The focus-history value types (FocusHistoryEntry, FocusHistoryRecord,

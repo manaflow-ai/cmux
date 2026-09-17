@@ -2,16 +2,38 @@ import AppKit
 import Bonsplit
 import CmuxControlSocket
 import Foundation
-
 /// The surface-domain input / read / resume / reporting witnesses, plus the
 /// `surface.move` bridge and `debug.terminals` passthrough. Split out of
 /// `TerminalController+ControlSurfaceContext` to keep the conformance readable; see
 /// that file's doc comment for the overview.
 extension TerminalController {
 
+    func controlSurfaceResumeStrings() -> ControlSurfaceResumeStrings {
+        ControlSurfaceResumeStrings(
+            agentSessionEndedMustBeBoolean: String(
+                localized: "socket.surface.resume.agentSessionEndedMustBeBoolean",
+                defaultValue: "agent_session_ended must be a boolean"
+            ),
+            launchCommandMustBeValid: String(
+                localized: "socket.surface.resume.launchCommandMustBeValid",
+                defaultValue: "launch_command.arguments must be a non-empty array of strings"
+            ),
+            restoreClaimMustBeValid: String(
+                localized: "socket.surface.resume.restoreClaimMustBeValid",
+                defaultValue: "Missing or invalid restore claim"
+            )
+        )
+    }
+
     // MARK: - move (bridge to still-app-side v2SurfaceMove)
 
     func controlSurfaceMove(params: [String: JSONValue]) -> ControlCallResult {
+        if let surfaceID = remoteTmuxMirrorContainerID(in: params) {
+            return .err(
+                code: "not_found", message: "Surface not found",
+                data: .object(["surface_id": .string(surfaceID.uuidString)])
+            )
+        }
         // `v2SurfaceMove` walks windows/workspaces/panes and mutates Bonsplit; it
         // stays in TerminalController.swift (shared with pane.join). We forward the
         // raw params and bridge its Foundation result, exactly as pane.join does.
@@ -24,67 +46,35 @@ extension TerminalController {
         }
     }
 
-    // MARK: - reorder
-
-    func controlSurfaceReorder(
-        surfaceID: UUID,
-        inputs: ControlSurfaceReorderInputs,
-        requestedFocus: Bool
-    ) -> ControlSurfaceReorderResolution {
-        let focus = v2FocusAllowed(requested: requestedFocus)
-        guard let app = AppDelegate.shared,
-              let located = app.locateSurface(surfaceId: surfaceID),
-              let ws = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }),
-              let sourcePane = ws.paneId(forPanelId: surfaceID) else {
-            return .surfaceNotFound(surfaceID)
-        }
-
-        let targetIndex: Int
-        if let index = inputs.index {
-            targetIndex = index
-        } else if let beforeSurfaceID = inputs.beforeSurfaceID {
-            guard let anchorPane = ws.paneId(forPanelId: beforeSurfaceID),
-                  anchorPane == sourcePane,
-                  let anchorIndex = ws.indexInPane(forPanelId: beforeSurfaceID) else {
-                return .anchorNotInSamePane
-            }
-            targetIndex = anchorIndex
-        } else if let afterSurfaceID = inputs.afterSurfaceID {
-            guard let anchorPane = ws.paneId(forPanelId: afterSurfaceID),
-                  anchorPane == sourcePane,
-                  let anchorIndex = ws.indexInPane(forPanelId: afterSurfaceID) else {
-                return .anchorNotInSamePane
-            }
-            targetIndex = anchorIndex + 1
-        } else {
-            // Unreachable: the coordinator enforces exactly-one-target.
-            return .reorderFailed
-        }
-
-        guard ws.reorderSurface(panelId: surfaceID, toIndex: targetIndex, focus: focus) else {
-            return .reorderFailed
-        }
-        return .reordered(
-            windowID: located.windowId,
-            workspaceID: ws.id,
-            paneID: sourcePane.id,
-            surfaceID: surfaceID
-        )
-    }
-
     // MARK: - refresh
 
     func controlSurfaceRefresh(routing: ControlRoutingSelectors) -> ControlSurfaceRefreshResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
+        if let dock = windowDockForRouting(routing, tabManager: tabManager) {
+            var refreshedCount = 0
+            for panel in dock.panels.values {
+                if panel is TerminalPanel,
+                   let target = dock.controlSocketTerminalTarget(for: panel.id) {
+                    target.forceRefresh(reason: "terminalController.v2SurfaceRefresh.windowDock")
+                    refreshedCount += 1
+                }
+            }
+            return .refreshed(
+                windowID: dockResultWindowId(for: dock, tabManager: tabManager),
+                workspaceID: dock.workspaceId,
+                refreshedCount: refreshedCount
+            )
+        }
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
         }
         var refreshedCount = 0
-        for panel in ws.panels.values {
-            if let terminalPanel = panel as? TerminalPanel {
-                terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceRefresh")
+        for panel in controlSurfacePanels(workspace: ws) {
+            if panel is TerminalPanel,
+               let target = ws.controlSocketTerminalTarget(for: panel.id) {
+                target.forceRefresh(reason: "terminalController.v2SurfaceRefresh")
                 refreshedCount += 1
             }
         }
@@ -105,6 +95,33 @@ extension TerminalController {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
+        if let dock = windowDockForRouting(routing, tabManager: tabManager) {
+            let target = terminalPanel(
+                in: dock,
+                explicitSurfaceID: surfaceID,
+                hasSurfaceIDParam: hasSurfaceIDParam,
+                routing: routing
+            )
+            if target.invalidSurfaceID {
+                return .surfaceNotFoundForID
+            }
+            guard let surfaceId = target.surfaceID else {
+                return .noFocusedSurface
+            }
+            guard target.terminalPanel != nil else {
+                return .surfaceNotTerminal(surfaceId)
+            }
+            guard let terminalTarget = dock.controlSocketTerminalTarget(for: surfaceId),
+                  terminalTarget.performBindingAction("clear_screen") else {
+                return .bindingActionUnavailable
+            }
+            terminalTarget.forceRefresh(reason: "terminalController.v2SurfaceClearHistory.windowDock")
+            return .cleared(
+                windowID: dockResultWindowId(for: dock, tabManager: tabManager),
+                workspaceID: dock.workspaceId,
+                surfaceID: surfaceId
+            )
+        }
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
         }
@@ -113,20 +130,30 @@ extension TerminalController {
         if hasSurfaceIDParam, surfaceID == nil {
             return .surfaceNotFoundForID
         }
-        guard let surfaceId = surfaceID ?? ws.focusedPanelId else {
+        let structuralTarget: (surfaceID: UUID, panel: TerminalPanel)?
+        if let surfaceID {
+            structuralTarget = ws.controlTerminalTarget(for: surfaceID)
+        } else {
+            structuralTarget = ws.controlDefaultTerminalTarget(paneID: routing.paneID)
+        }
+        guard let structuralTarget else {
+            if let surfaceID { return .surfaceNotTerminal(surfaceID) }
             return .noFocusedSurface
         }
-        guard let terminalPanel = ws.terminalPanel(for: surfaceId) else {
-            return .surfaceNotTerminal(surfaceId)
+        let target: ControlTerminalSocketTarget?
+        if let surfaceID {
+            target = ws.controlSocketTerminalTarget(for: surfaceID)
+        } else {
+            target = ws.controlDefaultSocketTerminalTarget(paneID: routing.paneID)
         }
-        guard terminalPanel.performBindingAction("clear_screen") else {
+        guard let target, target.performBindingAction("clear_screen") else {
             return .bindingActionUnavailable
         }
-        terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceClearHistory")
+        target.forceRefresh(reason: "terminalController.v2SurfaceClearHistory")
         return .cleared(
             windowID: v2ResolveWindowId(tabManager: tabManager),
             workspaceID: ws.id,
-            surfaceID: surfaceId
+            surfaceID: structuralTarget.surfaceID
         )
     }
 
@@ -139,29 +166,57 @@ extension TerminalController {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
+        if let dock = windowDockForRouting(routing, tabManager: tabManager) {
+            let surfaceId = surfaceID ?? dock.focusedPanelId
+            guard let surfaceId else {
+                return .noFocusedSurface
+            }
+            guard dock.panels[surfaceId] != nil else {
+                return .surfaceNotFound(surfaceId)
+            }
+            // `surface.trigger_flash` is not focus intent: flash a visible Dock
+            // panel if it is already rendered, but never reveal/raise its window.
+            dock.triggerUserInitiatedFocusFlash(panelId: surfaceId)
+            return .flashed(
+                windowID: dockResultWindowId(for: dock, tabManager: tabManager),
+                workspaceID: dock.workspaceId,
+                surfaceID: surfaceId
+            )
+        }
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
         }
-        guard let surfaceId = surfaceID ?? ws.focusedPanelId else {
+        guard let resolution = ws.controlRequestedSurfaceTarget(
+            explicitSurfaceID: surfaceID,
+            routedPaneID: routing.paneID
+        ) else {
             return .noFocusedSurface
         }
-        guard ws.panels[surfaceId] != nil else {
-            return .surfaceNotFound(surfaceId)
+        guard let target = resolution.target else {
+            return .surfaceNotFound(resolution.requestedSurfaceID)
         }
         v2MaybeFocusWindow(for: tabManager)
         v2MaybeSelectWorkspace(tabManager, workspace: ws)
-        ws.triggerFocusFlash(panelId: surfaceId)
+        if ws.panels[target.surfaceID] != nil {
+            ws.triggerUserInitiatedFocusFlash(panelId: target.surfaceID)
+        } else {
+            target.panel.triggerFlash(reason: .userInitiated)
+        }
         return .flashed(
             windowID: v2ResolveWindowId(tabManager: tabManager),
             workspaceID: ws.id,
-            surfaceID: surfaceId
+            surfaceID: target.surfaceID
         )
     }
 
     // MARK: - send_text / send_key
 
-    func controlSurfaceInputStrings() -> ControlSurfaceInputStrings {
+    nonisolated func controlSurfaceInputStrings() -> ControlSurfaceInputStrings {
         ControlSurfaceInputStrings(
+            initialInputRequiresTerminalType: String(
+                localized: "rpc.v2.terminalCreation.error.initialInputRequiresTerminalType",
+                defaultValue: "Initial command input can only be used with terminal surfaces"
+            ),
             inputQueueFull: String(
                 localized: "socket.terminal.inputQueueFull",
                 defaultValue: "The terminal can't accept more input right now. Wait a moment and retry, or reopen the terminal if it stays unavailable."
@@ -190,7 +245,8 @@ extension TerminalController {
     private func resolveSendSurface(
         in ws: Workspace,
         surfaceID: UUID?,
-        hasSurfaceIDParam: Bool
+        hasSurfaceIDParam: Bool,
+        paneID: UUID?
     ) -> SendSurfaceTarget {
         if hasSurfaceIDParam {
             guard let surfaceId = surfaceID else {
@@ -198,7 +254,7 @@ extension TerminalController {
             }
             return .surface(surfaceId)
         }
-        guard let focused = ws.focusedPanelId else {
+        guard let focused = ws.controlDefaultTerminalTarget(paneID: paneID)?.surfaceID else {
             return .unresolved(.noFocusedSurface)
         }
         return .surface(focused)
@@ -213,21 +269,85 @@ extension TerminalController {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
+        if let dock = windowDockForRouting(routing, tabManager: tabManager) {
+            let target = terminalPanel(
+                in: dock,
+                explicitSurfaceID: surfaceID,
+                hasSurfaceIDParam: hasSurfaceIDParam,
+                routing: routing
+            )
+            if target.invalidSurfaceID {
+                return .surfaceNotFoundForID
+            }
+            guard let surfaceId = target.surfaceID else {
+                return .noFocusedSurface
+            }
+            guard target.terminalPanel != nil else {
+                return .surfaceNotTerminal(surfaceId)
+            }
+            guard let terminalTarget = dock.controlSocketTerminalTarget(for: surfaceId) else {
+                return .surfaceUnavailable(surfaceId)
+            }
+            let queued: Bool
+            switch terminalTarget.sendInputResult(text) {
+            case .sent:
+                terminalTarget.forceRefresh(reason: "terminalController.v2SurfaceSendText.windowDock")
+                queued = false
+            case .queued:
+                queued = true
+            case .inputQueueFull:
+                return .inputQueueFull(surfaceId)
+            case .surfaceUnavailable:
+                return .surfaceUnavailable(surfaceId)
+            case .processExited:
+                return .processExited(surfaceId)
+            }
+            return .sent(
+                windowID: dockResultWindowId(for: dock, tabManager: tabManager),
+                workspaceID: dock.workspaceId,
+                surfaceID: surfaceId,
+                queued: queued
+            )
+        }
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
         }
-        let surfaceId: UUID
-        switch resolveSendSurface(in: ws, surfaceID: surfaceID, hasSurfaceIDParam: hasSurfaceIDParam) {
+        let requestedSurfaceID: UUID
+        switch resolveSendSurface(
+            in: ws,
+            surfaceID: surfaceID,
+            hasSurfaceIDParam: hasSurfaceIDParam,
+            paneID: routing.paneID
+        ) {
         case .unresolved(let resolution): return resolution
-        case .surface(let id): surfaceId = id
+        case .surface(let id): requestedSurfaceID = id
         }
-        guard let terminalPanel = ws.terminalPanel(for: surfaceId) else {
-            return .surfaceNotTerminal(surfaceId)
+        guard remoteRelayTargetIsCurrent(
+            routing: routing,
+            workspace: ws,
+            surfaceID: requestedSurfaceID
+        ) else {
+            return .surfaceNotFoundForID
+        }
+        guard ws.controlTerminalTarget(for: requestedSurfaceID) != nil else {
+            return .surfaceNotTerminal(requestedSurfaceID)
+        }
+        guard let target = ws.controlSocketTerminalTarget(for: requestedSurfaceID) else {
+            return .surfaceUnavailable(requestedSurfaceID)
+        }
+        let surfaceId = target.surfaceID
+        if let remote = controlRemoteTmuxSendText(
+            workspace: ws,
+            tabManager: tabManager,
+            surfaceID: surfaceId,
+            text: text
+        ) {
+            return remote
         }
         let queued: Bool
-        switch terminalPanel.sendInputResult(text) {
+        switch target.sendInputResult(text) {
         case .sent:
-            terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendText")
+            target.forceRefresh(reason: "terminalController.v2SurfaceSendText")
             queued = false
         case .queued:
             queued = true
@@ -255,21 +375,86 @@ extension TerminalController {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
+        if let dock = windowDockForRouting(routing, tabManager: tabManager) {
+            let target = terminalPanel(
+                in: dock,
+                explicitSurfaceID: surfaceID,
+                hasSurfaceIDParam: hasSurfaceIDParam,
+                routing: routing
+            )
+            if target.invalidSurfaceID {
+                return .surfaceNotFoundForID
+            }
+            guard let surfaceId = target.surfaceID else {
+                return .noFocusedSurface
+            }
+            guard target.terminalPanel != nil else {
+                return .surfaceNotTerminal(surfaceId)
+            }
+            guard let terminalTarget = dock.controlSocketTerminalTarget(for: surfaceId) else {
+                return .surfaceUnavailable(surfaceId)
+            }
+            let sendResult = terminalTarget.sendNamedKeyResult(key)
+            switch sendResult {
+            case .sent:
+                terminalTarget.forceRefresh(reason: "terminalController.v2SurfaceSendKey.windowDock")
+            case .queued:
+                break
+            case .unknownKey:
+                return .unknownKey
+            case .inputQueueFull:
+                return .inputQueueFull(surfaceId)
+            case .surfaceUnavailable:
+                return .surfaceUnavailable(surfaceId)
+            case .processExited:
+                return .processExited(surfaceId)
+            }
+            return .sent(
+                windowID: dockResultWindowId(for: dock, tabManager: tabManager),
+                workspaceID: dock.workspaceId,
+                surfaceID: surfaceId,
+                queued: sendResult == .queued
+            )
+        }
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
             return .workspaceNotFound
         }
-        let surfaceId: UUID
-        switch resolveSendSurface(in: ws, surfaceID: surfaceID, hasSurfaceIDParam: hasSurfaceIDParam) {
+        let requestedSurfaceID: UUID
+        switch resolveSendSurface(
+            in: ws,
+            surfaceID: surfaceID,
+            hasSurfaceIDParam: hasSurfaceIDParam,
+            paneID: routing.paneID
+        ) {
         case .unresolved(let resolution): return resolution
-        case .surface(let id): surfaceId = id
+        case .surface(let id): requestedSurfaceID = id
         }
-        guard let terminalPanel = ws.terminalPanel(for: surfaceId) else {
-            return .surfaceNotTerminal(surfaceId)
+        guard remoteRelayTargetIsCurrent(
+            routing: routing,
+            workspace: ws,
+            surfaceID: requestedSurfaceID
+        ) else {
+            return .surfaceNotFoundForID
         }
-        let sendResult = terminalPanel.sendNamedKeyResult(key)
+        guard ws.controlTerminalTarget(for: requestedSurfaceID) != nil else {
+            return .surfaceNotTerminal(requestedSurfaceID)
+        }
+        guard let target = ws.controlSocketTerminalTarget(for: requestedSurfaceID) else {
+            return .surfaceUnavailable(requestedSurfaceID)
+        }
+        let surfaceId = target.surfaceID
+        if let remote = controlRemoteTmuxSendKey(
+            workspace: ws,
+            tabManager: tabManager,
+            surfaceID: surfaceId,
+            key: key
+        ) {
+            return remote
+        }
+        let sendResult = target.sendNamedKeyResult(key)
         switch sendResult {
         case .sent:
-            terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendKey")
+            target.forceRefresh(reason: "terminalController.v2SurfaceSendKey")
         case .queued:
             break
         case .unknownKey:
@@ -289,56 +474,13 @@ extension TerminalController {
         )
     }
 
-    // MARK: - read_text
-
-    func controlSurfaceReadText(
-        routing: ControlRoutingSelectors,
-        surfaceID: UUID?,
-        hasSurfaceIDParam: Bool,
-        includeScrollback: Bool,
-        lineLimit: Int?
-    ) -> ControlSurfaceReadTextResolution {
-        guard let tabManager = resolveTabManager(routing: routing) else {
-            return .tabManagerUnavailable
-        }
-        guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else {
-            return .workspaceNotFound
-        }
-        let surfaceId: UUID
-        if hasSurfaceIDParam {
-            guard let id = surfaceID else { return .surfaceNotFoundForID }
-            surfaceId = id
-        } else {
-            guard let focused = ws.focusedPanelId else { return .noFocusedSurface }
-            surfaceId = focused
-        }
-        guard let terminalPanel = ws.terminalPanel(for: surfaceId) else {
-            return .surfaceNotTerminal(surfaceId)
-        }
-
-        guard let rawSnapshot = readTerminalTextRawSnapshot(
-            terminalPanel: terminalPanel,
-            includeScrollback: includeScrollback
-        ) else {
-            return .internalError(message: "Failed to read terminal text")
-        }
-        switch Self.terminalTextPayload(
-            from: rawSnapshot,
-            includeScrollback: includeScrollback,
-            lineLimit: lineLimit
-        ) {
-        case .success(let payload):
-            return .read(
-                text: payload.text,
-                base64: payload.base64,
-                windowID: v2ResolveWindowId(tabManager: tabManager),
-                workspaceID: ws.id,
-                surfaceID: surfaceId
-            )
-        case .failure(let error):
-            return .internalError(message: error.message)
-        }
-    }
+    // `surface.read_text` is no longer a coordinator witness: it moved to the
+    // socket-worker lane (issue #5757) so its full-scrollback formatting stays
+    // off the main actor. See `TerminalController.v2SurfaceReadText`, which
+    // reuses the same `windowDockForRouting` / `dockResultWindowId` /
+    // `resolveSurfaceWorkspace` / `readTerminalTextRawSnapshot` primitives
+    // (per-window docks, post-#7144) but splits the main-actor capture from
+    // the off-main formatting.
 
     // MARK: - debug.terminals
 

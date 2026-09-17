@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import CmuxSocketControl
+import CmuxSettings
 
 @Suite(.serialized)
 struct SocketControlPasswordStoreTests {
