@@ -132,7 +132,7 @@ extension TextBoxInputContainer {
                 preparedAttachments: preparedAttachments,
                 preparationService: preparationService
             )
-        case .reject:
+        case .reject, .pasteCloudImages:
             _ = textView.removePendingAttachmentUploadPlaceholder(
                 id: placeholderID
             )
@@ -141,6 +141,7 @@ extension TextBoxInputContainer {
                 using: preparationService
             )
             publishComposerContent(from: textView)
+            if case .pasteCloudImages = plan { refuseCloudComposerImage() }
         }
     }
 

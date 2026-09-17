@@ -119,8 +119,8 @@ void cmux_wireguard_net_free(CmuxWireGuardNet *net);
 // NUL-terminated UTF-8 JSON string to release with
 // cmux_terminal_client_string_free, or NULL with the error written.
 // list returns the terminal.list result array. create runs workspace.create
-// with initial_content "terminal" and returns the mutation result, whose
-// created.terminal is the id to attach. name may be NULL. A timeout of 0 means
+// with initial_content "terminal" and returns the mutation result
+// (MutationResult<CreatedPath>), whose value.terminal_id is the id to attach. name may be NULL. A timeout of 0 means
 // no deadline.
 char *cmux_terminal_client_list_terminals(
     CmuxTerminalClient *client,

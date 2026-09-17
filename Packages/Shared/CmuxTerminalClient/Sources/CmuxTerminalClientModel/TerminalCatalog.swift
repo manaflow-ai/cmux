@@ -19,15 +19,19 @@ public enum TerminalCatalogDecoding {
         try JSONDecoder().decode([TerminalSummary].self, from: data)
     }
 
-    /// `workspace.create` with `initial_content: terminal` returns a mutation
-    /// result whose `created.terminal` is the new terminal's public id.
+    /// `workspace.create` with `initial_content: terminal` returns
+    /// `MutationResult<CreatedPath>`: the created path sits under `value`,
+    /// discriminated by `kind`, and a terminal path carries `terminal_id`.
     public static func createdTerminalID(fromCreateResult data: Data) throws -> String {
         struct MutationResult: Decodable {
-            struct Created: Decodable { var terminal: String? }
-            var created: Created?
+            struct CreatedPath: Decodable {
+                var kind: String?
+                var terminal_id: String?
+            }
+            var value: CreatedPath?
         }
         let result = try JSONDecoder().decode(MutationResult.self, from: data)
-        guard let id = result.created?.terminal, !id.isEmpty else {
+        guard let id = result.value?.terminal_id, !id.isEmpty else {
             throw TerminalCatalogError.missingCreatedTerminal
         }
         return id

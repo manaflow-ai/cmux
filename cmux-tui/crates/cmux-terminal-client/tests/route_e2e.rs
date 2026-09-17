@@ -174,7 +174,21 @@ async fn mux_responder(stream: Arc<cmux_remote::service::ServiceStream>) {
                 assert!(request["idempotency_key"].as_str().is_some());
                 assert_eq!(request["params"]["initial_content"], "terminal");
                 assert_eq!(request["params"]["name"], "phone");
-                serde_json::json!({ "created": { "terminal": TERMINAL_ID } })
+                // The daemon's MutationResult<CreatedPath>, as protocol 5 sends
+                // it: the created path is under `value`, discriminated by kind.
+                serde_json::json!({
+                    "generation": "9ded6c40",
+                    "replayed": false,
+                    "revision": "3",
+                    "value": {
+                        "kind": "terminal",
+                        "workspace_id": "ws_1",
+                        "screen_id": "screen_1",
+                        "pane_id": "pane_1",
+                        "tab_id": "tab_1",
+                        "terminal_id": TERMINAL_ID,
+                    },
+                })
             }
             other => panic!("unexpected operation {other}"),
         };
@@ -327,7 +341,8 @@ fn phone_path_over_wireguard_with_persistent_identity() {
         cmux_terminal_client_create_terminal(client, name.as_ptr(), error.as_mut_ptr(), error.len(), TIMEOUT_MS)
     });
     let created: serde_json::Value = serde_json::from_str(&created).unwrap();
-    assert_eq!(created["created"]["terminal"], TERMINAL_ID);
+    assert_eq!(created["value"]["kind"], "terminal");
+    assert_eq!(created["value"]["terminal_id"], TERMINAL_ID);
 
     // Attach in raw mode: replay, then live output, then echoed input.
     let terminal_c = c(TERMINAL_ID);
