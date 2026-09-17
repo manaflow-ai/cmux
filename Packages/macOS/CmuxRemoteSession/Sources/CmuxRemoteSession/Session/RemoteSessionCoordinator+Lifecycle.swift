@@ -21,7 +21,7 @@ extension RemoteSessionCoordinator {
         reconnectRetryCount = 0
         consecutiveUnreachableProbeCount = 0
         resetBootstrapFailureTrackingLocked()
-        reconnectSuspended = false
+        endReadinessSeekLocked()
         reachabilityProbeGeneration &+= 1
         cancelControlMasterReapObservationLocked()
         cancelReverseRelayRestartLocked()

@@ -165,7 +165,7 @@ extension CmxIrohRegistryContextProviderTests {
         let broker = TestIrohRegistryBroker(
             discovery: discovery,
             pairGrantResponses: [],
-            discoveryError: CmxIrohTrustBrokerClientError.connectivity
+            discoveryError: CmxIrohTrustBrokerClientError.connectivity(nil)
         )
         let provider = CmxIrohRegistryContextProvider(
             supervisor: try await fixture.activeSupervisor(),
@@ -210,7 +210,7 @@ extension CmxIrohRegistryContextProviderTests {
         let broker = TestIrohRegistryBroker(
             discovery: discovery,
             pairGrantResponses: [],
-            pairGrantError: CmxIrohTrustBrokerClientError.connectivity
+            pairGrantError: CmxIrohTrustBrokerClientError.connectivity(nil)
         )
         let provider = CmxIrohRegistryContextProvider(
             supervisor: try await fixture.activeSupervisor(),

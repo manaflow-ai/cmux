@@ -21,7 +21,11 @@ extension Workspace {
                 return nil
             }
         }
-        let activeRemotePanelIds = panels.keys.filter { isRemoteTerminalSurface($0) }
+        let activeRemotePanelIds = panels.keys.filter {
+            isRemoteTerminalSurface($0) ||
+                (cloudVMBinding != nil && terminalPanel(for: $0) != nil) ||
+                cloudProjectedResource(forPanel: $0)?.kind == .terminal
+        }
         guard !activeRemotePanelIds.isEmpty else { return nil }
         let reportedDirectories = activeRemotePanelIds.compactMap { trustedReportedPanelDirectory(panelId: $0) }
         guard reportedDirectories.count == activeRemotePanelIds.count else { return nil }
@@ -37,8 +41,26 @@ extension Workspace {
         reportedRemoteCurrentDirectory(allowLocalFallback: false)
     }
 
+    /// Directory metadata for a cloud-bound or cloud-projected panel is remote
+    /// state, even though its transport is not SSH.
     var usesRemoteDirectoryProvenance: Bool {
-        isRemoteWorkspace || isRemoteTmuxMirror
+        isRemoteWorkspace || isRemoteTmuxMirror || cloudVMBinding != nil ||
+            panels.keys.contains(where: { cloudDirectoryProvenanceRequired(panelId: $0) })
+    }
+
+    /// Returns whether a panel's directory belongs to a Cloud machine rather than this Mac.
+    func cloudDirectoryProvenanceRequired(panelId: UUID) -> Bool {
+        cloudVMBinding != nil || SurfaceCatalog.shared.hasCloudProjection(panelID: panelId, workspaceID: id)
+    }
+
+    /// Applies the cwd carried by a terminal in an accepted cloud snapshot.
+    /// Branch and PR metadata remain absent until the cloud transport reports them.
+    func updateCloudPanelDirectory(panelId: UUID, directory: String?) {
+        guard let directory = normalizedSidebarDirectory(directory) else {
+            clearRemotePanelDirectory(panelId: panelId)
+            return
+        }
+        updateRemotePanelDirectoryWithMetadata(panelId: panelId, directory: directory)
     }
 
     var presentedCurrentDirectory: String? {
@@ -72,6 +94,7 @@ extension Workspace {
 
     func allowsLocalDirectoryFallback(panelId: UUID) -> Bool {
         if !usesRemoteDirectoryProvenance { return true }
+        if cloudDirectoryProvenanceRequired(panelId: panelId) { return false }
         guard !remoteDirectoryTrustRequiredPanelIds.contains(panelId),
               !isRemoteTerminalSurface(panelId),
               !isRemoteTmuxMirror else { return false }
@@ -112,9 +135,10 @@ extension Workspace {
     }
 
     func restoresLegacyRemoteDirectoryWithoutProvenance(_ snapshot: SessionPanelSnapshot) -> Bool {
-        guard remoteConfiguration != nil,
+        guard remoteConfiguration != nil || cloudVMBinding != nil,
               snapshot.directoryIsTrustedRemoteReport == nil,
               snapshot.directoryRequiresRemoteTrust == nil else { return false }
+        if cloudVMBinding != nil { return true }
         if let terminal = snapshot.terminal { return terminal.isRemoteTerminal != false }
         return snapshot.agentSession != nil
     }
@@ -282,11 +306,13 @@ extension Workspace {
     }
 
     var presentedGitBranch: SidebarGitBranchState? {
+        if let focusedPanelId, cloudDirectoryProvenanceRequired(panelId: focusedPanelId) { return nil }
         if usesRemoteDirectoryProvenance, presentedCurrentDirectory == nil { return nil }
         return gitBranch
     }
 
     func reportedPanelGitBranch(panelId: UUID) -> SidebarGitBranchState? {
+        guard !cloudDirectoryProvenanceRequired(panelId: panelId) else { return nil }
         guard let branch = panelGitBranches[panelId] else { return nil }
         if usesRemoteDirectoryProvenance, effectivePanelDirectory(panelId: panelId) == nil { return nil }
         return branch

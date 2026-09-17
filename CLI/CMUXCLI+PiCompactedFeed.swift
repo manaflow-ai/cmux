@@ -218,7 +218,8 @@ extension CMUXCLI {
                     throw CLIError(
                         message: error.message,
                         exitCode: Self.piHookSurfaceUnavailableExitCode,
-                        v2Code: error.v2Code
+                        v2Code: error.v2Code,
+                        isStructuredProtocolResponse: error.isStructuredProtocolResponse
                     )
                 }
                 resolvedWorkspaceId = nil
@@ -244,7 +245,8 @@ extension CMUXCLI {
                 throw CLIError(
                     message: error.message,
                     exitCode: Self.piHookSurfaceUnavailableExitCode,
-                    v2Code: error.v2Code ?? "not_found"
+                    v2Code: error.v2Code ?? "not_found",
+                    isStructuredProtocolResponse: error.isStructuredProtocolResponse
                 )
             }
         }

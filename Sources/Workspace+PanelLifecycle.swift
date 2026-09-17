@@ -9,7 +9,6 @@ extension Workspace {
     private static let structuredAgentHookStatusKeys = AgentHibernationLifecycleStatusKeys.allowedStatusKeys
     private static let managedSubagentEnvironmentKey = "CMUX_AGENT_MANAGED_SUBAGENT"
     private static let truthyStartupEnvironmentValues: Set<String> = ["1", "true", "yes", "on", "enabled"]
-
     var agentPIDs: [String: pid_t] {
         get { sidebarAgentRuntimeObservation.agentPIDs }
         set { sidebarAgentRuntimeObservation.setAgentPIDs(newValue) }
@@ -187,6 +186,7 @@ extension Workspace {
         var didClearOtherStructuredAgentRuntime = false
         if let panelId { didClearOtherStructuredAgentRuntime = clearOtherStructuredAgentRuntimes(onPanel: panelId, keeping: key) }
         let processIdentity = Self.agentPIDProcessIdentity(pid: pid)
+        if key == "claude_code", let panelId, let processIdentity { AgentHibernationController.shared.disarmSessionEndPreservationIfSuperseded(panelKey: AgentHibernationPanelKey(workspaceId: id, panelId: panelId), processIdentity: processIdentity) }
         agentPIDs[key] = pid
         agentPIDProcessIdentitiesByKey[key] = processIdentity
         if let panelId { recordAgentPIDOwnership(key: key, panelId: panelId) } else { removeAgentPIDOwnership(key: key) }
@@ -360,6 +360,14 @@ extension Workspace {
                 processIdentity: agentPIDProcessIdentitiesByKey[key]
             )
         })
+        if remainingAgentRoots.isEmpty, !agentListeningPorts.isEmpty {
+            // No agent is left to own a port, so there is no later scan result
+            // to flicker against: drop the panel-owned ports now instead of
+            // waiting for the scanner's asynchronous empty publication, which
+            // is what pane close and detach promise (#3744).
+            agentListeningPorts.removeAll()
+            recomputeListeningPorts()
+        }
         PortScanner.shared.refreshAgentPorts(workspaceId: id, agentRoots: remainingAgentRoots)
     }
 
@@ -434,8 +442,11 @@ extension Workspace {
         requestTransferredRemoteCleanup: Bool,
         discardAgentHibernationTracking: Bool = true,
         cleanupControllerSurfaceState: Bool = false,
-        preservesTerminalForTransfer: Bool = false
+        preservesTerminalForTransfer: Bool = false,
+        preservesRemoteTerminalTracking: Bool = false
     ) -> WorkspaceRemoteConfiguration? {
+        clearCloudMaterializationFailure(surfaceID: panelId)
+        cancelReservedCloudTerminalPane(panelID: panelId)
         appLinkHandoffCoordinator.cancel(sourcePanelID: panelId)
         if publishSurfaceClosedEvent {
             publishCmuxSurfaceClosed(panelId, paneId: paneId, panel: panel, origin: origin)
@@ -459,17 +470,6 @@ extension Workspace {
             terminalStartupRestoreCoordinator.discardPendingRestoreForPanelTeardown(
                 panelID: panelId
             )
-        }
-        // A manual-IO pump follows its surface: a detach transfer keeps the
-        // surface (and pump) alive; every other discard stops the relay. The
-        // daemon-side terminal stays alive in the machine's session.
-        // A respawn replaces the panel object while retaining its logical
-        // surface id. Retire the old relay before that id is reused, or the
-        // registry can route reconnect actions and overlay state to a dead
-        // process. Detach transfers remain the only path that preserves it.
-        let replacingPanel = origin == "terminal_respawn"
-        if !preservesTerminalForTransfer, (closePanel || replacingPanel) {
-            TuiManualIOPumpRegistry.shared.stopAndRemove(surfaceID: panelId)
         }
         if closePanel {
             panel?.close()
@@ -512,12 +512,11 @@ extension Workspace {
                         preservesTerminalForTransfer
                 )
         }
-        untrackRemoteTerminalSurface(panelId)
-        if closePanel {
-            endedRemoteTerminalLifecycleIDsBySurfaceId.removeValue(forKey: panelId)
-        }
-        discardRemoteDirectoryTrustState(panelId: panelId)
-        pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
+        retireRemoteTerminalLifecycle(
+            panelId: panelId,
+            preservesRemoteTerminalTracking: preservesRemoteTerminalTracking,
+            closesPanel: closePanel
+        )
         removeSurfaceMappings(forPanelId: panelId)
 
         panelDirectories.removeValue(forKey: panelId)

@@ -10,7 +10,7 @@ use std::os::fd::AsRawFd;
 #[cfg(unix)]
 use std::os::unix::ffi::OsStringExt;
 #[cfg(unix)]
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt, symlink};
+use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt, symlink};
 #[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
@@ -533,7 +533,7 @@ fn server_lifecycle_help_and_typos_do_not_fall_back_to_startup_help() {
         lifecycle_cli(&["--socket", "--json", "server", "stpo"]);
     assert_eq!(output_flag_used_as_a_socket_value.status.code(), Some(2));
     let error = String::from_utf8(output_flag_used_as_a_socket_value.stderr).unwrap();
-    assert!(error.contains("Did you mean `stop`?"), "{error}");
+    assert!(error.contains("--socket needs a value"), "{error}");
     assert!(!error.trim_start().starts_with('{'), "{error}");
 
     let misplaced_start_option = lifecycle_cli(&["--term", "xterm-256color", "server", "start"]);
@@ -2644,6 +2644,101 @@ struct PtyChild {
 }
 
 #[cfg(unix)]
+struct CapturingPtyChild {
+    child: Option<Box<dyn cmux_pty::Child + Send + Sync>>,
+    writer: Option<Box<dyn Write + Send>>,
+    receiver: mpsc::Receiver<Vec<u8>>,
+    reader_thread: Option<std::thread::JoinHandle<()>>,
+}
+
+#[cfg(unix)]
+impl CapturingPtyChild {
+    fn start(args: &[&str]) -> Self {
+        let spawned = spawn_pty_child(args, &[]);
+        let writer = spawned.master.take_writer().unwrap();
+        let mut reader = spawned.master.try_clone_reader().unwrap();
+        let (sender, receiver) = mpsc::channel();
+        let reader_thread = std::thread::spawn(move || {
+            let mut buffer = [0; 8192];
+            loop {
+                match reader.read(&mut buffer) {
+                    Ok(0) => break,
+                    Ok(read) => {
+                        if sender.send(buffer[..read].to_vec()).is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+        Self {
+            child: Some(spawned.child),
+            writer: Some(writer),
+            receiver,
+            reader_thread: Some(reader_thread),
+        }
+    }
+
+    fn wait_for_output(&self, marker: &str, timeout: Duration) -> Vec<u8> {
+        let marker = marker.as_bytes();
+        let deadline = Instant::now() + timeout;
+        let mut output = Vec::new();
+        while Instant::now() < deadline {
+            let remaining = deadline.checked_duration_since(Instant::now()).unwrap_or_default();
+            match self.receiver.recv_timeout(remaining) {
+                Ok(chunk) => {
+                    output.extend(chunk);
+                    if output.windows(marker.len()).any(|window| window == marker) {
+                        return output;
+                    }
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => break,
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+        output
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        let writer = self.writer.as_mut().expect("scoped attach PTY writer is live");
+        writer.write_all(bytes).unwrap();
+        writer.flush().unwrap();
+    }
+
+    fn wait_for_exit(&mut self, timeout: Duration) -> Option<cmux_pty::ExitStatus> {
+        let mut child = self.child.take().expect("scoped attach child already waited");
+        let mut killer = child.clone_killer();
+        let (sender, receiver) = mpsc::sync_channel(1);
+        std::thread::spawn(move || {
+            let _ = sender.send(child.wait());
+        });
+        match receiver.recv_timeout(timeout) {
+            Ok(status) => Some(status.unwrap()),
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                let _ = killer.kill();
+                None
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => None,
+        }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for CapturingPtyChild {
+    fn drop(&mut self) {
+        self.writer.take();
+        if let Some(child) = self.child.as_mut() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        if let Some(reader_thread) = self.reader_thread.take() {
+            let _ = reader_thread.join();
+        }
+    }
+}
+
+#[cfg(unix)]
 struct TestTempDir(PathBuf);
 
 #[cfg(unix)]
@@ -2848,24 +2943,37 @@ fn plain_launch_attaches_to_existing_local_session() {
 
 #[cfg(unix)]
 #[test]
-fn session_shutdown_exits_an_interactive_local_owner() {
+fn session_shutdown_exits_an_interactive_detached_owner_client() {
     let dir = TestTempDir::create("interactive-session-shutdown");
     let socket = dir.path().join("mux.sock");
     let socket_arg = socket.to_str().unwrap();
-    let mut owner =
-        PtyChild::start(&["--session", "interactive-session-shutdown", "--socket", socket_arg]);
+    let state = dir.path().join("state");
+    let state_arg = state.to_str().unwrap();
+    let config = dir.path().join("config.json");
+    fs::write(&config, r#"{"server":{"detached_owner":true}}"#).unwrap();
+    let mut client = PtyChild::start_with_env(
+        &[
+            "--session",
+            "interactive-session-shutdown",
+            "--socket",
+            socket_arg,
+            "--state",
+            state_arg,
+        ],
+        &[("CMUX_TUI_CONFIG", config.as_os_str())],
+    );
     wait_for_socket_path(&socket);
-    wait_for_owner_server_ready(&socket, &mut owner);
+    wait_for_owner_server_ready(&socket, &mut client);
 
     let shutdown =
         lifecycle_cli(&["--json", "--socket", socket_arg, "session", "current", "shutdown"]);
     assert_success(&shutdown);
     assert_eq!(json_output(&shutdown)["value"]["accepted"], true);
 
-    let status = owner
+    let status = client
         .wait_for_exit(Duration::from_secs(5))
-        .expect("interactive owner remained alive after session shutdown");
-    assert!(status.success(), "interactive owner exited unsuccessfully: {status}");
+        .expect("interactive client remained alive after detached owner shutdown");
+    assert!(status.success(), "interactive client exited unsuccessfully: {status}");
 }
 
 #[cfg(unix)]
@@ -2968,6 +3076,86 @@ fn explicit_attach_registers_a_full_session_tui_client() {
     }
 
     panic!("explicit attach never registered the full session");
+}
+
+#[cfg(unix)]
+#[test]
+fn scoped_terminal_attach_streams_pty_and_detaches_without_killing_terminal() {
+    let server = HeadlessServer::start("scoped-terminal-attach-lifecycle");
+    let created = json_cli(&server, &["tab", "create", "terminal"]);
+    assert_success(&created);
+    let terminal = json_output(&created)["value"]["terminal_id"]
+        .as_str()
+        .expect("terminal creation returns a terminal id")
+        .to_string();
+
+    let first_marker = "scoped_attach_lifecycle_marker";
+    let write = json_cli(
+        &server,
+        &["terminal", &terminal, "write", "--text", &format!("printf '{first_marker}\\n'\n")],
+    );
+    assert_success(&write);
+    assert!(
+        wait_for_screen(&server, &terminal, first_marker).contains(first_marker),
+        "daemon terminal did not produce the attach marker"
+    );
+
+    let socket = server.socket.to_str().unwrap();
+    let mut attached =
+        CapturingPtyChild::start(&["attach", "--socket", socket, "--terminal", &terminal]);
+    let output = attached.wait_for_output(first_marker, Duration::from_secs(10));
+    assert!(
+        output.windows(first_marker.len()).any(|window| window == first_marker.as_bytes()),
+        "scoped attach PTY did not replay terminal output: {}",
+        String::from_utf8_lossy(&output)
+    );
+
+    let clients_deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < clients_deadline {
+        let clients = json_cli(&server, &["client", "list"]);
+        if clients.status.success()
+            && json_output(&clients).as_array().is_some_and(|clients| {
+                clients.iter().any(|client| {
+                    client["client_kind"].as_str() == Some("tui")
+                        && client["attached_terminal_ids"].as_array().is_some_and(|ids| {
+                            ids.len() == 1 && ids[0].as_str() == Some(terminal.as_str())
+                        })
+                })
+            })
+        {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let clients = json_output(&json_cli(&server, &["client", "list"]));
+    assert!(
+        clients.as_array().is_some_and(|clients| {
+            clients.iter().any(|client| {
+                client["client_kind"].as_str() == Some("tui")
+                    && client["attached_terminal_ids"].as_array().is_some_and(|ids| {
+                        ids.len() == 1 && ids[0].as_str() == Some(terminal.as_str())
+                    })
+            })
+        }),
+        "scoped attach did not register exactly one terminal: {clients}"
+    );
+
+    attached.write(b"\x02d");
+    let status = attached
+        .wait_for_exit(Duration::from_secs(10))
+        .expect("scoped attach did not exit after Ctrl-b d");
+    assert!(status.success(), "scoped attach exited unsuccessfully: {status}");
+
+    let second_marker = "scoped_attach_after_detach_marker";
+    let write = json_cli(
+        &server,
+        &["terminal", &terminal, "write", "--text", &format!("printf '{second_marker}\\n'\n")],
+    );
+    assert_success(&write);
+    assert!(
+        wait_for_screen(&server, &terminal, second_marker).contains(second_marker),
+        "daemon terminal stopped accepting input after scoped detach"
+    );
 }
 
 #[cfg(unix)]
@@ -4062,6 +4250,7 @@ fn create_live_terminal_host_record(root: &std::path::Path) -> fs::File {
         supports_set_defaults: true,
         supports_clear_history: true,
         supports_terminate_ack: false,
+        supports_input_ack: false,
     };
     let record_path = record.record_path(root);
     let live_path = record_path.with_extension(format!("{incarnation}-{host_start_nonce}.live"));
@@ -4089,379 +4278,110 @@ fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_cmux-tui")
 }
 
-// ---------------------------------------------------------------------------
-// `attach --pipe-io`: renderer-less byte relay for embedder-fed surfaces.
-//
-// Contract under test (GUI-frontend migration, manual-IO surface):
-//   stdout  = raw VT bytes (daemon replay first, then live output),
-//   stdin   = JSON lines ({"input":"<b64>"} | {"resize":{"cols":N,"rows":N}}),
-//   stderr  = one final JSON line {"exit":{"reason":...}},
-//   exit 0  = terminal ended (or parent closed stdin) — do not respawn,
-//   exit 2  = daemon connection lost — the embedder may respawn to resync.
-// ---------------------------------------------------------------------------
+#[cfg(unix)]
+const WG_HUB_TEST_PRIVATE_KEY: &str = "GDYq0RJ4LWL6jJhLMAlM1oHcCTdSiXPMZ4X5D8WzGdw=";
+#[cfg(unix)]
+const WG_HUB_TEST_PEER_KEY: &str = "Bo2I0OcpKnXtElGwH6EXV3MwDQctaIrFJ4tDX44DoWs=";
 
 #[cfg(unix)]
-struct PipeIoRelay {
-    child: Child,
-    stdin: Option<std::process::ChildStdin>,
-    stdout: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
-    stderr: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
-}
-
-#[cfg(unix)]
-impl PipeIoRelay {
-    fn start(server: &HeadlessServer, terminal: &str, cols: u16, rows: u16) -> Self {
-        let mut child = Command::new(bin())
-            .args(["attach", "--socket"])
-            .arg(&server.socket)
-            .args([
-                "--terminal",
-                terminal,
-                "--pipe-io",
-                "--cols",
-                &cols.to_string(),
-                "--rows",
-                &rows.to_string(),
-            ])
-            .env_remove("CMUX_TUI_SOCKET")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let stdin = child.stdin.take();
-        let stdout = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let stderr = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let out = child.stdout.take().unwrap();
-        let err = child.stderr.take().unwrap();
-        let stdout_sink = stdout.clone();
-        std::thread::spawn(move || drain_into(out, stdout_sink));
-        let stderr_sink = stderr.clone();
-        std::thread::spawn(move || drain_into(err, stderr_sink));
-        Self { child, stdin, stdout, stderr }
-    }
-
-    fn send_input(&mut self, bytes: &[u8]) {
-        use base64::Engine as _;
-        let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
-        let line = format!("{}\n", serde_json::json!({ "input": encoded }));
-        self.stdin.as_mut().unwrap().write_all(line.as_bytes()).unwrap();
-    }
-
-    fn send_resize(&mut self, cols: u16, rows: u16) {
-        let line = format!("{}\n", serde_json::json!({ "resize": { "cols": cols, "rows": rows } }));
-        self.stdin.as_mut().unwrap().write_all(line.as_bytes()).unwrap();
-    }
-
-    fn send_claim(&mut self) {
-        let line = format!("{}\n", serde_json::json!({ "claim": { "geometry": true } }));
-        self.stdin.as_mut().unwrap().write_all(line.as_bytes()).unwrap();
-    }
-
-    fn stdout_text(&self) -> String {
-        String::from_utf8_lossy(&self.stdout.lock().unwrap()).into_owned()
-    }
-
-    fn stderr_text(&self) -> String {
-        String::from_utf8_lossy(&self.stderr.lock().unwrap()).into_owned()
-    }
-
-    fn wait_for_stdout(&mut self, needle: &str, what: &str) {
-        let deadline = Instant::now() + Duration::from_secs(20);
-        while Instant::now() < deadline {
-            if self.stdout_text().contains(needle) {
-                return;
-            }
-            if let Some(status) = self.child.try_wait().unwrap() {
-                panic!(
-                    "pipe-io relay exited ({status}) before {what}\nstdout:\n{}\nstderr:\n{}",
-                    self.stdout_text(),
-                    String::from_utf8_lossy(&self.stderr.lock().unwrap())
-                );
-            }
-            std::thread::sleep(Duration::from_millis(25));
-        }
-        panic!("timed out waiting for {what}\nstdout:\n{}", self.stdout_text());
-    }
-
-    fn wait_for_exit(&mut self) -> (i32, serde_json::Value) {
-        let deadline = Instant::now() + Duration::from_secs(20);
-        while Instant::now() < deadline {
-            if let Some(status) = self.child.try_wait().unwrap() {
-                // Let the drain threads observe EOF.
-                std::thread::sleep(Duration::from_millis(100));
-                let stderr_text =
-                    String::from_utf8_lossy(&self.stderr.lock().unwrap()).into_owned();
-                let exit_line = stderr_text
-                    .lines()
-                    .rev()
-                    .find(|line| line.trim_start().starts_with('{'))
-                    .unwrap_or_else(|| {
-                        panic!("pipe-io relay printed no JSON exit line\nstderr:\n{stderr_text}")
-                    })
-                    .to_string();
-                let value: serde_json::Value = serde_json::from_str(&exit_line).unwrap();
-                return (status.code().unwrap_or(-1), value);
-            }
-            std::thread::sleep(Duration::from_millis(25));
-        }
-        panic!("pipe-io relay did not exit\nstdout:\n{}", self.stdout_text());
-    }
-}
-
-#[cfg(unix)]
-fn drain_into(mut source: impl Read, sink: std::sync::Arc<std::sync::Mutex<Vec<u8>>>) {
-    let mut buffer = [0u8; 4096];
-    loop {
-        match source.read(&mut buffer) {
-            Ok(0) | Err(_) => return,
-            Ok(count) => sink.lock().unwrap().extend_from_slice(&buffer[..count]),
-        }
-    }
-}
-
-/// Reaps the adoptable terminal hosts a deliberate daemon SIGKILL leaves
-/// behind. The fixture's Drop treats any surviving host as a leak, but this
-/// test kills the daemon on purpose (host adoption after a daemon death is
-/// covered elsewhere); the orphaned hosts are part of the arranged scene.
-#[cfg(unix)]
-fn reap_orphaned_hosts_after_daemon_kill(server: &HeadlessServer) {
-    let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&server.state, "main");
-    for pid in terminal_host_pids(&host_root) {
-        if let Ok(pid) = libc::pid_t::try_from(pid) {
-            // SAFETY: terminating a test-owned child process group member.
-            unsafe {
-                libc::kill(pid, libc::SIGKILL);
-            }
-        }
-    }
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while terminal_host_pids(&host_root).iter().any(|pid| process_exists(*pid)) {
-        assert!(Instant::now() < deadline, "orphaned terminal hosts survived SIGKILL");
-        std::thread::sleep(Duration::from_millis(25));
-    }
-    let _ = fs::remove_dir_all(&host_root);
-}
-
-#[cfg(unix)]
-fn pipe_io_terminal(server: &HeadlessServer) -> String {
-    let created = json_cli(server, &["workspace", "create", "--name", "pipe-io"]);
-    assert_success(&created);
-    json_output(&created)["value"]["terminal_id"].as_str().unwrap().to_string()
-}
-
-/// Count literal `^[[<digits>;<digits>R` runs, the form `cat -v` uses to
-/// render a cursor-position report that reached the inner process.
-#[cfg(unix)]
-fn visible_cursor_position_reports(text: &str) -> usize {
-    let bytes = text.as_bytes();
-    let mut count = 0;
-    let mut index = 0;
-    while let Some(offset) = text[index..].find("^[[") {
-        let mut cursor = index + offset + 3;
-        let mut digits_then_semicolon = false;
-        while cursor < bytes.len() && bytes[cursor].is_ascii_digit() {
-            cursor += 1;
-        }
-        if cursor < bytes.len() && bytes[cursor] == b';' {
-            cursor += 1;
-            let row_end = cursor;
-            while cursor < bytes.len() && bytes[cursor].is_ascii_digit() {
-                cursor += 1;
-            }
-            digits_then_semicolon = cursor > row_end;
-        }
-        if digits_then_semicolon && cursor < bytes.len() && bytes[cursor] == b'R' {
-            count += 1;
-        }
-        index += offset + 3;
-    }
-    count
+fn write_wg_hub_config(dir: &std::path::Path, mode: u32) -> PathBuf {
+    let config = dir.join("wg.conf");
+    fs::write(
+        &config,
+        format!(
+            "[Interface]\nPrivateKey = {WG_HUB_TEST_PRIVATE_KEY}\nAddress = 100.64.0.1/32\nMTU = 1200\n\n[Peer]\nPublicKey = {WG_HUB_TEST_PEER_KEY}\nAllowedIPs = 10.0.0.0/8, fd00::/8\nEndpoint = 127.0.0.1:9\n"
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&config, fs::Permissions::from_mode(mode)).unwrap();
+    config
 }
 
 #[cfg(unix)]
 #[test]
-fn pipe_io_attach_streams_output_and_replays_on_reconnect() {
-    let server = HeadlessServer::start("pipe-io-basic");
-    let terminal = pipe_io_terminal(&server);
+fn wg_hub_reports_readiness_and_removes_its_socket_on_sigterm() {
+    let dir = TestTempDir::create("wg-hub");
+    let config = write_wg_hub_config(dir.path(), 0o600);
+    let socket = dir.path().join("hub").join("wg.sock");
+    let mut child = Command::new(bin())
+        .args(["wg", "hub", "--config"])
+        .arg(&config)
+        .arg("--socket")
+        .arg(&socket)
+        .env("LC_ALL", "C")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
 
-    let mut first = PipeIoRelay::start(&server, &terminal, 80, 24);
-    first.send_input(b"printf 'PIPEIO-%s\\n' FIRST\n");
-    first.wait_for_stdout("PIPEIO-FIRST", "live output of the typed marker");
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let mut line = String::new();
+    stdout.read_line(&mut line).unwrap();
+    assert!(
+        !line.is_empty(),
+        "hub exited before printing readiness: {:?}",
+        child.wait_with_output()
+    );
+    let ready: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+    assert_eq!(ready["event"], "hub-ready", "{line}");
+    assert_eq!(ready["socket"], socket.to_str().unwrap(), "{line}");
+    assert_eq!(ready["routes"], serde_json::json!(["10.0.0.0/8", "fd00::/8"]), "{line}");
 
-    // Dropping stdin tells the relay its embedder is gone: clean exit 0.
-    first.stdin = None;
-    let (code, exit) = first.wait_for_exit();
-    assert_eq!(code, 0, "stdin EOF must be a clean detach, got {exit}");
-    assert_eq!(exit["exit"]["reason"], "parent-closed");
+    let socket_meta = fs::metadata(&socket).unwrap();
+    assert!(socket_meta.file_type().is_socket());
+    assert_eq!(socket_meta.permissions().mode() & 0o777, 0o600);
+    assert_eq!(fs::metadata(socket.parent().unwrap()).unwrap().permissions().mode() & 0o777, 0o700);
 
-    // A fresh relay must serve the daemon replay before live bytes: the
-    // marker typed through the first relay is visible without retyping.
-    let mut second = PipeIoRelay::start(&server, &terminal, 80, 24);
-    second.wait_for_stdout("PIPEIO-FIRST", "replayed marker after reconnect");
-}
-
-#[cfg(unix)]
-#[test]
-fn pipe_io_exit_distinguishes_terminal_end_from_daemon_loss() {
-    let mut server = HeadlessServer::start("pipe-io-exits");
-    let terminal = pipe_io_terminal(&server);
-
-    let mut relay = PipeIoRelay::start(&server, &terminal, 80, 24);
-    relay.send_input(b"printf 'PIPEIO-%s\\n' READY\n");
-    relay.wait_for_stdout("PIPEIO-READY", "shell readiness marker");
-    let closed = json_cli(&server, &["terminal", &terminal, "close"]);
-    assert_success(&closed);
-    let (code, exit) = relay.wait_for_exit();
-    assert_eq!(code, 0, "terminal close must exit 0, got {exit}");
-    assert_eq!(exit["exit"]["reason"], "terminal-ended");
-
-    let second_terminal = pipe_io_terminal(&server);
-    let mut survivor = PipeIoRelay::start(&server, &second_terminal, 80, 24);
-    survivor.send_input(b"printf 'PIPEIO-%s\\n' TWO\n");
-    survivor.wait_for_stdout("PIPEIO-TWO", "second shell readiness marker");
-    server.child.kill().unwrap();
-    let (code, exit) = survivor.wait_for_exit();
-    assert_eq!(code, 2, "daemon loss must exit 2, got {exit}");
-    assert_eq!(exit["exit"]["reason"], "daemon-lost");
-    reap_orphaned_hosts_after_daemon_kill(&server);
-}
-
-#[cfg(unix)]
-#[test]
-fn pipe_io_startup_connect_failure_reports_daemon_lost() {
-    // A daemon restart window (dead socket) must read as daemon-lost so
-    // the embedder keeps retrying; only unexplained failures make it stop.
-    let dir = unique_temp_dir("pipe-io-dead-socket");
-    fs::create_dir_all(&dir).unwrap();
-    let dead_socket = dir.join("mux.sock");
-    let output = Command::new(bin())
-        .args(["attach", "--socket"])
-        .arg(&dead_socket)
-        .args(["--terminal", "term_0123456789abcdef0123456789abcdef", "--pipe-io"])
-        .env_remove("CMUX_TUI_SOCKET")
-        .stdin(Stdio::null())
+    // A live socket must be refused by a second hub.
+    let second = Command::new(bin())
+        .args(["wg", "hub", "--config"])
+        .arg(&config)
+        .arg("--socket")
+        .arg(&socket)
+        .env("LC_ALL", "C")
         .output()
         .unwrap();
-    assert_eq!(
-        output.status.code(),
-        Some(2),
-        "stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let exit_line = stderr.lines().rev().find(|line| line.trim_start().starts_with('{')).unwrap();
-    let value: serde_json::Value = serde_json::from_str(exit_line).unwrap();
-    assert_eq!(value["exit"]["reason"], "daemon-lost");
-    let _ = fs::remove_dir_all(&dir);
+    assert!(!second.status.success(), "second hub on a live socket must fail");
+    assert!(socket.exists(), "the losing hub must not remove the live socket");
+
+    let pid = i32::try_from(child.id()).unwrap();
+    assert_eq!(unsafe { libc::kill(pid, libc::SIGTERM) }, 0);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        assert!(Instant::now() < deadline, "hub did not exit after SIGTERM");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert!(status.success(), "hub exited unsuccessfully after SIGTERM: {status}");
+    assert!(!socket.exists(), "hub must remove its socket on exit");
 }
 
 #[cfg(unix)]
 #[test]
-fn pipe_io_resize_reaches_the_daemon_pty() {
-    let server = HeadlessServer::start("pipe-io-resize");
-    let terminal = pipe_io_terminal(&server);
+fn wg_hub_refuses_a_readable_config_and_missing_options() {
+    let dir = TestTempDir::create("wg-hub-perms");
+    let config = write_wg_hub_config(dir.path(), 0o644);
+    let socket = dir.path().join("wg.sock");
+    let output = Command::new(bin())
+        .args(["wg", "hub", "--config"])
+        .arg(&config)
+        .arg("--socket")
+        .arg(&socket)
+        .env("LC_ALL", "C")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("cannot read WireGuard config"), "{stderr}");
+    assert!(!socket.exists());
 
-    let mut relay = PipeIoRelay::start(&server, &terminal, 80, 24);
-    relay.send_input(b"printf 'PIPEIO-%s\\n' SIZED\n");
-    relay.wait_for_stdout("PIPEIO-SIZED", "shell readiness marker");
-    relay.send_resize(100, 30);
-    // The daemon acknowledges the resize before the PTY winsize necessarily
-    // lands; poll stty until the new geometry is visible.
-    let deadline = Instant::now() + Duration::from_secs(20);
-    loop {
-        relay.send_input(b"stty size\n");
-        let poll_deadline = Instant::now() + Duration::from_secs(2);
-        while Instant::now() < poll_deadline {
-            if relay.stdout_text().contains("30 100") {
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(50));
-        }
-        assert!(
-            Instant::now() < deadline,
-            "timed out waiting for stty to report the resized PTY\nstdout:\n{}\nstderr:\n{}",
-            relay.stdout_text(),
-            relay.stderr_text()
-        );
-    }
-}
+    let missing = lifecycle_cli(&["wg", "hub", "--config", config.to_str().unwrap()]);
+    assert!(!missing.status.success());
+    assert!(String::from_utf8(missing.stderr).unwrap().contains("--socket"));
 
-/// Polls `stty size` through `relay` until `needle` (e.g. "30 100") shows,
-/// panicking with both streams on timeout. The daemon acknowledges resizes
-/// before the PTY winsize necessarily lands, hence the poll.
-#[cfg(unix)]
-fn wait_for_stty(relay: &mut PipeIoRelay, needle: &str, what: &str) {
-    let deadline = Instant::now() + Duration::from_secs(20);
-    loop {
-        relay.send_input(b"stty size\n");
-        let poll_deadline = Instant::now() + Duration::from_secs(2);
-        while Instant::now() < poll_deadline {
-            if relay.stdout_text().contains(needle) {
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(50));
-        }
-        assert!(
-            Instant::now() < deadline,
-            "timed out waiting for {what}\nstdout:\n{}\nstderr:\n{}",
-            relay.stdout_text(),
-            relay.stderr_text()
-        );
-    }
-}
-
-#[cfg(unix)]
-#[test]
-fn pipe_io_claim_line_reclaims_geometry_authority() {
-    let server = HeadlessServer::start("pipe-io-claim");
-    let terminal = pipe_io_terminal(&server);
-
-    let mut first = PipeIoRelay::start(&server, &terminal, 80, 24);
-    first.send_input(b"printf 'PIPEIO-%s\\n' CLAIM\n");
-    first.wait_for_stdout("PIPEIO-CLAIM", "shell readiness marker");
-
-    // A later attachment claims geometry authority (last claim wins), so
-    // the PTY follows the second relay's smaller grid.
-    let mut second = PipeIoRelay::start(&server, &terminal, 60, 20);
-    second.wait_for_stdout("PIPEIO-CLAIM", "replay on the second relay");
-    wait_for_stty(&mut first, "20 60", "the second attach claim to resize the PTY");
-
-    // The claim line is how an embedder re-asserts authority when its pane
-    // receives user input; the first relay's sizes apply again.
-    first.send_claim();
-    wait_for_stty(&mut first, "24 80", "the reclaim to restore the first relay's grid");
-    first.send_resize(100, 30);
-    wait_for_stty(&mut first, "30 100", "a post-reclaim resize to apply");
-}
-
-#[cfg(unix)]
-#[test]
-fn pipe_io_inner_query_is_answered_exactly_once() {
-    let server = HeadlessServer::start("pipe-io-reply-authority");
-    let terminal = pipe_io_terminal(&server);
-
-    let mut relay = PipeIoRelay::start(&server, &terminal, 80, 24);
-    // The inner program emits a DSR cursor-position query and then renders
-    // its own stdin visibly. Exactly one authority (the daemon-side
-    // terminal) must answer; the relay and any embedder mirror stay silent.
-    relay.send_input(b"sh -c 'printf \"\\033[6n\"; exec cat -v'\n");
-    let deadline = Instant::now() + Duration::from_secs(20);
-    let mut seen = 0;
-    while Instant::now() < deadline {
-        seen = visible_cursor_position_reports(&relay.stdout_text());
-        if seen >= 1 {
-            // Give a duplicated reply time to surface before asserting.
-            std::thread::sleep(Duration::from_millis(500));
-            seen = visible_cursor_position_reports(&relay.stdout_text());
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(25));
-    }
-    assert_eq!(
-        seen,
-        1,
-        "inner DSR query must be answered exactly once\nstdout:\n{}",
-        relay.stdout_text()
-    );
+    let help = lifecycle_cli(&["wg", "hub", "--help"]);
+    assert!(help.status.success());
+    assert!(String::from_utf8(help.stdout).unwrap().starts_with("USAGE: cmux wg hub"));
 }

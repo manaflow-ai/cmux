@@ -15,6 +15,7 @@ extension TerminalController {
         insertFirst: Bool = false,
         workingDirectory: String?,
         initialCommand: String?,
+        initialInput: String?,
         tmuxStartCommand: String?,
         startupEnvironment: [String: String],
         initialDividerPosition: Double? = nil,
@@ -24,6 +25,7 @@ extension TerminalController {
         if insertFirst { unsupported.append("direction=left/up") }
         if workingDirectory != nil { unsupported.append("working_directory") }
         if initialCommand != nil { unsupported.append("initial_command") }
+        if initialInput != nil { unsupported.append("initial_input") }
         if tmuxStartCommand != nil { unsupported.append("tmux_start_command") }
         if !startupEnvironment.isEmpty { unsupported.append("startup_environment") }
         if initialDividerPosition != nil { unsupported.append("initial_divider_position") }
@@ -126,6 +128,7 @@ extension TerminalController {
             insertFirst: direction.insertFirst,
             workingDirectory: inputs.workingDirectory,
             initialCommand: inputs.initialCommand,
+            initialInput: inputs.initialInput,
             tmuxStartCommand: inputs.tmuxStartCommand,
             startupEnvironment: inputs.startupEnvironment,
             initialDividerPosition: inputs.initialDividerPosition,
@@ -172,6 +175,7 @@ extension TerminalController {
         let unsupported = mirrorRoutedUnsupportedOptions(
             workingDirectory: inputs.workingDirectory,
             initialCommand: inputs.initialCommand,
+            initialInput: inputs.initialInput,
             tmuxStartCommand: inputs.tmuxStartCommand,
             startupEnvironment: inputs.startupEnvironment,
             remotePTYSessionID: inputs.remotePTYSessionID

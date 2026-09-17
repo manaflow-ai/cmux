@@ -1,4 +1,6 @@
-import { getTranslations } from "next-intl/server";
+import { NextIntlClientProvider } from "next-intl";
+import { getMessages, getTranslations } from "next-intl/server";
+import { pruneClientMessages } from "@/i18n/client-messages";
 import { buildAlternates, openGraphDefaults } from "@/i18n/seo";
 import { DocsNav } from "./docs-nav";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
@@ -25,18 +27,23 @@ export async function generateMetadata({
   };
 }
 
-export default function DocsLayout({
+export default async function DocsLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   const channel = docsChannel();
+  // Docs client components read the `docs` namespace, which the shared
+  // catalog omits. A nested provider replaces the catalog for this subtree.
+  const messages = pruneClientMessages(await getMessages());
   return (
-    <div className="min-h-screen">
-      <SiteHeader section="docs" />
-      <DocsNav channel={channel}>
-        {children}
-      </DocsNav>
-    </div>
+    <NextIntlClientProvider messages={messages}>
+      <div className="min-h-screen">
+        <SiteHeader section="docs" />
+        <DocsNav channel={channel}>
+          {children}
+        </DocsNav>
+      </div>
+    </NextIntlClientProvider>
   );
 }
