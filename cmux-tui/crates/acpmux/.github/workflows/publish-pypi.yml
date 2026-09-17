@@ -31,6 +31,8 @@ jobs:
   build:
     name: Build distributions
     runs-on: ubuntu-latest
+    permissions:
+      contents: read   # the repository is private; checkout needs it
     steps:
       - uses: actions/checkout@v7
 
