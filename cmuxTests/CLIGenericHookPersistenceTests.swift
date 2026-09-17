@@ -1796,6 +1796,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "HOME": root.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "CMUX_BUNDLED_CLI_PATH": root.path,
+                "CMUX_SOCKET_PATH": root.appendingPathComponent("cmux-test.sock").path,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             timeout: 5
@@ -3863,6 +3864,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             environment: [
                 "HOME": root.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": root.appendingPathComponent("cmux-test.sock").path,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             timeout: 5
@@ -4025,6 +4027,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             environment: [
                 "HOME": root.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": root.appendingPathComponent("cmux-test.sock").path,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             timeout: 5
@@ -4086,6 +4089,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             environment: [
                 "HOME": root.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": root.appendingPathComponent("cmux-test.sock").path,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             timeout: 5
@@ -4216,6 +4220,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "HOME": root.path,
                 "GROK_HOME": grokRoot.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": root.appendingPathComponent("cmux-test.sock").path,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             timeout: 5
@@ -4363,9 +4368,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "codex-home-session"
         let ttyName = "ttys301"
-        let codexHome = root.appendingPathComponent("codex-accounts/work", isDirectory: true).path
+        let codexHomeURL = root.appendingPathComponent("codex-accounts/work", isDirectory: true)
+        let codexHome = codexHomeURL.path
+        let transcriptURL = codexHomeURL
+            .appendingPathComponent("sessions/2026/08/26/rollout-\(sessionId).jsonl", isDirectory: false)
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try writeCodexResumeTranscript(at: transcriptURL, sessionID: sessionId)
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
@@ -4440,7 +4449,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             executablePath: cliPath,
             arguments: ["hooks", "codex", "prompt-submit"],
             environment: environment,
-            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
             timeout: 5
         )
 
@@ -4497,8 +4506,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let ttySurfaceId = "33333333-3333-3333-3333-333333333333"      // the agent's real pane
         let sessionId = "codex-surface-session"
         let ttyName = "ttys302"
+        let codexHomeURL = root.appendingPathComponent(".codex", isDirectory: true)
+        let transcriptURL = codexHomeURL
+            .appendingPathComponent("sessions/2026/08/26/rollout-\(sessionId).jsonl", isDirectory: false)
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try writeCodexResumeTranscript(at: transcriptURL, sessionID: sessionId)
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
@@ -4546,6 +4559,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_CLI_TTY_NAME"] = ttyName
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CODEX_HOME"] = codexHomeURL.path
         environment["CMUX_AGENT_LAUNCH_KIND"] = "codex"
         environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/codex"
         environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
@@ -4555,7 +4569,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             executablePath: cliPath,
             arguments: ["hooks", "codex", "prompt-submit"],
             environment: environment,
-            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
             timeout: 5
         )
 
@@ -4592,8 +4606,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let ttySurfaceId = "33333333-3333-3333-3333-333333333333"      // the agent's real, live pane
         let sessionId = "codex-stale-session"
         let ttyName = "ttys303"
+        let codexHomeURL = root.appendingPathComponent(".codex", isDirectory: true)
+        let transcriptURL = codexHomeURL
+            .appendingPathComponent("sessions/2026/08/26/rollout-\(sessionId).jsonl", isDirectory: false)
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try writeCodexResumeTranscript(at: transcriptURL, sessionID: sessionId)
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
@@ -4634,6 +4652,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_CLI_TTY_NAME"] = ttyName
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CODEX_HOME"] = codexHomeURL.path
         environment["CMUX_AGENT_LAUNCH_KIND"] = "codex"
         environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/codex"
         environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
@@ -4643,7 +4662,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             executablePath: cliPath,
             arguments: ["hooks", "codex", "prompt-submit"],
             environment: environment,
-            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
             timeout: 5
         )
 
@@ -4753,6 +4772,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "non-restorable codex exec must not persist an env-only CODEX_HOME record; launchCommand=\(persisted["launchCommand"] ?? "nil")"
             )
         }
+    }
+
+    private func writeCodexResumeTranscript(at url: URL, sessionID: String) throws {
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let contents = #"""
+        {"type":"session_meta","payload":{"id":"\#(sessionID)","source":"cli","originator":"codex-tui"}}
+        {"type":"event_msg","payload":{"type":"task_complete"}}
+        """#
+        try contents.write(to: url, atomically: true, encoding: .utf8)
     }
 
     private func writeHermesStateDatabase(

@@ -17,6 +17,14 @@ SWIFT_CRASH_PROMPT = b"Press space to interact, D to debug, or any other key to 
 TIMEOUT_EXIT_CODE = 124
 POST_TEST_FAILED_EXIT_CODE = 125
 SELECTED_TESTS_DONE_RE = re.compile(rb"Test Suite 'Selected tests' (passed|failed) at ")
+# A test bundle that mixes XCTest and Swift Testing runs XCTest first and then
+# starts a Swift Testing run. The XCTest summary is therefore only terminal
+# when no Swift Testing run follows it; otherwise the Swift Testing run summary
+# is the terminal marker.
+SWIFT_TESTING_RUN_STARTED_MARKER = b"Test run started."
+SWIFT_TESTING_RUN_DONE_RE = re.compile(
+    rb"Test run with \d+ tests? in \d+ suites? (passed|failed) after "
+)
 SUCCESS_MARKER = b"** TEST SUCCEEDED **"
 
 
@@ -152,6 +160,8 @@ def main() -> int:
     post_test_deadline: float | None = None
     selected_tests_result: str | None = None
     saw_passing_terminal_summary = False
+    swift_testing_run_started = False
+    swift_testing_run_finished = False
     log_path = os.environ.get("CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH")
     log_file: BinaryIO | None = None
     if log_path:
@@ -239,10 +249,32 @@ def main() -> int:
         if timeout:
             deadline = time.monotonic() + timeout
         prompt_window = (prompt_window + chunk)[-4096:]
-        selected_match = SELECTED_TESTS_DONE_RE.search(prompt_window)
-        if post_test_timeout and selected_match and post_test_deadline is None:
-            selected_tests_result = selected_match.group(1).decode("ascii")
-            post_test_deadline = time.monotonic() + post_test_timeout
+        if post_test_timeout:
+            selected_match = SELECTED_TESTS_DONE_RE.search(prompt_window)
+            if selected_match and selected_tests_result is None:
+                selected_tests_result = selected_match.group(1).decode("ascii")
+                post_test_deadline = time.monotonic() + post_test_timeout
+            if (
+                selected_tests_result is not None
+                and not swift_testing_run_started
+                and SWIFT_TESTING_RUN_STARTED_MARKER in prompt_window
+            ):
+                # Swift Testing runs after XCTest inside the same xcodebuild
+                # invocation. Its suites can legitimately run for minutes, so
+                # the deadline armed by the XCTest summary must wait for the
+                # Swift Testing run summary.
+                swift_testing_run_started = True
+                post_test_deadline = None
+            swift_testing_match = SWIFT_TESTING_RUN_DONE_RE.search(prompt_window)
+            if (
+                swift_testing_run_started
+                and not swift_testing_run_finished
+                and swift_testing_match
+            ):
+                swift_testing_run_finished = True
+                if swift_testing_match.group(1) == b"failed":
+                    selected_tests_result = "failed"
+                post_test_deadline = time.monotonic() + post_test_timeout
         if SUCCESS_MARKER in prompt_window:
             saw_passing_terminal_summary = True
         if SWIFT_CRASH_PROMPT in prompt_window:
@@ -266,7 +298,7 @@ def main() -> int:
         assert post_test_timeout is not None
         message = (
             f"Post-test timed out after {post_test_timeout:g}s; terminating "
-            f"xcodebuild after terminal XCTest summary"
+            f"xcodebuild after terminal test summary"
         )
         print(message, file=sys.stderr)
         if log_file is not None:

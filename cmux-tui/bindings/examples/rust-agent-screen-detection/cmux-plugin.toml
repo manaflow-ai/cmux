@@ -1,0 +1,11 @@
+[plugin]
+name = "agent-screen-detection"
+kind = "agent"
+version = "0.1.0"
+description = "Herdr-compatible terminal screen detection for cmux agents"
+
+[run]
+command = ["target/release/cmux-agent-screen-detection"]
+
+[build]
+command = ["cargo", "build", "--release"]

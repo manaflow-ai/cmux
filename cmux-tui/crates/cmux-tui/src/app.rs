@@ -17,6 +17,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use base64::Engine;
+use cmux_tui_cdp::CDP_CONNECTION_UNAVAILABLE_MESSAGE;
 use cmux_tui_core::resource::FrontendProjectionPublicId;
 use cmux_tui_core::{
     BrowserFrame, BrowserSource, BrowserStatus, ClearHistoryDelivery, ClearHistoryFailure,
@@ -8841,7 +8842,20 @@ fn run_with_machine_updates_inner(
             let _ = browser_failure_tx.send(AppEvent::BrowserResizeFailed(failure));
         },
         move |error| {
-            let message = localization::catalog().browser.control_failed(&error);
+            crate::client_log::error("browser-control", &error);
+            // The dispatcher exposes only a string. Match the one stable CDP
+            // classification and discard every other internal detail before
+            // creating a user-facing status event.
+            let browser = &localization::catalog().browser;
+            let message = if error == CDP_CONNECTION_UNAVAILABLE_MESSAGE {
+                localization::catalog().browser.control_unavailable()
+            } else if error == browser.attach_unsupported {
+                browser.control_failed(browser.attach_unsupported)
+            } else {
+                // Keep the failure category stable. The raw error is already
+                // in the private diagnostic log and must not cross this UI boundary.
+                browser.control_failed("browser operation failed")
+            };
             let _ = browser_control_tx.send(AppEvent::Mux(MuxEvent::Status(message)));
         },
     )?;
@@ -16003,7 +16017,8 @@ impl App {
 
     fn mouse_opens_cmux_context_menu(mouse: &MouseEvent) -> bool {
         mouse.kind == MouseEventKind::Down(MouseButton::Right)
-            && mouse.modifiers.contains(KeyModifiers::SHIFT)
+            && (mouse.modifiers.contains(KeyModifiers::SHIFT)
+                || mouse.modifiers.contains(KeyModifiers::ALT))
     }
 
     fn rendered_pointer_route_for_mouse(&self, mouse: &MouseEvent) -> PointerRouteIdentity {
@@ -20367,6 +20382,7 @@ impl App {
         terminal_admission: Option<TerminalPointerAdmission>,
     ) -> PtyMousePressResult {
         if modifiers.contains(KeyModifiers::SHIFT)
+            || (button == MouseButton::Right && modifiers.contains(KeyModifiers::ALT))
             || self.menu.is_some()
             || self.prompt.is_some()
             || self.drag.is_some()
@@ -29460,6 +29476,14 @@ mod tests {
         assert!(app.menu.is_some(), "Shift-right-click must open the cmux context menu");
         app.menu = None;
 
+        app.encode_buf.clear();
+        app.handle_mouse(event(MouseEventKind::Down(MouseButton::Right), KeyModifiers::ALT))
+            .unwrap();
+        assert!(app.encode_buf.is_empty(), "Option-right-click must bypass PTY mouse reporting");
+        assert!(app.drag.is_none());
+        assert!(app.menu.is_some(), "Option-right-click must open the cmux context menu");
+        app.menu = None;
+
         app.handle_mouse(event(MouseEventKind::Down(MouseButton::Left), KeyModifiers::NONE))
             .unwrap();
         app.pane_areas[0].content.x += 3;
@@ -29500,6 +29524,66 @@ mod tests {
         assert!(app.encode_buf.is_empty());
         assert!(app.selection.is_some());
         assert!(matches!(app.drag, Some(Drag::Select { .. })));
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn alt_left_and_middle_clicks_preserve_pty_mouse_reporting() {
+        let mux = Mux::new(
+            "alt-mouse-passthrough-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "sleep 30".to_string(),
+                ]),
+                ..Default::default()
+            },
+        );
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
+
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        let pane = app.tree.active_screen().unwrap().active_pane;
+        let content = Rect { x: 2, y: 3, width: 20, height: 8 };
+        app.pane_areas.push(PaneArea {
+            pane,
+            surface: surface.id,
+            rect: Rect { x: 1, y: 2, width: 23, height: 10 },
+            bar: Some(Rect { x: 1, y: 2, width: 23, height: 1 }),
+            omnibar: None,
+            content,
+            track: None,
+            viewport: None,
+        });
+        app.rendered_terminal_bounds.insert(surface.id, content);
+
+        let event = |kind, modifiers| MouseEvent {
+            kind,
+            column: content.x + 4,
+            row: content.y + 2,
+            modifiers,
+        };
+
+        app.handle_mouse(event(MouseEventKind::Down(MouseButton::Left), KeyModifiers::ALT))
+            .unwrap();
+        assert_eq!(app.encode_buf, b"\x1b[<8;5;3M");
+        assert!(matches!(app.drag, Some(Drag::PtyMouse { button: MouseButton::Left, .. })));
+        app.handle_mouse(event(MouseEventKind::Up(MouseButton::Left), KeyModifiers::ALT)).unwrap();
+        assert_eq!(app.encode_buf, b"\x1b[<8;5;3m");
+        assert!(app.drag.is_none());
+
+        app.encode_buf.clear();
+        app.handle_mouse(event(MouseEventKind::Down(MouseButton::Middle), KeyModifiers::ALT))
+            .unwrap();
+        assert_eq!(app.encode_buf, b"\x1b[<9;5;3M");
+        assert!(matches!(app.drag, Some(Drag::PtyMouse { button: MouseButton::Middle, .. })));
+        app.handle_mouse(event(MouseEventKind::Up(MouseButton::Middle), KeyModifiers::ALT))
+            .unwrap();
+        assert_eq!(app.encode_buf, b"\x1b[<9;5;3m");
+        assert!(app.drag.is_none());
 
         mux.close_surface(surface.id).unwrap();
     }

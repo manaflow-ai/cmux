@@ -1963,6 +1963,7 @@ fn run_server(
 
     let mut surface_options = SurfaceOptions::default();
     config::apply_browser_to_surface_options(&config, &mut surface_options);
+    surface_options.scrollback = config.scrollback_limit_bytes();
     if let Some(term) = args.term {
         surface_options.term = term;
     }

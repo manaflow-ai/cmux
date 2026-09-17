@@ -57,6 +57,7 @@ final class CmuxFeatureFlags {
     private nonisolated static let mobileWorkspaceChangesDefault = false
     #endif
     private static let sidebarWorkspaceAgentSpinnerDefault = false
+    private static let computerUseUXDefault = true
     private nonisolated static let simulatorDefault = true
     private static let workspaceTodoControlsDefault = false
     private static let appKitSidebarListDefault = true
@@ -270,6 +271,21 @@ final class CmuxFeatureFlags {
                 defaultWhenUnavailable: CmuxFeatureFlags.sidebarWorkspaceAgentSpinnerDefault
             ),
 
+            // FLAG(key: computer-use-ux-enabled-release, owner: austinwang,
+            //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
+            // Shows the computer-use status item and allows automatic onboarding.
+            // The settings and terminal kill switch remain available if this UI
+            // flag is remotely disabled.
+            CmuxFeatureFlagDefinition(
+                key: "computer-use-ux-enabled-release",
+                title: String(localized: "featureFlags.computerUseUX.title", defaultValue: "Computer Use UX"),
+                flagDescription: String(
+                    localized: "featureFlags.computerUseUX.description",
+                    defaultValue: "Shows the Computer Use menu-bar item and automatic onboarding."
+                ),
+                defaultWhenUnavailable: CmuxFeatureFlags.computerUseUXDefault
+            ),
+
             CmuxFeatureFlags.simulatorFlag,
 
             // FLAG(key: workspace-todo-controls-enabled-release, owner: lawrencecchen,
@@ -330,12 +346,16 @@ final class CmuxFeatureFlags {
         effectiveValue(for: Self.allFlags[5])
     }
 
+    var isComputerUseUXEnabled: Bool {
+        effectiveValue(for: Self.allFlags[6])
+    }
+
     var isSimulatorEnabled: Bool {
         effectiveValue(for: Self.simulatorFlag)
     }
 
     var isWorkspaceTodoControlsEnabled: Bool {
-        effectiveValue(for: Self.allFlags[7])
+        effectiveValue(for: Self.allFlags[8])
     }
 
     var isAppKitSidebarListEnabled: Bool {

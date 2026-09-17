@@ -1,5 +1,8 @@
 //! Screen-derived agent lifecycle detection.
 //!
+//! Detection semantics derived from herdr (https://github.com/herdrdev/herdr),
+//! Apache-2.0, commit 7b675f42af35, modified by manaflow.
+//!
 //! The daemon watches every PTY's output stream; when a terminal goes
 //! quiet (debounced), the foreground process name selects a vendored
 //! herdr manifest and the terminal tail is evaluated against it. State

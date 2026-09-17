@@ -1,5 +1,8 @@
 //! Daemon-side screen-detection scanner.
 //!
+//! Detection semantics derived from herdr (https://github.com/herdrdev/herdr),
+//! Apache-2.0, commit 7b675f42af35, modified by manaflow.
+//!
 //! One session-owned thread samples every live PTY's coalesced output
 //! revision on a fixed cadence. A terminal that stays on one revision for
 //! the debounce window is quiesced: its foreground process name picks a

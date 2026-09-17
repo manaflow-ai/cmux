@@ -153,6 +153,15 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         try fakeSSHScript.write(to: fakeSSH, atomically: true, encoding: .utf8)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
 
+        // Managed SSH startup artifacts pin the system OpenSSH executable. Keep
+        // that production security invariant, and substitute the fixture only
+        // in the generated test artifact rather than relying on PATH lookup.
+        let executableInitialCommand = try startupCommandUsingFakeSSH(
+            initialCommand,
+            fakeSSHPath: fakeSSH.path,
+            rewriteRoot: tempRoot
+        )
+
         var startupEnvironment = ProcessInfo.processInfo.environment
         startupEnvironment["HOME"] = tempRoot.path
         startupEnvironment["PATH"] = "\(fakeBin.path):/usr/bin:/bin:/usr/sbin:/sbin"
@@ -200,7 +209,7 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         let startupResults = (0..<2).map { _ in
             runProcess(
                 executablePath: "/bin/sh",
-                arguments: ["-c", initialCommand],
+                arguments: ["-c", executableInitialCommand],
                 environment: startupEnvironment,
                 timeout: 5
             )
@@ -257,6 +266,73 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
     private func requireExecutable(_ candidates: [String], name: String) throws -> String {
         guard let path = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else { throw XCTSkip("\(name) is not installed") }
         return path
+    }
+
+    private func startupCommandUsingFakeSSH(
+        _ startupCommand: String,
+        fakeSSHPath: String,
+        rewriteRoot: URL
+    ) throws -> String {
+        let systemSSHPath = "/usr/bin/ssh"
+        let trimmedCommand = startupCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        let commandURL = URL(fileURLWithPath: trimmedCommand)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        var isDirectory: ObjCBool = false
+
+        if FileManager.default.fileExists(atPath: commandURL.path, isDirectory: &isDirectory),
+           !isDirectory.boolValue {
+            let contents = try String(contentsOf: commandURL, encoding: .utf8)
+            guard contents.contains(systemSSHPath) else {
+                throw NSError(
+                    domain: "WorkspaceSSHFishShellTests",
+                    code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "Generated startup script did not pin (systemSSHPath)"]
+                )
+            }
+            let rewrittenURL = rewriteRoot.appendingPathComponent("startup-with-fake-ssh.sh")
+            try contents
+                .replacingOccurrences(of: systemSSHPath, with: fakeSSHPath)
+                .write(to: rewrittenURL, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o700],
+                ofItemAtPath: rewrittenURL.path
+            )
+            return rewrittenURL.path
+        }
+
+        if startupCommand.contains(systemSSHPath) {
+            return startupCommand.replacingOccurrences(of: systemSSHPath, with: fakeSSHPath)
+        }
+
+        // Reusable startup commands carry the script as one base64 literal.
+        let encodedPrefix = "(printf %s "
+        let encodedSuffix = " | base64"
+        if let prefixRange = startupCommand.range(of: encodedPrefix),
+           let suffixRange = startupCommand.range(
+               of: encodedSuffix,
+               range: prefixRange.upperBound..<startupCommand.endIndex
+           ) {
+            let encodedRange = prefixRange.upperBound..<suffixRange.lowerBound
+            let encodedScript = String(startupCommand[encodedRange])
+            if let scriptData = Data(base64Encoded: encodedScript),
+               let script = String(data: scriptData, encoding: .utf8),
+               script.contains(systemSSHPath) {
+                var rewrittenCommand = startupCommand
+                rewrittenCommand.replaceSubrange(
+                    encodedRange,
+                    with: Data(script.replacingOccurrences(of: systemSSHPath, with: fakeSSHPath).utf8)
+                        .base64EncodedString()
+                )
+                return rewrittenCommand
+            }
+        }
+
+        throw NSError(
+            domain: "WorkspaceSSHFishShellTests",
+            code: 2,
+            userInfo: [NSLocalizedDescriptionKey: "Generated startup command did not pin (systemSSHPath)"]
+        )
     }
 
     private func runProcess(

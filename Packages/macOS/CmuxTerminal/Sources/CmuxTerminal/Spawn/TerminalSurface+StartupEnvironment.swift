@@ -19,6 +19,19 @@ extension TerminalSurface {
     /// The managed `COLORTERM` value exported to spawned shells.
     public static let managedColorTerm = "truecolor"
 
+    /// Spawn-time fallback for the app-managed Computer Use setting.
+    public static let computerUseAppEnabledEnvironmentKey = "CMUX_COMPUTER_USE_APP_ENABLED"
+
+    /// The live computer-use authority read by every generated agent shim.
+    public static func computerUseLiveSettingFileURL(homeDirectory: URL) -> URL {
+        homeDirectory
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("cmux-cua", isDirectory: true)
+            .appendingPathComponent("enabled", isDirectory: false)
+    }
+
     private static let inheritedClaudeAuthSelectionEnvironmentKeys: Set<String> = [
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_MODEL",
