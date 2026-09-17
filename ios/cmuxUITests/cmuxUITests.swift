@@ -576,7 +576,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(scannerGuidance.waitForExistence(timeout: 4))
         XCTAssertEqual(
             scannerGuidance.label,
-            "Install Tailscale on both devices and use the same Tailscale network. On cmux 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code. On newer versions, open Tailscale Pairing and scan its code here."
+            "Install Tailscale on both devices and use the same Tailscale network. On cmux 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code. On newer versions, open Mobile Pairing and scan its code here."
         )
         XCTAssertTrue(scannerCancel.waitForExistence(timeout: 4))
         capture("onboarding-05-scanner-fallback")

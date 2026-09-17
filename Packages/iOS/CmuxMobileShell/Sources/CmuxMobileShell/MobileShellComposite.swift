@@ -5030,7 +5030,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return .needsUserApproval
         }
 
-        // An explicit in-app code entry (the Mac's Tailscale pairing window
+        // An explicit in-app code entry (the Mac's mobile pairing window
         // shows either the tokenless v1 compatibility ticket or the bare-route
         // v2 grammar) authorizes the exact Tailscale destinations it named.
         // External URL opens never mint this.
