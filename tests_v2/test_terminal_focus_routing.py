@@ -14,6 +14,7 @@ This test validates:
 
 import os
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -22,7 +23,6 @@ from cmux import cmux, cmuxError
 
 
 SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux-debug.sock")
-FOCUS_FILE = Path("/tmp/cmux_focus_routing.txt")
 
 
 def _focused_surface_id(c: cmux) -> str:
@@ -86,21 +86,21 @@ def _focus_and_wait(c: cmux, panel_id: str, *, total_timeout_s: float = 8.0) -> 
     raise cmuxError(f"Failed to focus terminal surface (panel_id={panel_id}): {last_err}")
 
 
-def _assert_routed_to_surface(c: cmux, expected_surface_id: str, panel_id: str) -> None:
+def _assert_routed_to_surface(c: cmux, expected_surface_id: str, panel_id: str, focus_file: Path) -> None:
     last_actual = "<empty>"
     for attempt in range(4):
         _focus_and_wait(c, panel_id, total_timeout_s=4.0)
-        if FOCUS_FILE.exists():
+        if focus_file.exists():
             try:
-                FOCUS_FILE.unlink()
+                focus_file.unlink()
             except Exception:
                 pass
 
         # Write the currently focused surface id into a well-known file.
-        c.simulate_type(f"echo $CMUX_SURFACE_ID > {FOCUS_FILE}")
+        c.simulate_type(f"echo $CMUX_SURFACE_ID > {focus_file}")
         c.simulate_shortcut("enter")
         try:
-            actual = _wait_for_file_content(FOCUS_FILE, timeout_s=3.0 + (attempt * 0.5))
+            actual = _wait_for_file_content(focus_file, timeout_s=3.0 + (attempt * 0.5))
         except cmuxError:
             actual = ""
         if actual == expected_surface_id:
@@ -114,6 +114,11 @@ def _assert_routed_to_surface(c: cmux, expected_surface_id: str, panel_id: str) 
 
 
 def main() -> int:
+    # mkstemp atomically creates the file (no TOCTOU window vs the deprecated
+    # mktemp); we only need the unique path, so close the fd immediately.
+    _focus_fd, _focus_path = tempfile.mkstemp(prefix="cmux_focus_routing_", suffix=".txt")
+    os.close(_focus_fd)
+    focus_file = Path(_focus_path)
     with cmux(SOCKET_PATH) as c:
         # Isolate from any user workspace state.
         c.new_workspace()
@@ -142,23 +147,23 @@ def main() -> int:
 
         # Focus left then right, verifying both first responder and input routing.
         _focus_and_wait(c, left_id, total_timeout_s=8.0)
-        _assert_routed_to_surface(c, left_id, left_id)
+        _assert_routed_to_surface(c, left_id, left_id, focus_file)
 
         _focus_and_wait(c, right_id, total_timeout_s=8.0)
-        _assert_routed_to_surface(c, right_id, right_id)
+        _assert_routed_to_surface(c, right_id, right_id, focus_file)
 
         # Stress: repeated split/close should never leave focus on a detached/hidden terminal.
         for _ in range(10):
             new_id = c.new_split("right")
             time.sleep(0.1)
             _focus_and_wait(c, new_id, total_timeout_s=8.0)
-            _assert_routed_to_surface(c, new_id, new_id)
+            _assert_routed_to_surface(c, new_id, new_id, focus_file)
 
             c.close_surface(new_id)
             time.sleep(0.25)
             focused = _focused_surface_id(c)
             _focus_and_wait(c, focused, total_timeout_s=8.0)
-            _assert_routed_to_surface(c, focused, focused)
+            _assert_routed_to_surface(c, focused, focused, focus_file)
 
     print("PASS: terminal focus routing")
     return 0

@@ -1,0 +1,15 @@
+{
+  "description": "A dedicated workspace with a notification already posted to it and an attention flash triggered, so notification mirror/dismiss-sync (Mac <-> phone) has real state to exercise. --id-format uuids makes the captured workspace_id a stable UUID.",
+  "steps": [
+    {
+      "args": ["--id-format", "uuids", "workspace", "create", "--name", "Notif", "--cwd", "${cwd}", "--json"],
+      "capture": { "ws": "workspace_id" }
+    },
+    {
+      "args": ["notify", "--workspace", "${ws}", "--title", "Dev notification", "--body", "Seeded by the notif dev profile"]
+    },
+    {
+      "args": ["trigger-flash", "--workspace", "${ws}"]
+    }
+  ]
+}

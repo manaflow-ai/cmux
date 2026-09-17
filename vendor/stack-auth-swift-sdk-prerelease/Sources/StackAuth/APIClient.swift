@@ -135,6 +135,7 @@ actor APIClient {
     let publishableClientKey: String
     let secretServerKey: String?
     private let tokenStore: any TokenStoreProtocol
+    private let session: URLSession
     
     private static let sdkVersion = "1.0.0"
     
@@ -143,13 +144,15 @@ actor APIClient {
         projectId: String,
         publishableClientKey: String,
         secretServerKey: String? = nil,
-        tokenStore: any TokenStoreProtocol
+        tokenStore: any TokenStoreProtocol,
+        session: URLSession = .shared
     ) {
         self.baseUrl = baseUrl.hasSuffix("/") ? String(baseUrl.dropLast()) : baseUrl
         self.projectId = projectId
         self.publishableClientKey = publishableClientKey
         self.secretServerKey = secretServerKey
         self.tokenStore = tokenStore
+        self.session = session
     }
     
     // MARK: - Request Methods
@@ -169,6 +172,7 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.timeoutInterval = 30 // fail fast instead of hanging ~60s when offline mid-flow
         
         // Required headers
         request.setValue(projectId, forHTTPHeaderField: "x-stack-project-id")
@@ -214,10 +218,11 @@ actor APIClient {
         request: URLRequest,
         authenticated: Bool,
         tokenStore: any TokenStoreProtocol,
-        attempt: Int = 0
+        attempt: Int = 0,
+        didRefreshAccessToken: Bool = false
     ) async throws -> (Data, HTTPURLResponse) {
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await session.data(for: request)
             
             guard let httpResponse = response as? HTTPURLResponse else {
                 throw StackAuthError(code: "invalid_response", message: "Invalid HTTP response")
@@ -233,36 +238,38 @@ actor APIClient {
             }
             
             // Handle 401 with token refresh
-            if actualStatus == 401 && authenticated {
+            if actualStatus == 401 && authenticated && !didRefreshAccessToken {
                 // Check if it's an invalid access token error
                 if let errorCode = httpResponse.value(forHTTPHeaderField: "x-stack-known-error"),
                    errorCode == "invalid_access_token" {
-                    // Try to refresh token
-                    let tokens = await fetchNewAccessToken(tokenStore: tokenStore)
+                    // Try to refresh the token once. The failed token is used
+                    // by the refresh lock to let concurrent 401s reuse the
+                    // token that the first waiter already installed.
+                    let failedAccessToken = request.value(forHTTPHeaderField: "x-stack-access-token")
+                    let tokens = await fetchNewAccessToken(
+                        tokenStore: tokenStore,
+                        ifAccessTokenUnchangedFrom: failedAccessToken
+                    )
                     if tokens.accessToken != nil {
                         // Retry with new token
                         var newRequest = request
                         newRequest.setValue(tokens.accessToken, forHTTPHeaderField: "x-stack-access-token")
-                        return try await sendWithRetry(request: newRequest, authenticated: authenticated, tokenStore: tokenStore, attempt: 0)
+                        return try await sendWithRetry(
+                            request: newRequest,
+                            authenticated: authenticated,
+                            tokenStore: tokenStore,
+                            attempt: 0,
+                            didRefreshAccessToken: true
+                        )
                     }
                 }
             }
             
-            // Handle rate limiting (max 5 retries)
-            if actualStatus == 429 && attempt < 5 {
-                if let retryAfter = httpResponse.value(forHTTPHeaderField: "Retry-After"),
-                   let seconds = Double(retryAfter) {
-                    // Use Retry-After header if provided
-                    try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-                } else {
-                    // No Retry-After header: use exponential backoff (1s, 2s, 4s, 8s, 16s)
-                    let delayMs = 1000.0 * pow(2.0, Double(attempt))
-                    try await Task.sleep(nanoseconds: UInt64(delayMs * 1_000_000))
-                }
-                return try await sendWithRetry(request: request, authenticated: authenticated, tokenStore: tokenStore, attempt: attempt + 1)
-            }
-            
-            // Rate limit exhausted after max retries
+            // A provider 429 is already a backpressure signal. Retrying it in
+            // the SDK multiplies one app request into six upstream requests,
+            // and the callers cannot see the Retry-After until that burst has
+            // finished. Return the typed error immediately so the app-level
+            // coordinator owns any deliberate, bounded recovery.
             if actualStatus == 429 {
                 throw StackAuthError(code: "RATE_LIMITED", message: "Too many requests, please try again later")
             }
@@ -270,7 +277,9 @@ actor APIClient {
             // Check for known error
             if let errorCode = httpResponse.value(forHTTPHeaderField: "x-stack-known-error") {
                 let errorData = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-                let message = errorData?["message"] as? String ?? "Unknown error"
+                let message = errorData?["message"] as? String
+                    ?? errorData?["error"] as? String
+                    ?? "Unknown error"
                 let details = errorData?["details"] as? [String: Any]
                 throw StackAuthError.from(code: errorCode, message: message, details: details)
             }
@@ -289,20 +298,47 @@ actor APIClient {
             if idempotent && attempt < 5 {
                 let delay = pow(2.0, Double(attempt)) * 1.0 // Exponential backoff
                 try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-                return try await sendWithRetry(request: request, authenticated: authenticated, tokenStore: tokenStore, attempt: attempt + 1)
+                return try await sendWithRetry(
+                    request: request,
+                    authenticated: authenticated,
+                    tokenStore: tokenStore,
+                    attempt: attempt + 1,
+                    didRefreshAccessToken: didRefreshAccessToken
+                )
             }
             throw StackAuthError(code: "network_error", message: error.localizedDescription)
         }
     }
     
     // MARK: - Token Refresh
-    
-    /// Performs the actual token refresh request.
-    /// Returns (wasValid, newAccessToken) where wasValid indicates if the refresh token was valid.
-    private func refresh(refreshToken: String) async -> (wasValid: Bool, accessToken: String?) {
+
+    /// Classified outcome of a refresh-token exchange.
+    ///
+    /// The distinction is load-bearing: only ``definitivelyRejected`` means the
+    /// refresh token is genuinely no longer accepted by the server, so it is the
+    /// *only* outcome that may clear stored tokens. ``transientFailure`` (offline,
+    /// timeout, DNS, 5xx, malformed body, any `URLError`) must preserve tokens so
+    /// a momentary network blip never silently signs the user out — a retry once
+    /// the network recovers will succeed against the same refresh token.
+    enum RefreshOutcome {
+        /// The server minted a new access token.
+        case success(accessToken: String)
+        /// The server rejected the refresh token (HTTP 400/401, e.g. `invalid_grant`).
+        /// The refresh token will never work again; clearing is correct.
+        case definitivelyRejected
+        /// The refresh could not be completed for a reason that is not the token's
+        /// fault (network/server). Tokens must be preserved and the caller retried.
+        case transientFailure
+    }
+
+    /// Performs the actual token refresh request, classifying the result so the
+    /// caller can preserve tokens on transient failures and clear them only on a
+    /// genuine server rejection.
+    private func refresh(refreshToken: String) async -> RefreshOutcome {
         let url = URL(string: "\(baseUrl)/api/v1/auth/oauth/token")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.timeoutInterval = 30 // fail fast instead of hanging ~60s when offline mid-flow
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.setValue(projectId, forHTTPHeaderField: "x-stack-project-id")
         request.setValue(publishableClientKey, forHTTPHeaderField: "x-stack-publishable-client-key")
@@ -314,25 +350,39 @@ actor APIClient {
             "client_id=\(formURLEncode(projectId))",
             "client_secret=\(formURLEncode(publishableClientKey))"
         ].joined(separator: "&")
-        
+
         request.httpBody = body.data(using: .utf8)
-        
+
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            
-            guard let httpResponse = response as? HTTPURLResponse,
-                  httpResponse.statusCode == 200 else {
-                return (wasValid: false, accessToken: nil)
+            let (data, response) = try await session.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                return .transientFailure
             }
-            
-            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let newAccessToken = json["access_token"] as? String else {
-                return (wasValid: false, accessToken: nil)
+
+            if httpResponse.statusCode == 200 {
+                guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let newAccessToken = json["access_token"] as? String else {
+                    // 200 with an unparseable body is a server anomaly, not a
+                    // rejected token. Keep the refresh token and let the caller
+                    // retry rather than silently signing the user out.
+                    return .transientFailure
+                }
+                return .success(accessToken: newAccessToken)
             }
-            
-            return (wasValid: true, accessToken: newAccessToken)
+
+            // The OAuth token endpoint returns 400 (e.g. `invalid_grant`) or 401
+            // when the refresh token itself is no longer valid. Those are the only
+            // codes that mean "this token will never work again". Everything else
+            // (5xx, 429, redirects, unexpected) is treated as transient.
+            if httpResponse.statusCode == 400 || httpResponse.statusCode == 401 {
+                return .definitivelyRejected
+            }
+            return .transientFailure
         } catch {
-            return (wasValid: false, accessToken: nil)
+            // URLError and friends (offline, timeout, DNS, cancelled) are never the
+            // refresh token's fault. Preserve tokens; the caller retries.
+            return .transientFailure
         }
     }
     
@@ -349,9 +399,20 @@ actor APIClient {
     func clearTokens() async {
         await tokenStore.clearTokens()
     }
-    
+
     func clearTokens(tokenStoreOverride: any TokenStoreProtocol) async {
         await tokenStoreOverride.clearTokens()
+    }
+
+    /// Compare-and-clear: clears the stored tokens only while the stored
+    /// refresh token still equals `refreshToken`, atomically at the token
+    /// store (`TokenStoreProtocol.compareAndSet`).
+    func clearTokens(ifRefreshTokenEquals refreshToken: String) async {
+        await tokenStore.compareAndSet(
+            compareRefreshToken: refreshToken,
+            newRefreshToken: nil,
+            newAccessToken: nil
+        )
     }
     
     /// Gets tokens, refreshing if needed. See spec for algorithm.
@@ -392,9 +453,8 @@ actor APIClient {
                 result = TokenPair(refreshToken: refreshToken, accessToken: originalAccessToken)
             } else {
                 // Need to refresh
-                let (wasValid, newAccessToken) = await refresh(refreshToken: refreshToken)
-                
-                if wasValid, let newToken = newAccessToken {
+                switch await refresh(refreshToken: refreshToken) {
+                case .success(let newToken):
                     // Refresh succeeded - update tokens atomically
                     await ts.compareAndSet(
                         compareRefreshToken: refreshToken,
@@ -402,14 +462,26 @@ actor APIClient {
                         newAccessToken: newToken
                     )
                     result = TokenPair(refreshToken: refreshToken, accessToken: newToken)
-                } else {
-                    // Refresh failed - clear tokens atomically
+                case .definitivelyRejected:
+                    // The server rejected the refresh token; it will never work
+                    // again. Clear both tokens so the user is prompted to re-auth.
                     await ts.compareAndSet(
                         compareRefreshToken: refreshToken,
                         newRefreshToken: nil,
                         newAccessToken: nil
                     )
                     result = TokenPair(refreshToken: nil, accessToken: nil)
+                case .transientFailure:
+                    // Network/server hiccup. PRESERVE the refresh token so a retry
+                    // after recovery succeeds, and never silently sign the user out.
+                    // Return the original access token only if it is still usable;
+                    // a proactive refresh fires every 75s of token age (see
+                    // `isTokenFreshEnough`) while the token is valid for ~1h, so the
+                    // common transient-failure case still has a good token. When the
+                    // token is genuinely expired, return nil access + non-nil refresh
+                    // so the caller can classify "recoverable" without decoding a JWT.
+                    let usableAccessToken = isTokenExpired(originalAccessToken) ? nil : originalAccessToken
+                    result = TokenPair(refreshToken: refreshToken, accessToken: usableAccessToken)
                 }
             }
         }
@@ -428,29 +500,55 @@ actor APIClient {
         return await fetchNewAccessToken(tokenStore: tokenStoreOverride)
     }
     
-    private func fetchNewAccessToken(tokenStore ts: any TokenStoreProtocol) async -> TokenPair {
+    private func fetchNewAccessToken(
+        tokenStore ts: any TokenStoreProtocol,
+        ifAccessTokenUnchangedFrom failedAccessToken: String? = nil
+    ) async -> TokenPair {
         // Acquire lock to ensure only one refresh per token store
         await RefreshLockManager.shared.acquireLock(for: ts)
         
         let result: TokenPair
         
-        if let refreshToken = await ts.getStoredRefreshToken() {
-            let (wasValid, newAccessToken) = await refresh(refreshToken: refreshToken)
-            
-            if wasValid, let newToken = newAccessToken {
+        let currentAccessToken = await ts.getStoredAccessToken()
+        let currentRefreshToken = await ts.getStoredRefreshToken()
+
+        // Several requests can receive the same expired access token before
+        // the first refresh finishes. Once the lock opens, reuse that newer
+        // access token instead of exchanging the same refresh token again.
+        if let failedAccessToken,
+           let currentAccessToken,
+           currentAccessToken != failedAccessToken,
+           !isTokenExpired(currentAccessToken) {
+            result = TokenPair(
+                refreshToken: currentRefreshToken,
+                accessToken: currentAccessToken
+            )
+        } else if let refreshToken = currentRefreshToken {
+            switch await refresh(refreshToken: refreshToken) {
+            case .success(let newToken):
                 await ts.compareAndSet(
                     compareRefreshToken: refreshToken,
                     newRefreshToken: refreshToken,
                     newAccessToken: newToken
                 )
                 result = TokenPair(refreshToken: refreshToken, accessToken: newToken)
-            } else {
+            case .definitivelyRejected:
                 await ts.compareAndSet(
                     compareRefreshToken: refreshToken,
                     newRefreshToken: nil,
                     newAccessToken: nil
                 )
                 result = TokenPair(refreshToken: nil, accessToken: nil)
+            case .transientFailure:
+                // Preserve the refresh token on a network/server hiccup; the caller
+                // retries later instead of being signed out (compareAndSet is NOT
+                // called, so the store keeps both tokens). Return nil access
+                // deliberately: this "force a NEW token" path runs only after the
+                // stored access token was just rejected (401 invalid_access_token in
+                // sendWithRetry), so handing it back would make the caller re-send the
+                // same dead token in a tight 401 loop. nil means "no new token right
+                // now"; the still-valid refresh token stays in the store for next time.
+                result = TokenPair(refreshToken: refreshToken, accessToken: nil)
             }
         } else {
             result = TokenPair(refreshToken: nil, accessToken: nil)
@@ -476,9 +574,18 @@ actor APIClient {
     func getRefreshToken() async -> String? {
         return await tokenStore.getStoredRefreshToken()
     }
-    
+
     func getRefreshToken(tokenStoreOverride: any TokenStoreProtocol) async -> String? {
         return await tokenStoreOverride.getStoredRefreshToken()
+    }
+
+    /// Get the access token exactly as stored (no freshness check, no refresh).
+    func getStoredAccessToken() async -> String? {
+        return await tokenStore.getStoredAccessToken()
+    }
+
+    func getStoredAccessToken(tokenStoreOverride: any TokenStoreProtocol) async -> String? {
+        return await tokenStoreOverride.getStoredAccessToken()
     }
 }
 

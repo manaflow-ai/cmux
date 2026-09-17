@@ -1,11 +1,22 @@
-import Foundation
+import AppKit
+import CmuxBrowser
+import CmuxFoundation
 import Combine
+import Foundation
+
+enum MarkdownPanelDisplayMode: String, CaseIterable, Identifiable {
+    case preview
+    case text
+
+    var id: String { rawValue }
+}
 
 /// A panel that renders a markdown file with live file-watching.
 /// When the file changes on disk, the content is automatically reloaded.
 @MainActor
-final class MarkdownPanel: Panel, ObservableObject {
+final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel {
     let id: UUID
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .markdown
 
     /// Absolute path to the markdown file being displayed.
@@ -16,6 +27,18 @@ final class MarkdownPanel: Panel, ObservableObject {
 
     /// Current markdown content read from the file.
     @Published private(set) var content: String = ""
+
+    /// Current raw text shown by the TextEdit mode.
+    @Published private(set) var textContent: String = ""
+
+    /// Whether TextEdit mode has unsaved changes.
+    @Published private(set) var isDirty: Bool = false
+
+    /// Whether TextEdit mode is saving to disk.
+    @Published private(set) var isSaving: Bool = false
+
+    /// The current view mode for this markdown panel. New panels default to preview.
+    @Published private(set) var displayMode: MarkdownPanelDisplayMode = .preview
 
     /// Title shown in the tab bar (filename).
     @Published private(set) var displayTitle: String = ""
@@ -29,50 +52,392 @@ final class MarkdownPanel: Panel, ObservableObject {
     /// Token incremented to trigger focus flash animation.
     @Published private(set) var focusFlashToken: Int = 0
 
+    /// Body font size for the preview renderer, in points. Drives the
+    /// WKWebView `pageZoom` so `--font-size` and Cmd-+/Cmd-- scale the rendered
+    /// document the way browser zoom scales a browser surface. Per-panel and
+    /// transient; the persistent default lives in `MarkdownFontSizeSettings`.
+    @Published private(set) var fontSize: Double
+
+    /// Body prose font family for the preview renderer, as an installed
+    /// font-family name. Empty string means the System default (the GitHub
+    /// stack). Applied as an inline `font-family` on the rendered content; code
+    /// blocks stay monospace. Per-panel; the persistent default lives in
+    /// `MarkdownFontFamily`.
+    @Published private(set) var fontFamily: String
+
+    /// Maximum width for the rendered markdown content column, in CSS pixels.
+    /// Per-panel and transient; the persistent default lives in
+    /// `MarkdownMaxWidthSettings`.
+    @Published private(set) var maxContentWidth: Double
+
+    /// Stable markdown renderer state. Keep this panel-owned so split/tab
+    /// layout churn does not recreate the WKWebView and flash existing content.
+    let rendererSession = MarkdownRendererSession()
+    /// Serializes file reads while retaining only the newest refresh request.
+    /// The loader itself is bounded and runs off the main actor.
+    private let textLoadCoordinator = FilePreviewLatestLoadCoordinator<FilePreviewTextLoader.Result>()
+
+    // MARK: - Find in preview
+
+    /// Find-in-page state for the rendered preview. Non-nil when the find bar
+    /// is visible. Uses the browser find machinery (`BrowserFindService` +
+    /// `BrowserSearchOverlay`) against the preview WKWebView.
+    @Published var searchState: BrowserSearchState? {
+        didSet { handleSearchStateChange(oldValue: oldValue) }
+    }
+
+    /// Incremented whenever find focus ownership changes, so stale async
+    /// focus requests posted before a hide/re-show can never steal focus.
+    @Published var searchFocusRequestGeneration: UInt64 = 0
+
+    /// The generation currently allowed to claim the find field. Leaving the
+    /// pane clears this lease even though the monotonic counter continues, so
+    /// a newly mounted overlay cannot mistake an invalidated request for a
+    /// fresh one.
+    var activeSearchFocusRequestGeneration: UInt64?
+
+    private var searchNeedleCancellable: AnyCancellable?
+    var lastSearchNeedle = ""
+    private lazy var findService = BrowserFindService(
+        evaluator: MarkdownFindWebViewEvaluator(panel: self)
+    )
+
     // MARK: - File watching
 
-    // nonisolated(unsafe) because deinit is not guaranteed to run on the
-    // main actor, but DispatchSource.cancel() is thread-safe.
-    private nonisolated(unsafe) var fileWatchSource: DispatchSourceFileSystemObject?
-    private var fileDescriptor: Int32 = -1
-    private var isClosed: Bool = false
-    private let watchQueue = DispatchQueue(label: "com.cmux.markdown-file-watch", qos: .utility)
-
-    /// Maximum number of reattach attempts after a file delete/rename event.
-    private static let maxReattachAttempts = 6
-    /// Delay between reattach attempts (total window: attempts * delay = 3s).
-    private static let reattachDelay: TimeInterval = 0.5
+    var fileContentChangeCoordinator: FileContentChangeCoordinator
+    var fileContentObservationID: UUID?
+    var fileContentObservationLifetime: FileContentObservationLifetime?
+    var lastObservedFileState: FilePreviewFileState?
+    private var originalTextContent: String = ""
+    private var textEncoding: String.Encoding = .utf8
+    private var saveGeneration: Int = 0
+    private var activeSaveGeneration: Int?
+    private var textLoadGeneration: Int = 0
+    private var textEditGeneration: Int = 0
+    private var staleReadRetryCount = 0
+    private let maximumStaleReadRetries = 3
+    private var pendingSearchNeedle: String?
+    /// Set when activation asks a preview panel to focus before SwiftUI has
+    /// mounted its WKWebView. The renderer fulfills this at window attach.
+    var pendingPreviewFocus = false
+    weak var textView: NSTextView?
+    private let selectionReader = NativeTextSurfaceSelectionReader()
+    var isClosed: Bool = false
+    // NotificationCenter token; removal is thread-safe so deinit can drop it.
+    private nonisolated(unsafe) var typographyDefaultsObserver: NSObjectProtocol?
+    // The typography default this viewer is currently tracking. While the panel
+    // still matches it, a default change (Set as Default / cmux.json reload) is
+    // adopted; once the user customizes the panel it diverges and is left alone.
+    private var followedFontSize: Double
+    private var followedFontFamily: String
+    private var followedMaxContentWidth: Double
+    /// Injected text loading keeps the panel's asynchronous read path
+    /// deterministic in behavior tests while the default remains the
+    /// off-main, unbounded Markdown loader.
+    private let textLoader: @Sendable (URL) async -> FilePreviewTextLoader.Result
 
     // MARK: - Init
 
-    init(workspaceId: UUID, filePath: String) {
+    /// - Parameter fontSize: Initial body font size in points. When `nil`, the
+    ///   panel uses the persistent `markdown.fontSize` default. The value is
+    ///   clamped to the supported range.
+    init(
+        workspaceId: UUID,
+        filePath: String,
+        fontSize: Double? = nil,
+        fileContentChangeCoordinator: FileContentChangeCoordinator? = nil,
+        textLoader: @escaping @Sendable (URL) async -> FilePreviewTextLoader.Result = { url in
+            await FilePreviewTextLoader.load(
+                url: url,
+                maximumBytes: nil,
+                decodeUTF16: false
+            )
+        }
+    ) {
+        let defaultSize = MarkdownFontSizeSettings.resolvedDefault()
+        let defaultFamily = MarkdownFontFamily.resolvedDefault()
+        let defaultMaxWidth = MarkdownMaxWidthSettings.resolvedDefault()
         self.id = UUID()
         self.workspaceId = workspaceId
         self.filePath = filePath
+        self.fontSize = MarkdownFontSizeSettings.clamp(fontSize ?? defaultSize)
+        self.fontFamily = defaultFamily
+        self.maxContentWidth = defaultMaxWidth
+        self.followedFontSize = defaultSize
+        self.followedFontFamily = defaultFamily
+        self.followedMaxContentWidth = defaultMaxWidth
+        self.textLoader = textLoader
         self.displayTitle = (filePath as NSString).lastPathComponent
+        self.fileContentChangeCoordinator =
+            fileContentChangeCoordinator ?? FileContentChangeCoordinator()
 
-        loadFileContent()
-        startFileWatcher()
-        if isFileUnavailable && fileWatchSource == nil {
-            // Session restore can create a panel before the file is recreated.
-            // Retry briefly so atomic-rename recreations can reconnect.
-            scheduleReattach(attempt: 1)
+        // Initial disk hydration must not overwrite edits made while a large
+        // file is loading; explicit reload/revert paths retain the destructive
+        // default through `loadTextContent(replacingDirtyContent:)`.
+        // Seed the observation fingerprint before registration so the
+        // coordinator's initial reconciliation does not enqueue a duplicate
+        // full-file read when the file has not changed.
+        lastObservedFileState = .capture(path: filePath)
+        _ = loadFileContent(replacingDirtyContent: false)
+        startWatchingForFileChanges()
+        observeTypographyDefaults()
+        rendererSession.onMarkdownRendered = { [weak self] in
+            self?.replayPendingPreviewFocusAfterWindowAttach()
+            self?.replayActiveFindAfterRender()
         }
+    }
+
+    func findNext() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.applyFindMatchCount(await self.findService.next())
+        }
+    }
+
+    func findPrevious() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.applyFindMatchCount(await self.findService.previous())
+        }
+    }
+
+    private func handleSearchStateChange(oldValue: BrowserSearchState?) {
+        if let searchState {
+            searchNeedleCancellable = searchState.$needle
+                .removeDuplicates()
+                .map { needle -> AnyPublisher<String, Never> in
+                    // Search instantly for empty (clear) and 3+ character
+                    // needles; debounce 1-2 character needles, which light up
+                    // far too many matches to be useful while mid-word.
+                    if needle.isEmpty || needle.count >= 3 {
+                        return Just(needle).eraseToAnyPublisher()
+                    }
+                    return Just(needle)
+                        .delay(for: .milliseconds(300), scheduler: DispatchQueue.main)
+                        .eraseToAnyPublisher()
+                }
+                .switchToLatest()
+                .sink { [weak self] needle in
+                    self?.executeFindSearch(needle)
+                }
+        } else if let oldValue {
+            lastSearchNeedle = oldValue.needle
+            searchNeedleCancellable = nil
+            invalidateSearchFocusRequests()
+            executeFindClear()
+        }
+    }
+
+    private func executeFindSearch(_ needle: String) {
+        guard !needle.isEmpty else {
+            executeFindClear()
+            searchState?.selected = nil
+            searchState?.total = nil
+            return
+        }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.applyFindMatchCount(await self.findService.search(needle: needle))
+        }
+    }
+
+    private func executeFindClear() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.findService.clear()
+        }
+    }
+
+    private func applyFindMatchCount(_ count: BrowserFindMatchCount?) {
+        guard let count else { return }
+        searchState?.total = count.total
+        searchState?.selected = count.selected
+    }
+
+    /// A content re-render replaces the preview DOM, wiping `<mark>` find
+    /// highlights. Re-run the active search so counts and highlights recover.
+    private func replayActiveFindAfterRender() {
+        guard let state = searchState, !state.needle.isEmpty else { return }
+        state.selected = nil
+        state.total = nil
+        executeFindSearch(state.needle)
+    }
+
+    /// Adopt a changed typography default (from another viewer's "Set as Default"
+    /// or a `cmux.json` reload), but only while this viewer still matches the
+    /// default it was tracking — i.e. the user has not customized it.
+    private func observeTypographyDefaults() {
+        typographyDefaultsObserver = NotificationCenter.default.addUserDefaultsObserver(object: UserDefaults.standard) { [weak self] in
+            Task { @MainActor in
+                self?.adoptTypographyDefaultsIfFollowing()
+            }
+        }
+    }
+
+    private func adoptTypographyDefaultsIfFollowing() {
+        guard !isClosed else { return }
+        // Only viewers still tracking the default follow the change.
+        guard abs(fontSize - followedFontSize) < 0.01,
+              fontFamily == followedFontFamily,
+              abs(maxContentWidth - followedMaxContentWidth) < 0.01 else { return }
+        let newSize = MarkdownFontSizeSettings.resolvedDefault()
+        let newFamily = MarkdownFontFamily.resolvedDefault()
+        let newMaxWidth = MarkdownMaxWidthSettings.resolvedDefault()
+        _ = setFontSize(newSize)
+        _ = setFontFamily(newFamily)
+        _ = setMaxContentWidth(newMaxWidth)
+        followedFontSize = newSize
+        followedFontFamily = newFamily
+        followedMaxContentWidth = newMaxWidth
+    }
+
+    // MARK: - Font size / zoom
+
+    /// Increases the preview font size by one step. Returns `true` if the size
+    /// changed (so callers can beep when already at the maximum).
+    @discardableResult
+    func zoomIn() -> Bool {
+        setFontSize(fontSize + MarkdownFontSizeSettings.stepPointSize)
+    }
+
+    /// Decreases the preview font size by one step. Returns `true` if the size
+    /// changed (so callers can beep when already at the minimum).
+    @discardableResult
+    func zoomOut() -> Bool {
+        setFontSize(fontSize - MarkdownFontSizeSettings.stepPointSize)
+    }
+
+    /// Resets the preview font size to the configured `markdown.fontSize`
+    /// default. Returns `true` if the size changed.
+    @discardableResult
+    func resetZoom() -> Bool {
+        setFontSize(MarkdownFontSizeSettings.resolvedDefault())
+    }
+
+    /// Sets the preview font size to an explicit point value (clamped). Used by
+    /// the header font-size popover's manual entry. Returns `true` if changed.
+    @discardableResult
+    func setFontSize(_ candidate: Double) -> Bool {
+        let clamped = MarkdownFontSizeSettings.clamp(candidate)
+        guard abs(clamped - fontSize) > 0.0001 else { return false }
+        fontSize = clamped
+        return true
+    }
+
+    /// Sets the preview body prose font family (an installed font-family name,
+    /// or empty for the System default). Returns `true` if changed.
+    @discardableResult
+    func setFontFamily(_ family: String) -> Bool {
+        let normalized = MarkdownFontFamily.normalized(family)
+        guard normalized != fontFamily else { return false }
+        fontFamily = normalized
+        return true
+    }
+
+    /// Sets the rendered markdown content column max width, in CSS pixels.
+    /// Returns `true` if changed.
+    @discardableResult
+    func setMaxContentWidth(_ candidate: Double) -> Bool {
+        let clamped = MarkdownMaxWidthSettings.clamp(candidate)
+        guard abs(clamped - maxContentWidth) > 0.0001 else { return false }
+        maxContentWidth = clamped
+        return true
+    }
+
+    /// Resets typography to the configured defaults. Used by the popover's
+    /// "Reset to default" action.
+    func resetTypography() {
+        let defaultSize = MarkdownFontSizeSettings.resolvedDefault()
+        let defaultFamily = MarkdownFontFamily.resolvedDefault()
+        let defaultMaxWidth = MarkdownMaxWidthSettings.resolvedDefault()
+        _ = setFontSize(defaultSize)
+        _ = setFontFamily(defaultFamily)
+        _ = setMaxContentWidth(defaultMaxWidth)
+        followedFontSize = defaultSize
+        followedFontFamily = defaultFamily
+        followedMaxContentWidth = defaultMaxWidth
+    }
+
+    /// Clears persisted markdown typography defaults and resets this viewer to
+    /// the built-in app defaults.
+    func resetTypographyToBuiltInDefaults() {
+        MarkdownTypographyDefaults.resetToBuiltInDefaults()
+        _ = setFontSize(MarkdownFontSizeSettings.defaultPointSize)
+        _ = setFontFamily(MarkdownFontFamily.systemDefault)
+        _ = setMaxContentWidth(MarkdownMaxWidthSettings.defaultCSSPixels)
+        followedFontSize = MarkdownFontSizeSettings.defaultPointSize
+        followedFontFamily = MarkdownFontFamily.systemDefault
+        followedMaxContentWidth = MarkdownMaxWidthSettings.defaultCSSPixels
     }
 
     // MARK: - Panel protocol
 
     func focus() {
-        // Markdown panel is read-only; no first responder to manage.
+        if displayMode == .text {
+            pendingPreviewFocus = false
+            _ = textView?.window?.makeFirstResponder(textView)
+            applyPendingSearchNeedleIfPossible()
+            return
+        }
+        // Preview mode: the rendered web view is the panel's keyboard
+        // surface. Taking first responder on activation is what moves the
+        // keyboard out of wherever it was (for example the right-sidebar
+        // file list after a click- or drag-open), so the find/shortcut
+        // router targets this panel — the same behavior terminal and
+        // browser panels have. No-op while the web view is not mounted;
+        // the drop/open paths also hand off focus at the coordinator level.
+        guard let webView = rendererSession.webView, let window = webView.window else {
+            pendingPreviewFocus = true
+            return
+        }
+        let didBecomeFirstResponder = window.makeFirstResponder(webView)
+            && window.firstResponder === webView
+        pendingPreviewFocus = !didBecomeFirstResponder
     }
 
-    func unfocus() {
-        // No-op for read-only panel.
+    /// Completes a preview focus request recorded before the renderer view was
+    /// attached to its window. The callback is event-driven, so it cannot
+    /// steal focus after this panel has been unfocused in the meantime.
+    func replayPendingPreviewFocusAfterWindowAttach() {
+        guard pendingPreviewFocus, displayMode == .preview else { return }
+        focus()
     }
 
+    /// Closes the panel and tears down its renderer and file watcher.
     func close() {
+        unfocus()
         isClosed = true
-        stopFileWatcher()
+        pendingPreviewFocus = false
+        searchState = nil
+        rendererSession.close()
+        textLoadCoordinator.cancel()
+        selectionReader.close()
+        GlobalSearchCoordinator.shared.purgePanel(id: id)
+        textView = nil
+        stopWatchingForFileChanges()
+        if let typographyDefaultsObserver {
+            NotificationCenter.default.removeObserver(typographyDefaultsObserver)
+            self.typographyDefaultsObserver = nil
+        }
+    }
+
+    func updateWorkspaceId(
+        _ workspaceId: UUID,
+        fileContentChangeCoordinator: FileContentChangeCoordinator
+    ) {
+        self.workspaceId = workspaceId
+        guard self.fileContentChangeCoordinator !== fileContentChangeCoordinator else {
+            if fileContentObservationID == nil, !isClosed {
+                startWatchingForFileChanges()
+            }
+            return
+        }
+        let wasWatching = fileContentObservationID != nil
+        stopWatchingForFileChanges()
+        self.fileContentChangeCoordinator = fileContentChangeCoordinator
+        if wasWatching, !isClosed {
+            startWatchingForFileChanges()
+        }
     }
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
@@ -81,104 +446,261 @@ final class MarkdownPanel: Panel, ObservableObject {
         focusFlashToken += 1
     }
 
+    func setDisplayMode(_ mode: MarkdownPanelDisplayMode) {
+        guard displayMode != mode else { return }
+        displayMode = mode
+        if mode == .text {
+            // The find bar and its highlights belong to the preview surface;
+            // text mode has the NSTextView's native find panel instead.
+            hideFind()
+            focus()
+        }
+    }
+
+    func readSurfaceSelection() async -> SurfaceSelectionReadResult {
+        switch displayMode {
+        case .text:
+            return .snapshot(await selectionReader.read(
+                textView: textView,
+                kind: .markdown,
+                filePath: filePath
+            ))
+        case .preview:
+            return await rendererSession.readSurfaceSelection(filePath: filePath)
+        }
+    }
+
+    /// Re-reads the file without discarding an unsaved TextEdit buffer.
+    @discardableResult
+    func reloadFromDisk() -> Task<Void, Never> {
+        loadFileContent(replacingDirtyContent: false)
+    }
+
+    func attachTextView(_ textView: NSTextView) {
+        self.textView = textView
+    }
+
+    func retryPendingFocus() {
+        focus()
+    }
+
+    func applySearchNeedle(_ needle: String) {
+        let trimmed = needle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        pendingSearchNeedle = trimmed
+        setDisplayMode(.text)
+        applyPendingSearchNeedleIfPossible()
+    }
+
+    func updateTextContent(_ nextContent: String) {
+        guard textContent != nextContent else { return }
+        textEditGeneration &+= 1
+        textContent = nextContent
+        content = nextContent
+        isDirty = nextContent != originalTextContent
+        GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
+    }
+
+    @discardableResult
+    func loadTextContent(replacingDirtyContent: Bool = true) -> Task<Void, Never>? {
+        loadFileContent(replacingDirtyContent: replacingDirtyContent)
+    }
+
+    @discardableResult
+    func saveTextContent() -> Task<Void, Never>? {
+        guard !isSaving else { return nil }
+        let currentContent = textView?.string ?? textContent
+        guard currentContent != originalTextContent else {
+            textContent = currentContent
+            content = currentContent
+            isDirty = false
+            GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
+            return nil
+        }
+
+        textLoadCoordinator.cancel()
+        textLoadGeneration &+= 1
+        saveGeneration += 1
+        let generation = saveGeneration
+        textContent = currentContent
+        content = currentContent
+        isDirty = true
+        isSaving = true
+        activeSaveGeneration = generation
+        GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
+        let fileURL = URL(fileURLWithPath: filePath)
+        let encoding = textEncoding
+        let fileContentChangeCoordinator = fileContentChangeCoordinator
+        let fileContentObservationID = fileContentObservationID
+
+        return Task {
+            [weak self, currentContent, fileURL, encoding, generation,
+             fileContentChangeCoordinator, fileContentObservationID] in
+            let result = await fileContentChangeCoordinator.saveTextContent(
+                currentContent,
+                to: fileURL,
+                encoding: encoding,
+                excluding: fileContentObservationID
+            )
+            if let self {
+                fileContentChangeCoordinator.republishSuccessfulSaveIfNeeded(
+                    result,
+                    to: self.fileContentChangeCoordinator,
+                    at: fileURL.path,
+                    excluding: self.fileContentObservationID
+                )
+            }
+            guard let self, self.activeSaveGeneration == generation else { return }
+            self.activeSaveGeneration = nil
+            self.isSaving = false
+            switch result {
+            case .saved:
+                self.originalTextContent = currentContent
+                self.isDirty = self.textContent != currentContent
+                self.isFileUnavailable = false
+                GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
+            case .failed(let fileExists):
+                self.isFileUnavailable = !fileExists
+                GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
+            }
+            await self.loadFileContent(replacingDirtyContent: false).value
+        }
+    }
+
     // MARK: - File I/O
 
-    private func loadFileContent() {
-        do {
-            let newContent = try String(contentsOfFile: filePath, encoding: .utf8)
-            content = newContent
-            isFileUnavailable = false
-        } catch {
-            // Fallback: try ISO Latin-1, which accepts all 256 byte values,
-            // covering legacy encodings like Windows-1252.
-            if let data = FileManager.default.contents(atPath: filePath),
-               let decoded = String(data: data, encoding: .isoLatin1) {
-                content = decoded
-                isFileUnavailable = false
-            } else {
+    @discardableResult
+    private func loadFileContent(
+        replacingDirtyContent: Bool = true,
+        isStaleReadRetry: Bool = false
+    ) -> Task<Void, Never> {
+        if !isStaleReadRetry {
+            staleReadRetryCount = 0
+        }
+        textLoadGeneration &+= 1
+        let loadGeneration = textLoadGeneration
+        let editGeneration = textEditGeneration
+        let fileURL = URL(fileURLWithPath: filePath)
+        let requestedFileState = FilePreviewFileState.capture(path: filePath)
+        let textLoader = textLoader
+        return textLoadCoordinator.submit(load: {
+            await textLoader(fileURL)
+        }) { [weak self] result in
+            guard let self, !self.isClosed else { return }
+            self.applyLoadedResult(
+                result,
+                replacingDirtyContent: replacingDirtyContent,
+                loadGeneration: loadGeneration,
+                editGeneration: editGeneration,
+                requestedFileState: requestedFileState
+            )
+        }
+    }
+
+    private func applyLoadedResult(
+        _ result: FilePreviewTextLoader.Result,
+        replacingDirtyContent: Bool,
+        loadGeneration: Int,
+        editGeneration: Int,
+        requestedFileState: FilePreviewFileState
+    ) {
+        guard loadGeneration == textLoadGeneration else { return }
+        if replacingDirtyContent, editGeneration != textEditGeneration {
+            // The destructive request was superseded by user input. Reconcile
+            // the latest disk state without replacing that input, and let the
+            // accepted result advance the observer fingerprint.
+            _ = loadFileContent(replacingDirtyContent: false)
+            return
+        }
+        // A read can finish after an external replacement/deletion. Do not
+        // advance the observer fingerprint to the post-read state while still
+        // applying bytes from the earlier request: the queued watcher callback
+        // may then look unchanged and skip the refresh. Re-read against the
+        // newer fingerprint first, preserving the latest on-disk content.
+        let postReadFileState = FilePreviewFileState.capture(path: filePath)
+        if postReadFileState != requestedFileState {
+            if staleReadRetryCount < maximumStaleReadRetries {
+                staleReadRetryCount += 1
+                _ = loadFileContent(
+                    replacingDirtyContent: replacingDirtyContent,
+                    isStaleReadRetry: true
+                )
+                return
+            }
+            // A continuously written file must not create an unbounded chain
+            // of full-file reads. Accept this bounded best-effort result,
+            // adopt the latest observed fingerprint, and let a subsequent
+            // watcher event start a fresh reconciliation budget.
+        }
+        staleReadRetryCount = 0
+        lastObservedFileState = postReadFileState
+        guard case .loaded(let newContent, let encoding) = result else {
+            guard replacingDirtyContent || !isDirty else {
                 isFileUnavailable = true
+                GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
+                return
             }
+            content = ""
+            textContent = ""
+            originalTextContent = ""
+            isDirty = false
+            isFileUnavailable = true
+            GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
+            return
         }
+
+        if !replacingDirtyContent && isDirty {
+            originalTextContent = newContent
+            textEncoding = encoding
+            isDirty = textContent != newContent
+            isFileUnavailable = false
+            GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
+            return
+        }
+
+        content = newContent
+        textContent = newContent
+        originalTextContent = newContent
+        textEncoding = encoding
+        isDirty = false
+        isFileUnavailable = false
+        GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
     }
 
-    // MARK: - File watcher via DispatchSource
+    private func applyPendingSearchNeedleIfPossible() {
+        guard let needle = pendingSearchNeedle,
+              let textView else {
+            return
+        }
 
-    private func startFileWatcher() {
-        let fd = open(filePath, O_EVTONLY)
-        guard fd >= 0 else { return }
-        fileDescriptor = fd
-
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .delete, .rename, .extend],
-            queue: watchQueue
+        let range = (textView.string as NSString).range(
+            of: needle,
+            options: [.caseInsensitive, .diacriticInsensitive]
         )
-
-        source.setEventHandler { [weak self] in
-            guard let self else { return }
-            let flags = source.data
-            if flags.contains(.delete) || flags.contains(.rename) {
-                // File was deleted or renamed. The old file descriptor points to
-                // a stale inode, so we must always stop and reattach the watcher
-                // even if the new file is already readable (atomic save case).
-                DispatchQueue.main.async {
-                    self.stopFileWatcher()
-                    self.loadFileContent()
-                    if self.isFileUnavailable {
-                        // File not yet replaced — retry until it reappears.
-                        self.scheduleReattach(attempt: 1)
-                    } else {
-                        // File already replaced — reattach to the new inode immediately.
-                        self.startFileWatcher()
-                    }
-                }
-            } else {
-                // Content changed — reload.
-                DispatchQueue.main.async {
-                    self.loadFileContent()
-                }
-            }
+        guard range.location != NSNotFound else {
+            pendingSearchNeedle = nil
+            return
         }
 
-        source.setCancelHandler {
-            Darwin.close(fd)
-        }
-
-        source.resume()
-        fileWatchSource = source
+        textView.window?.makeFirstResponder(textView)
+        textView.setSelectedRange(range)
+        textView.scrollRangeToVisible(range)
+        pendingSearchNeedle = nil
     }
 
-    /// Retry reattaching the file watcher up to `maxReattachAttempts` times.
-    /// Each attempt checks if the file has reappeared. Bails out early if
-    /// the panel has been closed.
-    private func scheduleReattach(attempt: Int) {
-        guard attempt <= Self.maxReattachAttempts else { return }
-        watchQueue.asyncAfter(deadline: .now() + Self.reattachDelay) { [weak self] in
-            guard let self else { return }
-            DispatchQueue.main.async {
-                guard !self.isClosed else { return }
-                if FileManager.default.fileExists(atPath: self.filePath) {
-                    self.isFileUnavailable = false
-                    self.loadFileContent()
-                    self.startFileWatcher()
-                } else {
-                    self.scheduleReattach(attempt: attempt + 1)
-                }
-            }
-        }
-    }
+    // MARK: - File watcher
 
-    private func stopFileWatcher() {
-        if let source = fileWatchSource {
-            source.cancel()
-            fileWatchSource = nil
-        }
-        // File descriptor is closed by the cancel handler.
-        fileDescriptor = -1
+    /// Reloads Markdown content after the shared coordinator confirms a change.
+    @discardableResult
+    func reloadFromObservedFileChange() -> Task<Void, Never>? {
+        loadFileContent(replacingDirtyContent: false)
     }
 
     deinit {
-        // DispatchSource cancel is safe from any thread.
-        fileWatchSource?.cancel()
+        if let typographyDefaultsObserver {
+            NotificationCenter.default.removeObserver(typographyDefaultsObserver)
+        }
     }
 }
+
+extension MarkdownPanel: FileContentChangeObservingPanel {}

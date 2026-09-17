@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -252,12 +253,10 @@ final class TraditionalChineseIMENumpadRegressionTests: XCTestCase {
         let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
         let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
         let previousInterpretHook = cjkIMEInterpretKeyEventsHook
-        let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
             KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
             cjkIMEInterpretKeyEventsHook = previousInterpretHook
-            GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
             window.orderOut(nil)
             withExtendedLifetime(terminalSurface) {}
         }

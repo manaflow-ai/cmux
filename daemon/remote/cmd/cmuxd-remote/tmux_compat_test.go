@@ -1,10 +1,21 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestSplitTmuxCmd(t *testing.T) {
@@ -134,8 +145,12 @@ func TestTmuxShellCommandText(t *testing.T) {
 }
 
 func TestTmuxWaitForSignalPath(t *testing.T) {
-	path := tmuxWaitForSignalPath("test-signal")
-	if !strings.HasPrefix(path, "/tmp/cmux-wait-for-") {
+	t.Setenv("HOME", t.TempDir())
+	path, err := tmuxWaitForSignalPath("test-signal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Dir(path) != filepath.Join(os.Getenv("HOME"), ".cmux", "wait-for") {
 		t.Errorf("unexpected path prefix: %s", path)
 	}
 	if !strings.HasSuffix(path, ".sig") {
@@ -150,7 +165,10 @@ func TestTmuxCompatStoreRoundTrip(t *testing.T) {
 	os.Setenv("HOME", tmpDir)
 	defer os.Setenv("HOME", origHome)
 
-	store := loadTmuxCompatStore()
+	store, err := loadTmuxCompatStore()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
 	store.Buffers["test"] = "captured text"
 	store.MainVerticalLayouts["ws1"] = mainVerticalState{
 		MainSurfaceId:       "surface-main",
@@ -160,7 +178,10 @@ func TestTmuxCompatStoreRoundTrip(t *testing.T) {
 		t.Fatalf("save: %v", err)
 	}
 
-	loaded := loadTmuxCompatStore()
+	loaded, err := loadTmuxCompatStore()
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
 	if loaded.Buffers["test"] != "captured text" {
 		t.Errorf("buffer = %q, want %q", loaded.Buffers["test"], "captured text")
 	}
@@ -171,12 +192,302 @@ func TestTmuxCompatStoreRoundTrip(t *testing.T) {
 	}
 }
 
+func TestTmuxCompatStoreLoadErrorsDoNotOverwriteState(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	if _, err := loadTmuxCompatStore(); err != nil {
+		t.Fatalf("missing store should load as empty: %v", err)
+	}
+	storePath := tmuxCompatStoreURL()
+	if err := os.MkdirAll(filepath.Dir(storePath), 0755); err != nil {
+		t.Fatalf("create store directory: %v", err)
+	}
+	malformed := []byte("{not-json")
+	if err := os.WriteFile(storePath, malformed, 0644); err != nil {
+		t.Fatalf("write malformed store: %v", err)
+	}
+	if _, err := loadTmuxCompatStore(); err == nil {
+		t.Fatal("malformed store should return an error")
+	}
+	called := false
+	if err := withLockedTmuxCompatStore(func(store *tmuxCompatStore) error {
+		called = true
+		store.Buffers["unexpected"] = "mutation"
+		return nil
+	}); err == nil {
+		t.Fatal("locked mutation should fail when loading malformed store")
+	}
+	if called {
+		t.Fatal("mutation callback ran after a store load failure")
+	}
+	persisted, err := os.ReadFile(storePath)
+	if err != nil {
+		t.Fatalf("read malformed store: %v", err)
+	}
+	if string(persisted) != string(malformed) {
+		t.Fatalf("malformed store was overwritten: %q", persisted)
+	}
+}
+
+func TestTmuxCompatStoreConcurrentMutations(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	const writers = 20
+	errors := make(chan error, writers)
+	var group sync.WaitGroup
+	group.Add(writers)
+	for i := 0; i < writers; i++ {
+		go func() {
+			defer group.Done()
+			errors <- withLockedTmuxCompatStore(func(store *tmuxCompatStore) error {
+				store.Buffers["buf-"+fmt.Sprint(i)] = "payload-" + fmt.Sprint(i)
+				return nil
+			})
+		}()
+	}
+	group.Wait()
+	close(errors)
+	for err := range errors {
+		if err != nil {
+			t.Fatalf("concurrent mutation: %v", err)
+		}
+	}
+
+	store, loadErr := loadTmuxCompatStore()
+	if loadErr != nil {
+		t.Fatalf("load: %v", loadErr)
+	}
+	if len(store.Buffers) != writers {
+		t.Fatalf("buffer count = %d, want %d", len(store.Buffers), writers)
+	}
+	for i := 0; i < writers; i++ {
+		name := "buf-" + fmt.Sprint(i)
+		if store.Buffers[name] != "payload-"+fmt.Sprint(i) {
+			t.Errorf("buffer %s = %q, want payload-%d", name, store.Buffers[name], i)
+		}
+	}
+}
+
+func TestTmuxCompatStoreConcurrentProcessMutations(t *testing.T) {
+	if os.Getenv("CMUX_TMUX_STORE_CHILD") == "1" {
+		index, err := strconv.Atoi(os.Getenv("CMUX_TMUX_STORE_INDEX"))
+		if err != nil {
+			t.Fatalf("child index: %v", err)
+		}
+		if err := withLockedTmuxCompatStore(func(store *tmuxCompatStore) error {
+			name := "process-buf-" + strconv.Itoa(index)
+			store.Buffers[name] = "process-payload-" + strconv.Itoa(index)
+			return nil
+		}); err != nil {
+			t.Fatalf("child mutation: %v", err)
+		}
+		return
+	}
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	const writers = 20
+	if err := withLockedTmuxCompatStore(func(store *tmuxCompatStore) error {
+		store.Buffers["seed"] = strings.Repeat("seed", 32_768)
+		return nil
+	}); err != nil {
+		t.Fatalf("seed store: %v", err)
+	}
+
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("test executable: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	type childProcess struct {
+		command *exec.Cmd
+		stderr  *bytes.Buffer
+		reaped  bool
+	}
+	children := make([]*childProcess, 0, writers)
+	t.Cleanup(func() {
+		for _, child := range children {
+			if child.reaped {
+				continue
+			}
+			if child.command.Process != nil {
+				_ = child.command.Process.Kill()
+			}
+			if child.command.Process != nil {
+				_ = child.command.Wait()
+			}
+		}
+	})
+	for i := 0; i < writers; i++ {
+		command := exec.CommandContext(
+			ctx,
+			executable,
+			"-test.run", "^TestTmuxCompatStoreConcurrentProcessMutations$",
+		)
+		command.Env = childEnvironment(home, i)
+		stderr := &bytes.Buffer{}
+		command.Stderr = stderr
+		if err := command.Start(); err != nil {
+			t.Fatalf("start child %d: %v", i, err)
+		}
+		children = append(children, &childProcess{command: command, stderr: stderr})
+	}
+	for i, child := range children {
+		err := child.command.Wait()
+		child.reaped = true
+		if err != nil {
+			t.Fatalf("child %d: %v\n%s", i, err, child.stderr.String())
+		}
+	}
+
+	store, loadErr := loadTmuxCompatStore()
+	if loadErr != nil {
+		t.Fatalf("load: %v", loadErr)
+	}
+	if len(store.Buffers) != writers+1 {
+		t.Fatalf("buffer count = %d, want %d", len(store.Buffers), writers+1)
+	}
+	for i := 0; i < writers; i++ {
+		name := "process-buf-" + strconv.Itoa(i)
+		want := "process-payload-" + strconv.Itoa(i)
+		if store.Buffers[name] != want {
+			t.Errorf("buffer %s = %q, want %q", name, store.Buffers[name], want)
+		}
+	}
+}
+
+func childEnvironment(home string, index int) []string {
+	environment := make([]string, 0, len(os.Environ())+3)
+	for _, value := range os.Environ() {
+		if strings.HasPrefix(value, "HOME=") ||
+			strings.HasPrefix(value, "CMUX_TMUX_STORE_CHILD=") ||
+			strings.HasPrefix(value, "CMUX_TMUX_STORE_INDEX=") {
+			continue
+		}
+		environment = append(environment, value)
+	}
+	environment = append(
+		environment,
+		"HOME="+home,
+		"CMUX_TMUX_STORE_CHILD=1",
+		"CMUX_TMUX_STORE_INDEX="+strconv.Itoa(index),
+	)
+	return environment
+}
+
 func TestTmuxVersion(t *testing.T) {
 	output := captureStdout(t, func() {
 		dispatchTmuxCommand(nil, "-v", nil)
 	})
 	if strings.TrimSpace(output) != "tmux 3.4" {
 		t.Errorf("version = %q, want %q", strings.TrimSpace(output), "tmux 3.4")
+	}
+}
+
+func TestTmuxDisplayReporterFormatFields(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origWorkspace := os.Getenv("CMUX_WORKSPACE_ID")
+	origSurface := os.Getenv("CMUX_SURFACE_ID")
+	origPane := os.Getenv("TMUX_PANE")
+	os.Setenv("HOME", t.TempDir())
+	os.Setenv("CMUX_WORKSPACE_ID", "workspace:1")
+	os.Setenv("CMUX_SURFACE_ID", "surface:1")
+	leaderPaneToken := "%" + tmuxStableNumericId("33333333-3333-4333-8333-333333333333")
+	os.Setenv("TMUX_PANE", leaderPaneToken)
+	defer func() {
+		os.Setenv("HOME", origHome)
+		if origWorkspace != "" {
+			os.Setenv("CMUX_WORKSPACE_ID", origWorkspace)
+		} else {
+			os.Unsetenv("CMUX_WORKSPACE_ID")
+		}
+		if origSurface != "" {
+			os.Setenv("CMUX_SURFACE_ID", origSurface)
+		} else {
+			os.Unsetenv("CMUX_SURFACE_ID")
+		}
+		if origPane != "" {
+			os.Setenv("TMUX_PANE", origPane)
+		} else {
+			os.Unsetenv("TMUX_PANE")
+		}
+	}()
+
+	sockPath := startMockTmuxCompatSocket(t)
+	rc := &rpcContext{socketPath: sockPath}
+	fields := []string{
+		"session_id",
+		"session_name",
+		"window_index",
+		"window_id",
+		"pane_id",
+		"pane_width",
+		"pane_height",
+		"window_width",
+		"window_height",
+		"pane_current_path",
+		"pane_active",
+		"window_active",
+		"session_attached",
+	}
+	parts := make([]string, 0, len(fields))
+	for _, field := range fields {
+		parts = append(parts, field+"=#{"+field+"}")
+	}
+
+	output := captureStdout(t, func() {
+		if err := dispatchTmuxCommand(rc, "display-message", []string{
+			"-p",
+			"-F", strings.Join(parts, "\t"),
+			"-t", leaderPaneToken,
+		}); err != nil {
+			t.Fatalf("display-message: %v", err)
+		}
+	})
+
+	values := map[string]string{}
+	for _, part := range strings.Split(strings.TrimSpace(output), "\t") {
+		key, value, ok := strings.Cut(part, "=")
+		if !ok {
+			t.Fatalf("malformed field %q in output %q", part, output)
+		}
+		values[key] = value
+	}
+	for _, field := range fields {
+		if _, ok := values[field]; !ok {
+			t.Fatalf("missing field %q in output %q", field, output)
+		}
+	}
+
+	assertTmuxFieldMatch(t, values["session_id"], `^\$[0-9]+$`, "session_id")
+	if values["session_name"] != "cmux" {
+		t.Fatalf("session_name = %q, want cmux", values["session_name"])
+	}
+	assertTmuxFieldMatch(t, values["window_index"], `^[0-9]+$`, "window_index")
+	assertTmuxFieldMatch(t, values["window_id"], `^@[0-9]+$`, "window_id")
+	assertTmuxFieldMatch(t, values["pane_id"], `^%[0-9]+$`, "pane_id")
+	assertTmuxFieldMatch(t, values["pane_width"], `^[0-9]+$`, "pane_width")
+	assertTmuxFieldMatch(t, values["pane_height"], `^[0-9]+$`, "pane_height")
+	assertTmuxFieldMatch(t, values["window_width"], `^[0-9]+$`, "window_width")
+	assertTmuxFieldMatch(t, values["window_height"], `^[0-9]+$`, "window_height")
+	if !filepath.IsAbs(values["pane_current_path"]) {
+		t.Fatalf("pane_current_path = %q, want an absolute path", values["pane_current_path"])
+	}
+	if values["pane_active"] != "1" {
+		t.Fatalf("pane_active = %q, want 1 for stringy focused metadata", values["pane_active"])
+	}
+	assertTmuxFieldMatch(t, values["pane_active"], `^[01]$`, "pane_active")
+	assertTmuxFieldMatch(t, values["window_active"], `^[01]$`, "window_active")
+	assertTmuxFieldMatch(t, values["session_attached"], `^[01]$`, "session_attached")
+}
+
+func assertTmuxFieldMatch(t *testing.T, got string, pattern string, field string) {
+	t.Helper()
+	if !regexp.MustCompile(pattern).MatchString(got) {
+		t.Fatalf("%s = %q, want match %s", field, got, pattern)
 	}
 }
 
@@ -223,7 +534,7 @@ func TestTmuxPaneSelector(t *testing.T) {
 		input string
 		want  string
 	}{
-		{"%abc123", "abc123"},
+		{"%abc123", "%abc123"},
 		{"pane:test", "pane:test"},
 		{"@ws1.%pane2", "%pane2"},
 		{"@ws1", ""},
@@ -307,7 +618,7 @@ func TestConfigureAgentEnvironment(t *testing.T) {
 	envKeys := []string{
 		"CMUX_CLAUDE_TEAMS_CMUX_BIN", "PATH", "TMUX", "TMUX_PANE",
 		"TERM", "CMUX_SOCKET_PATH", "TERM_PROGRAM",
-		"CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID",
+		"CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_PANEL_ID", "CMUX_TAB_ID", "CMUX_PANE_ID",
 		"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", "COLORTERM",
 	}
 	saved := make(map[string]string)
@@ -329,10 +640,11 @@ func TestConfigureAgentEnvironment(t *testing.T) {
 	configureAgentEnvironment(agentConfig{
 		shimDir:    "/tmp/test-shim",
 		socketPath: "127.0.0.1:54321",
-		focused: &focusedContext{
+		launchContext: &agentLaunchContext{
 			workspaceId: "ws-abc",
 			windowId:    "win-123",
-			paneHandle:  "pane-456",
+			paneHandle:  "pane:456",
+			paneId:      "pane-456",
 			surfaceId:   "surf-789",
 		},
 		tmuxPathPrefix: "cmux-claude-teams",
@@ -353,8 +665,9 @@ func TestConfigureAgentEnvironment(t *testing.T) {
 		t.Errorf("TMUX = %q, should contain workspace ID", tmux)
 	}
 	// Verify TMUX_PANE
-	if os.Getenv("TMUX_PANE") != "%pane-456" {
-		t.Errorf("TMUX_PANE = %q, want %%pane-456", os.Getenv("TMUX_PANE"))
+	wantPane := "%" + tmuxStableNumericId("pane-456")
+	if os.Getenv("TMUX_PANE") != wantPane {
+		t.Errorf("TMUX_PANE = %q, want %s", os.Getenv("TMUX_PANE"), wantPane)
 	}
 	// Verify socket path
 	if os.Getenv("CMUX_SOCKET_PATH") != "127.0.0.1:54321" {
@@ -371,10 +684,137 @@ func TestConfigureAgentEnvironment(t *testing.T) {
 	if os.Getenv("CMUX_SURFACE_ID") != "surf-789" {
 		t.Errorf("CMUX_SURFACE_ID = %q", os.Getenv("CMUX_SURFACE_ID"))
 	}
+	if os.Getenv("CMUX_TAB_ID") != "ws-abc" {
+		t.Errorf("CMUX_TAB_ID = %q", os.Getenv("CMUX_TAB_ID"))
+	}
+	if os.Getenv("CMUX_PANEL_ID") != "surf-789" {
+		t.Errorf("CMUX_PANEL_ID = %q", os.Getenv("CMUX_PANEL_ID"))
+	}
+	if os.Getenv("CMUX_PANE_ID") != "pane-456" {
+		t.Errorf("CMUX_PANE_ID = %q", os.Getenv("CMUX_PANE_ID"))
+	}
 	// Verify extra env
 	if os.Getenv("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS") != "1" {
 		t.Error("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS should be 1")
 	}
+}
+
+func TestTmuxSigiledSelectorsSkipRefsAndIndexes(t *testing.T) {
+	sockPath := startMockTmuxCompatSocket(t)
+	rc := &rpcContext{socketPath: sockPath}
+	workspaceId := "11111111-1111-4111-8111-111111111111"
+	paneId := "33333333-3333-4333-8333-333333333333"
+
+	if got, err := tmuxResolveWorkspaceId(rc, "1"); err != nil || got != workspaceId {
+		t.Fatalf("unsigiled workspace index resolved to %q, %v; want %s", got, err, workspaceId)
+	}
+	if got, err := tmuxCanonicalPaneId(rc, "1", workspaceId); err != nil || got != paneId {
+		t.Fatalf("unsigiled pane index resolved to %q, %v; want %s", got, err, paneId)
+	}
+	if _, err := tmuxResolveWorkspaceId(rc, "$1"); err == nil {
+		t.Fatal("sigiled workspace selector $1 resolved by index; want no match")
+	}
+	if _, err := tmuxCanonicalPaneId(rc, "%1", workspaceId); err == nil {
+		t.Fatal("sigiled pane selector %1 resolved by index; want no match")
+	}
+	if got, err := tmuxResolveWorkspaceId(rc, "$"+tmuxStableNumericId(workspaceId)); err != nil || got != workspaceId {
+		t.Fatalf("sigiled workspace numeric id resolved to %q, %v; want %s", got, err, workspaceId)
+	}
+	if got, err := tmuxCanonicalPaneId(rc, "%"+tmuxStableNumericId(paneId), workspaceId); err != nil || got != paneId {
+		t.Fatalf("sigiled pane numeric id resolved to %q, %v; want %s", got, err, paneId)
+	}
+}
+
+func TestTmuxResolveWorkspaceIdAcceptsSigiledUUIDWithoutList(t *testing.T) {
+	workspaceId := "11111111-1111-4111-8111-111111111111"
+	rc := &rpcContext{socketPath: filepath.Join(t.TempDir(), "missing.sock")}
+
+	for _, raw := range []string{"$" + workspaceId, "@" + workspaceId} {
+		got, err := tmuxResolveWorkspaceId(rc, raw)
+		if err != nil {
+			t.Fatalf("tmuxResolveWorkspaceId(%q) returned error: %v", raw, err)
+		}
+		if got != workspaceId {
+			t.Fatalf("tmuxResolveWorkspaceId(%q) = %q, want %s", raw, got, workspaceId)
+		}
+	}
+}
+
+func TestTmuxCanonicalSelectorsPreferRefsBeforeIndexFallback(t *testing.T) {
+	sockPath := startMockTmuxSelectorPrioritySocket(t)
+	rc := &rpcContext{socketPath: sockPath}
+	workspaceId := "11111111-1111-4111-8111-111111111111"
+	refPaneId := "33333333-3333-4333-8333-333333333333"
+	refSurfaceId := "55555555-5555-4555-8555-555555555555"
+
+	if got, err := tmuxCanonicalPaneId(rc, "1", workspaceId); err != nil || got != refPaneId {
+		t.Fatalf("pane selector resolved to %q, %v; want ref match %s before index fallback", got, err, refPaneId)
+	}
+	if got, err := tmuxCanonicalSurfaceId(rc, "1", workspaceId); err != nil || got != refSurfaceId {
+		t.Fatalf("surface selector resolved to %q, %v; want ref match %s before index fallback", got, err, refSurfaceId)
+	}
+}
+
+func startMockTmuxSelectorPrioritySocket(t *testing.T) string {
+	t.Helper()
+	sockPath := makeShortUnixSocketPath(t)
+	ln, err := net.Listen("unix", sockPath)
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	t.Cleanup(func() { ln.Close() })
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(conn net.Conn) {
+				defer conn.Close()
+				reader := bufio.NewReader(conn)
+				line, err := reader.ReadBytes('\n')
+				if err != nil {
+					return
+				}
+
+				var req map[string]any
+				if err := json.Unmarshal(line, &req); err != nil {
+					_, _ = conn.Write([]byte(`{"ok":false,"error":{"code":"parse","message":"bad json"}}` + "\n"))
+					return
+				}
+
+				method, _ := req["method"].(string)
+				resp := map[string]any{
+					"id": req["id"],
+					"ok": true,
+				}
+				switch method {
+				case "pane.list":
+					resp["result"] = map[string]any{
+						"panes": []map[string]any{
+							{"id": "22222222-2222-4222-8222-222222222222", "ref": "pane:index", "index": 1},
+							{"id": "33333333-3333-4333-8333-333333333333", "ref": "1", "index": 2},
+						},
+					}
+				case "surface.list":
+					resp["result"] = map[string]any{
+						"surfaces": []map[string]any{
+							{"id": "44444444-4444-4444-8444-444444444444", "ref": "surface:index", "index": 1},
+							{"id": "55555555-5555-4555-8555-555555555555", "ref": "1", "index": 2},
+						},
+					}
+				default:
+					resp["result"] = map[string]any{}
+				}
+
+				data, _ := json.Marshal(resp)
+				_, _ = conn.Write(append(data, '\n'))
+			}(conn)
+		}
+	}()
+
+	return sockPath
 }
 
 func TestClaudeTeamsLaunchArgs(t *testing.T) {
@@ -415,7 +855,11 @@ func TestMergeNodeOptions(t *testing.T) {
 
 func TestTmuxWaitForSignalRoundTrip(t *testing.T) {
 	name := "test-roundtrip-" + randomHex(4)
-	path := tmuxWaitForSignalPath(name)
+	t.Setenv("HOME", t.TempDir())
+	path, err := tmuxWaitForSignalPath(name)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer os.Remove(path)
 
 	// Signal creates the file
@@ -425,7 +869,7 @@ func TestTmuxWaitForSignalRoundTrip(t *testing.T) {
 	}
 
 	// Wait consumes the file
-	err := dispatchTmuxCommand(nil, "wait-for", []string{name})
+	err = dispatchTmuxCommand(nil, "wait-for", []string{name})
 	if err != nil {
 		t.Fatalf("wait-for should succeed: %v", err)
 	}
@@ -440,9 +884,14 @@ func TestTmuxShowBuffer(t *testing.T) {
 	os.Setenv("HOME", tmpDir)
 	defer os.Setenv("HOME", origHome)
 
-	store := loadTmuxCompatStore()
+	store, err := loadTmuxCompatStore()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
 	store.Buffers["default"] = "hello world"
-	saveTmuxCompatStore(store)
+	if err := saveTmuxCompatStore(store); err != nil {
+		t.Fatalf("save: %v", err)
+	}
 
 	output := captureStdout(t, func() {
 		tmuxShowBuffer(nil)

@@ -1,169 +1,19 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct DetachedFolderDragIcon: NSViewRepresentable {
     let directory: String
 
-    func makeNSView(context: Context) -> DetachedFolderDragIconHostView {
-        DetachedFolderDragIconHostView(directory: directory)
+    func makeNSView(context: Context) -> DraggableFolderNSView {
+        DraggableFolderNSView(directory: directory)
     }
 
-    func updateNSView(_ nsView: DetachedFolderDragIconHostView, context: Context) {
-        nsView.directory = directory
-        nsView.syncDetachedIcon()
-    }
-}
-
-@MainActor
-final class DetachedFolderDragIconHostView: NSView {
-    var directory: String
-    private var childWindow: NSPanel?
-    private var iconView: DraggableFolderNSView?
-    private var observers: [NSObjectProtocol] = []
-    private weak var observedParentWindow: NSWindow?
-
-    init(directory: String) {
-        self.directory = directory
-        super.init(frame: NSRect(origin: .zero, size: NSSize(width: 16, height: 16)))
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    deinit {
-        MainActor.assumeIsolated {
-            tearDownDetachedIcon()
+    func updateNSView(_ nsView: DraggableFolderNSView, context: Context) {
+        if nsView.directory != directory {
+            nsView.directory = directory
+            nsView.updateIcon()
         }
-    }
-
-    override var intrinsicContentSize: NSSize {
-        NSSize(width: 16, height: 16)
-    }
-
-    override var mouseDownCanMoveWindow: Bool { false }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        syncDetachedIcon()
-    }
-
-    override func viewDidMoveToSuperview() {
-        super.viewDidMoveToSuperview()
-        syncDetachedIcon()
-    }
-
-    override func layout() {
-        super.layout()
-        syncDetachedIconFrame()
-    }
-
-    func syncDetachedIcon() {
-        guard let parentWindow = window else {
-            tearDownDetachedIcon()
-            return
-        }
-
-        let child = childWindow ?? makeDetachedIconWindow(parentWindow: parentWindow)
-        if child.parent !== parentWindow {
-            child.parent?.removeChildWindow(child)
-            parentWindow.addChildWindow(child, ordered: .above)
-            installParentWindowObservers(parentWindow)
-        }
-
-        if iconView?.directory != directory {
-            iconView?.directory = directory
-            iconView?.updateIcon()
-        }
-
-        child.orderFront(nil)
-        syncDetachedIconFrame()
-    }
-
-    private func makeDetachedIconWindow(parentWindow: NSWindow) -> NSPanel {
-        let iconView = DraggableFolderNSView(directory: directory)
-        iconView.frame = NSRect(origin: .zero, size: NSSize(width: 16, height: 16))
-
-        let panel = NSPanel(
-            contentRect: iconView.frame,
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        panel.contentView = iconView
-        panel.backgroundColor = .clear
-        panel.isOpaque = false
-        panel.hasShadow = false
-        panel.hidesOnDeactivate = false
-        panel.ignoresMouseEvents = false
-        panel.isMovable = false
-        panel.isMovableByWindowBackground = false
-        panel.collectionBehavior = [.fullScreenAuxiliary]
-        panel.identifier = NSUserInterfaceItemIdentifier("cmux.folderDragIcon")
-        parentWindow.addChildWindow(panel, ordered: .above)
-        self.childWindow = panel
-        self.iconView = iconView
-        installParentWindowObservers(parentWindow)
-        return panel
-    }
-
-    private func installParentWindowObservers(_ parentWindow: NSWindow) {
-        guard observedParentWindow !== parentWindow || observers.isEmpty else { return }
-        removeParentWindowObservers()
-
-        // The child panel frame is derived from this host view in the parent
-        // window. AppKit does not call layout() when only the parent window
-        // moves, resizes, or changes miniaturized state, so observe those
-        // window events and recompute the panel's screen-space frame.
-        let center = NotificationCenter.default
-        let names: [Notification.Name] = [
-            NSWindow.didMoveNotification,
-            NSWindow.didResizeNotification,
-            NSWindow.didMiniaturizeNotification,
-            NSWindow.didDeminiaturizeNotification,
-        ]
-        observers = names.map { name in
-            center.addObserver(forName: name, object: parentWindow, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.syncDetachedIconFrame()
-                }
-            }
-        }
-        observedParentWindow = parentWindow
-    }
-
-    private func syncDetachedIconFrame() {
-        guard let parentWindow = window,
-              let childWindow else { return }
-        let localRect = bounds.isEmpty
-            ? NSRect(origin: .zero, size: NSSize(width: 16, height: 16))
-            : bounds
-        let rectInWindow = convert(localRect, to: nil)
-        let rectOnScreen = parentWindow.convertToScreen(rectInWindow)
-        if childWindow.frame.origin != rectOnScreen.origin || childWindow.frame.size != rectOnScreen.size {
-            childWindow.setFrame(rectOnScreen, display: true)
-        }
-    }
-
-    private func removeParentWindowObservers() {
-        for observer in observers {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        observers.removeAll()
-        observedParentWindow = nil
-    }
-
-    private func tearDownDetachedIcon() {
-        // Observer lifetime is tied to the derived child panel: once this host
-        // leaves its parent window or deinitializes, remove both so no stale
-        // panel keeps tracking an old parent window.
-        removeParentWindowObservers()
-        if let childWindow {
-            childWindow.parent?.removeChildWindow(childWindow)
-            childWindow.orderOut(nil)
-        }
-        childWindow = nil
-        iconView = nil
     }
 }
 
@@ -186,6 +36,7 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
     init(directory: String) {
         self.directory = directory
         super.init(frame: .zero)
+        identifier = NSUserInterfaceItemIdentifier("cmux.folderDragIcon")
         setupImageView()
     }
 
@@ -218,14 +69,38 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         updateIcon()
     }
 
+    private static let displayNameLookups = DetachedFolderPathLookupCache<String>()
+
+    /// UTType-based generic folder icon. Avoid `icon(forFile:)`: it stats the
+    /// path, and remote tmux directories can block on the autofs automounter.
+    private static func genericFolderIcon(size: CGFloat) -> NSImage {
+        let generic = (NSWorkspace.shared.icon(for: .folder).copy() as? NSImage) ?? NSWorkspace.shared.icon(for: .folder)
+        generic.size = NSSize(width: size, height: size)
+        return generic
+    }
+
+    /// Resolves the localized display name for `path` off-main (the API
+    /// stats), then runs `onResolved` on the main thread.
+    private static func localizedDisplayName(forPath path: String, onResolved: @escaping (String) -> Void) {
+        if let cached = displayNameLookups.value(forPath: path) {
+            onResolved(cached)
+            return
+        }
+        guard displayNameLookups.enqueueCallback(forPath: path, callback: onResolved) else { return }
+        Task.detached(priority: .userInitiated) {
+            let localizedName = FileManager.default.displayName(atPath: path)
+            await MainActor.run {
+                displayNameLookups.resolve(path: path, value: localizedName)
+            }
+        }
+    }
+
     func updateIcon() {
         #if DEBUG
         dispatchPrecondition(condition: .onQueue(.main))
         #endif
 
-        let icon = NSWorkspace.shared.icon(forFile: directory)
-        icon.size = NSSize(width: 16, height: 16)
-        imageView.image = icon
+        imageView.image = Self.genericFolderIcon(size: 16)
     }
 
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
@@ -238,10 +113,13 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         let windowOrigin = window.map { formatPoint($0.frame.origin) } ?? "nil"
         cmuxDebugLog("folder.dragEnd dirBytes=\(directory.utf8.count) operation=\(operation.rawValue) screen=\(formatPoint(screenPoint)) nowMovable=\(nowMovable) windowOrigin=\(windowOrigin)")
         #endif
+        _ = session
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard bounds.contains(point) else { return nil }
+        // `point` is in the superview's coordinate space (AppKit contract), so
+        // the icon's own frame, not its bounds, decides whether it was hit.
+        guard frame.contains(point) else { return nil }
         let hit = super.hitTest(point)
         #if DEBUG
         let hitDesc = hit.map { String(describing: type(of: $0)) } ?? "nil"
@@ -304,8 +182,9 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         let fileURL = URL(fileURLWithPath: directory)
         let draggingItem = NSDraggingItem(pasteboardWriter: fileURL as NSURL)
 
-        let iconImage = NSWorkspace.shared.icon(forFile: directory)
-        iconImage.size = NSSize(width: 32, height: 32)
+        // Cosmetic drag image: use the generic folder rather than re-statting
+        // `directory` — see updateIcon().
+        let iconImage = Self.genericFolderIcon(size: 32)
         draggingItem.setDraggingFrame(bounds, contents: iconImage)
 
         let session = beginDraggingSession(with: [draggingItem], event: event, source: self)
@@ -342,25 +221,30 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
 
         // Add path components (current dir at top, root at bottom - matches native macOS)
         for pathURL in pathComponents {
-            let icon = NSWorkspace.shared.icon(forFile: pathURL.path)
-            icon.size = NSSize(width: 16, height: 16)
-
+            let path = pathURL.path
             let displayName: String
-            if pathURL.path == "/" {
-                // Use the volume name for root
+            if path == "/" {
+                // Use the volume name for root ("/" is always local — safe to stat)
                 if let volumeName = try? URL(fileURLWithPath: "/").resourceValues(forKeys: [.volumeNameKey]).volumeName {
                     displayName = volumeName
                 } else {
                     displayName = String(localized: "sidebar.pathMenu.macintoshHD", defaultValue: "Macintosh HD")
                 }
             } else {
-                displayName = FileManager.default.displayName(atPath: pathURL.path)
+                // Placeholder; the localized display name comes from a stat'ing
+                // API and is refined off-main below.
+                displayName = (path as NSString).lastPathComponent
             }
 
             let item = NSMenuItem(title: displayName, action: #selector(openPathComponent(_:)), keyEquivalent: "")
             item.target = self
-            item.image = icon
+            item.image = Self.genericFolderIcon(size: 16)
             item.representedObject = pathURL
+            if path != "/" {
+                Self.localizedDisplayName(forPath: path) { [weak item] localizedName in
+                    item?.title = localizedName
+                }
+            }
             menu.addItem(item)
         }
 

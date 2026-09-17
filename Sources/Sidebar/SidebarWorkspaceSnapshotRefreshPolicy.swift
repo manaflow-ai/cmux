@@ -1,9 +1,24 @@
+import CmuxWorkspaces
+
 extension SidebarWorkspaceSnapshotBuilder.Snapshot {
     struct ContextMenuImmediateFields: Equatable {
         let title: String
         let customDescription: String?
         let isPinned: Bool
+        let isMuted: Bool
+        let cloudWorkspaceLabel: String?
         let customColorHex: String?
+        let finderDirectoryPath: String?
+        let mediaActivity: BrowserMediaActivity
+        let taskStatus: WorkspaceTaskStatus?
+        let todoStatusMenuModel: SidebarWorkspaceCompactStatusMenuModel?
+        let hasManualTaskStatus: Bool
+        let checklistItems: [WorkspaceChecklistItem]
+        let checklistCompletedCount: Int
+        let checklistTotalCount: Int
+        let checklistFirstUncheckedText: String?
+        let activeCodingAgentCount: Int
+        let taskStatusInput: SidebarWorkspaceTaskStatusSnapshot
     }
 
     var contextMenuImmediateFields: ContextMenuImmediateFields {
@@ -11,32 +26,68 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             title: title,
             customDescription: customDescription,
             isPinned: isPinned,
-            customColorHex: customColorHex
+            isMuted: isMuted,
+            cloudWorkspaceLabel: cloudWorkspaceLabel,
+            customColorHex: customColorHex,
+            finderDirectoryPath: finderDirectoryPath,
+            mediaActivity: mediaActivity,
+            taskStatus: taskStatus,
+            todoStatusMenuModel: todoStatusMenuModel,
+            hasManualTaskStatus: hasManualTaskStatus,
+            checklistItems: checklistItems,
+            checklistCompletedCount: checklistCompletedCount,
+            checklistTotalCount: checklistTotalCount,
+            checklistFirstUncheckedText: checklistFirstUncheckedText,
+            activeCodingAgentCount: activeCodingAgentCount,
+            taskStatusInput: taskStatusInput
         )
     }
 
     func applyingContextMenuImmediateFields(from snapshot: SidebarWorkspaceSnapshotBuilder.Snapshot) -> Self {
         guard contextMenuImmediateFields != snapshot.contextMenuImmediateFields else { return self }
         return Self(
+            presentationKey: snapshot.presentationKey,
             title: snapshot.title,
             customDescription: snapshot.customDescription,
             isPinned: snapshot.isPinned,
+            isMuted: snapshot.isMuted,
             customColorHex: snapshot.customColorHex,
+            cloudWorkspaceLabel: snapshot.cloudWorkspaceLabel,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,
+            showsRemoteReconnectAffordance: showsRemoteReconnectAffordance,
             copyableSidebarSSHError: copyableSidebarSSHError,
-            latestSubmittedMessage: latestSubmittedMessage,
+            latestConversationMessage: latestConversationMessage,
             metadataEntries: metadataEntries,
             metadataBlocks: metadataBlocks,
             latestLog: latestLog,
             progress: progress,
+            // The loading spinner is a leading row glyph like mediaActivity, so
+            // it also updates immediately while the context menu is open.
+            activeCodingAgentCount: snapshot.activeCodingAgentCount,
             compactGitBranchSummaryText: compactGitBranchSummaryText,
-            compactBranchDirectoryRow: compactBranchDirectoryRow,
+            compactDirectoryCandidates: compactDirectoryCandidates,
+            compactBranchDirectoryCandidates: compactBranchDirectoryCandidates,
             branchDirectoryLines: branchDirectoryLines,
             branchLinesContainBranch: branchLinesContainBranch,
             pullRequestRows: pullRequestRows,
-            listeningPorts: listeningPorts
+            listeningPorts: listeningPorts,
+            finderDirectoryPath: snapshot.finderDirectoryPath,
+            // Media activity drives a leading row glyph, so stale values are
+            // visually worse than ordinary telemetry text while the menu is open.
+            mediaActivity: snapshot.mediaActivity,
+            // Todo status/checklist are mutated FROM this context menu (Status
+            // submenu, Mark as Done, checkbox clicks), so the done-row dim and
+            // checklist must reflect the change immediately, not on menu close.
+            taskStatus: snapshot.taskStatus,
+            todoStatusMenuModel: snapshot.todoStatusMenuModel,
+            hasManualTaskStatus: snapshot.hasManualTaskStatus,
+            checklistItems: snapshot.checklistItems,
+            checklistCompletedCount: snapshot.checklistCompletedCount,
+            checklistTotalCount: snapshot.checklistTotalCount,
+            checklistFirstUncheckedText: snapshot.checklistFirstUncheckedText,
+            taskStatusInput: snapshot.taskStatusInput
         )
     }
 }
@@ -50,13 +101,13 @@ struct SidebarWorkspaceSnapshotRefreshPolicy {
         let hasDeferredWorkspaceObservationInvalidation: Bool
     }
 
-    static func decision(
+    func decision(
         current: SidebarWorkspaceSnapshotBuilder.Snapshot?,
         next: SidebarWorkspaceSnapshotBuilder.Snapshot,
         force: Bool,
-        freezesSidebarWorkspaceDetails: Bool
+        contextMenuVisible: Bool
     ) -> Decision {
-        guard freezesSidebarWorkspaceDetails else {
+        guard contextMenuVisible else {
             return Decision(
                 workspaceSnapshotStorage: force || current != next ? next : current,
                 pendingWorkspaceSnapshot: nil,
@@ -73,96 +124,5 @@ struct SidebarWorkspaceSnapshotRefreshPolicy {
             pendingWorkspaceSnapshot: hasDeferredChanges ? next : nil,
             hasDeferredWorkspaceObservationInvalidation: hasDeferredChanges
         )
-    }
-}
-
-struct SidebarWorkspaceRowInteractionState: Equatable {
-    // AppKit menu tracking is the authoritative freeze lifetime for row pointer
-    // context menus. SwiftUI appearance is only a fallback for menu surfaces that
-    // do not emit AppKit tracking; it must not end an active AppKit-tracking
-    // freeze early.
-    private enum ContextMenuDetailsFreezePhase: Equatable {
-        case live
-        case swiftUIFallback
-        case appKitTracking
-    }
-
-    private(set) var isPointerHovering = false
-    private var contextMenuDetailsFreezePhase: ContextMenuDetailsFreezePhase = .live
-    private var contextMenuTrackingSuppressesCloseButton = false
-    private var deferredPointerHoveringWhileContextMenuTracking: Bool?
-
-    var freezesSidebarWorkspaceDetails: Bool {
-        contextMenuDetailsFreezePhase != .live
-    }
-
-    mutating func setPointerHovering(_ hovering: Bool) {
-        if contextMenuTrackingSuppressesCloseButton {
-            deferredPointerHoveringWhileContextMenuTracking = hovering
-            isPointerHovering = false
-            return
-        }
-        deferredPointerHoveringWhileContextMenuTracking = nil
-        isPointerHovering = hovering
-    }
-
-    mutating func contextMenuDidAppear() {
-        beginSwiftUIFallbackContextMenuFreeze()
-        contextMenuTrackingSuppressesCloseButton = true
-        deferredPointerHoveringWhileContextMenuTracking = nil
-        isPointerHovering = false
-    }
-
-    mutating func contextMenuDidDisappear() {
-        endSwiftUIFallbackContextMenuFreeze()
-        contextMenuTrackingSuppressesCloseButton = false
-        applyDeferredPointerHovering()
-    }
-
-    mutating func contextMenuTrackingDidBegin() {
-        beginAppKitTrackingContextMenuFreeze()
-        contextMenuTrackingSuppressesCloseButton = true
-        deferredPointerHoveringWhileContextMenuTracking = nil
-        isPointerHovering = false
-    }
-
-    mutating func contextMenuTrackingDidEnd() {
-        endAppKitTrackingContextMenuFreeze()
-        contextMenuTrackingSuppressesCloseButton = false
-        applyDeferredPointerHovering()
-    }
-
-    func shouldShowCloseButton(
-        canCloseWorkspace: Bool,
-        shortcutHintModeActive: Bool
-    ) -> Bool {
-        isPointerHovering
-            && !contextMenuTrackingSuppressesCloseButton
-            && canCloseWorkspace
-            && !shortcutHintModeActive
-    }
-
-    private mutating func beginSwiftUIFallbackContextMenuFreeze() {
-        guard contextMenuDetailsFreezePhase == .live else { return }
-        contextMenuDetailsFreezePhase = .swiftUIFallback
-    }
-
-    private mutating func endSwiftUIFallbackContextMenuFreeze() {
-        guard contextMenuDetailsFreezePhase == .swiftUIFallback else { return }
-        contextMenuDetailsFreezePhase = .live
-    }
-
-    private mutating func beginAppKitTrackingContextMenuFreeze() {
-        contextMenuDetailsFreezePhase = .appKitTracking
-    }
-
-    private mutating func endAppKitTrackingContextMenuFreeze() {
-        contextMenuDetailsFreezePhase = .live
-    }
-
-    private mutating func applyDeferredPointerHovering() {
-        guard let deferredHover = deferredPointerHoveringWhileContextMenuTracking else { return }
-        self.deferredPointerHoveringWhileContextMenuTracking = nil
-        isPointerHovering = deferredHover
     }
 }

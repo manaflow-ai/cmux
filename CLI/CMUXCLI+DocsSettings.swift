@@ -6,6 +6,7 @@ extension CMUXCLI {
     static let primarySettingsDisplayPath = "~/.config/cmux/cmux.json"
     static let legacySettingsDisplayPath = "~/.config/cmux/settings.json"
     static let fallbackSettingsDisplayPath = "~/Library/Application Support/com.cmuxterm.app/settings.json"
+    static let ghosttyConfigDisplayPath = "~/.config/ghostty/config"
 
     private struct DocsResource {
         let label: String
@@ -36,6 +37,18 @@ extension CMUXCLI {
                 "cmux settings cmux-json",
                 "cmux config doctor",
                 "cmux reload-config",
+            ]
+        ),
+        DocsReference(
+            topic: "managed-policies",
+            aliases: ["mdm", "managed", "policy", "policies", "enterprise", "managed-device-policies"],
+            summary: "MDM-enforceable managed policies: disable the embedded browser, iOS remote control, and Cloud on managed Macs.",
+            webURL: "https://cmux.com/docs/managed-policies",
+            rawResources: [
+                DocsResource(label: "managed device policies", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/managed-device-policies.md"),
+            ],
+            commands: [
+                "cmux browser status --json",
             ]
         ),
         DocsReference(
@@ -114,6 +127,20 @@ extension CMUXCLI {
                 "python3 -m json.tool .cmux/dock.json",
             ]
         ),
+        DocsReference(
+            topic: "sidebars",
+            aliases: ["sidebar", "custom-sidebar", "custom-sidebars", "vibe-sidebar"],
+            summary: "Vibe-code a custom sidebar: a runtime-interpreted SwiftUI-style file in ~/.config/cmux/sidebars/ (beta).",
+            webURL: "https://cmux.com/docs/custom-sidebars",
+            rawResources: [
+                DocsResource(label: "custom sidebar authoring guide", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/custom-sidebars.md"),
+            ],
+            commands: [
+                "mkdir -p ~/.config/cmux/sidebars",
+                "cat > ~/.config/cmux/sidebars/mine.swift   # write a SwiftUI-style view, then right-click the sidebar button to pick it",
+                "cmux docs api   # discover cmux() action methods/params",
+            ]
+        ),
     ]
 
     func runDocsCommand(commandArgs: [String], jsonOutput: Bool) throws {
@@ -136,7 +163,7 @@ extension CMUXCLI {
         }
 
         guard args.count == 1 else {
-            throw CLIError(message: "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock]")
+            throw CLIError(message: "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies]")
         }
 
         if topic == "list" || topic == "all" {
@@ -161,7 +188,7 @@ extension CMUXCLI {
 
     func docsUsage() -> String {
         return """
-        Usage: cmux docs [settings|shortcuts|api|browser|agents|dock]
+        Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies]
 
         Print the canonical docs URL, raw GitHub resources, and useful commands for a cmux topic.
         This command does not require a running cmux app or socket.
@@ -202,8 +229,13 @@ extension CMUXCLI {
                 "legacy": Self.legacySettingsDisplayPath,
                 "fallback": Self.fallbackSettingsDisplayPath,
             ]
+            payload["ghostty_config"] = [
+                "path": Self.ghosttyConfigDisplayPath,
+                "note": "Not cmux-owned, but cmux reads it. Use for terminal transparency (background-opacity), blur, font, theme, etc.",
+            ]
             payload["backup"] = "Back up any existing cmux.json file to a timestamped .bak copy before editing so the user can revert."
             payload["reload_command"] = "cmux reload-config"
+            payload["reload_scope"] = "Reloads Ghostty config + cmux.json and refreshes terminals in place. No app restart needed."
         }
         return payload
     }
@@ -250,11 +282,15 @@ extension CMUXCLI {
             print("  legacy config: \(Self.legacySettingsDisplayPath)")
             print("  legacy app support: \(Self.fallbackSettingsDisplayPath)")
             print()
+            print("Related (not cmux-owned, but cmux reads it for terminal behavior):")
+            print("  \(Self.ghosttyConfigDisplayPath)")
+            print("  Use this for terminal transparency (background-opacity), blur, font, theme, etc.")
+            print()
             print("Before editing cmux.json:")
             print("  Back up any existing cmux.json file to a timestamped .bak copy so the user can revert.")
             print()
-            print("After editing cmux.json:")
-            print("  cmux reload-config")
+            print("Reload after editing cmux.json or Ghostty config:")
+            print("  cmux reload-config   (reloads BOTH and refreshes terminals; no app restart needed)")
         }
     }
 
@@ -345,20 +381,24 @@ extension CMUXCLI {
           docs                Print the same output as `cmux docs settings`.
 
         Targets:
-          account, app, terminal, sidebar-appearance, automation, browser,
-          browser-import, global-hotkey, keyboard-shortcuts, shortcuts,
-          workspace-colors, cmux-json, json, reset
+          account, app, terminal, networking, sidebar-appearance,
+          custom-sidebars, automation, browser, browser-import,
+          global-hotkey, keyboard-shortcuts, shortcuts, workspace-colors,
+          cmux-json, json, reset
 
         Config file:
           \(Self.primarySettingsDisplayPath)
           legacy config: \(Self.legacySettingsDisplayPath)
           legacy app support: \(Self.fallbackSettingsDisplayPath)
 
+        Related (not cmux-owned, but cmux reads it for terminal behavior):
+          \(Self.ghosttyConfigDisplayPath)
+
         Before editing cmux.json:
           Back up any existing cmux.json file to a timestamped .bak copy so the user can revert.
 
-        After editing cmux.json:
-          cmux reload-config
+        Reload after editing cmux.json or Ghostty config:
+          cmux reload-config   (reloads BOTH and refreshes terminals; no app restart needed)
         """
     }
 
@@ -377,10 +417,14 @@ extension CMUXCLI {
             return "terminal"
         case "sidebar", "sidebar-appearance", "sidebarappearance":
             return "sidebarAppearance"
+        case "custom-sidebars", "customsidebars":
+            return "customSidebars"
         case "automation":
             return "automation"
         case "browser":
             return "browser"
+        case "networking", "network", "iroh":
+            return "networking"
         case "browser-import", "browserimport", "import-browser-data":
             return "browserImport"
         case "global-hotkey", "globalhotkey", "hotkey":

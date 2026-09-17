@@ -129,7 +129,7 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(manager.tabs.count, initialCount + 1, "Bare Space chord should dispatch on the second stroke")
     }
 
-    func testCreateMainWindowIgnoresLegacyPersistedGeometryWhenNoSourceWindow() throws {
+    func testCreateMainWindowUsesPersistedGeometryWhenNoSourceWindow() throws {
         let previousShared = AppDelegate.shared
         let appDelegate = AppDelegate()
         defer { AppDelegate.shared = previousShared }
@@ -137,20 +137,11 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
         let defaults = UserDefaults.standard
         let persistedGeometryKey = AppDelegate.debugPersistedWindowGeometryDefaultsKey
         let previousPersistedGeometry = defaults.object(forKey: persistedGeometryKey)
-        let primaryFrameAutosaveName = AppDelegate.debugPrimaryMainWindowFrameAutosaveName
-        let primaryFrameAutosaveKey = appKitFrameAutosaveDefaultsKey(primaryFrameAutosaveName)
-        let previousPrimaryFrameAutosave = defaults.object(forKey: primaryFrameAutosaveKey)
-        NSWindow.removeFrame(usingName: primaryFrameAutosaveName)
         var windowId: UUID?
         defer {
             if let windowId {
                 closeWindow(withId: windowId)
             }
-            restoreDefaultsValue(
-                previousPrimaryFrameAutosave,
-                forKey: primaryFrameAutosaveKey,
-                defaults: defaults
-            )
             restoreDefaultsValue(
                 previousPersistedGeometry,
                 forKey: persistedGeometryKey,
@@ -162,15 +153,15 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
         let visibleFrame = screen.visibleFrame
         let savedWidth = max(
             CGFloat(SessionPersistencePolicy.minimumWindowWidth),
-            min(720, visibleFrame.width - 80)
+            min(1_100, visibleFrame.width - 40)
         )
         let savedHeight = max(
             CGFloat(SessionPersistencePolicy.minimumWindowHeight),
-            min(520, visibleFrame.height - 80)
+            min(760, visibleFrame.height - 40)
         )
         let savedFrame = CGRect(
-            x: visibleFrame.minX + 37,
-            y: visibleFrame.minY + 43,
+            x: visibleFrame.midX - savedWidth / 2,
+            y: visibleFrame.midY - savedHeight / 2,
             width: savedWidth,
             height: savedHeight
         )
@@ -189,242 +180,10 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
         windowId = createdWindowId
 
         let window = try XCTUnwrap(window(withId: createdWindowId))
-        XCTAssertFalse(window.frameAutosaveName.isEmpty)
-        XCTAssertGreaterThan(
-            abs(window.frame.minX - savedFrame.minX),
-            1,
-            "Legacy cmux lastWindowGeometry must not compete with AppKit frame autosave."
-        )
-        XCTAssertGreaterThan(
-            abs(window.frame.minY - savedFrame.minY),
-            1,
-            "Legacy cmux lastWindowGeometry must not compete with AppKit frame autosave."
-        )
-    }
-
-    func testLegacyPersistedGeometryCleanupRemovesCurrentV2Key() throws {
-        let defaults = UserDefaults.standard
-        let persistedGeometryKey = AppDelegate.debugPersistedWindowGeometryDefaultsKey
-        let previousPersistedGeometry = defaults.object(forKey: persistedGeometryKey)
-        defer {
-            restoreDefaultsValue(
-                previousPersistedGeometry,
-                forKey: persistedGeometryKey,
-                defaults: defaults
-            )
-        }
-
-        defaults.set(Data([1, 2, 3]), forKey: persistedGeometryKey)
-
-        AppDelegate.debugRemoveLegacyPersistedWindowGeometry(defaults: defaults)
-
-        XCTAssertNil(
-            defaults.object(forKey: persistedGeometryKey),
-            "The removed cmux-owned frame geometry key must be cleared so AppKit frame autosave is the only persisted frame source."
-        )
-    }
-
-    func testCreateMainWindowRegistersAppKitFrameAutosaveNames() throws {
-        let previousShared = AppDelegate.shared
-        let appDelegate = AppDelegate()
-        defer { AppDelegate.shared = previousShared }
-        let defaults = UserDefaults.standard
-        let primaryFrameAutosaveName = AppDelegate.debugPrimaryMainWindowFrameAutosaveName
-        let primaryFrameAutosaveKey = appKitFrameAutosaveDefaultsKey(primaryFrameAutosaveName)
-        let previousPrimaryFrameAutosave = defaults.object(forKey: primaryFrameAutosaveKey)
-        NSWindow.removeFrame(usingName: primaryFrameAutosaveName)
-        var secondaryFrameAutosaveName: NSWindow.FrameAutosaveName?
-
-        let firstWindowId = appDelegate.createMainWindow(shouldActivate: false, sourceWindow: nil)
-        let secondWindowId = appDelegate.createMainWindow(shouldActivate: false, sourceWindow: nil)
-        defer {
-            closeWindow(withId: secondWindowId)
-            closeWindow(withId: firstWindowId)
-            if let secondaryFrameAutosaveName {
-                NSWindow.removeFrame(usingName: secondaryFrameAutosaveName)
-            }
-            restoreDefaultsValue(
-                previousPrimaryFrameAutosave,
-                forKey: primaryFrameAutosaveKey,
-                defaults: defaults
-            )
-        }
-
-        let firstWindow = try XCTUnwrap(window(withId: firstWindowId))
-        let secondWindow = try XCTUnwrap(window(withId: secondWindowId))
-        secondaryFrameAutosaveName = secondWindow.frameAutosaveName
-
-        XCTAssertFalse(
-            firstWindow.frameAutosaveName.isEmpty,
-            "Main windows must opt in to AppKit frame autosave so macOS owns screen topology restoration."
-        )
-        XCTAssertFalse(
-            secondWindow.frameAutosaveName.isEmpty,
-            "Additional main windows also need autosave names so monitor wake restores do not fall back to cmux-only geometry."
-        )
-        XCTAssertNotEqual(
-            firstWindow.frameAutosaveName,
-            secondWindow.frameAutosaveName,
-            "Each live main window needs a distinct AppKit frame autosave name."
-        )
-    }
-
-    func testClosingSecondaryMainWindowRemovesEphemeralFrameAutosaveName() throws {
-        let previousShared = AppDelegate.shared
-        let appDelegate = AppDelegate()
-        defer { AppDelegate.shared = previousShared }
-        let defaults = UserDefaults.standard
-        let primaryFrameAutosaveName = AppDelegate.debugPrimaryMainWindowFrameAutosaveName
-        let primaryFrameAutosaveKey = appKitFrameAutosaveDefaultsKey(primaryFrameAutosaveName)
-        let previousPrimaryFrameAutosave = defaults.object(forKey: primaryFrameAutosaveKey)
-        NSWindow.removeFrame(usingName: primaryFrameAutosaveName)
-
-        let firstWindowId = appDelegate.createMainWindow(shouldActivate: false, sourceWindow: nil)
-        let secondWindowId = appDelegate.createMainWindow(shouldActivate: false, sourceWindow: nil)
-        defer {
-            closeWindow(withId: secondWindowId)
-            closeWindow(withId: firstWindowId)
-            restoreDefaultsValue(
-                previousPrimaryFrameAutosave,
-                forKey: primaryFrameAutosaveKey,
-                defaults: defaults
-            )
-        }
-
-        let secondWindow = try XCTUnwrap(window(withId: secondWindowId))
-        let secondaryFrameAutosaveName = secondWindow.frameAutosaveName
-        let secondaryFrameAutosaveKey = appKitFrameAutosaveDefaultsKey(secondaryFrameAutosaveName)
-        let previousSecondaryFrameAutosave = defaults.object(forKey: secondaryFrameAutosaveKey)
-        defer {
-            restoreDefaultsValue(
-                previousSecondaryFrameAutosave,
-                forKey: secondaryFrameAutosaveKey,
-                defaults: defaults
-            )
-        }
-
-        XCTAssertFalse(secondaryFrameAutosaveName.isEmpty)
-        XCTAssertNotEqual(secondaryFrameAutosaveName, primaryFrameAutosaveName)
-
-        NSWindow.removeFrame(usingName: secondaryFrameAutosaveName)
-        secondWindow.saveFrame(usingName: secondaryFrameAutosaveName)
-        XCTAssertNotNil(defaults.object(forKey: secondaryFrameAutosaveKey))
-
-        closeWindow(withId: secondWindowId)
-
-        XCTAssertTrue(
-            secondWindow.frameAutosaveName.isEmpty,
-            "Ephemeral autosave names must be cleared before removing their saved frame."
-        )
-        XCTAssertNil(
-            defaults.object(forKey: secondaryFrameAutosaveKey),
-            "UUID-scoped autosave names are per-window and must be removed when the window closes."
-        )
-    }
-
-    func testClosingPrimaryMainWindowPromotesSurvivingWindowAutosaveName() throws {
-        let previousShared = AppDelegate.shared
-        let appDelegate = AppDelegate()
-        defer { AppDelegate.shared = previousShared }
-        let defaults = UserDefaults.standard
-        let primaryFrameAutosaveName = AppDelegate.debugPrimaryMainWindowFrameAutosaveName
-        let primaryFrameAutosaveKey = appKitFrameAutosaveDefaultsKey(primaryFrameAutosaveName)
-        let previousPrimaryFrameAutosave = defaults.object(forKey: primaryFrameAutosaveKey)
-        NSWindow.removeFrame(usingName: primaryFrameAutosaveName)
-
-        let firstWindowId = appDelegate.createMainWindow(shouldActivate: false, sourceWindow: nil)
-        let secondWindowId = appDelegate.createMainWindow(shouldActivate: false, sourceWindow: nil)
-        var secondaryFrameAutosaveName: NSWindow.FrameAutosaveName?
-        var previousSecondaryFrameAutosave: Any?
-        defer {
-            closeWindow(withId: secondWindowId)
-            closeWindow(withId: firstWindowId)
-            if let secondaryFrameAutosaveName {
-                restoreDefaultsValue(
-                    previousSecondaryFrameAutosave,
-                    forKey: appKitFrameAutosaveDefaultsKey(secondaryFrameAutosaveName),
-                    defaults: defaults
-                )
-            }
-            restoreDefaultsValue(
-                previousPrimaryFrameAutosave,
-                forKey: primaryFrameAutosaveKey,
-                defaults: defaults
-            )
-        }
-
-        let firstWindow = try XCTUnwrap(window(withId: firstWindowId))
-        let secondWindow = try XCTUnwrap(window(withId: secondWindowId))
-        secondaryFrameAutosaveName = secondWindow.frameAutosaveName
-        let secondaryFrameAutosaveKey = appKitFrameAutosaveDefaultsKey(secondWindow.frameAutosaveName)
-        previousSecondaryFrameAutosave = defaults.object(forKey: secondaryFrameAutosaveKey)
-
-        XCTAssertEqual(firstWindow.frameAutosaveName, primaryFrameAutosaveName)
-        XCTAssertNotEqual(secondWindow.frameAutosaveName, primaryFrameAutosaveName)
-        let screen = try XCTUnwrap(NSScreen.main ?? NSScreen.screens.first)
-        let visibleFrame = screen.visibleFrame
-        let savedWidth = max(
-            CGFloat(SessionPersistencePolicy.minimumWindowWidth),
-            min(520, visibleFrame.width - 120)
-        )
-        let savedHeight = max(
-            CGFloat(SessionPersistencePolicy.minimumWindowHeight),
-            min(360, visibleFrame.height - 120)
-        )
-        let firstFrame = CGRect(
-            x: visibleFrame.minX + 24,
-            y: visibleFrame.minY + 32,
-            width: savedWidth,
-            height: savedHeight
-        )
-        let secondFrame = CGRect(
-            x: min(visibleFrame.minX + 144, visibleFrame.maxX - savedWidth - 24),
-            y: min(visibleFrame.minY + 152, visibleFrame.maxY - savedHeight - 32),
-            width: savedWidth,
-            height: savedHeight
-        )
-        firstWindow.setFrame(firstFrame, display: false)
-        firstWindow.saveFrame(usingName: primaryFrameAutosaveName)
-        secondWindow.setFrame(secondFrame, display: false)
-        NSWindow.removeFrame(usingName: secondWindow.frameAutosaveName)
-        secondWindow.saveFrame(usingName: secondWindow.frameAutosaveName)
-        let survivorFrameBeforePromotion = secondWindow.frame
-        XCTAssertNotNil(defaults.object(forKey: secondaryFrameAutosaveKey))
-
-        closeWindow(withId: firstWindowId)
-
-        XCTAssertEqual(
-            secondWindow.frameAutosaveName,
-            primaryFrameAutosaveName,
-            "A surviving main window must take over the stable AppKit autosave slot when the primary closes."
-        )
-        XCTAssertNil(
-            defaults.object(forKey: secondaryFrameAutosaveKey),
-            "Promoting a survivor to the primary slot must also retire its UUID-scoped saved frame."
-        )
-        XCTAssertNotNil(
-            defaults.object(forKey: primaryFrameAutosaveKey),
-            "Promotion should immediately persist the survivor's frame under the stable primary autosave key."
-        )
-        let probeWindow = NSWindow(
-            contentRect: CGRect(x: 0, y: 0, width: 10, height: 10),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        defer { probeWindow.close() }
-        XCTAssertTrue(
-            probeWindow.setFrameUsingName(primaryFrameAutosaveName, force: true),
-            "Promotion should leave the survivor's restorable frame in the stable primary autosave slot."
-        )
-        XCTAssertEqual(probeWindow.frame.minX, survivorFrameBeforePromotion.minX, accuracy: 1)
-        XCTAssertEqual(probeWindow.frame.minY, survivorFrameBeforePromotion.minY, accuracy: 1)
-        XCTAssertEqual(probeWindow.frame.width, survivorFrameBeforePromotion.width, accuracy: 1)
-        XCTAssertEqual(probeWindow.frame.height, survivorFrameBeforePromotion.height, accuracy: 1)
-        XCTAssertEqual(secondWindow.frame.minX, survivorFrameBeforePromotion.minX, accuracy: 1)
-        XCTAssertEqual(secondWindow.frame.minY, survivorFrameBeforePromotion.minY, accuracy: 1)
-        XCTAssertEqual(secondWindow.frame.width, survivorFrameBeforePromotion.width, accuracy: 1)
-        XCTAssertEqual(secondWindow.frame.height, survivorFrameBeforePromotion.height, accuracy: 1)
+        XCTAssertEqual(window.frame.minX, savedFrame.minX, accuracy: 1)
+        XCTAssertEqual(window.frame.minY, savedFrame.minY, accuracy: 1)
+        XCTAssertEqual(window.frame.width, savedFrame.width, accuracy: 1)
+        XCTAssertEqual(window.frame.height, savedFrame.height, accuracy: 1)
     }
 
     private func makeKeyDownEvent(
@@ -481,11 +240,5 @@ final class AppDelegateBareSpaceShortcutRoutingTests: XCTestCase {
         } else {
             defaults.removeObject(forKey: key)
         }
-    }
-
-    /// Mirrors AppKit's internal frame-autosave UserDefaults key convention.
-    /// Keep this localized to tests because AppKit does not document the format.
-    private func appKitFrameAutosaveDefaultsKey(_ name: NSWindow.FrameAutosaveName) -> String {
-        "NSWindow Frame \(name)"
     }
 }

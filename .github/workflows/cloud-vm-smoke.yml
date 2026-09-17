@@ -19,10 +19,9 @@ on:
       provider:
         description: Provider to use when create_vm is enabled
         required: false
-        default: e2b
+        default: freestyle
         type: choice
         options:
-          - e2b
           - freestyle
       confirm_production_create:
         description: Required when create_vm is true and target is production
@@ -39,7 +38,7 @@ concurrency:
 
 jobs:
   smoke:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     environment: cloud-vm-${{ inputs.target }}
     defaults:
       run:

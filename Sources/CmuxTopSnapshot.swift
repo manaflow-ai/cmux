@@ -1,29 +1,59 @@
-import Foundation
 import Darwin
+import Foundation
 
-private nonisolated let cmuxTopPIDPathBufferSize = 4096
-
-nonisolated struct CmuxTopResourceSummary: Sendable {
+struct CmuxTopResourceSummary: Sendable {
     var cpuPercent: Double = 0
+    var memoryBytes: Int64 = 0
     var residentBytes: Int64 = 0
     var virtualBytes: Int64 = 0
     var processCount: Int = 0
     var pids: [Int] = []
     var missingPIDs: [Int] = []
+    var memorySourceFallbackPIDs: [Int] = []
+    var residentMemorySourceFallbackPIDs: [Int] = []
+    var unavailableMemoryPIDs: [Int] = []
+    var unavailableResidentMemoryPIDs: [Int] = []
 
     func payload() -> [String: Any] {
         [
             "cpu_percent": cpuPercent,
+            "memory_bytes": memoryBytes,
             "resident_bytes": residentBytes,
             "virtual_bytes": virtualBytes,
             "process_count": processCount,
             "pids": pids,
-            "missing_pids": missingPIDs
+            "missing_pids": missingPIDs,
+            "memory_source_fallback_pids": memorySourceFallbackPIDs,
+            "memory_source_fallback_count": memorySourceFallbackPIDs.count,
+            "resident_memory_source_fallback_pids": residentMemorySourceFallbackPIDs,
+            "resident_memory_source_fallback_count": residentMemorySourceFallbackPIDs.count,
+            "unavailable_memory_pids": unavailableMemoryPIDs,
+            "unavailable_memory_count": unavailableMemoryPIDs.count,
+            "unavailable_resident_memory_pids": unavailableResidentMemoryPIDs,
+            "unavailable_resident_memory_count": unavailableResidentMemoryPIDs.count
         ]
+    }
+
+    func attributedPayload(sharedAcross occurrenceCount: Int) -> [String: Any] {
+        guard occurrenceCount > 1 else { return payload() }
+        var attributed = self
+        attributed.cpuPercent /= Double(occurrenceCount)
+        attributed.memoryBytes = attributed.memoryBytes / Int64(occurrenceCount)
+        attributed.residentBytes = attributed.residentBytes / Int64(occurrenceCount)
+        attributed.virtualBytes = attributed.virtualBytes / Int64(occurrenceCount)
+        return attributed.payload()
     }
 }
 
-nonisolated struct CmuxTopProcessInfo: Sendable {
+enum CmuxTopProcessMemorySource: String, Sendable {
+    case physicalFootprint = "proc_pid_rusage.RUSAGE_INFO_V4.ri_phys_footprint"
+    case residentSize = "proc_pidinfo.PROC_PIDTASKINFO.pti_resident_size"
+    case rusageResidentSize = "proc_pid_rusage.RUSAGE_INFO_V4.ri_resident_size"
+    case mixed
+    case unavailable
+}
+
+struct CmuxTopProcessInfo: Sendable {
     let pid: Int
     let parentPID: Int
     let name: String
@@ -31,48 +61,115 @@ nonisolated struct CmuxTopProcessInfo: Sendable {
     let ttyDevice: Int64?
     let cmuxWorkspaceID: UUID?
     let cmuxSurfaceID: UUID?
+    let cmuxAttributionReason: String?
     let processGroupID: Int?
     let terminalProcessGroupID: Int?
     var cpuPercent: Double
+    let memoryBytes: Int64
+    let memorySource: CmuxTopProcessMemorySource
     let residentBytes: Int64
+    let residentMemorySource: CmuxTopProcessMemorySource
     let virtualBytes: Int64
     let threadCount: Int
+
+    init(
+        pid: Int,
+        parentPID: Int,
+        name: String,
+        path: String?,
+        ttyDevice: Int64?,
+        cmuxWorkspaceID: UUID?,
+        cmuxSurfaceID: UUID?,
+        cmuxAttributionReason: String?,
+        processGroupID: Int?,
+        terminalProcessGroupID: Int?,
+        cpuPercent: Double,
+        memoryBytes: Int64? = nil,
+        memorySource: CmuxTopProcessMemorySource? = nil,
+        residentBytes: Int64,
+        residentMemorySource: CmuxTopProcessMemorySource = .residentSize,
+        virtualBytes: Int64,
+        threadCount: Int
+    ) {
+        self.pid = pid
+        self.parentPID = parentPID
+        self.name = name
+        self.path = path
+        self.ttyDevice = ttyDevice
+        self.cmuxWorkspaceID = cmuxWorkspaceID
+        self.cmuxSurfaceID = cmuxSurfaceID
+        self.cmuxAttributionReason = cmuxAttributionReason
+        self.processGroupID = processGroupID
+        self.terminalProcessGroupID = terminalProcessGroupID
+        self.cpuPercent = cpuPercent
+        self.memoryBytes = memoryBytes ?? residentBytes
+        self.memorySource = memorySource
+            ?? (memoryBytes == nil ? .residentSize : .physicalFootprint)
+        self.residentBytes = residentBytes
+        self.residentMemorySource = residentMemorySource
+        self.virtualBytes = virtualBytes
+        self.threadCount = threadCount
+    }
+
+    var isTerminalForegroundProcessGroup: Bool {
+        guard let processGroupID, let terminalProcessGroupID else { return false }
+        return processGroupID == terminalProcessGroupID
+    }
 }
 
-nonisolated struct CmuxTopProcessScope: Sendable {
+struct CmuxTopProcessScope: Sendable, Equatable {
     let workspaceID: UUID?
     let surfaceID: UUID?
+    let attributionReason: String
+
+    init(workspaceID: UUID?, surfaceID: UUID?, attributionReason: String) {
+        self.workspaceID = workspaceID
+        self.surfaceID = surfaceID
+        self.attributionReason = attributionReason
+    }
 }
 
-nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
+final class CmuxTopProcessSnapshot: @unchecked Sendable {
     let sampledAt: Date
+    let enumerationIsComplete: Bool
+    let enumerationMissingProcessCount: Int
     private let includesProcessDetails: Bool
-    private let processesByPID: [Int: CmuxTopProcessInfo]
+    private let includesCMUXScope: Bool
+    let processesByPID: [Int: CmuxTopProcessInfo]
     private let childrenByParentPID: [Int: [Int]]
     private let pidsByTTYDevice: [Int64: [Int]]
     private let pidsByCMUXSurfaceID: [UUID: [Int]]
+    private let pidsByProcessGroupID: [Int: [Int]]
+    private let residentMemorySources: [CmuxTopProcessMemorySource]
 
-    static func capture(includeProcessDetails: Bool = false) -> CmuxTopProcessSnapshot {
-        CmuxTopProcessSnapshot(
-            processes: allProcesses(includeProcessDetails: includeProcessDetails),
-            sampledAt: Date(),
-            includesProcessDetails: includeProcessDetails
-        )
-    }
-
-    private init(
+    init(
         processes: [CmuxTopProcessInfo],
         sampledAt: Date,
-        includesProcessDetails: Bool
+        includesProcessDetails: Bool,
+        includesCMUXScope: Bool = true,
+        enumerationIsComplete: Bool = true,
+        enumerationMissingProcessCount: Int = 0
     ) {
+        self.enumerationIsComplete = enumerationIsComplete && enumerationMissingProcessCount == 0
+        self.enumerationMissingProcessCount = max(0, enumerationMissingProcessCount)
         self.sampledAt = sampledAt
         self.includesProcessDetails = includesProcessDetails
-        self.processesByPID = Dictionary(uniqueKeysWithValues: processes.map { ($0.pid, $0) })
+        self.includesCMUXScope = includesCMUXScope
+        var processMap: [Int: CmuxTopProcessInfo] = [:]
+        processMap.reserveCapacity(processes.count)
+        for process in processes {
+            processMap[process.pid] = process
+        }
+        self.processesByPID = processMap
+        self.residentMemorySources = Self.sortedMemorySources(
+            in: processMap.values.map(\.residentMemorySource)
+        )
 
         var children: [Int: [Int]] = [:]
         var ttyMap: [Int64: [Int]] = [:]
         var cmuxSurfaceMap: [UUID: [Int]] = [:]
-        for process in processes {
+        var processGroupMap: [Int: [Int]] = [:]
+        for process in processMap.values {
             if process.parentPID > 0 {
                 children[process.parentPID, default: []].append(process.pid)
             }
@@ -82,37 +179,89 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             if let cmuxSurfaceID = process.cmuxSurfaceID {
                 cmuxSurfaceMap[cmuxSurfaceID, default: []].append(process.pid)
             }
+            if let processGroupID = process.processGroupID {
+                processGroupMap[processGroupID, default: []].append(process.pid)
+            }
         }
         self.childrenByParentPID = children.mapValues { $0.sorted() }
         self.pidsByTTYDevice = ttyMap.mapValues { $0.sorted() }
         self.pidsByCMUXSurfaceID = cmuxSurfaceMap.mapValues { $0.sorted() }
+        self.pidsByProcessGroupID = processGroupMap.mapValues { $0.sorted() }
     }
 
     func samplePayload() -> [String: Any] {
-        [
+        let residentMemorySourceNames = residentMemorySources.map(\.rawValue)
+        return [
             "sampled_at": ISO8601DateFormatter().string(from: sampledAt),
-            "source": "sysctl+proc_pidinfo",
+            "source": "proc_listallpids+proc_pidinfo+sysctl(KERN_PROC_PID)",
             "cpu_source": "proc_pidinfo.PROC_PIDTASKINFO.pti_total_user+pti_total_system",
-            "memory_source": "proc_pidinfo.PROC_PIDTASKINFO",
-            "process_details": includesProcessDetails
+            "memory_source": CmuxTopProcessMemorySource.physicalFootprint.rawValue,
+            "memory_fallback_source": CmuxTopProcessMemorySource.residentSize.rawValue,
+            "resident_memory_source": Self.summaryMemorySource(residentMemorySources).rawValue,
+            "resident_memory_sources": residentMemorySourceNames,
+            "resident_memory_fallback_source": CmuxTopProcessMemorySource.rusageResidentSize.rawValue,
+            "process_details": includesProcessDetails,
+            "cmux_scope": includesCMUXScope,
+            "enumeration_complete": enumerationIsComplete,
+            "enumeration_missing_process_count": enumerationMissingProcessCount
         ]
+    }
+
+    var hasCMUXScope: Bool {
+        includesCMUXScope
+    }
+
+    private static func sortedMemorySources(
+        in sources: [CmuxTopProcessMemorySource]
+    ) -> [CmuxTopProcessMemorySource] {
+        [
+            .physicalFootprint,
+            .residentSize,
+            .rusageResidentSize,
+            .unavailable
+        ].filter { source in
+            sources.contains(source)
+        }
+    }
+
+    private static func summaryMemorySource(
+        _ sources: [CmuxTopProcessMemorySource]
+    ) -> CmuxTopProcessMemorySource {
+        let concreteSources = sources.filter { $0 != .unavailable }
+        guard !concreteSources.isEmpty else { return .unavailable }
+        guard concreteSources.count == 1, let source = concreteSources.first else {
+            return .mixed
+        }
+        return source
     }
 
     func pids(forTTYName ttyName: String) -> Set<Int> {
         guard let device = Self.deviceIdentifier(forTTYName: ttyName) else {
             return []
         }
-        return Set(pidsByTTYDevice[device] ?? [])
+        return pids(forTTYDevice: device)
+    }
+
+    func pids(forTTYDevice ttyDevice: Int64) -> Set<Int> {
+        Set(pidsByTTYDevice[ttyDevice] ?? [])
     }
 
     func pids(forCMUXSurfaceID surfaceID: UUID) -> Set<Int> {
         Set(pidsByCMUXSurfaceID[surfaceID] ?? [])
     }
 
+    func pids(forProcessGroupID processGroupID: Int) -> Set<Int> {
+        Set(pidsByProcessGroupID[processGroupID] ?? [])
+    }
+
     func cmuxScopedProcesses() -> [CmuxTopProcessInfo] {
         processesByPID.values
             .filter { $0.cmuxWorkspaceID != nil && $0.cmuxSurfaceID != nil }
             .sorted { $0.pid < $1.pid }
+    }
+
+    func process(pid: Int) -> CmuxTopProcessInfo? {
+        processesByPID[pid]
     }
 
     func expandedPIDs(rootPIDs: Set<Int>) -> Set<Int> {
@@ -125,6 +274,270 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         }
 
         return result
+    }
+
+    func agentHibernationProcessScope(
+        panelProcessIDs: Set<Int>,
+        agentProcessIDs: Set<Int>
+    ) -> RestorableAgentSessionIndex.HibernationProcessScope {
+        guard enumerationIsComplete else { return ([], [], true) }
+        let maximumProcessCount = AgentHibernationController.maximumScopedProcessTerminationCount
+        func appendBounded<S: Sequence>(
+            _ processIDs: S,
+            to values: inout Set<Int>
+        ) -> Bool where S.Element == Int {
+            for processID in processIDs {
+                guard processID > 0, !values.contains(processID) else { continue }
+                guard values.count < maximumProcessCount else { return true }
+                values.insert(processID)
+            }
+            return false
+        }
+        func boundedExpandedPIDs(
+            rootPIDs: Set<Int>
+        ) -> (values: Set<Int>, exceeded: Bool) {
+            var values: Set<Int> = []
+            var stack: [Int] = []
+            stack.reserveCapacity(min(rootPIDs.count, maximumProcessCount))
+            for rootPID in rootPIDs {
+                guard rootPID > 0, !values.contains(rootPID) else { continue }
+                guard values.count < maximumProcessCount else {
+                    return (values, true)
+                }
+                values.insert(rootPID)
+                stack.append(rootPID)
+            }
+            while let processID = stack.popLast() {
+                for childProcessID in childrenByParentPID[processID] ?? [] {
+                    guard childProcessID > 0, !values.contains(childProcessID) else {
+                        continue
+                    }
+                    guard values.count < maximumProcessCount else {
+                        return (values, true)
+                    }
+                    values.insert(childProcessID)
+                    stack.append(childProcessID)
+                }
+            }
+            return (values, false)
+        }
+
+        var boundedPanelProcessIDs: Set<Int> = []
+        let panelProcessIDsExceeded = appendBounded(
+            panelProcessIDs,
+            to: &boundedPanelProcessIDs
+        )
+        var boundedAgentProcessIDs: Set<Int> = []
+        let agentProcessIDsExceeded = appendBounded(
+            agentProcessIDs,
+            to: &boundedAgentProcessIDs
+        )
+        if panelProcessIDsExceeded || agentProcessIDsExceeded {
+            var boundedTerminationProcessIDs: Set<Int> = []
+            _ = appendBounded(boundedAgentProcessIDs, to: &boundedTerminationProcessIDs)
+            return (
+                boundedPanelProcessIDs,
+                boundedTerminationProcessIDs,
+                true
+            )
+        }
+
+        let boundedAgentRoots = boundedAgentProcessIDs
+        let terminalDevices = Set(boundedAgentRoots.compactMap {
+            processesByPID[$0]?.ttyDevice
+        })
+        var boundedTerminalProcessIDs: Set<Int> = []
+        var terminalProcessIDsExceeded = false
+        for terminalDevice in terminalDevices {
+            terminalProcessIDsExceeded = appendBounded(
+                pidsByTTYDevice[terminalDevice] ?? [],
+                to: &boundedTerminalProcessIDs
+            )
+            if terminalProcessIDsExceeded {
+                break
+            }
+        }
+        var boundedObservedPanelProcessIDs: Set<Int> = []
+        let panelObservationExceeded = appendBounded(
+            boundedPanelProcessIDs,
+            to: &boundedObservedPanelProcessIDs
+        ) || appendBounded(
+            boundedTerminalProcessIDs,
+            to: &boundedObservedPanelProcessIDs
+        )
+        if terminalProcessIDsExceeded || panelObservationExceeded {
+            var boundedTerminationProcessIDs: Set<Int> = []
+            _ = appendBounded(boundedAgentRoots, to: &boundedTerminationProcessIDs)
+            return (
+                boundedObservedPanelProcessIDs,
+                boundedTerminationProcessIDs,
+                true
+            )
+        }
+
+        let observedPanelProcessIDs = boundedObservedPanelProcessIDs
+        let descendantCollector = boundedExpandedPIDs(
+            rootPIDs: boundedAgentRoots
+        )
+        if descendantCollector.exceeded {
+            return (
+                observedPanelProcessIDs,
+                descendantCollector.values,
+                true
+            )
+        }
+        let descendantProcessIDs = descendantCollector.values
+        var boundedAllowedProcessIDs: Set<Int> = []
+        var scopeExceeded = appendBounded(
+            descendantProcessIDs,
+            to: &boundedAllowedProcessIDs
+        )
+
+        for rootProcessID in boundedAgentRoots {
+            var currentProcessID = rootProcessID
+            var visitedProcessIDs: Set<Int> = []
+            while visitedProcessIDs.insert(currentProcessID).inserted {
+                guard let parentProcessID = processesByPID[currentProcessID]?.parentPID,
+                      observedPanelProcessIDs.contains(parentProcessID) else {
+                    break
+                }
+                guard visitedProcessIDs.count < maximumProcessCount else {
+                    scopeExceeded = true
+                    break
+                }
+                if appendBounded(
+                    [parentProcessID],
+                    to: &boundedAllowedProcessIDs
+                ) {
+                    scopeExceeded = true
+                    break
+                }
+                currentProcessID = parentProcessID
+            }
+            if scopeExceeded {
+                break
+            }
+        }
+        if scopeExceeded {
+            var boundedTerminationProcessIDs: Set<Int> = []
+            _ = appendBounded(descendantProcessIDs, to: &boundedTerminationProcessIDs)
+            return (
+                observedPanelProcessIDs,
+                boundedTerminationProcessIDs,
+                true
+            )
+        }
+
+        let processGroupIDs = Set(descendantProcessIDs.compactMap {
+            processesByPID[$0]?.processGroupID
+        }).filter { $0 > 1 }
+        var boundedProcessGroupMemberIDs: Set<Int> = []
+        var processGroupMembersExceeded = false
+        for processGroupID in processGroupIDs {
+            processGroupMembersExceeded = appendBounded(
+                pidsByProcessGroupID[processGroupID] ?? [],
+                to: &boundedProcessGroupMemberIDs
+            )
+            if processGroupMembersExceeded {
+                break
+            }
+        }
+        var boundedTerminationProcessIDs: Set<Int> = []
+        let terminationProcessIDsExceeded = appendBounded(
+            descendantProcessIDs,
+            to: &boundedTerminationProcessIDs
+        ) || appendBounded(
+            boundedProcessGroupMemberIDs,
+            to: &boundedTerminationProcessIDs
+        )
+        if processGroupMembersExceeded || terminationProcessIDsExceeded {
+            return (
+                observedPanelProcessIDs,
+                boundedTerminationProcessIDs,
+                true
+            )
+        }
+        let processGroupMemberIDs = boundedProcessGroupMemberIDs
+        let terminationProcessIDs = boundedTerminationProcessIDs
+        let terminationTTYDevices = terminationProcessIDs.compactMap {
+            processesByPID[$0]?.ttyDevice
+        }
+        let hasCompleteTerminationTTYEvidence = terminationProcessIDs.isEmpty ||
+            (
+                terminationTTYDevices.count == terminationProcessIDs.count &&
+                    Set(terminationTTYDevices).count == 1
+            )
+
+        let hasCompleteAgentRoots =
+            !boundedAgentRoots.isEmpty &&
+            boundedAgentRoots.isSubset(of: terminationProcessIDs)
+        let hasTerminalEvidence = boundedAgentRoots.allSatisfy {
+            processesByPID[$0]?.ttyDevice != nil
+        }
+        let hasCompleteProcessGroups = processGroupIDs.allSatisfy { processGroupID in
+            processesByPID[processGroupID]?.processGroupID == processGroupID
+        }
+        return (
+            observedPanelProcessIDs,
+            terminationProcessIDs,
+            !hasCompleteAgentRoots ||
+                !hasTerminalEvidence ||
+                !hasCompleteTerminationTTYEvidence ||
+                processGroupIDs.isEmpty ||
+                !hasCompleteProcessGroups ||
+                !processGroupMemberIDs.isSubset(of: boundedAllowedProcessIDs) ||
+                !observedPanelProcessIDs.isSubset(of: boundedAllowedProcessIDs)
+        )
+    }
+
+    func descendantPIDs(rootPID: Int, includeRoot: Bool = false) -> Set<Int> {
+        guard rootPID > 0 else { return [] }
+
+        var result: Set<Int> = includeRoot && processesByPID[rootPID] != nil ? [rootPID] : []
+        var visited: Set<Int> = []
+        var stack = childrenByParentPID[rootPID] ?? []
+        stack.append(contentsOf: Self.listedChildPIDs(parentPID: rootPID))
+        while let pid = stack.popLast() {
+            guard visited.insert(pid).inserted else { continue }
+            guard result.insert(pid).inserted else { continue }
+            stack.append(contentsOf: childrenByParentPID[pid] ?? [])
+            stack.append(contentsOf: Self.listedChildPIDs(parentPID: pid))
+        }
+        return result
+    }
+
+    private static func listedChildPIDs(parentPID: Int) -> [Int] {
+        guard parentPID > 0 else { return [] }
+
+        let pidStride = MemoryLayout<pid_t>.stride
+        var capacity = 16
+        var lastChildren: [Int] = []
+        for _ in 0..<4 {
+            var pids = Array(repeating: pid_t(), count: capacity)
+            let returnedCount = pids.withUnsafeMutableBufferPointer { buffer in
+                proc_listchildpids(
+                    pid_t(parentPID),
+                    buffer.baseAddress,
+                    Int32(buffer.count * pidStride)
+                )
+            }
+            guard returnedCount >= 0 else {
+                return lastChildren
+            }
+
+            let count = min(pids.count, Int(returnedCount))
+            lastChildren = pids
+                .prefix(count)
+                .compactMap { pid in
+                    let intPID = Int(pid)
+                    return intPID > 0 ? intPID : nil
+                }
+            if Int(returnedCount) < pids.count {
+                return lastChildren
+            }
+            capacity = max(pids.count * 2, Int(returnedCount) + 16)
+        }
+        return lastChildren
     }
 
     func summaryPayload(for pids: Set<Int>, rootPIDs: Set<Int> = []) -> [String: Any] {
@@ -142,12 +555,43 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         for pid in sortedPIDs {
             guard let process = processesByPID[pid] else { continue }
             summary.cpuPercent += process.cpuPercent
+            summary.memoryBytes = Self.clampedAdd(summary.memoryBytes, process.memoryBytes)
             summary.residentBytes = Self.clampedAdd(summary.residentBytes, process.residentBytes)
             summary.virtualBytes = Self.clampedAdd(summary.virtualBytes, process.virtualBytes)
             summary.processCount += 1
+            if process.memorySource == .residentSize {
+                summary.memorySourceFallbackPIDs.append(pid)
+            } else if process.memorySource == .unavailable {
+                summary.unavailableMemoryPIDs.append(pid)
+            }
+            if process.residentMemorySource == .rusageResidentSize {
+                summary.residentMemorySourceFallbackPIDs.append(pid)
+            } else if process.residentMemorySource == .unavailable {
+                summary.unavailableResidentMemoryPIDs.append(pid)
+            }
         }
 
         return summary
+    }
+
+    func programSummaryPayload(for pids: Set<Int>) -> [[String: Any]] {
+        var aggregates: [String: CmuxProgramProcessAggregate] = [:]
+
+        for pid in pids.sorted() {
+            guard let process = processesByPID[pid] else { continue }
+            let title = process.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !title.isEmpty else { continue }
+            let key = title.lowercased()
+            if aggregates[key] == nil {
+                aggregates[key] = CmuxProgramProcessAggregate(id: key, title: title)
+            }
+            aggregates[key]?.append(process)
+        }
+
+        return aggregates.values
+            .filter { $0.processIds.count > 1 }
+            .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+            .map { $0.payload() }
     }
 
     func processTreePayload(for pids: Set<Int>, rootPIDs explicitRootPIDs: Set<Int> = []) -> [[String: Any]] {
@@ -171,7 +615,14 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         }
 
         var visited: Set<Int> = []
-        return roots.compactMap { processTreeNode(pid: $0, allowedPIDs: allowedPIDs, visited: &visited) }
+        return roots.compactMap {
+            processTreeNode(
+                pid: $0,
+                allowedPIDs: allowedPIDs,
+                rootPIDs: explicitRootPIDs,
+                visited: &visited
+            )
+        }
     }
 
     func topLevelPIDs(for pids: Set<Int>) -> Set<Int> {
@@ -186,19 +637,153 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         Set(
             pids.compactMap { pid in
                 guard let process = processesByPID[pid],
-                      let processGroupID = process.processGroupID,
-                      let foregroundGroupID = process.terminalProcessGroupID,
-                      processGroupID == foregroundGroupID else {
+                      process.isTerminalForegroundProcessGroup else {
                     return nil
                 }
-                return foregroundGroupID
+                return process.terminalProcessGroupID
             }
         )
+    }
+
+    func codingAgentSummaryPayload(for pids: Set<Int>) -> [[String: Any]] {
+        var aggregates: [String: CmuxCodingAgentProcessAggregate] = [:]
+
+        for pid in pids.sorted() {
+            guard let process = processesByPID[pid] else { continue }
+            let processArguments = Self.processArgumentsIfNeeded(for: process)
+            guard let definition = CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+                processName: process.name,
+                processPath: process.path,
+                arguments: processArguments?.arguments ?? [],
+                environment: processArguments?.environment ?? [:]
+            ) else { continue }
+
+            if aggregates[definition.id] == nil {
+                aggregates[definition.id] = CmuxCodingAgentProcessAggregate(definition: definition)
+            }
+            aggregates[definition.id]?.append(process)
+        }
+
+        return CmuxTaskManagerCodingAgentDefinition.builtIns.compactMap { definition in
+            guard let aggregate = aggregates[definition.id] else { return nil }
+            return aggregate.payload()
+        }
+    }
+
+    private static func processArgumentsIfNeeded(for process: CmuxTopProcessInfo) -> CmuxTopProcessArguments? {
+        guard CmuxTaskManagerCodingAgentDefinition.shouldReadArguments(
+            processName: process.name,
+            processPath: process.path
+        ) else { return nil }
+        return processArgumentsAndEnvironment(for: process.pid)
+    }
+
+    private struct CmuxProgramProcessAggregate {
+        let id: String
+        let title: String
+        var cpuPercent: Double = 0
+        var memoryBytes: Int64 = 0
+        var residentBytes: Int64 = 0
+        var processIds: [Int] = []
+        var seenProcessIds: Set<Int> = []
+        var memorySourceFallbackPIDs: [Int] = []
+        var residentMemorySourceFallbackPIDs: [Int] = []
+        var unavailableMemoryPIDs: [Int] = []
+        var unavailableResidentMemoryPIDs: [Int] = []
+
+        mutating func append(_ process: CmuxTopProcessInfo) {
+            guard seenProcessIds.insert(process.pid).inserted else { return }
+            cpuPercent += process.cpuPercent
+            memoryBytes = CmuxTopProcessSnapshot.clampedAdd(memoryBytes, process.memoryBytes)
+            residentBytes = CmuxTopProcessSnapshot.clampedAdd(residentBytes, process.residentBytes)
+            processIds.append(process.pid)
+            if process.memorySource == .residentSize {
+                memorySourceFallbackPIDs.append(process.pid)
+            } else if process.memorySource == .unavailable {
+                unavailableMemoryPIDs.append(process.pid)
+            }
+            if process.residentMemorySource == .rusageResidentSize {
+                residentMemorySourceFallbackPIDs.append(process.pid)
+            } else if process.residentMemorySource == .unavailable {
+                unavailableResidentMemoryPIDs.append(process.pid)
+            }
+        }
+
+        func payload() -> [String: Any] {
+            let sortedProcessIds = processIds.sorted()
+            return [
+                "id": id,
+                "name": title,
+                "resources": CmuxTopResourceSummary(
+                    cpuPercent: cpuPercent,
+                    memoryBytes: memoryBytes,
+                    residentBytes: residentBytes,
+                    processCount: sortedProcessIds.count,
+                    pids: sortedProcessIds,
+                    memorySourceFallbackPIDs: memorySourceFallbackPIDs.sorted(),
+                    residentMemorySourceFallbackPIDs: residentMemorySourceFallbackPIDs.sorted(),
+                    unavailableMemoryPIDs: unavailableMemoryPIDs.sorted(),
+                    unavailableResidentMemoryPIDs: unavailableResidentMemoryPIDs.sorted()
+                ).payload()
+            ]
+        }
+    }
+
+    private struct CmuxCodingAgentProcessAggregate {
+        let definition: CmuxTaskManagerCodingAgentDefinition
+        var cpuPercent: Double = 0
+        var memoryBytes: Int64 = 0
+        var residentBytes: Int64 = 0
+        var processIds: [Int] = []
+        var seenProcessIds: Set<Int> = []
+        var memorySourceFallbackPIDs: [Int] = []
+        var residentMemorySourceFallbackPIDs: [Int] = []
+        var unavailableMemoryPIDs: [Int] = []
+        var unavailableResidentMemoryPIDs: [Int] = []
+
+        mutating func append(_ process: CmuxTopProcessInfo) {
+            guard seenProcessIds.insert(process.pid).inserted else { return }
+            cpuPercent += process.cpuPercent
+            memoryBytes = CmuxTopProcessSnapshot.clampedAdd(memoryBytes, process.memoryBytes)
+            residentBytes = CmuxTopProcessSnapshot.clampedAdd(residentBytes, process.residentBytes)
+            processIds.append(process.pid)
+            if process.memorySource == .residentSize {
+                memorySourceFallbackPIDs.append(process.pid)
+            } else if process.memorySource == .unavailable {
+                unavailableMemoryPIDs.append(process.pid)
+            }
+            if process.residentMemorySource == .rusageResidentSize {
+                residentMemorySourceFallbackPIDs.append(process.pid)
+            } else if process.residentMemorySource == .unavailable {
+                unavailableResidentMemoryPIDs.append(process.pid)
+            }
+        }
+
+        func payload() -> [String: Any] {
+            let sortedProcessIds = processIds.sorted()
+            return [
+                "id": definition.id,
+                "display_name": definition.displayName,
+                "asset_name": definition.assetName ?? NSNull(),
+                "resources": CmuxTopResourceSummary(
+                    cpuPercent: cpuPercent,
+                    memoryBytes: memoryBytes,
+                    residentBytes: residentBytes,
+                    processCount: sortedProcessIds.count,
+                    pids: sortedProcessIds,
+                    memorySourceFallbackPIDs: memorySourceFallbackPIDs.sorted(),
+                    residentMemorySourceFallbackPIDs: residentMemorySourceFallbackPIDs.sorted(),
+                    unavailableMemoryPIDs: unavailableMemoryPIDs.sorted(),
+                    unavailableResidentMemoryPIDs: unavailableResidentMemoryPIDs.sorted()
+                ).payload()
+            ]
+        }
     }
 
     private func processTreeNode(
         pid: Int,
         allowedPIDs: Set<Int>,
+        rootPIDs: Set<Int>,
         visited: inout Set<Int>
     ) -> [String: Any]? {
         guard visited.insert(pid).inserted,
@@ -209,7 +794,14 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         let childNodes = (childrenByParentPID[pid] ?? [])
             .filter { allowedPIDs.contains($0) }
             .sorted { processSortKey($0) < processSortKey($1) }
-            .compactMap { processTreeNode(pid: $0, allowedPIDs: allowedPIDs, visited: &visited) }
+            .compactMap {
+                processTreeNode(
+                    pid: $0,
+                    allowedPIDs: allowedPIDs,
+                    rootPIDs: rootPIDs,
+                    visited: &visited
+                )
+            }
 
         var payload: [String: Any] = [
             "kind": "process",
@@ -217,7 +809,10 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             "ppid": process.parentPID,
             "name": process.name,
             "path": process.path ?? NSNull(),
+            "attribution_reason": attributionReason(for: process, allowedPIDs: allowedPIDs, rootPIDs: rootPIDs),
             "thread_count": process.threadCount,
+            "memory_source": process.memorySource.rawValue,
+            "resident_memory_source": process.residentMemorySource.rawValue,
             "resources": summary(for: [pid]).payload(),
             "children": childNodes
         ]
@@ -249,171 +844,42 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         return payload
     }
 
+    private func attributionReason(
+        for process: CmuxTopProcessInfo,
+        allowedPIDs: Set<Int>,
+        rootPIDs: Set<Int>
+    ) -> String {
+        if let reason = process.cmuxAttributionReason {
+            return reason
+        }
+        if rootPIDs.contains(process.pid), isWebKitWebContentProcess(process) {
+            return "webview-root-pid"
+        }
+        if rootPIDs.contains(process.pid) {
+            return "explicit-root-pid"
+        }
+        if allowedPIDs.contains(process.parentPID) {
+            return "child-process"
+        }
+        return "included-process"
+    }
+
+    private func isWebKitWebContentProcess(_ process: CmuxTopProcessInfo) -> Bool {
+        if process.name.localizedCaseInsensitiveContains("WebContent") {
+            return true
+        }
+        return process.path?.localizedCaseInsensitiveContains("com.apple.WebKit.WebContent") == true
+    }
+
     private func processSortKey(_ pid: Int) -> String {
         let process = processesByPID[pid]
         return "\(process?.name ?? ""):\(pid)"
     }
 
-    private static func allProcesses(includeProcessDetails: Bool) -> [CmuxTopProcessInfo] {
-        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
-        let stride = MemoryLayout<kinfo_proc>.stride
-
-        for _ in 0..<3 {
-            var length = 0
-            guard sysctl(&mib, u_int(mib.count), nil, &length, nil, 0) == 0, length > 0 else {
-                return []
-            }
-
-            var processes = Array(repeating: kinfo_proc(), count: max(1, (length / stride) + 32))
-            let result = processes.withUnsafeMutableBufferPointer { buffer in
-                sysctl(&mib, u_int(mib.count), buffer.baseAddress, &length, nil, 0)
-            }
-            if result == 0 {
-                let count = min(processes.count, length / stride)
-                let sampledProcesses = Array(processes.prefix(count))
-                let activeScopeKeys = Set(sampledProcesses.map { scopeCacheKey(from: $0) })
-                let sampledAtNanoseconds = cpuSampleClockNanoseconds()
-                var currentCPUSamples: [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample] = [:]
-                var processRecords: [(info: CmuxTopProcessInfo, cpuSampleKey: CmuxTopProcessScopeCacheKey?)] = []
-                processRecords.reserveCapacity(sampledProcesses.count)
-                for process in sampledProcesses {
-                    guard let processRecord = processInfo(
-                        from: process,
-                        includeProcessDetails: includeProcessDetails,
-                        sampledAtNanoseconds: sampledAtNanoseconds,
-                        currentCPUSamples: &currentCPUSamples
-                    ) else {
-                        continue
-                    }
-                    processRecords.append(processRecord)
-                }
-                let cpuPercentages = cpuPercentages(
-                    for: currentCPUSamples,
-                    activeKeys: activeScopeKeys,
-                    sampledAtNanoseconds: sampledAtNanoseconds
-                )
-                for index in processRecords.indices {
-                    guard let key = processRecords[index].cpuSampleKey,
-                          let cpuPercent = cpuPercentages[key] else { continue }
-                    processRecords[index].info.cpuPercent = cpuPercent
-                }
-                pruneCMUXScopeCache(activeKeys: activeScopeKeys)
-                return processRecords.map(\.info)
-            }
-
-            guard errno == ENOMEM else {
-                return []
-            }
-        }
-        return []
-    }
-
-    private static func processInfo(
-        from kinfo: kinfo_proc,
-        includeProcessDetails: Bool,
-        sampledAtNanoseconds: UInt64,
-        currentCPUSamples: inout [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample]
-    ) -> (info: CmuxTopProcessInfo, cpuSampleKey: CmuxTopProcessScopeCacheKey?)? {
-        let pid = Int(kinfo.kp_proc.p_pid)
-        guard pid > 0 else { return nil }
-
-        let taskInfo = taskInfo(for: pid)
-        let cacheKey = scopeCacheKey(from: kinfo)
-        let fallbackName = fixedString(kinfo.kp_proc.p_comm)
-        let name = includeProcessDetails ? processName(pid: pid, fallback: fallbackName) : fallbackName
-        let path = includeProcessDetails ? processPath(pid: pid) : nil
-        let rawTTY = Int64(kinfo.kp_eproc.e_tdev)
-        let ttyDevice = rawTTY > 0 ? rawTTY : nil
-        let cmuxScope = cachedCMUXScope(for: pid, cacheKey: cacheKey)
-        let rawProcessGroupID = Int(kinfo.kp_eproc.e_pgid)
-        let processGroupID = rawProcessGroupID > 0 ? rawProcessGroupID : nil
-        let rawTerminalProcessGroupID = Int(kinfo.kp_eproc.e_tpgid)
-        let terminalProcessGroupID = rawTerminalProcessGroupID > 0 ? rawTerminalProcessGroupID : nil
-        let cpuSampleKey: CmuxTopProcessScopeCacheKey?
-        if let taskInfo {
-            let currentCPUSample = cpuSample(from: taskInfo, sampledAtNanoseconds: sampledAtNanoseconds)
-            currentCPUSamples[cacheKey] = currentCPUSample
-            cpuSampleKey = cacheKey
-        } else {
-            cpuSampleKey = nil
-        }
-
-        return (CmuxTopProcessInfo(
-            pid: pid,
-            parentPID: Int(kinfo.kp_eproc.e_ppid),
-            name: name.isEmpty ? "pid-\(pid)" : name,
-            path: path,
-            ttyDevice: ttyDevice,
-            cmuxWorkspaceID: cmuxScope?.workspaceID,
-            cmuxSurfaceID: cmuxScope?.surfaceID,
-            processGroupID: processGroupID,
-            terminalProcessGroupID: terminalProcessGroupID,
-            cpuPercent: 0,
-            residentBytes: int64Clamped(taskInfo?.pti_resident_size ?? 0),
-            virtualBytes: int64Clamped(taskInfo?.pti_virtual_size ?? 0),
-            threadCount: Int(taskInfo?.pti_threadnum ?? 0)
-        ), cpuSampleKey)
-    }
-
-    private static func deviceIdentifier(forTTYName ttyName: String) -> Int64? {
-        let trimmed = ttyName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, trimmed != "not a tty" else {
-            return nil
-        }
-
-        let path: String
-        if trimmed.hasPrefix("/dev/") {
-            path = trimmed
-        } else {
-            path = "/dev/\(trimmed)"
-        }
-
-        var statInfo = stat()
-        guard stat(path, &statInfo) == 0 else {
-            return nil
-        }
-        return Int64(statInfo.st_rdev)
-    }
-
-    private static func clampedAdd(_ lhs: Int64, _ rhs: Int64) -> Int64 {
+    static func clampedAdd(_ lhs: Int64, _ rhs: Int64) -> Int64 {
         if rhs > 0, lhs > Int64.max - rhs {
             return Int64.max
         }
         return lhs + rhs
-    }
-
-    private static func taskInfo(for pid: Int) -> proc_taskinfo? {
-        var info = proc_taskinfo()
-        let expectedSize = MemoryLayout<proc_taskinfo>.stride
-        let size = proc_pidinfo(pid_t(pid), PROC_PIDTASKINFO, 0, &info, Int32(expectedSize))
-        return size == expectedSize ? info : nil
-    }
-
-    private static func processName(pid: Int, fallback: String) -> String {
-        var buffer = [CChar](repeating: 0, count: Int(MAXCOMLEN + 1))
-        let length = proc_name(pid_t(pid), &buffer, UInt32(buffer.count))
-        guard length > 0 else { return fallback }
-        let name = String(cString: buffer).trimmingCharacters(in: .whitespacesAndNewlines)
-        return name.isEmpty ? fallback : name
-    }
-
-    private static func processPath(pid: Int) -> String? {
-        var buffer = [CChar](repeating: 0, count: cmuxTopPIDPathBufferSize)
-        let length = proc_pidpath(pid_t(pid), &buffer, UInt32(buffer.count))
-        guard length > 0 else { return nil }
-        let path = String(cString: buffer).trimmingCharacters(in: .whitespacesAndNewlines)
-        return path.isEmpty ? nil : path
-    }
-
-    private static func fixedString<T>(_ value: T) -> String {
-        withUnsafeBytes(of: value) { rawBuffer in
-            let endIndex = rawBuffer.firstIndex(of: 0) ?? rawBuffer.endIndex
-            return String(decoding: rawBuffer[..<endIndex], as: UTF8.self)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-    }
-
-    private static func int64Clamped(_ value: UInt64) -> Int64 {
-        value > UInt64(Int64.max) ? Int64.max : Int64(value)
     }
 }
