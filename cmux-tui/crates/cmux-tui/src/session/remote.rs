@@ -2456,7 +2456,7 @@ impl RemoteSession {
         Ok(())
     }
 
-    pub(super) fn supports_capability(&self, capability: &str) -> bool {
+    pub(crate) fn supports_capability(&self, capability: &str) -> bool {
         self.capabilities.lock().unwrap().contains(capability)
     }
 
