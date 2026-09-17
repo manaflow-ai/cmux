@@ -1,6 +1,8 @@
 import Foundation
 import Testing
 
+@testable import CmuxMobileTerminal
+
 @Test("scroll priority runs ahead of queued repaint work")
 func scrollPriorityRunsAheadOfQueuedRepaintWork() {
     let workQueue = GhosttySurfaceWorkQueue(generation: 1)
