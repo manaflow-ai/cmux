@@ -29,13 +29,22 @@
          location = "group:CmuxIrohTransport">
       </FileRef>
       <FileRef
+         location = "group:CmuxIrxTransport">
+      </FileRef>
+      <FileRef
          location = "group:CMUXMobileCore">
       </FileRef>
       <FileRef
          location = "group:CmuxSentryTelemetry">
       </FileRef>
       <FileRef
+         location = "group:CmuxSimulatorStreamKit">
+      </FileRef>
+      <FileRef
          location = "group:CmuxSyncStore">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSyntaxHighlighting">
       </FileRef>
    </Group>
    <Group
@@ -84,6 +93,9 @@
          location = "group:CmuxMobileShellUI">
       </FileRef>
       <FileRef
+         location = "group:CmuxMobileSimulatorStream">
+      </FileRef>
+      <FileRef
          location = "group:CmuxMobileSupport">
       </FileRef>
       <FileRef
@@ -106,7 +118,13 @@
       location = "container:Packages/macOS"
       name = "Packages (macOS)">
       <FileRef
+         location = "group:CmuxAgentJournal">
+      </FileRef>
+      <FileRef
          location = "group:CMUXAgentLaunch">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxAgentSessionStore">
       </FileRef>
       <FileRef
          location = "group:CmuxAppKitSupportUI">
@@ -119,6 +137,15 @@
       </FileRef>
       <FileRef
          location = "group:CmuxCanvasUI">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxCloudBannerCore">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxCloudImagePaste">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxCloudMachines">
       </FileRef>
       <FileRef
          location = "group:CmuxCommandPalette">
@@ -142,6 +169,9 @@
          location = "group:CmuxFeedback">
       </FileRef>
       <FileRef
+         location = "group:CmuxFilePreviewCore">
+      </FileRef>
+      <FileRef
          location = "group:CmuxFoundation">
       </FileRef>
       <FileRef
@@ -155,6 +185,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxPanes">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxPhonePush">
       </FileRef>
       <FileRef
          location = "group:CMUXProjectModel">
@@ -188,6 +221,12 @@
       </FileRef>
       <FileRef
          location = "group:CmuxSimulator">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSudoBroker">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSudoBrokerUI">
       </FileRef>
       <FileRef
          location = "group:CmuxSwiftRender">

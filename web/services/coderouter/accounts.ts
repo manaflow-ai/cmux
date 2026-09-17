@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   findAccountByProviderIdentity,
   deleteAccount,
@@ -6,22 +6,53 @@ import {
   listAccounts,
   replaceAccountCredential,
   withVaultLease,
+  bindCodexOwnerIdentity,
+  encryptedCredentialForAccount,
+  transferEncryptedAccount,
+  updateAccountLabel,
 } from "./repository";
-import { encryptCredential } from "./encryption";
-import type { CodeRouterCredential } from "./types";
+import { decryptCredential, encryptCredential, type CredentialKeyService } from "./encryption";
+import {
+  CODEROUTER_API_KEY_PROVIDERS,
+  type CodeRouterApiKeyProvider,
+  type CodeRouterCredential,
+} from "./types";
 import { deleteVaultCredential } from "./vault";
 import { reportCoderouterFailure } from "./observability";
+
+export async function transferAccount(input: { sourceTeamId: string; destinationTeamId: string; accountId: string; stackUserId: string }): Promise<boolean> {
+  const envelope = await encryptedCredentialForAccount(input.sourceTeamId, input.accountId);
+  if (!envelope) return false;
+  const credential = await decryptCredential(envelope);
+  const moved = await encryptCredential({ accountId: input.accountId, teamId: input.destinationTeamId, provider: envelope.provider, credentialRevision: envelope.credentialRevision + 1, credential });
+  return await transferEncryptedAccount({ ...input, credential: moved });
+}
+import { providerIdentityKey, withCodexOwner } from "./codexIdentity";
+import { verifyCodexCredential, verifyStoredCodexCredential } from "./codexSignature";
 
 export async function addAccount(
   teamId: string,
   credential: CodeRouterCredential,
+  keys?: CredentialKeyService,
+  verify: typeof verifyCodexCredential = verifyCodexCredential,
+  verifyStored: typeof verifyStoredCodexCredential = verifyStoredCodexCredential,
+  ownership?: { readonly createdBy: string; readonly visibility: "private" | "team" },
 ): Promise<{ accountId: string; alreadyExists: boolean }> {
+  if (credential.provider === "codex") {
+    await verify(credential);
+    credential = withCodexOwner(credential);
+    await upgradeLegacyCodexIdentity(teamId, credential.accountId, keys, verifyStored);
+  }
   const existing = await findAccountByProviderIdentity(
     teamId,
     credential.provider,
-    credential.accountId,
+    providerIdentityKey(credential),
   );
+  if (existing?.visibility === "private" && ownership && existing.createdBy !== ownership.createdBy) {
+    throw new Error("account is not available to this user");
+  }
   if (existing?.state === "active" || existing?.state === "refreshing") {
+    await updateAccountLabel(teamId, existing.id, credential);
     return { accountId: existing.id, alreadyExists: true };
   }
 
@@ -33,17 +64,19 @@ export async function addAccount(
     provider: credential.provider,
     credentialRevision: expectedRevision + 1,
     credential,
+    keys,
   });
   if (!existing) {
     const inserted = await insertAccountWithCredential({
       credential,
       encrypted,
+      ...ownership,
     });
     if (!inserted) {
       const raced = await findAccountByProviderIdentity(
         teamId,
         credential.provider,
-        credential.accountId,
+        providerIdentityKey(credential),
       );
       if (raced) return { accountId: raced.id, alreadyExists: true };
       throw new Error("coderouter account insert lost a uniqueness race");
@@ -56,6 +89,24 @@ export async function addAccount(
     });
   }
   return { accountId, alreadyExists: false };
+}
+
+/** Legacy workspace-only rows are adopted from their own encrypted credentials. */
+export async function upgradeLegacyCodexIdentity(teamId: string, workspaceId: string, keys?: CredentialKeyService, verify: typeof verifyStoredCodexCredential = verifyStoredCodexCredential): Promise<void> {
+  const legacy = await findAccountByProviderIdentity(teamId, "codex", workspaceId);
+  if (!legacy) return;
+  const encrypted = await encryptedCredentialForAccount(teamId, legacy.id);
+  if (!encrypted) throw new Error("legacy Codex credential is unavailable");
+  const credential = await decryptCredential(encrypted, keys);
+  if (credential.provider !== "codex" || credential.accountId !== workspaceId) throw new Error("legacy Codex identity does not match its record");
+  await verify(credential);
+  const migrated = await bindCodexOwnerIdentity({
+    teamId, accountId: legacy.id, expectedKey: workspaceId,
+    expectedRevision: encrypted.credentialRevision, credential: withCodexOwner(credential),
+  });
+  if (!migrated && await findAccountByProviderIdentity(teamId, "codex", workspaceId)) {
+    throw new Error("legacy Codex credential changed during identity upgrade; retry");
+  }
 }
 
 export { listAccounts };
@@ -71,9 +122,9 @@ export function createAccountRemover(dependencies: {
   readonly deleteLegacy: typeof deleteVaultCredential;
   readonly withLease: typeof withVaultLease;
   readonly report: typeof reportCoderouterFailure;
-}): (teamId: string, accountId: string) => Promise<RemoveAccountResult> {
-  return async (teamId, accountId) => {
-    const result = await dependencies.deleteRuntime({ teamId, accountId });
+}): (teamId: string, accountId: string, stackUserId?: string) => Promise<RemoveAccountResult> {
+  return async (teamId, accountId, stackUserId) => {
+    const result = await dependencies.deleteRuntime({ teamId, accountId, stackUserId });
     if (!result.removed) return { ...result, legacyCleanupPending: false };
     try {
       // Temporary rollback copy only. This call disappears after the migration
@@ -97,9 +148,14 @@ export const removeAccount = createAccountRemover({
   report: reportCoderouterFailure,
 });
 
+const MAX_API_KEY_LENGTH = 512;
+const MAX_LABEL_LENGTH = 120;
+const API_KEY_PATTERN = /^[A-Za-z0-9._~+/=-]+$/;
+
 export function parseCredential(value: unknown): CodeRouterCredential | null {
   if (!isRecord(value)) return null;
   const provider = value.provider;
+  if (isApiKeyProviderName(provider)) return parseApiKeyCredential(provider, value);
   const accessToken = boundedString(value.accessToken, 32_768);
   const refreshToken = boundedString(value.refreshToken, 32_768);
   const accountId = boundedString(value.accountId, 512);
@@ -118,8 +174,9 @@ export function parseCredential(value: unknown): CodeRouterCredential | null {
   }
   if (provider === "codex") {
     const idToken = boundedString(value.idToken, 32_768);
-    return idToken
-      ? {
+    if (!idToken) return null;
+    try {
+      return withCodexOwner({
         provider,
         accessToken,
         refreshToken,
@@ -127,8 +184,9 @@ export function parseCredential(value: unknown): CodeRouterCredential | null {
         accountId,
         email,
         expiresAt,
-      }
-      : null;
+        ...(value.userId !== undefined ? { userId: boundedString(value.userId, 512) ?? "" } : {}),
+      });
+    } catch { return null; }
   }
   if (provider === "opencode-go") {
     const orgId = optionalBoundedString(value.orgId, 512);
@@ -145,6 +203,40 @@ export function parseCredential(value: unknown): CodeRouterCredential | null {
     };
   }
   return null;
+}
+
+function isApiKeyProviderName(value: unknown): value is CodeRouterApiKeyProvider {
+  return typeof value === "string" &&
+    (CODEROUTER_API_KEY_PROVIDERS as readonly string[]).includes(value);
+}
+
+/**
+ * `{ provider, apiKey, label? }` from the dashboard or `cr add`. The key is
+ * validated as one printable token; the fingerprint becomes the provider
+ * account id, so re-adding the same key updates the existing row.
+ */
+function parseApiKeyCredential(
+  provider: CodeRouterApiKeyProvider,
+  value: Record<string, unknown>,
+): CodeRouterCredential | null {
+  const apiKey = typeof value.apiKey === "string" ? value.apiKey.trim() : "";
+  if (apiKey.length < 16 || apiKey.length > MAX_API_KEY_LENGTH || !API_KEY_PATTERN.test(apiKey)) {
+    return null;
+  }
+  const rawLabel = value.label;
+  if (rawLabel !== undefined && rawLabel !== null && typeof rawLabel !== "string") return null;
+  const label = typeof rawLabel === "string" ? rawLabel.trim() : "";
+  if (label.length > MAX_LABEL_LENGTH) return null;
+  return {
+    provider,
+    apiKey,
+    accountId: apiKeyFingerprint(provider, apiKey),
+    label,
+  };
+}
+
+export function apiKeyFingerprint(provider: CodeRouterApiKeyProvider, apiKey: string): string {
+  return createHash("sha256").update(`${provider}\n${apiKey}`).digest("hex").slice(0, 24);
 }
 
 function boundedString(value: unknown, max: number): string | null {

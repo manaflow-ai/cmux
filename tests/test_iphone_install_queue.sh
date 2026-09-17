@@ -124,6 +124,12 @@ write_fake_mdl() {
   cat > "$FAKE_CHECKOUT/scripts/mobile-dev-launch.sh" <<EOF
 #!/usr/bin/env bash
 echo "mobile-dev-launch \$*" >> "$CALL_LOG"
+if [[ " \$* " == *" --check-auth-contract "* ]]; then
+  printf '%s\n' \
+    'CMUX_DEV_AUTH_PROFILE=personal' \
+    'CMUX_DEV_AUTH_ACCOUNT=person@manaflow.ai'
+  exit 0
+fi
 if [[ "$write_receipt" == "1" ]]; then
   mkdir -p "$CMUX_READINESS_RECEIPT_DIR"
   echo '{"schema":"cmux-ios-dogfood-readiness-v1"}' \
@@ -137,6 +143,21 @@ EOF
   chmod +x "$FAKE_CHECKOUT/scripts/mobile-dev-launch.sh"
 }
 write_fake_mdl 0 1
+export CMUX_IPHONE_QUEUE_MOBILE_LAUNCHER="$FAKE_CHECKOUT/scripts/mobile-dev-launch.sh"
+
+AUTH_PROFILE="personal"
+EXPECTED_ACCOUNT="person@manaflow.ai"
+CREDENTIALS_FILE="$TMP_DIR/personal.env"
+cat > "$CREDENTIALS_FILE" <<'ENV'
+CMUX_DOGFOOD_STACK_EMAIL=person@manaflow.ai
+CMUX_DOGFOOD_STACK_PASSWORD=person-pw
+ENV
+chmod 600 "$CREDENTIALS_FILE"
+AUTH_ARGS=(
+  --auth-profile "$AUTH_PROFILE"
+  --expected-account "$EXPECTED_ACCOUNT"
+  --credentials-file "$CREDENTIALS_FILE"
+)
 
 # Fake signed app.
 APP="$TMP_DIR/cmux.app"
@@ -162,18 +183,118 @@ CMUX_IPHONE_DEVICE_ID="env-wins" "$QUEUE_SCRIPT" default-device | head -n1 | gre
 ok "default-device resolution (env > config file)"
 
 # --- enqueue -----------------------------------------------------------------
-"$QUEUE_SCRIPT" enqueue --tag tstq --app "$APP" --checkout "$FAKE_CHECKOUT" >/dev/null
+"$QUEUE_SCRIPT" enqueue --tag tstq --app "$APP" --checkout "$FAKE_CHECKOUT" "${AUTH_ARGS[@]}" >/dev/null
 ENTRY="$CMUX_IPHONE_QUEUE_DIR/pending/tstq"
 [[ -d "$ENTRY/cmux.app" && -f "$ENTRY/meta.json" ]] || fail "enqueue should create pending entry"
 grep -q '"device_id": "'"$DEVICE_ID"'"' "$ENTRY/meta.json" || fail "meta should carry the default device id"
+grep -q '"auth_profile": "personal"' "$ENTRY/meta.json" || fail "meta should freeze the selected auth profile"
+grep -q '"expected_account": "person@manaflow.ai"' "$ENTRY/meta.json" || fail "meta should freeze the expected account"
+grep -q '"credentials_file": "'"$CREDENTIALS_FILE"'"' "$ENTRY/meta.json" || fail "meta should freeze the credential source"
 "$QUEUE_SCRIPT" list | grep -q "pending  tstq" || fail "list should show the pending entry"
-ok "enqueue creates a pending entry with metadata"
+"$QUEUE_SCRIPT" list | grep -q "profile=personal account=person@manaflow.ai" \
+  || fail "list should make the queued identity visible"
+ok "enqueue creates a pending entry with immutable identity metadata"
 
 # Re-enqueue replaces rather than duplicating.
-"$QUEUE_SCRIPT" enqueue --tag tstq --app "$APP" --checkout "$FAKE_CHECKOUT" >/dev/null
+"$QUEUE_SCRIPT" enqueue --tag tstq --app "$APP" --checkout "$FAKE_CHECKOUT" "${AUTH_ARGS[@]}" >/dev/null
 [[ "$(ls "$CMUX_IPHONE_QUEUE_DIR/pending" | wc -l | tr -d ' ')" == "1" ]] \
   || fail "re-enqueue of the same tag should replace the entry"
 ok "re-enqueue replaces the existing entry"
+
+# A staged authenticated build must be signed-launched when the phone
+# reconnects, rather than being left at the login screen after install.
+"$QUEUE_SCRIPT" enqueue --tag tstq --app "$APP" --checkout "$FAKE_CHECKOUT" \
+  "${AUTH_ARGS[@]}" --no-launch >/dev/null
+grep -q '"launch": false' "$ENTRY/meta.json" \
+  || fail "staged enqueue should persist launch=false"
+grep -q '"allow_unauthenticated": false' "$ENTRY/meta.json" \
+  || fail "staged authenticated enqueue must not be marked unauthenticated"
+echo "reachable" > "$STATE_FILE"
+: > "$CALL_LOG"
+"$QUEUE_SCRIPT" drain >/dev/null 2>&1 \
+  || fail "staged authenticated entry should drain through the signed launcher"
+grep -q -- "mobile-dev-launch --tag tstq --device --device-id $DEVICE_ID --ensure-mac" "$CALL_LOG" \
+  || fail "staged authenticated drain should invoke mobile-dev-launch with --ensure-mac"
+grep -q -- "--auth-profile personal --expected-account person@manaflow.ai" "$CALL_LOG" \
+  || fail "staged authenticated drain should preserve the personal auth contract"
+echo "unreachable" > "$STATE_FILE"
+echo "running" > "$PROCESS_STATE_FILE"
+"$QUEUE_SCRIPT" enqueue --tag tstq --app "$APP" --checkout "$FAKE_CHECKOUT" \
+  "${AUTH_ARGS[@]}" >/dev/null
+ok "staged authenticated entries launch and verify after reconnect"
+
+# --- physical-device profile is personal-only --------------------------------
+AGENT_ENQUEUE_ERROR="$TMP_DIR/agent-enqueue.err"
+: > "$CALL_LOG"
+if "$QUEUE_SCRIPT" enqueue --tag tstq --app "$APP" --checkout "$FAKE_CHECKOUT" \
+    --auth-profile agent --expected-account "$EXPECTED_ACCOUNT" \
+    --credentials-file "$CREDENTIALS_FILE" >/dev/null 2>"$AGENT_ENQUEUE_ERROR"; then
+  fail "physical iPhone queue must reject the simulator-only agent profile"
+fi
+grep -q "physical iPhone authenticated installs require --auth-profile personal" \
+  "$AGENT_ENQUEUE_ERROR" \
+  || fail "agent-profile enqueue should fail with the personal-only contract"
+grep -q -- "--check-auth-contract" "$CALL_LOG" \
+  && fail "agent-profile rejection must happen before launcher credential validation"
+grep -q '"auth_profile": "personal"' "$ENTRY/meta.json" \
+  || fail "rejected agent enqueue must leave the existing personal entry intact"
+ok "physical-device enqueue rejects agent profile before queueing"
+
+# Entries from the pre-identity queue schema have no contract fields. They
+# must remain pending with an actionable note instead of being discarded.
+/usr/bin/python3 - "$ENTRY/meta.json" <<'PY'
+import json, sys
+path = sys.argv[1]
+with open(path) as fh:
+    meta = json.load(fh)
+for key in ("auth_profile", "expected_account", "credentials_file"):
+    meta.pop(key, None)
+with open(path, "w") as fh:
+    json.dump(meta, fh, indent=2)
+PY
+echo "reachable" > "$STATE_FILE"
+: > "$CALL_LOG"
+"$QUEUE_SCRIPT" drain >/dev/null 2>&1 \
+  || fail "legacy queue entries should remain pending without a contract"
+[[ -d "$ENTRY" ]] || fail "legacy queue entry must not be moved or deleted"
+grep -q "lacks the personal auth contract" "$ENTRY/upgrade-needed.txt" \
+  || fail "legacy queue entry should explain how to re-enqueue safely"
+grep -q "devicectl device install" "$CALL_LOG" \
+  && fail "legacy queue entry must not mutate the physical phone"
+"$QUEUE_SCRIPT" clear --tag tstq >/dev/null
+echo "unreachable" > "$STATE_FILE"
+"$QUEUE_SCRIPT" enqueue --tag tstq --app "$APP" --checkout "$FAKE_CHECKOUT" "${AUTH_ARGS[@]}" >/dev/null
+ENTRY="$CMUX_IPHONE_QUEUE_DIR/pending/tstq"
+ok "legacy queue entries stay pending with an actionable auth-contract note"
+
+# Older queue entries can already contain the simulator-only profile. Drain
+# must quarantine those entries before probing or mutating the physical phone.
+/usr/bin/python3 - "$ENTRY/meta.json" <<'PY'
+import json, sys
+path = sys.argv[1]
+with open(path) as fh:
+    meta = json.load(fh)
+meta["auth_profile"] = "agent"
+with open(path, "w") as fh:
+    json.dump(meta, fh, indent=2)
+PY
+echo "reachable" > "$STATE_FILE"
+: > "$CALL_LOG"
+if "$QUEUE_SCRIPT" drain >/dev/null 2>&1; then
+  fail "drain must reject a legacy agent-profile entry"
+fi
+[[ -d "$CMUX_IPHONE_QUEUE_DIR/failed/tstq" ]] \
+  || fail "legacy agent-profile entry should move to failed/"
+grep -q "requires auth-profile personal" \
+  "$CMUX_IPHONE_QUEUE_DIR/failed/tstq/error.txt" \
+  || fail "legacy agent-profile failure should explain the personal-only contract"
+grep -q "devicectl device install" "$CALL_LOG" \
+  && fail "legacy agent-profile rejection must happen before device install"
+"$QUEUE_SCRIPT" clear --tag tstq >/dev/null
+echo "unreachable" > "$STATE_FILE"
+"$QUEUE_SCRIPT" enqueue --tag tstq --app "$APP" --checkout "$FAKE_CHECKOUT" "${AUTH_ARGS[@]}" >/dev/null
+ENTRY="$CMUX_IPHONE_QUEUE_DIR/pending/tstq"
+ok "drain quarantines legacy agent-profile entries before device mutation"
 
 # --- drain with the phone unreachable: entry must stay queued -----------------
 "$QUEUE_SCRIPT" drain >/dev/null 2>&1 || fail "drain with unreachable phone should exit 0"
@@ -199,6 +320,8 @@ install_line="$(grep -n "devicectl device install app --device $DEVICE_ID" "$CAL
   || fail "drain must terminate the registered tagged app before replacing its bundle"
 grep -q -- "mobile-dev-launch --tag tstq --device --device-id $DEVICE_ID --ensure-mac" "$CALL_LOG" \
   || fail "drain should signed-launch via mobile-dev-launch.sh with --ensure-mac"
+grep -q -- "--auth-profile personal --expected-account person@manaflow.ai --credentials-file $CREDENTIALS_FILE" "$CALL_LOG" \
+  || fail "drain should preserve the queued auth contract"
 grep -q "cmux notify --title iPhone install queue: installed tstq" "$CALL_LOG" \
   || fail "drain should send a cmux notification for the installed tag"
 grep -q "VERIFIED signed in + paired" "$CALL_LOG" \
@@ -207,7 +330,7 @@ ok "reconnect drain terminates before install, signed-launches with --ensure-mac
 
 # --- gate pass without a fresh readiness receipt is NOT verified ---------------
 echo "unreachable" > "$STATE_FILE"
-"$QUEUE_SCRIPT" enqueue --tag tstq --app "$APP" --checkout "$FAKE_CHECKOUT" >/dev/null
+"$QUEUE_SCRIPT" enqueue --tag tstq --app "$APP" --checkout "$FAKE_CHECKOUT" "${AUTH_ARGS[@]}" >/dev/null
 echo "reachable" > "$STATE_FILE"
 write_fake_mdl 0 0   # exit 0 but no receipt: a launcher that lies
 rm -f "$CMUX_READINESS_RECEIPT_DIR/tstq-$DEVICE_ID.json"
@@ -238,8 +361,8 @@ grep -q "devicectl device process launch" "$CALL_LOG" \
   && fail "a failed signed launch must never fall back to a plain launch"
 grep -q "cmux notify --title iPhone install queue: tstq installed but SIGN-IN FAILED" "$CALL_LOG" \
   || fail "the notification must report the TRUE state (installed but SIGN-IN FAILED)"
-grep -q -- "--ensure-mac, or scripts/iphone-install-queue.sh retry --tag tstq" "$CALL_LOG" \
-  || fail "the notification must include the exact retry commands"
+grep -q -- "Retry the queued contract: scripts/iphone-install-queue.sh retry --tag tstq" "$CALL_LOG" \
+  || fail "the notification must include the immutable-contract retry"
 "$QUEUE_SCRIPT" list | grep -q "needs-auth tstq" || fail "list should show the needs-auth entry"
 "$QUEUE_SCRIPT" retry --tag tstq >/dev/null || fail "retry should re-queue the needs-auth entry"
 [[ -d "$CMUX_IPHONE_QUEUE_DIR/pending/tstq" ]] || fail "retry should move the entry back to pending/"
@@ -250,7 +373,7 @@ write_fake_mdl 0 1
 ok "auth-failed install parks in needs-auth, notifies truthfully, and retry re-queues it"
 
 # --- locked/offline phone mid-launch (launcher exit 75) keeps entry pending ----
-"$QUEUE_SCRIPT" enqueue --tag tstq --app "$APP" --checkout "$FAKE_CHECKOUT" >/dev/null
+"$QUEUE_SCRIPT" enqueue --tag tstq --app "$APP" --checkout "$FAKE_CHECKOUT" "${AUTH_ARGS[@]}" >/dev/null
 write_fake_mdl 75 0
 : > "$CALL_LOG"
 "$QUEUE_SCRIPT" drain >/dev/null 2>&1 || fail "deferred-delivery drain should exit 0 (entry simply stays queued)"
@@ -267,8 +390,15 @@ if "$QUEUE_SCRIPT" enqueue --tag tstq --app "$APP" --checkout "$FAKE_CHECKOUT" -
   fail "enqueue --no-sign-in without CMUX_ALLOW_UNAUTHENTICATED_INSTALL must be refused"
 fi
 CMUX_ALLOW_UNAUTHENTICATED_INSTALL=1 "$QUEUE_SCRIPT" enqueue --tag tstq --app "$APP" \
-  --checkout "$FAKE_CHECKOUT" --no-sign-in >/dev/null \
+  --checkout "$FAKE_CHECKOUT" --no-sign-in --allow-unauthenticated >/dev/null \
   || fail "enqueue --no-sign-in with the human allowance should be accepted"
+python3 - "$CMUX_IPHONE_QUEUE_DIR/pending/tstq/meta.json" <<'PY' \
+  || fail "explicit unauthenticated marker should be persisted"
+import json, sys
+with open(sys.argv[1]) as fh:
+    meta = json.load(fh)
+assert meta["allow_unauthenticated"] is True
+PY
 : > "$CALL_LOG"
 "$QUEUE_SCRIPT" drain >/dev/null 2>&1 || fail "opt-out drain should exit 0"
 grep -q "devicectl device process launch" "$CALL_LOG" \
@@ -276,6 +406,21 @@ grep -q "devicectl device process launch" "$CALL_LOG" \
 grep -q "auth NOT verified" "$CALL_LOG" \
   || fail "the opt-out notification must state auth was NOT verified"
 ok "unauthenticated enqueue needs the human-only allowance and notifies unverified"
+
+# The persisted-state physical-device auth gate must reject the simulator-only
+# profile before loading credentials or touching the device.
+VERIFY_PROFILE_ERROR="$TMP_DIR/verify-agent-profile.err"
+: > "$CALL_LOG"
+if "$REPO_ROOT/scripts/verify-iphone-auth.sh" --tag tstq --auth-profile agent \
+    >/dev/null 2>"$VERIFY_PROFILE_ERROR"; then
+  fail "physical iPhone auth verification must reject the agent profile"
+fi
+grep -q "physical iPhone auth verification requires --auth-profile personal" \
+  "$VERIFY_PROFILE_ERROR" \
+  || fail "verify-iphone-auth should report the personal-only contract"
+grep -q "xcrun" "$CALL_LOG" \
+  && fail "verify-iphone-auth profile rejection must happen before device probing"
+ok "physical-device auth verification rejects agent profile before credentials/device access"
 
 # --- clear ---------------------------------------------------------------
 "$QUEUE_SCRIPT" clear >/dev/null

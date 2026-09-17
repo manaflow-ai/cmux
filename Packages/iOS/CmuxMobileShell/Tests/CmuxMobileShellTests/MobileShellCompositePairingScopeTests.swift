@@ -53,10 +53,14 @@ import Testing
 
         let customizations = store.pairedMacCustomizationsByAliasID()
 
-        // The active pairing represents the device wherever state has no
-        // per-build dimension; the sibling must not overwrite it.
-        #expect(customizations["mac-a"]?.customColor == "red")
-        #expect(customizations["mac-a"]?.instanceTag == "nightly")
+        #expect(customizations[MobilePairedMac.pairingID(
+            macDeviceID: "mac-a",
+            instanceTag: "nightly"
+        )]?.customColor == "red")
+        #expect(customizations[MobilePairedMac.pairingID(
+            macDeviceID: "mac-a",
+            instanceTag: "stable"
+        )]?.customColor == "blue")
     }
 
     @Test func exactPairingConnectionStatusOnlyMatchesConnectedPairing() {
@@ -74,19 +78,22 @@ import Testing
         #expect(refine(.connected, connectedTag: "stable", rowTag: "stable") == .connected)
         #expect(refine(.connected, connectedTag: "stable", rowTag: "nightly") == nil)
         #expect(refine(.connected, connectedTag: nil, rowTag: "nightly") == nil)
-        // Legacy untagged rows keep the device-level status.
-        #expect(refine(.connected, connectedTag: "stable", rowTag: nil) == .connected)
-        // Non-connected statuses pass through untouched for every row.
-        #expect(refine(.reconnecting, connectedTag: "stable", rowTag: "nightly") == .reconnecting)
+        // Legacy and sibling rows cannot borrow the connected build's status.
+        #expect(refine(.connected, connectedTag: "stable", rowTag: nil) == nil)
+        // A redial targeting one pairing must not mark the sibling build's
+        // row; with no known target the device status still passes through.
+        #expect(refine(.reconnecting, connectedTag: "stable", rowTag: "nightly") == nil)
+        #expect(refine(.reconnecting, connectedTag: "stable", rowTag: "stable") == .reconnecting)
+        #expect(refine(.reconnecting, connectedTag: nil, rowTag: "nightly") == .reconnecting)
         #expect(refine(nil, connectedTag: "stable", rowTag: "nightly") == nil)
-        // A different device is unaffected by this device's connection.
+        // Tagged rows never consume the legacy physical-device fallback.
         #expect(MobileShellComposite.exactPairingConnectionStatus(
             deviceStatus: .connected,
             connectedMacDeviceID: "mac-b",
             connectedMacInstanceTag: "stable",
             rowMacDeviceID: "mac-a",
             rowInstanceTag: "nightly"
-        ) == .connected)
+        ) == nil)
     }
 
     @Test func siblingBuildsAreSeparateAggregationCandidates() async throws {

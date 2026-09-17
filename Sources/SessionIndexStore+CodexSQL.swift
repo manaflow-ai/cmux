@@ -48,7 +48,9 @@ extension SessionIndexStore {
 
         var db: OpaquePointer?
         guard sqlite3_open_v2(snapshotDB.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
-            errorBag.add("Codex: cannot open state_5.sqlite (\(sqliteMessage(db) ?? "unknown error"))")
+            errorBag.addSafe(
+                diagnostic: "Codex database open failed: \(sqliteMessage(db) ?? "unknown error")"
+            )
             sqlite3_close(db)
             return nil
         }
@@ -76,7 +78,9 @@ extension SessionIndexStore {
 
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
-            errorBag.add("Codex: schema unsupported — \(sqliteMessage(db) ?? "prepare failed"). Falling back to file scan.")
+            errorBag.addSafe(
+                diagnostic: "Codex schema prepare failed: \(sqliteMessage(db) ?? "prepare failed"); falling back to file scan"
+            )
             sqlite3_finalize(stmt)
             return nil
         }

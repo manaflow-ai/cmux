@@ -135,6 +135,7 @@ actor APIClient {
     let publishableClientKey: String
     let secretServerKey: String?
     private let tokenStore: any TokenStoreProtocol
+    private let session: URLSession
     
     private static let sdkVersion = "1.0.0"
     
@@ -143,13 +144,15 @@ actor APIClient {
         projectId: String,
         publishableClientKey: String,
         secretServerKey: String? = nil,
-        tokenStore: any TokenStoreProtocol
+        tokenStore: any TokenStoreProtocol,
+        session: URLSession = .shared
     ) {
         self.baseUrl = baseUrl.hasSuffix("/") ? String(baseUrl.dropLast()) : baseUrl
         self.projectId = projectId
         self.publishableClientKey = publishableClientKey
         self.secretServerKey = secretServerKey
         self.tokenStore = tokenStore
+        self.session = session
     }
     
     // MARK: - Request Methods
@@ -215,10 +218,11 @@ actor APIClient {
         request: URLRequest,
         authenticated: Bool,
         tokenStore: any TokenStoreProtocol,
-        attempt: Int = 0
+        attempt: Int = 0,
+        didRefreshAccessToken: Bool = false
     ) async throws -> (Data, HTTPURLResponse) {
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await session.data(for: request)
             
             guard let httpResponse = response as? HTTPURLResponse else {
                 throw StackAuthError(code: "invalid_response", message: "Invalid HTTP response")
@@ -234,36 +238,38 @@ actor APIClient {
             }
             
             // Handle 401 with token refresh
-            if actualStatus == 401 && authenticated {
+            if actualStatus == 401 && authenticated && !didRefreshAccessToken {
                 // Check if it's an invalid access token error
                 if let errorCode = httpResponse.value(forHTTPHeaderField: "x-stack-known-error"),
                    errorCode == "invalid_access_token" {
-                    // Try to refresh token
-                    let tokens = await fetchNewAccessToken(tokenStore: tokenStore)
+                    // Try to refresh the token once. The failed token is used
+                    // by the refresh lock to let concurrent 401s reuse the
+                    // token that the first waiter already installed.
+                    let failedAccessToken = request.value(forHTTPHeaderField: "x-stack-access-token")
+                    let tokens = await fetchNewAccessToken(
+                        tokenStore: tokenStore,
+                        ifAccessTokenUnchangedFrom: failedAccessToken
+                    )
                     if tokens.accessToken != nil {
                         // Retry with new token
                         var newRequest = request
                         newRequest.setValue(tokens.accessToken, forHTTPHeaderField: "x-stack-access-token")
-                        return try await sendWithRetry(request: newRequest, authenticated: authenticated, tokenStore: tokenStore, attempt: 0)
+                        return try await sendWithRetry(
+                            request: newRequest,
+                            authenticated: authenticated,
+                            tokenStore: tokenStore,
+                            attempt: 0,
+                            didRefreshAccessToken: true
+                        )
                     }
                 }
             }
             
-            // Handle rate limiting (max 5 retries)
-            if actualStatus == 429 && attempt < 5 {
-                if let retryAfter = httpResponse.value(forHTTPHeaderField: "Retry-After"),
-                   let seconds = Double(retryAfter) {
-                    // Use Retry-After header if provided
-                    try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-                } else {
-                    // No Retry-After header: use exponential backoff (1s, 2s, 4s, 8s, 16s)
-                    let delayMs = 1000.0 * pow(2.0, Double(attempt))
-                    try await Task.sleep(nanoseconds: UInt64(delayMs * 1_000_000))
-                }
-                return try await sendWithRetry(request: request, authenticated: authenticated, tokenStore: tokenStore, attempt: attempt + 1)
-            }
-            
-            // Rate limit exhausted after max retries
+            // A provider 429 is already a backpressure signal. Retrying it in
+            // the SDK multiplies one app request into six upstream requests,
+            // and the callers cannot see the Retry-After until that burst has
+            // finished. Return the typed error immediately so the app-level
+            // coordinator owns any deliberate, bounded recovery.
             if actualStatus == 429 {
                 throw StackAuthError(code: "RATE_LIMITED", message: "Too many requests, please try again later")
             }
@@ -292,7 +298,13 @@ actor APIClient {
             if idempotent && attempt < 5 {
                 let delay = pow(2.0, Double(attempt)) * 1.0 // Exponential backoff
                 try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-                return try await sendWithRetry(request: request, authenticated: authenticated, tokenStore: tokenStore, attempt: attempt + 1)
+                return try await sendWithRetry(
+                    request: request,
+                    authenticated: authenticated,
+                    tokenStore: tokenStore,
+                    attempt: attempt + 1,
+                    didRefreshAccessToken: didRefreshAccessToken
+                )
             }
             throw StackAuthError(code: "network_error", message: error.localizedDescription)
         }
@@ -342,7 +354,7 @@ actor APIClient {
         request.httpBody = body.data(using: .utf8)
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await session.data(for: request)
 
             guard let httpResponse = response as? HTTPURLResponse else {
                 return .transientFailure
@@ -488,13 +500,30 @@ actor APIClient {
         return await fetchNewAccessToken(tokenStore: tokenStoreOverride)
     }
     
-    private func fetchNewAccessToken(tokenStore ts: any TokenStoreProtocol) async -> TokenPair {
+    private func fetchNewAccessToken(
+        tokenStore ts: any TokenStoreProtocol,
+        ifAccessTokenUnchangedFrom failedAccessToken: String? = nil
+    ) async -> TokenPair {
         // Acquire lock to ensure only one refresh per token store
         await RefreshLockManager.shared.acquireLock(for: ts)
         
         let result: TokenPair
         
-        if let refreshToken = await ts.getStoredRefreshToken() {
+        let currentAccessToken = await ts.getStoredAccessToken()
+        let currentRefreshToken = await ts.getStoredRefreshToken()
+
+        // Several requests can receive the same expired access token before
+        // the first refresh finishes. Once the lock opens, reuse that newer
+        // access token instead of exchanging the same refresh token again.
+        if let failedAccessToken,
+           let currentAccessToken,
+           currentAccessToken != failedAccessToken,
+           !isTokenExpired(currentAccessToken) {
+            result = TokenPair(
+                refreshToken: currentRefreshToken,
+                accessToken: currentAccessToken
+            )
+        } else if let refreshToken = currentRefreshToken {
             switch await refresh(refreshToken: refreshToken) {
             case .success(let newToken):
                 await ts.compareAndSet(

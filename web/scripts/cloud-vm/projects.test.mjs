@@ -20,10 +20,9 @@ import {
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const webDir = path.resolve(scriptDir, "../..");
 const auditScript = path.join(scriptDir, "audit-vercel-env.mjs");
-const daytonaRequiredKeys = [
-  "CMUX_VM_DAYTONA_ENABLED",
-  "DAYTONA_API_KEY",
-  "DAYTONA_SANDBOX_SNAPSHOT",
+const freestyleRequiredKeys = [
+  "CMUX_VM_FREESTYLE_ENABLED",
+  "FREESTYLE_API_KEY",
 ];
 
 function renderEnv(values) {
@@ -44,6 +43,10 @@ exit 71
 `
     : `#!/bin/sh
 set -eu
+if [ "$1" = "env" ] && [ "$2" = "ls" ]; then
+  printf '%s\n' '{"envs": []}'
+  exit 0
+fi
 if [ "$1" != "env" ] || [ "$2" != "pull" ]; then
   echo "unexpected fake Vercel command" >&2
   exit 64
@@ -76,12 +79,13 @@ printf '%s\n' "$FAKE_VERCEL_ENV_CONTENT" > "$3"
 }
 
 describe("Cloud VM environment audit", () => {
-  test("strict audit requires Daytona key names without printing secret values", () => {
+  test("strict audit requires Freestyle key names without printing secret values", () => {
     const configured = Object.fromEntries(
       requiredRuntimeEnvKeys
-        .filter((key) => !daytonaRequiredKeys.includes(key))
+        .filter((key) => !freestyleRequiredKeys.includes(key))
         .map((key, index) => [key, `audit-secret-${index}-${key}`]),
     );
+    configured.CMUX_VM_DEFAULT_PROVIDER = "freestyle";
     configured.STACK_SECRET_SERVER_KEY = "strict-audit-secret-sentinel";
 
     const result = runStrictAudit(configured);
@@ -90,8 +94,8 @@ describe("Cloud VM environment audit", () => {
     expect(result.stderr).toBe("");
     const report = JSON.parse(result.stdout);
     expect(report.ok).toBe(false);
-    expect([...report.missingRequired].sort()).toEqual([...daytonaRequiredKeys].sort());
-    for (const value of Object.values(configured)) {
+    expect([...report.missingRequired].sort()).toEqual([...freestyleRequiredKeys].sort());
+    for (const value of Object.values(configured).filter((value) => value.startsWith("audit-secret-") || value === "strict-audit-secret-sentinel")) {
       expect(result.stdout).not.toContain(value);
       expect(result.stderr).not.toContain(value);
     }

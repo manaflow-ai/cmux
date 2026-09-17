@@ -73,11 +73,14 @@ export class StackServerApp {
 
 async function runSmoke({
   createDelayMs = 0,
-  createdProvider = "daytona",
+  createdProvider = "freestyle",
   deleteDelayMs = 0,
   deleteStatuses,
   deleteStatus = 200,
   extraVmAfterDelete = false,
+  edgeCheck = false,
+  provider = "freestyle",
+  image,
   removeVmOnDeleteFailure = false,
   retainVmAfterDelete = false,
   scaleTimers = false,
@@ -100,7 +103,7 @@ async function runSmoke({
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
-    fetch(request) {
+    async fetch(request) {
       const url = new URL(request.url);
       const authorized = request.headers.has("authorization");
       if (url.pathname === "/api/vm" && request.method === "GET") {
@@ -110,21 +113,26 @@ async function runSmoke({
           return Response.json({ error: "verify failed" }, { status: verifyListStatus });
         }
         const listedVms = deleteCompleted && extraVmAfterDelete
-          ? [...vms, { id: "unrelated-vm", provider: "daytona" }]
+          ? [...vms, { id: "unrelated-vm", provider: "freestyle" }]
           : vms;
         return Response.json({ vms: listedVms });
       }
       if (url.pathname === "/api/vm" && request.method === "POST") {
         record("api:create");
+        record(`api:create-body:${JSON.stringify(await request.json())}`);
         vms = [
           {
             id: "smoke-vm-1",
             provider: createdProvider,
             status: "running",
-            imageVersion: "daytona-test",
+            imageVersion: "freestyle-test",
           },
         ];
         return delayResponse(Response.json(vms[0]), createDelayMs);
+      }
+      if (url.pathname === "/api/vm/smoke-vm-1/exec" && request.method === "POST") {
+        record("api:exec");
+        return Response.json({ error: "fake edge check failure" }, { status: 503 });
       }
       if (url.pathname === "/api/vm/smoke-vm-1" && request.method === "DELETE") {
         record("api:delete");
@@ -167,11 +175,13 @@ async function runSmoke({
       "staging",
       "--create",
       "--provider",
-      "daytona",
+      provider,
       "--url",
       server.url.origin,
       "--skip-attach",
     );
+    if (image) command.push("--image", image);
+    if (edgeCheck) command.push("--edge-check");
     const child = Bun.spawn(
       command,
       {
@@ -222,13 +232,13 @@ test("finally cleanup keeps the test user when VM deletion fails", async () => {
 });
 
 test("a mismatched create response is still cleaned up and checked for leaks", async () => {
-  const result = await runSmoke({ createdProvider: "freestyle" });
+  const result = await runSmoke({ createdProvider: "unexpected-provider" });
 
   expect(result.exitCode).toBe(1);
   expect(result.events.filter((event) => event === "api:delete")).toHaveLength(1);
   expect(result.events.filter((event) => event === "api:list:authorized")).toHaveLength(2);
   expect(result.events.at(-1)).toBe("stack:delete-user");
-  expect(result.stderr).toContain("returned provider freestyle, expected daytona");
+  expect(result.stderr).toContain("returned provider unexpected-provider, expected freestyle");
 });
 
 test("post-delete list membership fails the smoke as a leaked VM", async () => {
@@ -306,4 +316,25 @@ test("smoke preserves child diagnostics when the event log is missing", async ()
   expect(result.events).toEqual([]);
   expect(result.stdout).toBe("");
   expect(result.stderr).toContain("fake Stack create failure");
+});
+
+
+test("default provider keeps image selection and verifies cleanup", async () => {
+  const result = await runSmoke({ provider: "default", image: "test-image" });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.events).toContain('api:create-body:{"image":"test-image"}');
+  expect(JSON.parse(result.stdout)).toMatchObject({ createdProvider: "freestyle", leakVerified: true });
+});
+
+test("edge check failure still deletes and verifies the VM before deleting its owner", async () => {
+  const result = await runSmoke({ edgeCheck: true });
+
+  expect(result.exitCode).toBe(1);
+  expect(result.events).toContain("api:exec");
+  expect(result.events.filter((event) => event === "api:delete")).toHaveLength(1);
+  expect(result.events.filter((event) => event === "api:list:authorized")).toHaveLength(2);
+  expect(result.events.at(-1)).toBe("stack:delete-user");
+  expect(result.stderr).toContain("fake edge check failure");
+  expect(result.stderr).toContain("cleanup_destroyed_vm=smoke-vm-1");
 });
