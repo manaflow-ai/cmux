@@ -5,6 +5,12 @@ import Foundation
 /// HTTP client for the Rust control authority. It sends Stack access tokens
 /// only to the configured HTTPS origin and sends signed device proofs for each
 /// authorization operation. Directory addresses remain untrusted hints.
+private final class NoRedirectDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
+    }
+}
+
 public struct CmxV3HTTPGrantProvider: CmxV3GrantProviding, Sendable {
     public struct Configuration: Sendable {
         public let origin: URL
@@ -35,7 +41,13 @@ public struct CmxV3HTTPGrantProvider: CmxV3GrantProviding, Sendable {
 
     private let configuration: Configuration
     private let session: URLSession
-    public init(configuration: Configuration, session: URLSession = .shared) { self.configuration = configuration; self.session = session }
+    private let redirectDelegate: NoRedirectDelegate
+    public init(configuration: Configuration, session: URLSession = .shared) {
+        self.configuration = configuration
+        self.redirectDelegate = NoRedirectDelegate()
+        let copied = session.configuration.copy() as! URLSessionConfiguration
+        self.session = URLSession(configuration: copied, delegate: redirectDelegate, delegateQueue: nil)
+    }
 
     public func enroll(peerID: String, deviceID: UUID, addresses: [String] = []) async throws {
         let payload = EnrollmentPayload(team: configuration.team, deviceID: deviceID, addresses: addresses)
@@ -56,6 +68,15 @@ public struct CmxV3HTTPGrantProvider: CmxV3GrantProviding, Sendable {
         let payload = AuthorizationPayload(team: configuration.team, destination: target.peerID, action: action)
         let grant: GrantResponse = try await post("/v3/authorize", body: Signed(request: payload, proof: try await proof(path: "/v3/authorize", payload: payload)))
         return CmxV3Authorization(deviceID: target.deviceID, peerID: target.peerID, grant: grant.grant, addresses: target.addresses, renewEverySeconds: target.lease.renewEverySeconds)
+    }
+
+    public func revocationEvents(afterSequence: Int64) async throws -> [RevocationEvent] {
+        guard afterSequence >= 0 else { throw CmxV3HTTPGrantError.invalidConfiguration }
+        let response: RevocationResponse = try await post(
+            "/v3/events",
+            body: EventRequest(team: configuration.team, afterSequence: afterSequence, limit: 256)
+        )
+        return response.events
     }
 
     public func relayGrant(for request: CmxByteTransportRequest, source: String, relay: String) async throws -> String? {
@@ -111,6 +132,9 @@ public enum CmxV3HTTPGrantError: Error, Equatable, Sendable {
     case identityMismatch
 }
 private struct DirectoryRequest: Encodable { let team: String }
+private struct EventRequest: Encodable { let team: String; let afterSequence: Int64; let limit: Int64; enum CodingKeys: String, CodingKey { case team; case afterSequence = "after_sequence"; case limit } }
+private struct RevocationResponse: Decodable { let events: [RevocationEvent] }
+public struct RevocationEvent: Decodable, Sendable { public let sequence: Int64; public let update: String }
 private struct EnrollmentPayload: Codable {
     let team: String
     let deviceID: UUID

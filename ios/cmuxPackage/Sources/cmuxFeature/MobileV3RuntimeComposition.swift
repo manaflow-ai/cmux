@@ -42,6 +42,7 @@ public actor MobileV3RuntimeComposition {
     private var desiredScope: AuthenticatedTeamScope?
     private var authTask: Task<Void, Never>?
     private var activationTask: Task<Void, Never>?
+    private var revocationTask: Task<Void, Never>?
 
     public init(configuration: Configuration) {
         self.configuration = configuration
@@ -62,6 +63,8 @@ public actor MobileV3RuntimeComposition {
         authTask = nil
         activationTask?.cancel()
         activationTask = nil
+        revocationTask?.cancel()
+        revocationTask = nil
         endpoint?.close()
         endpoint = nil
         factory = nil
@@ -105,6 +108,8 @@ public actor MobileV3RuntimeComposition {
         desiredScope = next
         activationTask?.cancel()
         activationTask = nil
+        revocationTask?.cancel()
+        revocationTask = nil
         endpoint?.close()
         endpoint = nil
         factory = nil
@@ -166,6 +171,23 @@ public actor MobileV3RuntimeComposition {
         self.endpoint = endpoint
         self.factory = CmxV3ByteTransportFactory(endpoint: endpoint, grants: grants)
         self.scope = next
+        revocationTask = Task { [weak self, weak endpoint] in
+            var sequence: Int64 = 0
+            while !Task.isCancelled {
+                do {
+                    let events = try await grants.revocationEvents(afterSequence: sequence)
+                    for event in events.sorted(by: { $0.sequence < $1.sequence }) {
+                        guard event.sequence > sequence else { continue }
+                        try await endpoint?.applyRevocationUpdate(token: event.update)
+                        sequence = event.sequence
+                    }
+                } catch {
+                    // Keep the last accepted cursor and retry. The endpoint's
+                    // strict sequence check rejects gaps until the feed catches up.
+                }
+                try? await Task.sleep(for: .seconds(5))
+            }
+        }
     }
 }
 
