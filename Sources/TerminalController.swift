@@ -15997,12 +15997,10 @@ class TerminalController {
         #if DEBUG
         let sendStart = ProcessInfo.processInfo.systemUptime
         #endif
-        let sendResult = terminalTarget.sendInputResult(text)
-        MobileTerminalByteTee.shared.recordAcceptedInput(
+        let sendResult = MobileTerminalByteTee.shared.performMobileInput(
             surfaceID: surfaceId,
             sequence: (params["input_sequence"] as? String).flatMap(UInt64.init),
-            result: sendResult
-        )
+        ) { terminalTarget.sendInputResult(text) }
         switch sendResult {
         case .sent:
             // PTY output is already observed by MobileTerminalByteTee, which

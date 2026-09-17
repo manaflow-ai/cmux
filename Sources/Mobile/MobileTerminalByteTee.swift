@@ -126,6 +126,20 @@ final class MobileTerminalByteTee {
         statesBySurfaceID[surfaceID] = state
     }
 
+    /// Runs one mobile input operation and records its accepted marker in the
+    /// same transition for every transport. Queued and immediately sent input
+    /// are both accepted by the terminal and must advance the same watermark.
+    @discardableResult
+    func performMobileInput(
+        surfaceID: UUID,
+        sequence: UInt64?,
+        operation: () -> TerminalSurface.InputSendResult
+    ) -> TerminalSurface.InputSendResult {
+        let result = operation()
+        recordAcceptedInput(surfaceID: surfaceID, sequence: sequence, result: result)
+        return result
+    }
+
     func currentInputSequence(surfaceID: UUID) -> UInt64? {
         statesBySurfaceID[surfaceID]?.inputSequence
     }

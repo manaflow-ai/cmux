@@ -255,8 +255,10 @@ enum MobileHostIrxTerminalLaneServer {
                 let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(
                     id: surfaceID)
             else { return false }
-            let result = surface.sendInputResult(input.text)
-            MobileTerminalByteTee.shared.recordAcceptedInput(surfaceID: surfaceID, sequence: input.sequence, result: result)
+            let result = MobileTerminalByteTee.shared.performMobileInput(
+                surfaceID: surfaceID,
+                sequence: input.sequence
+            ) { surface.sendInputResult(input.text) }
             switch result {
             case .sent:
                 // PTY output is observed by MobileTerminalByteTee, which
