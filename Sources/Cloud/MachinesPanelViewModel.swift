@@ -491,7 +491,7 @@ final class MachinesPanelViewModel: ObservableObject {
             }
         }
     }
-    static func usageBackoffDelay(failureCount: Int) -> TimeInterval {
+    nonisolated static func usageBackoffDelay(failureCount: Int) -> TimeInterval {
         [30, 30, 60, 120, 300][min(max(failureCount, 0), 4)]
     }
     /// The one place usage lands: the lookup and the row snapshots move together.
