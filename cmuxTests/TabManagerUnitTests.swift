@@ -3800,49 +3800,6 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         XCTAssertFalse(isFocusedPanelBrowser(in: currentWorkspace))
     }
 
-    func testReopenCollapsedSplitFromDifferentWorkspaceFocusesBrowser() {
-        let manager = TabManager()
-        guard let workspace1 = manager.selectedWorkspace,
-              let sourcePanelId = workspace1.focusedPanelId,
-              let splitBrowserId = manager.newBrowserSplit(
-                tabId: workspace1.id,
-                fromPanelId: sourcePanelId,
-                orientation: .horizontal,
-                insertFirst: false,
-                url: URL(string: "https://example.com/collapsed-split")
-              ) else {
-            XCTFail("Expected to create browser split")
-            return
-        }
-
-        drainMainQueue()
-        XCTAssertTrue(workspace1.closePanel(splitBrowserId, force: true))
-        drainMainQueue()
-
-        let workspace2 = manager.addWorkspace()
-        XCTAssertEqual(manager.selectedTabId, workspace2.id)
-
-        let panelIdsBeforeReopen = Set(workspace1.panels.keys)
-        XCTAssertTrue(manager.reopenMostRecentlyClosedBrowserPanel())
-        drainMainQueue()
-
-        guard let reopenedPanelId = singleNewPanelId(in: workspace1, comparedTo: panelIdsBeforeReopen),
-              workspace1.panels[reopenedPanelId] is BrowserPanel else {
-            XCTFail("Expected reopened browser panel ID")
-            return
-        }
-        guard let sourcePaneId = workspace1.paneId(forPanelId: sourcePanelId),
-              let reopenedPaneId = workspace1.paneId(forPanelId: reopenedPanelId) else {
-            XCTFail("Expected source and reopened panes")
-            return
-        }
-
-        XCTAssertEqual(manager.selectedTabId, workspace1.id)
-        XCTAssertTrue(isFocusedPanelBrowser(in: workspace1))
-        XCTAssertEqual(workspace1.bonsplitController.allPaneIds.count, 2)
-        XCTAssertNotEqual(sourcePaneId, reopenedPaneId)
-    }
-
     func testReopenFromDifferentWorkspaceWinsAgainstSingleDeferredStaleFocus() {
         let manager = TabManager()
         guard let workspace1 = manager.selectedWorkspace,

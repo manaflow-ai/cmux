@@ -1004,15 +1004,7 @@ extension Workspace {
             bonsplitController.focusPane(pane)
             bonsplitController.selectTab(tabId)
         }
-        if let layout = entry.layout,
-           let restoredLayout = SessionSplitContainerLayoutCodec(controller: bonsplitController)
-            .pruned(layout, keeping: Set(panels.keys).subtracting([panelId]).union([entry.snapshot.id])) {
-            _ = SessionSplitContainerLayoutCodec(controller: bonsplitController).restoreExistingLayout(
-                restoredLayout,
-                panelIDMap: [entry.snapshot.id: panelId],
-                tabIDForPanelID: surfaceIdFromPanelId
-            )
-        }
+        restoreClosedPanelLayout(entry.layout, oldPanelID: entry.snapshot.id, newPanelID: panelId)
         focusPanel(panelId)
         triggerFocusFlash(panelId: panelId)
         restoreClosedPanelProjection(entry.projection, panelId: panelId)
@@ -1048,20 +1040,13 @@ extension Workspace {
         guard panels[panelId] != nil else {
             return nil
         }
-        if let layout = entry.layout,
-           let restoredLayout = SessionSplitContainerLayoutCodec(controller: bonsplitController)
-            .pruned(layout, keeping: Set(panels.keys).subtracting([panelId]).union([entry.snapshot.id])) {
-            _ = SessionSplitContainerLayoutCodec(controller: bonsplitController).restoreExistingLayout(
-                restoredLayout,
-                panelIDMap: [entry.snapshot.id: panelId],
-                tabIDForPanelID: surfaceIdFromPanelId
-            )
-        }
+        restoreClosedPanelLayout(entry.layout, oldPanelID: entry.snapshot.id, newPanelID: panelId)
         focusPanel(panelId)
         restoreClosedPanelProjection(entry.projection, panelId: panelId)
         terminalStartupRestoreCoordinator.commitPendingRestores(panelIDs: [panelId])
         return panelId
     }
+
     private func restoreClosedPanelProjection(_ projection: SurfaceProjectionRecord?, panelId: UUID) {
         guard let projection else { return }
         SurfaceCatalog.shared.restore([SurfaceProjectionRecord(panelID: panelId, resource: projection.resource, remoteWorkspaceID: projection.remoteWorkspaceID, remoteTabID: projection.remoteTabID)], workspaceID: id)
@@ -13928,7 +13913,7 @@ extension Workspace: BonsplitDelegate {
         let panel = panels[panelId]
         let shouldKeepEmptyPaneForCloudView = panel.map { candidate in
             guard let projection = SurfaceCatalog.shared.projection(forPanel: panelId), projection.workspaceID == id, !projection.resource.machine.isLocal else { return false }
-            return candidate is BrowserPanel || projection.resource.kind == .display
+            return candidate.panelType == .browser || projection.resource.kind == .display
         } ?? false
         _ = consumeCloseHistoryEligibility(tabId: tabId, panelId: panelId)
         let transferredRemoteCleanupConfiguration = transferredRemoteCleanupConfigurationsByPanelId[panelId]

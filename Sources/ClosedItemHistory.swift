@@ -126,15 +126,6 @@ enum ClosedWindowRestoreValidation {
 }
 @MainActor
 final class ClosedItemHistoryStore: ObservableObject {
-    private static func remapLayout(_ layout: SessionWorkspaceLayoutSnapshot?, using map: [UUID: UUID]) -> SessionWorkspaceLayoutSnapshot? {
-        guard let layout else { return nil }
-        switch layout {
-        case .pane(let pane):
-            return .pane(SessionPaneLayoutSnapshot(panelIds: pane.panelIds.map { map[$0] ?? $0 }, selectedPanelId: pane.selectedPanelId.map { map[$0] ?? $0 }, isFullWidthTabMode: pane.isFullWidthTabMode))
-        case .split(let split):
-            return .split(SessionSplitLayoutSnapshot(orientation: split.orientation, dividerPosition: split.dividerPosition, first: remapLayout(split.first, using: map)!, second: remapLayout(split.second, using: map)!))
-        }
-    }
     /// Bounds the shared reopen history to a useful recency window without
     /// allowing persisted panel snapshots to grow for the life of the file.
     static let defaultTotalCapacity = 500
@@ -581,7 +572,7 @@ final class ClosedItemHistoryStore: ObservableObject {
                 sourceWorkspaceId: panelEntry.sourceWorkspaceId,
                 sourceSnapshotWorkspaceId:
                     panelEntry.sourceSnapshotWorkspaceId,
-                layout: remapLayout(panelEntry.layout, using: panelIdMap),
+                layout: panelEntry.layout?.remappingPanelIDs(panelIdMap),
                 projection: panelEntry.projection
             )))
         }
@@ -596,6 +587,7 @@ final class ClosedItemHistoryStore: ObservableObject {
         var didUpdate = false
         let remappedRecords = records.map { record in
             guard case .panel(let panelEntry) = record.entry else { return record }
+            let layout = panelEntry.layout?.remappingPanelIDs([oldPanelId: newPanelId])
             let paneAnchorPanelId = panelEntry.paneAnchorPanelId == oldPanelId
                 ? newPanelId
                 : panelEntry.paneAnchorPanelId
@@ -610,7 +602,8 @@ final class ClosedItemHistoryStore: ObservableObject {
                 )
             }
             if paneAnchorPanelId != panelEntry.paneAnchorPanelId ||
-                fallbackSplitPlacement?.anchorPanelId != panelEntry.fallbackSplitPlacement?.anchorPanelId {
+                fallbackSplitPlacement?.anchorPanelId != panelEntry.fallbackSplitPlacement?.anchorPanelId ||
+                layout != panelEntry.layout {
                 didUpdate = true
             }
             return ClosedItemHistoryRecord(id: record.id, closedAt: record.closedAt, entry: .panel(ClosedPanelHistoryEntry(
@@ -624,7 +617,7 @@ final class ClosedItemHistoryStore: ObservableObject {
                 sourceWorkspaceId: panelEntry.sourceWorkspaceId,
                 sourceSnapshotWorkspaceId:
                     panelEntry.sourceSnapshotWorkspaceId,
-                layout: panelEntry.layout,
+                layout: layout,
                 projection: panelEntry.projection
             )))
         }

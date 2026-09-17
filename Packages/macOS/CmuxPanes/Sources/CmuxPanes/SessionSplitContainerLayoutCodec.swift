@@ -1,31 +1,57 @@
-import Bonsplit
-import Foundation
+public import Bonsplit
+import CoreGraphics
+public import Foundation
 
-/// Shared layout codec for workspace panes and Docks. Panel construction remains with the
-/// owning container because workspaces support more panel kinds and remote transports, while
-/// Docks intentionally support terminal and browser panes only.
+/// Encodes and restores the pane tree shared by workspaces and Docks.
+///
+/// Panel construction remains with the owning container. This service only
+/// translates between Bonsplit's live tree and the Sendable session snapshot,
+/// and restores already-created tabs without creating terminal processes.
 @MainActor
-struct SessionSplitContainerLayoutCodec {
-    let controller: BonsplitController
+public struct SessionSplitContainerLayoutCodec {
+    /// One restored leaf and its pane-local panel ordering.
+    public struct RestoreLeaf {
+        /// The live Bonsplit leaf receiving the panels.
+        public let paneId: PaneID
+        /// Saved panel order, selection and tab presentation.
+        public let snapshot: SessionPaneLayoutSnapshot
 
-    struct RestoreLeaf {
-        let paneId: PaneID
-        let snapshot: SessionPaneLayoutSnapshot
+        /// Creates a restored leaf description.
+        init(paneId: PaneID, snapshot: SessionPaneLayoutSnapshot) {
+            self.paneId = paneId
+            self.snapshot = snapshot
+        }
     }
 
-    struct RestoreScaffold {
-        let leaves: [RestoreLeaf]
-        let placeholderTabIds: Set<TabID>
+    /// The scaffold leaves and inert tabs created while rebuilding a tree.
+    public struct RestoreScaffold {
+        /// Leaves in the restored tree's spatial order.
+        public let leaves: [RestoreLeaf]
+        /// Inert tabs the owner closes after installing its panels.
+        public let placeholderTabIds: Set<TabID>
+
+        /// Creates a restore scaffold result.
+        init(leaves: [RestoreLeaf], placeholderTabIds: Set<TabID>) {
+            self.leaves = leaves
+            self.placeholderTabIds = placeholderTabIds
+        }
     }
 
-    func snapshot(panelIdForTabId: (TabID) -> UUID?) -> SessionWorkspaceLayoutSnapshot {
-        snapshot(
-            node: controller.treeSnapshot(),
-            panelIdForTabId: panelIdForTabId
-        )
+    private let controller: BonsplitController
+
+    /// Creates a codec for one live Bonsplit controller.
+    public init(controller: BonsplitController) {
+        self.controller = controller
     }
 
-    func pruned(
+    /// Captures the live pane tree and maps each surface tab to its panel id.
+    public func snapshot(panelIdForTabId: (TabID) -> UUID?) -> SessionWorkspaceLayoutSnapshot {
+        snapshot(node: controller.treeSnapshot(), panelIdForTabId: panelIdForTabId)
+    }
+
+    /// Removes panel ids that are no longer restorable and collapses empty
+    /// split branches while preserving the saved divider metadata.
+    public func pruned(
         _ node: SessionWorkspaceLayoutSnapshot,
         keeping panelIdsToKeep: Set<UUID>
     ) -> SessionWorkspaceLayoutSnapshot? {
@@ -61,25 +87,20 @@ struct SessionSplitContainerLayoutCodec {
         }
     }
 
-    /// Builds only the pane tree. Placeholder tabs make Bonsplit accept nested splits without
-    /// spawning real terminal processes; callers replace them with restored panels immediately.
-    func restoreScaffold(_ layout: SessionWorkspaceLayoutSnapshot) -> RestoreScaffold {
+    /// Builds only the pane tree with inert tabs, so restoring a Cloud panel
+    /// never creates an unrelated terminal process.
+    public func restoreScaffold(_ layout: SessionWorkspaceLayoutSnapshot) -> RestoreScaffold {
         guard let rootPaneId = controller.allPaneIds.first else {
             return RestoreScaffold(leaves: [], placeholderTabIds: [])
         }
         var leaves: [RestoreLeaf] = []
         var placeholders: Set<TabID> = []
-        restoreNode(
-            layout,
-            inPane: rootPaneId,
-            leaves: &leaves,
-            placeholders: &placeholders
-        )
+        restoreNode(layout, inPane: rootPaneId, leaves: &leaves, placeholders: &placeholders)
         return RestoreScaffold(leaves: leaves, placeholderTabIds: placeholders)
     }
 
-    /// Creates one pane-tree placeholder without constructing a live panel.
-    func createRestorePlaceholderSplit(
+    /// Creates one inert split placeholder without constructing a live panel.
+    public func createRestorePlaceholderSplit(
         inPane paneId: PaneID,
         orientation: SplitOrientation,
         insertFirst: Bool
@@ -93,13 +114,11 @@ struct SessionSplitContainerLayoutCodec {
         ) else {
             return nil
         }
-        return (
-            paneId: newPaneId,
-            tabId: placeholder.id
-        )
+        return (paneId: newPaneId, tabId: placeholder.id)
     }
 
-    func applyDividerPositions(
+    /// Applies saved divider positions to a matching live pane tree.
+    public func applyDividerPositions(
         snapshotNode: SessionWorkspaceLayoutSnapshot,
         liveNode: ExternalTreeNode
     ) {
@@ -112,34 +131,37 @@ struct SessionSplitContainerLayoutCodec {
                     fromExternal: true
                 )
             }
-            applyDividerPositions(
-                snapshotNode: snapshotSplit.first,
-                liveNode: liveSplit.first
-            )
-            applyDividerPositions(
-                snapshotNode: snapshotSplit.second,
-                liveNode: liveSplit.second
-            )
+            applyDividerPositions(snapshotNode: snapshotSplit.first, liveNode: liveSplit.first)
+            applyDividerPositions(snapshotNode: snapshotSplit.second, liveNode: liveSplit.second)
         default:
             return
         }
     }
-    /// Rebuilds a saved pane tree around the panels that are already alive.
-    /// This is used by closed-panel history: creating a terminal just to make
-    /// Bonsplit accept a split would execute the wrong Cloud creation path.
+
+    /// Rebuilds a saved pane tree around panels that are already alive.
+    ///
+    /// If a newer live tab is absent from the saved snapshot, this method
+    /// returns before mutating Bonsplit. That fail-closed path preserves the
+    /// complete current topology instead of sweeping unrelated tabs into the
+    /// root or closing their panes.
     @discardableResult
-    func restoreExistingLayout(
+    public func restoreExistingLayout(
         _ layout: SessionWorkspaceLayoutSnapshot,
         panelIDMap: [UUID: UUID],
         tabIDForPanelID: (UUID) -> TabID?
     ) -> Bool {
         guard let root = controller.allPaneIds.first else { return false }
         let desiredPanelIDs = layout.allPanelIDs
-        let desiredTabs = desiredPanelIDs.compactMap { panelIDMap[$0] ?? $0 }
+        let desiredTabs = desiredPanelIDs.map { panelIDMap[$0] ?? $0 }
             .compactMap(tabIDForPanelID)
-        guard desiredTabs.count == desiredPanelIDs.count else { return false }
-        let liveTabIDs = Set(controller.allPaneIds.flatMap { controller.tabs(inPane: $0).map(\.id) })
-        guard liveTabIDs.isSubset(of: Set(desiredTabs)) else { return false }
+        guard desiredTabs.count == desiredPanelIDs.count,
+              Set(desiredTabs).count == desiredTabs.count else { return false }
+        let liveTabIDs = Set(controller.allPaneIds.flatMap {
+            controller.tabs(inPane: $0).map(\.id)
+        })
+        guard liveTabIDs.isSubset(of: Set(desiredTabs)) else {
+            return false
+        }
         for pane in controller.allPaneIds where pane != root {
             for tab in controller.tabs(inPane: pane) {
                 _ = controller.moveTab(tab.id, toPane: root)
@@ -147,7 +169,7 @@ struct SessionSplitContainerLayoutCodec {
         }
         let scaffold = restoreScaffold(layout)
         for leaf in scaffold.leaves {
-            let panelIDs = leaf.snapshot.panelIds.compactMap { panelIDMap[$0] ?? $0 }
+            let panelIDs = leaf.snapshot.panelIds.map { panelIDMap[$0] ?? $0 }
             for (index, panelID) in panelIDs.enumerated() {
                 guard let tabID = tabIDForPanelID(panelID) else { return false }
                 _ = controller.moveTab(tabID, toPane: leaf.paneId, atIndex: index)
@@ -157,7 +179,10 @@ struct SessionSplitContainerLayoutCodec {
                 controller.focusPane(leaf.paneId)
                 controller.selectTab(tabID)
             }
-            _ = controller.setFullWidthTabMode(leaf.snapshot.isFullWidthTabMode == true, inPane: leaf.paneId)
+            _ = controller.setFullWidthTabMode(
+                leaf.snapshot.isFullWidthTabMode == true,
+                inPane: leaf.paneId
+            )
         }
         for tabID in scaffold.placeholderTabIds {
             _ = controller.closeTab(tabID)
@@ -165,6 +190,7 @@ struct SessionSplitContainerLayoutCodec {
         applyDividerPositions(snapshotNode: layout, liveNode: controller.treeSnapshot())
         return true
     }
+
     private func snapshot(
         node: ExternalTreeNode,
         panelIdForTabId: (TabID) -> UUID?
@@ -177,11 +203,11 @@ struct SessionSplitContainerLayoutCodec {
                 guard let panelId = panelIdForTabId(tabId) else { return nil }
                 return (tabId, panelId)
             }
-            let selectedPanelId = pane.selectedTabId.flatMap { UUID(uuidString: $0) }.flatMap {
-                panelIdForTabId(TabID(uuid: $0))
-            }
+            let selectedPanelId = pane.selectedTabId
+                .flatMap { UUID(uuidString: $0) }
+                .flatMap { panelIdForTabId(TabID(uuid: $0)) }
             return .pane(SessionPaneLayoutSnapshot(
-                panelIds: tabs.map { $0.1 },
+                panelIds: tabs.map(\.1),
                 selectedPanelId: selectedPanelId,
                 isFullWidthTabMode: UUID(uuidString: pane.id).map {
                     controller.isFullWidthTabMode(inPane: PaneID(id: $0))
@@ -207,14 +233,10 @@ struct SessionSplitContainerLayoutCodec {
         case .pane(let pane):
             leaves.append(RestoreLeaf(paneId: paneId, snapshot: pane))
         case .split(let split):
-            let sourcePlaceholder = ensurePlaceholder(
-                inPane: paneId,
-                placeholders: &placeholders
-            )
-            guard sourcePlaceholder != nil else {
+            guard ensurePlaceholder(inPane: paneId, placeholders: &placeholders) != nil else {
                 leaves.append(RestoreLeaf(
                     paneId: paneId,
-                    snapshot: SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)
+                    snapshot: split.first.paneFallback
                 ))
                 return
             }
@@ -223,16 +245,14 @@ struct SessionSplitContainerLayoutCodec {
                 orientation: split.orientation.splitOrientation,
                 insertFirst: false
             ) else {
-                leaves.append(RestoreLeaf(paneId: paneId, snapshot: split.first.paneFallback))
+                leaves.append(RestoreLeaf(
+                    paneId: paneId,
+                    snapshot: split.first.paneFallback
+                ))
                 return
             }
             placeholders.insert(placeholderSplit.tabId)
-            restoreNode(
-                split.first,
-                inPane: paneId,
-                leaves: &leaves,
-                placeholders: &placeholders
-            )
+            restoreNode(split.first, inPane: paneId, leaves: &leaves, placeholders: &placeholders)
             restoreNode(
                 split.second,
                 inPane: placeholderSplit.paneId,
@@ -242,10 +262,7 @@ struct SessionSplitContainerLayoutCodec {
         }
     }
 
-    private func ensurePlaceholder(
-        inPane paneId: PaneID,
-        placeholders: inout Set<TabID>
-    ) -> TabID? {
+    private func ensurePlaceholder(inPane paneId: PaneID, placeholders: inout Set<TabID>) -> TabID? {
         if let existing = controller.tabs(inPane: paneId).first?.id { return existing }
         let tabId = controller.createTab(title: "", kind: "restoring", inPane: paneId)
         if let tabId { placeholders.insert(tabId) }

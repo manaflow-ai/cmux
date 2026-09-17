@@ -363,6 +363,12 @@ struct LastSurfaceClosePreferenceTests {
             )
             manager.selectWorkspace(workspace)
             let browserId = try #require(workspace.focusedPanelId)
+            let desktopURL = "http://127.0.0.1:9/vnc.html?path=websockify&resize=remote"
+            let browser = try #require(workspace.panels[browserId] as? BrowserPanel)
+            var browserSnapshot = try #require(workspace.sessionSnapshot(includeScrollback: false).panels.first?.browser)
+            browserSnapshot.urlString = desktopURL
+            browserSnapshot.shouldRenderWebView = false
+            browser.restoreSessionSnapshot(browserSnapshot)
             let machine = SurfaceMachineID.cloud("reopen-display-\(UUID().uuidString)")
             let display = SurfaceResourceID(machine: machine, kind: .display, key: "display:1")
             workspace.cloudVMBinding = WorkspaceCloudVMBinding(
@@ -382,11 +388,16 @@ struct LastSurfaceClosePreferenceTests {
             #expect(workspace.closePanel(browserId, force: true))
             drainMainQueue()
 
+            #expect(workspace.panels.isEmpty)
+            #expect(workspace.bonsplitController.allPaneIds.count == 1)
             #expect(manager.reopenMostRecentlyClosedItem())
             drainMainQueue()
 
             let restoredPanelId = try #require(workspace.focusedPanelId)
-            #expect(workspace.panels[restoredPanelId] is BrowserPanel)
+            let restored = try #require(workspace.panels[restoredPanelId] as? BrowserPanel)
+            #expect(restored.currentURL?.absoluteString == desktopURL)
+            #expect(workspace.panels.count == 1)
+            #expect(workspace.cloudVMBinding?.remoteWorkspaceID == "ws-display")
             #expect(workspace.panels.values.allSatisfy { !($0 is TerminalPanel) })
             #expect(workspace.bonsplitController.allPaneIds.count == 1)
             let records = SurfaceCatalog.shared.projectionRecords(forWorkspace: workspace.id)

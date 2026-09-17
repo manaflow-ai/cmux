@@ -103,6 +103,33 @@ struct CloudClosedPanelRestoreTests {
         }
     }
 
+    @Test("Reopen from another workspace restores the collapsed browser split")
+    func collapsedBrowserSplitReopensInItsOwnPane() throws {
+        try withManager { manager in
+            let workspace = try #require(manager.selectedWorkspace)
+            let sourceID = try #require(workspace.focusedPanelId)
+            let browserID = try #require(manager.newBrowserSplit(
+                tabId: workspace.id, fromPanelId: sourceID,
+                orientation: .horizontal, url: URL(string: "about:blank")
+            ))
+            #expect(workspace.closePanel(browserID, force: true))
+            let panelIDsBeforeReopen = Set(workspace.panels.keys)
+            let other = manager.addWorkspace()
+            #expect(manager.selectedTabId == other.id)
+            #expect(manager.reopenMostRecentlyClosedBrowserPanel())
+            let newIDs = Set(workspace.panels.keys).subtracting(panelIDsBeforeReopen)
+            #expect(newIDs.count == 1)
+            let reopenedID = try #require(newIDs.first)
+            #expect(workspace.panels[reopenedID] is BrowserPanel)
+            #expect(manager.selectedTabId == workspace.id)
+            #expect(workspace.focusedPanelId == reopenedID)
+            #expect(workspace.bonsplitController.allPaneIds.count == 2)
+            let sourcePane = try #require(workspace.paneId(forPanelId: sourceID))
+            let browserPane = try #require(workspace.paneId(forPanelId: reopenedID))
+            #expect(sourcePane != browserPane)
+        }
+    }
+
     private func withManager(_ body: (TabManager) throws -> Void) throws {
         let suite = "CloudClosedPanelRestoreTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
