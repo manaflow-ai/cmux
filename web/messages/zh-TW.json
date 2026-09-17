@@ -1213,6 +1213,7 @@
           "globalFontMagnification": "依此百分比縮放 cmux 擁有的終端機、分頁標題、側邊欄、設定、覆蓋層和應用程式 chrome。不包含已算繪的瀏覽器頁面內容。"
         },
         "terminal": {
+          "adaptiveDefaultTheme": "為 true（預設）時，除非已設定 Ghostty 主題或終端機顏色，否則 cmux 會提供隨外觀變更的預設配色。字體和其他設定會保留。為 false 時，Ghostty 使用固定的內建配色。明確指定的主題和顏色一律優先，包括 theme = light:X,dark:Y。",
           "sessionContentMaxWidth": "終端機與內建代理程式聊天內容的選用最大寬度，單位為點。設為 false 可使用整個窗格寬度。",
           "sessionContentAlignment": "啟用 sessionContentMaxWidth 時，終端機與內建代理程式聊天內容的水平位置。",
           "copyOnSelect": "為 true 時，選取確認後會將所選終端機文字複製到系統剪貼簿。為 false 時，cmux 不會輸出 Ghostty copy-on-select 覆寫；選取剪貼簿行為由 Ghostty 設定與預設值控制。",

@@ -1213,6 +1213,7 @@
           "globalFontMagnification": "Ridimensiona di questa percentuale terminali, titoli delle schede, barre laterali, impostazioni, overlay e chrome dell'app gestiti da cmux. Il contenuto renderizzato delle pagine del browser è escluso."
         },
         "terminal": {
+          "adaptiveDefaultTheme": "Se true (predefinito), cmux fornisce una tavolozza predefinita che segue l’aspetto, a meno che non siano configurati un tema Ghostty o colori del terminale. Il carattere e le altre impostazioni vengono mantenuti. Se false, Ghostty usa la propria tavolozza integrata fissa. I temi e i colori espliciti hanno sempre la precedenza, incluso theme = light:X,dark:Y.",
           "sessionContentMaxWidth": "Larghezza massima facoltativa, in punti, per il contenuto del terminale e della chat agente integrata. Imposta false per usare l’intera larghezza del riquadro.",
           "sessionContentAlignment": "Posizionamento orizzontale del contenuto del terminale e della chat agente integrata quando sessionContentMaxWidth è abilitato.",
           "copyOnSelect": "Quando è true, il testo selezionato nel terminale viene copiato negli appunti di sistema quando la selezione viene confermata. Quando è false, cmux non emette un override Ghostty copy-on-select; configurazione e valori predefiniti di Ghostty controllano il comportamento degli appunti di selezione.",
