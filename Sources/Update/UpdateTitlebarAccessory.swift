@@ -1170,6 +1170,7 @@ struct TitlebarControlsView: View {
                 iconLabel(
                     systemName: "sidebar.right",
                     config: config,
+                    foregroundColor: foregroundColor,
                     iconGeometryKeyPrefix: "titlebarControl_toggleRightSidebarIcon"
                 )
             }
