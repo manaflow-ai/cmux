@@ -160,19 +160,6 @@ struct RightSidebarPanelView: View {
     @State private var customSidebarWorkerClient: RenderWorkerClient?
     @State private var managedPolicyRevision = 0
 
-#if DEBUG
-    // Development-only styling comparison; focus remains owned by the window coordinator.
-    @AppStorage("debugRightSidebarFocusStyle") private var debugFocusStyle = RightSidebarFocusStyle.topAccent.rawValue
-#endif
-
-    private var focusStyle: RightSidebarFocusStyle {
-#if DEBUG
-        RightSidebarFocusStyle(rawValue: debugFocusStyle) ?? .outline
-#else
-        .outline
-#endif
-    }
-
     // track the pending count so the badge updates live when hooks push
     // new items.
     private var feedPendingCount: Int {
@@ -244,12 +231,13 @@ struct RightSidebarPanelView: View {
             contentForMode
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .overlay(alignment: .trailing) {
+        .overlay {
             Rectangle()
-                .fill(cmuxAccentColor())
-                .frame(width: 2)
-                .padding(.vertical, 4)
-                .opacity(fileExplorerState.rightSidebarOwnsInputFocus && focusStyle == .sidebarRail ? 1 : 0)
+                .strokeBorder(
+                    Color(nsColor: cmuxAccentNSColor(for: windowAppearance.resolvedColorScheme)),
+                    lineWidth: 1
+                )
+                .opacity(fileExplorerState.rightSidebarOwnsInputFocus ? 1 : 0)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         }
@@ -313,8 +301,6 @@ struct RightSidebarPanelView: View {
                         isSelected: item.isSelected(
                             mode: fileExplorerState.mode
                         ),
-                        isKeyboardFocusActive: fileExplorerState.rightSidebarOwnsInputFocus,
-                        focusStyle: focusStyle,
                         badgeCount: item.mode == .feed ? feedPendingCount : 0,
                         shortcutHint: shortcut,
                         showsShortcutHint: ShortcutHintTitlebarPolicy.shouldShow(

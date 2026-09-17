@@ -135,14 +135,12 @@ struct RightSidebarChromePillModifier: ViewModifier {
     var isHovered: Bool
     var horizontalPadding: CGFloat = RightSidebarChromeMetrics.controlHorizontalPadding
     var geometryKeyPrefix: String?
-    var foregroundOverride: Color?
-    var backgroundOverride: Color?
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
 
     func body(content: Content) -> some View {
         content
             .foregroundStyle(
-                foregroundOverride ?? RightSidebarChromeControlStyle.pillForegroundColor(isSelected: isSelected, isHovered: isHovered)
+                RightSidebarChromeControlStyle.pillForegroundColor(isSelected: isSelected, isHovered: isHovered)
             )
             .padding(.horizontal, horizontalPadding)
             .frame(height: controlHeight)
@@ -152,7 +150,7 @@ struct RightSidebarChromePillModifier: ViewModifier {
             )
             .background(
                 RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.controlCornerRadius, style: .continuous)
-                    .fill(backgroundOverride ?? backgroundColor)
+                    .fill(backgroundColor)
             )
             .contentShape(
                 RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.controlCornerRadius, style: .continuous)
@@ -281,18 +279,14 @@ extension View {
         isSelected: Bool,
         isHovered: Bool,
         horizontalPadding: CGFloat = RightSidebarChromeMetrics.controlHorizontalPadding,
-        geometryKeyPrefix: String? = nil,
-        foregroundOverride: Color? = nil,
-        backgroundOverride: Color? = nil
+        geometryKeyPrefix: String? = nil
     ) -> some View {
         modifier(
             RightSidebarChromePillModifier(
                 isSelected: isSelected,
                 isHovered: isHovered,
                 horizontalPadding: horizontalPadding,
-                geometryKeyPrefix: geometryKeyPrefix,
-                foregroundOverride: foregroundOverride,
-                backgroundOverride: backgroundOverride
+                geometryKeyPrefix: geometryKeyPrefix
             )
         )
     }
@@ -358,54 +352,15 @@ struct RightSidebarModeBarItem: Identifiable, Equatable, Sendable {
     }
 }
 
-enum RightSidebarFocusStyle: String {
-    case outline
-    case topAccent
-    case sidebarRail
-    case underline
-    case tint
-    case solid
-}
-
 struct ModeBarButton: View {
     let item: RightSidebarModeBarItem
     let isSelected: Bool
-    let isKeyboardFocusActive: Bool
-    var focusStyle: RightSidebarFocusStyle = .outline
     var badgeCount: Int = 0
     let shortcutHint: StoredShortcut
     let showsShortcutHint: Bool
     let action: () -> Void
 
     @State private var isHovered: Bool = false
-
-    private var showsFocusIndicator: Bool {
-        isSelected && isKeyboardFocusActive
-    }
-
-    private var focusForegroundColor: Color? {
-        guard showsFocusIndicator else { return nil }
-        switch focusStyle {
-        case .outline, .topAccent, .sidebarRail, .underline:
-            return nil
-        case .tint:
-            return cmuxAccentColor()
-        case .solid:
-            return Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(on: cmuxAccentNSColor(), opacity: 1))
-        }
-    }
-
-    private var focusBackgroundColor: Color? {
-        guard showsFocusIndicator else { return nil }
-        switch focusStyle {
-        case .outline, .topAccent, .sidebarRail, .underline:
-            return nil
-        case .tint:
-            return cmuxAccentColor().opacity(0.18)
-        case .solid:
-            return cmuxAccentColor()
-        }
-    }
 
     var body: some View {
         Button(action: action) {
@@ -414,7 +369,7 @@ struct ModeBarButton: View {
                     systemName: item.symbolName,
                     pointSize: RightSidebarChromeControlStyle.modeIconSize,
                     weight: RightSidebarChromeControlStyle.iconWeight,
-                    tint: focusForegroundColor ?? RightSidebarChromeControlStyle.pillForegroundColor(isSelected: isSelected, isHovered: isHovered),
+                    tint: RightSidebarChromeControlStyle.pillForegroundColor(isSelected: isSelected, isHovered: isHovered),
                     appliesGlobalFontMagnification: true
                 )
                     .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
@@ -435,35 +390,8 @@ struct ModeBarButton: View {
             .rightSidebarChromePill(
                 isSelected: isSelected,
                 isHovered: isHovered,
-                geometryKeyPrefix: "rightSidebarModeControl_\(item.id)",
-                foregroundOverride: focusForegroundColor,
-                backgroundOverride: focusBackgroundColor
+                geometryKeyPrefix: "rightSidebarModeControl_\(item.id)"
             )
-            .overlay {
-                RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.controlCornerRadius, style: .continuous)
-                    .strokeBorder(cmuxAccentColor(), lineWidth: 1.5)
-                    .opacity(showsFocusIndicator && focusStyle == .outline ? 1 : 0)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-            }
-            .overlay(alignment: .bottom) {
-                Capsule()
-                    .fill(cmuxAccentColor())
-                    .frame(height: 2)
-                    .padding(.horizontal, 4)
-                    .opacity(showsFocusIndicator && focusStyle == .underline ? 1 : 0)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-            }
-            .overlay(alignment: .top) {
-                Rectangle()
-                    .fill(cmuxAccentColor())
-                    .frame(height: 2)
-                    .padding(.horizontal, 4)
-                    .opacity(showsFocusIndicator && focusStyle == .topAccent ? 1 : 0)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-            }
             .overlay(alignment: .trailing) {
                 if showsShortcutHint {
                     ShortcutHintPill(shortcut: shortcutHint, fontSize: 9, emphasis: isSelected ? 1.15 : 0.95)
