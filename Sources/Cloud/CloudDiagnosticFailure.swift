@@ -4,7 +4,7 @@ import Foundation
 enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
     case authentication, sessionRefresh = "session_refresh", permission, plan
     case rateLimit = "rate_limit", conflict, network, timeout, server, response, unsupported
-    case process, `protocol`, notFound = "not_found", resourceLimit = "resource_limit"
+    case process, `protocol`, notFound = "not_found", placement, resourceLimit = "resource_limit"
     case storage, cancelled, unknown
 
     var label: String {
@@ -23,6 +23,8 @@ enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
             return String(localized: "cloud.operation.failure.conflict", defaultValue: "Another operation changed this machine. Refresh its state.")
         case .notFound:
             return String(localized: "cloud.operation.failure.notFound", defaultValue: "The Cloud resource is no longer available. Refresh the machine list.")
+        case .placement:
+            return String(localized: "cloud.operation.failure.placement", defaultValue: "The Cloud terminal placement is unavailable. Refresh the machine, then retry.")
         case .unsupported:
             return String(localized: "cloud.operation.failure.unsupported", defaultValue: "This Cloud operation is not supported. Check for an update.")
         case .cancelled:
@@ -68,12 +70,13 @@ enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
         if let error = error as? CmuxTuiSurfaceProvider.ProviderError {
             switch error {
             case .notSignedIn: return .authentication
-            case .machineAsleep, .remoteWorkspaceNotFound, .remoteTabNotFound,
-                 .noWorkspaceOnMachine, .remotePlacementUnavailable, .terminalExited: return .notFound
-            case .terminalNotCreated, .invalidSnapshot, .stateUnavailable,
-                 .invalidPreviewURL, .localForwardURLUnavailable: return .response
+            case .machineAsleep, .remoteWorkspaceNotFound, .remoteTabNotFound: return .notFound
+            case .noWorkspaceOnMachine, .remotePlacementUnavailable: return .placement
+            case .terminalNotCreated, .terminalExited: return .process
             case .terminalAttachTimedOut: return .timeout
+            case .invalidSnapshot, .stateUnavailable: return .response
             case .snapshotOnly, .hubUnavailable: return .unsupported
+            case .invalidPreviewURL, .localForwardURLUnavailable: return .response
             }
         }
         if error is CloudMachineLinkManager.ManagerError { return .connectFailure(error) }

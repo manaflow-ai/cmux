@@ -22,8 +22,31 @@
       "title": "Wymagany cmux Pro",
       "message": "Cloud VM wymagają planu cmux Pro.",
       "action": "Przejdź na cmux Pro na stronie {upgradeUrl}, aby tworzyć Cloud VM."
+    },
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "Maszyny z {memory} GiB wymagają cmux {plan}. Twój plan obsługuje do {max} GiB.",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "Nie udało się sprawdzić rozmiaru RAM maszyny źródłowej.",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "Ten rozmiar maszyny jest niedostępny. Wybierz do {max} GiB.",
+      "action": "cmux vm new --size {max}g"
     }
-  },
+  ,
+    "goLimit": {
+      "savedMessage": "Go obejmuje dwie zapisane maszyny VM, w tym uruchomioną.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "activeMessage": "Go umożliwia uruchomienie jednej maszyny VM naraz.",
+      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "hoursMessage": "Wykorzystano 40 godzin VM w Go na ten miesiąc. Zapisane VM będą dostępne w następnym okresie rozliczeniowym.",
+      "hoursAction": "cmux billing checkout --plan pro",
+      "shapeMessage": "Go obsługuje 2 vCPU, 4 GiB RAM i 16 GiB dysku.",
+      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    }},
   "billingRecovery": {
     "message": "Jeśli znaleźliśmy konto, sprawdź e-mail, aby poznać kolejne kroki"
   },
@@ -357,6 +380,13 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "Udostępnij zespołowi",
+      "makePrivate": "Ustaw jako prywatne",
+      "privateImportHint": "Nowe konta są prywatne. Udostępnij konto, aby maszyny Cloud VM tego zespołu mogły z niego korzystać.",
+      "description": "Konta udostępnione są dostępne dla maszyn Cloud VM tego zespołu. Konta prywatne pozostają dostępne tylko dla osoby, która je dodała.",
+      "cancelAction": "Anuluj"
     }
   },
   "community": {
@@ -980,10 +1010,10 @@
       "targetTitle": "Niewłaściwe okno lub zablokowane kliknięcie",
       "targetBody": "Sprawdź aplikację ponownie i wybierz aktualny element. Jeśli inne okno zasłania cel, odsłoń właściwe okno i sprawdź je przed kolejną próbą. Nie używaj starych współrzędnych ani indeksów.",
       "productLink": "Przegląd cmux Computer Use",
-    "copyTitle": "Kopiuj prompt Computer Use",
-    "copyPrompt": "Kopiuj prompt",
-    "copiedPrompt": "Skopiowano",
-    "installPrompt": "Użyj umiejętności $cmux-cua. Jeśli jej brakuje, zainstaluj ją zwykłym instalatorem. Przy braku uprawnień poproś mnie o otwarcie Ustawienia cmux → Computer Use. Sprawdź przed działaniem i zweryfikuj każdą zmianę.\n\nZadanie: [opisz zadanie tutaj]"
+      "copyTitle": "Kopiuj prompt Computer Use",
+      "copyPrompt": "Kopiuj prompt",
+      "copiedPrompt": "Skopiowano",
+      "installPrompt": "Użyj umiejętności $cmux-cua. Jeśli jej brakuje, zainstaluj ją zwykłym instalatorem. Przy braku uprawnień poproś mnie o otwarcie Ustawienia cmux → Computer Use. Sprawdź przed działaniem i zweryfikuj każdą zmianę.\n\nZadanie: [opisz zadanie tutaj]"
     },
     "remoteTmux": {
       "moshContrast": "Do przełączania się między sieciami użyj cmux mosh-tmux. Otwiera on w pełni zintegrowany terminal Mosh dołączony do nazwanej sesji tmux; nie zastępuje natywnego odwzorowania workspace’ów, kart i podziałów udostępnianego przez tryb sterowania tmux przez SSH."
@@ -1191,6 +1221,7 @@
           "globalFontMagnification": "Skaluje o ten procent należące do cmux terminale, tytuły kart, paski boczne, ustawienia, nakładki i chrome aplikacji. Renderowana zawartość stron przeglądarki jest wyłączona."
         },
         "terminal": {
+          "adaptiveDefaultTheme": "Przy true (domyślnie) cmux udostępnia domyślną paletę dostosowaną do wyglądu, chyba że skonfigurowano motyw Ghostty lub kolory terminala. Czcionka i inne ustawienia są zachowywane. Przy false Ghostty używa swojej stałej wbudowanej palety. Jawnie ustawione motywy i kolory zawsze mają pierwszeństwo, w tym theme = light:X,dark:Y.",
           "sessionContentMaxWidth": "Opcjonalna maksymalna szerokość w punktach dla zawartości terminala i wbudowanego czatu agenta. Ustaw false, aby użyć pełnej szerokości panelu.",
           "sessionContentAlignment": "Poziome położenie zawartości terminala i wbudowanego czatu agenta po włączeniu sessionContentMaxWidth.",
           "copyOnSelect": "Gdy wartość to true, zaznaczony tekst terminala jest kopiowany do schowka systemowego po zatwierdzeniu zaznaczenia. Gdy wartość to false, cmux nie emituje nadpisania Ghostty copy-on-select; konfiguracja i wartości domyślne Ghostty sterują zachowaniem schowka zaznaczenia.",

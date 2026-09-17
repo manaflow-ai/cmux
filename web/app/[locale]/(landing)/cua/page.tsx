@@ -101,7 +101,7 @@ export default function ComputerUsePage() {
             copiedLabel={t("copiedPrompt")}
           />
         </section>
-        <div className="border-t border-border pt-6" data-dev="cua-footer-links">
+        <div className="border-t border-border pt-[21px]" data-dev="cua-footer-links">
           <ComputerUseActions location="landing-footer" />
           <div className="mt-6">
             <Link href="/docs/changelog" className={linkClass}>{common("viewChangelog")}</Link>

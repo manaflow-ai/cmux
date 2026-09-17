@@ -33,6 +33,20 @@ struct MobileHostAuthorizationTests {
         #expect(payload["mac_device_id"] as? String == "current-device")
     }
 
+    @Test func olderPeerStatusKeepsItsDirectoryIdentityWithoutChangingV2Status() throws {
+        MobileHostPublicStatusCache.updateV2DeviceID("v2-team-installation")
+        defer { MobileHostPublicStatusCache.removeAll() }
+        guard case let .ok(older as [String: Any]) = MobileHostPublicStatusCache.result(
+            includeIdentity: true, deviceID: "existing-physical-mac"
+        ), case let .ok(modern as [String: Any]) = MobileHostPublicStatusCache.result(includeIdentity: true) else {
+            Issue.record("Both admitted protocols must receive a computer identity")
+            return
+        }
+        #expect(older["mac_device_id"] as? String == "existing-physical-mac")
+        #expect(modern["mac_device_id"] as? String == "v2-team-installation")
+        #expect(MobileHostPublicStatusCache.currentV2DeviceID() == "v2-team-installation")
+    }
+
     @Test func stoppingHostStatusClearsIdentityAlongsideRoutes() {
         MobileHostPublicStatusCache.updateV2DeviceID("previous-account-device")
         MobileHostPublicStatusCache.removeAll()

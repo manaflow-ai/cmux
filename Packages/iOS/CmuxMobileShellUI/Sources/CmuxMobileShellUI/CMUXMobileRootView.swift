@@ -1153,12 +1153,10 @@ struct CMUXMobileRootView: View {
             return
         }
         store.applyMacCompatibilityPolicy(macCompatCenter.policy)
-        whatsNewCenter?.applyMacCompatibilityPolicy(macCompatCenter.policy)
         Task { @MainActor in
             await macCompatCenter.refresh()
             guard !Task.isCancelled else { return }
             store.applyMacCompatibilityPolicy(macCompatCenter.policy)
-            whatsNewCenter?.applyMacCompatibilityPolicy(macCompatCenter.policy)
             store.revalidateActiveMacCompatibilityPolicy()
         }
     }

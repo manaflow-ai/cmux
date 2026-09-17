@@ -120,6 +120,7 @@ enum MobileHostIrxLegacyDialectServer {
                 await MobileHostService.acceptTransport(
                     admitted.controlTransport,
                     authorization: .irohAdmission(admitted.peer),
+                    hostDeviceID: acceptor.deviceID,
                     artifactTransfers: artifactTransfers,
                     independentEventWriter: eventWriter,
                     firstFrameTimeoutNanoseconds: 0,

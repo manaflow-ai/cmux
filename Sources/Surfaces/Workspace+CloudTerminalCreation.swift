@@ -57,8 +57,14 @@ extension Workspace {
     /// projects a cloud resource: the already-created empty pane receives the machine's
     /// new terminal as its first tab. Returns false when the source is not cloud-anchored.
     func routeCloudPaneUISplit(from sourcePanelID: UUID, into newPane: PaneID, orientation: SplitOrientation) -> Bool {
-        guard let resource = cloudProjectedResource(forPanel: sourcePanelID) else { return false }
-        return routeCloudPaneTerminalCreate(
+        guard SurfaceCatalog.shared.hasCloudProjection(panelID: sourcePanelID, workspaceID: id) else { return false }
+        // Projection identity survives a missing provider graph during restore
+        // or reconnect. A handled Cloud split must not seed a local shell.
+        guard let resource = cloudProjectedResource(forPanel: sourcePanelID) else {
+            closeUntouchedPane(newPane)
+            return true
+        }
+        let routed = routeCloudPaneTerminalCreate(
             near: resource, sourcePanelID: sourcePanelID,
             destination: .tab(workspaceID: id, paneID: newPane.id.uuidString, index: nil),
             preferredRemoteWorkspaceID: SurfaceCatalog.shared.projection(forPanel: sourcePanelID)?.remoteWorkspaceID,
@@ -66,6 +72,8 @@ extension Workspace {
             splitDirection: orientation == .horizontal ? .right : .down,
             pendingPane: newPane
         )
+        if !routed { closeUntouchedPane(newPane) }
+        return true
     }
 
     /// Routes a Cmd+T-style new tab in a pane whose selected tab projects a cloud
