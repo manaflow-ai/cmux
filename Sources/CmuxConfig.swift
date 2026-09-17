@@ -4,6 +4,7 @@ import Combine
 import CryptoKit
 import Foundation
 import CmuxSettings
+import CmuxTextActions
 
 extension CodingUserInfoKey {
     static let cmuxWorkspaceColorDefaults = CodingUserInfoKey(rawValue: "cmuxWorkspaceColorDefaults")!
@@ -1287,15 +1288,15 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
             )
         }
         let raw = try container.decode(String.self, forKey: .text)
-        guard let sanitized = CmuxTextActionPayload.sanitizedText(raw) else {
+        let submit = try container.decodeIfPresent(Bool.self, forKey: .submit) ?? false
+        guard let payload = CmuxTextActionPayload(text: raw, submit: submit) else {
             throw DecodingError.dataCorruptedError(
                 forKey: .text,
                 in: container,
                 debugDescription: "text must not be blank"
             )
         }
-        let submit = try container.decodeIfPresent(Bool.self, forKey: .submit) ?? false
-        return CmuxTextActionPayload(text: sanitized, submit: submit)
+        return payload
     }
 
     private static func trimmedString(
@@ -1766,6 +1767,7 @@ final class CmuxConfigStore: ObservableObject {
     @Published private(set) var notificationHooks: [CmuxResolvedNotificationHook] = []
     @Published private(set) var configurationIssues: [CmuxConfigIssue] = []
     @Published private(set) var configRevision: UInt64 = 0
+    private var cachedSnippetMenuModel: (revision: UInt64, model: CmuxSnippetMenuModel)?
 
     /// Which config file each command came from, keyed by command id.
     private(set) var commandSourcePaths: [String: String] = [:]
@@ -2522,6 +2524,18 @@ final class CmuxConfigStore: ObservableObject {
         return loadedActions.filter { action in
             action.palette && !builtInIDs.contains(action.id)
         }
+    }
+
+    /// Grouped, sorted Snippets menu for the current config revision. Built
+    /// once per revision and reused by every right-click until the next
+    /// reload, so menu construction does no per-click sorting.
+    func snippetMenuModel() -> CmuxSnippetMenuModel {
+        if let cached = cachedSnippetMenuModel, cached.revision == configRevision {
+            return cached.model
+        }
+        let model = CmuxSnippetMenuModel.build(from: snippetMenuEntries())
+        cachedSnippetMenuModel = (configRevision, model)
+        return model
     }
 
     /// `type: "text"` actions for the terminal right-click Snippets submenu.

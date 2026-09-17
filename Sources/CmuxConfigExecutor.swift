@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import CmuxTextActions
 
 @MainActor
 struct CmuxConfigExecutor {
@@ -195,6 +196,8 @@ struct CmuxConfigExecutor {
         }
     }
 
+    /// Runs `onAuthorized` immediately for insert-only text, or after the
+    /// project-action trust gate for `submit: true` payloads.
     @discardableResult
     static func deliverTextActionIfAuthorized(
         _ payload: CmuxTextActionPayload,
@@ -238,16 +241,21 @@ struct CmuxConfigExecutor {
     }
 
     /// Realises a text payload on a terminal panel: bracketed paste of the
-    /// whole text, then an optional Enter.
-    static func deliver(_ payload: CmuxTextActionPayload, to panel: TerminalPanel) {
+    /// whole text, then an optional Enter. Stops at the first rejected step
+    /// so a cold surface that refuses the paste never receives a bare Enter
+    /// that could submit unrelated pending input. Returns whether every step
+    /// was accepted.
+    @discardableResult
+    static func deliver(_ payload: CmuxTextActionPayload, to panel: TerminalPanel) -> Bool {
         for step in payload.deliverySteps {
             switch step {
             case .pasteText(let text):
-                _ = panel.sendText(text)
+                guard panel.sendText(text) else { return false }
             case .namedKey(let keyName):
-                _ = panel.sendNamedKey(keyName)
+                guard panel.sendNamedKey(keyName) else { return false }
             }
         }
+        return true
     }
 
     @discardableResult

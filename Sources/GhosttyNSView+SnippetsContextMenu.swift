@@ -1,4 +1,5 @@
 import AppKit
+import CmuxTextActions
 
 /// Payload for a Snippets context-menu item: the right-clicked panel and the
 /// text action to insert into it. Boxed so `NSMenuItem.representedObject`
@@ -24,7 +25,7 @@ extension GhosttyNSView {
               let store = snippetContextMenuConfigStore(panelId: panelId) else {
             return false
         }
-        let model = CmuxSnippetMenuModel.build(from: store.snippetMenuEntries())
+        let model = store.snippetMenuModel()
         guard !model.isEmpty else { return false }
 
         let snippetsItem = NSMenuItem(
@@ -55,6 +56,8 @@ extension GhosttyNSView {
         return true
     }
 
+    /// One leaf item; the box carries the clicked panel and the action id so
+    /// the handler can re-resolve both from authoritative state.
     private func makeSnippetMenuItem(_ item: CmuxSnippetMenuItem, panelId: UUID) -> NSMenuItem {
         let menuItem = NSMenuItem(
             title: item.title,
@@ -70,13 +73,15 @@ extension GhosttyNSView {
         return menuItem
     }
 
+    /// The config store owned by the window that owns the clicked panel.
+    /// Fails closed (no menu, no insertion) when that ownership cannot be
+    /// established, rather than guessing from another window's store.
     private func snippetContextMenuConfigStore(panelId: UUID) -> CmuxConfigStore? {
-        guard let delegate = AppDelegate.shared else { return nil }
-        if let located = delegate.workspaceContainingPanel(panelId: panelId),
-           let store = delegate.mainWindowContext(for: located.tabManager)?.cmuxConfigStore {
-            return store
+        guard let delegate = AppDelegate.shared,
+              let located = delegate.workspaceContainingPanel(panelId: panelId) else {
+            return nil
         }
-        return delegate.mainWindowContexts.values.compactMap(\.cmuxConfigStore).first
+        return delegate.mainWindowContext(for: located.tabManager)?.cmuxConfigStore
     }
 
     /// Inserts the chosen snippet into the panel that was right-clicked, not

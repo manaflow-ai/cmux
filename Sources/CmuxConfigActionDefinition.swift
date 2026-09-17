@@ -1,4 +1,5 @@
 import Foundation
+import CmuxTextActions
 
 struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
     var action: CmuxSurfaceTabBarButtonAction?
@@ -206,6 +207,8 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
         }
     }
 
+    /// `type: "text"` decoding for action definitions: verbatim text minus
+    /// bidi and zero-width controls, blank rejected, `submit` default false.
     private static func decodeTextPayload(
         from container: KeyedDecodingContainer<CodingKeys>
     ) throws -> CmuxTextActionPayload {
@@ -219,15 +222,15 @@ struct CmuxConfigActionDefinition: Codable, Sendable, Hashable {
             )
         }
         let raw = try container.decode(String.self, forKey: .text)
-        guard let sanitized = CmuxTextActionPayload.sanitizedText(raw) else {
+        let submit = try container.decodeIfPresent(Bool.self, forKey: .submit) ?? false
+        guard let payload = CmuxTextActionPayload(text: raw, submit: submit) else {
             throw DecodingError.dataCorruptedError(
                 forKey: .text,
                 in: container,
                 debugDescription: "text must not be blank"
             )
         }
-        let submit = try container.decodeIfPresent(Bool.self, forKey: .submit) ?? false
-        return CmuxTextActionPayload(text: sanitized, submit: submit)
+        return payload
     }
 
     private static func requiredTrimmedString(

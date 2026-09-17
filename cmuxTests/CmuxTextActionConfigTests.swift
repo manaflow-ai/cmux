@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxTextActions
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -75,10 +76,9 @@ struct CmuxTextActionConfigTests {
         #expect(resolved.action.textPayload?.text == "ls -la")
     }
 
-    @Test func generatedIdentifierForTextActionIsPrefixedAndBounded() {
-        let action = CmuxSurfaceTabBarButtonAction.text(
-            CmuxTextActionPayload(text: String(repeating: "x", count: 200), submit: false)
-        )
+    @Test func generatedIdentifierForTextActionIsPrefixedAndBounded() throws {
+        let payload = try #require(CmuxTextActionPayload(text: String(repeating: "x", count: 200), submit: false))
+        let action = CmuxSurfaceTabBarButtonAction.text(payload)
         #expect(action.defaultId.hasPrefix("text."))
         #expect(action.defaultId.count <= "text.".count + CmuxTextActionPayload.identifierSlugMaxLength)
     }
@@ -87,7 +87,7 @@ struct CmuxTextActionConfigTests {
 
     @Test func textActionDefinitionRoundTripsThroughJSON() throws {
         let original = CmuxConfigActionDefinition(
-            action: .text(CmuxTextActionPayload(text: "a\nb", submit: true)),
+            action: .text(try #require(CmuxTextActionPayload(text: "a\nb", submit: true))),
             title: "AB"
         )
         let data = try JSONEncoder().encode(original)
@@ -97,7 +97,7 @@ struct CmuxTextActionConfigTests {
         #expect(object["submit"] as? Bool == true)
 
         let decoded = try JSONDecoder().decode(CmuxConfigActionDefinition.self, from: data)
-        #expect(decoded.action?.textPayload == CmuxTextActionPayload(text: "a\nb", submit: true))
+        #expect(decoded.action?.textPayload == (try #require(CmuxTextActionPayload(text: "a\nb", submit: true))))
         #expect(decoded.title == "AB")
     }
 
@@ -122,7 +122,7 @@ struct CmuxTextActionConfigTests {
 
     @Test func categoryRoundTripsThroughEncoding() throws {
         let original = CmuxConfigActionDefinition(
-            action: .text(CmuxTextActionPayload(text: "x", submit: false)),
+            action: .text(try #require(CmuxTextActionPayload(text: "x", submit: false))),
             title: "X",
             category: "Ops"
         )
@@ -160,10 +160,21 @@ struct CmuxTextActionConfigTests {
 
         let entries = store.snippetMenuEntries()
         #expect(entries.map(\.actionID).sorted() == ["fixup", "review"])
-        let model = CmuxSnippetMenuModel.build(from: entries)
+        let model = store.snippetMenuModel()
         #expect(model.uncategorized.map(\.title) == ["Review Prompt"])
         #expect(model.categories.map(\.name) == ["Git"])
         #expect(model.categories.first?.items.first?.payload.text == "git commit --fixup HEAD")
+
+        // Same revision: the cached model is reused. New revision: rebuilt.
+        #expect(store.snippetMenuModel() == model)
+        try """
+        { "actions": { "only": { "type": "text", "category": "Ops", "title": "Only", "text": "uptime" } } }
+        """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+        store.loadAll()
+        let reloaded = store.snippetMenuModel()
+        #expect(reloaded != model)
+        #expect(reloaded.uncategorized.isEmpty)
+        #expect(reloaded.categories.map(\.name) == ["Ops"])
     }
 
     // MARK: - Surface tab bar buttons
@@ -173,7 +184,8 @@ struct CmuxTextActionConfigTests {
             CmuxSurfaceTabBarButton.self,
             from: Data(#"{ "type": "text", "title": "Yes", "text": "y" }"#.utf8)
         )
-        #expect(button.action.textPayload == CmuxTextActionPayload(text: "y", submit: false))
+        #expect(button.action.textPayload?.text == "y")
+        #expect(button.action.textPayload?.submit == false)
         #expect(button.terminalCommand == nil)
         #expect(button.id.hasPrefix("text."))
 

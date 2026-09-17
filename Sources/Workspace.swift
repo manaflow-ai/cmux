@@ -26,6 +26,7 @@ import CryptoKit
 import Darwin
 import Network
 import CoreText
+import CmuxTextActions
 
 private func externalBrowserFallbackURL(
     url: URL?,
@@ -4390,7 +4391,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         let executableButtons = Dictionary(
             uniqueKeysWithValues: buttons.compactMap { button in
-                if button.terminalCommand != nil {
+                if button.terminalCommand != nil || button.action.textPayload != nil {
                     return (
                         button.id,
                         SurfaceTabBarExecutableButton(
