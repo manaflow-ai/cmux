@@ -62,7 +62,7 @@ struct CloudTreeNodeActions {
         refresh: @escaping @MainActor () -> Void,
         refreshMachine: @escaping @MainActor (SurfaceMachineID) -> Void = { _ in }, operationController: CloudWorkspaceOperationController? = nil
     ) -> CloudTreeNodeActions {
-        @MainActor
+        @MainActor @discardableResult
         func run(
             _ label: String,
             _ operation: @escaping @MainActor (SurfaceCatalog) async throws -> Void
