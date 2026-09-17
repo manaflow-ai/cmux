@@ -84,10 +84,11 @@ LogLevel ERROR
         requests = []
         wrong_host_key = False
         short_grant = False
+        cleanup_grants_remaining = None
         idle_connection_closed = threading.Event()
 
         def serve_connection(conn):
-            nonlocal short_grant
+            nonlocal short_grant, cleanup_grants_remaining
             # Match the app's bounded control-socket lifecycle. File transfer
             # can continue after its endpoint request's connection goes idle.
             conn.settimeout(2)
@@ -109,6 +110,11 @@ LogLevel ERROR
                     with lock:
                         requests.append(request)
                     if request["method"] == "vm.scp_info":
+                        if cleanup_grants_remaining is not None:
+                            if cleanup_grants_remaining == 0:
+                                return  # Drop only cleanup's grant response.
+                            cleanup_grants_remaining -= 1
+                            short_grant = True
                         public_key = request["params"]["public_key"].strip()
                         assert public_key.startswith("ssh-ed25519 ") and "\n" not in public_key
                         with lock, authorized.open("a") as out:
@@ -242,6 +248,18 @@ LogLevel ERROR
             assert all(p["failure"] == "process" for p in failures), failures
             assert max(len(json.dumps(r)) for r in requests) < 1024
             print("PASS watch and bounded control messages without file bytes", flush=True)
+
+            cleanup_grants_remaining = 2
+            result = push(payload, "cleanup-failure/payload.bin")
+            cleanup_grants_remaining = None
+            assert result.returncode == 0, result.stderr
+            assert (guest / "cleanup-failure/payload.bin").read_bytes() == payload.read_bytes()
+            assert "cleanup failed" in result.stderr
+            cleanup_reports = [r["params"] for r in requests if r["method"] == "vm.file_transfer_failure" and r["params"]["phase"] == "cleanup"]
+            assert len(cleanup_reports) == 1, cleanup_reports
+            assert cleanup_reports[0]["failure"] == "network", cleanup_reports
+            assert "error_number" not in cleanup_reports[0]
+            print("PASS cleanup grant transport failure keeps network classification and transfer success", flush=True)
         finally:
             stop.set()
             thread.join(timeout=2)
