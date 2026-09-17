@@ -28,6 +28,8 @@ test("generated active events exclude serialized-only shapes", () => {
     .filter(([, metadata]) => metadata.emission === "emitted")
     .map(([name]) => name);
   assert.equal(emitted.length, 48);
+  assert.equal(EVENT_METADATA["presence-changed"].emission, "emitted");
+  assert.equal(emitted.includes("presence-changed"), true);
   assert.equal(EVENT_METADATA["machine-usage-changed"].emission, "emitted");
   assert.equal(emitted.includes("machine-usage-changed"), true);
   assert.equal(EVENT_METADATA["client-list-invalidated"].emission, "serialized-never-emitted");
