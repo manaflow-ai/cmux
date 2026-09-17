@@ -358,6 +358,34 @@ struct CloudTreeMachineResourcesTests {
         #expect(children.map(\.structureTag) == ["placeholder", "resourcesPool"])
     }
 
+    @Test("Fresh VM telemetry survives missing or disconnected terminal links",
+          arguments: [nil, .connecting, .error, .unavailable, .asleep, .connected] as [SurfaceLinkState?])
+    @MainActor func freshReadingsDoNotDependOnTerminalLink(linkState: SurfaceLinkState?) throws {
+        let snapshot = machine()
+        let info = linkState.map { state in
+            SurfaceMachineInfo(
+                id: .cloud(snapshot.id), name: snapshot.displayName, status: "running", image: snapshot.image,
+                hasDesktop: snapshot.isDesktop, memoryMb: nil, diskMb: nil, linkState: state,
+                linkError: nil, cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil
+            )
+        }
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [snapshot],
+            snapshot: SurfaceCatalogSnapshot(machines: info.map { [$0] } ?? [], resources: [], projections: []),
+            localWorkspaces: [], includeLocalMachine: false, now: Self.sampleTime
+        )
+        let resources = try #require(nodes.first?.children.last)
+        let expected = CloudTreeMachineResourceSection(machine: snapshot, now: Self.sampleTime).rows
+        #expect(resources.children.count == expected.count)
+        for (node, reading) in zip(resources.children, expected) {
+            guard case .resource(_, let actual) = node.kind else {
+                Issue.record("Expected a resource reading")
+                continue
+            }
+            #expect(actual == reading)
+        }
+    }
+
     @Test @MainActor func terminalAndResourceDefaultsAreCollapsedButExplicitChoicesWin() throws {
         let snapshot = machine()
         let info = SurfaceMachineInfo(
