@@ -10,6 +10,46 @@ import Testing
 
 @Suite("Cloud manual mirror presentation")
 struct CloudManualMirrorPresentationTests {
+    @Test("Reconnect card and controls stay inside a narrow Cloud split")
+    @MainActor
+    func reconnectCardFitsAfterPaneResize() throws {
+        _ = NSApplication.shared
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 720, height: 640),
+            styleMask: [.titled], backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let content = try #require(window.contentView)
+        let overlay = CloudTerminalReconnectOverlayView(frame: content.bounds)
+        content.addSubview(overlay)
+        overlay.apply(.init(
+            title: "Cloud terminal could not start",
+            detail: "Check that the machine is connected, then retry this terminal.",
+            showsProgress: false, showsReconnectButton: true
+        ))
+        let card = try #require(overlay.subviews.first as? NSVisualEffectView)
+        let stack = try #require(card.subviews.compactMap { $0 as? NSStackView }.first)
+        let controls = stack.arrangedSubviews.compactMap { $0 as? NSControl }
+            + card.subviews.compactMap { $0 as? NSButton }
+
+        for width: CGFloat in [720, 190, 320, 190] {
+            overlay.frame.size.width = width
+            content.layoutSubtreeIfNeeded()
+            #expect(card.frame.minX >= 0)
+            #expect(card.frame.maxX <= width)
+            for control in controls where !control.isHidden {
+                let rect = control.convert(control.bounds, to: overlay)
+                #expect(rect.minX >= 0 && rect.maxX <= width)
+            }
+        }
+        var reconnects = 0
+        overlay.onReconnect = { reconnects += 1 }
+        let reconnect = try #require(stack.arrangedSubviews.compactMap { $0 as? NSButton }.first)
+        reconnect.performClick(nil)
+        #expect(reconnects == 1)
+    }
+
     @Test("Repeated recovery preserves a usable stream across pane visibility changes", arguments: [false, true])
     @MainActor
     func repeatedRecoveryDoesNotFlashOrReuseAnOldSurface(replayFirst: Bool) async throws {
