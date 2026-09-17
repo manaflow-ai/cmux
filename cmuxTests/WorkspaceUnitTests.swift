@@ -3618,7 +3618,24 @@ final class SidebarWorkspaceShortcutHintMetricsTests: XCTestCase {
 
 // MARK: - Duplicate Workspace agent retargeting
 
+/// Test-only shorthands for the two agents the built-in roster always has.
+/// The app deliberately has no named agents — the roster is configuration — but
+/// tests that predate it read better naming the agent they mean.
+extension WorkspaceAgent {
+    static var claude: WorkspaceAgent { WorkspaceAgent.builtInRoster[0] }
+    static var codex: WorkspaceAgent { WorkspaceAgent.builtInRoster[1] }
+}
+
 final class WorkspaceAgentRetargetTests: XCTestCase {
+
+    // The roster is global state published by whichever workspace-set was
+    // parsed last, so every test here restores the built-in pair afterwards.
+    // Without that, a test that publishes a Copilot roster leaks it into every
+    // test that runs after it, in whatever order XCTest picks.
+    override func tearDown() {
+        WorkspaceAgent.publishRoster(nil)
+        super.tearDown()
+    }
 
     private func layout(_ titles: [String], selected: String? = nil) -> WorkspaceSetLayoutNode {
         .split(WorkspaceSetSplitLayout(
@@ -3695,6 +3712,92 @@ final class WorkspaceAgentRetargetTests: XCTestCase {
         XCTAssertEqual(WorkspaceAgent(argument: " claude "), .claude)
         XCTAssertNil(WorkspaceAgent(argument: "copilot"))
         XCTAssertNil(WorkspaceAgent(argument: ""))
+    }
+
+    // MARK: - Roster from the workspace-set's `agents:` block
+
+    func testNoAgentsBlockKeepsBuiltInPair() {
+        WorkspaceAgent.publishRoster(nil)
+        XCTAssertEqual(WorkspaceAgent.roster.map(\.id), ["claude", "codex"])
+        WorkspaceAgent.publishRoster([])
+        XCTAssertEqual(WorkspaceAgent.roster.map(\.id), ["claude", "codex"])
+    }
+
+    func testRosterAddsAnAgentWithoutCodeChanges() {
+        WorkspaceAgent.publishRoster([
+            WorkspaceSetAgent(title: "Claude", command: "claude-remote", sessionPrefix: "", id: nil),
+            WorkspaceSetAgent(title: "Codex", command: "codex-remote", sessionPrefix: "cx-", id: nil),
+            WorkspaceSetAgent(title: "Copilot", command: "copilot-remote", sessionPrefix: "cp-", id: nil)
+        ])
+
+        XCTAssertEqual(WorkspaceAgent.roster.map(\.id), ["claude", "codex", "copilot"])
+        XCTAssertEqual(WorkspaceAgent.roster.map(\.panelTitle), ["Claude", "Codex", "Copilot"])
+        // The id defaults to the command's family name, so the CLI reaches it.
+        XCTAssertEqual(WorkspaceAgent(argument: "copilot")?.command, "copilot-remote")
+        XCTAssertEqual(WorkspaceAgent(argument: "copilot-remote")?.id, "copilot")
+        // And a live `cp-` session is now attributed to it rather than Claude.
+        XCTAssertEqual(WorkspaceAgent(sessionName: "cp-notes").id, "copilot")
+        XCTAssertTrue(TabManager.isAgentCommand("copilot-remote"))
+    }
+
+    func testRosterRetargetsAPaneToTheNewAgent() {
+        WorkspaceAgent.publishRoster([
+            WorkspaceSetAgent(title: "Claude", command: "claude-remote", sessionPrefix: "", id: nil),
+            WorkspaceSetAgent(title: "Copilot", command: "copilot-remote", sessionPrefix: "cp-", id: nil)
+        ])
+        let copilot = WorkspaceAgent.roster[1]
+
+        let result = WorkspaceSetImporter.retargeted(
+            panels: [WorkspaceSetPanelTemplate(title: "Claude", command: "claude-remote")],
+            layout: nil,
+            to: copilot
+        )
+
+        XCTAssertEqual(result.panels[0].command, "copilot-remote")
+        XCTAssertEqual(result.panels[0].title, "Copilot")
+    }
+
+    func testRosterHonoursAnExplicitIdAndAnUnrelatedCommand() {
+        WorkspaceAgent.publishRoster([
+            WorkspaceSetAgent(title: "Claude", command: "claude-remote", sessionPrefix: "", id: nil),
+            WorkspaceSetAgent(
+                title: "Amp", command: "/opt/homebrew/bin/amp --tui", sessionPrefix: "amp-", id: "amp"
+            )
+        ])
+        let amp = WorkspaceAgent.roster[1]
+        XCTAssertEqual(amp.id, "amp")
+
+        let result = WorkspaceSetImporter.retargeted(
+            panels: [WorkspaceSetPanelTemplate(title: "Claude", command: "claude-remote")],
+            layout: nil,
+            to: amp
+        )
+        XCTAssertEqual(result.panels[0].command, "/opt/homebrew/bin/amp --tui")
+    }
+
+    func testVariantSuffixSurvivesARosterSwap() {
+        WorkspaceAgent.publishRoster([
+            WorkspaceSetAgent(title: "Claude", command: "claude-remote", sessionPrefix: "", id: nil),
+            WorkspaceSetAgent(title: "Copilot", command: "copilot-remote", sessionPrefix: "cp-", id: nil)
+        ])
+        let copilot = WorkspaceAgent.roster[1]
+
+        // A deliberate variant keeps its suffix rather than collapsing to the
+        // roster's plain command.
+        let variant = WorkspaceSetImporter.retargeted(
+            panels: [WorkspaceSetPanelTemplate(title: "Claude", command: "claude-remote-worktree")],
+            layout: nil,
+            to: copilot
+        )
+        XCTAssertEqual(variant.panels[0].command, "copilot-remote-worktree")
+
+        // A bare family name stays bare.
+        let bare = WorkspaceSetImporter.retargeted(
+            panels: [WorkspaceSetPanelTemplate(title: "Claude", command: "claude")],
+            layout: nil,
+            to: copilot
+        )
+        XCTAssertEqual(bare.panels[0].command, "copilot")
     }
 }
 

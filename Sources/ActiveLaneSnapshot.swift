@@ -155,7 +155,7 @@ enum ActiveLaneSnapshot {
                     directory: candidate.directory,
                     title: candidate.title,
                     instanceIndex: candidate.instanceIndex,
-                    agent: .claude
+                    agent: .unprefixed
                 )
                 let legacy = TmuxSessionReaper.sessionName(
                     directory: candidate.directory,

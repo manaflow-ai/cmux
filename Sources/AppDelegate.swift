@@ -5331,7 +5331,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // Every agent's spelling: a Codex lane's `cx-` session is as much this
                 // workspace's as the bare Claude one, and omitting it would offer a live
                 // Codex conversation up to the orphan reaper.
-                for agent in WorkspaceAgent.allCases {
+                for agent in WorkspaceAgent.roster {
                     derived.formUnion(TmuxSessionReaper.sessionNames(
                         directory: workspace.currentDirectory,
                         title: workspace.title,
@@ -5369,7 +5369,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // Agents in declaration order, Claude first: a workspace has one agent
                 // pane, so if both a Claude and a Codex session are live on this
                 // directory only one can be rebuilt onto, and the template's default wins.
-                agents: for agent in WorkspaceAgent.allCases {
+                agents: for agent in WorkspaceAgent.roster {
                     let names = TmuxSessionReaper.sessionNames(
                         directory: workspace.currentDirectory,
                         title: workspace.title,

@@ -4878,7 +4878,7 @@ class TerminalController {
                             message: "Unknown agent",
                             data: [
                                 "agent": agentRaw,
-                                "supported_agents": WorkspaceAgent.allCases.map(\.rawValue)
+                                "supported_agents": WorkspaceAgent.roster.map(\.id)
                             ]
                         )
                         return

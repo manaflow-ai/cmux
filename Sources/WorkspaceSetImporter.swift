@@ -5,6 +5,11 @@ import Yams
 // MARK: - Codable Types
 
 struct WorkspaceSetFile: Codable {
+    /// Optional roster of agents a workspace's agent pane can be pointed at —
+    /// what "Duplicate Workspace" offers. Absent means the built-in Claude and
+    /// Codex pair, which is what every workspace-set named before this was
+    /// configurable. See `WorkspaceAgent`.
+    var agents: [WorkspaceSetAgent]?
     /// Optional template applied to every workspace: a list of named panels
     /// with optional startup commands.
     var defaultPanels: [WorkspaceSetPanelTemplate]?
@@ -58,55 +63,164 @@ struct WorkspaceSetPanelTemplate: Codable {
     var command: String?
 }
 
+/// One agent in the workspace-set's `agents:` roster, as written on disk.
+struct WorkspaceSetAgent: Codable {
+    /// Menu label, and the title given to a pane retargeted to this agent.
+    var title: String
+    /// What the pane runs. The wrapper scripts live in `~/.local/bin`
+    /// (`claude-remote`, `codex-remote`, `copilot-remote`), but any command works.
+    var command: String
+    /// Prefix this agent's wrapper puts on its tmux session name, so two agents
+    /// on the same directory never attach the same session. At most one agent
+    /// may leave this empty; `claude-remote` is the one that does.
+    var sessionPrefix: String?
+    /// Stable key for the CLI's `agent` argument and for the workspace's
+    /// remembered choice. Defaults to the command's family name, so
+    /// `codex-remote` is addressable as `codex`.
+    var id: String?
+}
+
 /// An agent a workspace's agent pane can be pointed at. Duplicating a
 /// workspace offers one of these so a copy can run Codex while the original
 /// runs Claude (the workspace-set template only ever names one of them).
 ///
-/// The wrapper scripts live in `~/.local/bin` and share a naming shape:
-/// `<agent>` or `<agent>-<variant>` (`claude`, `claude-remote`, `codex-remote`).
-/// Adding an agent is one case here plus its `panelTitle`.
-enum WorkspaceAgent: String, CaseIterable, Sendable {
-    case claude
-    case codex
-
+/// The roster is **configuration, not code**: it comes from the `agents:` block
+/// of the workspace-set file, so adding Copilot or any other wrapper is an edit
+/// and a Reload Workspace Set, not a rebuild and a notarized release. When the
+/// file has no `agents:` block the built-in Claude/Codex pair applies, which is
+/// what every workspace-set named before this.
+///
+/// Wrapper scripts share a naming shape — `<family>` or `<family>-<variant>`
+/// (`claude`, `claude-remote`, `codex-remote`) — and `id` is that family name.
+/// It is what the CLI accepts and what a workspace persists as its remembered
+/// agent, so renaming an agent's `title` is safe but changing its `command`'s
+/// family silently orphans workspaces that remembered the old one.
+struct WorkspaceAgent: Hashable, Sendable, Identifiable {
+    let id: String
     /// Panel title the workspace-set templates use for this agent's pane.
-    var panelTitle: String {
-        switch self {
-        case .claude: return "Claude"
-        case .codex: return "Codex"
-        }
-    }
-
+    let panelTitle: String
+    /// The command this agent's pane runs.
+    let command: String
     /// Prefix the wrapper puts on its tmux session name, so a Claude pane and a
     /// Codex pane on the same directory never collide. `claude-remote` uses the
     /// bare slug; `codex-remote` prefixes `cx-` (as `copilot-remote` uses `cp-`).
-    var sessionPrefix: String {
-        switch self {
-        case .claude: return ""
-        case .codex: return "cx-"
-        }
+    let sessionPrefix: String
+
+    /// The family name of a command: `claude-remote` → `claude`. Also how a
+    /// roster entry gets its `id` when the file doesn't spell one out.
+    static func family(ofCommand command: String) -> String {
+        let base = ((command as NSString).lastPathComponent).lowercased()
+        return base.split(separator: "-").first.map(String.init) ?? base
     }
 
-    /// Which agent owns a live tmux session, read off its name's prefix.
-    /// Unprefixed names are Claude's, which is also the safe default: it is what
-    /// every workspace-set template names today.
+    init(id: String, panelTitle: String, command: String, sessionPrefix: String) {
+        self.id = id
+        self.panelTitle = panelTitle
+        self.command = command
+        self.sessionPrefix = sessionPrefix
+    }
+
+    /// Roster entries with no explicit `id` take the command's family name, and
+    /// no explicit `sessionPrefix` means the unprefixed one.
+    init(_ declared: WorkspaceSetAgent) {
+        self.init(
+            id: (declared.id?.trimmingCharacters(in: .whitespaces).lowercased())
+                .flatMap { $0.isEmpty ? nil : $0 }
+                ?? WorkspaceAgent.family(ofCommand: declared.command),
+            panelTitle: declared.title,
+            command: declared.command,
+            sessionPrefix: declared.sessionPrefix ?? ""
+        )
+    }
+}
+
+extension WorkspaceAgent {
+    /// What applies when the workspace-set declares no `agents:` block. Kept
+    /// identical to the pair this used to hardcode, so a file written before
+    /// the roster existed behaves exactly as it did.
+    static let builtInRoster: [WorkspaceAgent] = [
+        WorkspaceAgent(id: "claude", panelTitle: "Claude", command: "claude-remote", sessionPrefix: ""),
+        WorkspaceAgent(id: "codex", panelTitle: "Codex", command: "codex-remote", sessionPrefix: "cx-")
+    ]
+
+    // The roster is read from nonisolated code (command matching, session-name
+    // parsing) but can only be *loaded* on the main actor, where the
+    // workspace-set file is parsed. So the importer publishes it here after
+    // every successful parse and readers take the last published value under a
+    // lock. Before the first parse — and in tests that never touch a file —
+    // that is the built-in pair.
+    private static let rosterLock = NSLock()
+    nonisolated(unsafe) private static var publishedRoster: [WorkspaceAgent]?
+
+    static var roster: [WorkspaceAgent] {
+        rosterLock.lock()
+        defer { rosterLock.unlock() }
+        return publishedRoster ?? builtInRoster
+    }
+
+    /// Publish a parsed `agents:` block. Passing nil or an empty list restores
+    /// the built-in pair, so deleting the block from the file is a real undo
+    /// rather than leaving the app with no agents at all.
+    static func publishRoster(_ declared: [WorkspaceSetAgent]?) {
+        let resolved = (declared ?? [])
+            .map(WorkspaceAgent.init)
+            .filter { !$0.command.trimmingCharacters(in: .whitespaces).isEmpty }
+        rosterLock.lock()
+        defer { rosterLock.unlock() }
+        publishedRoster = resolved.isEmpty ? nil : resolved
+    }
+
+    /// The agent a pane falls back to when nothing else identifies one: the
+    /// first in the roster, which is Claude in the built-in pair.
+    static var fallback: WorkspaceAgent {
+        roster.first ?? builtInRoster[0]
+    }
+
+    /// The agent whose wrapper writes an unprefixed tmux session name. Session
+    /// names are only self-describing for the prefixed agents, so a bare name
+    /// like `notes` belongs to this one — which is what code predicting a
+    /// session name from a workspace alone has to assume.
+    static var unprefixed: WorkspaceAgent {
+        roster.first { $0.sessionPrefix.isEmpty } ?? fallback
+    }
+
+    /// Which agent owns a live tmux session, read off its name's prefix. The
+    /// longest matching prefix wins, so a roster holding both `cx-` and
+    /// `cx-old-` resolves the more specific one. A name matching no prefix
+    /// belongs to the unprefixed agent.
     init(sessionName: String) {
         let lowered = sessionName.lowercased()
-        for agent in WorkspaceAgent.allCases
-        where !agent.sessionPrefix.isEmpty && lowered.hasPrefix(agent.sessionPrefix) {
-            self = agent
-            return
-        }
-        self = .claude
+        let match = WorkspaceAgent.roster
+            .filter { !$0.sessionPrefix.isEmpty && lowered.hasPrefix($0.sessionPrefix.lowercased()) }
+            .max { $0.sessionPrefix.count < $1.sessionPrefix.count }
+        self = match
+            ?? WorkspaceAgent.roster.first { $0.sessionPrefix.isEmpty }
+            ?? WorkspaceAgent.fallback
     }
 
-    /// Parse a CLI/socket argument (`claude`, `Codex`, `codex-remote`).
+    /// Parse a CLI/socket argument (`claude`, `Codex`, `codex-remote`), by id
+    /// first and then by the family name of a full command.
     init?(argument: String) {
         let normalized = argument.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !normalized.isEmpty else { return nil }
-        let head = normalized.split(separator: "-").first.map(String.init) ?? normalized
-        guard let match = WorkspaceAgent(rawValue: head) else { return nil }
+        let roster = WorkspaceAgent.roster
+        if let exact = roster.first(where: { $0.id == normalized }) {
+            self = exact
+            return
+        }
+        let head = WorkspaceAgent.family(ofCommand: normalized)
+        guard let match = roster.first(where: { $0.id == head }) else { return nil }
         self = match
+    }
+
+    /// True when `executable` launches this agent: its own command, its id, or
+    /// an `<id>-<variant>` sibling of either. Matching the id as well as the
+    /// configured command keeps a template running bare `claude` recognisable
+    /// on a roster whose Claude entry runs `claude-remote`.
+    func matches(executable: String) -> Bool {
+        let exe = ((executable as NSString).lastPathComponent).lowercased()
+        let candidates = [id, ((command as NSString).lastPathComponent).lowercased()]
+        return candidates.contains { exe == $0 || exe.hasPrefix($0 + "-") }
     }
 }
 
@@ -515,6 +629,14 @@ enum WorkspaceSetImporter {
     /// its directory: `CLAUDE_REMOTE_HOST=win-desktop claude-remote -n win`
     /// becomes `CLAUDE_REMOTE_HOST=win-desktop codex-remote -n win`.
     /// Returns nil when the command isn't an agent pane, or already runs `agent`.
+    ///
+    /// The suffix carries over rather than the roster's command being used
+    /// wholesale, because the suffix is the *variant* and the roster only names
+    /// the default one. A pane deliberately running `claude-remote-worktree`
+    /// swaps to `codex-remote-worktree`, not to plain `codex-remote`, and a
+    /// template running bare `claude` swaps to bare `codex`. Only when the
+    /// previous token is exactly its agent's id does the roster's command win,
+    /// so a roster entry that runs something unrelated is still honored.
     nonisolated private static func agentSwappedCommand(
         _ command: String,
         to agent: WorkspaceAgent
@@ -524,10 +646,23 @@ enum WorkspaceSetImporter {
         let token = tokens[index]
         let base = (token as NSString).lastPathComponent
         let lowered = base.lowercased()
-        guard let previous = WorkspaceAgent.allCases.first(where: {
-            lowered == $0.rawValue || lowered.hasPrefix($0.rawValue + "-")
-        }), previous != agent else { return nil }
-        let swappedBase = agent.rawValue + base.dropFirst(previous.rawValue.count)
+        guard let previous = WorkspaceAgent.roster.first(where: { $0.matches(executable: base) }),
+              previous.id != agent.id else { return nil }
+
+        let previousBase = ((previous.command as NSString).lastPathComponent).lowercased()
+        let swappedBase: String
+        if lowered == previous.id {
+            // Bare family name — the template deliberately runs the agent
+            // itself, not a wrapper. Stay bare.
+            swappedBase = agent.id
+        } else if lowered == previousBase {
+            // Exactly this agent's configured command; hand over the new
+            // agent's, as the roster spells it.
+            swappedBase = agent.command
+        } else {
+            // A variant: keep everything past the family name.
+            swappedBase = agent.id + base.dropFirst(previous.id.count)
+        }
         let directory = (token as NSString).deletingLastPathComponent
         tokens[index] = directory.isEmpty ? swappedBase : (directory as NSString).appendingPathComponent(swappedBase)
         return (tokens.joined(separator: " "), previous)
@@ -569,16 +704,23 @@ enum WorkspaceSetImporter {
             throw WorkspaceSetImportError.readError(path: path, underlying: "File is empty")
         }
         let ext = (path as NSString).pathExtension.lowercased()
+        let file: WorkspaceSetFile
         do {
             switch ext {
             case "yaml", "yml":
-                return try YAMLDecoder().decode(WorkspaceSetFile.self, from: data)
+                file = try YAMLDecoder().decode(WorkspaceSetFile.self, from: data)
             default:
-                return try JSONDecoder().decode(WorkspaceSetFile.self, from: data)
+                file = try JSONDecoder().decode(WorkspaceSetFile.self, from: data)
             }
         } catch {
             throw WorkspaceSetImportError.parseError(path: path, underlying: error.localizedDescription)
         }
+        // Every successful parse republishes the roster. This is the one choke
+        // point every caller goes through — import, reload, rebuild, duplicate —
+        // so an edited `agents:` block takes effect on Reload Workspace Set
+        // without anything else having to remember to refresh it.
+        WorkspaceAgent.publishRoster(file.agents)
+        return file
     }
 
     private static func mergeInto(

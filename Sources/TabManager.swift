@@ -2794,7 +2794,7 @@ class TabManager: ObservableObject {
             .map(String.init)
             .first(where: { !WorkspaceSetImporter.isEnvAssignment($0) })
             .map({ ($0 as NSString).lastPathComponent.lowercased() }) else { return false }
-        return WorkspaceAgent.allCases.contains { exe == $0.rawValue || exe.hasPrefix($0.rawValue + "-") }
+        return WorkspaceAgent.roster.contains { $0.matches(executable: exe) }
     }
 
     /// Back-compat alias for `isAgentCommand`.

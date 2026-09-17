@@ -89,7 +89,7 @@ enum TmuxSessionReaper {
     /// will not be predicted — callers must treat a derived name as a candidate to
     /// intersect with the live session list, never as proof a session exists.
     static func sessionName(directory: String, instanceIndex: Int) -> String {
-        sessionName(directory: directory, instanceIndex: instanceIndex, agent: .claude)
+        sessionName(directory: directory, instanceIndex: instanceIndex, agent: .unprefixed)
     }
 
     /// The same prediction for a specific agent. `codex-remote` prefixes its session

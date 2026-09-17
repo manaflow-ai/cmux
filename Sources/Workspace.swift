@@ -301,7 +301,7 @@ extension Workspace {
             isPinned: isPinned,
             currentDirectory: currentDirectory,
             instanceIndex: instanceIndex,
-            preferredAgent: preferredAgent?.rawValue,
+            preferredAgent: preferredAgent?.id,
             focusedPanelId: focusedPanelId,
             layout: layout,
             panels: panelSnapshots,

@@ -54,6 +54,28 @@ Key commits:
 
 Files: `Sources/WorkspaceSetImporter.swift`, hooks in `Sources/AppDelegate.swift`, menu items in `Sources/cmuxApp.swift`. External docs in `~/Developer/Setup/cmux/cmux-workspace-restore.md`.
 
+### Configurable agent roster (`agents:`)
+The agents **Duplicate Workspace** offers used to be a Swift enum with a case each for Claude and Codex, so adding a third meant editing source, rebuilding and notarizing. They now come from an optional `agents:` block in the workspace-set file, read on every parse — so adding one is an edit plus **Reload Workspace Set**.
+
+```yaml
+agents:
+- title: Claude
+  command: claude-remote
+  sessionPrefix: ""
+- title: Codex
+  command: codex-remote
+  sessionPrefix: "cx-"
+- title: Copilot
+  command: copilot-remote
+  sessionPrefix: "cp-"
+```
+
+`sessionPrefix` is what that agent's wrapper puts on its tmux session name, so two agents on one directory never attach the same session; at most one agent may leave it empty. `id` is optional and defaults to the command's family name (`codex-remote` → `codex`) — it is what the CLI's `agent` argument accepts and what a workspace persists as its remembered choice. Omitting the block entirely keeps the built-in Claude/Codex pair, so every workspace-set written before this behaves unchanged.
+
+Retargeting a pane preserves the shape of what it ran: a variant keeps its suffix (`claude-remote-worktree` → `copilot-remote-worktree`), a bare family name stays bare (`claude` → `copilot`), and the roster's own command is used only when the pane ran the previous agent's plain command.
+
+Files: `WorkspaceSetAgent` / `WorkspaceAgent` in `Sources/WorkspaceSetImporter.swift`, menus in `Sources/ContentView.swift` and `Sources/cmuxApp.swift`. The roster is published from `parseFile` and read under a lock, because it is loaded on the main actor but matched against commands and session names from nonisolated code.
+
 ### AutoApply: per-workspace commands on tab switch
 Workspace-level hook that runs a configured command the first time a workspace is focused in a session. Tracks per-session, fires once per workspace regardless of layout.
 
