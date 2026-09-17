@@ -113,12 +113,17 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
         if placement == "samePane" {
             XCTAssertTrue(try browsers(workspace).allSatisfy { $0["pane_id"] as? String == sourcePane })
         }
-        let wrapperOutput = (try? String(contentsOfFile: outputPath, encoding: .utf8)) ?? ""
+        let expectedPlacement = placement == "samePane" ? "placement=samePane" : "placement=reuse"
+        var wrapperOutput = ""
+        let wrapperFinished = poll {
+            wrapperOutput = (try? String(contentsOfFile: outputPath, encoding: .utf8)) ?? ""
+            return wrapperOutput.contains(expectedPlacement)
+        }
         let output = XCTAttachment(string: wrapperOutput)
         output.name = "\(placement)-open-wrapper-output"
         output.lifetime = .keepAlways
         add(output)
-        XCTAssertTrue(wrapperOutput.contains(placement == "samePane" ? "placement=samePane" : "placement=reuse"), wrapperOutput)
+        XCTAssertTrue(wrapperFinished, wrapperOutput)
         let openedBrowser = try XCTUnwrap(try browsers(workspace).last?["id"] as? String)
         _ = try rpc("surface.focus", ["workspace_id": workspace, "surface_id": openedBrowser])
         attach(app, name: "\(placement)-after-open-command")

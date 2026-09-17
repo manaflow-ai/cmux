@@ -102,7 +102,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "같은 창의 탭"
+            "value": "같은 패널의 탭"
           }
         },
         "zh-Hans": {
@@ -161,7 +161,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "터미널 링크 브라우저 위치 같은 창 탭 분할 열기 URL"
+            "value": "터미널 링크 브라우저 위치 같은 패널 탭 분할 열기 URL"
           }
         },
         "zh-Hans": {
