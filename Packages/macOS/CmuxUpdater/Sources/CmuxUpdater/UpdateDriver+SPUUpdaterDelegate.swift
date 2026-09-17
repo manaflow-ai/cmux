@@ -16,10 +16,11 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
         }
 #endif
         // The feed URL is baked into Info.plist at build time:
-        // - Stable releases use the stable appcast URL
+        // - Stable releases use the stable appcast URL; the user's `updates.channel`
+        //   selection can move a stable build onto the RC feed
         // - cmux NIGHTLY and cmux RC have their channel appcast URL injected by CI
-        let resolved = UpdateFeedResolver().resolve(infoFeedURL: infoFeedURLProvider())
-        log.append("update channel: \(resolved.channel.rawValue)")
+        let resolved = resolveFeed()
+        log.append("update channel: \(resolved.channel.rawValue) (selected=\(selectedChannelProvider().rawValue))")
         recordFeedURLString(resolved.url, usedFallback: resolved.usedFallback)
         return resolved.url
     }

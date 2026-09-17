@@ -2,11 +2,12 @@ name: Nightly macOS build
 
 # One workflow, two publish channels. A push to `main` publishes cmux NIGHTLY
 # (bundle id com.cmuxterm.app.nightly, GitHub release `nightly`, feed
-# files.cmux.com/nightly). A push to an `rc/**` branch publishes cmux RC
-# (com.cmuxterm.app.rc, release `rc`, feed files.cmux.com/rc). The two channels
-# install side by side with each other and with stable, and each Sparkle feed
-# only ever advances within its own channel. Everything channel-specific is
-# resolved once in `decide`; every later job reads it from there.
+# files.cmux.com/nightly). A push to an `rc/**` branch publishes a release
+# candidate with the STABLE identity (com.cmuxterm.app, release `rc`, feed
+# files.cmux.com/rc): the same bits a later `vX.Y.Z` tag promotes to the stable
+# release without rebuilding. Installs opt into the rc feed through the
+# `updates.channel` setting. Everything channel-specific is resolved once in
+# `decide`; every later job reads it from there.
 on:
   # Publish every changed main revision, while keeping the scheduled cache warm.
   # Publish every push to a release-candidate branch as the RC channel.
@@ -84,6 +85,9 @@ jobs:
       feed_base: ${{ steps.decide.outputs.feed_base }}
       entitlements: ${{ steps.decide.outputs.entitlements }}
       icon_name: ${{ steps.decide.outputs.icon_name }}
+      profile_secret_prefix: ${{ steps.decide.outputs.profile_secret_prefix }}
+      metadata_channel: ${{ steps.decide.outputs.metadata_channel }}
+      baked_feed_url: ${{ steps.decide.outputs.baked_feed_url }}
     steps:
       - name: Decide whether a nightly build is needed
         id: decide
@@ -139,18 +143,33 @@ jobs:
                 entitlements: 'cmux.nightly.entitlements',
                 iconName: 'AppIcon-Nightly',
               },
+              // The release candidate IS the next stable build: same bundle
+              // id, name, icon, entitlements, profiles, feed URL, and version
+              // strings as a stable release. Only the GitHub release and the
+              // R2 feed prefix differ, and an install opts into that feed
+              // through the `updates.channel` setting. Promotion copies the
+              // RC DMG to the stable release unchanged.
               rc: {
-                bundleId: 'com.cmuxterm.app.rc',
-                appName: 'cmux RC',
-                urlScheme: 'cmux-rc',
+                bundleId: 'com.cmuxterm.app',
+                appName: 'cmux',
+                urlScheme: 'cmux',
                 dmgPrefix: 'cmux-rc-macos',
                 releaseTag: 'rc',
                 releaseName: 'Release Candidate',
                 feedBase: 'https://files.cmux.com/rc',
-                entitlements: 'cmux.rc.entitlements',
-                iconName: 'AppIcon-RC',
+                entitlements: 'cmux.release.entitlements',
+                iconName: 'AppIcon',
+                profileSecretPrefix: 'RELEASE',
+                metadataChannel: 'stable',
+                // Sparkle feed baked into the bundle: the stable feed, because
+                // these bits become the stable release. RC installs poll the
+                // rc feed through the setting, not through Info.plist.
+                bakedFeedURL: 'https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml',
               },
             }[channel];
+            channelIdentity.profileSecretPrefix ??= 'NIGHTLY';
+            channelIdentity.metadataChannel ??= channel;
+            channelIdentity.bakedFeedURL ??= '';
             core.setOutput('channel', channel);
             core.setOutput('channel_upper', channel.toUpperCase());
             core.setOutput('bundle_id', channelIdentity.bundleId);
@@ -162,6 +181,9 @@ jobs:
             core.setOutput('feed_base', channelIdentity.feedBase);
             core.setOutput('entitlements', channelIdentity.entitlements);
             core.setOutput('icon_name', channelIdentity.iconName);
+            core.setOutput('profile_secret_prefix', channelIdentity.profileSecretPrefix);
+            core.setOutput('metadata_channel', channelIdentity.metadataChannel);
+            core.setOutput('baked_feed_url', channelIdentity.bakedFeedURL);
 
             // Pin every run to the revision that triggered it. In particular,
             // queued main pushes must each build their own merge commit instead
@@ -701,6 +723,8 @@ jobs:
       CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
       CHANNEL_FEED_BASE: ${{ needs.decide.outputs.feed_base }}
       CHANNEL_ENTITLEMENTS: ${{ needs.decide.outputs.entitlements }}
+      CHANNEL_METADATA: ${{ needs.decide.outputs.metadata_channel }}
+      CHANNEL_BAKED_FEED_URL: ${{ needs.decide.outputs.baked_feed_url }}
       # Signed app path for every step after "Prepare channel identity".
       CHANNEL_APP_PATH: build-universal/Build/Products/Release/${{ needs.decide.outputs.app_name }}.app
     steps:
@@ -857,6 +881,8 @@ jobs:
           fi
 
       - name: Inject nightly identities and metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           SHORT_SHA="${{ needs.decide.outputs.short_sha }}"
@@ -874,6 +900,20 @@ jobs:
             NIGHTLY_BUILD="${NIGHTLY_DATE}000000"
           fi
           NIGHTLY_MARKETING_VERSION="${BASE_MARKETING}-${CHANNEL}.${NIGHTLY_BUILD}"
+          if [ "$CHANNEL" = "rc" ]; then
+            # A release candidate carries the project's own version and build
+            # number so the promoted stable release is the same file. Every
+            # respin must bump CURRENT_PROJECT_VERSION (bump-version.sh does),
+            # which keeps the rc feed monotonic; the publish job refuses a
+            # build number that already exists on the rc release.
+            NIGHTLY_BUILD="$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "${APP_DIR}/cmux.app/Contents/Info.plist")"
+            NIGHTLY_MARKETING_VERSION="$BASE_MARKETING"
+            if gh release view "$CHANNEL_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' 2>/dev/null \
+              | grep -qx "${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-${NIGHTLY_BUILD}.dmg"; then
+              echo "::error::${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-${NIGHTLY_BUILD}.dmg already exists on the ${CHANNEL_RELEASE_TAG} release; bump CURRENT_PROJECT_VERSION (scripts/bump-version.sh) before respinning the release candidate" >&2
+              exit 1
+            fi
+          fi
 
           NIGHTLY_DMG_IMMUTABLE="${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-${NIGHTLY_BUILD}.dmg"
           NIGHTLY_DMG_RELEASE="${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}.dmg"
@@ -929,13 +969,15 @@ jobs:
               /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${NIGHTLY_BUILD}" "$sysext_plist"
               ./scripts/normalize-system-extension-bundle.sh "$app_dir/cmux.app" "${bundle_id}.tunnel"
             fi
-            mv "$app_dir/cmux.app" "$app_dir/${CHANNEL_APP_NAME}.app"
+            if [[ "$CHANNEL_APP_NAME" != "cmux" ]]; then
+              mv "$app_dir/cmux.app" "$app_dir/${CHANNEL_APP_NAME}.app"
+            fi
           }
 
           prepare_variant \
             "$APP_DIR" \
             "$CHANNEL_BUNDLE_ID" \
-            "${CHANNEL_FEED_BASE}/${NIGHTLY_APPCAST}"
+            "${CHANNEL_BAKED_FEED_URL:-${CHANNEL_FEED_BASE}/${NIGHTLY_APPCAST}}"
 
           echo "Channel: ${CHANNEL}"
           echo "App name: ${CHANNEL_APP_NAME}"
@@ -991,8 +1033,8 @@ jobs:
       # for the app and the matching *_TUNNEL_* secret for the system extension.
       - name: Embed channel provisioning profile
         env:
-          APP_PROVISIONING_PROFILE_BASE64: ${{ secrets[format('APPLE_{0}_PROVISIONING_PROFILE_BASE64', needs.decide.outputs.channel_upper)] }}
-          PROFILE_SECRET_NAME: APPLE_${{ needs.decide.outputs.channel_upper }}_PROVISIONING_PROFILE_BASE64
+          APP_PROVISIONING_PROFILE_BASE64: ${{ secrets[format('APPLE_{0}_PROVISIONING_PROFILE_BASE64', needs.decide.outputs.profile_secret_prefix)] }}
+          PROFILE_SECRET_NAME: APPLE_${{ needs.decide.outputs.profile_secret_prefix }}_PROVISIONING_PROFILE_BASE64
         run: |
           if [ -z "$APP_PROVISIONING_PROFILE_BASE64" ]; then
             echo "Missing $PROFILE_SECRET_NAME secret" >&2
@@ -1015,10 +1057,7 @@ jobs:
           fi
 
           # The WebAuthn browser entitlement is an Apple-approved capability
-          # request. Nightly has it; the RC App ID's request has been pending
-          # since 2026-07-10, so cmux.rc.entitlements does not ask for it and
-          # RC ships without passkey sign-in in the embedded browser until Apple
-          # approves. The check follows the channel's entitlements file so the
+          # request. The check follows the channel's entitlements file so a
           # profile can never silently lag behind what the app requests.
           if /usr/libexec/PlistBuddy -c "Print :com.apple.developer.web-browser.public-key-credential" "$CHANNEL_ENTITLEMENTS" >/dev/null 2>&1; then
             WEBAUTHN_ENTITLEMENT="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.developer.web-browser.public-key-credential" "$TMP_PLIST" 2>/dev/null || true)"
@@ -1040,7 +1079,7 @@ jobs:
 
       - name: Embed Cloud tunnel extension provisioning profile
         env:
-          TUNNEL_PROVISIONING_PROFILE_BASE64: ${{ secrets[format('APPLE_{0}_TUNNEL_PROVISIONING_PROFILE_BASE64', needs.decide.outputs.channel_upper)] }}
+          TUNNEL_PROVISIONING_PROFILE_BASE64: ${{ secrets[format('APPLE_{0}_TUNNEL_PROVISIONING_PROFILE_BASE64', needs.decide.outputs.profile_secret_prefix)] }}
         run: |
           set -euo pipefail
           ./scripts/ci/embed-tunnel-extension-profile.sh \
@@ -1078,7 +1117,8 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE: ${{ runner.temp }}/cmux-computer-use-notarization.state
-          CMUX_CHANNEL: ${{ needs.decide.outputs.channel }}
+          CMUX_CHANNEL: ${{ needs.decide.outputs.metadata_channel }}
+          CMUX_APP_ENTITLEMENTS: ${{ needs.decide.outputs.entitlements }}
         run: |
           ./scripts/ci/notarize-nightly-dmg.sh \
             "$CHANNEL_APP_PATH" \

@@ -82,6 +82,10 @@ public final class UpdateController {
     ///   policy. While it returns true the updater is never started and manual
     ///   checks are suppressed; the package stays free of the settings
     ///   dependency, so the app injects the resolver.
+    /// - Parameter selectedChannelProvider: The user's `updates.channel`
+    ///   selection, read on every feed resolution so a change applies to the
+    ///   next check without a relaunch. Defaults to the stable feed; the app
+    ///   injects the settings-backed provider.
     public convenience init(log: any UpdateLogging,
                             clock: any UpdateClock = SystemUpdateClock(),
                             settings: UpdateSettings = UpdateSettings(),
@@ -89,7 +93,8 @@ public final class UpdateController {
                             defaults: UserDefaults = .standard,
                             fileManager: FileManager = .default,
                             isDevLikeBundle: Bool? = nil,
-                            isDisabledByPolicy: @escaping () -> Bool = { false }) {
+                            isDisabledByPolicy: @escaping () -> Bool = { false },
+                            selectedChannelProvider: @escaping () -> UpdateChannelSelection = { .stable }) {
         self.init(log: log,
                   clock: clock,
                   settings: settings,
@@ -98,6 +103,7 @@ public final class UpdateController {
                   fileManager: fileManager,
                   isDevLikeBundle: isDevLikeBundle,
                   isDisabledByPolicy: isDisabledByPolicy,
+                  selectedChannelProvider: selectedChannelProvider,
                   updaterFactory: { driver, hostBundle in
                       SPUUpdater(
                           hostBundle: hostBundle,
@@ -122,6 +128,7 @@ public final class UpdateController {
          fileManager: FileManager = .default,
          isDevLikeBundle: Bool? = nil,
          isDisabledByPolicy: @escaping () -> Bool = { false },
+         selectedChannelProvider: @escaping () -> UpdateChannelSelection = { .stable },
          updaterFactory: (UpdateDriver, Bundle) -> any UpdaterHandle) {
         self.log = log
         self.isDisabledByPolicy = isDisabledByPolicy
@@ -145,7 +152,13 @@ public final class UpdateController {
 
         self.installWatchdog = InstallWatchdog(clock: clock, timeout: installWatchdogTimeout)
         let model = UpdateStateModel()
-        let driver = UpdateDriver(model: model, log: log, clock: clock, isDevLikeBundle: isDevLikeBundle)
+        let driver = UpdateDriver(
+            model: model,
+            log: log,
+            clock: clock,
+            isDevLikeBundle: isDevLikeBundle,
+            selectedChannelProvider: selectedChannelProvider
+        )
         self.driver = driver
         self.updater = updaterFactory(driver, hostBundle)
         driver.eventDelegate = self

@@ -256,8 +256,8 @@ if ! awk '
   exit 1
 fi
 
-if ! grep -Fq "bundleId: 'com.cmuxterm.app.nightly'," "$WORKFLOW_FILE" || ! grep -Fq "bundleId: 'com.cmuxterm.app.rc'," "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly workflow must publish the unified nightly bundle ID and the rc channel bundle ID"
+if ! grep -Fq "bundleId: 'com.cmuxterm.app.nightly'," "$WORKFLOW_FILE" || ! grep -Fq "bundleId: 'com.cmuxterm.app'," "$WORKFLOW_FILE" || ! grep -Fq "profileSecretPrefix: 'RELEASE'," "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly workflow must publish the nightly bundle ID and build release candidates with the stable identity and release profiles"
   exit 1
 fi
 
@@ -274,7 +274,7 @@ fi
 if ! awk '
   /NIGHTLY_APPCAST="appcast-\$\{NIGHTLY_VARIANT\}\.xml"/ { saw_thin_feed=1 }
   /NIGHTLY_APPCAST="appcast\.xml"/ { saw_legacy_feed=1 }
-  /"\$\{CHANNEL_FEED_BASE\}\/\$\{NIGHTLY_APPCAST\}"/ { saw_feed_injection=1 }
+  /"\$\{CHANNEL_BAKED_FEED_URL:-\$\{CHANNEL_FEED_BASE\}\/\$\{NIGHTLY_APPCAST\}\}"/ { saw_feed_injection=1 }
   /feedBase: .https:\/\/files\.cmux\.com\/nightly.,/ { saw_nightly_feed_base=1 }
   /feedBase: .https:\/\/files\.cmux\.com\/rc.,/ { saw_rc_feed_base=1 }
   /NIGHTLY_DMG_IMMUTABLE="\$\{CHANNEL_DMG_PREFIX\}-\$\{NIGHTLY_VARIANT\}-\$\{NIGHTLY_BUILD\}\.dmg"/ { saw_immutable_name=1 }

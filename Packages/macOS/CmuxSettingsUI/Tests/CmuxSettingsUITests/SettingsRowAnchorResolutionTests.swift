@@ -147,6 +147,7 @@ struct SettingsRowAnchorResolutionTests {
         "terminal.showTextBoxOnNewTerminals",
         "terminal.textBoxDefaultSubmitAction",
         "terminal.textBoxMaxLines",
+        "updates.channel",
         "workspaceColors.indicatorStyle",
         "workspaceColors.notificationBadgeColor",
         "workspaceColors.selectionColor",
