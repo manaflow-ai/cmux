@@ -507,7 +507,7 @@ struct SurfaceSocketCommandTests {
             let missing = try Self.error(try await Self.call("vm.terminal_close", ["id": fixture.machineID]))
             #expect(missing["code"] as? String == "invalid_params")
             let noMachine = try Self.error(try await Self.call("vm.terminal_close", ["id": "no-such-machine-\(UUID().uuidString.prefix(6))", "terminal_id": "term_x"]))
-            #expect((noMachine["message"] as? String)?.contains("No provider") == true)
+            #expect((noMachine["message"] as? String)?.contains("This machine is not connected") == true)
         }
     }
 }
