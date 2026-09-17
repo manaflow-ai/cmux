@@ -132,6 +132,7 @@
     "discord": "Discord",
     "contact": "İletişim",
     "nightly": "Nightly",
+    "rc": "Sürüm Adayı",
     "copyright": "© {year} Manaflow",
     "language": "Dil",
     "assets": "Varlıklar",
@@ -1958,6 +1959,17 @@
     "description": "cmux NIGHTLY, main deki en son commit ten otomatik olarak derlenir. Kendi bundle ID sine sahip olduğundan kararlı sürümle çakışmadan yan yana çalışır. Yeni özellikleri yayınlanmadan önce test etmek için kullanın.",
     "download": "Mac için NIGHTLY indir",
     "warning": "Nightly derlemeler hatalar veya tamamlanmamış özellikler içerebilir. Bir sorun oluşursa <githubLink>GitHub</githubLink> veya <discordLink>Discord daki #nightly-bugs</discordLink> kanalında bildirin ve kararlı sürüme geçin."
+  },
+  "rc": {
+    "title": "cmux RC",
+    "subtitle": "Sürüm adayı derlemeleri",
+    "metaTitle": "cmux RC — Sürüm Adayı Derlemeleri",
+    "metaDescription": "Bir sonraki kararlı sürümün sürüm adayı olan cmux RC yi indirin. Kararlı sürüm ve nightly ile yan yana kurulur ve kendi otomatik güncellemelerine sahiptir.",
+    "description": "cmux RC, bir sonraki kararlı sürümün sürüm adayıdır. Test edilmiş bir nightly den oluşturulur, birkaç gün boyunca yalnızca seçilerek aktarılan düzeltmelerle değişir ve testleri geçtiğinde bir sonraki kararlı sürüm olur. Kendi bundle ID sine sahip olduğundan kararlı ve nightly uygulamalarla yan yana çalışır.",
+    "download": "Mac için RC indir",
+    "downloadArm64": "Apple silicon DMG",
+    "downloadIntel": "Intel DMG",
+    "warning": "Sürüm adayları hâlâ hatalar içerebilir. Bir sorun oluşursa <githubLink>GitHub</githubLink> veya <discordLink>Discord</discordLink> üzerinden bildirin ve kararlı sürüme geçin."
   },
   "languageSwitcher": {
     "label": "Dil"

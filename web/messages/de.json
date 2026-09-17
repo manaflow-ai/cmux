@@ -132,6 +132,7 @@
     "discord": "Discord",
     "contact": "Kontakt",
     "nightly": "Nightly",
+    "rc": "Release Candidate",
     "copyright": "© {year} Manaflow",
     "language": "Sprache",
     "assets": "Assets",
@@ -1960,6 +1961,17 @@
     "description": "cmux NIGHTLY wird automatisch aus dem neuesten Commit auf main erstellt. Es hat eine eigene Bundle-ID und läuft daher ohne Konflikte neben der stabilen Version. Damit können Sie neue Funktionen testen, bevor sie veröffentlicht werden.",
     "download": "NIGHTLY für Mac herunterladen",
     "warning": "Nightly Builds können Fehler oder unfertige Funktionen enthalten. Falls Probleme auftreten, melden Sie diese auf <githubLink>GitHub</githubLink> oder in <discordLink>#nightly-bugs auf Discord</discordLink> und wechseln Sie zur stabilen Version."
+  },
+  "rc": {
+    "title": "cmux RC",
+    "subtitle": "Release-Candidate-Builds",
+    "metaTitle": "cmux RC — Release-Candidate-Builds",
+    "metaDescription": "Laden Sie cmux RC herunter, den Release Candidate für die nächste stabile Version. Läuft neben der stabilen Version und dem Nightly mit eigenen Auto-Updates.",
+    "description": "cmux RC ist der Release Candidate für die nächste stabile Version. Er wird aus einem getesteten Nightly erstellt, erhält einige Tage lang nur gezielt übernommene Fixes und wird zur nächsten stabilen Version, wenn er besteht. Er hat eine eigene Bundle-ID und läuft daher neben der stabilen App und dem Nightly.",
+    "download": "RC für Mac herunterladen",
+    "downloadArm64": "DMG für Apple Silicon",
+    "downloadIntel": "DMG für Intel",
+    "warning": "Release Candidates können noch Fehler enthalten. Falls Probleme auftreten, melden Sie diese auf <githubLink>GitHub</githubLink> oder in <discordLink>Discord</discordLink> und wechseln Sie zur stabilen Version."
   },
   "languageSwitcher": {
     "label": "Sprache"

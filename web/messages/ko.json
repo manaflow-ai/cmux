@@ -132,6 +132,7 @@
     "discord": "Discord",
     "contact": "문의",
     "nightly": "나이틀리",
+    "rc": "릴리스 후보",
     "copyright": "© {year} Manaflow",
     "language": "언어",
     "assets": "애셋",
@@ -1957,6 +1958,17 @@
     "description": "cmux NIGHTLY는 main의 최신 커밋에서 자동으로 빌드됩니다. 자체 번들 ID를 가지고 있어 안정 버전과 충돌 없이 나란히 실행됩니다. 출시 전에 새로운 기능을 테스트할 수 있습니다.",
     "download": "Mac용 NIGHTLY 다운로드",
     "warning": "나이틀리 빌드에는 버그나 미완성 기능이 포함될 수 있습니다. 문제가 발생하면 <githubLink>GitHub</githubLink> 또는 <discordLink>Discord의 #nightly-bugs</discordLink>에서 보고하고 안정 버전으로 전환하세요."
+  },
+  "rc": {
+    "title": "cmux RC",
+    "subtitle": "릴리스 후보 빌드",
+    "metaTitle": "cmux RC — 릴리스 후보 빌드",
+    "metaDescription": "다음 안정 버전의 릴리스 후보인 cmux RC를 다운로드하세요. 안정 버전 및 나이틀리와 나란히 설치되며 독자적인 자동 업데이트를 제공합니다.",
+    "description": "cmux RC는 다음 안정 버전의 릴리스 후보입니다. 테스트된 나이틀리에서 분기되어 며칠 동안 선별된 수정 사항만 반영되며, 검증을 통과하면 다음 안정 버전이 됩니다. 자체 번들 ID를 가지고 있어 안정 버전 및 나이틀리 앱과 나란히 실행됩니다.",
+    "download": "Mac용 RC 다운로드",
+    "downloadArm64": "Apple silicon DMG",
+    "downloadIntel": "Intel DMG",
+    "warning": "릴리스 후보에는 아직 버그가 있을 수 있습니다. 문제가 발생하면 <githubLink>GitHub</githubLink> 또는 <discordLink>Discord</discordLink>에서 보고하고 안정 버전으로 전환하세요."
   },
   "languageSwitcher": {
     "label": "언어"

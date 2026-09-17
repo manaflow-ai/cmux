@@ -132,6 +132,7 @@
     "discord": "Discord",
     "contact": "تواصل معنا",
     "nightly": "إصدار ليلي",
+    "rc": "إصدار مرشح",
     "copyright": "© {year} Manaflow",
     "language": "اللغة",
     "assets": "الأصول",
@@ -1957,6 +1958,17 @@
     "description": "يُبنى cmux NIGHTLY تلقائياً من أحدث commit على main. يمتلك معرّف حزمة خاص به، لذا يعمل بجانب النسخة المستقرة دون تعارض. استخدمه لاختبار الميزات الجديدة قبل إصدارها.",
     "download": "تحميل NIGHTLY لنظام Mac",
     "warning": "قد تحتوي الإصدارات الليلية على أخطاء أو ميزات غير مكتملة. إذا حدثت مشكلة، أبلغ عنها على <githubLink>GitHub</githubLink> أو في <discordLink>#nightly-bugs على Discord</discordLink> وارجع إلى النسخة المستقرة."
+  },
+  "rc": {
+    "title": "cmux RC",
+    "subtitle": "إصدارات مرشحة للنشر",
+    "metaTitle": "cmux RC — إصدارات مرشحة للنشر",
+    "metaDescription": "حمّل cmux RC، الإصدار المرشح للنسخة المستقرة التالية. يُثبَّت بجانب النسخة المستقرة والإصدار الليلي مع تحديثات تلقائية خاصة به.",
+    "description": "cmux RC هو الإصدار المرشح للنسخة المستقرة التالية. يُشتق من إصدار ليلي مختبر، ولا يتغير لبضعة أيام إلا بإصلاحات منتقاة، ويصبح النسخة المستقرة التالية عند اجتياز الاختبار. يمتلك معرّف حزمة خاصاً به، لذا يعمل بجانب تطبيقي النسخة المستقرة والإصدار الليلي.",
+    "download": "تحميل RC لنظام Mac",
+    "downloadArm64": "DMG لمعالجات Apple silicon",
+    "downloadIntel": "DMG لمعالجات Intel",
+    "warning": "قد لا تزال الإصدارات المرشحة تحتوي على أخطاء. إذا حدثت مشكلة، أبلغ عنها على <githubLink>GitHub</githubLink> أو في <discordLink>Discord</discordLink> وارجع إلى النسخة المستقرة."
   },
   "languageSwitcher": {
     "label": "اللغة"

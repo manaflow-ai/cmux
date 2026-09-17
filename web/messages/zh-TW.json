@@ -132,6 +132,7 @@
     "discord": "Discord",
     "contact": "聯絡我們",
     "nightly": "每夜建置",
+    "rc": "候選發佈版",
     "copyright": "© {year} Manaflow",
     "language": "語言",
     "assets": "素材",
@@ -1959,6 +1960,17 @@
     "description": "cmux NIGHTLY 從 main 的最新提交自動建置。它擁有獨立的 Bundle ID，因此可以與穩定版並行運行，互不衝突。用它來測試尚未發佈的新功能。",
     "download": "下載 Mac 版 NIGHTLY",
     "warning": "每夜建置可能包含錯誤或不完整的功能。如果遇到問題，請在 <githubLink>GitHub</githubLink> 或 <discordLink>Discord 的 #nightly-bugs</discordLink> 上回報，並切換回穩定版。"
+  },
+  "rc": {
+    "title": "cmux RC",
+    "subtitle": "候選發佈版建置",
+    "metaTitle": "cmux RC — 候選發佈版建置",
+    "metaDescription": "下載 cmux RC，下一個穩定版的候選發佈版。可與穩定版和每夜建置並行安裝，擁有獨立的自動更新。",
+    "description": "cmux RC 是下一個穩定版的候選發佈版。它從經過測試的每夜建置切出，幾天內僅透過精選的修正進行變更，通過驗證後即成為下一個穩定版。它擁有獨立的 Bundle ID，因此可以與穩定版和每夜建置應用並行運行。",
+    "download": "下載 Mac 版 RC",
+    "downloadArm64": "Apple 晶片 DMG",
+    "downloadIntel": "Intel DMG",
+    "warning": "候選發佈版仍可能存在錯誤。如果遇到問題，請在 <githubLink>GitHub</githubLink> 或 <discordLink>Discord</discordLink> 上回報，並切換回穩定版。"
   },
   "languageSwitcher": {
     "label": "語言"

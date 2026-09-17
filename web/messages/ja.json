@@ -724,6 +724,7 @@
     "discord": "Discord",
     "contact": "お問い合わせ",
     "nightly": "ナイトリー",
+    "rc": "リリース候補",
     "copyright": "© {year} Manaflow",
     "language": "言語",
     "assets": "アセット",
@@ -3399,6 +3400,17 @@
     "description": "cmux NIGHTLYはmainの最新コミットから自動ビルドされます。独自のバンドルIDを持つため、安定版と競合せず並行して動作します。新機能をリリース前にテストできます。",
     "download": "Mac版 NIGHTLYをダウンロード",
     "warning": "ナイトリービルドにはバグや未完成の機能が含まれる場合があります。問題が発生した場合は<githubLink>GitHub</githubLink>または<discordLink>Discordの#nightly-bugs</discordLink>で報告し、安定版に切り替えてください。"
+  },
+  "rc": {
+    "title": "cmux RC",
+    "subtitle": "リリース候補ビルド",
+    "metaTitle": "cmux RC — リリース候補ビルド",
+    "metaDescription": "cmux RCをダウンロード。次期安定版のリリース候補です。安定版やナイトリー版と並行してインストールでき、独自の自動アップデート機能付き。",
+    "description": "cmux RCは次期安定版のリリース候補です。テスト済みのナイトリービルドから切り出され、数日間はチェリーピックした修正のみが加わり、検証を通過すると次の安定版になります。独自のバンドルIDを持つため、安定版およびナイトリー版と並行して動作します。",
+    "download": "Mac版 RCをダウンロード",
+    "downloadArm64": "Apple silicon用DMG",
+    "downloadIntel": "Intel用DMG",
+    "warning": "リリース候補にはまだバグが含まれる場合があります。問題が発生した場合は<githubLink>GitHub</githubLink>または<discordLink>Discord</discordLink>で報告し、安定版に切り替えてください。"
   },
   "languageSwitcher": {
     "label": "言語"

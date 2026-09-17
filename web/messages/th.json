@@ -132,6 +132,7 @@
     "discord": "Discord",
     "contact": "ติดต่อ",
     "nightly": "Nightly",
+    "rc": "Release Candidate",
     "copyright": "© {year} Manaflow",
     "language": "ภาษา",
     "assets": "แอสเซ็ต",
@@ -1961,6 +1962,17 @@
     "description": "cmux NIGHTLY สร้างอัตโนมัติจาก commit ล่าสุดบน main มี bundle ID เป็นของตัวเอง จึงทำงานควบคู่กับเวอร์ชันเสถียรได้โดยไม่ขัดแย้ง ใช้เพื่อทดสอบฟีเจอร์ใหม่ก่อนเปิดตัว",
     "download": "ดาวน์โหลด NIGHTLY สำหรับ Mac",
     "warning": "บิลด์ nightly อาจมีบั๊กหรือฟีเจอร์ที่ยังไม่สมบูรณ์ หากพบปัญหา รายงานบน <githubLink>GitHub</githubLink> หรือใน <discordLink>#nightly-bugs บน Discord</discordLink> แล้วสลับกลับไปใช้เวอร์ชันเสถียร"
+  },
+  "rc": {
+    "title": "cmux RC",
+    "subtitle": "บิลด์ release candidate",
+    "metaTitle": "cmux RC — บิลด์ Release Candidate",
+    "metaDescription": "ดาวน์โหลด cmux RC ซึ่งเป็น release candidate ของเวอร์ชันเสถียรถัดไป ติดตั้งควบคู่กับเวอร์ชันเสถียรและ nightly พร้อมอัปเดตอัตโนมัติของตัวเอง",
+    "description": "cmux RC คือ release candidate ของเวอร์ชันเสถียรถัดไป สร้างจาก nightly ที่ผ่านการทดสอบแล้ว เปลี่ยนแปลงเฉพาะการแก้ไขที่คัดเลือกมาเป็นเวลาไม่กี่วัน และจะกลายเป็นเวอร์ชันเสถียรถัดไปเมื่อผ่านการตรวจสอบ มี bundle ID เป็นของตัวเอง จึงทำงานควบคู่กับแอปเวอร์ชันเสถียรและ nightly ได้",
+    "download": "ดาวน์โหลด RC สำหรับ Mac",
+    "downloadArm64": "DMG สำหรับ Apple silicon",
+    "downloadIntel": "DMG สำหรับ Intel",
+    "warning": "Release candidate อาจยังมีบั๊กอยู่ หากพบปัญหา รายงานบน <githubLink>GitHub</githubLink> หรือใน <discordLink>Discord</discordLink> แล้วสลับกลับไปใช้เวอร์ชันเสถียร"
   },
   "languageSwitcher": {
     "label": "ภาษา"
