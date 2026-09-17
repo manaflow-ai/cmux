@@ -4378,15 +4378,13 @@ final class BrowserPanel: Panel, ObservableObject {
         BrowserProfileStore.shared.noteUsed(resolvedProfileID)
 
         if let machineID = cloudBrowserMachineID {
-            let identifier = CloudBrowserRouting.storeID(panelID: id, profileID: resolvedProfileID, machineID: machineID)
-            cloudBrowserStoreIdentity = identifier
-            websiteDataStore = WKWebsiteDataStore(forIdentifier: identifier)
+            prepareCloudBrowserStore(machineID: machineID)
         } else if !usesRemoteWorkspaceProxy {
             websiteDataStore = BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
         }
 
         clearBrowserAutomationUserScripts()
-        let replacement = Self.makeWebView(
+        let replacement = makeReplacementWebView(
             profileID: resolvedProfileID,
             websiteDataStore: websiteDataStore
         )
@@ -4411,7 +4409,14 @@ final class BrowserPanel: Panel, ObservableObject {
             )
         }
 
-        if shouldRestoreURL, let restoreURL {
+        if let model = cloudAccess.model,
+           let cloudURL = restoreURL ?? cloudAccess.remoteURL,
+           cloudAccess.owns(cloudURL) {
+            cloudAccess.configure(model: model, url: cloudURL)
+            if let readyURL = cloudAccess.nextURL() {
+                _ = navigate(to: readyURL)
+            }
+        } else if shouldRestoreURL, let restoreURL {
             navigateWithoutInsecureHTTPPrompt(
                 to: restoreURL,
                 recordTypedNavigation: false,
