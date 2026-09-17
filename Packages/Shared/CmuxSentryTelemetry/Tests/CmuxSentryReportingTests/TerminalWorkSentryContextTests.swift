@@ -93,6 +93,22 @@ struct TerminalWorkSentryContextTests {
         ])
     }
 
+    @Test func persistedWatchdogTimelinePreservesThePreviousProcessesActivePhase() {
+        let event = PersistedWatchdogEvent(level: .fatal)
+        event.timestamp = origin.addingTimeInterval(5)
+        event.exceptions = [Exception(value: "Watchdog", type: "WatchdogTermination")]
+        event.breadcrumbs = []
+        let operation = UUID()
+        event.persistedTimeline = [
+            crumb(id: operation, phase: .geometryPublication, transition: .resize, at: 1).serialize(),
+            crumb(id: operation, phase: .geometryPublication, finished: true, at: 8).serialize()
+        ]
+        TerminalWorkSentryContext().apply(to: event)
+        #expect(event.tags?["terminal.phase"] == "geometryPublication")
+        #expect(event.tags?["terminal.transition"] == "resize")
+        #expect(event.tags?["terminal.evidence"] == "unfinished_at_capture")
+    }
+
     private func hang(at seconds: Double) -> Event {
         let event = Event(level: .error)
         event.timestamp = origin.addingTimeInterval(seconds)
