@@ -3395,6 +3395,14 @@ def run_checks(bun: str, root: Path, extension_path: Path) -> int:
     for check in checks:
         if check(bun, root, extension_path) != 0:
             return 1
+    wakeup = subprocess.run(
+        [sys.executable, str(Path(__file__).with_name("test_pi_extension_wakeup.py"))],
+        env={**os.environ, "CMUX_TEST_PI_EXTENSION_PATH": str(extension_path)},
+        check=False,
+        timeout=30,
+    )
+    if wakeup.returncode != 0:
+        return wakeup.returncode
     print("PASS: Pi dispatch stays responsive, serialized, and fails stale surfaces once")
     return 0
 
