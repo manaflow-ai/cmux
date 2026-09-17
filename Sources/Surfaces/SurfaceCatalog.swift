@@ -205,12 +205,6 @@ final class SurfaceCatalog {
         providers[machine]
     }
 
-    /// O(1) lookup for live machine state. Callers that only need one machine
-    /// must not build and sort the full catalog snapshot on every sample.
-    func machineInfo(for machine: SurfaceMachineID) -> SurfaceMachineInfo? {
-        machines[machine]
-    }
-
     /// Only the registered provider of a cloud machine (or the local provider,
     /// registered at launch) may write about it. A provider the fleet has just
     /// pruned can still finish an in-flight refresh and write its machine back;
