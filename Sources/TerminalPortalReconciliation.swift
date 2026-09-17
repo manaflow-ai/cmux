@@ -3,6 +3,25 @@ import Bonsplit
 import CmuxTerminal
 import Foundation
 
+extension GhosttySurfaceScrollView {
+    /// Records why pending geometry is released without changing publication policy.
+    func finishPortalGeometrySettlement(
+        reason: StaticString,
+        visibleInUI: Bool,
+        resizeDeferred: Bool
+    ) {
+#if DEBUG
+        cmuxDebugLog(
+            "surface.size.settlement.finish surface=\(debugSurfaceId?.uuidString.prefix(8) ?? "nil") " +
+            "reason=\(reason) visible=\(visibleInUI) hidden=\(isHiddenOrHasHiddenAncestor) " +
+            "window=\(window != nil) resizeDeferred=\(resizeDeferred) " +
+            "host=\(bounds.size) renderer=\(surfaceView.bounds.size)"
+        )
+#endif
+        finishPortalGeometrySettlement()
+    }
+}
+
 struct TerminalPortalReconciliationReasons: OptionSet {
     let rawValue: UInt8
 

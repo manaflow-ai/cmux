@@ -1151,13 +1151,13 @@ final class WindowTerminalPortal: NSObject, TerminalSurfaceResizeAuthority {
         )
         reconcileVisibleHostedViewsAfterGeometrySync(reason: "portal.externalGeometrySync")
         if hierarchyWasAlreadySettled {
-            finishVisibleEntryGeometrySettlements()
+            finishVisibleEntryGeometrySettlements(reason: "external.stable")
         } else if entriesByHostedId.values.contains(where: { $0.visibleInUI && $0.awaitingGeometrySettlement }) {
             if geometrySettlementPassesRemaining > 0 {
                 geometrySettlementPassesRemaining -= 1
                 scheduleExternalGeometrySynchronize(forceImmediate: false)
             } else {
-                finishVisibleEntryGeometrySettlements()
+                finishVisibleEntryGeometrySettlements(reason: "external.retryExhausted")
             }
         }
     }
@@ -1516,7 +1516,7 @@ final class WindowTerminalPortal: NSObject, TerminalSurfaceResizeAuthority {
         )
 #endif
         if let hostedView = entry.hostedView {
-            hostedView.finishPortalGeometrySettlement()
+            hostedView.finishPortalGeometrySettlement(reason: "detach", visibleInUI: entry.visibleInUI, resizeDeferred: isRendererResizeDeferred)
             hostedView.setPortalResizeAuthority(nil)
             if let restoredMask = preAdoptionAutoresizingMaskByHostedId.removeValue(forKey: hostedId) {
                 hostedView.autoresizingMask = restoredMask
@@ -1536,7 +1536,7 @@ final class WindowTerminalPortal: NSObject, TerminalSurfaceResizeAuthority {
             return
         }
         entry.visibleInUI = false
-        entry.hostedView?.finishPortalGeometrySettlement()
+        entry.hostedView?.finishPortalGeometrySettlement(reason: "hide", visibleInUI: entry.visibleInUI, resizeDeferred: isRendererResizeDeferred)
         entry.hostedView?.setPortalResizeAuthority(nil)
         entry.awaitingGeometrySettlement = false
         entry.transientRecoveryRetriesRemaining = 0
@@ -1571,7 +1571,7 @@ final class WindowTerminalPortal: NSObject, TerminalSurfaceResizeAuthority {
             entry.hostedView?.beginPortalGeometrySettlement()
         } else if !effectiveVisibleInUI {
             entry.awaitingGeometrySettlement = false
-            entry.hostedView?.finishPortalGeometrySettlement()
+            entry.hostedView?.finishPortalGeometrySettlement(reason: "visibility.false", visibleInUI: entry.visibleInUI, resizeDeferred: isRendererResizeDeferred)
             entry.transientRecoveryRetriesRemaining = 0
         }
         entriesByHostedId[hostedId] = entry
@@ -1835,13 +1835,13 @@ final class WindowTerminalPortal: NSObject, TerminalSurfaceResizeAuthority {
         }
     }
 
-    private func finishVisibleEntryGeometrySettlements() {
+    private func finishVisibleEntryGeometrySettlements(reason: StaticString) {
         for hostedId in entriesByHostedId.keys {
             guard var entry = entriesByHostedId[hostedId], entry.visibleInUI,
                   entry.awaitingGeometrySettlement, let hostedView = entry.hostedView else { continue }
             entry.awaitingGeometrySettlement = false
             entriesByHostedId[hostedId] = entry
-            hostedView.finishPortalGeometrySettlement()
+            hostedView.finishPortalGeometrySettlement(reason: reason, visibleInUI: entry.visibleInUI, resizeDeferred: isRendererResizeDeferred)
         }
     }
 
@@ -1871,13 +1871,13 @@ final class WindowTerminalPortal: NSObject, TerminalSurfaceResizeAuthority {
                 )
             }
             if hierarchyWasAlreadySettled {
-                self.finishVisibleEntryGeometrySettlements()
+                self.finishVisibleEntryGeometrySettlements(reason: "deferred.stable")
             } else if self.entriesByHostedId.values.contains(where: { $0.visibleInUI && $0.awaitingGeometrySettlement }) {
                 if self.geometrySettlementPassesRemaining > 0 {
                     self.geometrySettlementPassesRemaining -= 1
                     self.scheduleExternalGeometrySynchronize(forceImmediate: false)
                 } else {
-                    self.finishVisibleEntryGeometrySettlements()
+                    self.finishVisibleEntryGeometrySettlements(reason: "deferred.retryExhausted")
                 }
             }
         }
