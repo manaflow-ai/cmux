@@ -69,6 +69,7 @@ extension DockSplitStore {
     /// subscription cancelled *before* the Bonsplit tab is closed, so the
     /// `didCloseTab` → `reconcilePanels()` path cannot tear the live panel down.
     func detachSurface(panelId: UUID) -> Workspace.DetachedSurfaceTransfer? {
+        guard contentPolicy == .flexible else { return nil }
         guard let tabId = surfaceId(forPanelId: panelId), let panel = panels[panelId] else { return nil }
         flushPendingTerminalTitleUpdates()
         let tab = bonsplitController.tab(tabId)
@@ -377,7 +378,7 @@ extension DockSplitStore {
         atIndex index: Int? = nil,
         focus: Bool = true
     ) -> UUID? {
-        guard !isRetired else { return nil }
+        guard contentPolicy == .flexible, !isRetired else { return nil }
         guard containsPane(paneId.id), panels[detached.panelId] == nil else { return nil }
         let panel = detached.panel
         panel.retainTransferredSurfaceMachine(detached.surfaceMachine)
@@ -471,7 +472,7 @@ extension DockSplitStore {
         insertFirst: Bool,
         focus: Bool = true
     ) -> UUID? {
-        guard !isRetired else { return nil }
+        guard contentPolicy == .flexible, !isRetired else { return nil }
         guard containsPane(paneId.id), panels[detached.panelId] == nil else {
             return nil
         }
@@ -605,7 +606,9 @@ extension DockSplitStore {
     /// workspace — so a Dock tab can leave the Dock for a workspace via the tab
     /// context menu, matching `Workspace.bonsplitTabMoveDestinations`.
     func dockTabMoveDestinations(for tabId: TabID) -> [TabContextMoveDestination] {
-        guard panel(for: tabId) != nil, let app = AppDelegate.shared else { return [] }
+        guard contentPolicy == .flexible,
+              panel(for: tabId) != nil,
+              let app = AppDelegate.shared else { return [] }
         var destinations: [TabContextMoveDestination] = [
             TabContextMoveDestination(
                 id: Self.dockMoveNewWorkspaceDestinationId,
@@ -631,7 +634,9 @@ extension DockSplitStore {
         for tab: Bonsplit.Tab,
         inPane pane: PaneID
     ) {
-        guard let panel = panel(for: tab.id), let app = AppDelegate.shared else { return }
+        guard contentPolicy == .flexible,
+              let panel = panel(for: tab.id),
+              let app = AppDelegate.shared else { return }
         let panelId = panel.id
         if destinationId == Self.dockMoveNewWorkspaceDestinationId {
             _ = app.moveDockSurfaceToNewWorkspace(sourceDock: self, panelId: panelId, focus: true, focusWindow: false)

@@ -303,6 +303,7 @@ extension CMUXCLI {
       select <workspace>      Make a workspace active
       status [set <lane|auto>]
                               Show or pin the workspace todo status
+      float <subcommand>      Manage workspace-scoped floating Docks
       reconnect [workspace]   Reconnect a remote (SSH) workspace, including one
                               whose automatic reconnect paused because the host
                               was unreachable

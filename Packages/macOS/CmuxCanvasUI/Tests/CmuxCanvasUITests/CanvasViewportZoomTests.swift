@@ -143,6 +143,21 @@ struct CanvasViewportZoomTests {
         #expect(abs(root.currentCenterInCanvas.y - centerBefore.y) < 0.5)
     }
 
+    @Test func publicCoordinateSeamsRoundTripThroughPanAndMagnification() throws {
+        let paneFrame = CGRect(x: -300, y: 140, width: 640, height: 360)
+        let root = makeRoot(panelFrames: [(UUID(), paneFrame)])
+        root.setViewport(center: CGPoint(x: 20, y: 320), magnification: 0.5, notifySettled: false)
+        root.layoutSubtreeIfNeeded()
+
+        let projected = root.convertCanvasRect(paneFrame, to: root)
+        let projectedCenter = CGPoint(x: projected.midX, y: projected.midY)
+        let roundTripped = try #require(root.canvasPoint(from: projectedCenter, in: root))
+
+        #expect(abs(roundTripped.x - paneFrame.midX) < 0.5)
+        #expect(abs(roundTripped.y - paneFrame.midY) < 0.5)
+        #expect(root.canvasPoint(from: CGPoint(x: -1, y: -1), in: root) == nil)
+    }
+
     private func makeRoot(
         panelFrames: [(UUID, CGRect)] = [(UUID(), CGRect(x: 0, y: 0, width: 640, height: 360))],
         hostSize: CGSize = CGSize(width: 800, height: 500)

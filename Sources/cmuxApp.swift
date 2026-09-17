@@ -657,6 +657,14 @@ struct cmuxApp: App {
                     ) {
                         BonsplitTabBarDebugWindowController.shared.show()
                     }
+                    Button(
+                        String(
+                            localized: "debug.menu.floatingDockTextureDebug",
+                            defaultValue: "Floating Dock Texture Debug…"
+                        )
+                    ) {
+                        WorkspaceFloatingDockTextureDebugWindowController.shared.show()
+                    }
                     Button("Browser Import Hint Debug…") {
                         BrowserImportHintDebugWindowController.shared.show()
                     }
@@ -1613,6 +1621,7 @@ struct cmuxApp: App {
         FeedTextEditorDebugWindowController.shared.show()
         FeedButtonStyleDebugWindowController.shared.show()
         BonsplitTabBarDebugWindowController.shared.show()
+        WorkspaceFloatingDockTextureDebugWindowController.shared.show()
     }
 #endif
 }

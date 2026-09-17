@@ -1680,6 +1680,8 @@ struct SessionMarkdownPanelSnapshot: Codable, Sendable {
 }
 struct SessionFilePreviewPanelSnapshot: Codable, Sendable {
     var filePath: String
+    /// Present when this file preview is an autosaving Floating Dock note.
+    var noteTitle: String? = nil
 }
 /// Marker for a workspace todo pane; the pane has no content of its own (the checklist
 /// persists on the workspace), so the panel `type` plus this empty marker is enough to restore it.
@@ -1882,6 +1884,8 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// Canvas pane frames in z-order; persisted whenever any exist so
     /// positions survive toggling back to splits across restarts.
     var canvasPanes: [SessionCanvasPaneSnapshot]? = nil
+    /// Workspace-scoped window-like Dock containers.
+    var floatingDocks: [SessionFloatingDockSnapshot]? = nil
     var panels: [SessionPanelSnapshot]
     var statusEntries: [SessionStatusEntrySnapshot]
     var logEntries: [SessionLogEntrySnapshot]

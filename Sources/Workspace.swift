@@ -187,6 +187,7 @@ extension Workspace {
             layout: layout,
             layoutMode: layoutMode.rawValue,
             canvasPanes: canvasSessionPaneSnapshots(),
+            floatingDocks: floatingDockSessionSnapshots(),
             panels: panelSnapshots,
             statusEntries: statusSnapshots,
             logEntries: logSnapshots,
@@ -338,6 +339,7 @@ extension Workspace {
         isMuted = snapshot.isMuted ?? false
         groupId = snapshot.groupId
         restoreTodoState(from: snapshot)
+        restoreFloatingDocks(from: snapshot.floatingDocks)
 
         // Status entries and agent PIDs are ephemeral runtime state tied to running
         // processes (e.g. claude_code "Running"). Don't restore them across app
@@ -774,7 +776,10 @@ extension Workspace {
             terminalSnapshot = nil
             browserSnapshot = nil
             markdownSnapshot = nil
-            filePreviewSnapshot = SessionFilePreviewPanelSnapshot(filePath: filePreviewPanel.filePath)
+            filePreviewSnapshot = SessionFilePreviewPanelSnapshot(
+                filePath: filePreviewPanel.filePath,
+                noteTitle: filePreviewPanel.presentation.noteTitle
+            )
             rightSidebarToolSnapshot = nil
             agentSessionSnapshot = nil
             projectSnapshot = nil
@@ -832,6 +837,8 @@ extension Workspace {
             rightSidebarToolSnapshot = nil; agentSessionSnapshot = nil; projectSnapshot = nil
             notificationsPanelSnapshot = SessionNotificationsPanelSnapshot()
         case .extensionBrowser:
+            return nil
+        case .workspaceShareChat:
             return nil
         case .cloudVMLoading:
             return nil
@@ -2280,6 +2287,7 @@ extension Workspace {
                   let filePreviewPanel = newFilePreviewSurface(
                     inPane: paneId,
                     filePath: filePath,
+                    presentation: snapshot.filePreview?.noteTitle.map(FilePreviewPresentation.note) ?? .file,
                     focus: false
                   ) else {
                 return nil
@@ -2335,6 +2343,8 @@ extension Workspace {
             applySessionPanelMetadata(snapshot, toPanelId: notificationsPanel.id)
             return notificationsPanel.id
         case .extensionBrowser:
+            return nil
+        case .workspaceShareChat:
             return nil
         case .cloudVMLoading:
             return nil
@@ -2749,6 +2759,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// workspace teardown can tear down the Dock only when it was actually used
     /// (and so reading it during teardown does not lazily create one).
     private(set) var _dockSplit: DockSplitStore?
+
+    /// Window-like Bonsplit containers scoped to this workspace.
+    /// Mutated by the shared lifecycle methods in `Workspace+FloatingDocks`.
+    var floatingDocks: [WorkspaceFloatingDock] = []
 
     /// The right-sidebar Dock for this workspace: its own Bonsplit tree of
     /// terminal/browser panels, separate from the main-area `bonsplitController`.
@@ -5171,10 +5185,21 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         )
     }
 
+    func dockRemoteBrowserSettingsSnapshot() -> DockRemoteBrowserSettings {
+        DockRemoteBrowserSettings(
+            proxyEndpoint: remoteProxyEndpoint,
+            bypassRemoteProxy: false,
+            isRemoteWorkspace: isRemoteWorkspace,
+            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace ? id : nil,
+            remoteStatus: browserRemoteWorkspaceStatusSnapshot()
+        )
+    }
+
     func applyBrowserRemoteWorkspaceStatusToPanels() {
         let snapshot = browserRemoteWorkspaceStatusSnapshot()
         for panel in panels.values { (panel as? BrowserPanel)?.setRemoteWorkspaceStatus(snapshot) }
         _dockSplit?.applyRemoteWorkspaceStatus(snapshot)
+        floatingDocks.forEach { $0.store.applyRemoteWorkspaceStatus(snapshot) }
     }
 
     // MARK: - Panel Access
@@ -8203,6 +8228,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             (panel as? BrowserPanel)?.setRemoteProxyEndpoint(endpoint)
         }
         _dockSplit?.applyRemoteProxyEndpointUpdate(endpoint)
+        floatingDocks.forEach { $0.store.applyRemoteProxyEndpointUpdate(endpoint) }
         applyBrowserRemoteWorkspaceStatusToPanels()
     }
 
@@ -10241,6 +10267,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     func newFilePreviewSurface(
         inPane paneId: PaneID,
         filePath: String,
+        presentation: FilePreviewPresentation = .file,
         focus: Bool? = nil,
         targetIndex: Int? = nil
     ) -> FilePreviewPanel? {
@@ -10252,6 +10279,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let filePreviewPanel = FilePreviewPanel(
             workspaceId: id,
             filePath: filePath,
+            presentation: presentation,
             fileContentChangeCoordinator: fileContentChangeCoordinator
         )
         panels[filePreviewPanel.id] = filePreviewPanel
@@ -10567,6 +10595,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         pendingTerminalInputObserversByPanelId.removeAll(keepingCapacity: false)
         lastTerminalConfigInheritancePanelId = nil
         lastTerminalConfigInheritanceFontSizeLineage = nil
+        floatingDocks.forEach { $0.close() }
+        floatingDocks.removeAll()
     }
 
     /// Close a panel.

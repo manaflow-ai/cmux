@@ -15,6 +15,12 @@ export const publicMarketingCacheHeaders = [
   },
 ];
 
+export const privateShareHeaders = [
+  { key: "Cache-Control", value: "private, no-store" },
+  { key: "Referrer-Policy", value: "no-referrer" },
+  { key: "X-Robots-Tag", value: "noindex, nofollow, noarchive" },
+];
+
 const localePrefix =
   ":locale(ja|zh-CN|zh-TW|ko|de|es|fr|it|da|pl|ru|bs|ar|no|pt-BR|th|tr|km|uk)";
 
@@ -36,6 +42,14 @@ export const securityHeaderRules = [
   {
     source: "/:path*",
     headers: securityHeaders,
+  },
+  {
+    source: "/share/:path*",
+    headers: privateShareHeaders,
+  },
+  {
+    source: "/api/share/:path*",
+    headers: privateShareHeaders,
   },
   ...publicMarketingSources.map((source) => ({
     source,

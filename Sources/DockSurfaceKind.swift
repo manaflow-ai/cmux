@@ -4,4 +4,5 @@
 enum DockSurfaceKind: String, Codable, Equatable, Sendable {
     case terminal
     case browser
+    case note
 }

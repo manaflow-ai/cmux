@@ -17,6 +17,7 @@ struct DockSplitPanelContentView: View, Equatable {
         let isDeferredBrowser: Bool
         let tabID: TabID
         let paneID: PaneID
+        let usesTransparentBackground: Bool
         let rightSidebarOwnsInputFocus: Bool
         let hasUnreadNotification: Bool
         let appearanceRevision: UInt
@@ -32,6 +33,8 @@ struct DockSplitPanelContentView: View, Equatable {
     let paneID: PaneID
     let appearance: PanelAppearance
     let windowAppearance: WindowAppearanceSnapshot
+    let usesTransparentBackground: Bool
+    let onKeyboardFocusIntent: (() -> Void)?
     let rightSidebarOwnsInputFocus: Bool
     let hasUnreadNotification: Bool
 
@@ -45,6 +48,8 @@ struct DockSplitPanelContentView: View, Equatable {
         appearance: PanelAppearance,
         appearanceRevision: UInt,
         windowAppearance: WindowAppearanceSnapshot,
+        usesTransparentBackground: Bool = false,
+        onKeyboardFocusIntent: (() -> Void)? = nil,
         rightSidebarOwnsInputFocus: Bool,
         hasUnreadNotification: Bool
     ) {
@@ -54,6 +59,8 @@ struct DockSplitPanelContentView: View, Equatable {
         self.paneID = paneID
         self.appearance = appearance
         self.windowAppearance = windowAppearance
+        self.usesTransparentBackground = usesTransparentBackground
+        self.onKeyboardFocusIntent = onKeyboardFocusIntent
         self.rightSidebarOwnsInputFocus = rightSidebarOwnsInputFocus
         self.hasUnreadNotification = hasUnreadNotification
         // Dock stores admit terminal/browser panels plus file previews opened by
@@ -67,6 +74,7 @@ struct DockSplitPanelContentView: View, Equatable {
             isDeferredBrowser: panel is DeferredBrowserPanel,
             tabID: tabID,
             paneID: paneID,
+            usesTransparentBackground: usesTransparentBackground,
             rightSidebarOwnsInputFocus: rightSidebarOwnsInputFocus,
             hasUnreadNotification: hasUnreadNotification,
             appearanceRevision: appearanceRevision
@@ -94,6 +102,7 @@ struct DockSplitPanelContentView: View, Equatable {
             isSplit: isSplit,
             appearance: appearance,
             windowAppearance: windowAppearance,
+            usesTransparentContainer: usesTransparentBackground,
             customSidebarTabManager: nil,
             hasUnreadNotification: hasUnreadNotification,
             terminalAgentContext: "",
@@ -103,12 +112,14 @@ struct DockSplitPanelContentView: View, Equatable {
                 return store.panelIsSelectedInVisibleDockPane(panel.id)
             },
             onFocus: {
+                onKeyboardFocusIntent?()
                 store.focusPanelFromDockInteraction(
                     panel.id,
                     window: NSApp.keyWindow ?? NSApp.mainWindow
                 )
             },
             onRequestPanelFocus: {
+                onKeyboardFocusIntent?()
                 store.focusPanelFromDockInteraction(
                     panel.id,
                     window: NSApp.keyWindow ?? NSApp.mainWindow

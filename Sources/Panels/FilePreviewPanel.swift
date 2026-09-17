@@ -1278,6 +1278,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     @Published private(set) var isSaving = false
     @Published private(set) var focusFlashToken = 0
     @Published private(set) var previewMode: FilePreviewMode
+    let presentation: FilePreviewPresentation
     let previewRevisionState = FilePreviewRevision()
     private let textContentRevisionState = FilePreviewRevision()
 
@@ -1287,6 +1288,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     private var textEncoding: String.Encoding = .utf8
     private var saveGeneration = 0
     private var activeSaveGeneration: Int?
+    private var autosaveRequested = false
     var fileContentChangeCoordinator: FileContentChangeCoordinator
     var fileContentObservationID: UUID?
     var fileContentObservationLifetime: FileContentObservationLifetime?
@@ -1319,6 +1321,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     init(
         workspaceId: UUID,
         filePath: String,
+        presentation: FilePreviewPresentation = .file,
         startFileWatcher: Bool = true,
         fileContentChangeCoordinator: FileContentChangeCoordinator? = nil,
         textLoader: @escaping @Sendable (URL) async -> FilePreviewTextLoader.Result = { url in
@@ -1337,7 +1340,9 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         self.filePath = filePath
         self.fileContentChangeCoordinator =
             fileContentChangeCoordinator ?? FileContentChangeCoordinator()
-        self.displayTitle = URL(fileURLWithPath: filePath).lastPathComponent
+        self.presentation = presentation
+        self.displayTitle = presentation.displayTitle ?? URL(fileURLWithPath: filePath).lastPathComponent
+
         self.textLoader = textLoader
         self.textSaver = textSaver
         self.modeResolver = modeResolver
@@ -1366,6 +1371,9 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     }
 
     func close() {
+        if presentation.autosavesTextChanges {
+            requestAutosave()
+        }
         isClosed = true
         unbindTabMetadata()
         stopWatchingForFileChanges()
@@ -1506,6 +1514,43 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     func updateTextContent(_ nextContent: String) {
         guard replaceTextContentIfChanged(nextContent) else { return }
         setTabMetadataDirtyState(nextContent != originalTextContent)
+        if presentation.autosavesTextChanges {
+            requestAutosave()
+        }
+    }
+
+    /// Replaces an autosaving note from a synchronous control-socket mutation.
+    /// The write completes before the command replies, and the live editor is
+    /// updated in the same main-actor transaction.
+    func replaceAutosavedTextContent(_ nextContent: String) throws {
+        guard presentation.autosavesTextChanges, previewMode == .text else { return }
+        guard let data = nextContent.data(using: textEncoding) else {
+            throw CocoaError(.fileWriteInapplicableStringEncoding)
+        }
+        textLoadCoordinator.cancel()
+        if isSaving {
+            // The in-flight write may land after this synchronous one. Its
+            // autosave continuation must write this newer editor value again.
+            autosaveRequested = true
+        }
+        try data.write(to: fileURL, options: .atomic)
+        textView?.string = nextContent
+        _ = replaceTextContentIfChanged(nextContent)
+        originalTextContent = nextContent
+        setTabMetadataDirtyState(false)
+        isFileUnavailable = false
+    }
+
+    private func requestAutosave() {
+        autosaveRequested = true
+        guard !isSaving else { return }
+        autosaveRequested = false
+        guard let task = saveTextContent() else { return }
+        Task { [weak self] in
+            await task.value
+            guard let self, self.autosaveRequested || self.isDirty else { return }
+            self.requestAutosave()
+        }
     }
 
     @discardableResult
@@ -1750,7 +1795,7 @@ struct FilePreviewPanelView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if panel.previewMode != .pdf || panel.isFileUnavailable {
+            if (panel.previewMode != .pdf || panel.isFileUnavailable), !panel.presentation.hidesFileHeader {
                 header
                 Divider()
             }

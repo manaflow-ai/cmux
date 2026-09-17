@@ -18,6 +18,11 @@ import WebKit
 @MainActor
 @Observable
 final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
+    enum ContentPolicy: Equatable, Sendable {
+        case flexible
+        case fixed
+    }
+
     private struct PanelSurfaceMapping {
         var primarySurfaceId: TabID
         var surfaceIds: Set<TabID>
@@ -39,6 +44,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     /// the global `~/.config/cmux/dock.json`, owner id == window id). Drives
     /// config resolution and how cross-container moves resolve a reference window.
     let scope: DockScope
+    let contentPolicy: ContentPolicy
 
     private(set) var sourceLabel: String = ""
     private(set) var errorMessage: String?
@@ -56,6 +62,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     private let baseDirectoryProvider: () -> String?
     private let remoteBrowserSettingsProvider: () -> DockRemoteBrowserSettings
     private let browserAvailabilityProvider: () -> Bool
+    private let loadsConfiguration: Bool
     let fileContentChangeCoordinator: FileContentChangeCoordinator
     @ObservationIgnored weak var notificationStore: TerminalNotificationStore?
     var panels: [UUID: any Panel] = [:]
@@ -304,6 +311,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     init(
         workspaceId: UUID,
         scope: DockScope = .workspace,
+        loadsConfiguration: Bool = true,
+        contentPolicy: ContentPolicy = .flexible,
         baseDirectoryProvider: @escaping () -> String?,
         remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings = { .local },
         browserAvailabilityProvider: @escaping () -> Bool = { BrowserAvailabilitySettings.isEnabled() },
@@ -320,6 +329,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         let tabDragTransferRegistry = tabDragTransferRegistry ?? TabDragTransferRegistry()
         self.workspaceId = workspaceId
         self.scope = scope
+        self.contentPolicy = contentPolicy
+        self.loadsConfiguration = loadsConfiguration
         self.baseDirectoryProvider = baseDirectoryProvider
         self.remoteBrowserSettingsProvider = remoteBrowserSettingsProvider
         self.browserAvailabilityProvider = browserAvailabilityProvider
@@ -348,8 +359,16 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         self.focusHistoryNavigation = FocusHistoryModel(navigationScope: {
             settings.value(for: focusHistoryScopeKey) ? .panesAndTabs : .workspacesOnly
         })
+        var configuration = Self.makeConfiguration()
+        if contentPolicy == .fixed {
+            configuration.allowSplits = false
+            configuration.allowCloseTabs = false
+            configuration.allowTabReordering = false
+            configuration.allowCrossPaneTabMove = false
+            configuration.allowsTabContextMenu = false
+        }
         self.bonsplitController = BonsplitController(
-            configuration: Self.makeConfiguration(),
+            configuration: configuration,
             tabDragTransferRegistry: tabDragTransferRegistry
         )
         self.sourceLabel = String(localized: "dock.source.title", defaultValue: "Dock")
@@ -366,7 +385,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         // drag that started in a different controller is "external" to this one,
         // so Bonsplit routes it here; the live panel is moved (not copied).
         self.bonsplitController.onExternalTabDrop = { [weak self] request in
-            guard let self else { return false }
+            guard let self, self.contentPolicy == .flexible else { return false }
             guard !self.isRetired else { return false }
             if let handled = self.performRegisteredPaneTransferDrop(request) {
                 return handled
@@ -381,7 +400,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         // workspaces + New Workspace), so a Dock tab can leave the Dock via its
         // context menu, not only by dragging.
         self.bonsplitController.tabContextMoveDestinationsProvider = { [weak self] tabId, _ in
-            self?.dockTabMoveDestinations(for: tabId) ?? []
+            guard let self, self.contentPolicy == .flexible else { return [] }
+            return self.dockTabMoveDestinations(for: tabId)
         }
         // Drop the controller's default welcome tab so the root pane starts
         // empty and renders the in-app create affordance until config seeds it.
@@ -391,6 +411,9 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         ownedPaneIds = Set(bonsplitController.allPaneIds.map(\.id))
         focusHistoryNavigation.attach(host: self)
         Self.liveStoresTable.add(self)
+        if !loadsConfiguration {
+            hasLoadedConfiguration = true
+        }
     }
 
     var focusHistoryIncludesPanesAndTabs: Bool {
@@ -534,7 +557,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
 
     private func reloadIfBaseDirectoryChanged() {
         guard !isRetired else { return }
-        guard hasLoadedConfiguration else { return }
+        guard loadsConfiguration, hasLoadedConfiguration else { return }
         let rootDirectory = currentBaseDirectory()
         if configurationLoadTask != nil, rootDirectory != configurationLoadRootDirectory { reload(); return }
         guard configurationLoadTask == nil else { return }
@@ -578,6 +601,12 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         removeAllPanels()
     }
 
+    func resetForSessionRestore() {
+        removeAllPanels()
+        hasLoadedConfiguration = true
+        hasAppliedConfigurationSeed = true
+    }
+
     /// Permanently retires this Dock before releasing its panels. A retained
     /// sidebar callback may still hold the store after its workspace closes,
     /// so retirement—not temporary emptiness—is the authoritative boundary.
@@ -593,6 +622,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         guard !isRetired else { return }
         guard !hasLoadedConfiguration else { return }
         hasLoadedConfiguration = true
+        guard loadsConfiguration else { return }
         startConfigurationLoad(replacingPanels: false)
     }
 
@@ -611,6 +641,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         sourcePanelId: UUID? = nil,
         environment: [String: String] = [:],
         tmuxStartCommand: String? = nil,
+        noteFilePath: String? = nil,
+        noteTitle: String? = nil,
         initialInput: String? = nil,
         startupRestoreAgent: SessionRestorableAgentSnapshot? = nil,
         focus: Bool = true,
@@ -623,6 +655,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         allowsExternalBrowserFallback: Bool = true,
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> UUID? {
+        guard contentPolicy == .flexible else { return nil }
         guard !isRetired else { return nil }
         ensureLoaded()
         let source = resolveSourcePanelId(sourcePanelId, preferredPaneId: paneId)
@@ -647,6 +680,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
                 sourcePanelId: source
             ),
             tmuxStartCommand: tmuxStartCommand,
+            noteFilePath: noteFilePath,
+            noteTitle: noteTitle,
             initialInput: initialInput,
             startupRestoreAgent: startupRestoreAgent,
             preferredProfileID: resolvedBrowserProfileID,
@@ -679,6 +714,41 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         return panel.id
     }
 
+    /// Installs one caller-owned, runtime-only panel without routing through the
+    /// terminal/browser/note factory. Fixed stores use this once to seed their
+    /// sole panel while keeping every user-driven content mutation disabled.
+    @discardableResult
+    func installRuntimePanel(
+        _ panel: any Panel,
+        surfaceKind: String,
+        focus: Bool
+    ) -> UUID? {
+        let normalizedSurfaceKind = surfaceKind.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedSurfaceKind.isEmpty,
+              panels[panel.id] == nil,
+              contentPolicy != .fixed || panels.isEmpty else { return nil }
+        ensureLoaded()
+        guard let paneId = bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first else {
+            return nil
+        }
+        let previousFocus = focus ? nil : focusedDockPaneSelection()
+        guard let tabId = attachPanelAsTab(
+            panel,
+            surfaceKind: normalizedSurfaceKind,
+            title: panel.displayTitle,
+            inPane: paneId
+        ) else { return nil }
+        recordExplicitPanelCreation()
+        if focus {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(tabId)
+            panel.focus()
+        } else {
+            restoreDockPaneSelection(previousFocus)
+        }
+        return panel.id
+    }
+
     /// Creates a new surface by splitting an existing Dock pane. Used by
     /// `pane.create --placement dock`. When the Dock tree is empty, seeds the
     /// root pane instead of splitting.
@@ -694,6 +764,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         workingDirectory: String? = nil,
         environment: [String: String] = [:],
         tmuxStartCommand: String? = nil,
+        noteFilePath: String? = nil,
+        noteTitle: String? = nil,
         initialInput: String? = nil,
         startupRestoreAgent: SessionRestorableAgentSnapshot? = nil,
         initialDividerPosition: CGFloat? = nil,
@@ -706,6 +778,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         websiteDataStore: WKWebsiteDataStore? = nil,
         focus: Bool = true
     ) -> UUID? {
+        guard contentPolicy == .flexible else { return nil }
         guard !isRetired else { return nil }
         ensureLoaded()
         let source = resolveSourcePanelId(sourcePanelId)
@@ -730,6 +803,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
                 sourcePanelId: source
             ),
             tmuxStartCommand: tmuxStartCommand,
+            noteFilePath: noteFilePath,
+            noteTitle: noteTitle,
             initialInput: initialInput,
             startupRestoreAgent: startupRestoreAgent,
             preferredProfileID: resolvedBrowserProfileID,
@@ -825,6 +900,10 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     }
 
 #if DEBUG
+    var hasPendingConfigurationWorkForTesting: Bool {
+        configurationLoadTask != nil || configurationIdentityTask != nil
+    }
+
     func markConfigurationLoadInFlightForTesting(rootDirectory: String?) -> Int {
         hasLoadedConfiguration = true; configurationLoadGeneration += 1
         configurationLoadRootDirectory = rootDirectory; configurationLoadTask = Task {}
@@ -998,6 +1077,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         environment: [String: String],
         workingDirectory: String,
         tmuxStartCommand: String? = nil,
+        noteFilePath: String? = nil,
+        noteTitle: String? = nil,
         initialInput: String? = nil,
         startupRestoreAgent: SessionRestorableAgentSnapshot? = nil,
         preferredProfileID: UUID? = nil,
@@ -1044,6 +1125,16 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
                 bypassRemoteProxy: bypassRemoteProxy,
                 websiteDataStore: websiteDataStore
             )
+        case .note:
+            guard let noteFilePath else { return nil }
+            return FilePreviewPanel(
+                workspaceId: workspaceId,
+                filePath: noteFilePath,
+                presentation: .note(
+                    title: noteTitle ?? String(localized: "floatingDock.note.title", defaultValue: "Notes")
+                ),
+                fileContentChangeCoordinator: fileContentChangeCoordinator
+            )
         }
     }
 
@@ -1067,6 +1158,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
                 url: def.url.flatMap { URL(string: $0) },
                 chromeVisibility: def.showsBrowserChrome ? .visible : .chromeless
             )
+        case .note:
+            return nil
         }
     }
 
@@ -1134,6 +1227,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         switch kind {
         case .terminal: return "terminal"
         case .browser: return "browser"
+        case .note: return "filepreview"
         }
     }
 
@@ -1141,6 +1235,21 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     private func attachPanelAsTab(
         _ panel: any Panel,
         kind: DockSurfaceKind,
+        title: String,
+        inPane paneId: PaneID?
+    ) -> TabID? {
+        attachPanelAsTab(
+            panel,
+            surfaceKind: tabKindRaw(kind),
+            title: title,
+            inPane: paneId
+        )
+    }
+
+    @discardableResult
+    private func attachPanelAsTab(
+        _ panel: any Panel,
+        surfaceKind: String,
         title: String,
         inPane paneId: PaneID?
     ) -> TabID? {
@@ -1152,7 +1261,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         guard let tabId = bonsplitController.createTab(
             title: title,
             icon: panel.displayIcon,
-            kind: tabKindRaw(kind),
+            kind: surfaceKind,
             isDirty: panel.isDirty,
             isPinned: false,
             inPane: paneId

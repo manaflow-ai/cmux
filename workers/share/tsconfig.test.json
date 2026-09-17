@@ -1,0 +1,7 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["@cloudflare/workers-types/experimental", "bun"]
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}

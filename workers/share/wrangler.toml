@@ -1,0 +1,32 @@
+# cmux workspace sharing service. One ShareRoom Durable Object owns each
+# short-lived share's access decisions and hibernating WebSockets.
+name = "cmux-share"
+main = "src/index.ts"
+compatibility_date = "2026-05-01"
+
+[observability]
+enabled = true
+
+[vars]
+SHARE_WEB_ORIGIN = "https://cmux.com"
+SHARE_ALLOWED_ORIGINS = "https://cmux.com"
+
+[[durable_objects.bindings]]
+name = "SHARE_ROOM"
+class_name = "ShareRoom"
+
+[[durable_objects.bindings]]
+name = "SHARE_OWNER_INDEX"
+class_name = "ShareOwnerIndex"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ShareRoom"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["ShareOwnerIndex"]
+
+[[routes]]
+pattern = "share.cmux.dev"
+custom_domain = true

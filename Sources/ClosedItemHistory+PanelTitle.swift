@@ -37,6 +37,8 @@ extension ClosedItemHistoryStore {
             return String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
         case .workspaceTodo:
             return String(localized: "workspaceTodoPane.title", defaultValue: "Todos")
+        case .workspaceShareChat:
+            return String(localized: "workspaceShare.chat.title", defaultValue: "Workspace chat")
         case .notifications:
             return String(localized: "notifications.title", defaultValue: "Notifications")
         case .cloudVMLoading:

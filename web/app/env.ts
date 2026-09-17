@@ -198,6 +198,12 @@ export const env = createEnv({
     CMUX_DEVICE_REGISTRY_RATE_LIMIT_ID: z.string().min(1).optional(),
     // The deployed handoff route fails closed when this limiter is absent.
     CMUX_APP_SESSION_HANDOFF_RATE_LIMIT_ID: z.string().min(1).optional(),
+    // Private workspace sharing. The route fails closed until the independent
+    // Ed25519 key and firewall rule are provisioned in the target environment.
+    CMUX_SHARE_TICKET_PRIVATE_KEY_P8: z.string().min(64).max(16_384).optional(),
+    CMUX_SHARE_TICKET_SIGNING_KID: z.string().regex(/^[A-Za-z0-9._-]{1,64}$/).optional(),
+    CMUX_SHARE_WORKER_URL: z.string().url().optional(),
+    CMUX_SHARE_RATE_LIMIT_ID: z.string().min(1).optional(),
     STACK_SECRET_SERVER_KEY: z.string().min(1),
     // APNs push (iOS notifications). Optional: the app boots without them; the
     // push route returns a clear "not configured" error until they are set.
@@ -426,6 +432,10 @@ export const env = createEnv({
     CMUX_FEEDBACK_RATE_LIMIT_ID: trimEnv(process.env.CMUX_FEEDBACK_RATE_LIMIT_ID),
     CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: trimEnv(process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID),
     CMUX_ANALYTICS_RATE_LIMIT_ID: trimEnv(process.env.CMUX_ANALYTICS_RATE_LIMIT_ID),
+    CMUX_SHARE_TICKET_PRIVATE_KEY_P8: trimEnv(process.env.CMUX_SHARE_TICKET_PRIVATE_KEY_P8),
+    CMUX_SHARE_TICKET_SIGNING_KID: trimEnv(process.env.CMUX_SHARE_TICKET_SIGNING_KID),
+    CMUX_SHARE_WORKER_URL: trimEnv(process.env.CMUX_SHARE_WORKER_URL),
+    CMUX_SHARE_RATE_LIMIT_ID: trimEnv(process.env.CMUX_SHARE_RATE_LIMIT_ID),
     CMUX_PUSH_RATE_LIMIT_ID: trimEnv(process.env.CMUX_PUSH_RATE_LIMIT_ID),
     CMUX_DEVICE_REGISTRY_RATE_LIMIT_ID: trimEnv(
       process.env.CMUX_DEVICE_REGISTRY_RATE_LIMIT_ID,

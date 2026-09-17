@@ -39,7 +39,8 @@ extension AppDelegate {
 
     /// Whether a live surface can leave its current owner and be driven from
     /// `destinationDock`.
-    func canMoveSurfaceIntoDock(sourceTabId: UUID, destinationDock _: DockSplitStore) -> Bool {
+    func canMoveSurfaceIntoDock(sourceTabId: UUID, destinationDock: DockSplitStore) -> Bool {
+        guard destinationDock.contentPolicy == .flexible else { return false }
         guard let source = locateContainerSurface(tabId: sourceTabId) else { return false }
         return canMoveSurfaceIntoDock(source)
     }
@@ -67,17 +68,8 @@ extension AppDelegate {
     /// Used by `moveBonsplitTab` to route a Dock→main-area drop.
     func locateDockSurface(tabId: UUID) -> (dock: DockSplitStore, panelId: UUID)? {
         let bonsplitTabId = TabID(uuid: tabId)
-        // Per-window Docks first (they have no owning workspace), then each
-        // workspace's local Dock.
-        for windowDock in existingWindowDocks {
-            if let panel = windowDock.panel(for: bonsplitTabId) {
-                return (windowDock, panel.id)
-            }
-        }
-        for context in mainWindowContexts.values {
-            for workspace in context.tabManager.tabs {
-                guard let dock = workspace._dockSplit,
-                      let panel = dock.panel(for: bonsplitTabId) else { continue }
+        for dock in DockSplitStore.liveStores {
+            if let panel = dock.panel(for: bonsplitTabId) {
                 return (dock, panel.id)
             }
         }
@@ -92,6 +84,7 @@ extension AppDelegate {
         destinationDock: DockSplitStore,
         destination: BonsplitController.ExternalTabDropRequest.Destination
     ) -> Bool {
+        guard destinationDock.contentPolicy == .flexible else { return false }
         guard let source = locateContainerSurface(tabId: sourceTabId) else { return false }
         guard canMoveSurfaceIntoDock(source) else { return false }
         let shouldPreserveSourceWorkspace = shouldPreserveSourceWorkspaceAfterDockMove(
@@ -166,6 +159,7 @@ extension AppDelegate {
         focus: Bool,
         focusWindow: Bool
     ) -> Bool {
+        guard sourceDock.contentPolicy == .flexible else { return false }
         guard let destinationManager = tabManagerFor(tabId: targetWorkspaceId),
               let destinationWorkspace = destinationManager.tabs.first(where: { $0.id == targetWorkspaceId }) else {
             return false
@@ -231,6 +225,7 @@ extension AppDelegate {
         focus: Bool = true,
         focusWindow: Bool = false
     ) -> Bool {
+        guard sourceDock.contentPolicy == .flexible else { return false }
         // A window Dock resolves its owning window; a Workspace Dock resolves
         // that workspace's window (see `dockReferenceTabManager`).
         guard let manager = dockReferenceTabManager(for: sourceDock) else { return false }
@@ -270,6 +265,10 @@ extension AppDelegate {
     }
 
     private func canMoveSurfaceIntoDock(_ source: ContainerSurfaceLocation) -> Bool {
+        if case .dock(let dock, _) = source,
+           dock.contentPolicy == .fixed {
+            return false
+        }
         switch source {
         case .workspace(_, let workspace, let panelId, _):
             if workspace.panels[panelId]?.panelType == .simulator {

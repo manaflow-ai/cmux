@@ -38,6 +38,7 @@ export type AuthedUser = {
   isAnonymous?: boolean;
   displayName: string | null;
   primaryEmail: string | null;
+  primaryEmailVerified?: boolean;
   billingCustomerType: "team" | "user";
   billingTeamId: string;
   selectedTeamId: string | null;
@@ -839,6 +840,7 @@ async function authedUserFromStackUser(
       isAnonymous: user.isAnonymous === true,
       displayName: user.displayName,
       primaryEmail: user.primaryEmail,
+      primaryEmailVerified: user.primaryEmailVerified === true,
       billingCustomerType: billingTeam ? "team" : "user",
       billingTeamId: billingTeam?.id ?? user.id,
       selectedTeamId: selectedTeam?.id ?? null,
@@ -933,6 +935,7 @@ type StackUserLike = {
   readonly isAnonymous?: boolean;
   readonly displayName: string | null;
   readonly primaryEmail: string | null;
+  readonly primaryEmailVerified?: boolean;
   readonly clientReadOnlyMetadata?: unknown;
   readonly selectedTeam?: unknown;
   readonly listTeams?: (

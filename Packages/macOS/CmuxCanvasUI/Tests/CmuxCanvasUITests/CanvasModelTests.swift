@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import CmuxCanvas
+import Combine
 @testable import CmuxCanvasUI
 
 @MainActor
@@ -87,6 +88,19 @@ struct CanvasModelTests {
         #expect(model.revision == before)
         model.setFrame(CGRect(x: 5, y: 5, width: 300, height: 200), for: a)
         #expect(model.revision != before)
+    }
+
+    @Test func revisionPublisherEmitsDurableLayoutMutations() {
+        let model = makeModel()
+        var revisions: [UInt64] = []
+        let cancellable = model.revisionPublisher.sink { revisions.append($0) }
+        let panelID = UUID()
+
+        model.syncPanes(panelIds: [panelID], focusedPanelId: nil)
+        model.setFrame(CGRect(x: 10, y: 20, width: 300, height: 200), for: panelID)
+
+        #expect(revisions == [0, 1, 2])
+        withExtendedLifetime(cancellable) {}
     }
 
     @Test func reorderPanelClampsExtremeOffsetsWithoutOverflow() {

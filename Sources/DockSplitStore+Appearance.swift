@@ -9,8 +9,10 @@ extension DockSplitStore {
     /// 100pt default because the Dock is hosted in the narrow right sidebar.
     static let minimumDockPaneSize: CGFloat = 48
 
-    func applyGhosttyChrome(from config: GhosttyConfig) {
-        bonsplitController.configuration.appearance = Self.makeAppearance(from: config)
+    func applyGhosttyChrome(from config: GhosttyConfig, tabBarLeadingInset: CGFloat = 0) {
+        var appearance = Self.makeAppearance(from: config)
+        appearance.tabBarLeadingInset = max(0, tabBarLeadingInset)
+        bonsplitController.configuration.appearance = appearance
     }
 
     /// Applies Dock chrome using the window's already-resolved theme color.
@@ -18,12 +20,15 @@ extension DockSplitStore {
     /// active cmux scheme from the ambient window appearance.
     func applyGhosttyChrome(
         from config: GhosttyConfig,
-        windowAppearance: WindowAppearanceSnapshot
+        windowAppearance: WindowAppearanceSnapshot,
+        tabBarLeadingInset: CGFloat = 0
     ) {
-        bonsplitController.configuration.appearance = Self.makeAppearance(
+        var appearance = Self.makeAppearance(
             from: config,
             windowAppearance: windowAppearance
         )
+        appearance.tabBarLeadingInset = max(0, tabBarLeadingInset)
+        bonsplitController.configuration.appearance = appearance
     }
 
     static func makeConfiguration() -> BonsplitConfiguration {

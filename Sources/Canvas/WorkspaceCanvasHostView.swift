@@ -111,6 +111,7 @@ struct WorkspaceCanvasHostView: View {
         case .project: return "folder"
         case .extensionBrowser: return "puzzlepiece.extension"
         case .workspaceTodo: return "checklist"
+        case .workspaceShareChat: return "bubble.left.and.bubble.right.fill"
         case .notifications: return "bell"
         case .cloudVMLoading: return "cloud.fill"
         case .mobilePairing: return "iphone"
@@ -217,6 +218,7 @@ private struct CanvasRootRepresentable: NSViewRepresentable {
                     workspace.syncCanvasBrowserPortalZOrder()
                 },
                 onViewportGeometryChanged: { [weak workspace] window in
+                    workspace?.noteCanvasViewportGeometryChanged()
                     // Window-portal-hosted content (browser webviews) tracks
                     // anchor geometry; canvas scrolls/zooms/drags move anchors
                     // without any split-layout event. Sync each browser anchor

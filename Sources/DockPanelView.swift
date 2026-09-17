@@ -19,6 +19,9 @@ struct DockPanelView: View {
     /// dims its focus ring when false so Dock and main-pane focus are mutually
     /// exclusive (the main pane dims its ring when this is true).
     var rightSidebarOwnsInputFocus: Bool = false
+    var onKeyboardFocusIntent: (() -> Void)? = nil
+    var usesTransparentBackground = false
+    var tabBarLeadingInset: CGFloat = 0
 
     @State private var appearanceConfig = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "dock.initial")
     @State private var appearanceRevision: UInt = 0
@@ -33,6 +36,9 @@ struct DockPanelView: View {
         rootDirectory: String?,
         windowAppearance: WindowAppearanceSnapshot,
         rightSidebarOwnsInputFocus: Bool = false,
+        onKeyboardFocusIntent: (() -> Void)? = nil,
+        usesTransparentBackground: Bool = false,
+        tabBarLeadingInset: CGFloat = 0,
         unreadSource: SidebarUnreadModel
     ) {
         self.store = store
@@ -41,6 +47,9 @@ struct DockPanelView: View {
         self.rootDirectory = rootDirectory
         self.windowAppearance = windowAppearance
         self.rightSidebarOwnsInputFocus = rightSidebarOwnsInputFocus
+        self.onKeyboardFocusIntent = onKeyboardFocusIntent
+        self.usesTransparentBackground = usesTransparentBackground
+        self.tabBarLeadingInset = tabBarLeadingInset
         _unreadProjection = State(initialValue: DockUnreadPanelProjection(
             source: unreadSource,
             workspaceID: store.workspaceId,
@@ -51,7 +60,10 @@ struct DockPanelView: View {
     }
 
     private var appearance: PanelAppearance {
-        PanelAppearance.fromConfig(appearanceConfig)
+        if usesTransparentBackground {
+            return PanelAppearance.fromConfig(appearanceConfig, usesTransparentWindow: true)
+        }
+        return PanelAppearance.fromConfig(appearanceConfig)
     }
 
     private var resolvedChromeBackgroundIdentity: String {
@@ -123,7 +135,7 @@ struct DockPanelView: View {
         let next = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "dock.\(reason)")
         appearanceConfig = next
         appearanceRevision &+= 1
-        store.applyGhosttyChrome(from: next, windowAppearance: windowAppearance)
+        store.applyGhosttyChrome(from: next, windowAppearance: windowAppearance, tabBarLeadingInset: tabBarLeadingInset)
     }
 
     @ViewBuilder
@@ -140,6 +152,8 @@ struct DockPanelView: View {
                 appearance: appearance,
                 appearanceRevision: appearanceRevision,
                 windowAppearance: windowAppearance,
+                usesTransparentBackground: usesTransparentBackground,
+                onKeyboardFocusIntent: onKeyboardFocusIntent,
                 rightSidebarOwnsInputFocus: rightSidebarOwnsInputFocus,
                 unreadPanelIDs: unreadProjection.unreadPanelIDs
             )

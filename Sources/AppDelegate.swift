@@ -625,6 +625,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         weak var window: NSWindow?
         /// Per-window Dock owned by this context and torn down with it.
         var windowDock: DockSplitStore?
+        var workspaceFloatingDockPresenter: WorkspaceFloatingDockPresenter?
         private let workspaceTerminalFontSizeArbiter:
             WorkspaceTerminalFontSizeArbiter
         /// Window-scoped font-size queue. Requests contain stable workspace ids;
@@ -831,6 +832,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // machine lives in `FocusedNotificationMarker` (behind `FocusedNotificationResolving`).
     /// The auth graph, injected once via `configure(...)` at app startup.
     private(set) var auth: MacAuthComposition?
+    /// Owns the authenticated workspace-sharing lifecycle and its active room.
+    private(set) var workspaceShareCoordinator: WorkspaceShareCoordinator?
     var cloudWorkspaceCoordinator: CloudWorkspaceCoordinator?
     var cloudWorkspaceOperationController: CloudWorkspaceOperationController?
     var newMachineSheetPresenter: (any NewMachineSheetPresenting)?
@@ -2456,6 +2459,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Best-effort presence goodbye; unclean exits are covered by the
         // service's missed-heartbeat timeout.
         PresenceHeartbeatClient.shared.appWillTerminate()
+        workspaceShareCoordinator?.stop()
         connectivityInvalidationSubscriberCoordinator.appWillTerminate()
         closeAllWebInspectorsBeforeAppTeardown()
         stopSessionAutosaveTimer()
@@ -2535,6 +2539,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
         self.auth = auth
+        workspaceShareCoordinator = WorkspaceShareCoordinator(
+            auth: auth.coordinator,
+            browserSignIn: auth.browserSignIn,
+            serviceURL: AuthEnvironment.workspaceShareServiceURL
+        )
         self.cloudWorkspaceCoordinator = cloudWorkspaceCoordinator
         self.cloudWorkspaceOperationController = cloudWorkspaceOperationController
         self.newMachineSheetPresenter = newMachineSheetPresenter
@@ -5543,6 +5552,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // (cmuxTests/AppDelegateMainWindowTestingSupport.swift, via @testable
     // import) drive the same registration paths.
     func notifyMainWindowContextsDidChange() {
+        refreshAllWorkspaceFloatingDocks()
         NotificationCenter.default.post(name: .mainWindowContextsDidChange, object: self)
     }
 
@@ -5771,6 +5781,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         attemptStartupSessionRestoreAndSaveIfNeeded(primaryWindow: window)
+        if let context = mainWindowContexts.values.first(where: { $0.tabManager === tabManager }) {
+            context.installWorkspaceFloatingDockPresenterIfNeeded()
+            context.workspaceFloatingDockPresenter?.refresh()
+        }
     }
 
 #if DEBUG
@@ -7006,6 +7020,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // A closing window cannot leave a switch transaction holding renderer
         // protection or frame-notification demand after its context is retired.
         removed.tabManager.workspaceSwitchCoordinator.cancel()
+        removed.teardownWorkspaceFloatingDockPresenter()
         removed.teardownWindowDock()
         removeMobileWorkspaceListObserverIfUnused(for: removed.tabManager)
         notifyMainWindowContextsDidChange()
@@ -7016,6 +7031,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func discardOrphanedMainWindowContext(_ context: MainWindowContext, allowWindowlessFallback: Bool = false) {
         context.tabManager.workspaceSwitchCoordinator.cancel()
         guard transitionMainWindowContextToOrphaned(context) else { return }
+        context.teardownWorkspaceFloatingDockPresenter()
+        context.teardownWindowDock()
         removeMobileWorkspaceListObserverIfUnused(for: context.tabManager)
         notifyMainWindowContextsDidChange()
 

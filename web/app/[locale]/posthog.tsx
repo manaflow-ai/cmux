@@ -5,6 +5,7 @@ import type { CaptureResult } from "posthog-js";
 import { useUser } from "@stackframe/stack";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useLayoutEffect, useRef, Suspense } from "react";
+import { isPrivateSharePath, isPrivateShareURL } from "../../services/share/privacy";
 import { posthog } from "../lib/posthog-client";
 import {
   STACK_IDENTITY_STORAGE_KEY,
@@ -22,6 +23,14 @@ function PageviewTracker() {
 
   useLayoutEffect(() => {
     if (!pathname || !posthog) return;
+    if (isPrivateSharePath(pathname)) {
+      pendingCaptures.current.splice(0);
+      posthog.set_config({ before_send: () => null });
+      return;
+    }
+    const filterPrivateCapture = (event: CaptureResult | null) =>
+      !event || isPrivateSharePath(window.location.pathname) ||
+      isPrivateShareURL(event.properties?.$current_url) ? null : event;
 
     let activeController: AbortController | null = null;
     let generation = 0;
@@ -86,7 +95,7 @@ function PageviewTracker() {
       capturePageview();
     };
     const bufferCapture = (capture: CaptureResult | null) => {
-      if (capture && pendingCaptures.current.length < 100) {
+      if (capture && filterPrivateCapture(capture) && pendingCaptures.current.length < 100) {
         pendingCaptures.current.push(capture);
       }
       return null;
@@ -113,7 +122,7 @@ function PageviewTracker() {
     };
     const recoverAsAnonymous = (replayBuffered: boolean) => {
       clearUnresolvedIdentity();
-      posthog.set_config({ before_send: (event) => event });
+      posthog.set_config({ before_send: filterPrivateCapture });
       flushBufferedCaptures(replayBuffered);
       finishPendingPageview();
     };
@@ -164,7 +173,7 @@ function PageviewTracker() {
           }
           identity = { id: payload.user.id, plan };
         }
-        posthog.set_config({ before_send: (event) => event });
+        posthog.set_config({ before_send: filterPrivateCapture });
         syncStackAnalyticsIdentity(posthog, identityStorage, identity);
         const identityUnchanged = !hadAuthenticatedIdentity
           || identity?.id === previousPostHogUserId;

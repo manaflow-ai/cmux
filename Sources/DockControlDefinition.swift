@@ -105,6 +105,11 @@ struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
             }
             url = normalizedURL
             command = nil
+        case .note:
+            throw Self.validationError(
+                code: 3,
+                message: String(localized: "dock.error.unknownControlType", defaultValue: "Dock control type must be terminal or browser.")
+            )
         }
 
         id = normalizedID
@@ -156,6 +161,12 @@ struct DockControlDefinition: Codable, Equatable, Identifiable, Sendable {
             if !showsBrowserChrome {
                 try container.encode(false, forKey: .chrome)
             }
+        case .note:
+            let context = EncodingError.Context(
+                codingPath: container.codingPath + [CodingKeys.type],
+                debugDescription: String(localized: "dock.error.unknownControlType", defaultValue: "Dock control type must be terminal or browser.")
+            )
+            throw EncodingError.invalidValue(kind.rawValue, context)
         }
         try container.encodeIfPresent(cwd, forKey: .cwd)
         try container.encodeIfPresent(height, forKey: .height)

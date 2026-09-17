@@ -4171,6 +4171,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     func applySurfaceBackground() {
+        let usesFloatingDockGlass = window?.usesWorkspaceFloatingDockGlassBackdrop == true
         let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
             usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
         )
@@ -4181,7 +4182,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
         let fillPlan = TerminalSurfaceBackgroundFillPlan.resolve(
             renderingMode: renderingMode,
-            surfaceBackgroundColor: backgroundColor,
+            // A floating Dock owns one window-level glass substrate. Ignore
+            // pane-local terminal fills here so OSC/theme colors cannot stack
+            // an opaque layer over that shared material.
+            surfaceBackgroundColor: usesFloatingDockGlass ? nil : backgroundColor,
             defaultBackgroundColor: GhosttyApp.shared.defaultBackgroundColor,
             backgroundOpacity: GhosttyApp.shared.defaultBackgroundOpacity,
             sharesWindowBackdrop: sharesWindowBackdrop,
@@ -4251,6 +4255,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
         applySurfaceBackground()
+        guard !window.usesWorkspaceFloatingDockGlassBackdrop else { return }
         let windowChrome = AppWindowChromeComposition()
         let windowRoot = windowChrome
             .appearanceSnapshotFromUserDefaults(app: GhosttyApp.shared)

@@ -797,7 +797,7 @@ extension MobileHostAuthorizationTests {
         for action in [
             "move_up", "move-down", "move_top",
             "close_others", "close_above", "close_below",
-            "clear_name", "close", "self_destruct", "",
+            "share", "clear_name", "close", "self_destruct", "",
         ] {
             #expect(
                 !TerminalController.mobileAllowsWorkspaceAction(action),

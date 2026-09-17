@@ -21,6 +21,7 @@ struct PanelContentView: View {
     let isSplit: Bool
     let appearance: PanelAppearance
     let windowAppearance: WindowAppearanceSnapshot
+    var usesTransparentContainer = false
     let customSidebarTabManager: TabManager?
     let customSidebarUnread: SidebarUnreadModel = TerminalNotificationStore.shared.sidebarUnread
     let hasUnreadNotification: Bool
@@ -84,6 +85,7 @@ struct PanelContentView: View {
                     isVisibleInUI: isVisibleInUI,
                     portalPriority: portalPriority,
                     paneOwnershipOverride: paneOwnershipOverride,
+                    usesTransparentContainer: usesTransparentContainer,
                     resolvedColorScheme: windowAppearance.resolvedColorScheme,
                     inheritedColorScheme: inheritedColorScheme,
                     resolvedThemeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
@@ -202,6 +204,14 @@ struct PanelContentView: View {
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
+        case .workspaceShareChat:
+            if let workspaceShareChatPanel = panel as? WorkspaceShareChatPanel {
+                WorkspaceShareChatPanelView(
+                    panel: workspaceShareChatPanel,
+                    appearance: appearance,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
+            }
         case .notifications:
             if panel is NotificationsPanel {
                 NotificationsPage(
@@ -249,9 +259,9 @@ struct PanelContentView: View {
     private var shouldInstallPaneDropTarget: Bool {
         guard isVisibleInUI else { return false }
         switch panel.panelType {
-        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .simulator, .agentSession, .project, .extensionBrowser, .workspaceTodo, .notifications, .cloudVMLoading, .mobilePairing, .accountSignIn:
+        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .simulator, .agentSession, .project, .extensionBrowser, .workspaceTodo, .workspaceShareChat, .notifications, .cloudVMLoading, .mobilePairing, .accountSignIn:
             return true
-        case .terminal, .browser:
+        case .terminal, .browser, .workspaceShareChat:
             return false
         }
     }
