@@ -3,7 +3,7 @@ set -euo pipefail
 
 APP_PATH="${1:-${CMUX_APP_PATH:-}}"
 TAG="${CMUX_TAG:-ca-main-thread}"
-SOCKET_PATH="${CMUX_SOCKET_PATH:-/tmp/cmux-debug-${TAG}.sock}"
+SOCKET_PATH="${CMUX_CA_ASSERT_SOCKET_PATH:-/tmp/cmux-debug-${TAG}.sock}"
 LOG_PATH="${CMUX_CA_ASSERT_LOG:-/tmp/cmux-ca-main-thread-${TAG}.log}"
 HOLD_SECONDS="${CMUX_CA_ASSERT_HOLD_SECONDS:-8}"
 READY_TIMEOUT_SECONDS="${CMUX_CA_ASSERT_READY_TIMEOUT_SECONDS:-60}"
@@ -12,6 +12,7 @@ APP_PID_FILE="${CMUX_CA_ASSERT_PID_FILE:-/tmp/cmux-ca-main-thread-${TAG}.pid}"
 if [ -z "$APP_PATH" ]; then
   echo "usage: CMUX_APP_PATH=/path/to/cmux.app $0" >&2
   echo "   or: $0 /path/to/cmux.app" >&2
+  echo "optional: CMUX_CA_ASSERT_SOCKET_PATH=/tmp/cmux-debug-<tag>.sock" >&2
   exit 2
 fi
 

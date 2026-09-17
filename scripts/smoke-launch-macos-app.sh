@@ -16,12 +16,27 @@ INFO_PLIST="$APP_PATH/Contents/Info.plist"
 BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$INFO_PLIST")"
 EXECUTABLE_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$INFO_PLIST")"
 EXECUTABLE_PATH="$APP_PATH/Contents/MacOS/$EXECUTABLE_NAME"
+# Nightly ships per-architecture bundles. An x86_64-only app can launch on an Apple
+# silicon host only through Rosetta; without it the smoke launch is an environment
+# gap, not a product defect, so report and skip instead of failing the packaging.
+HOST_ARCH="$(uname -m)"
+if command -v lipo >/dev/null 2>&1 && ! lipo "$EXECUTABLE_PATH" -verify_arch "$HOST_ARCH" 2>/dev/null; then
+  APP_ARCHS="$(lipo -archs "$EXECUTABLE_PATH" 2>/dev/null || echo unknown)"
+  if [[ "$HOST_ARCH" == "arm64" && "$APP_ARCHS" == "x86_64" ]] && /usr/bin/arch -x86_64 /usr/bin/true 2>/dev/null; then
+    echo "smoke: launching x86_64-only app through Rosetta on $HOST_ARCH host"
+  else
+    echo "SKIP: cannot smoke-launch an app built for '$APP_ARCHS' on a $HOST_ARCH host (Rosetta unavailable)"
+    exit 0
+  fi
+fi
 STARTUP_TIMEOUT_SECONDS="${CMUX_SMOKE_STARTUP_TIMEOUT_SECONDS:-10}"
 STABLE_SECONDS="${CMUX_SMOKE_STABLE_SECONDS:-5}"
 OPEN_LOG="$(mktemp -t cmux-smoke-open.XXXXXX)"
 APP_PID=""
 PREEXISTING_PIDS="$(pgrep -f "$EXECUTABLE_PATH" 2>/dev/null || true)"
 DEBUG_LOGS="${CMUX_SMOKE_DEBUG_LOGS:-0}"
+ALLOW_UNSUPPORTED_GUI="${CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI:-0}"
+DIRECT_EXEC="${CMUX_SMOKE_DIRECT_EXEC:-0}"
 DISABLE_ICON_PERSISTENCE_KEY="cmuxDisableBundleIconPersistence"
 
 cleanup() {
@@ -64,18 +79,34 @@ dump_system_log() {
   fi
 }
 
+open_log_indicates_unsupported_gui() {
+  [[ -s "$OPEN_LOG" ]] || return 1
+  grep -Fq 'OSLaunchdErrorDomain Code=125' "$OPEN_LOG" \
+    && grep -Fq 'Domain does not support specified action' "$OPEN_LOG"
+}
+
 echo "==> smoke launching $APP_PATH"
 # The Dock tile plugin can run in the Dock process, so seed the shared app
 # defaults domain before LaunchServices starts the app.
 /usr/bin/defaults write "$BUNDLE_ID" "$DISABLE_ICON_PERSISTENCE_KEY" -bool YES
-/usr/bin/open -n -g "$APP_PATH" --args -ApplePersistenceIgnoreState YES --cmux-disable-bundle-icon-persistence >"$OPEN_LOG" 2>&1 &
+if [[ "$DIRECT_EXEC" == "1" ]]; then
+  CMUX_UI_TEST_MODE="${CMUX_UI_TEST_MODE:-1}" \
+    "$EXECUTABLE_PATH" -ApplePersistenceIgnoreState YES --cmux-disable-bundle-icon-persistence >"$OPEN_LOG" 2>&1 &
+else
+  CMUX_UI_TEST_MODE="${CMUX_UI_TEST_MODE:-1}" \
+    /usr/bin/open -n -g "$APP_PATH" --args -ApplePersistenceIgnoreState YES --cmux-disable-bundle-icon-persistence >"$OPEN_LOG" 2>&1 &
+fi
 OPEN_PID=$!
 
 # CI-only LaunchServices smoke: open returns before the app process is visible.
 # Use bounded polling to wait for registration, then a bounded liveness window.
 deadline=$((SECONDS + STARTUP_TIMEOUT_SECONDS))
 while (( SECONDS < deadline )); do
-  APP_PID="$(find_new_app_pid || true)"
+  if [[ "$DIRECT_EXEC" == "1" ]]; then
+    APP_PID="$OPEN_PID"
+  else
+    APP_PID="$(find_new_app_pid || true)"
+  fi
   if [[ -n "$APP_PID" ]]; then
     break
   fi
@@ -87,6 +118,11 @@ done
 
 if [[ -z "$APP_PID" ]]; then
   echo "error: app process did not appear for bundle $BUNDLE_ID within ${STARTUP_TIMEOUT_SECONDS}s" >&2
+  if [[ "$ALLOW_UNSUPPORTED_GUI" == "1" ]] && open_log_indicates_unsupported_gui; then
+    echo "warning: GUI launch smoke unsupported on this runner, skipping launch-only check" >&2
+    dump_open_log
+    exit 0
+  fi
   dump_open_log
   exit 1
 fi

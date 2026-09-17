@@ -32,6 +32,8 @@ from typing import Any, Callable, Iterable
 
 DEFAULT_DURATION_SECONDS = 12 * 60 * 60
 DEFAULT_TIMEOUT_SECONDS = 12.0
+# Outer harness allowance above BrowserScreenshotTimingBudget's 41.5-second client deadline.
+BROWSER_SCREENSHOT_TIMEOUT_SECONDS = 45.0
 DEFAULT_BURST_WORKERS = 6
 DEFAULT_BURST_REQUESTS = 48
 DIAGNOSTIC_TEXT_LIMIT_BYTES = 256 * 1024
@@ -42,6 +44,7 @@ MIN_SPINDUMP_FREE_BYTES = 2 * 1024 * 1024 * 1024
 
 
 TOP_LEVEL_COMMANDS = {
+    "agent",
     "welcome",
     "docs",
     "settings",
@@ -50,6 +53,8 @@ TOP_LEVEL_COMMANDS = {
     "disable-browser",
     "enable-browser",
     "browser-status",
+    "restore",
+    "fork",
     "restore-session",
     "open",
     "feedback",
@@ -849,12 +854,24 @@ def require(value: str | None, label: str) -> str:
 
 def build_cli_cases(ctx: StressContext) -> list[CliCase]:
     any_code = tuple(range(0, 128))
+
+    def focus_pane_args(c: StressContext) -> list[str]:
+        c.ensure_core_surfaces()
+        return [
+            "focus-pane",
+            "--workspace",
+            require(c.workspace_id, "workspace"),
+            "--pane",
+            require(c.pane_id, "pane"),
+        ]
+
     cases = [
         CliCase("version-flag", argv("--version"), no_socket=True, covered_command="version"),
         CliCase("version-command", argv("version"), no_socket=True, covered_command="version"),
         CliCase("help-flag", argv("--help"), no_socket=True, covered_command="help"),
         CliCase("help-command", argv("help"), no_socket=True, covered_command="help"),
         CliCase("welcome", argv("welcome"), no_socket=True, covered_command="welcome"),
+        CliCase("agent-help", argv("agent", "--help"), no_socket=True, covered_command="agent"),
         CliCase("docs", argv("docs"), no_socket=True, covered_command="docs"),
         CliCase("docs-settings", argv("docs", "settings"), no_socket=True, covered_command="docs"),
         CliCase("settings-path", argv("settings", "path"), no_socket=True, covered_command="settings"),
@@ -865,6 +882,8 @@ def build_cli_cases(ctx: StressContext) -> list[CliCase]:
         CliCase("disable-browser-help", argv("disable-browser", "--help"), no_socket=True, covered_command="disable-browser"),
         CliCase("enable-browser-help", argv("enable-browser", "--help"), no_socket=True, covered_command="enable-browser"),
         CliCase("browser-status", argv("browser-status", "--json"), no_socket=True, covered_command="browser-status", env_factory=lambda c: c.no_socket_env()),
+        CliCase("restore-help", argv("restore", "--help"), no_socket=True, covered_command="restore"),
+        CliCase("fork-help", argv("fork", "--help"), no_socket=True, covered_command="fork"),
         CliCase("restore-session-help", argv("restore-session", "--help"), no_socket=True, covered_command="restore-session"),
         CliCase("feedback-help", argv("feedback", "--help"), no_socket=True, covered_command="feedback"),
         CliCase("feed-help", argv("feed", "--help"), no_socket=True, covered_command="feed"),
@@ -906,7 +925,7 @@ def build_cli_cases(ctx: StressContext) -> list[CliCase]:
         CliCase("list-pane-surfaces", ctx_argv(lambda c: ["list-pane-surfaces", "--workspace", require(c.workspace_id, "workspace")]), covered_command="list-pane-surfaces"),
         CliCase("tree", argv("--json", "tree", "--all"), covered_command="tree"),
         CliCase("top", argv("--json", "top", "--all"), timeout=20, covered_command="top"),
-        CliCase("focus-pane", ctx_argv(lambda c: ["focus-pane", "--workspace", require(c.workspace_id, "workspace"), "--pane", require(c.pane_id, "pane")]), covered_command="focus-pane"),
+        CliCase("focus-pane", ctx_argv(focus_pane_args), covered_command="focus-pane"),
         CliCase("new-pane", ctx_argv(lambda c: ["new-pane", "--workspace", require(c.workspace_id, "workspace"), "--type", "terminal", "--direction", "right", "--focus", "false"]), covered_command="new-pane", layout_mutation=True),
         CliCase("new-surface", ctx_argv(lambda c: ["new-surface", "--workspace", require(c.workspace_id, "workspace"), "--type", "terminal", "--focus", "false"]), covered_command="new-surface", layout_mutation=True),
         CliCase("new-split", ctx_argv(lambda c: ["new-split", "right", "--workspace", require(c.workspace_id, "workspace"), "--surface", require(c.surface_id, "surface"), "--focus", "false"]), expect_codes=any_code, covered_command="new-split", layout_mutation=True),
@@ -1014,7 +1033,7 @@ def browser_cli_cases() -> list[CliCase]:
         CliCase("browser-press", ctx_argv(lambda c: ["browser", "--surface", require(c.browser_surface_id, "browser surface"), "press", "Enter"]), expect_codes=any_code, covered_command="browser"),
         CliCase("browser-select", ctx_argv(lambda c: ["browser", "--surface", require(c.browser_surface_id, "browser surface"), "select", "#s", "b"]), expect_codes=any_code, covered_command="browser"),
         CliCase("browser-scroll", ctx_argv(lambda c: ["browser", "--surface", require(c.browser_surface_id, "browser surface"), "scroll", "--dy", "20"]), expect_codes=any_code, covered_command="browser"),
-        CliCase("browser-screenshot", ctx_argv(lambda c: ["browser", "--surface", require(c.browser_surface_id, "browser surface"), "screenshot", "--out", str(c.screenshot_path)]), expect_codes=any_code, timeout=20, covered_command="browser"),
+        CliCase("browser-screenshot", ctx_argv(lambda c: ["browser", "--surface", require(c.browser_surface_id, "browser surface"), "screenshot", "--out", str(c.screenshot_path)]), expect_codes=any_code, timeout=BROWSER_SCREENSHOT_TIMEOUT_SECONDS, covered_command="browser"),
         CliCase("browser-get-title", ctx_argv(lambda c: ["browser", "--surface", require(c.browser_surface_id, "browser surface"), "get", "title"]), expect_codes=any_code, covered_command="browser"),
         CliCase("browser-get-text", ctx_argv(lambda c: ["browser", "--surface", require(c.browser_surface_id, "browser surface"), "get", "text", "body"]), expect_codes=any_code, covered_command="browser"),
         CliCase("browser-is-visible", ctx_argv(lambda c: ["browser", "--surface", require(c.browser_surface_id, "browser surface"), "is", "visible", "body"]), expect_codes=any_code, covered_command="browser"),
@@ -1180,7 +1199,7 @@ def browser_socket_cases() -> list[SocketCase]:
         SocketCase("browser.select", "browser.select", lambda c: {**p_browser(c), "selector": "#s", "value": "b"}, expect_ok=None),
         SocketCase("browser.scroll", "browser.scroll", lambda c: {**p_browser(c), "dy": 20}, expect_ok=None),
         SocketCase("browser.scroll_into_view", "browser.scroll_into_view", lambda c: {**p_browser(c), "selector": "body"}, expect_ok=None),
-        SocketCase("browser.screenshot", "browser.screenshot", p_browser, expect_ok=None, timeout=20),
+        SocketCase("browser.screenshot", "browser.screenshot", p_browser, expect_ok=None, timeout=BROWSER_SCREENSHOT_TIMEOUT_SECONDS),
         SocketCase("browser.get.text", "browser.get.text", lambda c: {**p_browser(c), "selector": "body"}, expect_ok=None),
         SocketCase("browser.get.html", "browser.get.html", lambda c: {**p_browser(c), "selector": "body"}, expect_ok=None),
         SocketCase("browser.get.value", "browser.get.value", lambda c: {**p_browser(c), "selector": "#i"}, expect_ok=None),

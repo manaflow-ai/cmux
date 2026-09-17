@@ -40,11 +40,14 @@ extension BrowserPaneDropTargetView: FileDropPaneTarget {
 /// Mouse events are forwarded to the views below via a hide-send-unhide pattern so clicks,
 /// scrolls, and other interactions pass through normally.
 final class FileDropOverlayView: NSView {
+    private typealias ForwardedMouseDragButton = FileDropOverlayMouseDragButton
+    private typealias ForwardedMouseDragTarget = FileDropOverlayMouseDragTarget
+
     /// Fallback handler when no terminal is found under the drop point.
     var onDrop: (([URL]) -> Bool)?
     private var isForwardingMouseEvent = false
-    private weak var forwardedMouseDragTarget: NSView?
-    private var forwardedMouseDragButton: ForwardedMouseDragButton?
+    private var forwardedMouseDragTargets:
+        [ForwardedMouseDragButton: ForwardedMouseDragTarget] = [:]
     /// The WKWebView currently receiving forwarded drag events, so we can
     /// synthesize draggingExited/draggingEntered as the cursor moves.
     weak var activeDragWebView: WKWebView?
@@ -61,6 +64,8 @@ final class FileDropOverlayView: NSView {
     let hintBadgeView = FileDropHintBadgeView(frame: .zero)
     var lastHitTestLogSignature: String?
     var lastDragRouteLogSignatureByPhase: [String: String] = [:]
+    weak var hitTestReferenceView: NSView?
+    var dragUpdateHitTest: (location: NSPoint, view: NSView?)?
 
     override var acceptsFirstResponder: Bool { false }
 
@@ -71,12 +76,6 @@ final class FileDropOverlayView: NSView {
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
-
-    private enum ForwardedMouseDragButton: Equatable {
-        case left
-        case right
-        case other(Int)
-    }
 
     private func dragButton(for event: NSEvent) -> ForwardedMouseDragButton? {
         switch event.type {
@@ -109,12 +108,84 @@ final class FileDropOverlayView: NSView {
         }
     }
 
+    /// Clears one captured target, or every capture when `button` is nil.
+    /// All forwarded-drag reset paths go through this method so target and
+    /// button ownership cannot be cleared independently.
+    private func clearForwardedMouseDragState(
+        for button: ForwardedMouseDragButton? = nil,
+        reason: String
+    ) {
+#if DEBUG
+        let buttons: String
+        if let button {
+            buttons = String(describing: button)
+        } else {
+            buttons = forwardedMouseDragTargets.keys
+                .map(String.init(describing:))
+                .sorted()
+                .joined(separator: ",")
+        }
+        if !buttons.isEmpty {
+            dlog(
+                "overlay.forwardedDrag.reset reason=\(reason) " +
+                "button=\(buttons)"
+            )
+        }
+#endif
+        if let button {
+            forwardedMouseDragTargets.removeValue(forKey: button)
+        } else {
+            forwardedMouseDragTargets.removeAll(keepingCapacity: true)
+        }
+    }
+
+    private func repairForwardedMouseDragStateIfNeeded(for event: NSEvent) {
+        // A portal target can disappear independently for each button. Drop
+        // only the detached capture so another button's drag remains intact.
+        for button in Array(forwardedMouseDragTargets.keys) {
+            guard let target = forwardedMouseDragTargets[button]?.view else {
+                clearForwardedMouseDragState(for: button, reason: "targetDetached")
+                continue
+            }
+            guard target.window != nil else {
+                clearForwardedMouseDragState(for: button, reason: "targetDetached")
+                continue
+            }
+        }
+
+        if let eventButton = dragButton(for: event),
+           shouldTrackForwardedMouseDragStart(for: event.type),
+           forwardedMouseDragTargets[eventButton] != nil {
+            clearForwardedMouseDragState(for: eventButton, reason: "repeatedMouseDown")
+        }
+    }
+
+    private func isForwardedMouseDragMotion(_ eventType: NSEvent.EventType) -> Bool {
+        switch eventType {
+        case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
+            return true
+        default:
+            return false
+        }
+    }
+
     // MARK: Hit-testing — participation is routed by DragOverlayRoutingPolicy so
     // file-drop, bonsplit tab drags, and sidebar tab reorder drags cannot conflict.
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        let pb = NSPasteboard(name: .drag)
         let eventType = NSApp.currentEvent?.type
+        guard WindowInputRoutingContext.allowsFileDropOverlayHitTesting(eventType: eventType) else {
+#if DEBUG
+            logHitTestDecision(
+                pasteboardTypes: nil,
+                eventType: eventType,
+                shouldCapture: false
+            )
+#endif
+            return nil
+        }
+
+        let pb = NSPasteboard(name: .drag)
         let shouldCapture = DragOverlayRoutingPolicy.shouldCaptureFileDropOverlay(
             pasteboardTypes: pb.types,
             eventType: eventType
@@ -142,6 +213,7 @@ final class FileDropOverlayView: NSView {
     private func forwardEvent(_ event: NSEvent) {
         guard !isForwardingMouseEvent else { return }
         guard let window, let contentView = window.contentView else { return }
+        repairForwardedMouseDragStateIfNeeded(for: event)
         let eventButton = dragButton(for: event)
 
         isForwardingMouseEvent = true
@@ -153,30 +225,32 @@ final class FileDropOverlayView: NSView {
 
         let target: NSView?
         if let eventButton,
-           forwardedMouseDragButton == eventButton,
-           let activeTarget = forwardedMouseDragTarget,
+           (isForwardedMouseDragMotion(event.type)
+            || shouldTrackForwardedMouseDragEnd(for: event.type)),
+           let activeTarget = forwardedMouseDragTargets[eventButton]?.view,
            activeTarget.window != nil {
-            // Preserve normal AppKit mouse-delivery semantics: once a drag starts,
-            // keep routing dragged/up events to the original mouseDown target.
+            // Preserve normal AppKit mouse-delivery semantics: once a drag
+            // starts, keep routing dragged/up events to that button's original
+            // mouseDown target.
             target = activeTarget
         } else {
-            let point = contentView.convert(event.locationInWindow, from: nil)
-            target = contentView.hitTest(point)
+            // A stale file-drop pasteboard can make the overlay receive a
+            // dragged/up event even though its down was delivered underneath.
+            // Recover the normal target in that case instead of dropping the
+            // event and leaving the underlying selection gesture incomplete.
+            target = contentView.cmuxHitTest(windowPoint: event.locationInWindow)
         }
 
         guard let target, target !== self else {
             if shouldTrackForwardedMouseDragEnd(for: event.type),
-               let eventButton,
-               forwardedMouseDragButton == eventButton {
-                forwardedMouseDragTarget = nil
-                forwardedMouseDragButton = nil
+               let eventButton {
+                clearForwardedMouseDragState(for: eventButton, reason: "targetUnavailable")
             }
             return
         }
 
         if shouldTrackForwardedMouseDragStart(for: event.type), let eventButton {
-            forwardedMouseDragTarget = target
-            forwardedMouseDragButton = eventButton
+            forwardedMouseDragTargets[eventButton] = ForwardedMouseDragTarget(view: target)
         }
 
         switch event.type {
@@ -194,10 +268,15 @@ final class FileDropOverlayView: NSView {
         }
 
         if shouldTrackForwardedMouseDragEnd(for: event.type),
-           let eventButton,
-           forwardedMouseDragButton == eventButton {
-            forwardedMouseDragTarget = nil
-            forwardedMouseDragButton = nil
+           let eventButton {
+            clearForwardedMouseDragState(for: eventButton, reason: "mouseUp")
+        }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            clearForwardedMouseDragState(reason: "overlayDetached")
         }
     }
 
@@ -248,6 +327,30 @@ final class FileDropOverlayView: NSView {
         }
     }
 
+    private func exitActiveDragTargets(
+        _ sender: (any NSDraggingInfo)?,
+        exceptPaneDropTarget paneDropTarget: (any FileDropPaneTarget)?,
+        webView: WKWebView?
+    ) {
+        if let prev = activeDragWebView, prev !== webView {
+            prev.draggingExited(sender)
+            activeDragWebView = nil
+        }
+        if let prev = activePaneDropTarget,
+           !samePaneDropTarget(prev, paneDropTarget) {
+            prev.fileDropDraggingExited(sender)
+            activePaneDropTarget = nil
+        }
+    }
+
+    private func samePaneDropTarget(
+        _ lhs: (any FileDropPaneTarget)?,
+        _ rhs: (any FileDropPaneTarget)?
+    ) -> Bool {
+        guard let lhs, let rhs else { return lhs == nil && rhs == nil }
+        return (lhs as AnyObject) === (rhs as AnyObject)
+    }
+
     override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         let hasLocalDraggingSource = sender.draggingSource != nil
         let types = sender.draggingPasteboard.types
@@ -257,15 +360,16 @@ final class FileDropOverlayView: NSView {
         )
         if shouldRouteFileDropToTextDestination(sender) {
             let paneDropTarget = activePaneDropTarget ?? paneDropTargetForTextDrop(at: sender.draggingLocation)
-            exitActiveDragTargets(sender)
-            preparedDragWebView = nil
+            let webView = paneDropTarget == nil ? (activeDragWebView ?? webViewUnderPoint(sender.draggingLocation)) : nil
+            exitActiveDragTargets(sender, exceptPaneDropTarget: paneDropTarget, webView: webView)
             if let paneDropTarget {
+                preparedDragWebView = nil
                 let accepted = paneDropTarget.fileDropPrepareForDragOperation(sender)
                 preparedPaneDropTarget = accepted ? paneDropTarget : nil
                 return accepted
             }
             preparedPaneDropTarget = nil
-            if let webView = webViewUnderPoint(sender.draggingLocation) {
+            if let webView {
                 let accepted = webView.prepareForDragOperation(sender)
                 preparedDragWebView = accepted ? webView : nil
                 return accepted
@@ -293,8 +397,9 @@ final class FileDropOverlayView: NSView {
             exitActiveDragTargets(sender)
             return false
         }
-        preparedDragWebView = nil
+        exitActiveDragTargets(sender, exceptPaneDropTarget: paneDropTarget, webView: webView)
         if let paneDropTarget {
+            preparedDragWebView = nil
             let accepted = paneDropTarget.fileDropPrepareForDragOperation(sender)
             preparedPaneDropTarget = accepted ? paneDropTarget : nil
             return accepted
@@ -321,16 +426,19 @@ final class FileDropOverlayView: NSView {
             performedTextDragWebView = nil
             performedTextPaneDropTarget = nil
             let paneDropTarget = preparedPaneDropTarget ?? activePaneDropTarget ?? paneDropTargetForTextDrop(at: sender.draggingLocation)
-            let webView = preparedDragWebView ?? activeDragWebView ?? webViewUnderPoint(sender.draggingLocation)
-            exitActiveDragTargets(sender)
-            preparedDragWebView = nil
+            let webView = paneDropTarget == nil
+                ? (preparedDragWebView ?? activeDragWebView ?? webViewUnderPoint(sender.draggingLocation))
+                : nil
+            exitActiveDragTargets(sender, exceptPaneDropTarget: paneDropTarget, webView: webView)
             if let paneDropTarget {
+                preparedDragWebView = nil
                 let handled = paneDropTarget.fileDropPerformDragOperation(sender)
                 if handled {
                     didPerformDragAsText = true
                     performedTextPaneDropTarget = paneDropTarget
                 } else {
                     preparedPaneDropTarget = nil
+                    activePaneDropTarget = nil
                 }
                 return handled
             }
@@ -339,7 +447,10 @@ final class FileDropOverlayView: NSView {
                 if !handled {
                     preparedDragWebView = nil
                     performedTextDragWebView = nil
+                    activeDragWebView = nil
                 } else {
+                    // Delivered drops only; see BrowserPaneDropTargetView.performDragOperation.
+                    BrowserFileDropNavigationGuard.shared.recordDelivery(webView: webView, pasteboard: sender.draggingPasteboard)
                     didPerformDragAsText = true
                     performedTextDragWebView = webView
                 }
@@ -375,8 +486,9 @@ final class FileDropOverlayView: NSView {
             exitActiveDragTargets(sender)
             return false
         }
-        preparedDragWebView = nil
+        exitActiveDragTargets(sender, exceptPaneDropTarget: paneDropTarget, webView: webView)
         if let paneDropTarget {
+            preparedDragWebView = nil
             let handled = paneDropTarget.fileDropPerformDragOperation(sender)
             if !handled {
                 preparedPaneDropTarget = nil
@@ -387,7 +499,10 @@ final class FileDropOverlayView: NSView {
         preparedPaneDropTarget = nil
         if let webView {
             let handled = webView.performDragOperation(sender)
-            if !handled {
+            if handled {
+                // Delivered drops only; see BrowserPaneDropTargetView.performDragOperation.
+                BrowserFileDropNavigationGuard.shared.recordDelivery(webView: webView, pasteboard: sender.draggingPasteboard)
+            } else {
                 preparedDragWebView = nil
                 activeDragWebView = nil
             }
@@ -413,10 +528,13 @@ final class FileDropOverlayView: NSView {
         if didPerformDragAsText {
             if let paneDropTarget = performedTextPaneDropTarget ?? preparedPaneDropTarget ?? activePaneDropTarget {
                 paneDropTarget.fileDropConcludeDragOperation(sender)
+                exitActiveDragTargets(sender, exceptPaneDropTarget: paneDropTarget, webView: nil)
             } else if let webView = performedTextDragWebView {
                 webView.concludeDragOperation(sender)
+                exitActiveDragTargets(sender, exceptPaneDropTarget: nil, webView: webView)
+            } else {
+                exitActiveDragTargets(sender)
             }
-            exitActiveDragTargets(sender)
             return
         }
         guard DragOverlayRoutingPolicy.shouldCaptureFileDropDestination(
@@ -427,10 +545,12 @@ final class FileDropOverlayView: NSView {
         }
         if let paneDropTarget = preparedPaneDropTarget ?? activePaneDropTarget {
             paneDropTarget.fileDropConcludeDragOperation(sender)
+            exitActiveDragTargets(sender, exceptPaneDropTarget: paneDropTarget, webView: nil)
             return
         }
         if let webView = preparedDragWebView ?? activeDragWebView {
             webView.concludeDragOperation(sender)
+            exitActiveDragTargets(sender, exceptPaneDropTarget: nil, webView: webView)
         }
     }
 

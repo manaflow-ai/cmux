@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# cmux pre-commit hook
+# Installed by ./scripts/setup.sh via `git config core.hooksPath scripts/git-hooks`.
+# Normalizes cmux.xcodeproj/project.pbxproj when staged so Xcode's
+# nondeterministic section reordering never reaches a commit.
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+PBXPROJ="cmux.xcodeproj/project.pbxproj"
+
+# Only run when the pbxproj is part of this commit.
+if ! git diff --cached --name-only --diff-filter=ACMRT | grep -Fxq "$PBXPROJ"; then
+    exit 0
+fi
+
+cd "$REPO_ROOT"
+
+# Refuse to normalize when the working-tree pbxproj has unstaged changes.
+# Otherwise the `git add` at the end would silently stage hunks the
+# user deliberately left out of this commit.
+if ! git diff --quiet -- "$PBXPROJ"; then
+    echo "pre-commit: $PBXPROJ has unstaged changes; cannot safely normalize." >&2
+    echo "Either stage the whole file (git add $PBXPROJ) or stash the unstaged hunks before committing." >&2
+    exit 1
+fi
+
+python3 scripts/normalize-pbxproj.py "$PBXPROJ"
+
+# If the normalizer rewrote the file, restage so the commit captures
+# the normalized form. (Working tree had no unstaged changes per the
+# guard above, so anything that changed is purely from normalization.)
+if ! git diff --quiet -- "$PBXPROJ"; then
+    git add "$PBXPROJ"
+fi

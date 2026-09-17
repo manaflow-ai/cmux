@@ -21,7 +21,8 @@ func FuzzTmuxCompatArgParser(f *testing.F) {
 	f.Fuzz(func(t *testing.T, input string) {
 		fields := strings.Fields(input)
 		_, _, _ = splitTmuxCmd(fields)
-		// These value and boolean flag lists mirror the pinned tmux corpus port map.
+		// The first list contains tmux flags that require values, and the second contains flag-only options.
+		// Keep both lists in sync with parseTmuxArgs coverage and the source-named tmux corpus tests.
 		_ = parseTmuxArgs(fields, []string{"-c", "-F", "-n", "-s", "-t", "-x", "-y", "-S", "-E"}, []string{"-A", "-b", "-d", "-D", "-h", "-J", "-L", "-N", "-p", "-P", "-R", "-U", "-v"})
 	})
 }

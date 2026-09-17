@@ -1,4 +1,5 @@
 import AppKit
+import CmuxTerminal
 
 @MainActor
 func cmuxCloseFocusedTerminalFindForEscape(event: NSEvent, appDelegate: AppDelegate) -> Bool {
@@ -8,13 +9,16 @@ func cmuxCloseFocusedTerminalFindForEscape(event: NSEvent, appDelegate: AppDeleg
         ?? (event.windowNumber > 0 ? NSApp.window(withWindowNumber: event.windowNumber) : nil)
         ?? NSApp.keyWindow
         ?? NSApp.mainWindow
+    if shortcutWindow?.firstResponder is TextBoxInputTextView {
+        return false
+    }
     let terminalFindFieldOwnsResponder = cmuxFindTextFieldOwner(for: shortcutWindow?.firstResponder)?
         .identifier?.rawValue == "TerminalFindSearchTextField"
     let targetTabManager = appDelegate.synchronizeActiveMainWindowContext(preferredWindow: shortcutWindow)
 
     guard let panel = (targetTabManager ?? appDelegate.tabManager)?.selectedTerminalPanel,
           panel.searchState != nil,
-          !browserResponderHasMarkedText(shortcutWindow?.firstResponder),
+          !shortcutResponderHasMarkedText(shortcutWindow?.firstResponder),
           terminalFindFieldOwnsResponder || appDelegate.allowsTerminalKeyboardFocus(
               workspaceId: panel.workspaceId,
               panelId: panel.id,
@@ -27,7 +31,7 @@ func cmuxCloseFocusedTerminalFindForEscape(event: NSEvent, appDelegate: AppDeleg
     cmuxDebugLog("find.escape.close terminal panel=\(panel.id.uuidString.prefix(5))")
 #endif
     panel.hostedView.beginFindEscapeSuppression()
-    panel.searchState = nil
+    panel.surface.closeSearchFromExplicitInput()
     panel.hostedView.moveFocus()
     return true
 }

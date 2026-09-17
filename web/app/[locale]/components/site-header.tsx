@@ -1,7 +1,11 @@
 "use client";
 
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { Link } from "../../../i18n/navigation";
+import {
+  fallbackContentLocales,
+  jobsContentLocales,
+} from "../../../i18n/locale-availability";
 import { NavLinks } from "./nav-links";
 import { DownloadButton } from "./download-button";
 import { ThemeToggle } from "../theme";
@@ -11,6 +15,9 @@ import {
   MobileDrawerOverlay,
   MobileDrawerToggle,
 } from "./mobile-drawer";
+import { BrandLogoLink } from "./brand-logo-link";
+import { ProUpgradeVisibility } from "./pro-upgrade-visibility";
+import { ContentLocaleLink } from "./content-locale-link";
 
 export function SiteHeader({
   section,
@@ -21,6 +28,7 @@ export function SiteHeader({
 }) {
   const t = useTranslations("nav");
   const tc = useTranslations("common");
+  const locale = useLocale();
   const { open, toggle, close, drawerRef, buttonRef } = useMobileDrawer();
 
   return (
@@ -31,7 +39,7 @@ export function SiteHeader({
           <div className="flex min-w-0 items-center gap-3">
             {!hideLogo && (
               <>
-                <Link href="/" className="flex items-center gap-2.5">
+                <BrandLogoLink className="flex items-center gap-2.5">
                   <img
                     src="/logo.png"
                     alt="cmux"
@@ -42,7 +50,7 @@ export function SiteHeader({
                   <span className="text-sm font-semibold tracking-tight">
                     cmux
                   </span>
-                </Link>
+                </BrandLogoLink>
                 {section && (
                   <>
                     <span className="text-border text-[13px]">/</span>
@@ -136,6 +144,26 @@ export function SiteHeader({
           >
             {t("community")}
           </Link>
+          <ContentLocaleLink
+            href="/jobs"
+            currentLocale={locale}
+            contentLocales={jobsContentLocales}
+            onClick={close}
+            className="hover:text-foreground transition-colors py-1"
+          >
+            {t("jobs")}
+          </ContentLocaleLink>
+          <ProUpgradeVisibility>
+            <ContentLocaleLink
+              href="/pricing"
+              currentLocale={locale}
+              contentLocales={fallbackContentLocales}
+              onClick={close}
+              className="hover:text-foreground transition-colors py-1"
+            >
+              {t("pricing")}
+            </ContentLocaleLink>
+          </ProUpgradeVisibility>
           <GitHubStarsBadge location="mobile_drawer" />
           <div className="pt-2">
             <DownloadButton size="sm" location="mobile_drawer" />
