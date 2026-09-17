@@ -55,6 +55,37 @@ struct CloudTreeMachineResourcesTests {
         #expect(asleep[0].detail == "Asleep")
     }
 
+    @Test("Resource readings cannot be selected and keyboard navigation skips them")
+    @MainActor func resourceReadingsAreDisplayOnly() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let resources = CloudTreeMachineResourceNodeBuilder().groupNode(
+            machine: fixture.machine, snapshot: machine(), now: Self.sampleTime
+        )
+        let next = CloudTreeNode(id: "after-resources", kind: .portsGroup(machine: fixture.machine))
+        fixture.coordinator.apply(nodes: [resources, next])
+        let outline = try #require(fixture.coordinator.outlineView)
+        outline.expandItem(resources)
+        let headerRow = outline.row(forItem: resources)
+        let nextRow = outline.row(forItem: next)
+        outline.selectRowIndexes(IndexSet(integer: headerRow), byExtendingSelection: false)
+
+        for reading in resources.children {
+            #expect(!fixture.coordinator.outlineView(outline, shouldSelectItem: reading))
+            outline.selectRowIndexes(IndexSet(integer: outline.row(forItem: reading)), byExtendingSelection: false)
+            #expect(outline.selectedRow == headerRow)
+            fixture.coordinator.selectQuickSearchMatch(query: reading.searchableTitle)
+            #expect(outline.selectedRow == headerRow)
+        }
+
+        fixture.coordinator.moveSelection(by: 1)
+        #expect(outline.selectedRow == nextRow)
+        fixture.coordinator.moveSelection(by: -1)
+        #expect(outline.selectedRow == headerRow)
+        fixture.coordinator.open(resources)
+        #expect(!outline.isItemExpanded(resources), "The Resources header still toggles expansion")
+    }
+
     @Test("Cloud sections and resource values fit narrow and wide sidebars", arguments: [280.0, 420.0])
     @MainActor func resourceTreeLayout(width: Double) throws {
         let fixture = CloudSidebarOrderingFixture()
