@@ -74,14 +74,12 @@ struct NotificationRowSnapshotBoundaryTests {
 
     @Test func workspaceTitleIndexUsesRenamedGroupName() throws {
         let manager = TabManager(autoWelcomeIfNeeded: false)
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
-        let childId = try #require(manager.tabs.first?.id)
+        let anchor = manager.addWorkspace(title: "Member Workspace", autoWelcomeIfNeeded: false)
         let groupId = try #require(
-            manager.createWorkspaceGroup(name: "Original Group", childWorkspaceIds: [childId])
+            manager.createWorkspaceGroup(name: "Original Group", childWorkspaceIds: [anchor.id])
         )
-        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
-        let anchor = try #require(manager.tabs.first { $0.id == group.anchorWorkspaceId })
-        let staleAnchorTitle = anchor.title
+        // Promoting a member retains its title while the index uses the group name.
+        manager.setWorkspaceGroupAnchor(groupId: groupId, workspaceId: anchor.id)
 
         let appDelegate = AppDelegate()
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
@@ -89,7 +87,7 @@ struct NotificationRowSnapshotBoundaryTests {
 
         manager.renameWorkspaceGroup(groupId: groupId, name: "Renamed Group")
 
-        #expect(anchor.title == staleAnchorTitle)
+        #expect(anchor.title == "Member Workspace")
         #expect(appDelegate.tabTitlesByTabId()[anchor.id] == "Renamed Group")
     }
 
@@ -397,8 +395,7 @@ struct NotificationRowSnapshotBoundaryTests {
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
         let position = TerminalNotificationScrollPosition(row: 100, totalRows: 400)
         #expect(!hostedView.restoreNotificationScrollPosition(position))
-        #expect(!hostedView.userScrolledAwayFromBottom)
-        #expect(!hostedView.allowExplicitScrollbarSync)
+        #expect(hostedView.scrollbackViewportIntent == .followingOutput)
 
         let readyScrollbar = notificationScrollbar(total: 400, offset: 356, len: 44)
         for _ in 0 ..< 3 {
@@ -406,8 +403,7 @@ struct NotificationRowSnapshotBoundaryTests {
         }
 
         #expect(surfaceView.performedBindingActions == ["scroll_to_row:256", "scroll_to_row:256"])
-        #expect(!hostedView.userScrolledAwayFromBottom)
-        #expect(!hostedView.allowExplicitScrollbarSync)
+        #expect(hostedView.scrollbackViewportIntent == .followingOutput)
     }
 
     @Test(arguments: [Notification.Name.ghosttyDidReceiveWheelScroll, NSScrollView.didLiveScrollNotification])

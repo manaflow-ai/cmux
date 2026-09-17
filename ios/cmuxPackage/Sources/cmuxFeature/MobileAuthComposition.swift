@@ -33,6 +33,13 @@ public struct MobileAuthComposition {
     /// enforced separately and remains exact-tag DEV to DEV. Exposed so the
     /// identity provider can label the channel its user ids belong to.
     public let authEnvironment: CMUXAuthEnvironment
+    /// Exact installed-app boundary used by every persistent subsystem.
+    public let appNamespace: MobileIOSAppNamespace?
+    /// Exact Keychain group claimed by this signed bundle.
+    public let keychainAccessGroup: String?
+
+    /// iOS OAuth must not inherit Safari cookies from another cmux build.
+    nonisolated static let oauthBrowserSessionPrivacy: OAuthBrowserSessionPrivacy = .ephemeral
 
     /// UIKit protected-data availability bridge used by auth session restore.
     private let protectedDataAvailability: ProtectedDataAvailability
@@ -63,7 +70,14 @@ public struct MobileAuthComposition {
         diagnosticLog: DiagnosticLog? = nil
     ) {
         self.reachability = reachability
-        let overrides = Self.authOverrides(
+        let appNamespace = MobileIOSAppNamespace(
+            bundleIdentifier: bundle.bundleIdentifier
+        )
+        let keychainAccessGroup = Self.keychainAccessGroup(in: bundle)
+        self.appNamespace = appNamespace
+        self.keychainAccessGroup = keychainAccessGroup
+
+        let sourcedOverrides = Self.authOverrides(
             localConfig: Self.localConfigStringOverrides(in: bundle),
             bakedAuthEnvironment: bundle.object(
                 forInfoDictionaryKey: Self.authEnvironmentInfoPlistKey
@@ -74,7 +88,11 @@ public struct MobileAuthComposition {
         )
         let resolvedEnvironment = Self.resolvedAuthEnvironment(
             isDevelopmentBuild: Self.isDevelopmentBuild,
-            overrides: overrides
+            overrides: sourcedOverrides
+        )
+        let overrides = Self.productionSafeOverrides(
+            sourcedOverrides,
+            authEnvironment: resolvedEnvironment
         )
         self.authEnvironment = resolvedEnvironment
         let resolvedConfig = AuthConfig(
@@ -85,7 +103,12 @@ public struct MobileAuthComposition {
 
         let client = StackAuthClient(
             config: resolvedConfig,
-            tokenStore: Self.tokenStore
+            tokenStore: Self.tokenStore(
+                appNamespace: appNamespace,
+                accessGroup: keychainAccessGroup,
+                legacyProjectID: resolvedConfig.stack.projectId
+            ),
+            oauthBrowserSessionPrivacy: Self.oauthBrowserSessionPrivacy
         )
         let availability = ProtectedDataAvailability()
         let sessionCache = CMUXAuthSessionCache(
@@ -117,15 +140,20 @@ public struct MobileAuthComposition {
             ).stack.projectId,
             defaults: defaults
         )
+        let includesDevAuth = Self.includesDevAuth(
+            policy: policy,
+            resolvedEnvironment: resolvedEnvironment
+        )
         let launch = AuthLaunchOptions(
             clearAuthRequested: environment["CMUX_UITEST_CLEAR_AUTH"] == "1",
             mockDataEnabled: UITestConfig.mockDataEnabled,
             environment: environment,
-            includesDevAuth: Self.includesDevAuth(
-                policy: policy,
-                resolvedEnvironment: resolvedEnvironment
-            ),
-            clearStaleAuthOnLaunch: authProjectSwitched
+            includesDevAuth: includesDevAuth,
+            clearStaleAuthOnLaunch: authProjectSwitched,
+            replaceStoredSessionWithAutoLogin: Self.shouldReplaceStoredSessionWithAutoLogin(
+                includesDevAuth: includesDevAuth,
+                environment: environment
+            )
         )
         // Break the coordinator <-> push cycle: the coordinator is built first
         // and reaches the push service (for its post-sign-in token re-upload)
@@ -161,7 +189,7 @@ public struct MobileAuthComposition {
             shouldObserveCachedRestore: hadCachedSessionAtLaunch
                 && !launch.clearAuthRequested
                 && !launch.mockDataEnabled
-                && !launch.clearStaleAuthOnLaunch
+                && !launch.shouldClearStoredSessionBeforePriming
         )
     }
 
@@ -236,6 +264,7 @@ public struct MobileAuthComposition {
         isDevelopmentBuild: Bool,
         overrides: [String: String]
     ) -> CMUXAuthEnvironment {
+        guard isDevelopmentBuild else { return .production }
         switch overrides[authEnvironmentOverrideKey]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() {
@@ -246,6 +275,20 @@ public struct MobileAuthComposition {
         default:
             return isDevelopmentBuild ? .development : .production
         }
+    }
+
+    /// Release and production-auth builds cannot be redirected by a stale
+    /// LocalConfig.plist or launch override. Keep the auth channel and its
+    /// credential-bearing API origin aligned before constructing AuthConfig.
+    nonisolated static func productionSafeOverrides(
+        _ overrides: [String: String],
+        authEnvironment: CMUXAuthEnvironment
+    ) -> [String: String] {
+        guard authEnvironment == .production else { return overrides }
+        var safe = overrides
+        safe[authEnvironmentOverrideKey] = "production"
+        safe["ApiBaseURL"] = "https://cmux.com"
+        return safe
     }
 
     /// Whether launch enables the `42` debug sign-in shortcut. It signs in
@@ -259,6 +302,20 @@ public struct MobileAuthComposition {
         resolvedEnvironment: CMUXAuthEnvironment
     ) -> Bool {
         policy.includesFortyTwoShortcut && resolvedEnvironment == .development
+    }
+
+    /// Whether an explicit resolved development-auth profile may replace a
+    /// persisted session. A DEBUG build can be pointed at production with
+    /// `--prod-auth`; that channel must never let the replacement marker clear
+    /// a valid production session.
+    nonisolated static func shouldReplaceStoredSessionWithAutoLogin(
+        includesDevAuth: Bool,
+        environment: [String: String]
+    ) -> Bool {
+        includesDevAuth
+            && environment["CMUX_DEV_AUTH_REPLACE_SESSION"] == "1"
+            && !(environment["CMUX_UITEST_STACK_EMAIL"] ?? "").isEmpty
+            && !(environment["CMUX_UITEST_STACK_PASSWORD"] ?? "").isEmpty
     }
 
     /// The defaults key persisting which Stack project id this install last
@@ -322,12 +379,33 @@ public struct MobileAuthComposition {
         #endif
     }
 
-    private static var tokenStore: TokenStoreInit {
+    private static func tokenStore(
+        appNamespace: MobileIOSAppNamespace?,
+        accessGroup: String?,
+        legacyProjectID: String
+    ) -> TokenStoreInit {
         #if DEBUG && targetEnvironment(simulator)
         .memory
         #else
-        .keychain
+        guard let appNamespace else {
+            return .none
+        }
+        return .custom(
+            KeychainStackTokenStore(
+                service: appNamespace.keychainService(
+                    base: "com.cmuxterm.app.auth"
+                ),
+                accessGroup: accessGroup,
+                legacyProjectID: legacyProjectID
+            )
+        )
         #endif
+    }
+
+    private static func keychainAccessGroup(in bundle: Bundle) -> String? {
+        MobileKeychainAccessGroupPolicy.resolve(
+            bundle.object(forInfoDictionaryKey: "CMUXKeychainAccessGroup") as? String
+        )
     }
 
     /// Parse optional string overrides from a bundled `LocalConfig.plist`.

@@ -293,7 +293,7 @@ fn open_child_proc_descriptor_directory() -> io::Result<RawFd> {
                 libc::SYS_openat,
                 libc::AT_FDCWD,
                 PROC_SELF_FD.as_ptr().cast::<libc::c_char>(),
-                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC,
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW,
                 0,
             )
         };

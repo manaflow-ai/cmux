@@ -96,15 +96,15 @@ import Testing
             "workspace.unread-member",
             "groupFooter.group-a",
         ])
-        if case .groupHeader(_, let hasUnread)? = expandedView.groupedListItems.first {
-            #expect(!hasUnread)
+        if case .groupHeader(_, let unread)? = expandedView.groupedListItems.first {
+            #expect(!unread.isUnread)
         } else {
             Issue.record("Expanded group did not render a header")
         }
         #expect(collapsedView.rendersGroupedSections)
         #expect(collapsedView.groupedListItems.map(\.id) == ["group.group-a"])
-        if case .groupHeader(_, let hasUnread)? = collapsedView.groupedListItems.first {
-            #expect(hasUnread)
+        if case .groupHeader(_, let unread)? = collapsedView.groupedListItems.first {
+            #expect(unread.isUnread)
         } else {
             Issue.record("Collapsed group did not render a header")
         }
@@ -333,7 +333,9 @@ import Testing
 
         #expect(view.workspaceSortMenuMode == .automatic)
         // The order editor lists the offline computer so it keeps its slot.
-        #expect(view.computerOrderSheetMachines.map(\.macDeviceID).contains("mac-b"))
+        #expect(view.computerOrderSheetMachines(
+            machineSnapshots: view.liveMachineSnapshots
+        ).map(\.macDeviceID).contains("mac-b"))
     }
 
     @Test func sortMenuShowsEvenWithOneOrZeroKnownComputers() async throws {
@@ -375,13 +377,66 @@ import Testing
             workspaceComputerPriority: ["mac-c", "mac-a"]
         )
 
-        let deviceIDs = view.computerOrderSheetMachines.map(\.macDeviceID)
+        let deviceIDs = view.computerOrderSheetMachines(
+            machineSnapshots: view.liveMachineSnapshots
+        ).map(\.macDeviceID)
         #expect(deviceIDs.first == "mac-c")
         #expect(deviceIDs.count == 3)
         let cIndex = try #require(deviceIDs.firstIndex(of: "mac-c"))
         let aIndex = try #require(deviceIDs.firstIndex(of: "mac-a"))
         let bIndex = try #require(deviceIDs.firstIndex(of: "mac-b"))
         #expect(cIndex < aIndex && aIndex < bIndex)
+    }
+
+    @Test func computerOrderSheetListsSiblingBuildsAsDistinctComputers() async throws {
+        let stableID = MobilePairedMac.pairingID(
+            macDeviceID: "mac-a",
+            instanceTag: "stable"
+        )
+        let nightlyID = MobilePairedMac.pairingID(
+            macDeviceID: "mac-a",
+            instanceTag: "nightly"
+        )
+        let store = await shellStore(pairedMacs: [
+            pairedMac(
+                id: "mac-a",
+                name: "Mac A",
+                lastSeenAt: 20,
+                instanceTag: "stable"
+            ),
+            pairedMac(
+                id: "mac-a",
+                name: "Mac A",
+                lastSeenAt: 10,
+                instanceTag: "nightly"
+            ),
+        ])
+        let view = workspaceListView(
+            workspaces: [
+                workspace(
+                    id: "stable-1",
+                    macDeviceID: "mac-a",
+                    activityAt: 100,
+                    macInstanceTag: "stable"
+                ),
+                workspace(
+                    id: "nightly-1",
+                    macDeviceID: "mac-a",
+                    activityAt: 200,
+                    macInstanceTag: "nightly"
+                ),
+            ],
+            store: store,
+            workspaceSortMode: .computerPriority,
+            workspaceComputerPriority: [nightlyID, stableID]
+        )
+
+        let machines = view.computerOrderSheetMachines(
+            machineSnapshots: view.liveMachineSnapshots
+        )
+        #expect(machines.map(\.id) == [nightlyID, stableID])
+        #expect(machines.map(\.macDeviceID) == ["mac-a", "mac-a"])
+        #expect(machines.map(\.instanceTag) == ["nightly", "stable"])
     }
 
     private func workspaceListView(
@@ -452,7 +507,8 @@ import Testing
         macDeviceID: String,
         activityAt: TimeInterval?,
         groupID: MobileWorkspaceGroupPreview.ID? = nil,
-        hasUnread: Bool = false
+        hasUnread: Bool = false,
+        macInstanceTag: String? = nil
     ) -> MobileWorkspacePreview {
         var preview = MobileWorkspacePreview(
             id: .init(rawValue: id),
@@ -463,6 +519,7 @@ import Testing
             terminals: []
         )
         preview.lastActivityAt = activityAt.map(Date.init(timeIntervalSince1970:))
+        preview.macInstanceTag = macInstanceTag
         return preview
     }
 
@@ -485,7 +542,8 @@ import Testing
     private func pairedMac(
         id: String,
         name: String,
-        lastSeenAt: TimeInterval
+        lastSeenAt: TimeInterval,
+        instanceTag: String? = nil
     ) -> MobilePairedMac {
         MobilePairedMac(
             macDeviceID: id,
@@ -495,7 +553,8 @@ import Testing
             lastSeenAt: Date(timeIntervalSince1970: lastSeenAt),
             isActive: false,
             stackUserID: "user-1",
-            teamID: "team-a"
+            teamID: "team-a",
+            instanceTag: instanceTag
         )
     }
 }

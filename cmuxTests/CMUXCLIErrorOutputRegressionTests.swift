@@ -340,6 +340,118 @@ import Testing
         XCTAssertEqual(methods, ["system.identify", "surface.resume.get"])
     }
 
+    @Test func testRestoreDoesNotExecuteMissingCodexCheckpointAndGuardsStaleBindingClear() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux restore codex missing \(UUID().uuidString)", isDirectory: true)
+        let workingDirectory = root.appendingPathComponent("saved cwd", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        let attemptedURL = root.appendingPathComponent("codex-attempted", isDirectory: false)
+        let executable = root.appendingPathComponent("codex", isDirectory: false)
+        try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try createEmptyCodexStateDatabase(at: codexHome.appendingPathComponent("state_5.sqlite"))
+        try """
+        #!/bin/sh
+        touch \(shellSingleQuote(attemptedURL.path))
+        printf 'ERROR: No saved session found with ID %s\\n' "$3" >&2
+        exit 42
+        """.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let checkpointID = "01a03bc1-7649-7ec3-bdf7-03acf979e086"
+        let surfaceID = UUID().uuidString.lowercased()
+        let workspaceID = UUID().uuidString.lowercased()
+        let response = try restoreResponse(
+            result: [
+                "restore_record": [
+                    "mode": "resumeAgent",
+                    "kind": "codex",
+                    "checkpoint_id": checkpointID,
+                    "source": "session-snapshot",
+                    "working_directory": workingDirectory.path,
+                    "environment": ["CODEX_HOME": codexHome.path],
+                    // Exercise the older prepared-argv-only shape: the
+                    // checkpoint still needs validation even without launch
+                    // capture metadata.
+                    "prepared_arguments": ["codex", "resume", checkpointID],
+                ],
+                // This binding models a verified TUI checkpoint that was later
+                // deleted. Restore must retire it rather than preserving a
+                // permanently stale binding.
+                "resume_binding": [
+                    "name": "Codex",
+                    "kind": "codex",
+                    "command": "codex resume \(checkpointID)",
+                    "cwd": workingDirectory.path,
+                    "checkpoint_id": checkpointID,
+                    "source": "agent-hook",
+                    "resume_evidence_provenance": "tui",
+                    "auto_resume": true,
+                    "updated_at": 123.5,
+                ],
+            ],
+            workspaceID: workspaceID,
+            surfaceID: surfaceID
+        )
+        let clearResponse = try jsonResponse(result: [
+            "cleared": true,
+            "resume_binding": NSNull(),
+        ])
+        let socketPath = "/tmp/cmux-restore-codex-missing-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            responses: [response, clearResponse]
+        )
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["HOME"] = root.path
+        environment["CODEX_HOME"] = codexHome.path
+        environment["PATH"] = "\(root.path):/usr/bin:/bin"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "--surface", surfaceID, "codex", checkpointID],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertNotEqual(result.status, 0, result.diagnostics)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: attemptedURL.path),
+            "a missing Codex checkpoint must never reach codex resume"
+        )
+        XCTAssertTrue(
+            result.stderr.contains("saved agent session is unavailable"),
+            result.diagnostics
+        )
+
+        let requests = try responder.receivedRequests.map { request in
+            let data = try XCTUnwrap(request.data(using: .utf8))
+            return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+        XCTAssertEqual(
+            requests.compactMap { $0["method"] as? String },
+            ["surface.resume.get", "surface.resume.clear"]
+        )
+        let clearParams = try XCTUnwrap(requests.last?["params"] as? [String: Any])
+        XCTAssertEqual(clearParams["checkpoint_id"] as? String, checkpointID)
+        XCTAssertEqual(clearParams["source"] as? String, "agent-hook")
+        XCTAssertEqual(
+            (clearParams["expected_updated_at"] as? NSNumber)?.doubleValue,
+            123.5
+        )
+        XCTAssertEqual(clearParams["agent_session_ended"] as? Bool, true)
+    }
+
     @Test func testRestoreDoesNotResolveBareExecutableFromEmptyPATHComponent() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -690,7 +802,7 @@ import Testing
         let response = try restoreResponse(result: [
             "restore_record": [
                 "mode": "resumeAgent",
-                "kind": "codex",
+                "kind": "command",
                 "checkpoint_id": checkpointID,
                 "working_directory": root.path,
                 "environment": ["LEGACY_RESTORE_VALUE": "kept"],
@@ -711,7 +823,7 @@ import Testing
 
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["restore", "codex", checkpointID],
+            arguments: ["restore", "command", checkpointID],
             environment: environment,
             timeout: 5
         )
@@ -1249,6 +1361,99 @@ import Testing
                 // The CLI emits this diagnostic at the readiness boundary. Wait
                 // for that explicit milestone before making the same socket inode
                 // listen; this avoids turning the regression into a wall-clock race.
+                guard self.waitForFileContentsUsingKqueue(
+                    URL(fileURLWithPath: debugLogPath),
+                    containing: "socket.connect.wait.entered",
+                    timeout: 3
+                ) else {
+                    return
+                }
+                close(startupSocketFD)
+                startupSocketFD = -1
+                responder = try? UnixSocketResponder(
+                    path: socketPath,
+                    responses: [currentWorkspaceResponse, identifyResponse, recordResponse]
+                )
+            }
+        )
+
+        let requiredResponder = try #require(responder)
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
+        let methods = try requiredResponder.receivedRequests.map { request in
+            let data = try #require(request.data(using: .utf8))
+            let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            return try #require(payload["method"] as? String)
+        }
+        #expect(methods == [
+            "workspace.current",
+            "system.identify",
+            "surface.resume.get",
+        ])
+    }
+
+    @Test func testForkWaitsForControlSocketDuringAppStartup() throws {
+        let cliPath = try bundledCLIPath()
+        let checkpointID = UUID().uuidString.lowercased()
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let currentWorkspaceResponse = try jsonResponse(result: [
+            "workspace_id": workspaceID,
+        ])
+        let identifyResponse = try jsonResponse(result: [
+            "caller": [
+                "workspace_id": workspaceID,
+                "surface_id": surfaceID,
+            ],
+            "focused": [:],
+        ])
+        let recordResponse = try jsonResponse(result: [
+            "restore_record": [
+                "mode": "resumeAgent",
+                "kind": "pi",
+                "checkpoint_id": checkpointID,
+                "source": "session-snapshot",
+                "working_directory": "/tmp",
+                "environment": [:],
+                "launch_command": [
+                    "arguments": ["/usr/bin/true"],
+                    "executable_path": "/usr/bin/true",
+                    "working_directory": "/tmp",
+                ],
+                "fork_arguments": ["/usr/bin/true", "--fork", checkpointID],
+                "fork_arguments_working_directory": "/tmp",
+            ],
+        ])
+        let fixtureDirectory = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-fork-startup-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        try FileManager.default.createDirectory(at: fixtureDirectory, withIntermediateDirectories: true)
+        let socketPath = fixtureDirectory.appendingPathComponent("cmux.sock", isDirectory: false).path
+        let debugLogPath = fixtureDirectory.appendingPathComponent("cli.log", isDirectory: false).path
+        var startupSocketFD = try bindUnavailableUnixSocket(at: socketPath)
+        var responder: UnixSocketResponder?
+        defer {
+            if startupSocketFD >= 0 {
+                close(startupSocketFD)
+            }
+            responder?.stop()
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: fixtureDirectory)
+        }
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_DEBUG_LOG"] = debugLogPath
+        environment["CMUX_SURFACE_ID"] = surfaceID
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["fork", "pi", checkpointID],
+            environment: environment,
+            timeout: 5,
+            afterLaunch: {
                 guard self.waitForFileContentsUsingKqueue(
                     URL(fileURLWithPath: debugLogPath),
                     containing: "socket.connect.wait.entered",
@@ -2146,6 +2351,7 @@ import Testing
             (["open"], "open requires at least one path or URL"),
             (["diff", "one.patch", "two.patch"], "diff accepts at most one patch file"),
             (["restore", "codex", UUID().uuidString.lowercased()], "restore: cmux is still opening."),
+            (["fork", "pi", UUID().uuidString.lowercased()], "fork: cmux is still opening."),
             (["restore-session", "--invalid"], "restore-session: unknown flag '--invalid'"),
             (["feedback", "--invalid"], "feedback: unknown flag '--invalid'"),
         ]
@@ -2871,70 +3077,7 @@ import Testing
     }
 
     @Test func testThemesSetNightlyOverridePathIsReadableByNightlyAppConfigResolution() throws {
-        let cliPath = try bundledCLIPath()
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
-            .appendingPathComponent("cmux-themes-nightly-path-\(UUID().uuidString)", isDirectory: true)
-        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: root) }
-
-        let resourcesURL = root.appendingPathComponent("resources", isDirectory: true)
-        let themesURL = resourcesURL.appendingPathComponent("themes", isDirectory: true)
-        try fileManager.createDirectory(at: themesURL, withIntermediateDirectories: true)
-        try writeTheme(named: "Theme A", background: "#101010", to: themesURL)
-
-        // The reload target comes from the socket file name before CMUX_BUNDLE_ID is even
-        // consulted: `cmux-nightly-<slug>.sock` becomes `com.cmuxterm.app.nightly.<slug>`.
-        // So scoping the identifier means scoping the socket name it is read from, and both
-        // take the same hex-only suffix — a raw UUID's dashes would turn into dots in the
-        // identifier. Scoping matters because the reload goes out machine-wide: on the
-        // plain nightly socket name this test told a real nightly build to re-read its
-        // config, and two runs at once shared one identifier.
-        let uniqueSuffix = UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
-        let socketPath = "/tmp/cmux-nightly-\(uniqueSuffix).sock"
-        let bundleIdentifier = "com.cmuxterm.app.nightly.\(uniqueSuffix)"
-        var environment = ProcessInfo.processInfo.environment
-        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-            environment.removeValue(forKey: key)
-        }
-        environment["CFFIXED_USER_HOME"] = root.path
-        environment["HOME"] = root.path
-        environment["GHOSTTY_RESOURCES_DIR"] = resourcesURL.path
-        environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_BUNDLE_ID"] = bundleIdentifier
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-
-        let result = runProcess(
-            executablePath: cliPath,
-            arguments: ["--json", "themes", "set", "Theme A"],
-            environment: environment
-        )
-
-        XCTAssertFalse(result.timedOut, result.diagnostics)
-        XCTAssertEqual(result.status, 0, result.diagnostics)
-
-        // Parsed from stdout alone. This is the check that used to break when a stray
-        // diagnostic line from the runtime shared the pipe with the payload.
-        let payload = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any],
-            result.diagnostics
-        )
-        let configPath = try XCTUnwrap(payload["config_path"] as? String, result.diagnostics)
-        XCTAssertEqual(payload["reload_target_bundle_id"] as? String, bundleIdentifier)
-
-        let appSupportDirectory = root
-            .appendingPathComponent("Library", isDirectory: true)
-            .appendingPathComponent("Application Support", isDirectory: true)
-        let expectedConfigURL = appSupportDirectory
-            .appendingPathComponent(bundleIdentifier, isDirectory: true)
-            .appendingPathComponent("config.ghostty", isDirectory: false)
-        XCTAssertEqual(configPath, expectedConfigURL.path)
-
-        let appReadablePaths = GhosttyApp.cmuxAppSupportConfigURLs(
-            currentBundleIdentifier: bundleIdentifier,
-            appSupportDirectory: appSupportDirectory
-        ).map(\.path)
-        XCTAssertEqual(appReadablePaths, [expectedConfigURL.path])
+        try assertThemesSetOverridePathIsReadableByChannelApp(channel: "nightly")
     }
 
     @Test func testBareInteractiveThemesReloadsRunningAppAfterPickerExits() throws {
@@ -3500,6 +3643,19 @@ import Testing
         return home
     }
 
+    private func createEmptyCodexStateDatabase(at url: URL) throws {
+        var database: OpaquePointer?
+        guard sqlite3_open(url.path, &database) == SQLITE_OK, let database else {
+            sqlite3_close(database)
+            throw NSError(domain: "CodexRestoreFixture", code: 1)
+        }
+        defer { sqlite3_close(database) }
+        let schema = "CREATE TABLE threads (id TEXT PRIMARY KEY, rollout_path TEXT NOT NULL, source TEXT, thread_source TEXT)"
+        guard sqlite3_exec(database, schema, nil, nil, nil) == SQLITE_OK else {
+            throw NSError(domain: "CodexRestoreFixture", code: 2)
+        }
+    }
+
     private func jsonResponse(result: [String: Any]) throws -> String {
         let data = try JSONSerialization.data(
             withJSONObject: ["ok": true, "result": result],
@@ -3656,7 +3812,7 @@ import Testing
             .write(to: markerURL, atomically: true, encoding: .utf8)
     }
 
-    private func writeTheme(named name: String, background: String, to directory: URL) throws {
+    func writeTheme(named name: String, background: String, to directory: URL) throws {
         try """
         background = \(background)
         foreground = #eeeeee

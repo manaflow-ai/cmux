@@ -760,6 +760,7 @@ struct MobileWorkspaceListFidelityTests {
             notificationStore: store
         )
         #expect(readPayload["has_unread"] as? Bool == false)
+        #expect(readPayload["unread_count"] as? Int == 0)
         let readSignatures = MobileWorkspaceListObserver.previewSignatures(
             for: [workspace],
             unreadSnapshot: store.sidebarUnread.snapshot
@@ -775,6 +776,9 @@ struct MobileWorkspaceListFidelityTests {
             notificationStore: store
         )
         #expect(unreadPayload["has_unread"] as? Bool == true)
+        // The panel-derived indicator counts as 1, exactly what the Mac
+        // sidebar badge would show for this workspace.
+        #expect(unreadPayload["unread_count"] as? Int == 1)
 
         let unreadSignatures = MobileWorkspaceListObserver.previewSignatures(
             for: [workspace],

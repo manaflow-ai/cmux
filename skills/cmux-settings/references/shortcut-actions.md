@@ -110,6 +110,8 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.jumpToUnread`
 - `shortcuts.bindings.toggleUnread`
 - `shortcuts.bindings.markOldestUnreadAndJumpNext`
+- `shortcuts.bindings.markAllNotificationsRead`
+- `shortcuts.bindings.clearAllNotifications`
 - `shortcuts.bindings.triggerFlash`
 
 ## Right sidebar
@@ -121,6 +123,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.switchRightSidebarToSessions`
 - `shortcuts.bindings.switchRightSidebarToFeed`
 - `shortcuts.bindings.switchRightSidebarToDock`
+- `shortcuts.bindings.switchRightSidebarToMachines`
 - `shortcuts.bindings.nextSidebarTab`
 - `shortcuts.bindings.prevSidebarTab`
 - `shortcuts.bindings.nextSidebarTabInGroup`

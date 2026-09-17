@@ -16,6 +16,8 @@ final class MobileIrohSettingsModel {
     private(set) var isMutating = false
     private(set) var showsSaveError = false
     private(set) var testResults: [String: CmxIrohRelayTestResult] = [:]
+    private(set) var connectionCheck: CmxIrohConnectionCheckReport?
+    private(set) var isRunningConnectionCheck = false
     private(set) var diagnosticReport = DiagnosticReport.empty
     private(set) var diagnosticExportText = ""
     private(set) var verboseLogEnabled = UserDefaults.standard.bool(
@@ -27,6 +29,12 @@ final class MobileIrohSettingsModel {
     @ObservationIgnored private var mutationToken: UUID?
     @ObservationIgnored private var relayTestTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var relayTestTokens: [String: UUID] = [:]
+    @ObservationIgnored private var connectionCheckTask: Task<Void, Never>?
+    @ObservationIgnored private var connectionCheckGeneration: UInt64 = 0
+
+    var connectionCheckRelayURLs: [String] {
+        modelRelayURLs
+    }
 
     /// The durable verbose log file, offered for sharing once it exists.
     var verboseLogShareURL: URL? {
@@ -56,9 +64,19 @@ final class MobileIrohSettingsModel {
         self.diagnosticLog = diagnosticLog
     }
 
-    func observe() async {
-        diagnosticLog?.recordAppEvent(.irohSettingsOpened)
-        defer { diagnosticLog?.recordAppEvent(.irohSettingsClosed) }
+    /// Loads the snapshot and follows controller updates until cancelled.
+    /// `recordingScreenEvents` is true only for the Networking screen itself;
+    /// embedded hosts (computer detail, top-level Diagnostics) must not fake
+    /// a Networking-screen visit in the diagnostic timeline.
+    func observe(recordingScreenEvents: Bool = true) async {
+        if recordingScreenEvents {
+            diagnosticLog?.recordAppEvent(.irohSettingsOpened)
+        }
+        defer {
+            if recordingScreenEvents {
+                diagnosticLog?.recordAppEvent(.irohSettingsClosed)
+            }
+        }
         snapshot = await controller.irohSettingsSnapshot()
         await reloadDiagnostics()
         for await next in controller.irohSettingsUpdates() {
@@ -108,6 +126,42 @@ final class MobileIrohSettingsModel {
             failed: .irohPathPreferenceChangeFailed
         ) {
             try await self.controller.setIrohPathPreference(preference)
+        }
+    }
+
+    func runConnectionCheck() {
+        guard connectionCheckTask == nil, !isRunningConnectionCheck else { return }
+        connectionCheckGeneration &+= 1
+        let generation = connectionCheckGeneration
+        connectionCheckTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.runConnectionCheckAndWait()
+            if self.connectionCheckGeneration == generation {
+                self.connectionCheckTask = nil
+            }
+        }
+    }
+
+    private func runConnectionCheckAndWait() async {
+        guard !Task.isCancelled, !isRunningConnectionCheck else { return }
+        isRunningConnectionCheck = true
+        defer { isRunningConnectionCheck = false }
+        let report = await controller.runIrohConnectionCheck()
+        guard !Task.isCancelled else { return }
+        let refreshedSnapshot = await controller.irohSettingsSnapshot()
+        guard !Task.isCancelled else { return }
+        connectionCheck = report
+        snapshot = refreshedSnapshot
+        await reloadDiagnostics()
+    }
+
+    func resetToDefaults() {
+        mutate(
+            started: .irohPathPreferenceChangeStarted,
+            succeeded: .irohPathPreferenceChangeSucceeded,
+            failed: .irohPathPreferenceChangeFailed
+        ) {
+            try await self.controller.resetIrohSettingsToDefaults()
         }
     }
 
@@ -203,15 +257,23 @@ final class MobileIrohSettingsModel {
         }
     }
 
-    func removeCustomPrivatePath(macDeviceID: String) {
+    func removeCustomPrivatePath(
+        macDeviceID: String,
+        instanceTag: String?
+    ) {
+        let identity = CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
         mutate(
             started: .irohPrivatePathRemoveStarted,
             succeeded: .irohPrivatePathRemoveSucceeded,
             failed: .irohPrivatePathRemoveFailed,
-            correlationID: macDeviceID
+            correlationID: identity.id
         ) {
             try await self.controller.removeIrohCustomPrivatePath(
-                macDeviceID: macDeviceID
+                macDeviceID: identity.macDeviceID,
+                instanceTag: identity.instanceTag
             )
         }
     }
@@ -256,6 +318,10 @@ final class MobileIrohSettingsModel {
     func cancelOperations() {
         refreshTask?.cancel()
         refreshTask = nil
+        connectionCheckGeneration &+= 1
+        connectionCheckTask?.cancel()
+        connectionCheckTask = nil
+        isRunningConnectionCheck = false
         mutationTask?.cancel()
         mutationTask = nil
         mutationToken = nil
@@ -339,7 +405,12 @@ final class MobileIrohSettingsModel {
     deinit {
         refreshTask?.cancel()
         mutationTask?.cancel()
+        connectionCheckTask?.cancel()
         relayTestTasks.values.forEach { $0.cancel() }
+    }
+
+    private var modelRelayURLs: [String] {
+        snapshot.managedRelays.map(\.url) + snapshot.customRelays.map(\.url)
     }
 }
 #endif

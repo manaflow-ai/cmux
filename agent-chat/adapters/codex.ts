@@ -46,7 +46,6 @@ interface CodexState {
 let shared: AppServer | null = null;
 let sharedStarting: Promise<AppServer> | null = null;
 
-const FALLBACK_EFFORTS: OptionChoice[] = ["low", "medium", "high", "xhigh"].map((value) => ({ value, label: value }));
 const APPROVAL_CHOICES: OptionChoice[] = [
   { value: "untrusted", label: "Untrusted" },
   { value: "on-request", label: "On request" },
@@ -64,7 +63,7 @@ export const codexAdapter: Adapter = {
     triggers: ["$"],
     options: [
       { id: "model", label: "Model", kind: "select", value: "", disabled: true, description: "Loads at start" },
-      { id: "effort", label: "Effort", kind: "select", value: "medium", role: "effort", choices: FALLBACK_EFFORTS },
+      { id: "effort", label: "Effort", kind: "select", value: "", role: "effort", choices: [], disabled: true, description: "Loads with model" },
       { id: "approvals", label: "Approvals", kind: "select", value: "never", choices: APPROVAL_CHOICES },
       { id: "sandbox", label: "Sandbox", kind: "select", value: "workspace-write", choices: SANDBOX_CHOICES },
       { id: "mode", label: "Mode", kind: "select", value: "default", choices: [{ value: "default", label: "Default" }, { value: "plan", label: "Plan" }] },
@@ -460,7 +459,7 @@ function defaultState(autoApprove: boolean): CodexState {
     models: [],
     modes: [{ value: "default", label: "Default" }, { value: "plan", label: "Plan" }],
     model: "",
-    effort: "medium",
+    effort: "",
     approvals: autoApprove ? "never" : "on-request",
     sandbox: autoApprove ? "workspace-write" : "read-only",
     fastMode: false,
@@ -554,6 +553,9 @@ async function setCodexOption(sess: SessionCtx, id: string, value: OptionValue) 
       break;
     case "effort":
       if (typeof value !== "string") throw new Error("effort must be a string");
+      if (!effortForModel(st).choices.some((choice) => choice.value === value)) {
+        throw new Error(`unsupported effort for ${st.model}: ${value}`);
+      }
       st.effort = value;
       break;
     case "fastMode":
@@ -603,7 +605,13 @@ function buildOptions(st: CodexState): SessionOption[] {
       label: "Model",
       kind: "select",
       value: st.model,
-      choices: st.models.map((m) => ({ value: m.value, label: m.label, description: m.description })),
+      choices: st.models.map((m) => ({
+        value: m.value,
+        label: m.label,
+        description: m.description,
+        efforts: m.efforts,
+        defaultEffort: m.defaultEffort,
+      })),
       disabled: !st.models.length,
     },
     { id: "effort", label: "Effort", kind: "select", value: st.effort, role: "effort", choices: effort.choices },
@@ -638,9 +646,9 @@ export function mergeCodexModels(binaryModels: ModelInfo[], remote = agentModelC
     const remoteEfforts = (model.efforts ?? [])
       .map((effort) => ({ value: effort.value, label: effort.label, description: effort.description }))
       .filter((effort) => !isOffLike(effort.value));
-    const efforts = remoteEfforts.length ? remoteEfforts : reported?.efforts ?? FALLBACK_EFFORTS;
+    const efforts = model.efforts ? remoteEfforts : reported?.efforts ?? [];
     const requestedEffort = model.defaultEffort ?? reported?.defaultEffort ?? "";
-    const defaultEffort = efforts.some((effort) => effort.value === requestedEffort) ? requestedEffort : efforts[0]?.value ?? "medium";
+    const defaultEffort = efforts.some((effort) => effort.value === requestedEffort) ? requestedEffort : efforts[0]?.value ?? "";
     return {
       value: model.id,
       label: model.label,
@@ -663,13 +671,13 @@ function normalizeModel(m: any): ModelInfo {
       label: String(e.reasoningEffort ?? e),
       description: e.description ? String(e.description) : undefined,
     })).filter((e: OptionChoice) => !isOffLike(e.value))
-    : FALLBACK_EFFORTS;
+    : [];
   return {
     value: String(m.model ?? m.id),
     label: prettifyModelLabel(String(m.displayName ?? m.model ?? m.id)),
     description: m.description ? String(m.description) : undefined,
     efforts,
-    defaultEffort: String(m.defaultReasoningEffort ?? efforts[0]?.value ?? "medium"),
+    defaultEffort: String(m.defaultReasoningEffort ?? efforts[0]?.value ?? ""),
     serviceTiers: (m.serviceTiers ?? []).map((t: any) => ({
       id: String(t.id),
       name: String(t.name ?? t.id),
@@ -722,10 +730,10 @@ function selectedModel(st: CodexState): ModelInfo | undefined {
 
 function effortForModel(st: CodexState): { value: string; choices: OptionChoice[] } {
   const m = selectedModel(st);
-  const choices = m?.efforts.length ? m.efforts : FALLBACK_EFFORTS;
+  const choices = m?.efforts ?? [];
   const value = choices.some((c) => c.value === st.effort)
     ? st.effort
-    : (m?.defaultEffort && choices.some((c) => c.value === m.defaultEffort) ? m.defaultEffort : choices[0]?.value ?? "medium");
+    : (m?.defaultEffort && choices.some((c) => c.value === m.defaultEffort) ? m.defaultEffort : choices[0]?.value ?? "");
   return { value, choices };
 }
 
