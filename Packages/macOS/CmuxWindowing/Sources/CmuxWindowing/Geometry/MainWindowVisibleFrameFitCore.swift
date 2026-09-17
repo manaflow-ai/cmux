@@ -106,6 +106,50 @@ public struct MainWindowVisibleFrameFitCore: Sendable {
         return rectApproximatelyEqual(fitted, standardizedFrame) ? nil : fitted
     }
 
+    /// Returns the display frame a native-fullscreen window should occupy after
+    /// AppKit has moved it through a display-topology change.
+    ///
+    /// AppKit normally gives a fullscreen window either the physical display
+    /// frame (when the fullscreen Space covers the menu bar) or that display's
+    /// visible frame. Preserve either stable result. Any other full-width frame
+    /// is a transient mix of the old and new display geometry; fit it to the
+    /// target display's physical frame with only that display's top menu-bar
+    /// inset removed. Tiled fullscreen windows are left alone.
+    ///
+    /// - Parameters:
+    ///   - frame: The current native-fullscreen window frame.
+    ///   - displays: Current display geometry snapshots.
+    /// - Returns: A corrected frame, or `nil` when the current frame is already
+    ///   a valid physical or visible fullscreen frame.
+    public func fittedFullscreenFrame(
+        for frame: CGRect,
+        displays: [SessionDisplayGeometry]
+    ) -> CGRect? {
+        let standardizedFrame = frame.standardized
+        guard isUsableRect(standardizedFrame) else { return nil }
+
+        let usableDisplays = displays.filter {
+            isUsableRect($0.frame) && isUsableRect($0.visibleFrame)
+        }
+        guard !usableDisplays.isEmpty else { return nil }
+
+        guard let targetDisplay = fullscreenTargetDisplay(
+            for: standardizedFrame,
+            in: usableDisplays
+        ) else { return nil }
+        let targetFullscreenFrame = fullscreenFrame(for: targetDisplay)
+        if rectApproximatelyEqual(standardizedFrame, targetDisplay.frame)
+            || rectApproximatelyEqual(standardizedFrame, targetFullscreenFrame)
+            || rectApproximatelyEqual(standardizedFrame, targetDisplay.visibleFrame) {
+            return nil
+        }
+
+        let physicalSizeMatch = abs(standardizedFrame.width - targetDisplay.frame.width) <= 2
+            && abs(standardizedFrame.height - targetDisplay.frame.height) <= 2
+        let targetFrame = physicalSizeMatch ? targetDisplay.frame : targetFullscreenFrame
+        return rectApproximatelyEqual(targetFrame, standardizedFrame) ? nil : targetFrame
+    }
+
     private func targetDisplay(
         for frame: CGRect,
         in displays: [SessionDisplayGeometry]
@@ -122,6 +166,29 @@ public struct MainWindowVisibleFrameFitCore: Sendable {
             distanceSquared(from: center, to: lhs.visibleFrame)
                 < distanceSquared(from: center, to: rhs.visibleFrame)
         }
+    }
+
+    private func fullscreenTargetDisplay(
+        for frame: CGRect,
+        in displays: [SessionDisplayGeometry]
+    ) -> SessionDisplayGeometry? {
+        let overlaps = displays.compactMap { display -> (display: SessionDisplayGeometry, area: CGFloat)? in
+            guard abs(frame.width - display.frame.width) <= 2 else { return nil }
+            let area = intersectionArea(frame, display.frame)
+            guard area > 0 else { return nil }
+            return (display, area)
+        }
+        return overlaps.max(by: { $0.area < $1.area })?.display
+    }
+
+    private func fullscreenFrame(for display: SessionDisplayGeometry) -> CGRect {
+        let topInset = max(0, display.frame.maxY - display.visibleFrame.maxY)
+        return CGRect(
+            x: display.frame.minX,
+            y: display.frame.minY,
+            width: display.frame.width,
+            height: max(1, display.frame.height - topInset)
+        )
     }
 
     private func topologyEntry(

@@ -194,7 +194,7 @@ extension TerminalSurface {
     /// - Returns: Whether a runtime size or scale change was applied.
     @discardableResult
     @MainActor
-    public func updateSize(
+    func updateSize(
         width: CGFloat,
         height: CGFloat,
         xScale: CGFloat,
@@ -477,7 +477,6 @@ extension TerminalSurface {
         manualSizeReportPendingWindowAttach = false
         report(sample)
     }
-
     /// Which of ``renderedGridCells()``'s nil conditions currently hold —
     /// lets sizing diagnostics name the mechanism (view detached from its
     /// window vs surface not live vs no real grid) instead of a bare nil.
@@ -488,7 +487,6 @@ extension TerminalSurface {
             surfaceLive: liveSurfaceForGhosttyAccess(reason: "renderedGridDiagnostics") != nil
         )
     }
-
     /// The on-screen rendered grid, or nil while the runtime surface is not
     /// live, is not in a window, or has no real grid yet.
     @MainActor

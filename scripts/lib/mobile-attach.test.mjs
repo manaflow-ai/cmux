@@ -169,10 +169,11 @@ function extractShellFunction(source, name) {
 
 function resolveIOSAPIBaseURL(target, extraEnv = {}) {
   const source = fs.readFileSync(path.join(repoRoot, "ios/scripts/reload.sh"), "utf8");
+  const productionGuard = extractShellFunction(source, "cmux_ios_require_production_origin");
   const resolver = extractShellFunction(source, "cmux_ios_resolve_api_base_url");
   return run(
     "bash",
-    ["-c", `${resolver}; cmux_ios_resolve_api_base_url "$1"`, "ios-origin-test", target],
+    ["-c", `${productionGuard}; ${resolver}; cmux_ios_resolve_api_base_url "$1"`, "ios-origin-test", target],
     {
       CMUX_IOS_API_BASE_URL: "",
       CMUX_DEV_API_BASE_URL: "",
@@ -186,10 +187,11 @@ function resolveIOSAPIBaseURL(target, extraEnv = {}) {
 
 function resolveIOSIrohBrokerBaseURL(extraEnv = {}) {
   const source = fs.readFileSync(path.join(repoRoot, "ios/scripts/reload.sh"), "utf8");
+  const productionGuard = extractShellFunction(source, "cmux_ios_require_production_origin");
   const resolver = extractShellFunction(source, "cmux_ios_resolve_iroh_broker_base_url");
   return run(
     "bash",
-    ["-c", `${resolver}; cmux_ios_resolve_iroh_broker_base_url`, "ios-origin-test"],
+    ["-c", `${productionGuard}; ${resolver}; cmux_ios_resolve_iroh_broker_base_url`, "ios-origin-test"],
     {
       CMUX_IOS_IROH_BROKER_BASE_URL: "",
       CMUX_IROH_BROKER_BASE_URL: "",
@@ -588,6 +590,21 @@ test("macOS and iOS reloads share the dev API backend override", () => {
   assert.match(iosReload, /explicit_base_url=.*CMUX_DEV_API_BASE_URL/);
 });
 
+test("tagged macOS launches require a personal credential file by default", () => {
+  const macReload = fs.readFileSync(path.join(repoRoot, "scripts/reload.sh"), "utf8");
+
+  assert.match(macReload, /tagged launches require authenticated dev credentials/u);
+  assert.match(macReload, /cmuxterm-dev\.env.*cmux\.env/su);
+  assert.match(macReload, /AUTH_PROFILE="personal"/u);
+});
+
+test("bundle launches clear inherited tagged runtime state", () => {
+  const launcher = fs.readFileSync(path.join(repoRoot, "scripts/launch-bundle-app.swift"), "utf8");
+
+  assert.match(launcher, /runtimeEnvironmentPrefixes = \["CMUX_", "GHOSTTY_"\]/u);
+  assert.match(launcher, /removeValue\(forKey: "CMUXD_UNIX_PATH"\)/u);
+});
+
 test("iOS Simulator defaults to its tagged localhost API", () => {
   const result = resolveIOSAPIBaseURL("simulator", { CMUX_PORT: "4123" });
   assert.equal(result.status, 0, result.stderr);
@@ -633,6 +650,22 @@ test("iOS production-auth builds keep production service origins", () => {
   const broker = resolveIOSIrohBrokerBaseURL({ PROD_AUTH: "1" });
   assert.equal(broker.status, 0, broker.stderr);
   assert.equal(broker.stdout, "https://cmux.com");
+});
+
+test("iOS production-auth rejects staging origin overrides", () => {
+  const api = resolveIOSAPIBaseURL("physical_device", {
+    PROD_AUTH: "1",
+    CMUX_DEV_API_BASE_URL: "https://cmux-staging.vercel.app",
+  });
+  assert.notEqual(api.status, 0);
+  assert.match(api.stderr, /--prod-auth cannot use the API origin/u);
+
+  const broker = resolveIOSIrohBrokerBaseURL({
+    PROD_AUTH: "1",
+    CMUX_IROH_BROKER_BASE_URL: "https://cmux-staging.vercel.app",
+  });
+  assert.notEqual(broker.status, 0);
+  assert.match(broker.stderr, /--prod-auth cannot use the Iroh broker origin/u);
 });
 
 test("tagged reloads share a dedicated Iroh broker", () => {

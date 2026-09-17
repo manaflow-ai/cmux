@@ -650,6 +650,7 @@ impl Mux {
             ResourceOperation::TabRename => self.resource_rename_tab(
                 selectors,
                 nullable_name(&fields)?,
+                crate::resource_name::TabNameUpdate::parse(&fields)?,
                 expected_revision,
                 mutation,
                 &fingerprint,
@@ -868,6 +869,7 @@ impl Mux {
         self: &Arc<Self>,
         selectors: ResourceSelectors,
         name: Option<String>,
+        authority: crate::resource_name::TabNameUpdate,
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
         fingerprint: &Value,
@@ -891,7 +893,12 @@ impl Mux {
                 let tab_id = resolved.path.tab.context("tab selector has no public id")?;
                 let topology = registry.resource_topology_snapshot()?;
                 let mut durable = topology_tab(&topology, &tab_id)?.clone();
-                durable.name = name.clone();
+                authority.apply(
+                    &mut durable,
+                    name.clone(),
+                    &topology.generation,
+                    topology.revision,
+                )?;
                 let value = tab_value(&durable, &topology)?;
                 let result = json!({"tab":tab_id});
                 let deltas = upserts([("tab", tab_id.as_str(), value)]);
@@ -5374,18 +5381,8 @@ fn pane_value_with_flags(
 
 fn tab_value(tab: &RegistryTab, topology: &ResourceTopologySnapshot) -> anyhow::Result<Value> {
     let pane = topology_pane(topology, &tab.pane_id)?;
-    Ok(json!({
-        "id":tab.public_id,
-        "pane_id":tab.pane_id,
-        "name":tab.name,
-        "index":u32::try_from(tab.position).context("tab index exceeds uint32")?,
-        "focused":pane.active_tab.as_ref() == Some(&tab.public_id),
-        "content_kind":match tab.content_id {
-            ContentPublicId::Terminal(_) => "terminal",
-            ContentPublicId::Browser(_) => "browser",
-        },
-        "content_id":tab.content_id.as_str(),
-    }))
+    u32::try_from(tab.position).context("tab index exceeds uint32")?;
+    Ok(tab.public_value(pane.active_tab.as_ref() == Some(&tab.public_id)))
 }
 
 fn layout_document(
@@ -6237,6 +6234,8 @@ mod structural_tab_move_tests {
     /// Build a terminal tab fixture with the requested durable placement.
     fn tab(id: &str, pane_id: &str, position: usize) -> RegistryTab {
         RegistryTab {
+            name_source: Default::default(),
+            name_revision: 0,
             public_id: TabPublicId::parse(id.to_string()).unwrap(),
             pane_id: PanePublicId::parse(pane_id.to_string()).unwrap(),
             position,

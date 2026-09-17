@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import CmuxSettings
 import Foundation
 import Testing
@@ -17,6 +18,425 @@ struct ReopenLastClosedTests {
     private enum RestoredKind: Equatable {
         case panel
         case window
+    }
+
+    /// The production default bounds closed panels without touching user history in this test.
+    /// https://github.com/manaflow-ai/cmux/issues/10352
+    @Test
+    func defaultCapacityBoundsClosedPanelHistoryAndKeepsNewestRecords() throws {
+        let store = ClosedItemHistoryStore(
+            capacity: ClosedItemHistoryStore.defaultTotalCapacity,
+            loadPersisted: false
+        )
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let baseSnapshot = try #require(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first
+        )
+        let expectedCapacity = ClosedItemHistoryStore.defaultTotalCapacity
+
+        for index in 0...expectedCapacity {
+            var snapshot = baseSnapshot
+            snapshot.customTitle = "Closed \(index)"
+            store.push(ClosedItemHistoryRecord(
+                closedAt: Date(timeIntervalSince1970: TimeInterval(index)),
+                entry: .panel(ClosedPanelHistoryEntry(
+                    workspaceId: workspace.id,
+                    paneId: UUID(),
+                    tabIndex: 0,
+                    snapshot: snapshot
+                ))
+            ))
+        }
+
+        let menuSnapshot = store.menuSnapshot()
+        #expect(menuSnapshot.totalItemCount == expectedCapacity)
+        #expect(menuSnapshot.items.first?.title == "Closed \(expectedCapacity)")
+        #expect(menuSnapshot.items.last?.title == "Closed 1")
+        #expect(!menuSnapshot.items.contains { $0.title == "Closed 0" })
+    }
+
+    /// A synchronous load trims by close time and rewrites the bounded file.
+    @Test
+    func loadTimeTotalCapacityTrimKeepsNewestRecordsAndPersistsTrim() throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-closed-panel-trim-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: temporaryDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let historyURL = temporaryDirectory.appendingPathComponent("history.json")
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelSnapshot = try #require(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first
+        )
+        let seedStore = ClosedItemHistoryStore(
+            capacity: nil,
+            fileURL: historyURL,
+            loadsPersistedRecordsSynchronously: true,
+            persistsRecordsSynchronously: true
+        )
+
+        seedStore.push(panelRecord(
+            title: "Newest",
+            closedAt: 30,
+            workspace: workspace,
+            snapshot: panelSnapshot
+        ))
+        seedStore.push(panelRecord(
+            title: "Oldest",
+            closedAt: 10,
+            workspace: workspace,
+            snapshot: panelSnapshot
+        ))
+        seedStore.push(panelRecord(
+            title: "Middle",
+            closedAt: 20,
+            workspace: workspace,
+            snapshot: panelSnapshot
+        ))
+
+        let boundedStore = ClosedItemHistoryStore(
+            capacity: 2,
+            fileURL: historyURL,
+            loadsPersistedRecordsSynchronously: true,
+            persistsRecordsSynchronously: true
+        )
+        #expect(boundedStore.menuSnapshot().totalItemCount == 2)
+        #expect(boundedStore.menuSnapshot().items.map(\.title) == ["Newest", "Middle"])
+
+        let reloadedStore = ClosedItemHistoryStore(
+            capacity: nil,
+            fileURL: historyURL,
+            loadsPersistedRecordsSynchronously: true,
+            persistsRecordsSynchronously: true
+        )
+        #expect(reloadedStore.menuSnapshot().totalItemCount == 2)
+        #expect(reloadedStore.menuSnapshot().items.map(\.title) == ["Newest", "Middle"])
+    }
+
+    /// The production async loader must hand only bounded history to the main-actor store.
+    @Test(.timeLimit(.minutes(1)))
+    func asyncLoadTrimsLegacyHistoryBeforeItReachesTheStore() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-closed-panel-async-trim-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: temporaryDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let historyURL = temporaryDirectory.appendingPathComponent("history.json")
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelSnapshot = try #require(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first
+        )
+        let seedStore = ClosedItemHistoryStore(
+            capacity: nil,
+            fileURL: historyURL,
+            loadsPersistedRecordsSynchronously: true,
+            persistsRecordsSynchronously: true
+        )
+        seedStore.push(panelRecord(
+            title: "Newest",
+            closedAt: 30,
+            workspace: workspace,
+            snapshot: panelSnapshot
+        ))
+        seedStore.push(panelRecord(
+            title: "Oldest",
+            closedAt: 10,
+            workspace: workspace,
+            snapshot: panelSnapshot
+        ))
+        seedStore.push(panelRecord(
+            title: "Middle",
+            closedAt: 20,
+            workspace: workspace,
+            snapshot: panelSnapshot
+        ))
+
+        let boundedStore = ClosedItemHistoryStore(
+            capacity: 2,
+            fileURL: historyURL,
+            loadsPersistedRecordsSynchronously: false,
+            persistsRecordsSynchronously: true
+        )
+        for await _ in boundedStore.$revision.values {
+            if boundedStore.menuSnapshot().totalItemCount == 2 {
+                break
+            }
+        }
+        #expect(boundedStore.menuSnapshot().items.map(\.title) == ["Newest", "Middle"])
+        boundedStore.flushPendingSaves()
+
+        let reloadedStore = ClosedItemHistoryStore(
+            capacity: nil,
+            fileURL: historyURL,
+            loadsPersistedRecordsSynchronously: true,
+            persistsRecordsSynchronously: true
+        )
+        #expect(reloadedStore.menuSnapshot().items.map(\.title) == ["Newest", "Middle"])
+    }
+
+    /// The workspace-specific sub-cap still retains the newest workspace entries.
+    @Test
+    func workspaceCapacityStillKeepsNewestWorkspaceRecords() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let workspaceSnapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let store = ClosedItemHistoryStore(
+            workspaceCapacity: 2,
+            loadPersisted: false
+        )
+
+        for index in [1, 2, 0] {
+            var snapshot = workspaceSnapshot
+            snapshot.customTitle = "Workspace \(index)"
+            store.push(ClosedItemHistoryRecord(
+                closedAt: Date(timeIntervalSince1970: TimeInterval(index)),
+                entry: .workspace(ClosedWorkspaceHistoryEntry(
+                    workspaceId: UUID(),
+                    windowId: nil,
+                    workspaceIndex: index,
+                    snapshot: snapshot
+                ))
+            ))
+        }
+
+        #expect(store.menuSnapshot().items.map(\.title) == ["Workspace 2", "Workspace 1"])
+    }
+
+    /// Bounded selection must match the stable full-sort definition across legacy-scale input.
+    @Test
+    func totalCapacityHeapMatchesStableRecencyReference() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelSnapshot = try #require(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first
+        )
+        let recordCount = 2_048
+        let capacity = 137
+        let records = (0..<recordCount).map { index in
+            ClosedItemHistoryRecord(
+                closedAt: Date(timeIntervalSince1970: TimeInterval((index * 37) % 251)),
+                entry: .panel(ClosedPanelHistoryEntry(
+                    workspaceId: workspace.id,
+                    paneId: UUID(),
+                    tabIndex: 0,
+                    snapshot: panelSnapshot
+                ))
+            )
+        }
+        let expectedIds = records.enumerated()
+            .sorted { lhs, rhs in
+                if lhs.element.closedAt != rhs.element.closedAt {
+                    return lhs.element.closedAt < rhs.element.closedAt
+                }
+                return lhs.offset < rhs.offset
+            }
+            .suffix(capacity)
+            .map(\.element.id)
+
+        let trimmed = ClosedItemHistoryCapacityPolicy(
+            totalCapacity: capacity,
+            workspaceCapacity: nil
+        ).trimming(records)
+
+        #expect(trimmed.map(\.id) == expectedIds)
+    }
+
+    /// Duplicate persisted IDs must not let either capacity bound retain extra records.
+    @Test
+    func capacityTrimmingUsesPositionsWhenRecordIDsAreDuplicated() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let workspaceSnapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let panelSnapshot = try #require(workspaceSnapshot.panels.first)
+        let duplicateID = UUID()
+        let panelRecords = [1, 2].map { index in
+            ClosedItemHistoryRecord(
+                id: duplicateID,
+                closedAt: Date(timeIntervalSince1970: TimeInterval(index)),
+                entry: .panel(ClosedPanelHistoryEntry(
+                    workspaceId: workspace.id,
+                    paneId: UUID(),
+                    tabIndex: 0,
+                    snapshot: panelSnapshot
+                ))
+            )
+        }
+        let panelTrimmed = ClosedItemHistoryCapacityPolicy(
+            totalCapacity: 1,
+            workspaceCapacity: nil
+        ).trimming(panelRecords)
+        #expect(panelTrimmed.count == 1)
+        #expect(panelTrimmed.first?.closedAt == Date(timeIntervalSince1970: 2))
+
+        let workspaceRecords = [1, 2].map { index in
+            ClosedItemHistoryRecord(
+                id: duplicateID,
+                closedAt: Date(timeIntervalSince1970: TimeInterval(index)),
+                entry: .workspace(ClosedWorkspaceHistoryEntry(
+                    workspaceId: UUID(),
+                    windowId: nil,
+                    workspaceIndex: index,
+                    snapshot: workspaceSnapshot
+                ))
+            )
+        }
+        let workspaceTrimmed = ClosedItemHistoryCapacityPolicy(
+            totalCapacity: nil,
+            workspaceCapacity: 1
+        ).trimming(workspaceRecords)
+        #expect(workspaceTrimmed.count == 1)
+        #expect(workspaceTrimmed.first?.closedAt == Date(timeIntervalSince1970: 2))
+    }
+
+    /// Reinsertion protects the exact position even when malformed history repeats its ID.
+    @Test
+    func protectedInsertionUsesItsPositionWhenRecordIDsAreDuplicated() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let workspaceSnapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let panelSnapshot = try #require(workspaceSnapshot.panels.first)
+        let duplicateID = UUID()
+
+        let totalStore = ClosedItemHistoryStore(capacity: 2, loadPersisted: false)
+        totalStore.push(panelRecord(
+            id: duplicateID,
+            title: "Existing Duplicate",
+            closedAt: 2,
+            workspace: workspace,
+            snapshot: panelSnapshot
+        ))
+        totalStore.push(panelRecord(
+            title: "Newest",
+            closedAt: 3,
+            workspace: workspace,
+            snapshot: panelSnapshot
+        ))
+        totalStore.insert(panelRecord(
+            id: duplicateID,
+            title: "Protected Insertion",
+            closedAt: 1,
+            workspace: workspace,
+            snapshot: panelSnapshot
+        ), at: 2)
+        #expect(totalStore.menuSnapshot().items.map(\.title) == ["Newest", "Protected Insertion"])
+
+        let workspaceStore = ClosedItemHistoryStore(
+            workspaceCapacity: 2,
+            loadPersisted: false
+        )
+        workspaceStore.push(workspaceRecord(
+            id: duplicateID,
+            title: "Existing Workspace Duplicate",
+            closedAt: 2,
+            workspaceIndex: 0,
+            snapshot: workspaceSnapshot
+        ))
+        workspaceStore.push(workspaceRecord(
+            title: "Newest Workspace",
+            closedAt: 3,
+            workspaceIndex: 1,
+            snapshot: workspaceSnapshot
+        ))
+        workspaceStore.insert(workspaceRecord(
+            id: duplicateID,
+            title: "Protected Workspace Insertion",
+            closedAt: 1,
+            workspaceIndex: 2,
+            snapshot: workspaceSnapshot
+        ), at: 2)
+        #expect(workspaceStore.menuSnapshot().items.map(\.title) == [
+            "Newest Workspace",
+            "Protected Workspace Insertion",
+        ])
+    }
+
+    /// Restoring a later duplicate ID removes the selected record, not the earlier duplicate.
+    @Test
+    func restoringDuplicateIDsRemovesTheSelectedRecordPosition() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelSnapshot = try #require(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first
+        )
+        let duplicateID = UUID()
+        let store = ClosedItemHistoryStore(capacity: 10, loadPersisted: false)
+        store.push(panelRecord(
+            id: duplicateID,
+            title: "Older Duplicate",
+            closedAt: 1,
+            workspace: workspace,
+            snapshot: panelSnapshot
+        ))
+        store.push(panelRecord(
+            id: duplicateID,
+            title: "Newer Duplicate",
+            closedAt: 2,
+            workspace: workspace,
+            snapshot: panelSnapshot
+        ))
+
+        var restoredTitle: String?
+        #expect(store.restoreFirstRestorable { entry in
+            guard case .panel(let panelEntry) = entry else { return false }
+            restoredTitle = panelEntry.snapshot.customTitle
+            return true
+        })
+        #expect(restoredTitle == "Newer Duplicate")
+        #expect(store.menuSnapshot().items.map(\.title) == ["Older Duplicate"])
+    }
+
+    /// Builds a panel history fixture with a deterministic close timestamp.
+    private func panelRecord(
+        id: UUID = UUID(),
+        title: String,
+        closedAt: TimeInterval,
+        workspace: Workspace,
+        snapshot: SessionPanelSnapshot
+    ) -> ClosedItemHistoryRecord {
+        var snapshot = snapshot
+        snapshot.customTitle = title
+        return ClosedItemHistoryRecord(
+            id: id,
+            closedAt: Date(timeIntervalSince1970: closedAt),
+            entry: .panel(ClosedPanelHistoryEntry(
+                workspaceId: workspace.id,
+                paneId: UUID(),
+                tabIndex: 0,
+                snapshot: snapshot
+            ))
+        )
+    }
+
+    /// Builds a workspace history fixture with a deterministic close timestamp.
+    private func workspaceRecord(
+        id: UUID = UUID(),
+        title: String,
+        closedAt: TimeInterval,
+        workspaceIndex: Int,
+        snapshot: SessionWorkspaceSnapshot
+    ) -> ClosedItemHistoryRecord {
+        var snapshot = snapshot
+        snapshot.customTitle = title
+        return ClosedItemHistoryRecord(
+            id: id,
+            closedAt: Date(timeIntervalSince1970: closedAt),
+            entry: .workspace(ClosedWorkspaceHistoryEntry(
+                workspaceId: UUID(),
+                windowId: nil,
+                workspaceIndex: workspaceIndex,
+                snapshot: snapshot
+            ))
+        )
     }
 
     @Test
