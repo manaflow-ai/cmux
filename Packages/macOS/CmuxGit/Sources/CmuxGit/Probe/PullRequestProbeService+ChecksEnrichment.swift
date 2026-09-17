@@ -3,6 +3,9 @@ public import Foundation
 extension PullRequestProbeService {
     /// Adds optional check details to every resolved PR concurrently. Results
     /// that cannot identify a repository or commit remain unchanged.
+#if compiler(>=6.2)
+    @concurrent
+#endif
     public nonisolated func enrichPullRequestChecks(
         _ results: [WorkspacePullRequestRefreshResult]
     ) async -> (results: [WorkspacePullRequestRefreshResult], rateLimitRetryDate: Date?) {

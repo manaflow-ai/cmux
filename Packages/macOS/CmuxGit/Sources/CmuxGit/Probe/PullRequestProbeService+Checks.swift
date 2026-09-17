@@ -4,16 +4,20 @@ import Foundation
 extension PullRequestProbeService {
     /// Fetches GitHub’s PR commit rollup through the shared authenticated transport.
     /// Reruns replace earlier attempts within the same provider/workflow/event.
+#if compiler(>=6.2)
+    @concurrent
+#endif
     public nonisolated func fetchPullRequestChecks(
         repoSlug: String,
         pullRequestNumber: Int,
         headSHA: String?
     ) async -> PullRequestChecksSummary? {
         guard !Task.isCancelled, pullRequestNumber > 0,
+              let headSHA, !headSHA.isEmpty,
               GitMetadataService.normalizedGitHubRepositorySlug(repoSlug) == repoSlug,
               let authHeader = await authHeaderValue() else { return nil }
         let identity = Data(SHA256.hash(data: Data(authHeader.utf8))).base64EncodedString()
-        let key = "\(identity)|\(repoSlug)#\(pullRequestNumber)|\(headSHA ?? "")"
+        let key = "\(identity)|\(repoSlug)#\(pullRequestNumber)|\(headSHA)"
         if let cached = await checksCache.value(for: key, now: Date()) { return cached }
         let slug = repoSlug.split(separator: "/")
         guard slug.count == 2 else { return nil }
@@ -32,6 +36,7 @@ extension PullRequestProbeService {
                   let page = PullRequestChecksPage(data: response.data) else { break }
             // A push between pages invalidates this collection, even when all
             // fetched pages happened to contain passing checks.
+            guard page.headSHA == headSHA else { return nil }
             if let currentSHA, currentSHA != page.headSHA { return nil }
             currentSHA = page.headSHA
             mergeStatus = page.mergeStatus

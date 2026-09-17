@@ -273,6 +273,16 @@ struct PullRequestProbeServiceFetchTests {
         #expect(summary == nil)
     }
 
+    @Test func missingOrMismatchedHeadNeverPublishesChecks() async throws {
+        let service = makeService()
+        PullRequestProbeStubURLProtocol.reset(stubs: [])
+        #expect(await service.fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 1, headSHA: nil) == nil)
+        #expect(await service.fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "") == nil)
+        #expect(requestURLStrings().isEmpty)
+        PullRequestProbeStubURLProtocol.reset(stubs: [try checksStub(sha: "def456", nodes: [checkNode()])])
+        #expect(await service.fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "abc123") == nil)
+    }
+
     @Test func partialGraphQLErrorsCannotBecomeSuccess() async throws {
         PullRequestProbeStubURLProtocol.reset(stubs: [.init(statusCode: 200, data: Data("{\"errors\":[{\"message\":\"unavailable\"}]}".utf8))])
         let summary = await makeService().fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "abc123")

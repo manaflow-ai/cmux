@@ -20,8 +20,8 @@ public struct SidebarSection: View {
     @State var showNotification: DefaultsValueModel<Bool>
     @State var notificationMessageLineLimit: DefaultsValueModel<Int>
     @State private var showBranchDir: DefaultsValueModel<Bool>
-    @State var showPR: DefaultsValueModel<Bool>
-    @State var showPRChecks: DefaultsValueModel<Bool>
+    @State private var showPR: DefaultsValueModel<Bool>
+    @State private var showPRChecks: DefaultsValueModel<Bool>
     @State private var watchGit: DefaultsValueModel<Bool>
     @State private var prClickable: DefaultsValueModel<Bool>
     @State private var prLinks: DefaultsValueModel<Bool>
@@ -367,8 +367,11 @@ public struct SidebarSection: View {
             .disabled(hideAll.current)
             SettingsCardDivider()
 
-            pullRequestVisibilitySettingsRow
-            pullRequestChecksSettingsRow
+            SidebarPullRequestSettingsRows(
+                showPR: Binding(get: { showPR.current }, set: { showPR.set($0) }),
+                showChecks: Binding(get: { showPRChecks.current }, set: { showPRChecks.set($0) }),
+                hideAll: hideAll.current
+            )
             SettingsCardRow(
                 configurationReview: .json("sidebar.watchGitStatus"),
                 String(localized: "settings.app.watchGitStatus", defaultValue: "Watch Git Status in Sidebar"),
