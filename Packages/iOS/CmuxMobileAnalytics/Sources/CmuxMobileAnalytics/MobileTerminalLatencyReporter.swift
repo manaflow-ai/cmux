@@ -128,6 +128,10 @@ public final class MobileTerminalLatencyReporter: MobileTerminalLatencyObserving
         surface.window.failedCount += 1
     }
 
+    public func surfaceClosed(surfaceID: String) {
+        states.removeValue(forKey: surfaceID)
+    }
+
     public func outputReceived(surfaceID: String, appliedInputSequence: UInt64?, byteCount: Int, queueDepth: Int, receivedAtNanos: UInt64? = nil) {
         guard let surface = state(for: surfaceID) else { return }
         let timestamp = receivedAtNanos ?? now()

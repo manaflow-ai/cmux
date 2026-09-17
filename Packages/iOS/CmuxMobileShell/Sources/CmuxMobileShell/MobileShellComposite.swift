@@ -14697,6 +14697,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func unregisterTerminalOutput(surfaceID: String, streamToken: UUID) {
         guard terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken else { return }
+        terminalLatencyObserver.surfaceClosed(surfaceID: surfaceID)
         terminalLaneOutputReadySurfaceIDs.remove(surfaceID)
         if let terminalLaneCoordinator {
             Task { await terminalLaneCoordinator.deactivate(surfaceID: surfaceID) }

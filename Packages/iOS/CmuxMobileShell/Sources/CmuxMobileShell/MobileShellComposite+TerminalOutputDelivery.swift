@@ -526,13 +526,15 @@ extension MobileShellComposite {
         }
         if let immediate {
             let immediateBytes = immediate.bytes
-            terminalLatencyObserver.outputReceived(
-                surfaceID: surfaceID,
-                appliedInputSequence: immediate.sourceRenderGridFrame?.appliedInputSequence,
-                byteCount: immediateBytes.count,
-                queueDepth: pendingCount,
-                receivedAtNanos: immediate.receivedAtNanos
-            )
+            if immediate.latencyMetricsEligible {
+                terminalLatencyObserver.outputReceived(
+                    surfaceID: surfaceID,
+                    appliedInputSequence: immediate.sourceRenderGridFrame?.appliedInputSequence,
+                    byteCount: immediateBytes.count,
+                    queueDepth: pendingCount,
+                    receivedAtNanos: immediate.receivedAtNanos
+                )
+            }
             continuation.yield(
                 MobileTerminalOutputChunk(
                     data: immediateBytes,
@@ -541,6 +543,7 @@ extension MobileShellComposite {
                     sourceRenderGridFrame: immediate.sourceRenderGridFrame,
                     endSequence: immediate.endSequence,
                     requiresVerifiedReplay: immediate.requiresVerifiedReplay,
+                    latencyMetricsEligible: immediate.latencyMetricsEligible,
                     terminalConfigTheme: immediate.terminalConfigTheme,
                     receivedAtNanos: immediate.receivedAtNanos
                 )
@@ -588,7 +591,9 @@ extension MobileShellComposite {
     public func terminalOutputDidProcess(surfaceID: String, streamToken: UUID) {
         guard terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken,
               var queue = terminalOutputQueuesBySurfaceID[surfaceID] else { return }
-        terminalLatencyObserver.outputApplied(surfaceID: surfaceID)
+        if queue.inFlightLatencyMetricsEligible {
+            terminalLatencyObserver.outputApplied(surfaceID: surfaceID)
+        }
         let next = queue.completeInFlight()
         terminalOutputQueuesBySurfaceID[surfaceID] = queue
         if terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == streamToken {
@@ -666,13 +671,15 @@ extension MobileShellComposite {
             return
         }
         let nextBytes = next.bytes
-        terminalLatencyObserver.outputReceived(
-            surfaceID: surfaceID,
-            appliedInputSequence: next.sourceRenderGridFrame?.appliedInputSequence,
-            byteCount: nextBytes.count,
-            queueDepth: queue.pendingCount,
-            receivedAtNanos: next.receivedAtNanos
-        )
+        if next.latencyMetricsEligible {
+            terminalLatencyObserver.outputReceived(
+                surfaceID: surfaceID,
+                appliedInputSequence: next.sourceRenderGridFrame?.appliedInputSequence,
+                byteCount: nextBytes.count,
+                queueDepth: queue.pendingCount,
+                receivedAtNanos: next.receivedAtNanos
+            )
+        }
         continuation.yield(MobileTerminalOutputChunk(
             data: nextBytes,
             streamToken: streamToken,
@@ -680,13 +687,15 @@ extension MobileShellComposite {
             sourceRenderGridFrame: next.sourceRenderGridFrame,
             endSequence: next.endSequence,
             requiresVerifiedReplay: next.requiresVerifiedReplay,
+            latencyMetricsEligible: next.latencyMetricsEligible,
             terminalConfigTheme: next.terminalConfigTheme,
             receivedAtNanos: next.receivedAtNanos
         ))
     }
 
-    public func terminalOutputDidPresent(surfaceID: String, streamToken: UUID, inputSequence: UInt64?, receivedAtNanos: UInt64) {
+    public func terminalOutputDidPresent(surfaceID: String, streamToken: UUID, inputSequence: UInt64?, receivedAtNanos: UInt64, latencyMetricsEligible: Bool) {
         guard terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken else { return }
+        guard latencyMetricsEligible else { return }
         terminalLatencyObserver.framePresented(surfaceID: surfaceID, inputSequence: inputSequence, receivedAtNanos: receivedAtNanos)
     }
 

@@ -32,6 +32,12 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         replacementScope != nil
     }
 
+    /// Viewport-policy-only deliveries resize the surface without presenting
+    /// terminal output and therefore must not enter the latency histograms.
+    var latencyMetricsEligible: Bool {
+        replacementScope != .viewportPolicy
+    }
+
     /// A revisioned render-grid delta is tied to the exact frame named by its
     /// base revision. Replacing an older pending delta with a newer one would
     /// drop that base and make the newer patch paint against the wrong grid.
@@ -125,6 +131,7 @@ struct TerminalOutputDelivery: Equatable, Sendable {
 struct TerminalOutputDeliveryQueue: Sendable {
     static let maxPendingDeliveries = 128
     private var inFlight = false
+    private var inFlightDelivery: TerminalOutputDelivery?
     private var pending: [TerminalOutputDelivery] = []
     private var pendingHeadIndex = 0
     private var overflowed = false
@@ -137,6 +144,10 @@ struct TerminalOutputDeliveryQueue: Sendable {
         pending.count - pendingHeadIndex
     }
 
+    var inFlightLatencyMetricsEligible: Bool {
+        inFlightDelivery?.latencyMetricsEligible ?? false
+    }
+
     mutating func takeOverflowed() -> Bool {
         defer { overflowed = false }
         return overflowed
@@ -145,6 +156,7 @@ struct TerminalOutputDeliveryQueue: Sendable {
     mutating func enqueue(_ delivery: TerminalOutputDelivery) -> TerminalOutputDelivery? {
         guard inFlight else {
             inFlight = true
+            inFlightDelivery = delivery
             return delivery
         }
         appendPending(delivery)
@@ -153,24 +165,28 @@ struct TerminalOutputDeliveryQueue: Sendable {
 
     mutating func completeInFlight() -> TerminalOutputDelivery? {
         guard inFlight else {
+            inFlightDelivery = nil
             pending.removeAll(keepingCapacity: false)
             pendingHeadIndex = 0
             return nil
         }
         guard pendingHeadIndex < pending.count else {
             inFlight = false
+            inFlightDelivery = nil
             pending.removeAll(keepingCapacity: true)
             pendingHeadIndex = 0
             return nil
         }
         let next = pending[pendingHeadIndex]
         pendingHeadIndex += 1
+        inFlightDelivery = next
         compactPendingStorageIfNeeded()
         return next
     }
 
     mutating func reset() {
         inFlight = false
+        inFlightDelivery = nil
         pending.removeAll(keepingCapacity: false)
         pendingHeadIndex = 0
         overflowed = false

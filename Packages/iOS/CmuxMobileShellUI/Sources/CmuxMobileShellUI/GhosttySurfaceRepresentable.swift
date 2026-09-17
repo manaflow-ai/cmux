@@ -593,14 +593,15 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         let observedInput = frame.appliedInputSequence
                         let observedReceipt = chunk.receivedAtNanos
                         let observedStream = chunk.streamToken
-                        surfaceView.onOutputPresentation = { [weak store] in
+                        surfaceView.onOutputPresentation = chunk.latencyMetricsEligible ? { [weak store] in
                             store?.terminalOutputDidPresent(
                                 surfaceID: surfaceID,
                                 streamToken: observedStream,
                                 inputSequence: observedInput,
-                                receivedAtNanos: observedReceipt
+                                receivedAtNanos: observedReceipt,
+                                latencyMetricsEligible: true
                             )
-                        }
+                        } : nil
                         let applied = await self.applyVerifiedRenderGrid(
                             frame,
                             chunk: chunk,
@@ -737,9 +738,15 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     let observedInput = chunk.sourceRenderGridFrame?.appliedInputSequence
                     let observedReceipt = chunk.receivedAtNanos
                     let observedStream = chunk.streamToken
-                    surfaceView.onOutputPresentation = { [weak store] in
-                        store?.terminalOutputDidPresent(surfaceID: surfaceID, streamToken: observedStream, inputSequence: observedInput, receivedAtNanos: observedReceipt)
-                    }
+                    surfaceView.onOutputPresentation = chunk.latencyMetricsEligible ? { [weak store] in
+                        store?.terminalOutputDidPresent(
+                            surfaceID: surfaceID,
+                            streamToken: observedStream,
+                            inputSequence: observedInput,
+                            receivedAtNanos: observedReceipt,
+                            latencyMetricsEligible: true
+                        )
+                    } : nil
                     #if DEBUG
                     surfaceView.markLatencyAppliedSequence(latencySequence)
                     MobileLatencyTrace.stampElapsed(

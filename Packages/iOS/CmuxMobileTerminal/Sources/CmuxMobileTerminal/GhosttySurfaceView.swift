@@ -5393,7 +5393,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             verifiedReplayRead: current.verifiedReplayRead,
             presentationRetryCount: countsAsRetry
                 ? current.presentationRetryCount &+ 1
-                : current.presentationRetryCount
+                : current.presentationRetryCount,
+            outputPresentation: current.outputPresentation
         )
         let replaced = replaceInFlightRenderSubmission(with: replacement)
         if replaced {
