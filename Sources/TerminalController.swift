@@ -4299,9 +4299,37 @@ class TerminalController {
             if let catalogError = error as? SurfaceCatalogError {
                 switch catalogError {
                 case .nothingToOpen:
-                    return v2Error(id: id, code: "not_ready", message: catalogError.localizedDescription)
+                    return v2Error(
+                        id: id,
+                        code: "not_ready",
+                        message: catalogError.localizedDescription,
+                        data: ["retryable": true]
+                    )
                 case .destinationNotFound:
                     return v2Error(id: id, code: "not_found", message: catalogError.localizedDescription)
+                default:
+                    break
+                }
+            }
+            if let managerError = error as? CloudMachineLinkManager.ManagerError {
+                if case .retryLater(let detail) = managerError {
+                    return v2Error(
+                        id: id,
+                        code: "not_ready",
+                        message: detail,
+                        data: ["retryable": true]
+                    )
+                }
+            }
+            if let providerError = error as? CmuxTuiSurfaceProvider.ProviderError {
+                switch providerError {
+                case .machineAsleep, .stateUnavailable:
+                    return v2Error(
+                        id: id,
+                        code: "not_ready",
+                        message: providerError.localizedDescription,
+                        data: ["retryable": true]
+                    )
                 default:
                     break
                 }
