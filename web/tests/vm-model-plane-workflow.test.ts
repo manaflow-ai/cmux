@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import * as Effect from "effect/Effect";
+import * as Deferred from "effect/Deferred";
 import * as Layer from "effect/Layer";
 import {
   VmBillingGateway,
@@ -221,6 +222,36 @@ const createInput = {
 };
 
 describe("createVm model plane", () => {
+  test("creates the provider while the independent requested audit is pending", async () => {
+    const usageEvents: UsageEvent[] = [];
+    const creates: CreateOptions[] = [];
+    const providerStarted = await Effect.runPromise(Deferred.make<void>());
+    const repo = fakeRepo({ usageEvents, failed: [] });
+    const providers = fakeProviders({ creates });
+    const created = await Effect.runPromise(
+      createVm({
+        ...createInput,
+        modelPlane: fakeModelPlane({ provisioned: [], revoked: [] }),
+      }).pipe(
+        Effect.provide(layer({
+          ...repo,
+          recordUsageEvents: (events) => events.some((event) => event.eventType === "vm.create.requested")
+            ? Deferred.await(providerStarted).pipe(Effect.andThen(repo.recordUsageEvents(events)))
+            : repo.recordUsageEvents(events),
+        }, {
+          ...providers,
+          create: (provider, options) => Deferred.succeed(providerStarted, undefined).pipe(
+            Effect.andThen(providers.create(provider, options)),
+          ),
+        })),
+        Effect.timeout("1 second"),
+      ),
+    );
+    expect(created.providerVmId).toBe("provider-vm-mp");
+    expect(creates).toHaveLength(1);
+    expect(usageEvents.filter((event) => event.eventType === "vm.create.requested")).toHaveLength(1);
+  });
+
   test("provisions with the row id after the row exists and hands env plus edge rules to the provider", async () => {
     const usageEvents: UsageEvent[] = [];
     const creates: CreateOptions[] = [];
