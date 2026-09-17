@@ -14,28 +14,28 @@ When we change the fork, update this document and the parent submodule SHA.
 
 The submodule pinned by this branch is `3a7fc9230`, on fork branch
 `issue-12753-hangul-filename-shaping` pending Ghostty PR #221. It includes the
-incremental embedded
-configuration propagation and Fish SSH feature-gating fixes described below,
+incremental embedded configuration propagation and Fish SSH feature-gating fixes described below,
 plus the renderer/API compatibility pin and the repeated word-selection drag
 anchor fix. Its tree includes the prior fork changes below, including tokened
 iOS render dispositions, VT formatter cursor restoration, VT stream-boundary
 visibility, and Hangul canonical font resolution.
 
-### Current main-aligned feature pin
+### Current feature pin
 
 - Branch:
-  - https://github.com/manaflow-ai/ghostty/tree/main
+  - https://github.com/manaflow-ai/ghostty/tree/issue-12753-hangul-filename-shaping
 - Commit:
   - `3a7fc9230` (issue-12753 Hangul shaping fix; pending PR #221)
 - Summary:
-  - Adds the NFD Hangul shaping fix on top of current fork main, preserving
+  - Adds the NFD Hangul shaping fix on top of cmux's prior pin, preserving
     incremental embedded configuration propagation and Fish SSH feature gating,
     with the renderer/API compatibility pin and repeated word-selection drag
     anchor behavior.
 - Verification:
-  - Zig 0.16.0: 75/75 Hangul tests and 118/118 CoreText shaper tests passed
-    on macOS 26.5.1. The inherited fork CI skips tests outside ghostty-org.
-- Artifact:
+  - Zig 0.16.0 on macOS 26.5.1: the Hangul filter passed 75 total tests and
+    the CoreText shaper filter passed 118 total tests, including dependency
+    tests in both totals. The inherited fork CI skips tests outside ghostty-org.
+- Previous pin artifact (does not include the Hangul shaping fix):
   - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-abd40f6e472d57f2d4bb182004bb5f3fac8df961-crashsubdir-cmux-crash-sentry-off-noi18n-v2
   - SHA-256 `fdb0f7e844fa086a410f0b1df23badf2b0503c084e1c66c297e22930758b6971`
     is pinned in `scripts/ghosttykit-checksums.txt`.
