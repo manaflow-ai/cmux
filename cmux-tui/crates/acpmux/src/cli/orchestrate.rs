@@ -395,9 +395,11 @@ pub(crate) async fn tail(client: Arc<Client>, key: &str, last: u64, since: Optio
         }
     };
     let stdout = std::io::stdout();
+    let mut sup = ReadSuppressor::default();
+    let filter = |sup: &mut ReadSuppressor, e: Value| if suppress_reads { sup.apply(e) } else { e };
     for e in events {
         let mut lock = stdout.lock();
-        let _ = writeln!(lock, "{}", with_cursor(&id, sanitize(e, suppress_reads)));
+        let _ = writeln!(lock, "{}", with_cursor(&id, filter(&mut sup, e)));
     }
     if !follow {
         return Ok(());
@@ -409,7 +411,7 @@ pub(crate) async fn tail(client: Arc<Client>, key: &str, last: u64, since: Optio
                 continue;
             }
             let mut lock = stdout.lock();
-            let line = if m == method::MUX_EVENT { with_cursor(&id, sanitize(p, suppress_reads)) } else { json!({"method": m, "params": p}) };
+            let line = if m == method::MUX_EVENT { with_cursor(&id, filter(&mut sup, p)) } else { json!({"method": m, "params": p}) };
             let _ = writeln!(lock, "{line}");
         }
     }
@@ -438,25 +440,54 @@ fn with_cursor(id: &str, mut e: Value) -> Value {
 }
 
 /// --suppress-reads: blank read-tool payloads but keep the message shape.
-pub(crate) fn sanitize(mut e: Value, suppress_reads: bool) -> Value {
-    if !suppress_reads {
-        return e;
-    }
-    let kind = e.get("kind").and_then(Value::as_str).unwrap_or("").to_owned();
-    if kind == "tool_call" || kind == "tool_call_update" {
-        let is_read = e.pointer("/msg/params/update/kind").and_then(Value::as_str).map(|k| matches!(k, "read" | "search" | "fetch")).unwrap_or(false);
-        if is_read {
-            if let Some(u) = e.pointer_mut("/msg/params/update") {
-                if u.get("content").is_some() {
-                    u["content"] = json!([{"type": "content", "content": {"type": "text", "text": "[read output suppressed]"}}]);
+/// Stateful, because a `tool_call_update` names only its tool call id: the
+/// id is learned from the `tool_call` that announced a read, search or
+/// fetch. Raw Claude `claude.user` tool results with a `file` payload are
+/// blanked too.
+#[derive(Default)]
+pub(crate) struct ReadSuppressor {
+    read_ids: std::collections::HashSet<String>,
+}
+
+impl ReadSuppressor {
+    pub(crate) fn apply(&mut self, mut e: Value) -> Value {
+        let kind = e.get("kind").and_then(Value::as_str).unwrap_or("").to_owned();
+        let placeholder = "[read output suppressed]";
+        if kind == "tool_call" || kind == "tool_call_update" {
+            let id = e.pointer("/msg/params/update/toolCallId").and_then(Value::as_str).map(str::to_owned);
+            let is_read_kind = e.pointer("/msg/params/update/kind").and_then(Value::as_str).map(|k| matches!(k, "read" | "search" | "fetch")).unwrap_or(false);
+            if is_read_kind {
+                if let Some(id) = &id {
+                    self.read_ids.insert(id.clone());
                 }
-                if u.get("rawOutput").is_some() {
-                    u["rawOutput"] = json!("[read output suppressed]");
+            }
+            let is_read = is_read_kind || id.as_ref().map(|i| self.read_ids.contains(i)).unwrap_or(false);
+            if is_read {
+                if let Some(u) = e.pointer_mut("/msg/params/update") {
+                    if u.get("content").is_some() {
+                        u["content"] = json!([{"type": "content", "content": {"type": "text", "text": placeholder}}]);
+                    }
+                    if u.get("rawOutput").is_some() {
+                        u["rawOutput"] = json!(placeholder);
+                    }
+                }
+            }
+        } else if kind == "claude.user" && e.pointer("/msg/tool_use_result/file").is_some() {
+            if let Some(f) = e.pointer_mut("/msg/tool_use_result/file") {
+                if f.get("content").is_some() {
+                    f["content"] = json!(placeholder);
+                }
+            }
+            if let Some(arr) = e.pointer_mut("/msg/message/content").and_then(Value::as_array_mut) {
+                for c in arr {
+                    if c.get("content").is_some() {
+                        c["content"] = json!(placeholder);
+                    }
                 }
             }
         }
+        e
     }
-    e
 }
 
 #[cfg(test)]
@@ -473,12 +504,19 @@ mod tests {
 
     #[test]
     fn suppresses_read_payloads_only() {
-        let read = json!({"kind": "tool_call_update", "msg": {"params": {"update": {"kind": "read", "content": [{"type": "content", "content": {"type": "text", "text": "secret"}}], "rawOutput": "secret"}}}});
-        let out = sanitize(read, true);
+        let mut sup = ReadSuppressor::default();
+        let announce = json!({"kind": "tool_call", "msg": {"params": {"update": {"toolCallId": "t1", "kind": "read", "title": "Read a.txt"}}}});
+        sup.apply(announce);
+        let update = json!({"kind": "tool_call_update", "msg": {"params": {"update": {"toolCallId": "t1", "content": [{"type": "content", "content": {"type": "text", "text": "secret"}}], "rawOutput": "secret"}}}});
+        let out = sup.apply(update);
         assert_eq!(out.pointer("/msg/params/update/rawOutput").unwrap(), "[read output suppressed]");
         assert!(out.pointer("/msg/params/update/content/0/content/text").unwrap().as_str().unwrap().contains("suppressed"));
-        let exec = json!({"kind": "tool_call_update", "msg": {"params": {"update": {"kind": "execute", "rawOutput": "kept"}}}});
-        assert_eq!(sanitize(exec, true).pointer("/msg/params/update/rawOutput").unwrap(), "kept");
+        let exec = json!({"kind": "tool_call_update", "msg": {"params": {"update": {"toolCallId": "t2", "kind": "execute", "rawOutput": "kept"}}}});
+        assert_eq!(sup.apply(exec).pointer("/msg/params/update/rawOutput").unwrap(), "kept");
+        let raw = json!({"kind": "claude.user", "msg": {"tool_use_result": {"file": {"content": "secret"}}, "message": {"content": [{"type": "tool_result", "content": "secret"}]}}});
+        let out = sup.apply(raw);
+        assert_eq!(out.pointer("/msg/tool_use_result/file/content").unwrap(), "[read output suppressed]");
+        assert_eq!(out.pointer("/msg/message/content/0/content").unwrap(), "[read output suppressed]");
     }
 
     #[test]

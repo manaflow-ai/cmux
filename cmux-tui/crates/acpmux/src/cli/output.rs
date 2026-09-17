@@ -51,6 +51,16 @@ pub(crate) fn age(ms: u64) -> String {
 }
 
 /// Send a prompt and print the reply as it streams.
+/// Did this notification come from the agent, not from acpmux's own
+/// bookkeeping? Only agent activity resets the stall timer.
+fn agent_activity(m: &str, p: &Value) -> bool {
+    match m {
+        method::SESSION_UPDATE | method::MUX_PERMISSION_PENDING => true,
+        method::MUX_EVENT => p.get("dir").and_then(Value::as_str) == Some("in"),
+        _ => false,
+    }
+}
+
 /// How a turn handles permissions when nobody is there to answer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum OnPermission {
@@ -125,6 +135,7 @@ pub(crate) async fn stream_prompt(client: Arc<Client>, id: &str, text: &str, ste
     let mut asked = 0u64;
     let mut denied = 0u64;
     let mut fail_permission = false;
+    let mut suppressor = crate::cli::orchestrate::ReadSuppressor::default();
     let result = loop {
         let stall_at = if opts.stall_secs > 0 && !activity { Some(started + std::time::Duration::from_secs(opts.stall_secs)) } else { None };
         let next_tick = match (deadline, stall_at) {
@@ -158,7 +169,9 @@ pub(crate) async fn stream_prompt(client: Arc<Client>, id: &str, text: &str, ste
                 let Message::Notification { method: m, params } = m else { continue };
                 let p = params.unwrap_or(Value::Null);
                 if p.get("sessionId").and_then(Value::as_str) != Some(id) { continue; }
-                activity = true;
+                if agent_activity(&m, &p) {
+                    activity = true;
+                }
                 if m == method::MUX_PERMISSION_PENDING {
                     asked += 1;
                     if opts.on_permission != OnPermission::Wait {
@@ -171,7 +184,7 @@ pub(crate) async fn stream_prompt(client: Arc<Client>, id: &str, text: &str, ste
                     }
                 }
                 if json_out {
-                    let p = if m == method::MUX_EVENT { crate::cli::orchestrate::sanitize(p, suppress_reads) } else { p };
+                    let p = if m == method::MUX_EVENT && suppress_reads { suppressor.apply(p) } else { p };
                     println!("{}", json!({"method": m, "params": p}));
                     continue;
                 }
@@ -377,10 +390,21 @@ async fn collect_once(client: Arc<Client>, id: &str, text: &str, opts: CollectOp
                 let Message::Notification { method: m, params } = m else { continue };
                 let p = params.unwrap_or(Value::Null);
                 if p.get("sessionId").and_then(Value::as_str) != Some(id) { continue; }
-                activity = true;
+                if agent_activity(&m, &p) {
+                    activity = true;
+                }
                 match m.as_str() {
                     method::SESSION_UPDATE => { produced = true; t.apply_update(&p) }
-                    method::MUX_EVENT => t.apply_event(&p),
+                    method::MUX_EVENT => {
+                        // Rules and policies answer on the server; count those too.
+                        if p.get("kind").and_then(Value::as_str) == Some("permission_auto") {
+                            asked += 1;
+                            if p.pointer("/msg/optionId").and_then(Value::as_str).map(|o| o.starts_with("reject") || o == "no").unwrap_or(false) {
+                                denied += 1;
+                            }
+                        }
+                        t.apply_event(&p)
+                    }
                     method::MUX_PERMISSION_PENDING => {
                         asked += 1;
                         produced = true;

@@ -206,6 +206,14 @@ impl Hub {
             if meta.status != SessionStatus::Closed {
                 meta.status = SessionStatus::Idle;
             }
+            // Meta is saved less often than events; after a hard stop the
+            // log can be ahead of it. Never hand out a sequence twice.
+            if let Ok(extra) = self.store.events(&meta.id, meta.last_seq, 1_000_000) {
+                if let Some(last) = extra.last() {
+                    meta.event_count += extra.len() as u64;
+                    meta.last_seq = last.seq;
+                }
+            }
             let session = self.make_session(meta);
             sessions.insert(session.id.clone(), session);
         }

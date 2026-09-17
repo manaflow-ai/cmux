@@ -113,7 +113,7 @@ Agents spawned by acpmux get `ACPMUX_ENV=1`, `ACPMUX_SESSION_ID`, `ACPMUX_SESSIO
 session and siblings. The event log carries `turn_started` and `turn_result`
 (`completed|cancelled|failed`); a daemon that restarts mid-turn writes
 `turn_result failed outcome_unknown` so nobody replays a prompt that may have run. A
-`notify_command` in the config runs on a permission request and on a turn that ends
+`notifyCommand` in the config runs on a permission request and on a turn that ends
 unattended, with `ACPMUX_EVENT`, `ACPMUX_SESSION_NAME` and `ACPMUX_TEXT` set.
 
 ## TUI
@@ -228,7 +228,7 @@ at the line. Markdown links show their URL after the text so it is visible and c
 
 Mouse selection also works in the composer: drag over the text and release to copy. In the
 transcript, a drag that reaches the top or bottom edge keeps scrolling while the pointer stays
-there. The composer grows to 12 rows before it scrolls; set `"composer_max_rows"` in
+there. The composer grows to 12 rows before it scrolls; set `"composerMaxRows"` in
 `~/.acpmux/config.json` or `ACPMUX_COMPOSER_ROWS` to change it.
 
 ## Peers: every session on every machine, from one Mac

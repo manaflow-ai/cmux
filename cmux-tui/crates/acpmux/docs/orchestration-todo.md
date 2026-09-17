@@ -93,7 +93,7 @@ hosts over ssh, export/import, per-session event log with seqs.
 18. **Notifications from the hub.** On two transitions only, permission
     pending and turn ended while unattached: OSC 9 (Ghostty, iTerm2,
     WezTerm) or OSC 99 (kitty) from the TUI, tmux passthrough, and an
-    optional `notify` command in config. `wait --notify` for scripts.
+    optional `notifyCommand` in config. `wait --notify` for scripts.
 
 ## Phase 4: observability for many sessions
 

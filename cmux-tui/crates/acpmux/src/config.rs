@@ -166,12 +166,12 @@ pub struct Config {
     pub store: StoreConfig,
     #[serde(default)]
     pub permission_policy: PermissionPolicy,
-    /// Most rows the TUI composer grows to before it scrolls. Env
-    /// `ACPMUX_COMPOSER_ROWS` overrides. Default 12.
+    /// `composerMaxRows`: most rows the TUI composer grows to before it
+    /// scrolls. Env `ACPMUX_COMPOSER_ROWS` overrides. Default 12.
     #[serde(default)]
     pub composer_max_rows: Option<u16>,
-    /// Shell command the daemon runs when a session needs a permission or
-    /// ends a turn while nobody is attached. Gets ACPMUX_EVENT,
+    /// `notifyCommand`: shell command the daemon runs when a session needs a
+    /// permission or ends a turn while nobody is attached. Gets ACPMUX_EVENT,
     /// ACPMUX_SESSION_ID, ACPMUX_SESSION_NAME and ACPMUX_TEXT in its env.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notify_command: Option<String>,

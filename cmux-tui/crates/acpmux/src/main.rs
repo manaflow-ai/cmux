@@ -90,7 +90,8 @@ enum Command {
         #[arg(long)]
         timeout: Option<u64>,
     },
-    /// Print the agent skill: how an agent drives acpmux.
+    /// Print the agent skill: how an agent drives acpmux. Also `guide`, `--skill`.
+    #[command(alias = "guide")]
     Skill,
     /// Print the last reply of a session (plain text).
     #[command(alias = "reply")]
@@ -375,6 +376,9 @@ async fn main() -> Result<()> {
     let mut argv: Vec<std::ffi::OsString> = std::env::args_os().collect();
     if argv.len() == 2 && argv[1] == "daemon" {
         argv.push("run".into());
+    }
+    if argv.get(1).map(|a| a == "--skill").unwrap_or(false) {
+        argv[1] = "skill".into();
     }
     let run_alias = argv.get(1).map(|a| a == "run" || a == "exec").unwrap_or(false);
     let exec_alias = argv.get(1).map(|a| a == "exec").unwrap_or(false);
