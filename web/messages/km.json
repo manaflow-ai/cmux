@@ -380,6 +380,13 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "ចែករំលែកជាមួយក្រុម",
+      "makePrivate": "កំណត់ជាឯកជន",
+      "privateImportHint": "គណនីថ្មីជាគណនីឯកជន។ ចែករំលែកគណនី ដើម្បីឱ្យ Cloud VM របស់ក្រុមនេះអាចប្រើបាន។",
+      "description": "គណនីដែលបានចែករំលែកអាចប្រើបានដោយ Cloud VM របស់ក្រុមនេះ។ គណនីឯកជនអាចប្រើបានតែដោយអ្នកដែលបានបន្ថែមវាប៉ុណ្ណោះ។",
+      "cancelAction": "បោះបង់"
     }
   },
   "community": {
@@ -1003,10 +1010,10 @@
       "targetTitle": "បង្អួចខុស ឬការចុចត្រូវបានរារាំង",
       "targetBody": "ពិនិត្យកម្មវិធីម្ដងទៀត និងជ្រើសធាតុពីស្ថានភាពបច្ចុប្បន្ន។ បើបង្អួចផ្សេងបាំងគោលដៅ បង្ហាញបង្អួចដែលចង់បាន ហើយពិនិត្យមុនសាកល្បង។ កុំប្រើកូអរដោនេ ឬសន្ទស្សន៍ចាស់ម្ដងទៀត។",
       "productLink": "ទិដ្ឋភាពទូទៅនៃ cmux Computer Use",
-    "copyTitle": "ចម្លង prompt Computer Use",
-    "copyPrompt": "ចម្លង prompt",
-    "copiedPrompt": "បានចម្លង",
-    "installPrompt": "ប្រើជំនាញ $cmux-cua។ បើគ្មាន សូមដំឡើងតាមកម្មវិធីធម្មតា។ បើខ្វះសិទ្ធិ សូមប្រាប់ខ្ញុំឱ្យបើកការកំណត់ cmux → Computer Use។ ពិនិត្យមុនធ្វើ និងពិនិត្យរាល់ការផ្លាស់ប្ដូរ។\n\nកិច្ចការ៖ [ពិពណ៌នាកិច្ចការនៅទីនេះ]"
+      "copyTitle": "ចម្លង prompt Computer Use",
+      "copyPrompt": "ចម្លង prompt",
+      "copiedPrompt": "បានចម្លង",
+      "installPrompt": "ប្រើជំនាញ $cmux-cua។ បើគ្មាន សូមដំឡើងតាមកម្មវិធីធម្មតា។ បើខ្វះសិទ្ធិ សូមប្រាប់ខ្ញុំឱ្យបើកការកំណត់ cmux → Computer Use។ ពិនិត្យមុនធ្វើ និងពិនិត្យរាល់ការផ្លាស់ប្ដូរ។\n\nកិច្ចការ៖ [ពិពណ៌នាកិច្ចការនៅទីនេះ]"
     },
     "remoteTmux": {
       "moshContrast": "សម្រាប់ការផ្លាស់ប្តូររវាងបណ្ដាញ សូមប្រើ cmux mosh-tmux។ វាបើកស្ថានីយ Mosh ដែលបានរួមបញ្ចូលពេញលេញ និងភ្ជាប់ទៅ tmux session ដែលមានឈ្មោះ; វាមិនជំនួស native mirror នៃ workspace, tab និង split ដែលផ្ដល់ដោយ SSH tmux control mode ទេ។"
