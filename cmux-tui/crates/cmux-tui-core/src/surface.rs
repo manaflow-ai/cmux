@@ -30,7 +30,7 @@ use ghostty_vt::{
 use crate::mux::ResourceWaitWake;
 use crate::platform;
 use crate::resource::{ContentPublicId, TabResourceIdentity, TerminalPublicId};
-use crate::terminal_host_protocol::{TerminalExit, wait_for_native_child_status};
+use crate::terminal_host_protocol::{TerminalExit, wait_for_native_child_status_with_reap_result};
 use crate::{Mux, MuxEvent, SurfaceId};
 
 pub use crate::browser::{
@@ -49,6 +49,9 @@ use crate::terminal_host_protocol::{
 };
 use cmux_tui_cdp::BrowserMode;
 
+/// Ghostty's default maximum retained scrollback backing storage.
+pub const DEFAULT_SCROLLBACK_LIMIT_BYTES: usize = 50_000_000;
+
 /// Result of encoding terminal mouse input against a previously observed
 /// pointer snapshot without blocking on terminal parsing.
 #[derive(Debug)]
@@ -62,6 +65,17 @@ pub enum GuardedMouseEncode {
     /// Terminal parsing currently owns a required lock. The caller may retry
     /// after the next surface update without changing the pointer route.
     Contended,
+}
+
+/// Delivery classification for receipted terminal input.
+///
+/// `Known` means the implementation proved no bytes were submitted to the
+/// authoritative PTY owner. `Indeterminate` means bytes may have crossed a
+/// local writer or terminal-host socket before the failure became visible.
+#[derive(Debug)]
+pub(crate) enum ConfirmedInputFailure {
+    Known(std::io::Error),
+    Indeterminate(std::io::Error),
 }
 
 /// Nonblocking probe for the terminal mouse protocol and reporting mode.
@@ -103,6 +117,8 @@ pub struct SurfaceOptions {
     pub term: String,
     pub cols: u16,
     pub rows: u16,
+    /// Maximum retained scrollback storage in bytes, matching Ghostty's
+    /// `max_scrollback` API. This is not a line count.
     pub scrollback: usize,
     /// Extra environment for children (e.g. CMUX_TUI_SOCKET).
     pub extra_env: Vec<(String, String)>,
@@ -167,7 +183,7 @@ impl Default for SurfaceOptions {
                 .unwrap_or_else(|_| default_child_term()),
             cols: 80,
             rows: 24,
-            scrollback: 10_000,
+            scrollback: DEFAULT_SCROLLBACK_LIMIT_BYTES,
             extra_env: Vec::new(),
             chrome_binary: None,
             cdp_url: None,
@@ -226,6 +242,11 @@ pub struct TerminalColors {
     pub fg: Option<Rgb>,
     pub bg: Option<Rgb>,
     pub cursor: Option<Rgb>,
+    /// Application-authored special colors, separate from shared embedder
+    /// defaults so byte viewers can retain their own configured themes.
+    pub fg_override: Option<Rgb>,
+    pub bg_override: Option<Rgb>,
+    pub cursor_override: Option<Rgb>,
     pub selection_bg: Option<Rgb>,
     pub selection_fg: Option<Rgb>,
     pub cursor_style: Option<CursorShape>,
@@ -242,6 +263,9 @@ impl Default for TerminalColors {
             fg: None,
             bg: None,
             cursor: None,
+            fg_override: None,
+            bg_override: None,
+            cursor_override: None,
             selection_bg: None,
             selection_fg: None,
             cursor_style: None,
@@ -260,6 +284,9 @@ impl TerminalColors {
             fg,
             bg,
             cursor,
+            fg_override: overrides.foreground,
+            bg_override: overrides.background,
+            cursor_override: overrides.cursor,
             selection_bg: defaults.selection_bg,
             selection_fg: defaults.selection_fg,
             palette: overrides.palette,
@@ -372,6 +399,21 @@ struct HostedFrameStager {
     expected_sequence: u64,
     smart_renderer: bool,
     pending: Option<PendingHostedTransition>,
+}
+
+#[cfg(unix)]
+fn is_targeted_host_response(kind: MessageKind) -> bool {
+    matches!(
+        kind,
+        MessageKind::Capability
+            | MessageKind::ResizeAck
+            | MessageKind::CellPixelSizeAck
+            | MessageKind::KittyGraphicsLimitsAck
+            | MessageKind::ClearHistoryAck
+            | MessageKind::TerminateAck
+            | MessageKind::DetachAck
+            | MessageKind::InputAck
+    )
 }
 
 #[cfg(unix)]
@@ -1040,7 +1082,7 @@ impl Drop for RenderAttachFrameReceiver {
 pub struct RenderAttachStream {
     pub initial: Arc<SurfaceRenderFrame>,
     pub stream: RenderAttachFrameReceiver,
-    _permit: crate::mux::RenderAttachmentPermit,
+    _permit: Option<crate::mux::RenderAttachmentPermit>,
 }
 
 struct RenderHub {
@@ -1048,7 +1090,45 @@ struct RenderHub {
     built_generation: u64,
     latest: Option<Arc<SurfaceRenderFrame>>,
     initial_graphics: Option<InitialGraphicsSnapshot>,
+    final_initial: Option<Arc<SurfaceRenderFrame>>,
     taps: Vec<RenderTap>,
+}
+
+impl RenderHub {
+    fn build_attach_initial(
+        &mut self,
+        term: &Terminal,
+    ) -> ghostty_vt::Result<Arc<SurfaceRenderFrame>> {
+        let shared = self.latest.clone().ok_or(ghostty_vt::Error::NoValue)?;
+        let initial_graphics = match self.initial_graphics.as_ref() {
+            Some(cached) if Arc::ptr_eq(&cached.source, &shared.frame.kitty_graphics) => {
+                cached.snapshot.clone()
+            }
+            _ => {
+                let snapshot = self.state.snapshot_kitty_graphics(term, true)?;
+                self.initial_graphics = Some(InitialGraphicsSnapshot {
+                    source: shared.frame.kitty_graphics.clone(),
+                    snapshot: snapshot.clone(),
+                });
+                snapshot
+            }
+        };
+        let mut initial = (*shared).clone();
+        initial.frame.kitty_graphics = initial_graphics;
+        Ok(Arc::new(initial))
+    }
+
+    fn final_attach_initial(
+        &mut self,
+        term: &Terminal,
+    ) -> ghostty_vt::Result<Arc<SurfaceRenderFrame>> {
+        if let Some(initial) = self.final_initial.as_ref() {
+            return Ok(initial.clone());
+        }
+        let initial = self.build_attach_initial(term)?;
+        self.final_initial = Some(initial.clone());
+        Ok(initial)
+    }
 }
 
 struct InitialGraphicsSnapshot {
@@ -1286,7 +1366,6 @@ struct ReaderCompletion {
 }
 
 impl ReaderCompletion {
-    #[cfg(test)]
     fn reset(&self) {
         *self.finished.lock().unwrap() = false;
     }
@@ -1402,6 +1481,10 @@ pub struct PtyTerminalRuntime {
     /// journal barrier.
     reader_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
     reader_completion: Arc<ReaderCompletion>,
+    /// Owned child-reaper join fence. Shutdown uses the same bounded deadline
+    /// as the reader so the child wait cannot outlive terminal teardown.
+    reaper_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
+    reaper_completion: Arc<ReaderCompletion>,
     term: Mutex<Box<Terminal>>,
     stream_progress: Box<TerminalStreamProgress>,
     mouse_encoders: Mutex<Box<MouseEncoders>>,
@@ -1488,6 +1571,48 @@ enum PtyRuntime {
     ExitedHosted,
 }
 
+/// Owns a freshly spawned PTY child until the child reaper has taken over.
+///
+/// `portable_pty::Child` does not stop or reap a process when its handle is
+/// dropped. Startup performs several fallible operations after spawning, so a
+/// guard keeps every error path terminating and reaping the child. The guard
+/// moves into the reaper closure; if thread creation fails, dropping that
+/// closure runs this cleanup instead.
+struct PtyChildStartupGuard {
+    child: Box<dyn cmux_pty::Child + Send + Sync>,
+    reaped: bool,
+}
+
+impl PtyChildStartupGuard {
+    fn new(child: Box<dyn cmux_pty::Child + Send + Sync>) -> Self {
+        Self { child, reaped: false }
+    }
+
+    fn process_id(&self) -> Option<u32> {
+        self.child.process_id()
+    }
+
+    fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
+        self.child.clone_killer()
+    }
+
+    fn wait_for_exit(&mut self) -> TerminalExit {
+        let (exit, reaped) = wait_for_native_child_status_with_reap_result(self.child.as_mut());
+        self.reaped = reaped;
+        exit
+    }
+}
+
+impl Drop for PtyChildStartupGuard {
+    fn drop(&mut self) {
+        if self.reaped {
+            return;
+        }
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PtyLifetime {
     SessionOwned,
@@ -1516,6 +1641,7 @@ pub const CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR: &str =
 pub(crate) const CLEAR_HISTORY_STREAM_WAIT_TIMEOUT: Duration = Duration::from_millis(250);
 pub(crate) const CLEAR_HISTORY_KEY_TEXT_MAX_BYTES: usize = 4 * 1024;
 const CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT: Duration = Duration::from_millis(250);
+const LOCAL_PASTE_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 // Kitty associated-text encoding can expand each ASCII input byte to a
 // three-digit codepoint plus one separator. The extra key-text budget covers
 // the fixed CSI-u fields without making fallback writes unbounded.
@@ -1556,45 +1682,6 @@ impl ClearHistoryFailure {
 }
 
 #[cfg(unix)]
-struct NonblockingFdGuard {
-    fd: std::os::fd::RawFd,
-    original_flags: libc::c_int,
-    restored: bool,
-}
-
-#[cfg(unix)]
-impl NonblockingFdGuard {
-    fn install(fd: std::os::fd::RawFd) -> std::io::Result<Self> {
-        let original_flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
-        if original_flags < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        if unsafe { libc::fcntl(fd, libc::F_SETFL, original_flags | libc::O_NONBLOCK) } < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        Ok(Self { fd, original_flags, restored: false })
-    }
-
-    fn restore(&mut self) -> std::io::Result<()> {
-        if self.restored {
-            return Ok(());
-        }
-        if unsafe { libc::fcntl(self.fd, libc::F_SETFL, self.original_flags) } < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        self.restored = true;
-        Ok(())
-    }
-}
-
-#[cfg(unix)]
-impl Drop for NonblockingFdGuard {
-    fn drop(&mut self) {
-        let _ = self.restore();
-    }
-}
-
-#[cfg(unix)]
 fn clear_history_write_failure(error: std::io::Error, delivered: usize) -> ClearHistoryFailure {
     let error = anyhow::Error::from(error);
     if delivered == 0 {
@@ -1617,73 +1704,13 @@ pub(crate) fn write_clear_history_fallback(
 
     #[cfg(unix)]
     if let Some(fd) = master.as_raw_fd() {
-        let mut nonblocking = NonblockingFdGuard::install(fd)
-            .map_err(|error| clear_history_write_failure(error, 0))?;
-        let deadline = Instant::now() + CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT;
-        let mut delivered = 0;
-        while delivered < bytes.len() {
-            let written = unsafe {
-                libc::write(
-                    fd,
-                    bytes[delivered..].as_ptr().cast(),
-                    bytes.len().saturating_sub(delivered),
-                )
-            };
-            if written > 0 {
-                delivered = delivered.saturating_add(written as usize);
-                continue;
-            }
-            if written == 0 {
-                let error =
-                    std::io::Error::new(std::io::ErrorKind::WriteZero, "PTY write returned zero");
-                return Err(clear_history_write_failure(error, delivered));
-            }
-            let error = std::io::Error::last_os_error();
-            if error.kind() == std::io::ErrorKind::Interrupted {
-                continue;
-            }
-            if error.kind() != std::io::ErrorKind::WouldBlock {
-                return Err(clear_history_write_failure(error, delivered));
-            }
-
-            let now = Instant::now();
-            if now >= deadline {
-                let error = anyhow::anyhow!(CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR);
-                return Err(if delivered == 0 {
-                    ClearHistoryFailure::known_not_delivered(error)
-                } else {
-                    ClearHistoryFailure::ambiguous(error)
-                });
-            }
-            let remaining = deadline.saturating_duration_since(now);
-            let timeout_ms = remaining
-                .as_nanos()
-                .saturating_add(999_999)
-                .checked_div(1_000_000)
-                .unwrap_or(u128::MAX)
-                .clamp(1, i32::MAX as u128) as libc::c_int;
-            let mut poll_fd = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
-            let ready = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms) };
-            if ready > 0 {
-                if poll_fd.revents & libc::POLLNVAL != 0 {
-                    let error =
-                        std::io::Error::new(std::io::ErrorKind::BrokenPipe, "PTY fd is invalid");
-                    return Err(clear_history_write_failure(error, delivered));
-                }
-                continue;
-            }
-            if ready < 0 {
-                let error = std::io::Error::last_os_error();
-                if error.kind() == std::io::ErrorKind::Interrupted {
-                    continue;
-                }
-                return Err(clear_history_write_failure(error, delivered));
-            }
-        }
-        if let Err(error) = nonblocking.restore() {
-            return Err(ClearHistoryFailure::ambiguous(error.into()));
-        }
-        return Ok(());
+        return crate::pty_write::write_bounded(
+            fd,
+            bytes,
+            CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT,
+            CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR,
+        )
+        .map_err(|failure| clear_history_write_failure(failure.error, failure.delivered));
     }
 
     #[cfg(test)]
@@ -2289,7 +2316,8 @@ impl Surface {
             cmd.cwd(cwd);
         }
 
-        let cmux_pty::SpawnedPty { master, mut child } = pty.spawn(cmd)?;
+        let cmux_pty::SpawnedPty { master, child } = pty.spawn(cmd)?;
+        let mut child = PtyChildStartupGuard::new(child);
         let pid = child.process_id();
         let killer = child.clone_killer();
         #[cfg(unix)]
@@ -2363,6 +2391,8 @@ impl Surface {
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
                 reader_completion: Arc::new(ReaderCompletion::default()),
+                reaper_thread: Mutex::new(None),
+                reaper_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -2408,6 +2438,7 @@ impl Surface {
                     built_generation: 0,
                     latest: None,
                     initial_graphics: None,
+                    final_initial: None,
                     taps: Vec::new(),
                 })),
                 render_generation: AtomicU64::new(1),
@@ -2558,17 +2589,35 @@ impl Surface {
 
         // Child reaper: retain the native status and rendezvous with PTY EOF
         // so final output is visible before the mux observes completion.
-        std::thread::Builder::new().name(format!("surface-{id}-wait")).spawn({
-            let surface = surface.clone();
-            move || {
-                let exit = wait_for_native_child_status(child.as_mut());
-                if let Some(pty) = surface.as_pty() {
+        let reaper_completion =
+            surface.as_pty().expect("local PTY surface owns its reaper").reaper_completion.clone();
+        reaper_completion.reset();
+        // Keep the surface alive with the join handle until the child wait
+        // completes. This prevents a deadline timeout from detaching a live
+        // reaper when teardown drops the last external surface reference.
+        let reaper_surface = surface.clone();
+        let reaper_thread =
+            match std::thread::Builder::new().name(format!("surface-{id}-wait")).spawn(move || {
+                let _reaper_completion = ReaderCompletionGuard(reaper_completion);
+                let exit = child.wait_for_exit();
+                if let Some(pty) = reaper_surface.as_pty() {
                     *pty.exit.lock().unwrap() = Some(exit);
                 }
-                close_local_terminal_master_after_exit(&surface);
-                publish_local_exit_if_ready(&surface);
-            }
-        })?;
+                close_local_terminal_master_after_exit(&reaper_surface);
+                publish_local_exit_if_ready(&reaper_surface);
+            }) {
+                Ok(reaper_thread) => reaper_thread,
+                Err(error) => {
+                    close_local_terminal_master_after_exit(&surface);
+                    return Err(error.into());
+                }
+            };
+        *surface
+            .as_pty()
+            .expect("local PTY surface owns its reaper")
+            .reaper_thread
+            .lock()
+            .unwrap() = Some(reaper_thread);
 
         Ok(surface)
     }
@@ -2811,6 +2860,13 @@ impl Surface {
         let host_exit_record_path = attachment.exit_record_path();
         let supports_clear_history_key_fallback = attachment.supports_clear_history();
         let journal_capture_supported = attachment.supports_journal_detach_fence();
+        // Snapshot CWD values are terminal-reported metadata, including for
+        // legacy protocol versions. Reject ambiguous plain paths instead of
+        // silently inheriting them as a local spawn directory. A current host
+        // fallback carries its authenticated provenance token.
+        let snapshot_cwd = snapshot.cwd.as_deref().and_then(|cwd| {
+            platform::snapshot_cwd_to_local_path(cwd, Some(attachment.record.owner_token.as_str()))
+        });
         let render_state = RenderState::new()?;
         let (frame_requests, frame_rx) = sync_channel(1);
         #[cfg(test)]
@@ -2835,6 +2891,8 @@ impl Surface {
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
                 reader_completion: Arc::new(ReaderCompletion::default()),
+                reaper_thread: Mutex::new(None),
+                reaper_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -2848,7 +2906,7 @@ impl Surface {
                 host_exit_record_path: Some(host_exit_record_path),
                 pid: snapshot.pid,
                 command: snapshot.command,
-                cwd: snapshot.cwd,
+                cwd: snapshot_cwd.map(|path| path.to_string_lossy().into_owned()),
                 exit: Mutex::new(None),
                 local_pty_drained: AtomicBool::new(true),
                 exit_notified: AtomicBool::new(false),
@@ -2883,6 +2941,7 @@ impl Surface {
                     built_generation: 0,
                     latest: None,
                     initial_graphics: None,
+                    final_initial: None,
                     taps: Vec::new(),
                 })),
                 render_generation: AtomicU64::new(1),
@@ -2944,15 +3003,9 @@ impl Surface {
                             Ok(Some(frame)) => frame,
                             Ok(None) | Err(_) => break,
                         };
-                        if matches!(
-                            frame.kind,
-                            MessageKind::Capability
-                                | MessageKind::CellPixelSizeAck
-                                | MessageKind::KittyGraphicsLimitsAck
-                                | MessageKind::ClearHistoryAck
-                                | MessageKind::TerminateAck
-                                | MessageKind::DetachAck
-                        ) && frame.request_id != 0
+                        // Targeted responses must be consumed before live staging:
+                        // HostedFrameStager intentionally rejects every nonzero request id.
+                        if is_targeted_host_response(frame.kind) && frame.request_id != 0
                         {
                             if frame.version != protocol_version
                                 || frame.flags != 0
@@ -3878,6 +3931,8 @@ impl Surface {
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
                 reader_completion: Arc::new(ReaderCompletion::default()),
+                reaper_thread: Mutex::new(None),
+                reaper_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -3924,6 +3979,7 @@ impl Surface {
                     built_generation: 0,
                     latest: None,
                     initial_graphics: None,
+                    final_initial: None,
                     taps: Vec::new(),
                 })),
                 render_generation: AtomicU64::new(1),
@@ -4103,6 +4159,8 @@ impl Surface {
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
                 reader_completion: Arc::new(ReaderCompletion::default()),
+                reaper_thread: Mutex::new(None),
+                reaper_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -4149,6 +4207,7 @@ impl Surface {
                     built_generation: 0,
                     latest: None,
                     initial_graphics: None,
+                    final_initial: None,
                     taps: Vec::new(),
                 })),
                 render_generation: AtomicU64::new(1),
@@ -4176,6 +4235,22 @@ impl Surface {
 
     pub(crate) fn finish_terminal_reader(&self, deadline: Instant) -> Option<TerminalJournalGap> {
         let pty = self.as_pty()?;
+        let reaper = pty.reaper_thread.lock().unwrap().take();
+        if let Some(reaper) = reaper {
+            if reaper.thread().id() == std::thread::current().id() {
+                *pty.reaper_thread.lock().unwrap() = Some(reaper);
+                eprintln!("cmux-tui: child reaper skipped self-join during shutdown");
+            } else if pty.reaper_completion.wait_until(deadline) {
+                if reaper.join().is_err() {
+                    eprintln!("cmux-tui: child reaper thread panicked during shutdown");
+                }
+            } else {
+                *pty.reaper_thread.lock().unwrap() = Some(reaper);
+                eprintln!(
+                    "cmux-tui: child reaper did not stop before the shared shutdown deadline"
+                );
+            }
+        }
         if let Some(reader) = pty.reader_thread.lock().unwrap().take() {
             if pty.reader_completion.wait_until(deadline) {
                 if reader.join().is_err() {
@@ -4214,6 +4289,42 @@ impl Surface {
         });
         let previous = pty.reader_thread.lock().unwrap().replace(reader);
         assert!(previous.is_none(), "test PTY already owns a reader thread");
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_terminal_reaper_for_test(&self, reaper: std::thread::JoinHandle<()>) {
+        let pty = self.as_pty().expect("test reaper requires a PTY surface");
+        pty.reaper_completion.reset();
+        let completion = pty.reaper_completion.clone();
+        let reaper = std::thread::spawn(move || {
+            let result = reaper.join();
+            completion.complete();
+            result.expect("installed test terminal reaper panicked");
+        });
+        let previous = pty.reaper_thread.lock().unwrap().replace(reaper);
+        assert!(previous.is_none(), "test PTY already owns a reaper thread");
+    }
+
+    #[cfg(test)]
+    fn install_terminal_reaper_that_finishes_for_test(
+        self: &Arc<Self>,
+        started: SyncSender<()>,
+        proceed: Receiver<()>,
+    ) -> Arc<ReaderCompletion> {
+        let pty = self.as_pty().expect("test reaper requires a PTY surface");
+        pty.reaper_completion.reset();
+        let completion = pty.reaper_completion.clone();
+        let reaper_completion = completion.clone();
+        let surface = self.clone();
+        let reaper = std::thread::spawn(move || {
+            started.send(()).unwrap();
+            proceed.recv().unwrap();
+            reaper_completion.complete();
+            surface.finish_terminal_reader(Instant::now() + Duration::from_secs(1));
+        });
+        let previous = pty.reaper_thread.lock().unwrap().replace(reaper);
+        assert!(previous.is_none(), "test PTY already owns a reaper thread");
+        completion
     }
 
     #[cfg(test)]
@@ -4266,9 +4377,60 @@ impl Surface {
         }
     }
 
+    /// Write receipted input bytes and wait for authoritative PTY-owner delivery.
+    ///
+    /// Hosted input registers and writes its targeted request while holding the
+    /// short runtime lock, then releases that lock before waiting for `InputAck`.
+    /// Other receipted writes can therefore enter the host channel while an
+    /// earlier caller is waiting. Interactive input continues to use `write_bytes`.
+    pub(crate) fn write_bytes_confirmed(&self, bytes: &[u8]) -> Result<(), ConfirmedInputFailure> {
+        let Some(pty) = self.as_pty() else {
+            return Err(ConfirmedInputFailure::Known(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "browser surface does not accept PTY bytes",
+            )));
+        };
+        let mut runtime = pty.runtime.lock().unwrap();
+        match &mut *runtime {
+            PtyRuntime::Local { writer, .. } => writer
+                .write_all(bytes)
+                .and_then(|()| writer.flush())
+                .map_err(ConfirmedInputFailure::Indeterminate),
+            #[cfg(unix)]
+            PtyRuntime::Hosted(host) => {
+                let receipt = host.begin_input_confirmed(bytes)?;
+                drop(runtime);
+                receipt.wait().map_err(ConfirmedInputFailure::Indeterminate)
+            }
+            #[cfg(unix)]
+            PtyRuntime::ExitedHosted => Err(ConfirmedInputFailure::Known(std::io::Error::new(
+                std::io::ErrorKind::NotConnected,
+                "terminal has no live PTY owner for receipted input",
+            ))),
+        }
+    }
+
     /// Write a protocol input payload, conditionally applying bracketed-paste
     /// markers from a terminal-mode snapshot taken before the PTY write.
     pub fn write_paste(&self, bytes: &[u8]) -> std::io::Result<()> {
+        self.write_paste_with_timeout(bytes, None)
+    }
+
+    /// Write a paste with a bounded local PTY write for daemon-owned uploads.
+    ///
+    /// Hosted attachments already enforce their socket write deadline. Local
+    /// PTY masters are switched to nonblocking mode for this operation and
+    /// polled until the same two-second bound, so a full PTY cannot retain an
+    /// image-paste reservation indefinitely.
+    pub(crate) fn write_paste_bounded(&self, bytes: &[u8]) -> std::io::Result<()> {
+        self.write_paste_with_timeout(bytes, Some(LOCAL_PASTE_WRITE_TIMEOUT))
+    }
+
+    fn write_paste_with_timeout(
+        &self,
+        bytes: &[u8],
+        timeout: Option<Duration>,
+    ) -> std::io::Result<()> {
         let Some(pty) = self.as_pty() else {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Unsupported,
@@ -4295,17 +4457,43 @@ impl Surface {
             term.mode(2004, false)
         };
         let mut runtime = pty.runtime.lock().unwrap();
-        let PtyRuntime::Local { writer, .. } = &mut *runtime else {
+        let PtyRuntime::Local { writer, master, .. } = &mut *runtime else {
             unreachable!("hosted paste returned above")
         };
+        #[cfg(not(unix))]
+        let _ = master;
+        let mut payload = Vec::with_capacity(bytes.len() + if bracketed { 12 } else { 0 });
         if bracketed {
-            writer.write_all(b"\x1b[200~")?;
+            payload.extend_from_slice(b"\x1b[200~");
         }
-        writer.write_all(bytes)?;
+        payload.extend_from_slice(bytes);
         if bracketed {
-            writer.write_all(b"\x1b[201~")?;
+            payload.extend_from_slice(b"\x1b[201~");
         }
+        #[cfg(unix)]
+        if let Some(timeout) = timeout
+            && let Some(fd) = master.as_ref().and_then(|master| master.as_raw_fd())
+        {
+            return crate::pty_write::write_bounded(
+                fd,
+                &payload,
+                timeout,
+                "PTY paste write timed out",
+            )
+            .map_err(|failure| failure.error);
+        }
+        writer.write_all(&payload)?;
         writer.flush()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replace_input_writer_for_test(&self, replacement: Box<dyn Write + Send>) {
+        let pty = self.as_pty().expect("input test requires a terminal");
+        let mut runtime = pty.runtime.lock().unwrap();
+        let PtyRuntime::Local { writer, .. } = &mut *runtime else {
+            panic!("input test requires the in-process test runtime");
+        };
+        *writer = replacement;
     }
 
     /// Run `f` with exclusive access to the terminal state.
@@ -4392,6 +4580,7 @@ impl Surface {
                 render.state.clear_kitty_graphics_cache();
                 render.latest = None;
                 render.initial_graphics = None;
+                render.final_initial = None;
             }
             graphics_changed
         };
@@ -5272,11 +5461,46 @@ impl Surface {
     }
 
     pub fn local_cwd(&self) -> Option<String> {
-        self.pwd()
-            .as_deref()
-            .and_then(platform::terminal_pwd_to_local_path)
-            .map(|path| path.to_string_lossy().into_owned())
-            .or_else(|| self.spawn_cwd())
+        let hosted = match self {
+            Surface::Pty(pty) => {
+                #[cfg(unix)]
+                {
+                    matches!(
+                        &*pty.runtime.lock().unwrap(),
+                        PtyRuntime::Hosted(_) | PtyRuntime::ExitedHosted
+                    )
+                }
+                #[cfg(not(unix))]
+                {
+                    false
+                }
+            }
+            Surface::Browser(_) => false,
+        };
+        let terminal_pwd_to_local_path = if hosted {
+            platform::terminal_pwd_to_local_path
+        } else {
+            platform::local_terminal_pwd_to_local_path
+        };
+        let terminal_cwd = if hosted {
+            None
+        } else {
+            self.pwd()
+                .as_deref()
+                .and_then(terminal_pwd_to_local_path)
+                .map(|path| path.to_string_lossy().into_owned())
+        };
+        terminal_cwd.or_else(|| {
+            self.spawn_cwd()
+                .as_deref()
+                .and_then(platform::spawn_cwd_to_local_path)
+                .map(|path| path.to_string_lossy().into_owned())
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_test_pwd(&self, pwd: Option<String>) {
+        *self.as_pty().expect("test PTY surface").pwd.lock().unwrap() = pwd;
     }
 
     pub fn process_id(&self) -> Option<u32> {
@@ -5421,7 +5645,13 @@ impl Surface {
             return Err(ghostty_vt::Error::InvalidValue);
         };
         let mut term = pty.term.lock().unwrap();
-        if pty.dead.load(Ordering::Acquire) {
+        let dead = pty.dead.load(Ordering::Acquire);
+        let exited = dead
+            && pty.host_connection_state.load(Ordering::Acquire)
+                == TerminalHostConnectionState::Exited as u8;
+        // An exited terminal has no live tap, but its final replay remains
+        // useful. Other dead states can represent an incomplete host loss.
+        if dead && !exited {
             return Err(ghostty_vt::Error::NoValue);
         }
         let (tap, stream) =
@@ -5430,11 +5660,17 @@ impl Surface {
         // the reader thread cannot apply bytes between the two.
         #[cfg(test)]
         pty.vt_replay_builds.fetch_add(1, Ordering::AcqRel);
-        let replay = term.vt_replay_bounded(VT_REPLAY_MAX_BYTES)?;
+        // Byte mirrors render in their own libghostty with their own theme.
+        // A palette-including replay would pin every one of the 256 entries
+        // (and the default fg/bg) to this process's colors; the sparse
+        // `colors` sidecar below carries only what the PTY authored.
+        let replay = term.vt_replay_bounded_theme_portable_with_aliases(VT_REPLAY_MAX_BYTES)?;
         let (cols, rows) = (term.cols(), term.rows());
         let defaults = pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         let colors = pty.terminal_colors_locked(&term, defaults);
-        if !pty.dead.load(Ordering::Acquire) {
+        if exited || pty.dead.load(Ordering::Acquire) {
+            drop(tap);
+        } else {
             let mut taps = pty.taps.lock().unwrap();
             if taps.is_empty() {
                 *pty.last_attach_colors.lock().unwrap() =
@@ -5460,40 +5696,48 @@ impl Surface {
         let Some(pty) = self.as_pty() else {
             return Err(ghostty_vt::Error::InvalidValue);
         };
-        let permit = pty
-            .mux
-            .upgrade()
-            .and_then(|mux| mux.claim_render_attachment())
-            .ok_or(ghostty_vt::Error::OutOfSpace)?;
         let mut term = pty.term.lock().unwrap();
-        if pty.dead.load(Ordering::Acquire) {
+        let dead = pty.dead.load(Ordering::Acquire);
+        let exited = dead
+            && pty.host_connection_state.load(Ordering::Acquire)
+                == TerminalHostConnectionState::Exited as u8;
+        if dead && !exited {
             return Err(ghostty_vt::Error::NoValue);
         }
+        let permit = if exited {
+            None
+        } else {
+            Some(
+                pty.mux
+                    .upgrade()
+                    .and_then(|mux| mux.claim_render_attachment())
+                    .ok_or(ghostty_vt::Error::OutOfSpace)?,
+            )
+        };
         let generation = pty.render_generation.load(Ordering::Acquire);
         let _ = pty.build_frame_locked(&mut term, generation, false)?;
         let (tap, stream) = RenderTap::pair(&pty.render);
-        let initial = {
+        let (initial, registered) = {
             let mut render = pty.render.lock().unwrap();
-            let shared = render.latest.clone().ok_or(ghostty_vt::Error::NoValue)?;
-            let initial_graphics = match render.initial_graphics.as_ref() {
-                Some(cached) if Arc::ptr_eq(&cached.source, &shared.frame.kitty_graphics) => {
-                    cached.snapshot.clone()
-                }
-                _ => {
-                    let snapshot = render.state.snapshot_kitty_graphics(&term, true)?;
-                    render.initial_graphics = Some(InitialGraphicsSnapshot {
-                        source: shared.frame.kitty_graphics.clone(),
-                        snapshot: snapshot.clone(),
-                    });
-                    snapshot
-                }
+            let initial = if exited {
+                render.final_attach_initial(&term)?
+            } else {
+                render.build_attach_initial(&term)?
             };
-            let mut initial = (*shared).clone();
-            initial.frame.kitty_graphics = initial_graphics;
-            if !pty.dead.load(Ordering::Acquire) {
+            let registered = if exited || pty.dead.load(Ordering::Acquire) {
+                drop(tap);
+                false
+            } else {
                 render.taps.push(tap);
-            }
-            Arc::new(initial)
+                true
+            };
+            (initial, registered)
+        };
+        let permit = if registered {
+            permit
+        } else {
+            drop(permit);
+            None
         };
         Ok(RenderAttachStream { initial, stream, _permit: permit })
     }
@@ -6093,6 +6337,52 @@ impl ChildKiller for TestChildKiller {
     }
 }
 
+#[cfg(test)]
+#[derive(Debug, Default)]
+struct StartupChildState {
+    kill_count: AtomicUsize,
+    wait_count: AtomicUsize,
+}
+
+#[cfg(test)]
+#[derive(Debug)]
+struct StartupChild {
+    state: Arc<StartupChildState>,
+}
+
+#[cfg(test)]
+impl ChildKiller for StartupChild {
+    fn kill(&mut self) -> std::io::Result<()> {
+        self.state.kill_count.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    }
+
+    fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
+        Box::new(TestChildKiller)
+    }
+}
+
+#[cfg(test)]
+impl cmux_pty::Child for StartupChild {
+    fn try_wait(&mut self) -> std::io::Result<Option<cmux_pty::ExitStatus>> {
+        Err(std::io::Error::other("test child has no process"))
+    }
+
+    fn wait(&mut self) -> std::io::Result<cmux_pty::ExitStatus> {
+        self.state.wait_count.fetch_add(1, Ordering::Relaxed);
+        Err(std::io::Error::other("test child has no process"))
+    }
+
+    fn process_id(&self) -> Option<u32> {
+        None
+    }
+
+    #[cfg(windows)]
+    fn as_raw_handle(&self) -> Option<std::os::windows::io::RawHandle> {
+        None
+    }
+}
+
 impl PtySurface {
     fn journal_target(&self) -> Option<(Arc<Mux>, Arc<TerminalPublicId>)> {
         let terminal_id = self.terminal_public_id.clone()?;
@@ -6253,7 +6543,7 @@ impl PtySurface {
                 return;
             }
         }
-        let replay = match term.vt_replay_bounded(VT_REPLAY_MAX_BYTES) {
+        let replay = match term.vt_replay_bounded_theme_portable_with_aliases(VT_REPLAY_MAX_BYTES) {
             Ok(replay) => replay,
             Err(_) => {
                 let mut taps = self.taps.lock().unwrap();
@@ -6330,6 +6620,9 @@ impl PtySurface {
     /// retaining the exited surface as a stable, snapshot-renderable tab.
     fn finish_hosted_exit(&self) {
         let mut term = self.term.lock().unwrap();
+        // Attach takes the same terminal lock. The caller that changes `dead`
+        // owns finalization; a prior host-loss owner must keep its state and
+        // reject an incomplete replay.
         if self.dead.swap(true, Ordering::AcqRel) {
             return;
         }
@@ -6337,6 +6630,11 @@ impl PtySurface {
         let _ = self.build_frame_locked(&mut term, generation, true);
         self.taps.lock().unwrap().clear();
         self.render.lock().unwrap().taps.clear();
+        // Publish Exited only after the final frame is built and both stream
+        // sets are closed. An attacher that acquires `term` next can then
+        // observe a live terminal or a complete, inert final snapshot.
+        self.host_connection_state
+            .store(TerminalHostConnectionState::Exited as u8, Ordering::Release);
     }
 
     fn mark_output_dirty(&self) {
@@ -6383,6 +6681,7 @@ impl PtySurface {
                 }
                 render.built_generation = generation;
                 render.latest = Some(frame.clone());
+                render.final_initial = None;
                 render.taps.retain(|tap| tap.send(RenderAttachFrame::Frame(frame.clone())));
                 true
             }
@@ -6604,7 +6903,7 @@ impl PtySurface {
         let replay = if has_attach_taps {
             #[cfg(test)]
             self.vt_replay_builds.fetch_add(1, Ordering::AcqRel);
-            match term.vt_replay_bounded(VT_REPLAY_MAX_BYTES) {
+            match term.vt_replay_bounded_theme_portable_with_aliases(VT_REPLAY_MAX_BYTES) {
                 Ok(replay) => Some(replay),
                 Err(_) => {
                     // Budget failure was already ruled out under this same
@@ -6842,9 +7141,117 @@ fn set_terminal_scroll_offset(term: &mut Terminal, target: u64) -> bool {
 #[cfg(test)]
 mod tests {
     use base64::Engine as _;
+    use std::sync::mpsc::sync_channel;
 
     use super::*;
     use crate::MuxEvent;
+
+    #[test]
+    fn finish_terminal_reader_joins_owned_reaper_before_deadline() {
+        let mux = Mux::new_for_test("reaper-join", SurfaceOptions::default());
+        let surface = Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux))
+            .expect("test PTY should spawn");
+        let (started_tx, started_rx) = sync_channel(0);
+        let reaper = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+        });
+        surface.install_terminal_reaper_for_test(reaper);
+        started_rx.recv().unwrap();
+
+        let pty = surface.as_pty().unwrap();
+        surface.finish_terminal_reader(Instant::now() + Duration::from_secs(1));
+
+        assert!(
+            pty.reaper_thread.lock().unwrap().is_none(),
+            "terminal teardown must consume the child-reaper join handle"
+        );
+    }
+
+    #[test]
+    fn finish_terminal_reader_retains_reaper_after_deadline() {
+        let mux = Mux::new_for_test("reaper-timeout", SurfaceOptions::default());
+        let surface = Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux))
+            .expect("test PTY should spawn");
+        let (started_tx, started_rx) = sync_channel(0);
+        let (release_tx, release_rx) = sync_channel(0);
+        let reaper = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+        });
+        surface.install_terminal_reaper_for_test(reaper);
+        started_rx.recv().unwrap();
+
+        let pty = surface.as_pty().unwrap();
+        surface.finish_terminal_reader(Instant::now());
+        assert!(
+            pty.reaper_thread.lock().unwrap().is_some(),
+            "a live child-reaper handle must remain owned after timeout"
+        );
+
+        release_tx.send(()).unwrap();
+        assert!(pty.reaper_completion.wait_until(Instant::now() + Duration::from_secs(1)));
+        surface.finish_terminal_reader(Instant::now() + Duration::from_secs(1));
+        assert!(pty.reaper_thread.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn finish_terminal_reader_does_not_self_join_reaper() {
+        let mux = Mux::new_for_test("reaper-self-join", SurfaceOptions::default());
+        let surface = Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux))
+            .expect("test PTY should spawn");
+        let (started_tx, started_rx) = sync_channel(0);
+        let (proceed_tx, proceed_rx) = sync_channel(0);
+        let completion =
+            surface.install_terminal_reaper_that_finishes_for_test(started_tx, proceed_rx);
+        started_rx.recv().unwrap();
+        proceed_tx.send(()).unwrap();
+
+        assert!(completion.wait_until(Instant::now() + Duration::from_secs(1)));
+        let pty = surface.as_pty().unwrap();
+        surface.finish_terminal_reader(Instant::now() + Duration::from_secs(1));
+        assert!(pty.reaper_thread.lock().unwrap().is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn local_surface_reaper_timeout_retains_production_handle() {
+        let mux = Mux::new_for_test("production-reaper-timeout", SurfaceOptions::default());
+        let surface = Surface::spawn(
+            2,
+            SurfaceOptions {
+                command: Some(vec!["/bin/sh".into(), "-c".into(), "read _".into()]),
+                ..SurfaceOptions::default()
+            },
+            Arc::downgrade(&mux),
+        )
+        .expect("local PTY should spawn");
+        let pty = surface.as_pty().expect("spawned surface should be a PTY");
+
+        surface.finish_terminal_reader(Instant::now());
+        assert!(
+            pty.reaper_thread.lock().unwrap().is_some(),
+            "a live production child-reaper handle must remain owned after timeout"
+        );
+
+        surface.kill();
+        assert!(
+            pty.reaper_completion.wait_until(Instant::now() + Duration::from_secs(1)),
+            "killing the local PTY must release the production reaper"
+        );
+        surface.finish_terminal_reader(Instant::now() + Duration::from_secs(1));
+        assert!(pty.reaper_thread.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn pty_child_startup_guard_kills_and_waits_on_drop() {
+        let state = Arc::new(StartupChildState::default());
+        {
+            let _guard = PtyChildStartupGuard::new(Box::new(StartupChild { state: state.clone() }));
+        }
+
+        assert_eq!(state.kill_count.load(Ordering::Relaxed), 1);
+        assert_eq!(state.wait_count.load(Ordering::Relaxed), 1);
+    }
 
     #[test]
     fn agent_browser_provider_uses_a_terminal_local_daemon_session() {
@@ -6983,6 +7390,27 @@ mod tests {
             .expect("macOS surface PTY spawn failed");
     }
 
+    struct PartialWouldBlockWriter {
+        accepted_prefix: bool,
+    }
+
+    impl Write for PartialWouldBlockWriter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if !self.accepted_prefix && !bytes.is_empty() {
+                self.accepted_prefix = true;
+                return Ok(1);
+            }
+            Err(std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "synthetic partial local PTY write",
+            ))
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
     #[derive(Clone, Default)]
     struct CapturingWriter(Arc<Mutex<Vec<u8>>>);
 
@@ -7027,6 +7455,43 @@ mod tests {
             panic!("test surface unexpectedly uses a terminal host");
         };
         *writer = replacement;
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn receipted_input_rejects_an_exited_host_before_effect() {
+        let mux = Mux::new_for_test("receipted-input-exited-host", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let pty = surface.as_pty().unwrap();
+        {
+            let mut runtime = pty.runtime.lock().unwrap();
+            *runtime = PtyRuntime::ExitedHosted;
+        }
+
+        let error = surface.write_bytes_confirmed(b"must-not-drop").unwrap_err();
+        let ConfirmedInputFailure::Known(error) = error else {
+            panic!("exited-host rejection became indeterminate");
+        };
+        assert_eq!(error.kind(), std::io::ErrorKind::NotConnected);
+        assert!(error.to_string().contains("no live PTY owner"));
+    }
+
+    #[test]
+    fn receipted_input_local_partial_would_block_is_indeterminate() {
+        let mux = Mux::new_for_test("receipted-input-local-partial", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        replace_local_writer(
+            &surface,
+            Box::new(PartialWouldBlockWriter { accepted_prefix: false }),
+        );
+
+        let error = surface.write_bytes_confirmed(b"ab").unwrap_err();
+        let ConfirmedInputFailure::Indeterminate(error) = error else {
+            panic!("partial local PTY write was incorrectly classified as known-not-delivered");
+        };
+        assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
     }
 
     #[test]
@@ -7722,6 +8187,62 @@ mod tests {
         assert_eq!(received, expected);
     }
 
+    fn bytes_contain(haystack: &[u8], needle: &[u8]) -> bool {
+        haystack.windows(needle.len()).any(|window| window == needle)
+    }
+
+    /// Byte mirrors (the native Cloud pane, `cmux-tui` remote views) render in
+    /// their own libghostty with their own theme. The attach replay must not
+    /// re-author this process's 256-entry palette or default fg/bg as OSC
+    /// state; only PTY-authored colors travel, in the sparse sidecar.
+    #[test]
+    fn byte_attach_replays_are_theme_portable_and_palette_rides_the_sidecar() {
+        let mux = Mux::new("theme-portable-attach", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let pty = surface.as_pty().unwrap();
+        pty.term
+            .lock()
+            .unwrap()
+            .vt_write(b"\x1b]4;1;#112233\x07\x1b]10;#eeeeee\x07\x1b[31mred\x1b[m");
+        let forbidden: [&[u8]; 4] = [b"\x1b]4;", b"\x1b]10;", b"\x1b]11;", b"\x1b]12;"];
+
+        let attach = surface.attach_stream().unwrap();
+        assert!(bytes_contain(&attach.replay, b"red"));
+        for sequence in forbidden {
+            assert!(
+                !bytes_contain(&attach.replay, sequence),
+                "attach replay pinned host colors with {sequence:?}"
+            );
+        }
+        assert_eq!(attach.colors.palette[1], Some(Rgb { r: 0x11, g: 0x22, b: 0x33 }));
+        assert_eq!(attach.colors.fg, Some(Rgb { r: 0xee, g: 0xee, b: 0xee }));
+        assert!(
+            attach
+                .colors
+                .palette
+                .iter()
+                .enumerate()
+                .all(|(index, entry)| index == 1 || entry.is_none()),
+            "unauthored palette entries must stay unset so the renderer keeps its theme"
+        );
+
+        surface.resize(100, 30).unwrap();
+        let AttachFrame::ResizedWithColors { replay, colors, .. } =
+            attach.stream.recv_timeout(Duration::from_secs(1)).unwrap()
+        else {
+            panic!("expected a resize replay with colors");
+        };
+        assert!(bytes_contain(&replay, b"red"));
+        for sequence in forbidden {
+            assert!(
+                !bytes_contain(&replay, sequence),
+                "resize replay pinned host colors with {sequence:?}"
+            );
+        }
+        assert_eq!(colors.palette[1], Some(Rgb { r: 0x11, g: 0x22, b: 0x33 }));
+    }
+
     #[test]
     fn resized_replay_payload_is_shared_across_attach_taps() {
         let mux = Mux::new("shared-resize-replay", SurfaceOptions::default());
@@ -7771,6 +8292,78 @@ mod tests {
             Err(RecvTimeoutError::Disconnected)
         ));
         assert!(attachment.lifecycle.is_canceled());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hosted_receipted_input_requests_pipeline_through_surface_reader() {
+        let mux = Mux::new_for_test("hosted-input-ack-pipeline", SurfaceOptions::default());
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let (mut attachment, mut host) = crate::terminal_host_runtime::input_ack_surface_fixture();
+        let terminal_id = attachment.record.terminal_id.clone();
+        attachment.record.workspace_key = workspace.key.clone();
+        mux.seed_launching_terminal_for_test(&terminal_id, &workspace.key).unwrap();
+
+        let surface = Surface::spawn_hosted(
+            1,
+            SurfaceOptions::default(),
+            Arc::downgrade(&mux),
+            HostedSurfaceLaunch {
+                attachment,
+                kitty_reservation: None,
+                terminate_on_error: false,
+                defer_launch_activation: false,
+                lifetime: PtyLifetime::SessionOwned,
+                terminal_public_id: None,
+                resource_identity: None,
+            },
+        )
+        .unwrap();
+
+        host.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+        host.set_write_timeout(Some(Duration::from_secs(1))).unwrap();
+        let read_input = |host: &mut std::os::unix::net::UnixStream| {
+            let frame = crate::terminal_host_protocol::read_frame(
+                host,
+                crate::terminal_host_protocol::MAX_FRAME_PAYLOAD,
+            )
+            .expect("observe submitted input while the earlier ACK is withheld")
+            .expect("hosted connection remains open while awaiting input ACKs");
+            assert_eq!(frame.kind, MessageKind::Input);
+            frame
+        };
+
+        std::thread::scope(|scope| {
+            let first = scope.spawn(|| surface.write_bytes_confirmed(b"pipeline-a"));
+            let first_request = read_input(&mut host);
+            assert_eq!(first_request.payload, b"pipeline-a");
+            assert_ne!(first_request.request_id, 0);
+
+            let second = scope.spawn(|| surface.write_bytes_confirmed(b"pipeline-b"));
+            let second_request = read_input(&mut host);
+            assert_eq!(second_request.payload, b"pipeline-b");
+            assert_ne!(second_request.request_id, 0);
+            assert_ne!(first_request.request_id, second_request.request_id);
+
+            let interactive = scope.spawn(|| surface.write_bytes(b"pipeline-interactive"));
+            let interactive_request = read_input(&mut host);
+            assert_eq!(interactive_request.payload, b"pipeline-interactive");
+            assert_eq!(interactive_request.request_id, 0);
+            interactive.join().unwrap().unwrap();
+            assert!(!first.is_finished());
+            assert!(!second.is_finished());
+
+            let mut second_ack = Frame::new(MessageKind::InputAck, Vec::new());
+            second_ack.request_id = second_request.request_id;
+            crate::terminal_host_protocol::write_frame(&mut host, &second_ack).unwrap();
+            second.join().unwrap().unwrap();
+            assert!(!first.is_finished(), "B's ACK must leave A pending");
+
+            let mut first_ack = Frame::new(MessageKind::InputAck, Vec::new());
+            first_ack.request_id = first_request.request_id;
+            crate::terminal_host_protocol::write_frame(&mut host, &first_ack).unwrap();
+            first.join().unwrap().unwrap();
+        });
     }
 
     #[cfg(unix)]
@@ -8042,6 +8635,161 @@ mod tests {
         // dies, so input to the dead PTY is a harmless no-op, not an error.
         surface.write_bytes(b"must not reach a dead host").unwrap();
         surface.write_paste(b"must not reach a dead host").unwrap();
+    }
+
+    #[cfg(unix)]
+    fn exited_host_surface(name: &str, id: SurfaceId, mux: &Arc<Mux>) -> Arc<Surface> {
+        let identity = crate::terminal_host_runtime::TerminalHostIdentity {
+            terminal_id: crate::terminal_host::TerminalId::random().unwrap().to_hex(),
+            incarnation: crate::terminal_host::HostIncarnation::random().unwrap().to_hex(),
+        };
+        Surface::exited_terminal_placeholder(
+            id,
+            SurfaceOptions { command: Some(vec![name.into()]), ..SurfaceOptions::default() },
+            Arc::downgrade(mux),
+            identity,
+        )
+        .unwrap()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn exited_terminal_final_replay_serves_byte_attach() {
+        const MARKER: &str = "exited-byte-final-replay";
+        let mux = Mux::new_for_test("exited-host-byte-attach", SurfaceOptions::default());
+        let surface = exited_host_surface("byte-attach", 92, &mux);
+        surface.with_terminal(|term| term.vt_write(MARKER.as_bytes()));
+
+        let attach = surface.attach_stream().expect("exited terminal must serve byte replay");
+        let mut mirror =
+            Terminal::new(attach.cols, attach.rows, 10_000, Callbacks::default()).unwrap();
+        mirror.vt_write(&attach.replay);
+
+        assert!(mirror.plain_text().unwrap().contains(MARKER));
+        assert!(matches!(attach.stream.try_recv(), Err(TryRecvError::Disconnected)));
+        assert!(surface.as_pty().unwrap().taps.lock().unwrap().is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn exited_terminal_final_replay_serves_render_attach() {
+        const MARKER: &str = "exited-render-final-frame";
+        let mux = Mux::new_for_test("exited-host-render-attach", SurfaceOptions::default());
+        let surface = exited_host_surface("render-attach", 93, &mux);
+        surface.with_terminal(|term| term.vt_write(MARKER.as_bytes()));
+
+        let first =
+            surface.attach_render_stream().expect("exited terminal must serve final render frame");
+        let rendered = first
+            .initial
+            .frame
+            .styled_rows()
+            .iter()
+            .flat_map(|row| row.iter())
+            .map(|cell| cell.text.as_str())
+            .collect::<String>();
+
+        assert!(rendered.contains(MARKER), "final render frame omitted {MARKER}: {rendered:?}");
+        assert!(matches!(first.stream.try_recv(), Err(TryRecvError::Disconnected)));
+
+        // Final snapshots are inert and must not consume the live attachment
+        // budget even when their callers retain them.
+        let mut attachments = vec![first];
+        for _ in 1..crate::mux::RENDER_ATTACHMENT_LIMIT * 2 {
+            let attach = surface
+                .attach_render_stream()
+                .expect("exited terminal final replay must not exhaust live render permits");
+            assert!(matches!(attach.stream.try_recv(), Err(TryRecvError::Disconnected)));
+            assert!(
+                Arc::ptr_eq(&attachments[0].initial, &attach.initial),
+                "exited render attaches must share one cached final snapshot"
+            );
+            attachments.push(attach);
+        }
+        assert!(surface.as_pty().unwrap().render.lock().unwrap().taps.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn exited_terminal_final_replay_does_not_reclassify_prior_host_loss() {
+        let mux = Mux::new_for_test("already-dead-host-attach", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(94, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let pty = surface.as_pty().unwrap();
+
+        // A prior host-loss path may latch `dead` before hosted exit
+        // finalization owns the terminal. It must not expose a replay that
+        // was never finalized or close streams owned by that loss path.
+        pty.dead.store(true, Ordering::Release);
+        pty.host_connection_state
+            .store(TerminalHostConnectionState::Failed as u8, Ordering::Release);
+        assert_eq!(
+            TerminalHostConnectionState::from_u8(pty.host_connection_state.load(Ordering::Acquire)),
+            TerminalHostConnectionState::Failed
+        );
+
+        pty.finish_hosted_exit();
+
+        assert_eq!(
+            TerminalHostConnectionState::from_u8(pty.host_connection_state.load(Ordering::Acquire)),
+            TerminalHostConnectionState::Failed
+        );
+        assert!(matches!(surface.attach_stream(), Err(ghostty_vt::Error::NoValue)));
+        assert!(matches!(surface.attach_render_stream(), Err(ghostty_vt::Error::NoValue)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn exited_terminal_final_replay_closes_the_exit_attach_race() {
+        for iteration in 0..64 {
+            let mux = Mux::new_for_test(
+                format!("hosted-exit-attach-race-{iteration}"),
+                SurfaceOptions::default(),
+            );
+            let surface = Surface::spawn_for_test(
+                iteration + 100,
+                SurfaceOptions::default(),
+                Arc::downgrade(&mux),
+            )
+            .unwrap();
+            let start = Arc::new(std::sync::Barrier::new(2));
+
+            std::thread::scope(|scope| {
+                let exit_surface = surface.clone();
+                let exit_start = start.clone();
+                let exit = scope.spawn(move || {
+                    exit_start.wait();
+                    exit_surface.as_pty().unwrap().finish_hosted_exit();
+                });
+
+                start.wait();
+                let during_exit = surface.attach_stream();
+                exit.join().unwrap();
+
+                during_exit.expect("attach racing hosted exit must serve live or final replay");
+                surface.attach_stream().expect("attach after hosted exit must serve final replay");
+            });
+        }
+    }
+
+    #[test]
+    fn exited_terminal_final_replay_releases_rejected_render_permit() {
+        let mux = Mux::new_for_test("dead-render-attach-permit", SurfaceOptions::default());
+        let dead =
+            Surface::spawn_for_test(200, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        dead.as_pty().unwrap().dead.store(true, Ordering::Release);
+
+        for _ in 0..crate::mux::RENDER_ATTACHMENT_LIMIT * 2 {
+            assert!(matches!(dead.attach_render_stream(), Err(ghostty_vt::Error::NoValue)));
+        }
+
+        let live =
+            Surface::spawn_for_test(201, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let mut attachments = Vec::new();
+        for _ in 0..crate::mux::RENDER_ATTACHMENT_LIMIT {
+            attachments.push(live.attach_render_stream().expect("rejected attach leaked a permit"));
+        }
+        assert!(matches!(live.attach_render_stream(), Err(ghostty_vt::Error::OutOfSpace)));
     }
 
     #[test]

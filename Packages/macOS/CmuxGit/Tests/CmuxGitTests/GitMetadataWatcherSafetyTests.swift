@@ -106,6 +106,35 @@ private final class RecordingGitDirtyStatusReader: GitDirtyStatusReading, @unche
         ))
     }
 
+    @Test func forcedRootPreservesExistingSpecificDegradation() throws {
+        let fixture = try GitRepositoryFixture()
+        let degradation = GitWorkspaceMetadataWatchDegradation.unfilteredWorkTreeEvents(
+            entryCount: 10,
+            trackedPathLimit: 9,
+            indexByteCount: 32,
+            indexByteLimit: 1_024,
+            throttleSeconds: 30
+        )
+        let descriptor = GitWorkspaceMetadataWatchDescriptor(
+            repositoryRoot: fixture.root.path,
+            watchedPaths: [fixture.gitDirectory.path],
+            gitMetadataPaths: [fixture.gitDirectory.path],
+            trackedEntryPaths: [],
+            acceptsAllWorkTreeEvents: true,
+            eventCoalescingInterval: .seconds(30),
+            eventFilterIdentity: nil,
+            degradation: degradation
+        )
+
+        let rebuilt = GitMetadataService().applyingForcedWorkTreeRoots(
+            descriptor,
+            repositories: [fixture.root.path]
+        )
+
+        #expect(rebuilt.forcedWorkTreeRoots == [fixture.root.path])
+        #expect(rebuilt.degradation == degradation)
+    }
+
     @Test func unreadableIndexDisablesWorkTreeEventsUntilMetadataChanges() async throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")

@@ -75,17 +75,13 @@ extension GitMetadataService {
             repository: repository,
             deadline: deadline
         )
-        guard references.checkedOutBranch != .unreadable else {
-            // Keep the root metadata paths so a later HEAD/index/config event
-            // can trigger a fresh plan instead of dropping the existing watcher.
-            pathsByRepository[repository.workTreeRoot] = conservativeRepositoryMetadataPaths(
-                repository: repository,
-                deadline: deadline
-            )
-            forceWorkTreeRoots.insert(repository.workTreeRoot)
-            return (pathsByRepository, watchOnlyPathsByRepository, metadataSentinelsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
-        }
-        let branchContext = GitConfigBranchContext.resolved(references.branchName)
+        // Synthetic/incomplete repositories may not have an object database
+        // that Git plumbing can read even though their bounded HEAD file still
+        // identifies a branch. Preserve the conservative file-backed parser in
+        // that case so include sentinels and config roots remain observable.
+        let branchContext: GitConfigBranchContext = references.checkedOutBranch == .unreadable
+            ? .fileBacked
+            : .resolved(references.branchName)
         guard DispatchTime.now() < deadline else {
             pathsByRepository[repository.workTreeRoot] = conservativeRepositoryMetadataPaths(
                 repository: repository,
@@ -129,7 +125,7 @@ extension GitMetadataService {
             return (pathsByRepository, watchOnlyPathsByRepository, metadataSentinelsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
         }
 
-        let indexPath = joinedPath(root: repository.gitDirectory, relativePath: "index")
+        let indexPath = Self.joinedPath(root: repository.gitDirectory, relativePath: "index")
         let indexResult = await watchIndexSnapshot(
             indexPath: indexPath,
             deadline: deadline,
@@ -180,7 +176,7 @@ extension GitMetadataService {
                 forceWorkTreeRoots.insert(repository.workTreeRoot)
                 break
             }
-            let gitlinkPath = joinedPath(
+            let gitlinkPath = Self.joinedPath(
                 root: repository.workTreeRoot,
                 relativePath: entry.path
             )
@@ -323,12 +319,12 @@ extension GitMetadataService {
         let cancellationSignal = WorkspaceChangesCancellationSignal(deadline: deadline)
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                Self.blockingStatusQueue.async {
+                Self.blockingStatusQueue.async(execute: DispatchWorkItem(block: {
                     let result = cancellationSignal.withCurrentBinding {
                         traversal.watchPathResult()
                     }
                     continuation.resume(returning: result)
-                }
+                }))
             }
         } onCancel: {
             cancellationSignal.cancel()
@@ -345,9 +341,14 @@ extension GitMetadataService {
         let cancellationSignal = WorkspaceChangesCancellationSignal(deadline: deadline)
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                Self.blockingStatusQueue.async {
+                Self.blockingStatusQueue.async(execute: DispatchWorkItem(block: {
                     let result = cancellationSignal.withCurrentBinding {
-                        guard deadline > DispatchTime.now() else { return (nil, nil) }
+                        guard deadline > DispatchTime.now() else {
+                            return (
+                                nil as GitIndexHeaderSummary?,
+                                nil as GitIndexSnapshot?
+                            )
+                        }
                         let readResult = GitIndexDataReader().read(
                             at: URL(fileURLWithPath: indexPath),
                             maximumByteCount: maximumFileByteCount,
@@ -355,7 +356,7 @@ extension GitMetadataService {
                         )
                         let parser = GitIndexSnapshotParser()
                         let header = readResult.header
-                        let snapshot = readResult.data.flatMap { data in
+                        let snapshot: GitIndexSnapshot? = readResult.data.flatMap { data in
                             guard let header,
                                   header.entryCount <= maximumEntryCount else {
                                 return nil
@@ -365,7 +366,7 @@ extension GitMetadataService {
                         return (header, snapshot)
                     }
                     continuation.resume(returning: result)
-                }
+                }))
             }
         } onCancel: {
             cancellationSignal.cancel()
@@ -432,8 +433,8 @@ extension GitMetadataService {
                     let descriptor = cancellationSignal.withCurrentBinding {
                         Self.workspaceGitMetadataWatchDescriptor(
                             for: directory,
-                            resolvedRepository: repository,
                             safetyConfiguration: safetyConfiguration,
+                            resolvedRepository: repository,
                             configPathsByRepository: watchInputs.configPathsByRepository,
                             watchOnlyPathsByRepository: watchInputs.watchOnlyPathsByRepository,
                             metadataSentinelPathsByRepository: watchInputs.metadataSentinelPathsByRepository,
@@ -454,13 +455,13 @@ extension GitMetadataService {
         deadline: DispatchTime
     ) -> [String] {
         [
-            joinedPath(root: repository.gitDirectory, relativePath: "HEAD"),
-            joinedPath(root: repository.gitDirectory, relativePath: "index"),
-            joinedPath(root: repository.gitDirectory, relativePath: "refs"),
-            joinedPath(root: repository.gitDirectory, relativePath: "reftable"),
-            joinedPath(root: repository.commonDirectory, relativePath: "refs"),
-            joinedPath(root: repository.commonDirectory, relativePath: "packed-refs"),
-            joinedPath(root: repository.commonDirectory, relativePath: "reftable"),
+            Self.joinedPath(root: repository.gitDirectory, relativePath: "HEAD"),
+            Self.joinedPath(root: repository.gitDirectory, relativePath: "index"),
+            Self.joinedPath(root: repository.gitDirectory, relativePath: "refs"),
+            Self.joinedPath(root: repository.gitDirectory, relativePath: "reftable"),
+            Self.joinedPath(root: repository.commonDirectory, relativePath: "refs"),
+            Self.joinedPath(root: repository.commonDirectory, relativePath: "packed-refs"),
+            Self.joinedPath(root: repository.commonDirectory, relativePath: "reftable"),
         ] + GitWorktreeConfigEnablementReader()
             .rootConfigURLs(repository: repository, deadline: deadline)
             .map(\.path)

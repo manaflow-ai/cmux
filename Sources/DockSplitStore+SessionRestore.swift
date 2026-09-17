@@ -5,13 +5,33 @@ import CmuxWorkspaces
 import Foundation
 
 extension DockSplitStore {
+    /// Restores Dock topology and panel state from a persisted split snapshot.
+    ///
+    /// Browser panels can remain lightweight until their host reports visibility;
+    /// terminal restore ownership is still validated through the supplied agent index.
     @discardableResult
     func restoreSessionSnapshot(
         _ snapshot: SessionSplitContainerSnapshot,
         excludingStableIdentities: Set<UUID> = [],
+        deferBrowserPanels: Bool = false,
         sourceWorkspaceResolver: (UUID) -> Workspace? = { _ in nil }
     ) -> [UUID: UUID] {
         guard !isRetired else { return [:] }
+        sessionRestoreDepth += 1
+        defer {
+            sessionRestoreDepth = max(sessionRestoreDepth - 1, 0)
+            if sessionRestoreDepth == 0 {
+                let pendingPanelIds = pendingDeferredBrowserMaterializationPanelIds
+                pendingDeferredBrowserMaterializationPanelIds.removeAll()
+                for panelId in pendingPanelIds {
+                    _ = requestDeferredBrowserMaterialization(
+                        panelId: panelId,
+                        isVisibleInUI: panelIsSelectedInVisibleDockPane(panelId),
+                        reason: "dock.sessionRestore.complete"
+                    )
+                }
+            }
+        }
         cancelConfigurationTasks()
         removeAllPanels()
         hasLoadedConfiguration = true
@@ -40,6 +60,7 @@ extension DockSplitStore {
                           sourceSnapshotWorkspaceId:
                             snapshot.sourceWorkspaceIdsByPanelId?[oldPanelId],
                           sourceWorkspaceResolver: sourceWorkspaceResolver,
+                          deferBrowserPanel: deferBrowserPanels,
                           restorableAgentIndex: restorableAgentIndex
                       ) else {
                     continue
@@ -122,9 +143,11 @@ extension DockSplitStore {
         sourceWorkspaceId: UUID?,
         sourceSnapshotWorkspaceId: UUID?,
         sourceWorkspaceResolver: (UUID) -> Workspace?,
-        restorableAgentIndex: RestorableAgentSessionIndex?
+        deferBrowserPanel: Bool = false,
+        restorableAgentIndex: RestorableAgentSessionIndex? = nil
     ) -> UUID? {
-        if let sourceWorkspaceId,
+        if (!deferBrowserPanel || snapshot.type != .browser),
+           let sourceWorkspaceId,
            let sourceWorkspace = sourceWorkspaceResolver(sourceWorkspaceId),
            let detached = sourceWorkspace.detachedSurfaceForDockSessionRestore(
                snapshot,
@@ -161,6 +184,28 @@ extension DockSplitStore {
                 restorableAgentIndex: restorableAgentIndex
             )
         case .browser:
+            if deferBrowserPanel,
+               snapshot.browser != nil,
+               isBrowserAvailable() {
+                let restoredPanelId = panels[snapshot.id] == nil ? snapshot.id : UUID()
+                let deferredPanel = DeferredBrowserPanel(
+                    id: restoredPanelId,
+                    workspaceId: workspaceId,
+                    snapshot: snapshot
+                )
+                guard attachSessionRestoredPanel(
+                    deferredPanel,
+                    snapshot: snapshot,
+                    inPane: paneId
+                ) != nil else {
+                    return nil
+                }
+                if let stableSurfaceId = snapshot.stableSurfaceId,
+                   !excludingStableIdentities.contains(stableSurfaceId) {
+                    deferredPanel.adoptStableSurfaceId(stableSurfaceId)
+                }
+                return restoredPanelId
+            }
             return restoreSessionBrowser(
                 from: snapshot,
                 inPane: paneId,
@@ -189,45 +234,70 @@ extension DockSplitStore {
         )
         guard let terminalSnapshot = snapshot.terminal else { return nil }
         let policy = Workspace.makeSessionRestorePolicyService()
-        let restorableAgent = Workspace.restorableAgentForSessionRestore(
-            terminalSnapshot.agent,
-            resumeBinding: terminalSnapshot.resumeBinding
-        )
+        let localTmuxStartCommand = policy.localTmuxStartCommand(terminalSnapshot.tmuxStartCommand)
+        let restorableAgent = localTmuxStartCommand == nil
+            ? Workspace.restorableAgentForSessionRestore(
+                terminalSnapshot.agent,
+                resumeBinding: terminalSnapshot.resumeBinding
+            )
+            : nil
         let hibernation = restorableAgent != nil ? terminalSnapshot.hibernation : nil
-        let resumeBinding = Workspace.resumeBindingForSessionRestore(
-            terminalSnapshot.resumeBinding,
-            restorableAgent: restorableAgent
-        )
-        let managedResumeBinding = (
-            terminalSnapshot.managedAgentResumeBinding.flatMap {
-                $0.hasCompleteManagedSessionIdentity ? $0 : nil
-            }
-                ?? terminalSnapshot.resumeBinding.flatMap {
-                    $0.hasCompleteManagedSessionIdentity ? $0 : nil
-                }
-        ).flatMap { candidate -> SurfaceResumeBindingSnapshot? in
-            if restorableAgent != nil,
-               Workspace.restorableAgentForSessionRestore(
-                   restorableAgent,
-                   resumeBinding: candidate
-               ) == nil {
-                return nil
-            }
-            return Workspace.resumeBindingForSessionRestore(
-                candidate,
+        let resumeBinding = localTmuxStartCommand == nil
+            ? Workspace.resumeBindingForSessionRestore(
+                terminalSnapshot.resumeBinding,
                 restorableAgent: restorableAgent
             )
+            : nil
+        // A persisted agent snapshot can coexist with a non-agent binding
+        // (for example, a process-detected tmux attach). Keep that snapshot
+        // available for manual continuation, but do not synthesize an agent
+        // resume command on top of the non-agent startup path.
+        let restorableAgentCanAutoResume = restorableAgent != nil &&
+            (resumeBinding == nil || resumeBinding?.isAgentHookBinding == true)
+        let managedResumeBinding: SurfaceResumeBindingSnapshot? = if localTmuxStartCommand == nil {
+            (
+                terminalSnapshot.managedAgentResumeBinding.flatMap {
+                    $0.hasCompleteManagedSessionIdentity ? $0 : nil
+                }
+                    ?? terminalSnapshot.resumeBinding.flatMap {
+                        $0.hasCompleteManagedSessionIdentity ? $0 : nil
+                    }
+            ).flatMap { candidate -> SurfaceResumeBindingSnapshot? in
+                if restorableAgent != nil,
+                   Workspace.restorableAgentForSessionRestore(
+                       restorableAgent,
+                       resumeBinding: candidate
+                   ) == nil {
+                    return nil
+                }
+                return Workspace.resumeBindingForSessionRestore(
+                    candidate,
+                    restorableAgent: restorableAgent
+                )
+            }
+        } else {
+            nil
         }
         let agentWasRunning = terminalSnapshot.wasAgentRunning ?? true
         let shouldAutoResumeAgent = AgentSessionAutoResumeSettings.isEnabled(
             defaults: agentSessionAutoResumeDefaults
         ) && agentWasRunning
         let shouldCheckAgentOwnership = shouldAutoResumeAgent &&
-            (restorableAgent != nil || resumeBinding?.isAgentHookBinding == true)
+            (restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true)
         let restoreAgentIndex = shouldCheckAgentOwnership ? restorableAgentIndex : nil
         let restoreIndexUnavailable = shouldCheckAgentOwnership && restoreAgentIndex == nil
         let expectedAgentKind = restorableAgent?.kind.rawValue ?? resumeBinding?.kind
         let expectedSessionId = restorableAgent?.sessionId ?? resumeBinding?.checkpointId
+        let liveSessionOwner: LiveAgentSessionOwner? = if let expectedAgentKind,
+            let expectedSessionId {
+            restoreAgentIndex?.liveSessionOwner(
+                kind: expectedAgentKind,
+                sessionID: expectedSessionId,
+                revalidateProcessEvidence: true
+            )
+        } else {
+            nil
+        }
         let stablePanelHasLiveProcess = restoreAgentIndex?.hasCurrentLiveProcessForStablePanel(
             workspaceId: workspaceId,
             panelId: snapshot.id,
@@ -256,6 +326,7 @@ extension DockSplitStore {
             stablePanelHasUncertainProcess
         let resumeBindingForStartup = hibernation != nil ||
             restoreStartupBlocked ||
+            liveSessionOwner != nil ||
             stablePanelHasLiveProcess ||
             (resumeBinding?.isProcessDetected == true && resumeBinding?.autoResume != true)
             ? nil
@@ -271,7 +342,8 @@ extension DockSplitStore {
             ?? restorableAgent?.workingDirectory
             ?? snapshot.directory
         let workingDirectory = savedWorkingDirectory ?? FileManager.default.homeDirectoryForCurrentUser.path
-        let unresolvedBindingLaunch = restoreStartupBlocked || stablePanelHasLiveProcess
+        let unresolvedBindingLaunch = restoreStartupBlocked || liveSessionOwner != nil ||
+            stablePanelHasLiveProcess
             ? nil
             : approvedResumeBinding.flatMap {
                 policy.surfaceResumeStartupLaunch(
@@ -291,10 +363,13 @@ extension DockSplitStore {
                 ?? workingDirectory
         }()
         let bindingLaunch = unresolvedBindingLaunch
-        let tmuxStartCommand = !restoreStartupBlocked && !stablePanelHasLiveProcess &&
-            restorableAgent == nil && bindingLaunch == nil
-            ? policy.restorableTmuxStartCommand(terminalSnapshot.tmuxStartCommand)
-            : nil
+        let tmuxStartCommand = localTmuxStartCommand
+            ?? (!restoreStartupBlocked &&
+                liveSessionOwner == nil &&
+                !stablePanelHasLiveProcess &&
+                restorableAgent == nil && bindingLaunch == nil
+                ? policy.restorableTmuxStartCommand(terminalSnapshot.tmuxStartCommand)
+                : nil)
         let tmuxLauncher = tmuxStartCommand.flatMap {
             OneShotTerminalLauncherStore().writeStartupCommand(
                 command: $0,
@@ -305,23 +380,33 @@ extension DockSplitStore {
         let agentSessionAlreadyActive = sessionAgentAlreadyActive(
             restorableAgent: restorableAgent,
             snapshotPanelId: snapshot.id,
-            shouldAutoResume: shouldAutoResumeAgent && hibernation == nil && bindingLaunch == nil,
+            shouldAutoResume: shouldAutoResumeAgent && restorableAgentCanAutoResume &&
+                hibernation == nil && bindingLaunch == nil,
             liveIndex: restoreAgentIndex,
-            restoreStartupBlocked: restoreStartupBlocked
+            restoreStartupBlocked: restoreStartupBlocked,
+            liveSessionOwner: liveSessionOwner
         )
-        let agentLaunch = shouldAutoResumeAgent && hibernation == nil && bindingLaunch == nil
+        let agentLaunch = shouldAutoResumeAgent && restorableAgentCanAutoResume &&
+            hibernation == nil && bindingLaunch == nil
             && !agentSessionAlreadyActive
             ? restorableAgent?.resumeStartupInput(
                 restoringWorkingDirectory: resumeSessionWorkingDirectory
             ).map(WorkspaceSurfaceResumeStartupLaunch.input)
             : nil
+        let liveOwnerNoticeInput = liveSessionOwner.map {
+            AgentRestoreLiveOwnerNotice(processID: $0.processID).startupInput(
+                dialect: terminalSnapshot.isRemoteTerminal == true
+                    ? .remoteHost
+                    : .loginShell
+            )
+        }
         // Build the candidate before arming the gate. A binding that is
         // disabled, unapproved, or cannot render a command must start as an
         // ordinary shell instead of waiting behind deferred admission.
         let deferredAgentResumeCandidateInput: String? = if restoreIndexUnavailable,
             hibernation == nil,
-            restorableAgent != nil || resumeBinding?.isAgentHookBinding == true {
-            if let restorableAgent {
+            restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true {
+            if let restorableAgent, restorableAgentCanAutoResume {
                 restorableAgent.resumeStartupInput(
                     restoringWorkingDirectory: resumeSessionWorkingDirectory
                 )
@@ -347,14 +432,15 @@ extension DockSplitStore {
         let initialCommand = tmuxLauncher
         let initialInput = bindingLaunch?.initialInput ??
             agentLaunch?.initialInput ??
-            deferredAgentResumeStartupInput
+            deferredAgentResumeStartupInput ??
+            liveOwnerNoticeInput
         let willRunAgentInput =
             agentLaunch?.initialInput != nil ||
             (bindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true) ||
             deferredAgentResumeStartupInput != nil
         let startupHandlesWorkingDirectory =
             tmuxLauncher != nil || agentLaunch != nil || bindingLaunch != nil ||
-            deferredAgentResumeStartupInput != nil
+            deferredAgentResumeStartupInput != nil || liveOwnerNoticeInput != nil
         let hostShellWorkingDirectory: String? = {
             guard startupHandlesWorkingDirectory else { return workingDirectory }
             let candidate = tmuxLauncher != nil ? workingDirectory : resumeSessionWorkingDirectory
@@ -410,18 +496,17 @@ extension DockSplitStore {
 
         guard attachSessionRestoredPanel(terminal, snapshot: snapshot, inPane: paneId) != nil else {
             if let replayFileURL { try? FileManager.default.removeItem(at: replayFileURL) }
-            if agentLaunch != nil, let restorableAgent {
-                AgentResumeLaunchGuard.shared.releaseResumeLaunch(
-                    kind: restorableAgent.kind.rawValue,
-                    sessionId: restorableAgent.sessionId
-                )
-            }
             return nil
         }
         armRestoredPanelTitleBoundary(
             panelId: terminal.id,
             internallySeededInput: initialInput
         )
+        if willRunAgentInput {
+            // Keep the typed resume selector so the shell-state handler can
+            // replay it if the login shell drops the typeahead.
+            restoredAgentLifecycle.registerStartupInput(initialInput, panelId: terminal.id)
+        }
         if let stableSurfaceId = snapshot.stableSurfaceId,
            !excludingStableIdentities.contains(stableSurfaceId) {
             terminal.adoptStableSurfaceId(stableSurfaceId)
@@ -446,12 +531,22 @@ extension DockSplitStore {
             willRunStartupCommand: false,
             willRunStartupInput: willRunAgentInput,
             resumeWorkingDirectory: resumeSessionWorkingDirectory,
-            agentSessionAlreadyActive: deferredAgentResumeAdmission
-                ? true
-                : (restoreIndexUnavailable ? false : agentSessionAlreadyActive),
-            ownsResumeLaunchClaim: agentLaunch != nil,
+            agentSessionAlreadyActive: liveSessionOwner != nil ||
+                (deferredAgentResumeAdmission
+                    ? true
+                    : (restoreIndexUnavailable ? false : agentSessionAlreadyActive)),
+            ownsResumeLaunchClaim: false,
             defersStartupRestoreAdmission: deferredAgentResumeAdmission
         )
+        if let liveSessionOwner {
+            AgentRestoreSuppressionJournal().record(
+                kind: liveSessionOwner.kind,
+                sessionID: liveSessionOwner.sessionID,
+                workspaceID: workspaceId,
+                surfaceID: terminal.id,
+                processID: liveSessionOwner.processID
+            )
+        }
         if deferredAgentResumeAdmission {
             deferAgentResumeRestore(
                 panelId: terminal.id,
@@ -508,6 +603,58 @@ extension DockSplitStore {
         return browser.id
     }
 
+    /// Materializes a browser that was kept as a lightweight restore placeholder.
+    @discardableResult
+    func materializeDeferredBrowserPanel(_ deferredPanel: DeferredBrowserPanel) -> BrowserPanel? {
+        guard panels[deferredPanel.id] === deferredPanel,
+              let browserSnapshot = deferredPanel.sessionPanelSnapshot.browser,
+              !isRetired else {
+            return panels[deferredPanel.id] as? BrowserPanel
+        }
+
+        let browser = makeBrowserPanel(
+            id: deferredPanel.id,
+            url: nil,
+            preferredProfileID: browserSnapshot.profileID,
+            renderInitialNavigation: false,
+            chromeVisibility: browserSnapshot.chromeVisibility ?? .visible,
+            transparentBackground: browserSnapshot.transparentBackground ?? false
+        )
+        browser.adoptStableSurfaceId(deferredPanel.stableSurfaceIdentity.id)
+        panels[deferredPanel.id] = browser
+        let pageZoom = CGFloat(max(0.25, min(5, browserSnapshot.pageZoom)))
+        if pageZoom.isFinite {
+            _ = browser.setPageZoomFactor(pageZoom)
+        }
+        browser.restoreSessionSnapshot(browserSnapshot)
+        if browserSnapshot.developerToolsVisible {
+            _ = browser.showDeveloperTools()
+            browser.requestDeveloperToolsRefreshAfterNextAttach(reason: "session_restore")
+        } else {
+            _ = browser.hideDeveloperTools()
+        }
+        installSubscription(for: browser)
+        if let tabId = surfaceId(forPanelId: deferredPanel.id) {
+            bonsplitController.updateTab(
+                tabId,
+                icon: .some(browser.displayIcon),
+                kind: .some(Self.surfaceKind(for: browser)),
+                isLoading: browser.isLoading,
+                isAudioMuted: browser.isMuted,
+                isAudioPlaying: browser.isPlayingAudio
+            )
+        }
+        applyVisibility(to: browser)
+        scheduleDockPortalReconcile(reason: "dock.browserMaterialize")
+#if DEBUG
+        cmuxDebugLog(
+            "session.restore.dockBrowser.materialize dock=\(workspaceId.uuidString.prefix(8)) " +
+                "panel=\(deferredPanel.id.uuidString.prefix(8))"
+        )
+#endif
+        return browser
+    }
+
     /// Recreates one persisted file-preview panel in its restored Dock pane.
     private func restoreSessionFilePreview(
         from snapshot: SessionPanelSnapshot,
@@ -515,7 +662,11 @@ extension DockSplitStore {
         excludingStableIdentities: Set<UUID>
     ) -> UUID? {
         guard let filePath = snapshot.filePreview?.filePath else { return nil }
-        let panel = FilePreviewPanel(workspaceId: workspaceId, filePath: filePath)
+        let panel = FilePreviewPanel(
+            workspaceId: workspaceId,
+            filePath: filePath,
+            fileContentChangeCoordinator: fileContentChangeCoordinator
+        )
         guard attachSessionRestoredPanel(
             panel,
             snapshot: snapshot,
@@ -542,6 +693,7 @@ extension DockSplitStore {
         }
         panels[panel.id] = panel
         let title = snapshot.customTitle ?? snapshot.title ?? panel.displayTitle
+        let isAudioMuted = resolvedAudioMuted(for: panel)
         guard let tabId = bonsplitController.createTab(
             title: title,
             hasCustomTitle: snapshot.customTitle != nil,
@@ -550,7 +702,7 @@ extension DockSplitStore {
             isDirty: panel.isDirty,
             showsNotificationBadge: snapshot.isManuallyUnread,
             isLoading: (panel as? BrowserPanel)?.isLoading ?? false,
-            isAudioMuted: (panel as? BrowserPanel)?.isMuted ?? false,
+            isAudioMuted: isAudioMuted,
             isPinned: snapshot.isPinned,
             inPane: paneId
         ) else {
@@ -579,7 +731,8 @@ extension DockSplitStore {
         snapshotPanelId: UUID,
         shouldAutoResume: Bool,
         liveIndex: RestorableAgentSessionIndex?,
-        restoreStartupBlocked: Bool
+        restoreStartupBlocked: Bool,
+        liveSessionOwner: LiveAgentSessionOwner?
     ) -> Bool {
         guard shouldAutoResume, let restorableAgent else { return false }
         if restoreStartupBlocked {
@@ -587,6 +740,7 @@ extension DockSplitStore {
             return true
         }
         guard let index = liveIndex else { return true }
+        if liveSessionOwner != nil { return true }
         if index.hasCurrentAmbiguousPanel(
             snapshotPanelId,
             revalidateProcessEvidence: false
@@ -604,10 +758,7 @@ extension DockSplitStore {
         ) {
             return true
         }
-        return !AgentResumeLaunchGuard.shared.claimResumeLaunch(
-            kind: restorableAgent.kind.rawValue,
-            sessionId: restorableAgent.sessionId
-        )
+        return false
     }
 
     private func restoreAgentIndex(

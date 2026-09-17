@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import Testing
 // Selective imports: the app target also defines AppIconMode/StoredShortcut/etc.,
 // so a blanket `import CmuxSettings` here makes those names ambiguous. Import only
 // the settings symbols this file needs.
@@ -8,6 +9,10 @@ import struct CmuxSettings.QuitConfirmationStore
 import enum CmuxSettings.ConfirmQuitMode
 import enum CmuxSettings.BrowserSearchEngine
 import struct CmuxSettings.BrowserSearchSettingsStore
+import struct CmuxSettings.NotificationSoundOverride
+import struct CmuxSettings.NotificationSoundOverrides
+import enum CmuxSettings.NotificationSoundAlertType
+import struct CmuxSettings.NotificationsCatalogSection
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -1406,6 +1411,170 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    func testSettingsFileStoreImportsNotificationSoundOverridesAsCanonicalJSON() throws {
+        let defaults = UserDefaults.standard
+        let key = "notificationSoundOverrides"
+        try preservingDefaults(keys: [
+            key,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "notifications": {
+                    "soundOverrides": {
+                      "codex": {
+                        "turnDone": { "sound": "Ping" },
+                        "needsInput": { "sound": "none" }
+                      },
+                      "claude": {
+                        "errorStalled": { "sound": "default" }
+                      }
+                    }
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(
+                defaults.string(forKey: key),
+                #"{"claude":{"errorStalled":{"sound":"default"}},"codex":{"needsInput":{"sound":"none"},"turnDone":{"sound":"Ping"}}}"#
+            )
+        }
+    }
+
+    func testSettingsFileStoreRejectsOversizedNotificationSoundOverrides() throws {
+        let defaults = UserDefaults.standard
+        let key = NotificationsCatalogSection().soundOverrides.userDefaultsKey
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            var prior = NotificationSoundOverrides()
+            prior.set(
+                NotificationSoundOverride(sound: "Ping"),
+                forAgentID: "claude",
+                alertType: .turnDone
+            )
+            defaults.set(prior.jsonString, forKey: key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            let oversizedPath = String(repeating: "a", count: 256 * 1024)
+            try writeSettingsFile(
+                "{\"notifications\":{\"soundOverrides\":{\"claude\":{\"turnDone\":{\"sound\":\"custom_file\",\"customSoundFilePath\":\"\(oversizedPath)\"}}}}}",
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.string(forKey: key), prior.jsonString)
+        }
+    }
+
+    func testSettingsFileStoreRejectsMalformedNotificationSoundOverrideWithoutOverwritingPriorValue() throws {
+        let defaults = UserDefaults.standard
+        let key = NotificationsCatalogSection().soundOverrides.userDefaultsKey
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            var prior = NotificationSoundOverrides()
+            prior.set(
+                NotificationSoundOverride(sound: "Ping"),
+                forAgentID: "claude",
+                alertType: .turnDone
+            )
+            defaults.set(prior.jsonString, forKey: key)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "notifications": {
+                    "soundOverrides": {
+                      "claude": {
+                        "turnDone": { "sound": "not-a-real-sound" }
+                      }
+                    }
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.string(forKey: key), prior.jsonString)
+        }
+    }
+
+    func testSettingsFileStoreRejectsUnknownNotificationSoundMatrixKeys() throws {
+        let defaults = UserDefaults.standard
+        let key = NotificationsCatalogSection().soundOverrides.userDefaultsKey
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "notifications": {
+                    "soundOverrides": {
+                      "claude": {
+                        "unknownAlert": { "sound": "Ping" }
+                      }
+                    }
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertNil(defaults.string(forKey: key))
+        }
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-settings-startup-\(UUID().uuidString)",
@@ -1440,6 +1609,86 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
                     defaults.set(value, forKey: previous.key)
                 } else {
                     defaults.removeObject(forKey: previous.key)
+                }
+            }
+        }
+        try body()
+    }
+}
+
+@Suite("File editor settings file parsing", .serialized)
+struct FileEditorSettingsFileParsingTests {
+    @Test("Rejects an out-of-range tab width without dropping siblings")
+    func rejectsOutOfRangeTabWidthWithoutDroppingSiblingSettings() throws {
+        let defaults = UserDefaults.standard
+        let fileEditorSettings = FilePreviewEditorSettings(defaults: defaults)
+        let keys = [
+            fileEditorSettings.catalog.syntaxHighlighting.userDefaultsKey,
+            fileEditorSettings.catalog.lineNumbers.userDefaultsKey,
+            fileEditorSettings.catalog.indentGuides.userDefaultsKey,
+            fileEditorSettings.catalog.currentLineHighlight.userDefaultsKey,
+            fileEditorSettings.catalog.tabWidth.userDefaultsKey,
+            "cmux.settingsFile.backups.v1",
+            "cmux.settingsFile.importedManagedDefaults.v1",
+        ]
+
+        try preservingDefaults(keys: keys, defaults: defaults) {
+            keys.forEach { defaults.removeObject(forKey: $0) }
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try """
+            {
+              "fileEditor": {
+                "syntaxHighlighting": false,
+                "lineNumbers": false,
+                "tabWidth": 99,
+                "indentGuides": false,
+                "currentLineHighlight": false
+              }
+            }
+            """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+            let store = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+            withExtendedLifetime(store) {
+                #expect(defaults.object(forKey: fileEditorSettings.catalog.syntaxHighlighting.userDefaultsKey) as? Bool == false)
+                #expect(defaults.object(forKey: fileEditorSettings.catalog.lineNumbers.userDefaultsKey) as? Bool == false)
+                #expect(defaults.object(forKey: fileEditorSettings.catalog.indentGuides.userDefaultsKey) as? Bool == false)
+                #expect(defaults.object(forKey: fileEditorSettings.catalog.currentLineHighlight.userDefaultsKey) as? Bool == false)
+                #expect(defaults.object(forKey: fileEditorSettings.catalog.tabWidth.userDefaultsKey) == nil)
+            }
+        }
+    }
+
+    private func makeTemporaryDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-file-editor-settings-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private func preservingDefaults(
+        keys: [String],
+        defaults: UserDefaults,
+        _ body: () throws -> Void
+    ) rethrows {
+        let domainName = Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName
+        let persisted = defaults.persistentDomain(forName: domainName) ?? [:]
+        let previous = keys.map { ($0, persisted[$0]) }
+        defer {
+            for (key, value) in previous {
+                if let value {
+                    defaults.set(value, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
                 }
             }
         }

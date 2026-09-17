@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxAuthRuntime
 import Foundation
 import OSLog
@@ -12,9 +13,33 @@ struct PhoneReplyRecord: Decodable, Equatable, Sendable {
     let workspaceId: String
     let surfaceId: String
     let notificationId: String
+    /// Whether the notification may follow its surface to a new workspace.
+    /// Older parked records predate this field and remain retargetable.
+    let retargetsToLiveSurfaceOwner: Bool
     let text: String
     let createdAtMs: UInt64
     let expiresAtMs: UInt64
+
+    private enum CodingKeys: String, CodingKey {
+        case replyId, macDeviceId, workspaceId, surfaceId, notificationId
+        case retargetsToLiveSurfaceOwner, text, createdAtMs, expiresAtMs
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        replyId = try container.decode(String.self, forKey: .replyId)
+        macDeviceId = try container.decode(String.self, forKey: .macDeviceId)
+        workspaceId = try container.decode(String.self, forKey: .workspaceId)
+        surfaceId = try container.decode(String.self, forKey: .surfaceId)
+        notificationId = try container.decode(String.self, forKey: .notificationId)
+        retargetsToLiveSurfaceOwner = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .retargetsToLiveSurfaceOwner
+        ) ?? true
+        text = try container.decode(String.self, forKey: .text)
+        createdAtMs = try container.decode(UInt64.self, forKey: .createdAtMs)
+        expiresAtMs = try container.decode(UInt64.self, forKey: .expiresAtMs)
+    }
 }
 
 /// HTTPS half of the phone reply inbox: fetch this Mac's pending replies and
@@ -26,6 +51,7 @@ final class PhoneReplyInboxClient {
 
     @MainActor private weak var auth: AuthCoordinator?
     private let session: URLSession
+    private let retryAfterGate = CmxRetryAfterGate()
 
     init(session: URLSession = .shared) {
         self.session = session
@@ -45,6 +71,7 @@ final class PhoneReplyInboxClient {
     /// next nudge; the entries wait out their server-side TTL).
     @MainActor
     func fetchPending() async -> [PhoneReplyRecord]? {
+        guard (try? await retryAfterGate.wait()) != nil else { return nil }
         guard let request = await authorizedRequest(
             path: "/v1/replies",
             queryItems: [URLQueryItem(
@@ -54,8 +81,12 @@ final class PhoneReplyInboxClient {
         ) else { return nil }
         do {
             let (data, response) = try await session.data(for: request)
-            guard let http = response as? HTTPURLResponse,
-                  (200...299).contains(http.statusCode) else { return nil }
+            guard let http = response as? HTTPURLResponse else { return nil }
+            if http.statusCode == 429 {
+                await recordRetryAfter(http)
+                return nil
+            }
+            guard (200...299).contains(http.statusCode) else { return nil }
             return try JSONDecoder().decode(FetchEnvelope.self, from: data).replies
         } catch {
             phoneReplyLog.error("reply fetch failed: \(String(describing: error), privacy: .private)")
@@ -70,6 +101,7 @@ final class PhoneReplyInboxClient {
     @discardableResult
     func acknowledge(replyIds: [String]) async -> Bool {
         guard !replyIds.isEmpty else { return true }
+        guard (try? await retryAfterGate.wait()) != nil else { return false }
         guard var request = await authorizedRequest(path: "/v1/replies/ack") else { return false }
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "content-type")
@@ -79,13 +111,25 @@ final class PhoneReplyInboxClient {
         )
         do {
             let (_, response) = try await session.data(for: request)
-            guard let http = response as? HTTPURLResponse,
-                  (200...299).contains(http.statusCode) else { return false }
+            guard let http = response as? HTTPURLResponse else { return false }
+            if http.statusCode == 429 {
+                await recordRetryAfter(http)
+                return false
+            }
+            guard (200...299).contains(http.statusCode) else { return false }
             return true
         } catch {
             phoneReplyLog.error("reply ack failed: \(String(describing: error), privacy: .private)")
             return false
         }
+    }
+
+    private func recordRetryAfter(_ response: HTTPURLResponse) async {
+        let seconds = CmxRetryAfterPolicy.seconds(
+            from: response,
+            defaultSeconds: CmxRetryAfterPolicy.defaultRateLimitSeconds
+        ) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+        await retryAfterGate.extend(by: seconds)
     }
 
     @MainActor

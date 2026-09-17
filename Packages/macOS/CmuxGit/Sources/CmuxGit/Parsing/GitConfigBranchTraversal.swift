@@ -6,7 +6,7 @@ import Foundation
 /// The legacy static parsing entry points remain available for file-backed test
 /// fixtures. This instance owns the resolved branch context used by production
 /// reftable reads, so `includeIf.onbranch` never consults the sentinel `HEAD`.
-nonisolated struct GitConfigBranchTraversal: Sendable {
+struct GitConfigBranchTraversal: Sendable {
     private static let maximumIncludedFileCount = 256
     private static let maximumTotalConfigByteCount = 8 * 1_024 * 1_024
 
@@ -131,10 +131,19 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
     /// Returns the configured reference backend discovered during one bounded pass.
     func referenceStorageName() -> String? {
         let result = traverse()
-        if !result.isComplete {
-            return "unknown"
+        guard !result.isComplete else { return result.referenceStorageName }
+        // A partial walk must not trust a `files` value because a later
+        // include may override it. A discovered non-files backend is safe to
+        // treat conservatively as plumbing, however, and preserves external
+        // storage paths that Git reports for watcher setup.
+        guard let storage = result.referenceStorageName else { return "unknown" }
+        let backend: String
+        if let separator = storage.firstIndex(of: ":") {
+            backend = String(storage[..<separator]).lowercased()
+        } else {
+            backend = storage.lowercased()
         }
-        return result.referenceStorageName
+        return backend == "files" ? "unknown" : storage
     }
 
     private func traverse() -> (

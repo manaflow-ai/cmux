@@ -20,6 +20,7 @@ extension TerminalSurface {
         surfaceId: UUID,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
         hermesProfileAliasDirectoryURL: URL? = nil,
+        computerUseSettingFileURL: URL? = nil,
         fileManager: FileManager = .default
     ) -> TerminalSurfaceAgentCommandShimSet? {
         guard let wrapperDirectoryURL = wrapperDirectoryURL?.standardizedFileURL else { return nil }
@@ -34,6 +35,7 @@ extension TerminalSurface {
             surfaceId: surfaceId,
             temporaryDirectory: temporaryDirectory,
             hermesProfileAliases: aliases,
+            computerUseSettingFileURL: computerUseSettingFileURL,
             fileManager: fileManager
         )
     }
@@ -55,6 +57,7 @@ extension TerminalSurface {
         surfaceId: UUID,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
         hermesProfileAliasCatalog: HermesProfileAliasCatalog,
+        computerUseSettingFileURL: URL? = nil,
         fileManager: FileManager = .default
     ) async -> TerminalSurfaceAgentCommandShimSet? {
         guard let wrapperDirectoryURL = wrapperDirectoryURL?.standardizedFileURL else { return nil }
@@ -66,6 +69,7 @@ extension TerminalSurface {
             surfaceId: surfaceId,
             temporaryDirectory: temporaryDirectory,
             hermesProfileAliases: aliases,
+            computerUseSettingFileURL: computerUseSettingFileURL,
             fileManager: fileManager
         )
     }
@@ -79,6 +83,7 @@ extension TerminalSurface {
         surfaceId: UUID,
         temporaryDirectory: URL,
         hermesProfileAliases: [HermesProfileAliasResolver.Alias],
+        computerUseSettingFileURL: URL? = nil,
         fileManager: FileManager
     ) -> TerminalSurfaceAgentCommandShimSet? {
         var availableDefinitions: [(
@@ -100,15 +105,25 @@ extension TerminalSurface {
         let shimDirectory = shimParentDirectory
             .appendingPathComponent(surfaceId.uuidString, isDirectory: true)
             .standardizedFileURL
+        let stagingDirectory = shimParentDirectory
+            .appendingPathComponent(".\(surfaceId.uuidString).staging.\(UUID().uuidString)", isDirectory: true)
+            .standardizedFileURL
+        defer {
+            try? fileManager.removeItem(at: stagingDirectory)
+        }
         do {
-            try fileManager.createDirectory(at: shimDirectory, withIntermediateDirectories: true)
-            for directory in [shimParentDirectory, shimDirectory] {
+            try fileManager.createDirectory(at: shimParentDirectory, withIntermediateDirectories: true)
+            try fileManager.createDirectory(at: stagingDirectory, withIntermediateDirectories: false)
+            for directory in [shimParentDirectory, stagingDirectory] {
                 try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
             }
         } catch {
             return nil
         }
 
+        let computerUseSettingURL = computerUseSettingFileURL ?? computerUseLiveSettingFileURL(
+            homeDirectory: fileManager.homeDirectoryForCurrentUser
+        )
         var shims: [TerminalSurfaceAgentCommandShim] = []
         if let hermesDefinition = availableDefinitions.first(where: {
             $0.definition.commandName == "hermes"
@@ -122,7 +137,9 @@ extension TerminalSurface {
                         isDirectory: false
                     ),
                     wrapperURL: hermesDefinition.wrapperURL,
-                    shimDirectory: shimDirectory,
+                    stagingDirectory: stagingDirectory,
+                    publishedDirectory: shimDirectory,
+                    computerUseSettingFileURL: computerUseSettingURL,
                     fileManager: fileManager
                 ) else { continue }
                 shims.append(shim)
@@ -132,12 +149,29 @@ extension TerminalSurface {
             guard let shim = installAgentCommandShim(
                 definition: definition,
                 wrapperURL: wrapperURL,
-                shimDirectory: shimDirectory,
+                stagingDirectory: stagingDirectory,
+                publishedDirectory: shimDirectory,
+                computerUseSettingFileURL: computerUseSettingURL,
                 fileManager: fileManager
             ) else { continue }
             shims.append(shim)
         }
         guard !shims.isEmpty else { return nil }
+        do {
+            if fileManager.fileExists(atPath: shimDirectory.path) {
+                _ = try fileManager.replaceItemAt(
+                    shimDirectory,
+                    withItemAt: stagingDirectory,
+                    backupItemName: nil,
+                    options: []
+                )
+            } else {
+                try fileManager.moveItem(at: stagingDirectory, to: shimDirectory)
+            }
+            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: shimDirectory.path)
+        } catch {
+            return nil
+        }
         return TerminalSurfaceAgentCommandShimSet(
             directoryPath: shimDirectory.path,
             shims: shims
@@ -149,11 +183,14 @@ extension TerminalSurface {
         commandName: String? = nil,
         hermesProfileAliasURL: URL? = nil,
         wrapperURL: URL,
-        shimDirectory: URL,
+        stagingDirectory: URL,
+        publishedDirectory: URL,
+        computerUseSettingFileURL: URL,
         fileManager: FileManager
     ) -> TerminalSurfaceAgentCommandShim? {
         let commandName = commandName ?? definition.commandName
-        let shimURL = shimDirectory.appendingPathComponent(commandName, isDirectory: false)
+        let stagingShimURL = stagingDirectory.appendingPathComponent(commandName, isDirectory: false)
+        let publishedShimURL = publishedDirectory.appendingPathComponent(commandName, isDirectory: false)
         let wrapperInvocation: String
         if let hermesProfileAliasURL {
             // Hermes owns and can retarget this two-line wrapper while the
@@ -204,7 +241,18 @@ extension TerminalSurface {
         let script = """
         #!/bin/bash
         cmux_wrapper=\(shellSingleQuoted(wrapperURL.path))
-        cmux_shim_root=\(shellSingleQuoted(shimDirectory.path))
+        cmux_shim_root=\(shellSingleQuoted(publishedDirectory.path))
+        cmux_computer_use_setting=\(shellSingleQuoted(computerUseSettingFileURL.path))
+        cmux_computer_use_enabled="${CMUX_COMPUTER_USE_APP_ENABLED:-1}"
+        if [[ -r "$cmux_computer_use_setting" ]]; then
+            IFS= read -r cmux_computer_use_enabled < "$cmux_computer_use_setting" || true
+        fi
+        # App authority and the user's documented kill switch are separate:
+        # app state may disable attachment, but enabling it never clears a
+        # user-exported CMUX_COMPUTER_USE_MCP_DISABLED=1.
+        case "$cmux_computer_use_enabled" in
+            0) export CMUX_COMPUTER_USE_MCP_DISABLED=1 ;;
+        esac
         if [[ ! -x "$cmux_wrapper" && -n "${CMUX_BUNDLED_CLI_PATH:-}" ]]; then
             cmux_candidate="$(dirname "$CMUX_BUNDLED_CLI_PATH")/\(definition.wrapperName)"
             if [[ -x "$cmux_candidate" ]]; then
@@ -220,7 +268,7 @@ extension TerminalSurface {
                 fi
             fi
         fi
-        export \(definition.environmentVariablePrefix)_WRAPPER_SHIM=\(shellSingleQuoted(shimURL.path))
+        export \(definition.environmentVariablePrefix)_WRAPPER_SHIM=\(shellSingleQuoted(publishedShimURL.path))
         export \(definition.environmentVariablePrefix)_WRAPPER_SHIM_ROOT="$cmux_shim_root"
         if [[ -x "$cmux_wrapper" ]]; then
             \(wrapperInvocation)
@@ -252,14 +300,14 @@ extension TerminalSurface {
         """
 
         do {
-            try script.write(to: shimURL, atomically: true, encoding: .utf8)
-            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: shimURL.path)
+            try script.write(to: stagingShimURL, atomically: true, encoding: .utf8)
+            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: stagingShimURL.path)
             return TerminalSurfaceAgentCommandShim(
                 commandName: commandName,
                 wrapperName: definition.wrapperName,
                 environmentVariablePrefix: definition.environmentVariablePrefix,
-                directoryPath: shimDirectory.path,
-                executablePath: shimURL.path
+                directoryPath: publishedDirectory.path,
+                executablePath: publishedShimURL.path
             )
         } catch {
             return nil

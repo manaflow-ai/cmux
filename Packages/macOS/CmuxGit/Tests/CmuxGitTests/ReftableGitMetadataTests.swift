@@ -3,19 +3,19 @@ import Foundation
 import Testing
 @testable import CmuxGit
 
-private nonisolated struct UserPathGitProbe: GitExecutableFileProbing {
+private struct UserPathGitProbe: GitExecutableFileProbing {
     func isExecutableFile(atPath path: String) -> Bool {
         path == "/Users/cmux-tests/.local/bin/git"
     }
 }
 
-private nonisolated struct SystemGitOnlyProbe: GitExecutableFileProbing {
+private struct SystemGitOnlyProbe: GitExecutableFileProbing {
     func isExecutableFile(atPath path: String) -> Bool {
         path == "/usr/bin/git" || path == "/Library/Developer/CommandLineTools/usr/bin/git"
     }
 }
 
-private nonisolated struct NeverDirectoryProbe: GitReferenceStorageProbing {
+private struct NeverDirectoryProbe: GitReferenceStorageProbing {
     func isDirectory(atPath _: String) -> Bool { false }
 }
 
@@ -62,14 +62,14 @@ private nonisolated struct NeverDirectoryProbe: GitReferenceStorageProbing {
 
     @Test func legacyReferenceProbeSkipsUnusableGitCandidate() throws {
         let first = FakeWorkspaceChangesGitRunner(results: [
-            ["rev-parse", "--show-ref-format"]: .result(exitCode: 1),
-            ["rev-parse", "--git-dir"]: .result(exitCode: 1),
-            ["marker"]: .result("stale"),
+            ["rev-parse", "--show-ref-format"]: FakeWorkspaceChangesGitRunner.result(exitCode: 1),
+            ["rev-parse", "--git-dir"]: FakeWorkspaceChangesGitRunner.result(exitCode: 1),
+            ["marker"]: FakeWorkspaceChangesGitRunner.result("stale"),
         ])
         let second = FakeWorkspaceChangesGitRunner(results: [
-            ["rev-parse", "--show-ref-format"]: .result(exitCode: 1),
-            ["rev-parse", "--git-dir"]: .result(".git\n"),
-            ["marker"]: .result("working"),
+            ["rev-parse", "--show-ref-format"]: FakeWorkspaceChangesGitRunner.result(exitCode: 1),
+            ["rev-parse", "--git-dir"]: FakeWorkspaceChangesGitRunner.result(".git\n"),
+            ["marker"]: FakeWorkspaceChangesGitRunner.result("working"),
         ])
         let selector = GitReferenceRunnerSelector(runners: [first, second])
         let repository = ResolvedGitRepository(
