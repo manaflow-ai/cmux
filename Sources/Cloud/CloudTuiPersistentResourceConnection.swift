@@ -15,6 +15,7 @@ actor CloudTuiPersistentResourceConnection {
         var sequence: UInt64 = 0
     }
     private let connection: CloudTuiManualIOConnection
+    private let clock: any Clock<Duration>
     private let namespace = UUID().uuidString.lowercased()
     private var sequence: UInt64 = 0
     private var pending: [String: Pending] = [:]
@@ -25,8 +26,9 @@ actor CloudTuiPersistentResourceConnection {
     private let pendingLimit = 128
     private static let protocolFailure = CloudMachineLink.LinkError.exited(status: 3, output: "transport closed: invalid resource response")
 
-    init(socketPath: String) {
+    init(socketPath: String, clock: any Clock<Duration> = ContinuousClock()) {
         connection = CloudTuiManualIOConnection(socketPath: socketPath, deliversJSONMessages: true)
+        self.clock = clock
     }
 
     deinit { pumpTask?.cancel(); startTask?.cancel(); connection.close() }
@@ -86,8 +88,9 @@ actor CloudTuiPersistentResourceConnection {
         return try await withTaskCancellationHandler(operation: {
             try Task.checkCancellation()
             return try await withCheckedThrowingContinuation { continuation in
-                let deadline = Task { [weak self] in
-                    do { try await Task.sleep(for: timeout) } catch { return }
+                let clock = self.clock
+                let deadline = Task { [weak self, clock] in
+                    do { try await clock.sleep(for: timeout) } catch { return }
                     await self?.retire(id, error: CloudMachineLink.LinkError.timedOut)
                 }
                 pending[id] = Pending(continuation: continuation, request: request, deadline: deadline)

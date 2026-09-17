@@ -184,9 +184,13 @@ actor CloudMachineLinkManager {
             self.store(link: link, for: machineID)
             let capabilities: [String]
             if let cached = self.cachedClientCapabilities { capabilities = cached }
-            else {
-                capabilities = Self.clientCapabilities(clientURL: clientURL)
-                self.cachedClientCapabilities = capabilities
+            else if let probed = Self.clientCapabilities(clientURL: clientURL) {
+                capabilities = probed
+                self.cachedClientCapabilities = probed
+            } else {
+                // A failed probe must not poison the actor-wide cache. A later
+                // connection can retry the probe and discover the capability.
+                capabilities = []
             }
             let knownFingerprint = paths.deviceFingerprint(for: machineID)
             var session = "cmux"
@@ -432,7 +436,7 @@ actor CloudMachineLinkManager {
 
     /// `remote-probe --json` → `capabilities`; the control plane picks the machine host by
     /// them (a client that sends a User-Agent earns the branded host).
-    nonisolated static func clientCapabilities(clientURL: URL) -> [String] {
+    nonisolated static func clientCapabilities(clientURL: URL) -> [String]? {
         let process = Process()
         process.executableURL = clientURL
         process.arguments = ["remote-probe", "--json"]
@@ -443,7 +447,7 @@ actor CloudMachineLinkManager {
         do {
             try process.run()
         } catch {
-            return []
+            return nil
         }
         let data = out.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
@@ -451,7 +455,7 @@ actor CloudMachineLinkManager {
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               (object["app"] as? String) == "cmux-tui",
               let raw = object["capabilities"] as? [Any] else {
-            return []
+            return nil
         }
         return raw.compactMap { $0 as? String }
     }

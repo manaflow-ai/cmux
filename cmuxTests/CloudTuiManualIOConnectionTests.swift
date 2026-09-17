@@ -166,9 +166,12 @@ import Testing
     }
 
     @Test func persistentDeadlineCompletesWithoutAReplyOrClosingSiblings() async throws {
-        try await Self.withResourceConnection { channel, peer in
+        let clock = SidebarTestManualClock()
+        try await Self.withResourceConnection(clock: clock) { channel, peer in
             let expired = Task { try await channel.request(CloudTuiRequest("session.ping"), timeout: .milliseconds(100)) }
             _ = try await Self.blocking { try Self.readLine(peer) }
+            await clock.waitUntilSleeping()
+            clock.advance(by: .milliseconds(100))
             await #expect(throws: CloudMachineLink.LinkError.self) { try await expired.value }
             let cancellationBytes = try await Self.blocking { try Self.readLine(peer) }
             let cancellation = try Self.object(cancellationBytes)
@@ -246,7 +249,10 @@ import Testing
         return try JSONSerialization.data(withJSONObject: response) + Data([10])
     }
 
-    private static func withResourceConnection(_ body: (CloudTuiPersistentResourceConnection, Int32) async throws -> Void) async throws {
+    private static func withResourceConnection(
+        clock: any Clock<Duration> = ContinuousClock(),
+        _ body: (CloudTuiPersistentResourceConnection, Int32) async throws -> Void
+    ) async throws {
         // Reuse the socket fixture but create a single resource consumer on its
         // own accepted descriptor. No cmux-tui executable is involved.
         let path = "/tmp/cmux-rpc-\(UUID().uuidString.prefix(12)).sock"
@@ -259,7 +265,7 @@ import Testing
         withUnsafeMutableBytes(of: &address.sun_path) { target in bytes.withUnsafeBytes { target.copyBytes(from: $0) } }
         let bound = withUnsafePointer(to: &address) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(listener, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) } }
         guard bound == 0, listen(listener, 2) == 0 else { throw socketError() }
-        let channel = CloudTuiPersistentResourceConnection(socketPath: path)
+        let channel = CloudTuiPersistentResourceConnection(socketPath: path, clock: clock)
         try await channel.start()
         let peer = accept(listener, nil, nil)
         guard peer >= 0 else { await channel.close(); throw socketError() }

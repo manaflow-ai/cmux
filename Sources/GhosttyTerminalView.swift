@@ -3955,12 +3955,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// Deferred native input actions retain their authored order until the
     /// runtime surface is ready. Keeping paste and key actions in one queue
     /// prevents a later key from overtaking an earlier cold paste.
-    private enum PendingInputReplayAction {
+    enum PendingInputReplayAction {
         case keyDown(NSEvent)
         case keyUp(NSEvent)
         case paste(UUID)
     }
-    private var pendingInputReplayActions: [PendingInputReplayAction] = []
+    var pendingInputReplayActions: [PendingInputReplayAction] = []
     private var pendingKeyDownActionCount = 0
     private var pendingKeyActionCount = 0
     private var pendingPasteActionCount = 0
@@ -4552,19 +4552,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         applySurfaceColorScheme(force: !isSameSurface || !isAlreadyAttached)
         synchronizeGhosttyMouseSurfaceIdentity()
     }
-
-#if DEBUG
-    /// Event ownership at the cold-runtime boundary, without requiring a GPU
-    /// renderer in an app-host test. The live app verifies later byte delivery.
-    func debugPendingInputKeyEventsForTesting() -> [NSEvent] {
-        pendingInputReplayActions.compactMap { action in
-            switch action {
-            case .keyDown(let event), .keyUp(let event): return event
-            case .paste: return nil
-            }
-        }
-    }
-#endif
 
     private func queueExplicitKeyDownForInputDemand(_ event: NSEvent) {
         guard let owningSurface = terminalSurface else { return }

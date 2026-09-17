@@ -260101,6 +260101,12 @@
             "value": "ペアリングを完了できませんでした。接続を確認して、もう一度お試しください。"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការផ្គូផ្គងមិនអាចបញ្ចប់បានទេ។ សូមពិនិត្យការតភ្ជាប់របស់អ្នក ហើយព្យាយាមម្ដងទៀត។"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
@@ -260135,6 +260141,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "ไม่สามารถจับคู่ให้เสร็จสมบูรณ์ได้ ตรวจสอบการเชื่อมต่อแล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eşleştirme tamamlanamadı. Bağlantınızı kontrol edip tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося завершити спарювання. Перевірте з’єднання та спробуйте ще раз."
           }
         },
         "zh-Hans": {

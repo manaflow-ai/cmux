@@ -6335,15 +6335,24 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             specification: specification, keyDown: true, timestamp: ProcessInfo.processInfo.systemUptime
         ))
         window.sendEvent(event)
-        XCTAssertEqual(view.debugPendingInputKeyEventsForTesting().map(\.type), [.keyDown])
-        XCTAssertEqual(view.debugPendingInputKeyEventsForTesting().map(\.keyCode), [14])
+        XCTAssertEqual(pendingKeyEvents(in: view).map(\.type), [.keyDown])
+        XCTAssertEqual(pendingKeyEvents(in: view).map(\.keyCode), [14])
         let keyUp = try XCTUnwrap(SyntheticKeyEventFactory.keyEvent(
             specification: specification, keyDown: false, timestamp: ProcessInfo.processInfo.systemUptime
         ))
         window.sendEvent(keyUp)
-        XCTAssertEqual(view.debugPendingInputKeyEventsForTesting().map(\.type), [.keyDown, .keyUp])
-        XCTAssertEqual(view.debugPendingInputKeyEventsForTesting().map(\.keyCode), [14, 14])
+        XCTAssertEqual(pendingKeyEvents(in: view).map(\.type), [.keyDown, .keyUp])
+        XCTAssertEqual(pendingKeyEvents(in: view).map(\.keyCode), [14, 14])
 #endif
+    }
+
+    private func pendingKeyEvents(in view: GhosttyNSView) -> [NSEvent] {
+        view.pendingInputReplayActions.compactMap { action in
+            switch action {
+            case .keyDown(let event), .keyUp(let event): return event
+            case .paste: return nil
+            }
+        }
     }
 
     func testWindowSendEventRepairsLostFirstResponderForFocusedTerminalTyping() throws {
