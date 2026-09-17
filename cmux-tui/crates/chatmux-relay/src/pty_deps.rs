@@ -1309,6 +1309,10 @@ impl DaemonProcessGuard {
         Self { child: Some(child), pid, socket_path, socket: None }
     }
 
+    fn disarm(&mut self) {
+        self.detach();
+    }
+
     fn pid(&self) -> Option<u32> {
         self.pid
     }
@@ -1588,7 +1592,7 @@ impl PtyDeps for RealPtyDeps {
         }
         let child =
             command.spawn().map_err(|error| format!("cmux-tui daemon spawn failed: {error}"))?;
-        let mut process_guard = DaemonProcessGuard::new(child);
+        let mut process_guard = DaemonProcessGuard::new(child, socket_path.clone());
 
         let deadline = Instant::now() + Duration::from_millis(DAEMON_SOCKET_WAIT_MS);
         while Instant::now() < deadline {

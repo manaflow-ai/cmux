@@ -4277,9 +4277,6 @@ mod tests {
         assert!(!h.manager.has_attachment("p1"));
     }
 
-    #[test]
-    #[test]
-    #[test]
     #[tokio::test]
     async fn detached_transport_rejects_late_frames_and_allows_a_fresh_owner() {
         let h = harness(None, None);
