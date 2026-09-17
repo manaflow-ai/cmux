@@ -6338,6 +6338,20 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         ))
         window.sendEvent(event)
         XCTAssertEqual(probe.forwardedKeyDownCount(), 1, "The first key must reach its selected pane exactly once before mount")
+        var releases = 0
+        let previousObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { event in
+            previousObserver?(event)
+            if event.action == GHOSTTY_ACTION_RELEASE, event.keycode == 14 { releases += 1 }
+        }
+        defer { GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousObserver }
+        let keyUp = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyUp, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, characters: "e",
+            charactersIgnoringModifiers: "e", isARepeat: false, keyCode: 14
+        ))
+        window.sendEvent(keyUp)
+        XCTAssertEqual(releases, 1, "The release must reach the same unmounted pane exactly once")
 #endif
     }
 
