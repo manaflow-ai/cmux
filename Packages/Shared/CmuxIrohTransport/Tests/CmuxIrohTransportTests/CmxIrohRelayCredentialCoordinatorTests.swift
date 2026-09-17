@@ -344,6 +344,41 @@ struct CmxIrohRelayCredentialCoordinatorTests {
     }
 
     @Test
+    func refreshFailureKeepsLastGoodCredentialWithoutThrowing() async throws {
+        let fixture = try RelayCoordinatorFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.identity)
+        let supervisor = try await fixture.activeSupervisor(endpoint: endpoint)
+        let broker = TestRelayTokenBroker(steps: [.failure])
+        let clock = TestRelayClock(now: fixture.now)
+        let coordinator = CmxIrohRelayCredentialCoordinator(
+            supervisor: supervisor,
+            broker: broker,
+            managedRelayURLs: Set(fixture.relayURLs),
+            clock: clock,
+            jitter: { _, refreshAfter in refreshAfter },
+            retryJitter: { 0 }
+        )
+        try await coordinator.activate(
+            bindingID: fixture.bindingID,
+            endpointIdentity: fixture.identity,
+            bootstrap: try fixture.response()
+        )
+        // The installed credential is due for refresh but far from expiry.
+        clock.setNowWithoutResuming(fixture.refreshAfter.addingTimeInterval(1))
+
+        // A transient mint failure must not fail the caller while the
+        // last-good credential is installed (cmux#10375). The bounded retry
+        // loop keeps refreshing in the background; only the relay itself can
+        // reject the installed credential.
+        try await coordinator.refreshIfNeeded()
+
+        #expect(await coordinator.credentialExpiresAt() == fixture.expiresAt)
+        #expect(await endpoint.observedRelayUpdates().count == 1)
+        #expect(await broker.observedEndpointIDs() == [fixture.identity])
+        await coordinator.deactivate()
+    }
+
+    @Test
     func rateLimitRetryNeverPrecedesValidatedServerFloor() async throws {
         let fixture = try RelayCoordinatorFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.identity)
