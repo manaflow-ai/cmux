@@ -275,6 +275,14 @@ struct CloudFailureCard: View {
     var onRetry: (() -> Void)? = nil
     let onDismiss: () -> Void
 
+    private var cornerRadius: CGFloat {
+        switch style {
+        case .compactBordered: 0
+        case .inline: 3
+        case .compact, .dialog: 9
+        }
+    }
+
     var body: some View {
         VStack(alignment: style == .dialog ? .center : .leading, spacing: 10) {
             Header(title: title, style: style, onDismiss: onDismiss)
@@ -294,10 +302,10 @@ struct CloudFailureCard: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: style == .dialog ? .center : .leading)
-        .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: style == .inline ? 3 : 9))
+        .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: cornerRadius))
         .overlay {
             if style == .compactBordered {
-                RoundedRectangle(cornerRadius: 9)
+                Rectangle()
                     .strokeBorder(Color.primary.opacity(0.22), lineWidth: 1)
             } else if style != .inline {
                 RoundedRectangle(cornerRadius: 9)
@@ -307,7 +315,7 @@ struct CloudFailureCard: View {
         .overlay(alignment: .leading) {
             if style == .inline { Rectangle().fill(Color.secondary.opacity(0.35)).frame(width: 2) }
         }
-        .shadow(color: .black.opacity(style == .inline ? 0 : 0.09), radius: 8, y: 3)
+        .shadow(color: .black.opacity(style == .compact || style == .dialog ? 0.09 : 0), radius: 8, y: 3)
         .accessibilityIdentifier("CloudPaneCreationFailure")
         .cloudErrorCopyMenu(copyableText)
     }
