@@ -88,6 +88,7 @@ import CMUXMobileCore
             emitter.capture("ios_test_incident", ["duration_ms": .int(Int(duration))])
         })
         _ = reporter.inputStarted(surfaceID: "s", byteCount: 1)
+        clock.value = 1_000_000_000
         reporter.setForeground(false)
         clock.value = 90_000_000_000
         reporter.setForeground(true)
@@ -102,8 +103,28 @@ import CMUXMobileCore
         let events = await uploader.uploadedEvents
         #expect(events.filter { $0.name == "ios_test_incident" }.count == 1)
         #expect(events.first { $0.name == MobileTerminalLatencyReporter.windowEventName }?.properties["presented_count"] == .int(6))
+        #expect(events.first { $0.name == MobileTerminalLatencyReporter.windowEventName }?.properties["window_ms"] == .int(2800))
         reporter.setEnabled(false)
         #expect(reporter.inputStarted(surfaceID: "s", byteCount: 1) == 0)
+    }
+
+    @Test @MainActor func delayedBackgroundFlushAndResumeUseOnlyActiveDuration() async {
+        let uploader = RecordingAnalyticsUploader()
+        let emitter = AnalyticsEmitter(uploader: uploader, consent: FixedLatencyConsent(isTelemetryEnabled: true), anonymousID: "latency-test")
+        let clock = LatencyTestClock()
+        let reporter = MobileTerminalLatencyReporter(emitter: emitter, now: { clock.value })
+        _ = reporter.inputStarted(surfaceID: "s", byteCount: 1)
+        clock.value = 1_000_000_000
+        reporter.setForeground(false)
+        clock.value = 30_000_000_000
+        await reporter.flush()
+        #expect(await uploader.uploadedEvents.last?.properties["window_ms"] == .int(1000))
+        clock.value = 100_000_000_000
+        reporter.setForeground(true)
+        _ = reporter.inputStarted(surfaceID: "s", byteCount: 1)
+        clock.value = 102_000_000_000
+        await reporter.flush()
+        #expect(await uploader.uploadedEvents.last?.properties["window_ms"] == .int(2000))
     }
 
     @Test @MainActor func unknownAndFailedMarkersRemainUncorrelated() async {
