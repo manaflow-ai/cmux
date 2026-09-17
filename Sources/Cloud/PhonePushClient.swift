@@ -559,7 +559,7 @@ final class PhonePushClient {
                 generation: item.identity.generation
             )
             pendingPayloadsByCorrelationID[envelope.correlationID] = item.payload
-            guard deliveryQueue.enqueue(envelope) else {
+            if !deliveryQueue.enqueue(envelope) {
                 pendingPayloadsByCorrelationID.removeValue(forKey: envelope.correlationID)
                 logQueueStage("recipient_refresh_queue_overflow", correlationID: envelope.correlationID)
             }
