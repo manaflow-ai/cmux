@@ -58,8 +58,7 @@ pub(crate) use journal_extensions::{
     JournalSegmentSealCommit, JournalSegmentSealStart,
 };
 pub use public_projection_store::RegistryPublicProjections;
-#[cfg(test)]
-pub use public_projection_store::{RegistryAgentProjection, RegistryNotificationProjection};
+pub(crate) use public_projection_store::{RegistryAgentProjection, RegistryNotificationProjection};
 pub(crate) use resource_store::validate_registry_screen_projection;
 #[allow(unused_imports)]
 pub use resource_store::{
