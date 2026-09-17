@@ -427,7 +427,7 @@ describe("notifications push route", () => {
         >[1],
       );
 
-      expect(response.status, field).toBe(400);
+      expect(response.status).toBe(400);
       expect(await response.json()).toEqual({ error: "plaintext_push_content" });
     }
 

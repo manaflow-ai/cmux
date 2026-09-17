@@ -207,7 +207,7 @@ function validatePushFields(fields: ParsedPushFields): string | null {
   return null;
 }
 
-function makePushPayload(fields: ParsedPushFields, dismissedIds: string[], body: Record<string, unknown>): PushPayload {
+function makePushPayload(fields: ParsedPushFields, dismissedIds: readonly string[], body: Record<string, unknown>): PushPayload {
   return {
     kind: fields.kind,
     title: fields.title!,
