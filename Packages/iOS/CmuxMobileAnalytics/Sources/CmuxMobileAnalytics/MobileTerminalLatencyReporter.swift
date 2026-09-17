@@ -108,6 +108,15 @@ public final class MobileTerminalLatencyReporter: MobileTerminalLatencyObserving
            let start = surface.inputStarts.removeValue(forKey: sequence), timestamp >= start {
             Self.record(timestamp - start, in: &surface.window.inputToOutput)
             surface.presentationStarts[sequence] = start
+            // Input arrives in order. A known cumulative watermark also covers
+            // earlier outstanding inputs from this session. Keep their waits so
+            // a burst cannot hide a stall behind its newest, quickest key.
+            for (earlier, queued) in surface.inputStarts where earlier < sequence && timestamp >= queued {
+                Self.record(timestamp - queued, in: &surface.window.inputToOutput)
+                surface.presentationStarts[earlier] = queued
+                surface.inputStarts[earlier] = nil
+                emitAnomaly(timestamp - queued, thresholdMs: 1_000, stage: "input_to_output", surface: surface)
+            }
             trim(&surface.presentationStarts)
             emitAnomaly(timestamp - start, thresholdMs: 1_000, stage: "input_to_output", surface: surface)
         }
@@ -128,6 +137,10 @@ public final class MobileTerminalLatencyReporter: MobileTerminalLatencyObserving
         Self.record(duration, in: &surface.window.render)
         if let sequence = inputSequence, let start = surface.presentationStarts.removeValue(forKey: sequence), timestamp >= start {
             Self.record(timestamp - start, in: &surface.window.inputToVisible)
+            for (earlier, queued) in surface.presentationStarts where earlier < sequence && timestamp >= queued {
+                Self.record(timestamp - queued, in: &surface.window.inputToVisible)
+                surface.presentationStarts[earlier] = nil
+            }
         }
         surface.consecutiveSlowFrames = duration >= 250_000_000 ? surface.consecutiveSlowFrames + 1 : 0
         emitAnomaly(duration, thresholdMs: 250, stage: "render", surface: surface)
