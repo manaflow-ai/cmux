@@ -1045,8 +1045,12 @@ final class WindowTerminalPortal: NSObject {
         hostView.superview?.layoutSubtreeIfNeeded()
         hostView.layoutSubtreeIfNeeded()
         _ = synchronizeHostFrameToReference()
-        lastHierarchySyncSignature = externalGeometrySignature()
-        return false
+        let settled = externalGeometrySignature()
+        lastHierarchySyncSignature = settled
+        // Geometry that a forced layout leaves untouched is at rest now; a
+        // second pass would only re-read the same frames. Only geometry the
+        // forced layout moved needs another pass to prove it stopped.
+        return settled == signature
     }
 
     private var lastHierarchySyncSignature: ExternalGeometrySignature?
