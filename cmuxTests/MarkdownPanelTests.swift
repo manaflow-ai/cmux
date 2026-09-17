@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAgentChat
 import Combine
 import WebKit
 import XCTest
@@ -11,6 +12,30 @@ import XCTest
 
 @MainActor
 final class MarkdownPanelTests: XCTestCase {
+    @MainActor
+    private final class RenderingActionRecorder {
+        typealias Action = MarkdownWebRenderingCoordinator.Action
+
+        let stream: AsyncStream<Action>
+        private let continuation: AsyncStream<Action>.Continuation
+        private(set) var actions: [Action] = []
+
+        init() {
+            let events = AsyncStream<Action>.makeStream()
+            stream = events.stream
+            continuation = events.continuation
+        }
+
+        func record(_ action: Action) {
+            actions.append(action)
+            continuation.yield(action)
+        }
+
+        func reset() {
+            actions.removeAll()
+        }
+    }
+
     func testMarkdownThemeUsesTransparentPageAndOverlayTintsForTranslucentBackgrounds() throws {
         let theme = MarkdownWebTheme.resolve(
             backgroundColor: NSColor(
@@ -195,6 +220,53 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(panel.fontFamily, "Avenir Next")
     }
 
+    func testMarkdownPanelFindLifecycle() throws {
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-find-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        let fileURL = directoryURL.appendingPathComponent("README.md")
+        try "# hello needle".write(to: fileURL, atomically: true, encoding: .utf8)
+        defer { try? fileManager.removeItem(at: directoryURL) }
+
+        let panel = MarkdownPanel(workspaceId: UUID(), filePath: fileURL.path)
+        defer { panel.close() }
+
+        XCTAssertNil(panel.searchState)
+
+        panel.startFind()
+        let firstState = try XCTUnwrap(panel.searchState)
+        firstState.needle = "needle"
+        let generationAfterStart = panel.searchFocusRequestGeneration
+        XCTAssertTrue(panel.canApplySearchFocusRequest(generationAfterStart))
+
+        // A second Cmd+F refocuses the existing bar instead of replacing it.
+        panel.startFind()
+        XCTAssertTrue(panel.searchState === firstState)
+        XCTAssertFalse(panel.canApplySearchFocusRequest(generationAfterStart))
+
+        // Hiding clears the bar and invalidates pending focus requests.
+        panel.hideFind()
+        XCTAssertNil(panel.searchState)
+        XCTAssertFalse(panel.canApplySearchFocusRequest(panel.searchFocusRequestGeneration))
+
+        // Reopening recovers the last needle so Cmd+F resumes the search.
+        panel.startFind()
+        XCTAssertEqual(panel.searchState?.needle, "needle")
+
+        // The find bar belongs to the preview surface: switching to text
+        // mode closes it, and Cmd+F in text mode is left to the editor's
+        // native find panel.
+        panel.setDisplayMode(.text)
+        XCTAssertNil(panel.searchState)
+        panel.startFind()
+        XCTAssertNil(panel.searchState)
+
+        panel.setDisplayMode(.preview)
+        panel.startFind()
+        XCTAssertNotNil(panel.searchState)
+    }
+
     func testFileOpenRoutesMarkdownFilesToPreviewMarkdownPanel() throws {
         let fileManager = FileManager.default
         let directoryURL = fileManager.temporaryDirectory
@@ -315,11 +387,19 @@ final class MarkdownPanelTests: XCTestCase {
 
         let panel = MarkdownPanel(workspaceId: UUID(), filePath: fileURL.path)
         defer { panel.close() }
+        if let initialLoad = panel.loadTextContent() {
+            await initialLoad.value
+        }
 
         XCTAssertEqual(panel.content, originalContent)
         XCTAssertFalse(panel.isFileUnavailable)
 
         let reloaded = expectation(description: "markdown file change reloaded")
+        // An atomic write is a rename, so the watcher can re-read and republish the
+        // same content more than once. Over-fulfilling a one-shot expectation raises
+        // XCTest's API-violation exception while this test is suspended in
+        // `fulfillment(of:)`, which kills the test host instead of failing the test.
+        reloaded.assertForOverFulfill = false
         let cancellable = panel.$content.dropFirst().sink { content in
             if content == updatedContent {
                 reloaded.fulfill()
@@ -348,6 +428,7 @@ final class MarkdownPanelTests: XCTestCase {
             markdown: "# Existing\n",
             theme: theme,
             backgroundColor: .windowBackgroundColor,
+            isVisibleInUI: true,
             panelId: panelId,
             workspaceId: workspaceId,
             filePath: filePath,
@@ -363,6 +444,7 @@ final class MarkdownPanelTests: XCTestCase {
             markdown: "# Existing\n",
             theme: theme,
             backgroundColor: .windowBackgroundColor,
+            isVisibleInUI: true,
             panelId: panelId,
             workspaceId: workspaceId,
             filePath: filePath,
@@ -409,6 +491,159 @@ final class MarkdownPanelTests: XCTestCase {
         discardedWebView.onPointerDown?()
 
         XCTAssertEqual(discardedPointerDownCount, 0)
+    }
+
+    func testMarkdownWebViewReattachDoesNotRefreshInsideHostCallback() async {
+        var isActuallyVisible = true
+        let recorder = RenderingActionRecorder()
+        var events = recorder.stream.makeAsyncIterator()
+        var reentryCount = 0
+        let coordinator = MarkdownWebRenderingCoordinator(
+            initialBoundsSize: CGSize(width: 640, height: 360),
+            isActuallyVisible: { isActuallyVisible },
+            applyAction: recorder.record,
+            onReenterWindow: { reentryCount += 1 }
+        )
+
+        // Establish the attached state, then model Bonsplit's remove/add
+        // transition before the deferred action gets a chance to run.
+        coordinator.viewDidMoveToWindow(isAttached: true)
+        _ = await events.next()
+        recorder.reset()
+        isActuallyVisible = false
+        coordinator.viewDidMoveToWindow(isAttached: false)
+        isActuallyVisible = true
+        coordinator.viewDidMoveToWindow(isAttached: true)
+
+        XCTAssertTrue(
+            recorder.actions.isEmpty,
+            "A markdown viewer re-entry must not flush WebKit while the host layout callback is active"
+        )
+
+        // The repair still has to happen once the originating callback has
+        // returned. A MainActor yield is the production scheduling boundary;
+        // no wall-clock delay is needed.
+        _ = await events.next()
+        XCTAssertEqual(recorder.actions.count, 1)
+        XCTAssertEqual(
+            recorder.actions.first,
+            .refresh(reason: "viewDidMoveToWindow.visible", forceLifecycleRefresh: true)
+        )
+        XCTAssertEqual(reentryCount, 2, "The initial attach and reattach each complete once")
+    }
+
+    func testMarkdownWebViewResizeRefreshCoalescesOutsideLayoutCallback() async {
+        let recorder = RenderingActionRecorder()
+        var events = recorder.stream.makeAsyncIterator()
+        let coordinator = MarkdownWebRenderingCoordinator(
+            initialBoundsSize: CGSize(width: 640, height: 360),
+            isActuallyVisible: { true },
+            applyAction: recorder.record
+        )
+        coordinator.viewDidMoveToWindow(isAttached: true)
+        _ = await events.next()
+        recorder.reset()
+        // Both changes are smaller than the old half-point tolerance. Each is
+        // still real divider geometry and must leave a deferred repair queued.
+        coordinator.layoutDidChange(to: CGSize(width: 639.75, height: 359.75))
+        coordinator.layoutDidChange(to: CGSize(width: 639.5, height: 359.5))
+
+        XCTAssertTrue(
+            recorder.actions.isEmpty,
+            "A markdown resize must not flush WebKit synchronously from AppKit layout"
+        )
+
+        _ = await events.next()
+        XCTAssertEqual(recorder.actions.count, 1)
+        XCTAssertEqual(
+            recorder.actions.first,
+            .refresh(reason: "boundsChanged", forceLifecycleRefresh: false),
+            "Repeated geometry callbacks should coalesce into one deferred repaint"
+        )
+    }
+
+    func testMarkdownWebViewVisibilityRevealRepairsAfterHiddenTabLifecycle() async {
+        let recorder = RenderingActionRecorder()
+        var events = recorder.stream.makeAsyncIterator()
+        var isActuallyVisible = true
+        let visibilityGateReached = expectation(description: "hidden reveal reaches visibility gate")
+        visibilityGateReached.assertForOverFulfill = false
+        var didObserveHiddenVisibilityGate = false
+        let coordinator = MarkdownWebRenderingCoordinator(
+            initialBoundsSize: CGSize(width: 640, height: 360),
+            isActuallyVisible: {
+                if !isActuallyVisible, !didObserveHiddenVisibilityGate {
+                    didObserveHiddenVisibilityGate = true
+                    visibilityGateReached.fulfill()
+                }
+                return isActuallyVisible
+            },
+            applyAction: recorder.record
+        )
+        coordinator.viewDidMoveToWindow(isAttached: true)
+        _ = await events.next()
+        recorder.reset()
+        coordinator.setVisibleInUI(false)
+        _ = await events.next()
+        XCTAssertEqual(recorder.actions, [.hide(reason: "visibility.hidden")])
+
+        recorder.reset()
+        isActuallyVisible = false
+        coordinator.setVisibleInUI(true)
+        XCTAssertTrue(recorder.actions.isEmpty, "A visibility reveal must cross the deferred boundary")
+        await fulfillment(of: [visibilityGateReached], timeout: 1)
+        XCTAssertTrue(
+            didObserveHiddenVisibilityGate,
+            "A hidden reveal must wait for the actual AppKit visibility boundary"
+        )
+        XCTAssertTrue(recorder.actions.isEmpty, "A hidden reveal must not paint while its ancestor is hidden")
+
+        isActuallyVisible = true
+        coordinator.viewDidMoveToWindow(isAttached: true)
+        XCTAssertTrue(recorder.actions.isEmpty, "The visibility retry remains deferred")
+        _ = await events.next()
+        XCTAssertEqual(
+            recorder.actions,
+            [.refresh(reason: "viewDidMoveToWindow.visible", forceLifecycleRefresh: true)],
+            "A revealed markdown tab must receive a repaint pass"
+        )
+    }
+
+    func testMarkdownRenderingCoordinatorRetriesWhenVisibilitySettles() async {
+        var isActuallyVisible = false
+        let recorder = RenderingActionRecorder()
+        var events = recorder.stream.makeAsyncIterator()
+        let visibilityGateReached = expectation(description: "visibility settle reaches visibility gate")
+        visibilityGateReached.assertForOverFulfill = false
+        var didObserveHiddenVisibilityGate = false
+        let coordinator = MarkdownWebRenderingCoordinator(
+            initialBoundsSize: CGSize(width: 640, height: 360),
+            isActuallyVisible: {
+                if !isActuallyVisible, !didObserveHiddenVisibilityGate {
+                    didObserveHiddenVisibilityGate = true
+                    visibilityGateReached.fulfill()
+                }
+                return isActuallyVisible
+            },
+            applyAction: recorder.record
+        )
+
+        coordinator.viewDidMoveToWindow(isAttached: true)
+        // Await the scheduler's actual visibility gate rather than guessing
+        // how many executor turns its queued task needs.
+        await fulfillment(of: [visibilityGateReached], timeout: 1)
+        XCTAssertTrue(recorder.actions.isEmpty, "A hidden ancestor must defer the first paint")
+
+        // SwiftUI can call updateNSView with the same visible value after the
+        // ancestor becomes visible. That callback must retry pending work.
+        isActuallyVisible = true
+        coordinator.setVisibleInUI(true)
+        XCTAssertTrue(recorder.actions.isEmpty, "The visibility retry remains deferred")
+        _ = await events.next()
+        XCTAssertEqual(
+            recorder.actions,
+            [.refresh(reason: "visibility.visible", forceLifecycleRefresh: true)]
+        )
     }
 
     func testMarkdownRendererKeepsRecoveryBudgetAfterShellReload() {
@@ -475,6 +710,87 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertFalse(coordinator.isShellLoadingForTesting)
 
         coordinator.update(markdown: "# Existing\n", theme: theme)
+
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 2)
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+    }
+
+    func testMarkdownRendererReentersWindowReloadsShellAfterRecoveryBudgetExhausted() {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let theme = MarkdownWebTheme.resolve(backgroundColor: .windowBackgroundColor)
+        coordinator.webView = webView
+        defer { coordinator.close() }
+
+        // Document was healthy when the pane was dragged out of its column.
+        coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n")
+        coordinator.webView(webView, didFinish: nil)
+        coordinator.handleViewLeftWindow()
+
+        // While detached, WebKit reclaimed the WebContent process and the
+        // in-place recovery budget was exhausted, leaving the panel blank.
+        for _ in 0...2 {
+            coordinator.webViewWebContentProcessDidTerminate(webView)
+        }
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 2)
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+
+        // Re-parenting the pane back into a window must recover the blank
+        // panel: reset the recovery budget and reload the shell.
+        coordinator.handleViewReenteredWindow()
+
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 0)
+        XCTAssertTrue(coordinator.isShellLoadingForTesting)
+    }
+
+    func testMarkdownRendererReentersWindowKeepsLoadedShell() {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let theme = MarkdownWebTheme.resolve(backgroundColor: .windowBackgroundColor)
+        coordinator.webView = webView
+        defer { coordinator.close() }
+
+        // A still-loaded shell (WebContent process alive, just unpainted) must
+        // not be torn down and reloaded when the view re-enters a window.
+        coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n")
+        // Consume part of the per-payload crash-recovery budget, then finish a
+        // successful reload so the shell is loaded again.
+        coordinator.webViewWebContentProcessDidTerminate(webView)
+        coordinator.webView(webView, didFinish: nil)
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 1)
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+
+        coordinator.handleViewLeftWindow()
+        coordinator.handleViewReenteredWindow()
+
+        // Re-entry on a loaded shell must not reload it, and must preserve the
+        // per-payload crash budget so reparent/layout churn can't grant a
+        // crashing payload extra recovery cycles.
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 1)
+    }
+
+    func testMarkdownRendererReentersWindowDoesNotReviveCrashLoopingPayload() {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let theme = MarkdownWebTheme.resolve(backgroundColor: .windowBackgroundColor)
+        coordinator.webView = webView
+        defer { coordinator.close() }
+
+        // A payload that keeps crashing WebContent *while attached* exhausts
+        // the recovery budget and is intentionally left blank by the crash-loop
+        // guard — the shell was never healthy when detached.
+        coordinator.loadShell(theme: theme, initialMarkdown: "# Crashy\n")
+        for _ in 0...2 {
+            coordinator.webViewWebContentProcessDidTerminate(webView)
+        }
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 2)
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+
+        // Dragging the pane (detach while already blank) then re-entering must
+        // NOT grant the crashing payload a fresh budget or reload it.
+        coordinator.handleViewLeftWindow()
+        coordinator.handleViewReenteredWindow()
 
         XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 2)
         XCTAssertFalse(coordinator.isShellLoadingForTesting)
@@ -932,22 +1248,11 @@ final class MarkdownPanelTests: XCTestCase {
         let copiedHTTPButton = try XCTUnwrap(copiedHTTPButtonState as? [String: Any])
         XCTAssertEqual(copiedHTTPButton["text"] as? String, expectedCopiedButton)
         XCTAssertEqual(copiedHTTPButton["copied"] as? String, "1")
-        try await Task.sleep(nanoseconds: 1_300_000_000)
-        let restoredHTTPButtonState = try await webView.evaluateJavaScript(
-            """
-            (function() {
-              var img = document.querySelector('img[alt="HTTP remote"]');
-              var id = img && img.getAttribute('data-cmux-remote-placeholder-id');
-              var placeholder = id && document.querySelector('[data-cmux-remote-placeholder-for="' + id + '"]');
-              var button = placeholder && placeholder.querySelectorAll('button')[0];
-              return {
-                text: button ? button.textContent : '',
-                copied: button ? button.getAttribute('data-copied') : ''
-              };
-            })();
-            """
+        let restoredHTTPButton = try await waitForRemoteImageButtonRevert(
+            alt: "HTTP remote",
+            expectedText: expectedCopyURLButton,
+            in: webView
         )
-        let restoredHTTPButton = try XCTUnwrap(restoredHTTPButtonState as? [String: Any])
         XCTAssertEqual(restoredHTTPButton["text"] as? String, expectedCopyURLButton)
         XCTAssertNil(restoredHTTPButton["copied"] as? String)
         let openedHTTPImageURL = try await webView.evaluateJavaScript(
@@ -1367,6 +1672,49 @@ final class MarkdownPanelTests: XCTestCase {
         )
     }
 
+    private func waitForRemoteImageButtonRevert(
+        alt: String,
+        expectedText: String,
+        in webView: WKWebView
+    ) async throws -> [String: Any] {
+        // The "Copied" label reverts to "Copy image URL" via a JS setTimeout in the
+        // markdown viewer shell, which runs in a separate WebKit process. Poll the real
+        // DOM transition instead of racing a fixed sleep against that timer.
+        let deadline = Date().addingTimeInterval(8)
+        var lastSnapshot: [String: Any] = [:]
+
+        while Date() < deadline {
+            let result = try await webView.evaluateJavaScript(
+                """
+                (function() {
+                  var img = document.querySelector('img[alt="\(alt)"]');
+                  var id = img && img.getAttribute('data-cmux-remote-placeholder-id');
+                  var placeholder = id && document.querySelector('[data-cmux-remote-placeholder-for="' + id + '"]');
+                  var button = placeholder && placeholder.querySelectorAll('button')[0];
+                  return {
+                    text: button ? button.textContent : '',
+                    copied: button ? button.getAttribute('data-copied') : ''
+                  };
+                })();
+                """
+            )
+            lastSnapshot = try XCTUnwrap(result as? [String: Any])
+            if lastSnapshot["text"] as? String == expectedText,
+               lastSnapshot["copied"] == nil || lastSnapshot["copied"] is NSNull {
+                return lastSnapshot
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        throw NSError(
+            domain: "MarkdownPanelTests",
+            code: 2,
+            userInfo: [
+                NSLocalizedDescriptionKey: "Timed out waiting for remote image button to revert to \(expectedText). Last snapshot: \(lastSnapshot)"
+            ]
+        )
+    }
+
     private func remoteImageSnapshot(in webView: WKWebView) async throws -> [String: Any] {
         let result = try await webView.evaluateJavaScript(
             """
@@ -1473,23 +1821,34 @@ final class MarkdownPanelTests: XCTestCase {
 private final class MarkdownShellLoadDelegate: NSObject, WKNavigationDelegate {
     let expectation: XCTestExpectation
     var error: Error?
+    private var didSettle = false
 
     init(expectation: XCTestExpectation) {
         self.expectation = expectation
     }
 
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    /// WebKit can report more than one terminal outcome for a single load (a
+    /// provisional failure followed by a finish, for instance), so only the first
+    /// one counts. Fulfilling the same one-shot expectation twice raises XCTest's
+    /// API-violation exception from inside the callback, which takes the test host
+    /// down instead of failing the test.
+    private func settle(_ error: Error?) {
+        guard !didSettle else { return }
+        didSettle = true
+        self.error = error
         expectation.fulfill()
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        settle(nil)
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        self.error = error
-        expectation.fulfill()
+        settle(error)
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        self.error = error
-        expectation.fulfill()
+        settle(error)
     }
 }
 

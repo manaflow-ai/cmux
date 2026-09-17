@@ -1,4 +1,5 @@
-import CMUXWorkstream
+import CmuxFoundation
+import CMUXAgentLaunch
 import Foundation
 import Observation
 import SwiftUI
@@ -67,7 +68,7 @@ struct FeedHistoryLoadMoreRow: View {
                         .frame(width: 12, height: 12)
                 }
                 Text(label)
-                    .font(.system(size: 11, weight: .medium))
+                    .cmuxFont(size: 11, weight: .medium)
                     .foregroundColor(.secondary)
             }
             .frame(maxWidth: .infinity)

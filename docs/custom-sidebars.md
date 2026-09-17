@@ -6,7 +6,17 @@ native SwiftUI in the real sidebar, hot-reloads on save, binds to live cmux
 state, and can run cmux commands on tap. This guide is the authoring contract
 for you or a coding agent.
 
-It is an opt-in beta: turn on **Settings → Beta features → Custom sidebars**
+This guide covers interpreted custom sidebars, which cannot import frameworks
+or start child processes. For compiled Swift in an ExtensionKit sidebar, start
+with the
+[sample app](../Examples/SampleSidebarExtensionApp/README.md) and the
+[CmuxExtensionKit authoring guide](../Packages/macOS/CmuxExtensionKit/README.md).
+Compiled extensions run inside the macOS App Sandbox; if yours launches `git`
+or another external tool, read
+[Running external tools](../Packages/macOS/CmuxExtensionKit/README.md#running-external-tools)
+before choosing an executable or opening a repository.
+
+It is a beta, on by default. Turn it off in **Settings → Custom Sidebars**
 (`customSidebars.beta.enabled`). While off, custom sidebars do not appear.
 
 ## If you are an agent building this for someone
@@ -29,9 +39,9 @@ SwiftUI, files, or syntax. Concretely:
 - Keep it native and uncluttered: a title, a divider, then the content. Use the
   status dot / pill / highlight patterns below so it is scannable at a glance.
 - Lazy-load / cap large lists (see Performance). Do not render hundreds of rows.
-- Iterate by saving the file and looking at the result (it hot-reloads); fix
-  what looks off. Verify it shows real data and that taps do the right thing
-  before declaring it done.
+- Iterate by saving the file and opening it as a pane with
+  `cmux sidebar open <name>`; it hot-reloads there while you edit. Verify it
+  shows real data and that taps do the right thing before declaring it done.
 - Stay inside the supported subset below. If something is not supported, choose
   the closest supported approach rather than failing.
 
@@ -39,15 +49,190 @@ SwiftUI, files, or syntax. Concretely:
 
 Write a named file (the name becomes the menu label; use short kebab-case):
 
-    ~/.config/cmux/sidebars/<name>.swift     # interpreted Swift (preferred)
+    ~/.config/cmux/sidebars/<name>.js        # reactive JS scene runtime (fastest)
+    ~/.config/cmux/sidebars/<name>.swift     # interpreted Swift
     ~/.config/cmux/sidebars/<name>.json      # declarative JSON (simpler, static)
 
 Each file shows up as an option in the **sidebar toggle button's right-click
-menu**. Pick it and it renders in the sidebar; edit the file and save and it
-hot-reloads. If both `<name>.swift` and `<name>.json` exist, `.swift` wins.
+menu** and can also open as a normal Bonsplit pane tab. Pick it from the menu
+for the left sidebar, or run `cmux sidebar open <name>` to show it in a pane;
+edit the file and save and it hot-reloads. If several extensions share a base
+name, `.js` wins over `.swift`, which wins over `.json`.
+
+The same files also work as **right-sidebar panels** (extensions next to
+Files/Find/Vault): `cmux right-sidebar set custom <name>` selects one and adds
+a Custom button to the right sidebar's mode bar. The panel gets the same data
+keys and `cmux(...)` actions as the left sidebar and hot-reloads the same way.
+`panel-info` (selected-workspace overview with clickable ports and PRs),
+`panel-sessions` (every session with live search and a this-workspace/all
+scope toggle), `panel-todo` (an interactive scratch checklist),
+`panel-subagents` (every coding-agent session grouped by workspace with live
+status, elapsed time, and jump-to-terminal), five agent-roster variations
+(`agents-board` by status, `agents-cards`, `agents-timeline`, `agents-focus`
+hero+queue, `agents-dense` monospace), and
+`kitchen-sink` (every runtime feature on one panel) are right-panel-shaped
+examples.
+
+`TextField(value, opts)` opts: `placeholder`, `onSubmit(text)`, `onCancel()`,
+`onEdit(text)` (fires per keystroke - live search), `autofocus` (default
+true; pass `false` for persistent fields so mounting never steals focus).
+Each workspace's `tabs[i]` carries `surfaceId` for `surface.*` verbs
+(`tabs[i].id` is the panel behind the tab, not interchangeable).
 
 A sidebar file is a single SwiftUI-style view expression (no `struct`, no
 `var body` wrapper, just the view).
+
+## Reactive JS sidebars (`.js`)
+
+A `.js` sidebar runs on a different engine than `.swift`: a JavaScriptCore
+program that executes ONCE, builds a retained scene graph, and binds to live
+data through signals. After the first run nothing re-executes per tick; a data
+change re-runs only the bindings that read it, and only those scene nodes
+re-render. Rows in `ForEach`/`Reorderable` keep stable identity by key, so
+animations, scroll position, and an in-flight drag survive live updates. Use
+`.js` when you want maximum performance or drag-to-reorder; use `.swift` when
+you want to paste SwiftUI.
+
+    sidebar(() =>
+      VStack({ spacing: 6 }, [
+        Text("Workspaces").font("headline"),
+        Divider(),
+        Reorderable(
+          {
+            items: () => data.workspaces() ?? [],
+            key: (w) => w.id,
+            onMove: (id, index) => cmux("workspace.reorder", { workspace_id: id, index: index }),
+          },
+          (w) =>
+            HStack({ spacing: 8 }, [
+              Circle({ size: 7 }).fill(() => (w().selected ? "accent" : "clear")),
+              Text(() => w().title).lineLimit(1),
+              Spacer(),
+            ])
+              .padding(6)
+              .onTap(() => cmux("workspace.select", { workspace_id: w().id }))
+        ),
+      ])
+    )
+
+Rules of the runtime:
+
+- `sidebar(fn)` runs once and must return a view. There is no re-render; a
+  prop whose value should track data must be a **function** (`Text(() =>
+  w().title)`, `.fill(() => ...)`), which becomes a live binding.
+- `data.<key>()` reads a host data key as a signal (same keys as the Swift
+  data context: `workspaces`, `groups`, `workspaceCount`, `selectedTitle`,
+  `selectedId`, `unreadTotal`, `clock`). Reading inside a binding subscribes
+  it. Each group is `{id, name, collapsed, pinned, anchorId, color?, icon?}`
+  and a grouped workspace carries its group id as `group`.
+- Author state: `const [open, setOpen] = signal(false)` and `computed(fn)`.
+  Reads inside any function-valued prop subscribe it; writes re-run exactly
+  the bindings that read it.
+- Views: `VStack` `HStack` `ZStack` `LazyVStack` `Group` `Text` `Image`
+  `Button` `Spacer` `Divider` `Circle` `Capsule` `Rectangle`
+  `RoundedRectangle` `ProgressView` `ForEach` `Reorderable`. Containers take
+  `(props, children)` or just `(children)`.
+- Chainable props: `.font(name|size)` `.weight` `.bold()` `.italic()`
+  `.monospaced()` `.color` `.secondary()` `.lineLimit` `.truncation`
+  `.padding` `.paddingHorizontal` `.paddingVertical` `.background`
+  `.hoverBackground` (host-side hover wash, no JS round trip)
+  `.cornerRadius` (continuous/squircle curvature) `.borderColor`
+  `.borderWidth` `.opacity` `.frame({width,height,minWidth,maxWidth,...})`
+  `.fill` `.stroke` `.strokeWidth` `.size` `.rotation(degrees)` (spins the
+  content in place inside its layout box, spring-animated - e.g. a group
+  chevron that turns instead of swapping glyphs) `.fade(width)` (constant
+  trailing fade: the last `width` points dissolve to transparent - use it
+  instead of trailing padding where accessories float over the content)
+  `.marquee(delaySeconds?)` (text only: after the hover holds `delay` seconds,
+  default 0.5, an overflowing title scrolls out and back; layout never
+  changes) `.onTap(fn)`. Any of them (except
+  handlers) accepts a function for a live binding. Colors are the same tokens
+  as Swift sidebars (`accent`, `secondary`, `red`, `#RRGGBB[AA]`).
+- `ForEach({ items, key }, (item, key) => row)` reconciles by key: the row
+  template runs once per key and `item()` is the row's live item signal.
+- `.fixed()` on a row inside a `Reorderable` makes it a non-grabbable slot
+  (it still shifts to open gaps and keeps its own taps). Build a grouped
+  sidebar as ONE flat Reorderable of headers (.fixed) + rows, and resolve the
+  drop's container from the flat index; `Examples/CustomSidebars/workspaces.js`
+  shows the full pattern including cross-group drag via
+  `workspace.group.add`/`workspace.group.remove`.
+- `Reorderable({ items, key, onMove, spacing }, template)` is the drag-to-reorder list:
+  the grabbed row lifts and follows the pointer, the other rows spring aside
+  live, and the drop calls `onMove(id, index)` (dispatch `workspace.reorder`
+  there to persist).
+- Right-click menus: `.contextMenu([Button("Pin", fn), Divider(),
+  Menu("Move", [...]), Button("Close", fn).destructive()])` on any view. Menu
+  items are ordinary Button/Menu/Divider nodes, so labels and actions can be
+  live bindings (`Button(() => w().pinned ? "Unpin" : "Pin", ...)`). Useful
+  verbs: `workspace.action` (pin/unpin, mark_read/mark_unread,
+  move_up/move_down/move_top, close_others, set/clear color and description),
+  `workspace.close`, `workspace.move_to_window`, `workspace.group.action`
+  (pin/unpin/ungroup/delete), `workspace.group.collapse` / `.expand`.
+- Actions: `cmux(method, params)`, `openURL(url)`, `log(message)` anywhere in
+  a handler.
+- Containment: the context has no filesystem, network, or timers, and a
+  runaway evaluation is terminated by a watchdog. Errors show in the sidebar
+  with a line number.
+- Translucent "liquid glass" behind the sidebar comes from cmux's window
+  chrome, not the sidebar file: pick a glass preset in Settings under sidebar
+  appearance (e.g. Raycast Gray / HUD Glass). `sidebar(fn, { surface:
+  "glass" })` additionally drops the pane host's opaque backdrop fill when the
+  sidebar is opened as a Bonsplit pane.
+- There is no conditional view helper yet; model visibility with a binding
+  that returns an empty string or a `null` background.
+
+A ready-to-copy example ships in `Examples/CustomSidebars/workspaces.js`.
+
+## Choosing the renderer (in-process vs remote)
+
+Known limitation: the remote (out-of-process) renderer does not propagate
+a sidebar's `surface: "glass"` request to the host, so remotely rendered
+sidebars keep the opaque backdrop. Glass works in the default in-process
+renderer.
+
+By default a custom sidebar renders in-process: the interpreted view mounts
+as real SwiftUI inside the cmux window, so hover styling, focus, keyboard,
+and same-frame resize all work natively. The tradeoff is that the
+interpreter shares the host process.
+
+For sidebars from sources you do not fully trust you can switch to the
+remote renderer, an out-of-process worker. That is the containment lane: a
+crash or hang caused by the interpreted file cannot take down cmux, but
+input is limited to forwarded clicks (no hover, focus, or keyboard).
+
+Set it in **Settings → Custom Sidebars**, or in `~/.config/cmux/cmux.json`:
+
+    { "customSidebars": { "renderer": "remote" } }
+
+Valid values are `"inProcess"` (default) and `"remote"`. The setting is read
+live; flipping it re-renders the selected sidebar without a restart. Both
+renderers protect the host against pathological sources with an evaluation
+budget (nesting depth and total produced nodes): a render that exceeds the
+budget is discarded and the last good render stays up.
+
+## Downloadable examples
+
+The repo includes ready-to-copy sidebars in `Examples/CustomSidebars/`:
+
+- `status-board.swift` groups workspaces by live signals like urgent bugs,
+  review, progress, research, and done.
+- `finder.swift` shows a macOS Finder-style workspace browser with a source
+  list, selected workspace details, and tabs.
+
+Install one from a cmux checkout:
+
+    mkdir -p ~/.config/cmux/sidebars
+    cp Examples/CustomSidebars/status-board.swift ~/.config/cmux/sidebars/status-board.swift
+    cp Examples/CustomSidebars/finder.swift ~/.config/cmux/sidebars/finder.swift
+
+Then validate and open it as a Bonsplit pane:
+
+    cmux sidebar validate status-board
+    cmux sidebar open status-board
+
+`cmux sidebar select <name>` still previews a custom sidebar in the left
+sidebar picker. Use `cmux sidebar open <name>` when you want the sidebar as a
+normal pane tab that can live in a right-side split.
 
 ## Quick start
 
@@ -68,7 +253,10 @@ A sidebar file is a single SwiftUI-style view expression (no `struct`, no
     }
     SWIFT
 
-Then right-click the sidebar button and choose **mine**.
+Then right-click the sidebar button and choose **mine**, or open it as a pane
+with:
+
+    cmux sidebar open mine
 
 ## Live data you can bind to (read-only, refreshes ~1s)
 
@@ -77,10 +265,20 @@ Then right-click the sidebar button and choose **mine**.
   (array of Int) + `portCount`, `unread` (Int notifications), `tabs` + `tabCount`.
   Present when the workspace has them (use `if let` / ternary): `description`,
   `color` (hex), `branch` + `dirty` (Bool) from git, `pr`
-  (`{ number, label, url, status: open|merged|closed, stale, branch }`),
+  (`{ number, label, url, status: open|merged|closed, stale, branch }`, the
+  workspace's first pull request in sidebar display order) + `prs` (array of
+  the same shape with every pull request cmux knows for the workspace),
   `progress` (`{ value: 0..1, label }`), `latestMessage` (last agent message),
   `latestPrompt` (last submitted prompt), `latestAt` (epoch), `remote`
-  (`{ target, state, connected }`).
+  (`{ target, state, connected }`), `agents` (coding-agent sessions hosted by
+  the workspace's terminals, most recent first; omitted when none). Each
+  `agents[j]` always has `id`, `kind` (`claude`/`codex`/raw source), `name`
+  (display name), `status` (`idle`|`working`|`needs_input`|`ended`), and
+  `lastActivityAt` (epoch); when available it adds `sinceEpoch` (when the
+  current working/needs-input state began), `title` (first user prompt),
+  `panelId` (the hosting terminal's `tabs[k].id`), `surfaceId` (the hosting
+  tab's `tabs[k].surfaceId`, accepted by `surface.focus`), `directory`,
+  `transcriptPath`, and `pid`.
 - `tabs` (per workspace) — array of surfaces. Always: `id`, `title`,
   `focused` (Bool), `pinned` (Bool). When available: `directory`, `branch` +
   `dirty`, `ports` (array of Int).
@@ -96,43 +294,83 @@ they exist.
 
 ## Views
 
-- `Text("...")`
-- `VStack(alignment: .leading, spacing: 8) { ... }`, `HStack`, `ZStack`
-- `HSplitView { columnA; columnB }` — two columns with a draggable, persisted
-  divider; each column scrolls independently.
-- `Button("Title") { <action> }` and the rich form
-  `Button(action: { <action> }) { <label view> }`
-- `Image(systemName: "folder.fill")` (SF Symbols)
-- `Spacer()`, `Divider()`
-- Shapes: `Rectangle()`, `RoundedRectangle(cornerRadius: 6)`, `Capsule()`,
-  `Circle()` (fill with `.fill(color)` / `.foregroundColor`, size with `.frame`)
-- `Reorderable(data, move: "workspace.reorder") { item in <row> }` — see below.
+Containers: `VStack(alignment:spacing:)`, `HStack`, `ZStack`, `LazyVStack`,
+`LazyHStack`, `Group`, `EmptyView()`, `List { ... }`, `Section("Header") { ... }`,
+`Grid { GridRow { ... } }`, `LazyVGrid`, `LazyHGrid`, `ViewThatFits { ... }`,
+`ScrollView { ... }` (use `ScrollView(.horizontal) { HStack { ... } }` for a
+horizontal strip — vertical scrolling is automatic), and
+`HSplitView { columnA; columnB }` (two resizable, independently-scrolling
+columns with a persisted divider).
+
+Content: `Text("...")`, `Label("Title", systemImage: "folder")`,
+`Image(systemName: "folder.fill")` (SF Symbols),
+`Button("Title") { <action> }` / `Button(action:){ <label> }`,
+`Menu("Title") { <items> }`, `ProgressView(value: 0.4)` / `ProgressView()`,
+`Gauge(value: 0.7)`, `Spacer()`, `Divider()`, `AnyView(<view>)`.
+
+Shapes: `Rectangle`, `RoundedRectangle(cornerRadius:)`,
+`UnevenRoundedRectangle`, `Capsule`, `Circle`, `Ellipse` — fill with
+`.fill(color)` / `.foregroundColor`, outline with `.stroke("#hex", lineWidth: 2)`,
+arc with `.trim(from:to:)`, size with `.frame`.
+
+Reorder: `Reorderable(data, move: "workspace.reorder") { item in <row> }` (see below).
 
 ## Modifiers
 
-`.font(.title2|.headline|.body|.caption|...)`, `.bold()`,
-`.fontWeight(.semibold|.bold|...)`, `.foregroundColor(.blue)` or
-`.foregroundColor("#FF8800")`, `.background("#1C1C1E")`, `.cornerRadius(6)`,
-`.padding(8)`, `.opacity(0.6)`, `.lineLimit(1)`, `.fill(color)` (shapes),
-`.frame(width: 40, height: 6)` / `.frame(maxWidth: .infinity, alignment: .leading)`,
-`.onTapGesture { <action> }` (makes any view tappable).
+Text/typography: `.font(.title2|.headline|.caption|.system(size:design:)...)`,
+`.bold()`, `.italic()`, `.fontWeight(.semibold)`, `.fontDesign(.monospaced)`,
+`.monospaced()`, `.monospacedDigit()`, `.lineLimit(1)`, `.truncationMode(.tail)`,
+`.multilineTextAlignment(.center)`, `.textCase(.uppercase)`, `.strikethrough()`,
+`.underline()`.
 
-Colors: named tokens (`accent`, `primary`, `secondary`, `red`, `blue`, …) or
-hex strings `"#RRGGBB"` / `"#RRGGBBAA"`.
+Color/fill: `.foregroundColor`/`.foregroundStyle`/`.fill`/`.tint` taking a hex
+string `"#FF8800"` or a token (`primary`, `secondary`, `tertiary`, `accent`,
+`red`, `blue`, `mint`, `indigo`, `teal`, `cyan`, `brown`, …). `Color("#hex")` /
+`Color(red:green:blue:)` values too.
+
+Layout: `.padding(8)`, `.frame(width:height:maxWidth:.infinity, alignment:)`,
+`.fixedSize()`, `.layoutPriority(1)`, `.offset(x:y:)`, `.zIndex(1)`,
+`.aspectRatio(contentMode:.fit)`, `.scaledToFit()`/`.scaledToFill()`.
+
+Decoration: `.background("#hex")` **or** `.background { <view> }`,
+`.overlay(alignment:.topTrailing) { <view> }`, `.mask { <view> }`,
+`.safeAreaInset(edge:.top) { <view> }`, `.cornerRadius(8)`,
+`.clipShape(Circle())`, `.clipped()`, `.shadow(color:radius:x:y:)`,
+`.border(.gray, width:1)`, `.blur(radius:)`, `.opacity(0.6)`,
+`.brightness`/`.contrast`/`.saturation`/`.grayscale`,
+`.rotationEffect(.degrees(45))`, `.scaleEffect(1.2)`, `.redacted(reason:.placeholder)`.
+
+SF Symbols: `.imageScale(.large)`, `.symbolRenderingMode(.hierarchical)`,
+`.symbolVariant(.fill)`.
+
+Interaction/semantics: `.onTapGesture { <action> }` (any view tappable),
+`.contextMenu { <buttons> }`, `.help("tip")`, `.disabled(cond)`,
+`.accessibilityLabel("...")`.
+
+The decoration modifiers that take a trailing `{ <view> }` (`.overlay`,
+`.background`, `.mask`, `.safeAreaInset`, `.contextMenu`) accept **any** nested
+view, so you can compose badges, rings, status dots, etc.
 
 ## Language
 
-`let` bindings; `for i in 0..<n` / `1...n` / `for x in array`;
-`ForEach(array) { item in ... }` (and `{ $0 }`); `if/else`; the ternary
-`cond ? a : b` (works inside modifiers and interpolation); string interpolation
-`"\(expr)"`; arithmetic `+ - * / %`; comparisons; `&& || !`; ranges; array
-literals; member access (`obj.field`, `array.count`, `array.isEmpty`,
-`string.count`); subscript `array[i]`, `obj["key"]`.
+`let` bindings; user `func` helpers (value helpers and view helpers returning
+`some View`, explicit `return` supported); `for i in 0..<n` / `1...n` /
+`for x in array`; `ForEach(array) { item in ... }`,
+`ForEach(array.indices) { i in }`, and
+`ForEach(Array(array.enumerated()), id: \.offset) { i, item in }`; `if/else`;
+ternary `cond ? a : b` (works in modifiers and interpolation); string
+interpolation `"\(expr)"`; arithmetic `+ - * / %` (safe on `/ 0`); comparisons;
+`&& || !` (short-circuiting); ranges; array/dictionary literals; member access
+(`obj.field`, `array.count`/`.first`/`.last`/`.indices`, `string.count`);
+subscript `array[i]`, `obj["key"]`.
 
-Array methods: `.filter { $0.selected }`, `.map { $0.title }`, `.sorted()`,
-`.first { $0.selected }`, `.contains { ... }`, `.count { ... }`, `.reversed()`,
-`.prefix(n)`. String methods: `.hasPrefix`, `.hasSuffix`, `.contains`,
-`.uppercased()`, `.lowercased()`, `.split(separator: "/")`.
+Array methods: `.filter`, `.map`, `.flatMap`, `.reduce`, `.sorted { $0 > $1 }`,
+`.first`, `.contains`, `.count`, `.reversed`, `.prefix(n)`, `.suffix(n)`,
+`.dropFirst(n)`, `.dropLast(n)`, `.enumerated()`, `.indices`. String methods:
+`.hasPrefix`, `.hasSuffix`, `.contains`, `.uppercased()`, `.lowercased()`,
+`.split(separator:)`. Numbers: `.formatted(.currency(code:"USD"))` /
+`.formatted(.percent)` / `.formatted(.notation(.compactName))`. Builtins:
+`min`, `max`, `abs`, `Int(...)`, `Double(...)`, `String(...)`.
 
 ## Actions (run real cmux commands on tap)
 
@@ -188,15 +426,21 @@ The dropped item's id and target index are sent as `workspace_id` and `index`.
 
 ## Not yet supported
 
-The interpreter is a growing subset. Currently missing: `@State` and input
-controls (`TextField`, `Toggle`, `Slider`, `Picker`); `switch`; reusable view
-structs; `popover`/`sheet`/`menu`; gradients and arbitrary `.overlay`/
-`.background(<view>)`. User `func`s and number/date formatting (`.formatted`)
-are supported. Workspace data (git branch/dirty, ports, PR, unread, remote,
-latest agent/prompt messages) is live; data cmux doesn't track (custom domain
-collections) won't appear. If your sidebar needs a missing feature, write it the
-natural Swift way anyway, unsupported syntax is skipped rather than crashing, and
-ask for the feature.
+The interpreter is a growing subset. `.overlay`/`.background`/`.mask`/
+`.contextMenu` with arbitrary nested views, `Menu`, `List`/`Section`/grids,
+shape `.stroke`/`.trim`, and user `func` helpers are all supported now.
+
+Still missing: `@State` and the interactive input controls that need it
+(`TextField`, `Toggle`, `Slider`, `Picker`) — buttons/taps that run `cmux(...)`
+work, but two-way-bound editing does not yet; `switch`; custom `struct`/`View`
+definitions; `gradients` (`LinearGradient`/…); navigation (`sheet`/`popover`/
+`NavigationStack`); `.keyboardShortcut`; `AsyncImage`/`.resizable`. Workspace
+data (git branch/dirty, ports, PR, unread, remote, latest agent/prompt messages)
+is live; data cmux doesn't track (custom domain collections) won't appear.
+
+If your sidebar needs a missing feature, write it the natural Swift way anyway —
+unsupported syntax is skipped (and even deeply nested or pathological source is
+rendered best-effort, never crashes) — and ask for the feature.
 
 ## Performance and lazy loading
 

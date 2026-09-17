@@ -1,7 +1,7 @@
 import XCTest
 
 /// Behavioral UI tests for the Settings → **Browser** section
-/// (`Packages/CmuxSettingsUI/.../Sections/BrowserSection.swift`).
+/// (`Packages/macOS/CmuxSettingsUI/.../Sections/BrowserSection.swift`).
 ///
 /// The goal of each test here is behavioral: change a setting or press a
 /// control, then drive the surface it affects and assert the *effect*
@@ -94,7 +94,7 @@ final class SettingsBrowserBehaviorUITests: SettingsUITestCase {
     /// "No importable browsers found" alert. Mirrors the env seam used by
     /// `BrowserImportProfilesUITests`.
     private func makeLaunchedAppWithImportFixture() -> XCUIApplication {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += settingsLaunchArguments
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_BROWSER_IMPORT_FIXTURE"] =

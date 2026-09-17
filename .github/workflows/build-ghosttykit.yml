@@ -9,12 +9,24 @@ concurrency:
 
 jobs:
   build-ghosttykit:
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
-    timeout-minutes: 20
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 35
     env:
       GHOSTTYKIT_CRASH_REPORT_SUBDIR: cmux/crash
-      GHOSTTYKIT_BUILD_FLAVOR: crashsubdir-cmux-crash-v1
+      GHOSTTYKIT_BUILD_FLAVOR: crashsubdir-cmux-crash-sentry-off-noi18n-v2
     steps:
+      - name: Clear stale git locks (self-hosted reused workspace)
+        shell: bash
+        run: |
+          # Self-hosted macOS runners reuse the workspace. A job cancelled or
+          # killed mid-checkout can leave a stale .git/modules/*/index.lock that
+          # fails every later submodule checkout (e.g. ghostty). Clear them first.
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          rm -f "$ws/.git/index.lock" 2>/dev/null || true
+          if [ -d "$ws/.git/modules" ]; then
+            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
+          fi
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -42,7 +54,6 @@ jobs:
           fi
 
       - name: Select Xcode
-        if: steps.check-release.outputs.exists == 'false'
         run: |
           set -euo pipefail
           if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
@@ -66,19 +77,35 @@ jobs:
           xcodebuild -version
 
       - name: Cache Zig packages
-        if: steps.check-release.outputs.exists == 'false'
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/zig
           key: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
           restore-keys: zig-packages-
 
+      - name: Install zig
+        run: |
+          set -euo pipefail
+          ./scripts/install-zig-ci.sh
+
+      - name: Test Ghostty OS opener stderr reader
+        run: |
+          set -euo pipefail
+          cd ghostty
+          zig build test \
+            -Dapp-runtime=none \
+            -Demit-macos-app=false \
+            -Dsentry=false \
+            -Dtest-filter="open stderr reader exits"
+
       - name: Build GhosttyKit.xcframework
         if: steps.check-release.outputs.exists == 'false'
         run: |
           set -euo pipefail
-          ./scripts/install-zig-ci.sh
-          cd ghostty && zig build -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
+          # -Di18n=false matches scripts/ensure-ghosttykit.sh: compiling the
+          # .po catalogs needs gettext's msgfmt (absent on some builders) and
+          # cmux never bundles the .mo output.
+          cd ghostty && zig build -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" -Dsentry=false -Di18n=false -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
 
       - name: Package xcframework
         if: steps.check-release.outputs.exists == 'false'
@@ -104,6 +131,6 @@ jobs:
             --repo manaflow-ai/ghostty \
             --target "${{ steps.ghostty-sha.outputs.sha }}" \
             --title "GhosttyKit xcframework (${{ steps.ghostty-sha.outputs.sha }}, ${GHOSTTYKIT_BUILD_FLAVOR})" \
-            --notes "Pre-built GhosttyKit.xcframework for commit ${{ steps.ghostty-sha.outputs.sha }} with crash-report-subdir=${GHOSTTYKIT_CRASH_REPORT_SUBDIR}" \
+            --notes "Pre-built GhosttyKit.xcframework for commit ${{ steps.ghostty-sha.outputs.sha }} with crash-report-subdir=${GHOSTTYKIT_CRASH_REPORT_SUBDIR} and sentry=false" \
             GhosttyKit.xcframework.tar.gz
           echo "Published release $TAG"

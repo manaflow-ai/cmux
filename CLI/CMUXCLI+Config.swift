@@ -1,4 +1,5 @@
 import Foundation
+import CmuxFoundation
 
 extension CMUXCLI {
     func runConfigCommand(
@@ -199,16 +200,16 @@ extension CMUXCLI {
         case CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey:
             return (
                 CmuxGhosttyConfigSettingEditor.defaultSidebarFontSize,
-                CmuxGhosttyConfigSettingEditor.clampedSidebarFontSize,
-                CmuxGhosttyConfigSettingEditor.formattedSidebarFontSize,
-                { CmuxGhosttyConfigSettingEditor.parsedSidebarFontSize(in: $0) }
+                CmuxGhosttyConfigSettingEditor().clampedSidebarFontSize,
+                CmuxGhosttyConfigSettingEditor().formattedSidebarFontSize,
+                { CmuxGhosttyConfigSettingEditor().parsedSidebarFontSize(in: $0) }
             )
         case CmuxGhosttyConfigSettingEditor.surfaceTabBarFontSizeKey:
             return (
                 CmuxGhosttyConfigSettingEditor.defaultSurfaceTabBarFontSize,
-                CmuxGhosttyConfigSettingEditor.clampedSurfaceTabBarFontSize,
-                CmuxGhosttyConfigSettingEditor.formattedSurfaceTabBarFontSize,
-                { CmuxGhosttyConfigSettingEditor.parsedSurfaceTabBarFontSize(in: $0) }
+                CmuxGhosttyConfigSettingEditor().clampedSurfaceTabBarFontSize,
+                CmuxGhosttyConfigSettingEditor().formattedSurfaceTabBarFontSize,
+                { CmuxGhosttyConfigSettingEditor().parsedSurfaceTabBarFontSize(in: $0) }
             )
         default:
             return nil
@@ -261,7 +262,7 @@ extension CMUXCLI {
         let value = descriptor.clamp(requestedValue)
         let formattedValue = descriptor.format(value)
         let url = try cmuxGhosttyConfigURLForCLI()
-        try CmuxGhosttyConfigSettingEditor.writeSetting(
+        try CmuxGhosttyConfigSettingEditor().writeSetting(
             key: key,
             value: formattedValue,
             to: url
@@ -308,8 +309,8 @@ extension CMUXCLI {
     private func cmuxGhosttyConfigURLForCLI() throws -> URL {
         let environment = ProcessInfo.processInfo.environment
         let fileManager = FileManager.default
-        let appSupportDirectories = CmuxApplicationSupportDirectories
-            .userDirectories(environment: environment, fileManager: fileManager)
+        let appSupportDirectories = CmuxApplicationSupportDirectories(environment: environment, fileManager: fileManager)
+            .userDirectories
         guard let firstAppSupportDirectory = appSupportDirectories.first else {
             throw CLIError(message: "Could not resolve the user Application Support directory")
         }
@@ -320,7 +321,7 @@ extension CMUXCLI {
         // so `config get/set` touches the same file the app reads. Fall back to
         // creating one under the first candidate when none exists yet.
         for appSupportDirectory in appSupportDirectories {
-            if let existing = CmuxGhosttyConfigPathResolver.loadConfigURLs(
+            if let existing = CmuxGhosttyConfigPathResolver().loadConfigURLs(
                 currentBundleIdentifier: bundleIdentifier,
                 appSupportDirectory: appSupportDirectory,
                 fileManager: fileManager
@@ -328,7 +329,7 @@ extension CMUXCLI {
                 return existing
             }
         }
-        return CmuxGhosttyConfigPathResolver.activeOrEditableConfigURL(
+        return CmuxGhosttyConfigPathResolver().activeOrEditableConfigURL(
             currentBundleIdentifier: bundleIdentifier,
             appSupportDirectory: firstAppSupportDirectory,
             fileManager: fileManager

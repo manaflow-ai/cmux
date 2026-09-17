@@ -1,6 +1,11 @@
 import XCTest
 import Darwin
-import CmuxProcess
+import CmuxFoundation
+import CmuxGit
+import CmuxSettings
+import CmuxSidebarGit
+
+import CmuxSidebar
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -22,20 +27,70 @@ private struct StubCommandRunner: CommandRunning {
     }
 }
 
-private final class CommandRunnerInvocationCounter: @unchecked Sendable {
+private final class BlockingRepositoryDiscovery: GitRepositoryDiscovering, @unchecked Sendable {
     private let lock = NSLock()
-    private var storedValue = 0
+    private let releaseGate = DispatchSemaphore(value: 0)
+    private let startedExpectation: XCTestExpectation
+    private let finishedExpectation: XCTestExpectation
+    private var storedInvocationCount = 0
+    private var storedReachedCleanupDeadline = false
+    private var storedReleased = false
 
-    func increment() {
-        lock.lock()
-        storedValue += 1
-        lock.unlock()
+    init(
+        startedExpectation: XCTestExpectation,
+        finishedExpectation: XCTestExpectation
+    ) {
+        self.startedExpectation = startedExpectation
+        self.finishedExpectation = finishedExpectation
     }
 
-    var value: Int {
+    func repositorySlugs(forDirectory directory: String) async -> [String] {
+        recordInvocationAndBlockUntilReleased()
+        return []
+    }
+
+    func checkedOutBranch(forDirectory directory: String) async -> GitCheckedOutBranch {
+        .notARepository
+    }
+
+    private func recordInvocationAndBlockUntilReleased() {
+        lock.lock()
+        storedInvocationCount += 1
+        lock.unlock()
+
+        startedExpectation.fulfill()
+        // This deadline is only deadlock cleanup. The test releases the gate
+        // after it observes a queued main-run-loop turn; reaching the deadline
+        // is itself a failure signal.
+        if releaseGate.wait(timeout: .now() + 5) == .timedOut {
+            lock.lock()
+            storedReachedCleanupDeadline = true
+            storedReleased = true
+            lock.unlock()
+        }
+        finishedExpectation.fulfill()
+    }
+
+    func release() {
+        lock.lock()
+        let shouldSignal = !storedReleased
+        storedReleased = true
+        lock.unlock()
+        if shouldSignal {
+            releaseGate.signal()
+        }
+    }
+
+    var invocationCount: Int {
         lock.lock()
         defer { lock.unlock() }
-        return storedValue
+        return storedInvocationCount
+    }
+
+    var reachedCleanupDeadline: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedReachedCleanupDeadline
     }
 }
 
@@ -359,15 +414,22 @@ private func writeGitIndexVersion2EntryFromStat(
 private func writeGitIndexVersion4(
     at repoURL: URL,
     trackedPath: String,
-    signatureByte: UInt8
+    signatureByte: UInt8,
+    objectIDBytes: [UInt8] = Array(repeating: 0, count: 20)
 ) throws {
-    try writeGitIndexVersion4(at: repoURL, trackedPaths: [trackedPath], signatureByte: signatureByte)
+    try writeGitIndexVersion4(
+        at: repoURL,
+        trackedPaths: [trackedPath],
+        signatureByte: signatureByte,
+        objectIDBytes: objectIDBytes
+    )
 }
 
 private func writeGitIndexVersion4(
     at repoURL: URL,
     trackedPaths: [String],
-    signatureByte: UInt8
+    signatureByte: UInt8,
+    objectIDBytes: [UInt8] = Array(repeating: 0, count: 20)
 ) throws {
     var data = Data()
     data.append(contentsOf: [0x44, 0x49, 0x52, 0x43])
@@ -392,7 +454,10 @@ private func writeGitIndexVersion4(
         appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_uid), to: &data)
         appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_gid), to: &data)
         appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_size), to: &data)
-        data.append(Data(repeating: 0, count: 20))
+        data.append(contentsOf: objectIDBytes.prefix(20))
+        if objectIDBytes.count < 20 {
+            data.append(Data(repeating: 0, count: 20 - objectIDBytes.count))
+        }
 
         let pathBytes = Array(trackedPath.utf8)
         appendBigEndianUInt16(UInt16(min(pathBytes.count, 0x0fff)), to: &data)
@@ -438,42 +503,6 @@ private func appendBigEndianUInt32(_ value: UInt32, to data: inout Data) {
 
 private func gitIndexUInt32Field<T: BinaryInteger>(_ value: T) -> UInt32 {
     UInt32(truncatingIfNeeded: UInt64(truncatingIfNeeded: value))
-}
-
-final class GitRepositorySearchRootStopTests: XCTestCase {
-    func testRootParentVariantsStopRepositorySearch() {
-        let rootURL = URL(fileURLWithPath: "/")
-
-        XCTAssertTrue(
-            TabManager.shouldStopGitRepositorySearch(
-                currentURL: rootURL,
-                parentURL: URL(fileURLWithPath: "/")
-            )
-        )
-        XCTAssertTrue(
-            TabManager.shouldStopGitRepositorySearch(
-                currentURL: rootURL,
-                parentURL: URL(fileURLWithPath: "/..")
-            ),
-            "Older Foundation versions can report /.. as the parent of /; repository search must still stop at root."
-        )
-        XCTAssertTrue(
-            TabManager.shouldStopGitRepositorySearch(
-                currentURL: URL(fileURLWithPath: "/.."),
-                parentURL: URL(fileURLWithPath: "/../..")
-            ),
-            "Repository search should also stop if an older Foundation URL has already escaped above root."
-        )
-    }
-
-    func testNonRootParentDoesNotStopRepositorySearch() {
-        XCTAssertFalse(
-            TabManager.shouldStopGitRepositorySearch(
-                currentURL: URL(fileURLWithPath: "/tmp/cmux-4520-nongit"),
-                parentURL: URL(fileURLWithPath: "/tmp")
-            )
-        )
-    }
 }
 
 @MainActor
@@ -551,82 +580,89 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
     }
 
     func testPullRequestRefreshRepositoryDiscoveryDoesNotBlockMainRunLoop() throws {
-        let invocationCounter = CommandRunnerInvocationCounter()
-        let commandDelay: TimeInterval = 0.03
-        let commandRunner = StubCommandRunner { _, executable, arguments, _ in
-            if executable == "git", arguments == ["remote", "-v"] {
-                invocationCounter.increment()
-                Thread.sleep(forTimeInterval: commandDelay)
-                return CommandResult(
-                    stdout: "origin\tssh://example.invalid/not-github.git (fetch)\n",
-                    stderr: "",
-                    exitStatus: 0,
-                    timedOut: false,
-                    executionError: nil
-                )
-            }
-            return CommandResult(
-                stdout: "",
-                stderr: "",
-                exitStatus: 0,
-                timedOut: false,
-                executionError: nil
-            )
+        let defaults = UserDefaults.standard
+        let sidebarSettings = SidebarCatalogSection()
+        let hideAllDetailsKey = sidebarSettings.hideAllDetails.userDefaultsKey
+        let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        let previousShowPullRequests = defaults.object(forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
+        let previousHideAllDetails = defaults.object(forKey: hideAllDetailsKey)
+        defer {
+            restoreUserDefault(previousWatchGitStatus, key: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+            restoreUserDefault(previousShowPullRequests, key: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
+            restoreUserDefault(previousHideAllDetails, key: hideAllDetailsKey)
+        }
+        defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
+        defaults.set(false, forKey: hideAllDetailsKey)
+
+        let discoveryStarted = expectation(description: "repository discovery started")
+        discoveryStarted.assertForOverFulfill = true
+        let discoveryFinished = expectation(description: "repository discovery finished")
+        discoveryFinished.assertForOverFulfill = true
+        let discovery = BlockingRepositoryDiscovery(
+            startedExpectation: discoveryStarted,
+            finishedExpectation: discoveryFinished
+        )
+        defer {
+            discovery.release()
         }
 
-        let manager = TabManager(commandRunner: commandRunner)
-        var seededPanels: [(workspaceId: UUID, panelId: UUID)] = []
-        let workspaceCount = 45
-        var workspaces = manager.tabs
-        while workspaces.count < workspaceCount {
-            workspaces.append(manager.addWorkspace(select: false, eagerLoadTerminal: false))
-        }
-
-        for (index, workspace) in workspaces.enumerated() {
-            let panelId = try XCTUnwrap(workspace.focusedPanelId)
-            workspace.updatePanelDirectory(
-                panelId: panelId,
-                directory: "/tmp/cmux-pr-refresh-main-thread-\(index)"
-            )
-            workspace.updatePanelGitBranch(
-                panelId: panelId,
-                branch: "issue-3033-\(index)",
-                isDirty: false
-            )
-            seededPanels.append((workspace.id, panelId))
-        }
-
-        let monitorDuration: TimeInterval = 0.7
-        let allowedMainThreadGap: TimeInterval = 0.25
-        let finishedMonitoring = expectation(description: "main run loop remained responsive")
-        let monitorStartedAt = Date()
-        var lastTickAt = monitorStartedAt
-        var maxTickGap: TimeInterval = 0
-        let timer = Timer.scheduledTimer(withTimeInterval: 0.01, repeats: true) { timer in
-            let now = Date()
-            maxTickGap = max(maxTickGap, now.timeIntervalSince(lastTickAt))
-            lastTickAt = now
-            if now.timeIntervalSince(monitorStartedAt) >= monitorDuration {
-                timer.invalidate()
-                finishedMonitoring.fulfill()
-            }
-        }
-
-        let triggerPanel = try XCTUnwrap(seededPanels.first)
-        manager.updateSurfaceShellActivity(
-            tabId: triggerPanel.workspaceId,
-            surfaceId: triggerPanel.panelId,
-            state: .promptIdle
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        workspace.updatePanelDirectory(
+            panelId: panelId,
+            directory: "/tmp/cmux-pr-refresh-main-run-loop"
+        )
+        workspace.updatePanelGitBranch(
+            panelId: panelId,
+            branch: "issue-3033-main-run-loop",
+            isDirty: false
         )
 
-        let result = XCTWaiter().wait(for: [finishedMonitoring], timeout: monitorDuration + 1.5)
-        timer.invalidate()
-        XCTAssertEqual(result, .completed)
-        XCTAssertGreaterThan(invocationCounter.value, 0)
-        XCTAssertLessThan(
-            maxTickGap,
-            allowedMainThreadGap,
-            "Pull request refresh blocked the main run loop for \(maxTickGap) seconds"
+        let pollService = PullRequestPollService(
+            gitMetadataService: discovery,
+            probeService: manager.pullRequestProbeService
+        )
+        pollService.attach(host: manager)
+
+        pollService.scheduleWorkspacePullRequestRefresh(
+            workspaceId: workspace.id,
+            panelId: panelId,
+            reason: "testMainRunLoopResponsiveness"
+        )
+
+        // The test releases discovery only after this queued main-run-loop turn
+        // executes. If discovery occupies the main thread, its cleanup deadline
+        // opens the gate instead and the assertions below fail.
+        let mainRunLoopTurnCompleted = expectation(description: "main run loop completed a queued turn")
+        DispatchQueue.main.async {
+            mainRunLoopTurnCompleted.fulfill()
+        }
+
+        let responsivenessResult = XCTWaiter().wait(
+            for: [discoveryStarted, mainRunLoopTurnCompleted],
+            timeout: 5
+        )
+        guard responsivenessResult == .completed else {
+            XCTFail("Repository discovery did not start while the main run loop remained responsive")
+            return
+        }
+        XCTAssertEqual(
+            discovery.invocationCount,
+            1,
+            "Pull request refresh should resolve repository slugs once for the tracked directory"
+        )
+        XCTAssertFalse(
+            discovery.reachedCleanupDeadline,
+            "Pull request repository discovery blocked the main run loop"
+        )
+
+        discovery.release()
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [discoveryFinished], timeout: 5),
+            .completed,
+            "Repository discovery did not finish after the test released it"
         )
     }
 
@@ -817,10 +853,23 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         XCTAssertTrue(workspace.panelPullRequests.isEmpty)
         XCTAssertEqual(workspace.sidebarPullRequestsInDisplayOrder(orderedPanelIds: [panelId]), [])
 
+        // A scoped `report_git_branch` resolves its workspace through AppDelegate's
+        // main-window contexts, not through the controller's active manager, so a
+        // manager only the controller knows about is invisible to it. Register a
+        // windowless context the way the other socket-routing tests do.
+        let previousSharedAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let registeredWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
         TerminalController.shared.setActiveTabManager(manager)
         defer {
             TerminalController.shared.setActiveTabManager(nil)
+            appDelegate.unregisterMainWindowContextForTesting(windowId: registeredWindowId)
+            AppDelegate.shared = previousSharedAppDelegate
         }
+        XCTAssertNotNil(
+            AppDelegate.shared?.tabManagerFor(tabId: workspace.id),
+            "The scoped git-branch report can only reach a workspace AppDelegate can resolve."
+        )
         let response = TerminalController.shared.handleSocketLine(
             "report_pr 2722 https://github.com/manaflow-ai/cmux/pull/2722 --label=PR --state=open --branch=issue-2722-git-index-lock-poll --tab=\(workspace.id.uuidString) --panel=\(panelId.uuidString)"
         )
@@ -882,7 +931,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
-    func testDisablingPullRequestSidebarClearsCachedPullRequestsWithoutClearingBranches() throws {
+    func testHidingPullRequestSidebarPreservesPassiveReportsWithoutPolling() throws {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
         let previousShowPullRequests = defaults.object(forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
@@ -918,21 +967,37 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         manager.sidebarGitMetadataWatchSettingsDidChangeForTesting()
 
         XCTAssertEqual(workspace.panelGitBranches[panelId]?.branch, "issue-2746-rate-limit")
-        XCTAssertNil(workspace.panelPullRequests[panelId])
-        XCTAssertNil(workspace.pullRequest)
+        XCTAssertEqual(workspace.panelPullRequests[panelId]?.number, 2746)
+        XCTAssertEqual(workspace.pullRequest?.number, 2746)
         XCTAssertTrue(
             manager.workspacePullRequestTrackedPanelIdsForTesting(workspaceId: workspace.id).isEmpty,
-            "Disabling PR visibility should clear PR state and polling without disabling branch metadata."
+            "Hiding PR rows should stop PR polling without discarding passive metadata."
+        )
+
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+        let response = TerminalController.shared.handleSocketLine(
+            "report_pr 2747 https://github.com/manaflow-ai/cmux/pull/2747 --label=PR --state=open --branch=issue-2746-rate-limit --tab=\(workspace.id.uuidString) --panel=\(panelId.uuidString)"
+        )
+        XCTAssertEqual(response, "OK")
+        TerminalMutationBus.shared.drainForTesting()
+        XCTAssertEqual(
+            workspace.panelPullRequests[panelId]?.number,
+            2747,
+            "Hidden PR rows should continue accepting passive reports."
         )
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
         manager.sidebarGitMetadataWatchSettingsDidChangeForTesting()
 
         XCTAssertEqual(workspace.panelGitBranches[panelId]?.branch, "issue-2746-rate-limit")
+        XCTAssertEqual(workspace.panelPullRequests[panelId]?.number, 2747)
         XCTAssertEqual(
             manager.workspacePullRequestTrackedPanelIdsForTesting(workspaceId: workspace.id),
             Set([panelId]),
-            "Re-enabling PR visibility should restart PR polling from preserved branch metadata."
+            "Showing PR rows again should restart polling without losing passive metadata."
         )
     }
 
@@ -1032,6 +1097,14 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
+    // Removed testBackgroundGitMetadataFallbackContinuesWithinOversizedWorkspace:
+    // it asserted the branch's batched/cursor git-metadata polling
+    // (backgroundGitMetadataPollBatchLimit), which main's refactor replaced with
+    // a full sweep (refreshTrackedWorkspaceGitMetadata now returns Void). Git
+    // metadata behavior is covered by CmuxGit/GitMetadataServiceTests; restoring
+    // the batched throttle + this test is a deliberate follow-up if mobile-host
+    // scale needs it.
+
     func testUnrelatedDefaultsChangeDoesNotRestartGitMetadataRefreshes() throws {
         let defaults = UserDefaults.standard
         let unrelatedDefaultsKey = "cmux.tests.unrelated-defaults-\(UUID().uuidString)"
@@ -1114,7 +1187,17 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
             "The sidebar refresh path should parse Git index v4 entries as clean when file stats match."
         )
 
-        try writeGitIndexVersion4(at: repoURL, trackedPath: "tracked.txt", signatureByte: 0x22)
+        // Staging content rewrites the entry's object id, which is what the index
+        // content signature tracks. Bumping only the trailing checksum would
+        // describe a file git cannot produce (the trailer is the SHA-1 of the
+        // index content), and such a rewrite is deliberately rebaselined as clean
+        // by testCleanIndexSignatureRebaselinesWhenIndexRewriteKeepsTrackedContentClean.
+        try writeGitIndexVersion4(
+            at: repoURL,
+            trackedPath: "tracked.txt",
+            signatureByte: 0x22,
+            objectIDBytes: Array(repeating: UInt8(0x22), count: 20)
+        )
         manager.refreshTrackedWorkspaceGitMetadataForTesting()
 
         XCTAssertTrue(
@@ -1434,14 +1517,31 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
             "A valid empty index should establish a clean signature baseline."
         )
 
-        try writeEmptyGitIndex(at: repoURL, signatureByte: 0x22)
+        // An index rewrite out of an empty index adds an entry, which is what the
+        // content signature tracks. Re-writing zero entries with a different
+        // trailer would describe a file git cannot produce (the trailer is the
+        // SHA-1 of the index content) and is deliberately rebaselined as clean.
+        // The new entry's stat matches the worktree, so the stat scan stays clean
+        // and the dirty verdict has to come from the index content signature.
+        try "seed\n".write(
+            to: repoURL.appendingPathComponent("tracked.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try writeGitIndexVersion2EntryFromStat(
+            at: repoURL,
+            trackedPath: "tracked.txt",
+            indexMode: 0o100644,
+            signatureByte: 0x22,
+            objectIDBytes: Array(repeating: UInt8(0x22), count: 20)
+        )
         manager.refreshTrackedWorkspaceGitMetadataForTesting()
 
         XCTAssertTrue(
             waitForCondition {
                 workspace.panelGitBranches[panelId]?.isDirty == true
             },
-            "Empty-index signature changes should keep staged deletes visible as dirty."
+            "An index rewrite that stages an entry should show dirty even when the worktree matches the index."
         )
     }
 
@@ -1599,45 +1699,12 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
-    func testGitMetadataWatcherIncludesSubmoduleHeadAndRefs() throws {
-        let repoURL = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "cmux-sidebar-gitlink-watch-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        let submoduleURL = repoURL.appendingPathComponent("vendor/lib", isDirectory: true)
-        let indexedCommit = String(repeating: "1", count: 40)
-        try FileManager.default.createDirectory(at: submoduleURL, withIntermediateDirectories: true)
-        try writeMinimalGitRepository(at: repoURL)
-        try writeMinimalGitRepository(at: submoduleURL, headCommit: indexedCommit)
-        try writeGitIndexVersion2Entry(
-            at: repoURL,
-            trackedPath: "vendor/lib",
-            mode: 0o160000,
-            size: 0,
-            signatureByte: 0x77,
-            objectIDBytes: gitObjectIDBytes(indexedCommit)
-        )
-        defer {
-            try? FileManager.default.removeItem(at: repoURL)
-        }
-
-        let watchedPaths = TabManager.workspaceGitMetadataWatchedPathsForTesting(directory: repoURL.path)
-        XCTAssertTrue(
-            watchedPaths.contains(submoduleURL.appendingPathComponent(".git/HEAD").path),
-            "Submodule HEAD must be watched so detached HEAD changes refresh parent sidebar dirty state immediately."
-        )
-        XCTAssertTrue(
-            watchedPaths.contains(submoduleURL.appendingPathComponent(".git/refs").path),
-            "Submodule refs must be watched so branch checkout/ref updates refresh parent sidebar dirty state immediately."
-        )
-    }
-
-    // The watcher's leading-edge coalescing (a sustained FSEvents burst yields
-    // one refresh per window rather than waiting for the repo to go quiet) is now
-    // verified deterministically in CmuxWorkspaceGit's package tests
-    // (WorkspaceGitMetadataWatcherTests.burstCoalescesAndThrottleRearms), with an
-    // injected clock and no real waiting, instead of the previous timing-based
-    // semaphore storm helper.
+    // Git-metadata resolution, watched-path derivation (including submodule
+    // gitlinks), and remote-slug parsing now live in the CmuxGit package and are
+    // unit-tested there (CmuxGitTests: GitMetadataServiceTests / GitConfigIncludeTests).
+    // The watcher's leading-edge coalescing is verified in CmuxFileWatch's package
+    // tests (RecursivePathWatcherTests) with an injected clock and no real waiting.
+    // The tests below keep exercising the end-to-end refresh path through TabManager.
 
     func testModeOnlyTrackedChangesMarkSidebarDirty() throws {
         let defaults = UserDefaults.standard

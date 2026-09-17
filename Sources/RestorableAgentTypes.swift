@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 enum RestorableAgentKind: Codable, Hashable, Sendable {
@@ -17,6 +18,8 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
     case codebuddy
     case factory
     case qoder
+    case kimi
+    case ollama
     case custom(String)
 
     static let allCases: [RestorableAgentKind] = [
@@ -37,6 +40,9 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         .codebuddy,
         .factory,
         .qoder,
+        // Kimi and Ollama are registry-owned like Pi/Grok/Antigravity: leaving them
+        // out keeps their ids available to pre-existing custom Vault registrations
+        // while direct native values still encode.
     ]
 
     init?(rawValue: String) {
@@ -58,10 +64,23 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         case "codebuddy": self = .codebuddy
         case "factory": self = .factory
         case "qoder": self = .qoder
+        case "kimi": self = .kimi
+        case "ollama": self = .ollama
         default:
             guard CmuxVaultAgentRegistration.isValidID(value) else { return nil }
             self = .custom(value)
         }
+    }
+
+    init?(persistedRawValue rawValue: String, registration: CmuxVaultAgentRegistration?) {
+        guard let kind = RestorableAgentKind(rawValue: rawValue) else { return nil }
+        guard let registration,
+              registration.id == kind.rawValue,
+              !Self.allCases.contains(where: { $0.rawValue == kind.rawValue }) else {
+            self = kind
+            return
+        }
+        self = .custom(registration.id)
     }
 
     var rawValue: String {
@@ -82,6 +101,8 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         case .codebuddy: return "codebuddy"
         case .factory: return "factory"
         case .qoder: return "qoder"
+        case .kimi: return "kimi"
+        case .ollama: return "ollama"
         case .custom(let id): return id
         }
     }
@@ -111,8 +132,28 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         case .codebuddy: return "CodeBuddy"
         case .factory: return "Factory"
         case .qoder: return "Qoder"
+        case .kimi:
+            return String(localized: "agent.kimi.displayName", defaultValue: "Kimi Code")
+        case .ollama:
+            return String(localized: "agent.ollama.displayName", defaultValue: "Ollama")
         case .custom(let id): return id
         }
+    }
+
+    /// How workspace restore reconstructs this agent after its process is gone.
+    var restoreMode: AgentRestoreMode {
+        switch self {
+        case .ollama: return .relaunchCommand
+        default: return .resumeSession
+        }
+    }
+
+    /// How an agent's session store is keyed, which decides whether `<agent> --resume <id>` is
+    /// sensitive to the directory it is launched from. Derived from the shared
+    /// ``AgentResumeWorkingDirectory/cwdNamespacing(forKind:)`` so the app and the standalone CLI
+    /// apply one classification.
+    var cwdNamespacing: AgentCwdNamespacing {
+        AgentResumeWorkingDirectory().cwdNamespacing(forKind: rawValue)
     }
 
     init(from decoder: Decoder) throws {
@@ -168,12 +209,4 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
     }
 }
 
-struct AgentLaunchCommandSnapshot: Codable, Equatable, Sendable {
-    var launcher: String?
-    var executablePath: String?
-    var arguments: [String]
-    var workingDirectory: String?
-    var environment: [String: String]?
-    var capturedAt: TimeInterval?
-    var source: String?
-}
+typealias AgentLaunchCommandSnapshot = AgentLaunchCommand

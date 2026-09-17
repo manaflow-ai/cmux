@@ -5,7 +5,7 @@ import ImageIO
 
 final class RightSidebarChromeHeightUITests: XCTestCase {
     func testSecondaryBarMatchesModeBarAndPaneTabs() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         let dataPath = "/tmp/cmux-ui-test-right-sidebar-chrome-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: dataPath)
 
@@ -15,6 +15,7 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] = "1"
         app.launchArguments += ["-workspacePresentationMode", "minimal"]
         app.launchArguments += ["-rightSidebar.beta.feed.enabled", "YES"]
+        app.launchArguments += ["-rightSidebar.beta.dock.enabled", "YES"]
         app.launch()
         defer { app.terminate() }
 
@@ -54,19 +55,19 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
             "rightSidebarModeControl_sessionsHeight",
             "rightSidebarSecondaryControl_directoryHeight",
             "rightSidebarSecondaryControl_agentHeight",
-            "rightSidebarSecondaryControl_scopeHeight",
+            "rightSidebarVaultViewMenuHeight",
         ]
         guard let controlGeometry = waitForJSONNumbers(controlHeightKeys, greaterThan: 1, atPath: dataPath, timeout: 5),
               let modeControlHeight = Double(controlGeometry["rightSidebarModeControl_sessionsHeight"] ?? ""),
               let directoryControlHeight = Double(controlGeometry["rightSidebarSecondaryControl_directoryHeight"] ?? ""),
               let agentControlHeight = Double(controlGeometry["rightSidebarSecondaryControl_agentHeight"] ?? ""),
-              let scopeControlHeight = Double(controlGeometry["rightSidebarSecondaryControl_scopeHeight"] ?? "") else {
+              let viewMenuControlHeight = Double(controlGeometry["rightSidebarVaultViewMenuHeight"] ?? "") else {
             XCTFail("Timed out waiting for right sidebar control geometry. data=\(loadJSON(atPath: dataPath) ?? [:])")
             return
         }
         XCTAssertEqual(directoryControlHeight, modeControlHeight, accuracy: 0.5, "Expected By folder pill to match mode button height. geometry=\(controlGeometry)")
         XCTAssertEqual(agentControlHeight, modeControlHeight, accuracy: 0.5, "Expected By agent pill to match mode button height. geometry=\(controlGeometry)")
-        XCTAssertEqual(scopeControlHeight, modeControlHeight, accuracy: 0.5, "Expected This folder only control to match mode button height. geometry=\(controlGeometry)")
+        XCTAssertEqual(viewMenuControlHeight, modeControlHeight, accuracy: 0.5, "Expected the Vault view menu control to match mode button height. geometry=\(controlGeometry)")
 
         let feedButton = app.buttons["RightSidebarModeButton.feed"]
         XCTAssertTrue(feedButton.waitForExistence(timeout: 5))
@@ -86,10 +87,23 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
         XCTAssertEqual(feedSecondaryBarHeight, modeBarHeight, accuracy: 0.5, "Expected feed secondary bar to match the mode bar. geometry=\(feedGeometry)")
         XCTAssertEqual(actionableControlHeight, modeControlHeight, accuracy: 0.5, "Expected Feed Actionable pill to match mode button height. geometry=\(feedGeometry)")
         XCTAssertEqual(activityControlHeight, modeControlHeight, accuracy: 0.5, "Expected Feed All Activity pill to match mode button height. geometry=\(feedGeometry)")
+
+        let dockButton = app.buttons["RightSidebarModeButton.dock"]
+        XCTAssertTrue(dockButton.waitForExistence(timeout: 5))
+        dockButton.click()
+
+        let dockPanel = app.descendants(matching: .any)["DockPanel"].firstMatch
+        XCTAssertTrue(dockPanel.waitForExistence(timeout: 5), "Expected Dock panel to render after selecting Dock mode")
+        XCTAssertFalse(app.otherElements["DockScopeToggle"].exists, "Expected Dock scope switcher row to be removed")
+        XCTAssertFalse(app.buttons["DockScopeTab.workspace"].exists, "Expected Workspace Dock tab to be removed")
+        XCTAssertFalse(app.buttons["DockScopeTab.global"].exists, "Expected Global Dock tab to be removed")
+        XCTAssertFalse(app.buttons["New Dock Pane"].exists, "Expected Dock toolbar action row to be removed")
+        XCTAssertFalse(app.buttons["Open Dock Config"].exists, "Expected Dock toolbar action row to be removed")
+        XCTAssertFalse(app.buttons["Reload Dock"].exists, "Expected Dock toolbar action row to be removed")
     }
 
     func testMatchedTerminalBackgroundKeepsSidebarBackgroundsAndBordersUnified() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         let dataPath = "/tmp/cmux-ui-test-sidebar-appearance-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: dataPath)
 
@@ -433,6 +447,182 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
             guard let rawValue = $0[key], let value = Double(rawValue), value > threshold else { return nil }
             return $0
         }
+    }
+
+    private func loadJSON(atPath path: String) -> [String: String]? {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return nil
+        }
+        return object
+    }
+}
+
+final class TerminalViewportUITests: XCTestCase {
+    func testTerminalSurfaceUsesAvailableViewportAndTracksWindowResize() {
+        let dataPath = "/tmp/cmux-ui-test-terminal-viewport-\(UUID().uuidString).json"
+        try? FileManager.default.removeItem(atPath: dataPath)
+
+        let app = XCUIApplication.cmuxTestApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_TERMINAL_VIEWPORT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_TERMINAL_VIEWPORT_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_TERMINAL_VIEWPORT_WINDOW_SIZE"] = "900x620"
+        app.launchEnvironment["CMUX_UI_TEST_TERMINAL_VIEWPORT_RESIZE_WINDOW_SIZE"] = "1180x780"
+        app.launchEnvironment["CMUX_UI_TEST_TERMINAL_VIEWPORT_HIDE_SIDEBAR"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_TERMINAL_VIEWPORT_HIDE_RIGHT_SIDEBAR"] = "1"
+        app.launchArguments += ["-workspacePresentationMode", "minimal"]
+        let options = XCTExpectedFailure.Options()
+        options.isStrict = false
+        XCTExpectFailure("App activation may fail on headless CI runners", options: options) {
+            app.launch()
+        }
+        defer { app.terminate() }
+        defer {
+            try? FileManager.default.removeItem(atPath: dataPath)
+        }
+
+        if app.state == .runningBackground {
+            app.activate()
+        }
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20) || app.windows.firstMatch.waitForExistence(timeout: 6))
+
+        guard let small = waitForViewportGeometry(atPath: dataPath, prefix: "terminalViewportInitial", timeout: 20, matching: { geometry in
+            geometry.windowWidth >= 560 &&
+                geometry.panelWidth > 300 &&
+                geometry.panelHeight > 220 &&
+                geometry.fillsAvailableViewport
+        }) else {
+            XCTFail("Timed out waiting for small terminal viewport geometry. data=\(loadJSON(atPath: dataPath) ?? [:])")
+            return
+        }
+        assertTerminalViewportFillsAvailableSpace(small)
+
+        guard let large = waitForViewportGeometry(atPath: dataPath, prefix: "terminalViewportResized", timeout: 20, matching: { geometry in
+            geometry.requestedWindowSize == "1180x780" &&
+                geometry.windowWidth > small.windowWidth + 180 &&
+                geometry.windowHeight > small.windowHeight + 120 &&
+                geometry.panelWidth > small.panelWidth + 180 &&
+                geometry.panelHeight > small.panelHeight + 120 &&
+                geometry.fillsAvailableViewport
+        }) else {
+            XCTFail("Timed out waiting for resized terminal viewport geometry. data=\(loadJSON(atPath: dataPath) ?? [:])")
+            return
+        }
+        assertTerminalViewportFillsAvailableSpace(large)
+    }
+
+    private struct ViewportGeometry {
+        let data: [String: String]
+        let requestedWindowSize: String
+        let windowWidth: CGFloat
+        let windowHeight: CGFloat
+        let windowContentWidth: CGFloat
+        let windowContentHeight: CGFloat
+        let panelWidth: CGFloat
+        let panelHeight: CGFloat
+        let hostedFrameMinX: CGFloat
+        let hostedFrameMinY: CGFloat
+        let hostedFrameWidth: CGFloat
+        let hostedFrameHeight: CGFloat
+        let hostedBoundsWidth: CGFloat
+        let hostedBoundsHeight: CGFloat
+
+        var fillsAvailableViewport: Bool {
+            windowContentWidth > 300 &&
+                windowContentHeight > 240 &&
+                abs(hostedFrameMinX) <= 3 &&
+                abs(hostedFrameMinY) <= 3 &&
+                abs(hostedFrameWidth - panelWidth) <= 3 &&
+                abs(hostedFrameHeight - panelHeight) <= 3 &&
+                abs(hostedBoundsWidth - hostedFrameWidth) <= 3 &&
+                abs(hostedBoundsHeight - hostedFrameHeight) <= 3 &&
+                panelWidth >= windowContentWidth - 24 &&
+                panelHeight >= windowContentHeight - 130
+        }
+
+        init?(data: [String: String], prefix: String) {
+            func key(_ suffix: String) -> String {
+                "\(prefix)\(suffix)"
+            }
+
+            guard data[key("Ready")] == "1",
+                  data[key("SidebarVisible")] == "0",
+                  data[key("RightSidebarVisible")] == "0" else {
+                return nil
+            }
+            self.data = data
+            requestedWindowSize = data[key("RequestedWindowSize")] ?? ""
+            guard let windowWidth = Self.number(key("WindowWidth"), in: data),
+                  let windowHeight = Self.number(key("WindowHeight"), in: data),
+                  let windowContentWidth = Self.number(key("WindowContentWidth"), in: data),
+                  let windowContentHeight = Self.number(key("WindowContentHeight"), in: data),
+                  let panelWidth = Self.number(key("PanelWidth"), in: data),
+                  let panelHeight = Self.number(key("PanelHeight"), in: data),
+                  let hostedFrameMinX = Self.number(key("HostedFrameMinX"), in: data),
+                  let hostedFrameMinY = Self.number(key("HostedFrameMinY"), in: data),
+                  let hostedFrameWidth = Self.number(key("HostedFrameWidth"), in: data),
+                  let hostedFrameHeight = Self.number(key("HostedFrameHeight"), in: data),
+                  let hostedBoundsWidth = Self.number(key("HostedBoundsWidth"), in: data),
+                  let hostedBoundsHeight = Self.number(key("HostedBoundsHeight"), in: data) else {
+                return nil
+            }
+            self.windowWidth = windowWidth
+            self.windowHeight = windowHeight
+            self.windowContentWidth = windowContentWidth
+            self.windowContentHeight = windowContentHeight
+            self.panelWidth = panelWidth
+            self.panelHeight = panelHeight
+            self.hostedFrameMinX = hostedFrameMinX
+            self.hostedFrameMinY = hostedFrameMinY
+            self.hostedFrameWidth = hostedFrameWidth
+            self.hostedFrameHeight = hostedFrameHeight
+            self.hostedBoundsWidth = hostedBoundsWidth
+            self.hostedBoundsHeight = hostedBoundsHeight
+        }
+
+        private static func number(_ key: String, in data: [String: String]) -> CGFloat? {
+            guard let rawValue = data[key], let value = Double(rawValue) else { return nil }
+            return CGFloat(value)
+        }
+    }
+
+    private func assertTerminalViewportFillsAvailableSpace(
+        _ geometry: ViewportGeometry,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(geometry.hostedFrameMinX, 0, accuracy: 3, "geometry=\(geometry.data)", file: file, line: line)
+        XCTAssertEqual(geometry.hostedFrameMinY, 0, accuracy: 3, "geometry=\(geometry.data)", file: file, line: line)
+        XCTAssertEqual(geometry.hostedFrameWidth, geometry.panelWidth, accuracy: 3, "geometry=\(geometry.data)", file: file, line: line)
+        XCTAssertEqual(geometry.hostedFrameHeight, geometry.panelHeight, accuracy: 3, "geometry=\(geometry.data)", file: file, line: line)
+        XCTAssertEqual(geometry.hostedBoundsWidth, geometry.hostedFrameWidth, accuracy: 3, "geometry=\(geometry.data)", file: file, line: line)
+        XCTAssertEqual(geometry.hostedBoundsHeight, geometry.hostedFrameHeight, accuracy: 3, "geometry=\(geometry.data)", file: file, line: line)
+        XCTAssertGreaterThanOrEqual(geometry.panelWidth, geometry.windowContentWidth - 24, "geometry=\(geometry.data)", file: file, line: line)
+        XCTAssertGreaterThanOrEqual(geometry.panelHeight, geometry.windowContentHeight - 130, "geometry=\(geometry.data)", file: file, line: line)
+    }
+
+    private func waitForViewportGeometry(
+        atPath path: String,
+        prefix: String,
+        timeout: TimeInterval,
+        matching predicate: (ViewportGeometry) -> Bool
+    ) -> ViewportGeometry? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let data = loadJSON(atPath: path),
+               let geometry = ViewportGeometry(data: data, prefix: prefix),
+               predicate(geometry) {
+                return geometry
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        if let data = loadJSON(atPath: path),
+           let geometry = ViewportGeometry(data: data, prefix: prefix),
+           predicate(geometry) {
+            return geometry
+        }
+        return nil
     }
 
     private func loadJSON(atPath path: String) -> [String: String]? {

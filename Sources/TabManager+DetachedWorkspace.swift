@@ -1,4 +1,6 @@
 import Foundation
+import CmuxSettings
+import CmuxTerminalCore
 
 extension TabManager {
     struct WorkspaceCreationTabSnapshot {
@@ -17,30 +19,34 @@ extension TabManager {
         let selectedTabId: UUID?
         let selectedTabWasPinned: Bool
         let preferredWorkingDirectory: String?
-        let inheritedTerminalFontPoints: Float?
+        let inheritedTerminalFontSizeLineage: TerminalFontSizeLineage?
     }
 
     @discardableResult
     func addWorkspace(
         fromDetachedSurface detached: Workspace.DetachedSurfaceTransfer,
         title: String? = nil,
+        titleSource: Workspace.CustomTitleSource = .auto,
         select: Bool = true,
-        placementOverride: NewWorkspacePlacement? = nil,
+        placementOverride: WorkspacePlacement? = nil,
         insertionIndexOverride: Int? = nil,
         focusIntent: PanelFocusIntent? = nil
     ) -> Workspace? {
+        guard !isFinalizedForWindowClose else { return nil }
         let sourceWorkspace = selectedWorkspace
         let capturedTabs = tabs
         let capturedSelectedTabId = sourceWorkspace?.id
 
         return withExtendedLifetime((capturedTabs, sourceWorkspace, detached.panel)) {
             let inheritedDirectory = implicitWorkingDirectoryForNewWorkspace(from: sourceWorkspace)
-            let font = inheritedTerminalFontPointsForNewWorkspace(workspace: sourceWorkspace)
+            let fontSizeLineage = inheritedTerminalFontSizeLineageForNewWorkspace(
+                workspace: sourceWorkspace
+            )
             let snapshot = workspaceCreationSnapshotLite(
                 currentTabs: capturedTabs,
                 currentSelectedTabId: capturedSelectedTabId,
                 preferredWorkingDirectory: inheritedDirectory,
-                inheritedTerminalFontPoints: font
+                inheritedTerminalFontSizeLineage: fontSizeLineage
             )
             didCaptureWorkspaceCreationSnapshot()
 #if DEBUG
@@ -50,7 +56,7 @@ extension TabManager {
             sentryBreadcrumb("workspace.create.fromDetachedSurface", data: ["tabCount": nextTabCount])
 
             let inheritedConfig = workspaceCreationConfigTemplate(
-                inheritedTerminalFontPoints: snapshot.inheritedTerminalFontPoints
+                inheritedTerminalFontSizeLineage: snapshot.inheritedTerminalFontSizeLineage
             )
             let plannedInsertIndex = detachedWorkspaceInsertIndex(
                 insertionIndexOverride: insertionIndexOverride,
@@ -59,12 +65,14 @@ extension TabManager {
             )
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
-            let newWorkspace = Workspace(
+            let workingDirectory =
+                normalizedWorkingDirectory(detached.directory) ?? snapshot.preferredWorkingDirectory
+            let newWorkspace = makeWorkspaceForDetachedSurface(
                 title: title ?? detached.title,
-                workingDirectory: normalizedWorkingDirectory(detached.directory) ?? snapshot.preferredWorkingDirectory,
+                workingDirectory: workingDirectory,
                 portOrdinal: ordinal,
                 configTemplate: inheritedConfig,
-                initialDetachedSurface: detached
+                detachedSurface: detached
             )
             guard newWorkspace.panels[detached.panelId] != nil,
                   newWorkspace.paneId(forPanelId: detached.panelId) != nil else {
@@ -73,9 +81,11 @@ extension TabManager {
 
             applyCreationChromeInheritance(to: newWorkspace, from: sourceWorkspace ?? capturedTabs.first)
             newWorkspace.owningTabManager = self
-            if title != nil {
-                newWorkspace.setCustomTitle(title)
-            }
+            applyCreationWorkspaceCustomization(
+                to: newWorkspace,
+                explicitTitle: title,
+                explicitTitleSource: titleSource
+            )
             wireClosedBrowserTracking(for: newWorkspace)
 
             var updatedTabs = tabs
@@ -109,7 +119,7 @@ extension TabManager {
     private func detachedWorkspaceInsertIndex(
         insertionIndexOverride: Int?,
         snapshot: WorkspaceCreationSnapshot,
-        placementOverride: NewWorkspacePlacement?
+        placementOverride: WorkspacePlacement?
     ) -> Int {
         guard let insertionIndexOverride else {
             return newTabInsertIndex(snapshot: snapshot, placementOverride: placementOverride)

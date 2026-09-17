@@ -1,122 +1,124 @@
-import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+const priorVercel = process.env.VERCEL;
 
-const envKeys = [
-  "SKIP_ENV_VALIDATION",
-  "RESEND_API_KEY",
-  "CMUX_FEEDBACK_FROM_EMAIL",
-  "CMUX_FEEDBACK_RATE_LIMIT_ID",
-  "STACK_SECRET_SERVER_KEY",
-  "NEXT_PUBLIC_STACK_PROJECT_ID",
-  "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY",
-] as const;
-const originalEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]])) as Record<
-  (typeof envKeys)[number],
-  string | undefined
->;
+import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import {
+  checkRateLimit,
+  installVercelFirewallMock,
+} from "./vercel-firewall-mock";
 
-process.env.SKIP_ENV_VALIDATION = "1";
-process.env.RESEND_API_KEY = "resend-test-key";
-process.env.CMUX_FEEDBACK_FROM_EMAIL = "feedback@example.com";
-process.env.CMUX_FEEDBACK_RATE_LIMIT_ID = "feedback-limiter";
-process.env.STACK_SECRET_SERVER_KEY = "stack-secret";
-process.env.NEXT_PUBLIC_STACK_PROJECT_ID = "stack-project";
-process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY = "stack-publishable";
+const sendEmail = mock(async () => ({ data: { id: "email-1" }, error: null }));
 
-type CheckRateLimitOptions = { request?: Request; rateLimitKey?: string };
-type CheckRateLimitResult = { rateLimited: boolean; error: string | null };
-type CheckRateLimitHandler = (
-  id: string,
-  options: CheckRateLimitOptions,
-) => Promise<CheckRateLimitResult>;
-const checkRateLimit = mock(async (...args: unknown[]): Promise<CheckRateLimitResult> => {
-  void args;
-  return { rateLimited: false, error: null };
-});
-const checkRateLimitHandler: CheckRateLimitHandler = (id, options) =>
-  checkRateLimit(id, options) as Promise<CheckRateLimitResult>;
-const firewallState = globalThis as typeof globalThis & {
-  __cmuxFirewallCheckRateLimits?: Map<string, CheckRateLimitHandler>;
-};
-firewallState.__cmuxFirewallCheckRateLimits ??= new Map();
-firewallState.__cmuxFirewallCheckRateLimits.set("feedback-limiter", checkRateLimitHandler);
-const send = mock(async () => ({ error: null }));
-
-mock.module("@vercel/firewall", () => ({
-  checkRateLimit: (id: string, options: CheckRateLimitOptions) =>
-    (firewallState.__cmuxFirewallCheckRateLimits?.get(id) ?? checkRateLimitHandler)(id, options),
-}));
+installVercelFirewallMock();
 
 mock.module("resend", () => ({
   Resend: class {
-    emails = { send };
+    readonly emails = { send: sendEmail };
   },
 }));
 
-const feedbackRoute = await import("../app/api/feedback/route");
+const { POST } = await import("../app/api/feedback/route");
 
-afterAll(() => {
-  for (const key of envKeys) {
-    const value = originalEnv[key];
-    if (typeof value === "undefined") {
-      delete process.env[key];
-    } else {
-      process.env[key] = value;
-    }
+afterEach(() => {
+  checkRateLimit.mockClear();
+  checkRateLimit.mockResolvedValue({ rateLimited: false, error: null });
+  sendEmail.mockClear();
+  if (priorVercel === undefined) {
+    delete process.env.VERCEL;
+  } else {
+    process.env.VERCEL = priorVercel;
   }
 });
 
-afterEach(() => {
-  feedbackRoute.configureFeedbackRateLimitForTests(null);
-  firewallState.__cmuxFirewallCheckRateLimits?.delete("feedback-limiter");
-  checkRateLimit.mockClear();
-  send.mockClear();
+afterAll(() => {
+  restoreEnv("VERCEL", priorVercel);
 });
 
-beforeEach(() => {
-  feedbackRoute.configureFeedbackRateLimitForTests("feedback-limiter");
-  firewallState.__cmuxFirewallCheckRateLimits ??= new Map();
-  firewallState.__cmuxFirewallCheckRateLimits.set("feedback-limiter", checkRateLimitHandler);
-  checkRateLimit.mockClear();
-  checkRateLimit.mockResolvedValue({ rateLimited: false, error: null });
-  send.mockClear();
-  send.mockResolvedValue({ error: null });
-});
+describe("feedback route", () => {
+  test("rejects urlencoded feedback before parsing or sending email", async () => {
+    process.env.VERCEL = "1";
+    const request = new Request("https://cmux.test/api/feedback", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ email: "user@example.test", message: "hello" }),
+    });
+    const parse = mock(() => Promise.resolve(new FormData()));
+    request.formData = parse;
 
-describe("feedback route hardening", () => {
-  test("fails closed when the production feedback limiter is unavailable", async () => {
+    const res = await POST(request);
+
+    expect(res.status).toBe(415);
+    expect(await res.json()).toEqual({ error: "Invalid multipart payload" });
+    expect(parse).not.toHaveBeenCalled();
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  test("checks the configured firewall before parsing the body", async () => {
+    process.env.VERCEL = "1";
+    checkRateLimit.mockResolvedValue({ rateLimited: true, error: "blocked" });
+    const request = feedbackRequest();
+    const parse = mock(() => Promise.resolve(new FormData()));
+    request.formData = parse;
+
+    const res = await POST(request);
+
+    expect(res.status).toBe(429);
+    expect(parse).not.toHaveBeenCalled();
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  test("fails open when the Vercel firewall rule is missing", async () => {
+    // A deleted rule is an operator action (no limit wanted), not an outage.
+    process.env.VERCEL = "1";
     checkRateLimit.mockResolvedValue({ rateLimited: false, error: "not-found" });
-    const body = new FormData();
-    body.set("email", "user@example.com");
-    body.set("message", "hello");
 
-    const response = await feedbackRoute.POST(
-      new Request("https://cmux.test/api/feedback", {
-        method: "POST",
-        body,
-      }),
-    );
+    const res = await POST(feedbackRequest());
 
-    expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({ error: "rate_limiter_unavailable" });
-    expect(checkRateLimit).toHaveBeenCalledTimes(1);
-    expect(send).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(sendEmail).toHaveBeenCalled();
   });
 
-  test("rejects urlencoded feedback bodies before sending email", async () => {
-    const response = await feedbackRoute.POST(
-      new Request("https://cmux.test/api/feedback", {
-        method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          email: "user@example.com",
-          message: "hello",
-        }),
-      }),
-    );
+  test("fails closed when the Vercel firewall check errors", async () => {
+    process.env.VERCEL = "1";
+    checkRateLimit.mockResolvedValue({ rateLimited: false, error: "firewall-unavailable" });
 
-    expect(response.status).toBe(415);
-    expect(await response.json()).toEqual({ error: "Invalid multipart payload" });
-    expect(checkRateLimit).toHaveBeenCalledTimes(1);
-    expect(send).not.toHaveBeenCalled();
+    const res = await POST(feedbackRequest());
+
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: "service_unavailable" });
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  test("fails closed when the Vercel firewall check throws", async () => {
+    process.env.VERCEL = "1";
+    (checkRateLimit as unknown as {
+      mockImplementation(next: () => Promise<never>): void;
+    }).mockImplementation(async () => {
+      throw new Error("firewall transport down");
+    });
+
+    const res = await POST(feedbackRequest());
+
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: "service_unavailable" });
+    expect(sendEmail).not.toHaveBeenCalled();
   });
 });
+
+function feedbackRequest(): Request {
+  const form = new FormData();
+  form.set("email", "user@example.test");
+  form.set("message", "The app crashed while opening a workspace.");
+  return new Request("https://cmux.test/api/feedback", {
+    method: "POST",
+    body: form,
+  });
+}
+
+function restoreEnv(key: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[key];
+    return;
+  }
+  process.env[key] = value;
+}

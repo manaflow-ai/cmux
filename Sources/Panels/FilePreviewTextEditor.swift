@@ -1,9 +1,14 @@
 import AppKit
+import CmuxFoundation
+import CmuxSettings
+import CmuxSettingsUI
+import CmuxSyntaxHighlighting
 import SwiftUI
 
 @MainActor
 protocol FilePreviewTextEditingPanel: AnyObject {
     var textContent: String { get }
+    var textContentRevision: Int { get }
 
     func attachTextView(_ textView: NSTextView)
     func retryPendingFocus()
@@ -12,18 +17,37 @@ protocol FilePreviewTextEditingPanel: AnyObject {
     func saveTextContent() -> Task<Void, Never>?
 }
 
+extension FilePreviewTextEditingPanel {
+    var textContentRevision: Int { 0 }
+}
+
 struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: ObservableObject & FilePreviewTextEditingPanel {
     @ObservedObject var panel: PanelModel
     let isVisibleInUI: Bool
     let themeBackgroundColor: NSColor
     let themeForegroundColor: NSColor
     let drawsBackground: Bool
+    /// Opaque Ghostty panel color. The ruler is not a hole onto that
+    /// surface, so it always paints this even when the text view is clear.
+    let gutterBackgroundColor: NSColor
     /// Whether long lines soft-wrap at the editor's right edge. Sourced from
     /// the persisted `fileEditor.wordWrap` setting; updates apply live.
     let wordWrap: Bool
+    /// Absolute path used only to resolve a highlight.js language.
+    var filePath: String = ""
+
+    @LiveSetting(\.fileEditor.syntaxHighlighting) private var syntaxHighlighting
+    @LiveSetting(\.fileEditor.lineNumbers) private var lineNumbers
+    @LiveSetting(\.fileEditor.indentGuides) private var indentGuides
+    @LiveSetting(\.fileEditor.currentLineHighlight) private var currentLineHighlight
+    @LiveSetting(\.fileEditor.tabWidth) private var tabWidth
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(panel: panel)
+        Coordinator(
+            panel: panel,
+            filePath: filePath,
+            editorSettings: FilePreviewEditorSettings(defaults: .standard)
+        )
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -38,46 +62,119 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         let textView = SavingTextView.makeFilePreviewTextView()
         textView.panel = panel
         textView.delegate = context.coordinator
+        textView.onPreviewFontDidChange = { [weak coordinator = context.coordinator, weak textView] in
+            guard let textView else { return }
+            coordinator?.handlePreviewFontChange(in: textView)
+        }
         textView.drawsBackground = drawsBackground
         textView.string = panel.textContent
+        context.coordinator.lastAppliedContentRevision = panel.textContentRevision
+        context.coordinator.isHighlightingVisible = isVisibleInUI
         panel.attachTextView(textView)
 
         scrollView.documentView = textView
         textView.applyFilePreviewWordWrap(wordWrap, scrollView: scrollView)
+        Self.installChrome(on: scrollView, textView: textView)
         Self.applyTheme(
             to: scrollView,
             backgroundColor: themeBackgroundColor,
             foregroundColor: themeForegroundColor,
-            drawsBackground: drawsBackground
+            drawsBackground: drawsBackground,
+            gutterBackgroundColor: gutterBackgroundColor
         )
+        Self.applyChromeSettings(
+            to: scrollView,
+            lineNumbers: lineNumbers,
+            indentGuides: indentGuides,
+            currentLineHighlight: currentLineHighlight,
+            tabWidth: tabWidth
+        )
+        Self.refreshChrome(on: scrollView, textView: textView)
+        if isVisibleInUI {
+            context.coordinator.scheduleHighlight(
+                for: textView,
+                enabled: syntaxHighlighting,
+                defaultColor: themeForegroundColor,
+                force: true
+            )
+        }
         return scrollView
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        context.coordinator.panel = panel
+        let panelIdentity = ObjectIdentifier(panel)
+        let panelChanged = context.coordinator.panelIdentity != panelIdentity
+        context.coordinator.filePath = filePath
+        let becameVisible = isVisibleInUI && !context.coordinator.isHighlightingVisible
+        context.coordinator.isHighlightingVisible = isVisibleInUI
         scrollView.isHidden = !isVisibleInUI
         Self.applyTheme(
             to: scrollView,
             backgroundColor: themeBackgroundColor,
             foregroundColor: themeForegroundColor,
-            drawsBackground: drawsBackground
+            drawsBackground: drawsBackground,
+            gutterBackgroundColor: gutterBackgroundColor
         )
         guard let textView = scrollView.documentView as? SavingTextView else { return }
+        context.coordinator.panel = panel
+        context.coordinator.panelIdentity = panelIdentity
         textView.panel = panel
         textView.applyFilePreviewTextEditorInsets()
         textView.applyFilePreviewWordWrap(wordWrap, scrollView: scrollView)
         panel.attachTextView(textView)
-        guard textView.string != panel.textContent else { return }
-        context.coordinator.isApplyingPanelUpdate = true
-        textView.string = panel.textContent
-        context.coordinator.isApplyingPanelUpdate = false
+        Self.applyChromeSettings(
+            to: scrollView,
+            lineNumbers: lineNumbers,
+            indentGuides: indentGuides,
+            currentLineHighlight: currentLineHighlight,
+            tabWidth: tabWidth
+        )
+
+        let contentChanged = panelChanged || (panel.textContentRevision == 0
+            ? textView.string != panel.textContent
+            : context.coordinator.lastAppliedContentRevision != panel.textContentRevision)
+        if contentChanged {
+            let selectedRanges = textView.selectedRanges
+            let visibleOrigin = scrollView.contentView.bounds.origin
+            context.coordinator.isApplyingPanelUpdate = true
+            textView.string = panel.textContent
+            context.coordinator.isApplyingPanelUpdate = false
+            context.coordinator.lastAppliedContentRevision = panel.textContentRevision
+            let contentLength = (textView.string as NSString).length
+            let clampedRanges = selectedRanges.map { value -> NSValue in
+                let range = value.rangeValue
+                let location = min(range.location, contentLength)
+                let length = min(range.length, contentLength - location)
+                return NSValue(range: NSRange(location: location, length: length))
+            }
+            textView.setSelectedRanges(clampedRanges, affinity: .downstream, stillSelecting: false)
+            scrollView.layoutSubtreeIfNeeded()
+            let clipView = scrollView.contentView
+            let constrained = clipView.constrainBoundsRect(
+                NSRect(origin: visibleOrigin, size: clipView.bounds.size)
+            )
+            clipView.scroll(to: constrained.origin)
+            scrollView.reflectScrolledClipView(clipView)
+        }
+        if isVisibleInUI {
+            context.coordinator.scheduleHighlight(
+                for: textView,
+                enabled: syntaxHighlighting,
+                defaultColor: themeForegroundColor,
+                force: contentChanged || becameVisible
+            )
+        } else {
+            context.coordinator.cancelHighlight()
+        }
+        Self.refreshChrome(on: scrollView, textView: textView)
     }
 
     static func applyTheme(
         to scrollView: NSScrollView,
         backgroundColor: NSColor,
         foregroundColor: NSColor,
-        drawsBackground: Bool
+        drawsBackground: Bool,
+        gutterBackgroundColor: NSColor? = nil
     ) {
         let resolvedBackgroundColor = drawsBackground ? backgroundColor : .clear
         scrollView.drawsBackground = drawsBackground
@@ -87,25 +184,179 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         if let textView = scrollView.documentView as? NSTextView {
             textView.drawsBackground = drawsBackground
             textView.backgroundColor = resolvedBackgroundColor
-            textView.textColor = foregroundColor
+            // Do not set `textView.textColor` — that flattens token colors on every SwiftUI tick.
             textView.insertionPointColor = foregroundColor
+            textView.typingAttributes[.foregroundColor] = foregroundColor
+            if let font = textView.font {
+                textView.typingAttributes[.font] = font
+            }
+            let tokenTheme = TokenTheme(appearance: textView.effectiveAppearance)
+            if let overlay = FilePreviewEditorChromeOverlay.installed(in: textView) {
+                overlay.currentLineColor = tokenTheme.currentLineFillColor
+                overlay.indentGuideColor = tokenTheme.indentGuideColor
+            }
+            if let gutter = scrollView.verticalRulerView as? FilePreviewLineNumberGutterView {
+                gutter.tokenTheme = tokenTheme
+                // The ruler is a sibling of the document view, not a hole
+                // onto the Ghostty surface. `backgroundColor` is often
+                // `.clear` (glass / terminal show-through); paint the
+                // composited panel color instead so numbers sit on the same
+                // field as the text.
+                let gutterFill = gutterBackgroundColor ?? backgroundColor
+                gutter.editorBackgroundColor = gutterFill
+                gutter.drawsEditorBackground = gutterFill.alphaComponent >= 0.999
+            }
         }
     }
 
+    static func installChrome(on scrollView: NSScrollView, textView: NSTextView) {
+        if scrollView.verticalRulerView == nil {
+            let gutter = FilePreviewLineNumberGutterView(scrollView: scrollView, orientation: .verticalRuler)
+            gutter.clientView = textView
+            scrollView.verticalRulerView = gutter
+        }
+        if FilePreviewEditorChromeOverlay.installed(in: textView) == nil {
+            let overlay = FilePreviewEditorChromeOverlay(frame: textView.bounds)
+            overlay.textView = textView
+            overlay.autoresizingMask = [.width, .height]
+            textView.addSubview(overlay)
+        }
+    }
+
+    static func applyChromeSettings(
+        to scrollView: NSScrollView,
+        lineNumbers: Bool,
+        indentGuides: Bool,
+        currentLineHighlight: Bool,
+        tabWidth: Int
+    ) {
+        scrollView.hasVerticalRuler = lineNumbers
+        scrollView.rulersVisible = lineNumbers
+        guard let textView = scrollView.documentView as? NSTextView else { return }
+        let catalog = FileEditorCatalogSection()
+        let effectiveTabWidth = catalog.tabWidthRange.contains(tabWidth)
+            ? tabWidth : catalog.tabWidth.defaultValue
+        textView.applyFilePreviewTabWidth(effectiveTabWidth)
+        guard let overlay = FilePreviewEditorChromeOverlay.installed(in: textView) else { return }
+        overlay.showsCurrentLine = currentLineHighlight
+        overlay.showsIndentGuides = indentGuides
+        overlay.tabWidth = effectiveTabWidth
+        overlay.needsDisplay = true
+    }
+
+    static func refreshChrome(
+        on scrollView: NSScrollView,
+        textView: NSTextView
+    ) {
+        // Skip all line-index maintenance while the ruler is hidden; the
+        // gutter flags a full rebuild for when line numbers come back on.
+        if scrollView.rulersVisible,
+           let gutter = scrollView.verticalRulerView as? FilePreviewLineNumberGutterView {
+            gutter.reloadLineIndex(from: textView.string, textFont: textView.font)
+        }
+        // The overlay geometry can change without a text change (for example
+        // after wrapping or resizing), so frame synchronization is unconditional.
+        FilePreviewEditorChromeOverlay.installed(in: textView)?.syncFrame(to: textView)
+    }
+
+    @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         var panel: PanelModel
+        fileprivate var panelIdentity: ObjectIdentifier
+        var filePath: String
         var isApplyingPanelUpdate = false
+        var lastAppliedContentRevision: Int?
+        var isHighlightingVisible = false
+        // `FilePreviewSyntaxStyler` owns the cancellable task and cancels it in
+        // its own deinitializer. Keeping teardown in that owner also avoids an
+        // actor-isolated generic deinitializer that older Swift optimizers can
+        // crash while compiling the Release WMO build.
+        private let styler = FilePreviewSyntaxStyler()
+        private let editorSettings: FilePreviewEditorSettings
 
-        init(panel: PanelModel) {
+        init(
+            panel: PanelModel,
+            filePath: String,
+            editorSettings: FilePreviewEditorSettings
+        ) {
             self.panel = panel
+            self.panelIdentity = ObjectIdentifier(panel)
+            self.filePath = filePath
+            self.editorSettings = editorSettings
         }
-
-        deinit {}
 
         func textDidChange(_ notification: Notification) {
             guard !isApplyingPanelUpdate,
                   let textView = notification.object as? NSTextView else { return }
             panel.updateTextContent(textView.string)
+            lastAppliedContentRevision = panel.textContentRevision
+            guard isHighlightingVisible else { return }
+            scheduleHighlight(
+                for: textView,
+                enabled: editorSettings.isEnabled(
+                    key: editorSettings.catalog.syntaxHighlighting.userDefaultsKey,
+                    default: editorSettings.catalog.syntaxHighlighting.defaultValue
+                ),
+                defaultColor: textView.insertionPointColor,
+                force: true
+            )
+            if let scrollView = textView.enclosingScrollView {
+                FilePreviewTextEditor<PanelModel>.refreshChrome(
+                    on: scrollView,
+                    textView: textView
+                )
+            }
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            FilePreviewEditorChromeOverlay.installed(in: textView)?.needsDisplay = true
+            if let gutter = textView.enclosingScrollView?.verticalRulerView
+                as? FilePreviewLineNumberGutterView {
+                gutter.needsDisplay = true
+            }
+        }
+
+        func handlePreviewFontChange(in textView: NSTextView) {
+            guard isHighlightingVisible else { return }
+            textView.applyFilePreviewTabWidth(editorSettings.tabWidth)
+            scheduleHighlight(
+                for: textView,
+                enabled: editorSettings.isEnabled(
+                    key: editorSettings.catalog.syntaxHighlighting.userDefaultsKey,
+                    default: editorSettings.catalog.syntaxHighlighting.defaultValue
+                ),
+                defaultColor: textView.insertionPointColor,
+                force: true
+            )
+            if let scrollView = textView.enclosingScrollView {
+                FilePreviewTextEditor<PanelModel>.refreshChrome(
+                    on: scrollView,
+                    textView: textView
+                )
+            }
+        }
+
+        func cancelHighlight() {
+            styler.cancel()
+        }
+
+        func scheduleHighlight(
+            for textView: NSTextView,
+            enabled: Bool,
+            defaultColor: NSColor,
+            force: Bool
+        ) {
+            guard isHighlightingVisible else { return }
+            styler.schedule(
+                for: textView,
+                contentRevision: panel.textContentRevision,
+                filePath: filePath,
+                enabled: enabled,
+                defaultColor: defaultColor,
+                theme: TokenTheme(appearance: textView.effectiveAppearance),
+                force: force
+            )
         }
     }
 }
@@ -156,7 +407,7 @@ extension SavingTextView {
         textView.importsGraphics = false
         textView.usesFindPanel = true
         textView.usesFontPanel = false
-        textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        textView.applyCurrentPreviewFont()
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.isVerticallyResizable = true
@@ -213,30 +464,69 @@ final class SavingTextView: NSTextView {
     private static let defaultPreviewFontSize: CGFloat = 13
     private static let minimumPreviewFontSize: CGFloat = 8
     private static let maximumPreviewFontSize: CGFloat = 36
+    private static let previewFontZoomShortcutActions: [KeyboardShortcutSettings.Action] = [
+        .browserZoomIn,
+        .browserZoomOut,
+        .browserZoomReset,
+    ]
 
     weak var panel: (any FilePreviewTextEditingPanel)?
+    /// Fired after the preview font size changes so highlighting can
+    /// re-apply token weights at the new size. Zoom writes a uniform
+    /// `.font` across storage; without a forced restyle, keywords stay
+    /// regular weight until the text or theme changes.
+    var onPreviewFontDidChange: (() -> Void)?
+    var appliedFilePreviewTabWidth: Int?
+    var appliedFilePreviewTabStopInterval: CGFloat?
     private var previewFontSize: CGFloat = 13
-    private var pendingSaveShortcutChordPrefix: ShortcutStroke?
+    private var pendingEditorShortcutChordPrefix: ShortcutStroke?
+    private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
+
+    convenience init() {
+        self.init(frame: .zero, textContainer: nil)
+    }
+
+    override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
+        super.init(frame: frameRect, textContainer: container)
+        installFontMagnificationObserver()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        installFontMagnificationObserver()
+    }
 
     deinit {}
 
+    private func installFontMagnificationObserver() {
+        fontMagnificationObserver = GlobalFontMagnificationChangeObserver { [weak self] in
+            self?.applyCurrentPreviewFont()
+        }
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        clearPendingShortcutChordPrefixes()
         applyFilePreviewTextEditorInsets()
         panel?.retryPendingFocus()
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let didResign = super.resignFirstResponder()
+        if didResign {
+            clearPendingShortcutChordPrefixes()
+        }
+        return didResign
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard event.type == .keyDown else {
             return super.performKeyEquivalent(with: event)
         }
-        guard let shouldSave = saveShortcutMatch(for: event) else {
-            return super.performKeyEquivalent(with: event)
+        if handleEditorShortcut(event) {
+            return true
         }
-        if shouldSave {
-            panel?.saveTextContent()
-        }
-        return true
+        return super.performKeyEquivalent(with: event)
     }
 
     override func magnify(with event: NSEvent) {
@@ -255,45 +545,177 @@ final class SavingTextView: NSTextView {
 
     override func smartMagnify(with event: NSEvent) {
         if previewFontSize == Self.defaultPreviewFontSize {
-            setPreviewFontSize(18)
+            _ = setPreviewFontSize(18)
         } else {
-            setPreviewFontSize(Self.defaultPreviewFontSize)
+            _ = resetPreviewFontSize()
         }
     }
 
-    private func adjustPreviewFontSize(by factor: CGFloat) {
+    @discardableResult
+    func zoomPreviewFontIn() -> Bool {
+        adjustPreviewFontSize(by: FilePreviewInteraction.zoomStep)
+    }
+
+    @discardableResult
+    func zoomPreviewFontOut() -> Bool {
+        adjustPreviewFontSize(by: 1 / FilePreviewInteraction.zoomStep)
+    }
+
+    @discardableResult
+    func resetPreviewFontSize() -> Bool {
+        setPreviewFontSize(Self.defaultPreviewFontSize)
+    }
+
+    @discardableResult
+    private func adjustPreviewFontSize(by factor: CGFloat) -> Bool {
         setPreviewFontSize(previewFontSize * factor)
     }
 
-    private func setPreviewFontSize(_ nextFontSize: CGFloat) {
+    @discardableResult
+    private func setPreviewFontSize(_ nextFontSize: CGFloat) -> Bool {
         let clamped = min(max(nextFontSize, Self.minimumPreviewFontSize), Self.maximumPreviewFontSize)
-        guard clamped.isFinite else { return }
+        guard clamped.isFinite else { return false }
+        guard abs(clamped - previewFontSize) > 0.0001 else { return false }
         previewFontSize = clamped
-        let nextFont = NSFont.monospacedSystemFont(ofSize: clamped, weight: .regular)
-        font = nextFont
-        typingAttributes[.font] = nextFont
+        applyCurrentPreviewFont()
+        return true
     }
 
-    private func saveShortcutMatch(for event: NSEvent) -> Bool? {
-        let shortcut = KeyboardShortcutSettings.shortcut(for: .saveFilePreview)
-        guard shortcut.hasChord else {
-            pendingSaveShortcutChordPrefix = nil
-            return shortcut.matches(event: event) ? true : nil
+    func applyCurrentPreviewFont() {
+        let nextFont = GlobalFontMagnification.monospacedSystemFont(ofSize: previewFontSize, weight: .regular)
+        font = nextFont
+        typingAttributes[.font] = nextFont
+        if let storage = textStorage, storage.length > 0 {
+            storage.addAttribute(.font, value: nextFont, range: NSRange(location: 0, length: storage.length))
         }
+        FilePreviewEditorChromeOverlay.installed(in: self)?.needsDisplay = true
+        onPreviewFontDidChange?()
+    }
 
-        if let pendingPrefix = pendingSaveShortcutChordPrefix {
-            pendingSaveShortcutChordPrefix = nil
-            guard pendingPrefix == shortcut.firstStroke,
-                  let secondStroke = shortcut.secondStroke else {
-                return nil
-            }
-            return secondStroke.matches(event: event) ? true : nil
-        }
+    private func clearPendingShortcutChordPrefixes() {
+        pendingEditorShortcutChordPrefix = nil
+    }
 
-        if shortcut.firstStroke.matches(event: event) {
-            pendingSaveShortcutChordPrefix = shortcut.firstStroke
+    private func handleEditorShortcut(_ event: NSEvent) -> Bool {
+        if hasMarkedText(),
+           shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
+            clearPendingShortcutChordPrefixes()
             return false
         }
-        return nil
+
+        let candidates = editorShortcutCandidates()
+        if let pendingPrefix = pendingEditorShortcutChordPrefix {
+            pendingEditorShortcutChordPrefix = nil
+            for candidate in candidates {
+                guard candidate.shortcut.firstStroke == pendingPrefix,
+                      let secondStroke = candidate.shortcut.secondStroke,
+                      secondStroke.matches(event: event) else { continue }
+                guard candidate.isAllowed(event) else { return false }
+                candidate.perform()
+                return true
+            }
+            return false
+        }
+
+        for candidate in candidates {
+            let shortcut = candidate.shortcut
+            if shortcut.secondStroke != nil {
+                if shortcut.firstStroke.matches(event: event) {
+                    guard candidate.isAllowed(event) else { return false }
+                    pendingEditorShortcutChordPrefix = shortcut.firstStroke
+                    return true
+                }
+                continue
+            }
+            if shortcut.matches(event: event) {
+                guard candidate.isAllowed(event) else { return false }
+                candidate.perform()
+                return true
+            }
+        }
+        return false
+    }
+
+    private func editorShortcutCandidates() -> [
+        (shortcut: StoredShortcut, isAllowed: (NSEvent) -> Bool, perform: () -> Void)
+    ] {
+        var candidates: [(shortcut: StoredShortcut, isAllowed: (NSEvent) -> Bool, perform: () -> Void)] = []
+        let saveShortcut = KeyboardShortcutSettings.shortcut(for: .saveFilePreview)
+        if !saveShortcut.isUnbound {
+            candidates.append((saveShortcut, { _ in true }, { [weak self] in self?.panel?.saveTextContent() }))
+        }
+        for action in Self.previewFontZoomShortcutActions {
+            let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+            guard !shortcut.isUnbound else { continue }
+            candidates.append((
+                shortcut,
+                { [weak self] event in
+                    self?.previewFontZoomShortcutWhenClauseAllows(action: action, event: event) ?? false
+                },
+                { [weak self] in self?.performPreviewFontZoomShortcutAction(action) }
+            ))
+        }
+        return candidates
+    }
+
+    private func previewFontZoomShortcutWhenClauseAllows(
+        action: KeyboardShortcutSettings.Action,
+        event: NSEvent
+    ) -> Bool {
+        if window != nil, let appDelegate = AppDelegate.shared {
+            return appDelegate.shortcutWhenClauseAllows(action: action, event: event)
+        }
+        return KeyboardShortcutSettings.effectiveWhenClause(for: action)
+            .evaluate(Self.filePreviewTextEditorShortcutContext)
+    }
+
+    private static var filePreviewTextEditorShortcutContext: ShortcutContext {
+        ShortcutFocusState(
+            browser: false,
+            markdown: false,
+            sidebar: false,
+            filePreviewTextEditor: true
+        ).context
+    }
+
+    private func performPreviewFontZoomShortcutAction(_ action: KeyboardShortcutSettings.Action) {
+        switch action {
+        case .browserZoomIn:
+            _ = zoomPreviewFontIn()
+        case .browserZoomOut:
+            _ = zoomPreviewFontOut()
+        case .browserZoomReset:
+            _ = resetPreviewFontSize()
+        default:
+            break
+        }
+    }
+}
+
+extension FilePreviewPanel {
+    func attachTextView(_ textView: NSTextView) {
+        self.textView = textView
+        focusCoordinator.register(root: textView, primaryResponder: textView, intent: .textEditor)
+    }
+
+    @discardableResult
+    func zoomTextPreviewIn() -> Bool {
+        guard previewMode == .text,
+              let textView = textView as? SavingTextView else { return false }
+        return textView.zoomPreviewFontIn()
+    }
+
+    @discardableResult
+    func zoomTextPreviewOut() -> Bool {
+        guard previewMode == .text,
+              let textView = textView as? SavingTextView else { return false }
+        return textView.zoomPreviewFontOut()
+    }
+
+    @discardableResult
+    func resetTextPreviewZoom() -> Bool {
+        guard previewMode == .text,
+              let textView = textView as? SavingTextView else { return false }
+        return textView.resetPreviewFontSize()
     }
 }

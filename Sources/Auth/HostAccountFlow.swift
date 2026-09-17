@@ -1,94 +1,228 @@
+import AppKit
 import CMUXAuthCore
+import CmuxAuthRuntime
 import CmuxSettingsUI
-import Combine
 import Foundation
-import SwiftUI
+import Observation
 
-/// Adapts the legacy `AuthManager` + `AuthSettingsStore` to the
-/// package's `AccountFlow` protocol so the new `CmuxSettingsUI`
-/// `AccountSection` can drive sign-in / sign-out / refresh without
-/// depending on `CMUXAuthCore`.
+/// Adapts the shared ``CmuxAuthRuntime/AuthCoordinator`` and the macOS
+/// ``HostBrowserSignInFlow`` to the `CmuxSettingsUI` `AccountFlow` protocol so
+/// the `AccountSection` can drive sign-in / sign-out / team selection without
+/// depending on the auth packages.
 ///
-/// Lifecycle: this is constructed once at app launch alongside the
-/// `SettingsRuntime` and bridges `AuthManager`'s `@Published`
-/// properties into `@Observable`-compatible state by subscribing in
-/// `init`. The class itself is `@MainActor` because every read /
-/// write hops to the main actor.
+/// A projection over the coordinator, browser flow, and feature flags. The
+/// stored Pro availability value forwards feature-flag notifications so
+/// SwiftUI views that read this adapter in `body` re-render when remote flags
+/// change after Settings is already open.
 @MainActor
 @Observable
-final class HostAccountFlow: AccountFlow {
-    private(set) var currentIdentity: AccountIdentity?
-    private(set) var availableTeams: [AccountTeamSummary] = []
-    var selectedTeamID: String? {
-        didSet {
-            guard selectedTeamID != oldValue else { return }
-            authManager.selectedTeamID = selectedTeamID
+final class HostAccountFlow: AccountFlow, AccountSignInFlow {
+    private let coordinator: AuthCoordinator
+    private let browserSignIn: HostBrowserSignInFlow
+    private let featureFlags = CmuxFeatureFlags.shared
+    @ObservationIgnored private var featureFlagsObserver: (any NSObjectProtocol)?
+    private(set) var isProUpgradeAvailable: Bool
+    private(set) var isProActive = false
+    private(set) var canManageBilling = false
+
+    init(coordinator: AuthCoordinator, browserSignIn: HostBrowserSignInFlow) {
+        self.coordinator = coordinator
+        self.browserSignIn = browserSignIn
+        isProUpgradeAvailable = featureFlags.isProUpgradeUIEnabled
+        featureFlagsObserver = NotificationCenter.default.addObserver(
+            forName: .cmuxFeatureFlagsDidChange,
+            object: featureFlags,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.isProUpgradeAvailable = CmuxFeatureFlags.shared.isProUpgradeUIEnabled
+            }
         }
     }
-    private(set) var isWorkingOnAuth: Bool = false
 
-    private let authManager: AuthManager
-    @ObservationIgnored private var cancellables: Set<AnyCancellable> = []
+    deinit {
+        if let featureFlagsObserver {
+            NotificationCenter.default.removeObserver(featureFlagsObserver)
+        }
+    }
 
-    init(authManager: AuthManager) {
-        self.authManager = authManager
-        self.currentIdentity = Self.identity(from: authManager.currentUser)
-        self.availableTeams = authManager.availableTeams.map { team in
+    var currentIdentity: AccountIdentity? {
+        Self.identity(from: coordinator.currentUser)
+    }
+
+    var availableTeams: [AccountTeamSummary] {
+        coordinator.availableTeams.map { team in
             AccountTeamSummary(id: team.id, displayName: team.displayName, slug: team.slug)
         }
-        self.selectedTeamID = authManager.selectedTeamID
-        self.isWorkingOnAuth = authManager.isLoading || authManager.isRestoringSession
+    }
 
-        authManager.$currentUser
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] user in
-                self?.currentIdentity = Self.identity(from: user)
-            }
-            .store(in: &cancellables)
+    var selectedTeamID: String? {
+        get { coordinator.selectedTeamID }
+        set { coordinator.selectedTeamID = newValue }
+    }
 
-        authManager.$availableTeams
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] teams in
-                self?.availableTeams = teams.map { team in
-                    AccountTeamSummary(id: team.id, displayName: team.displayName, slug: team.slug)
-                }
-            }
-            .store(in: &cancellables)
+    var isWorkingOnAuth: Bool {
+        coordinator.isLoading || coordinator.isRestoringSession || browserSignIn.isPresentingSignIn
+    }
 
-        authManager.$selectedTeamID
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] newValue in
-                guard let self else { return }
-                if self.selectedTeamID != newValue {
-                    self.selectedTeamID = newValue
-                }
-            }
-            .store(in: &cancellables)
+    var isAuthenticated: Bool {
+        coordinator.isAuthenticated
+    }
 
-        authManager.$isLoading
-            .combineLatest(authManager.$isRestoringSession)
-            .map { $0 || $1 }
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] busy in
-                self?.isWorkingOnAuth = busy
-            }
-            .store(in: &cancellables)
+    var isPresentingSignIn: Bool {
+        browserSignIn.isPresentingSignIn
+    }
+
+    var signInIsSlow: Bool {
+        browserSignIn.signInIsSlow
+    }
+
+    var isCompletingSignIn: Bool {
+        coordinator.isLoading || coordinator.isRestoringSession
+    }
+
+    var lastSignInFailure: AccountSignInModel.Failure? {
+        guard let failure = browserSignIn.lastFailure else { return nil }
+        switch failure {
+        case .offline:
+            return .offline
+        case .networkError:
+            return .network
+        case .timedOut:
+            return .timedOut
+        case .serverError:
+            return .server
+        case .invalidCode, .invalidCallback:
+            return .invalidLink
+        case .browserSignInFailed:
+            return .browserUnavailable
+        case .unauthorized:
+            return .unauthorized
+        case .authFailure:
+            return .rejected
+        case .cancelled:
+            return .cancelled
+        }
     }
 
     func startSignIn() {
-        authManager.beginSignIn()
+        browserSignIn.beginSignIn()
+    }
+
+    func startSignInForPane() -> URL? {
+        browserSignIn.beginSignIn()
+        return browserSignIn.activeAttemptSignInURL
+    }
+
+    var activeSignInURL: URL? {
+        browserSignIn.activeAttemptSignInURL
+    }
+
+    /// Runs the same hosted Stack sign-in used by every UI entrypoint, while
+    /// allowing socket callers to await a bounded result.
+    func signIn(timeout: TimeInterval) async -> Bool {
+        await browserSignIn.signIn(timeout: timeout)
+    }
+
+    /// Issues the manual hosted Stack sign-in URL through the same callback
+    /// state owner as interactive sign-in.
+    var manualSignInURL: URL {
+        browserSignIn.manualSignInURL
+    }
+
+    /// Completes an external hosted Stack callback through the shared attempt.
+    func handleCallbackURL(_ url: URL) async -> Bool {
+        await browserSignIn.handleCallbackURL(url)
+    }
+
+    func openSignInInDefaultBrowser() {
+        guard let url = browserSignIn.activeAttemptSignInURL else { return }
+        _ = openSignInURLInDefaultBrowser(url)
+    }
+
+    func openSignInURLInDefaultBrowser(_ url: URL) -> Bool {
+        NSWorkspace.shared.open(url)
+    }
+
+    func copySignInURL(_ url: URL) -> Bool {
+        GhosttyApp.terminalPasteboard.writeString(
+            url.absoluteString,
+            to: .general
+        )
     }
 
     func signOut() async {
-        await authManager.signOut()
+        await browserSignIn.signOut()
+        isProActive = false
+        canManageBilling = false
+    }
+
+    /// Socket variant of sign-out. The underlying sign-out continues if the
+    /// caller's deadline expires, matching the browser flow contract.
+    func signOut(timeout: TimeInterval) async {
+        await browserSignIn.signOut(timeout: timeout)
+        isProActive = false
+        canManageBilling = false
     }
 
     func refreshCurrentUser() async {
-        // AuthManager.refreshSession is private; the public refresh
-        // path is `beginSignIn()` (browser flow) for full re-auth.
-        // For now refresh is a no-op; if the cached user is stale,
-        // the user can sign in again. If we surface a public refresh
-        // in AuthManager later, route it here.
+        // The coordinator refreshes the user on sign-in and session restore;
+        // there is no cheaper public refresh path. If the cached identity is
+        // stale the user signs in again (full browser round trip).
+    }
+
+    func refreshBillingPlan() async {
+        guard coordinator.currentUser != nil else {
+            isProActive = false
+            canManageBilling = false
+            return
+        }
+        var request = URLRequest(url: AuthEnvironment.apiBaseURL.appendingPathComponent("api/billing/plan"))
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        if let tokens = try? await coordinator.currentTokens() {
+            request.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
+            request.setValue(tokens.refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
+        }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse,
+                  (200..<300).contains(http.statusCode) else {
+                isProActive = false
+                canManageBilling = false
+                return
+            }
+            let decoded = try JSONDecoder().decode(BillingPlanResponse.self, from: data)
+            isProActive = decoded.isPro
+            canManageBilling = decoded.billingManagement == .stripe
+        } catch {
+            isProActive = false
+            canManageBilling = false
+        }
+    }
+
+    // `AccountFlow` (CmuxSettingsUI) cannot see `ProUpgradeSource`; its
+    // parameterless calls come from the Settings account card.
+    func openProUpgrade() {
+        openProUpgrade(source: .settingsAccountCard)
+    }
+
+    func prefetchProUpgrade() {
+        prefetchProUpgrade(source: .settingsAccountCard)
+    }
+
+    func openProUpgrade(source: ProUpgradeSource) {
+        ProUpgradePresenter.present(source: source)
+    }
+
+    func prefetchProUpgrade(source: ProUpgradeSource) {
+        ProUpgradePresenter.prefetch(source: source)
+    }
+
+    func openBillingPortal() {
+        ProUpgradePresenter.presentBillingPortal()
     }
 
     private static func identity(from user: CMUXAuthUser?) -> AccountIdentity? {
@@ -97,7 +231,18 @@ final class HostAccountFlow: AccountFlow {
             id: user.id,
             displayName: user.displayName ?? "",
             email: user.primaryEmail ?? "",
-            avatarURL: nil
+            avatarURL: user.profileImageURL.flatMap(URL.init(string:))
         )
     }
+}
+
+private struct BillingPlanResponse: Decodable {
+    let isPro: Bool
+    let billingManagement: BillingManagement?
+}
+
+private enum BillingManagement: String, Decodable {
+    case stripe
+    case external
+    case none
 }

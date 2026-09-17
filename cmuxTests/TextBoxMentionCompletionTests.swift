@@ -1,6 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 import Foundation
+import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -97,6 +98,258 @@ struct TextBoxMentionCompletionTests {
         textView.keyDown(with: event)
 
         #expect(forwardedControls == ["g"])
+    }
+
+    @Test
+    func testTextBoxPlaceholderHidesDuringActiveIMEMarkedText() {
+        #expect(!TextBoxSubmitAvailability.shouldShowPlaceholder(
+            text: "",
+            attachmentCount: 0,
+            hasMarkedText: true
+        ))
+        #expect(TextBoxSubmitAvailability.shouldShowPlaceholder(
+            text: "",
+            attachmentCount: 0,
+            hasMarkedText: false
+        ))
+        #expect(!TextBoxSubmitAvailability.shouldShowPlaceholder(
+            text: "に",
+            attachmentCount: 0,
+            hasMarkedText: false
+        ))
+    }
+
+    @Test
+    func testTextBoxSubmitIsDisabledDuringActiveIMEMarkedText() {
+        #expect(!TextBoxSubmitAvailability.shouldEnableSubmit(
+            text: "に",
+            attachmentCount: 0,
+            hasPendingAttachmentUpload: false,
+            hasMarkedText: true
+        ))
+        #expect(!TextBoxSubmitAvailability.shouldSubmit(
+            hasPendingAttachmentUpload: false,
+            hasMarkedText: true
+        ))
+        #expect(TextBoxSubmitAvailability.shouldEnableSubmit(
+            text: "send",
+            attachmentCount: 0,
+            hasPendingAttachmentUpload: false,
+            hasMarkedText: false
+        ))
+        #expect(TextBoxSubmitAvailability.shouldSubmit(
+            hasPendingAttachmentUpload: false,
+            hasMarkedText: false
+        ))
+    }
+
+    @Test
+    func testTextBoxPublishesCommittedIMETextBeforeClearingMarkedState() {
+        var text = ""
+        var attachments: [TextBoxAttachment] = []
+        var textViewHeight: CGFloat = 24
+        var hasPendingAttachmentUpload = false
+        var markedTextEvents: [(hasMarkedText: Bool, text: String)] = []
+
+        let inputView = TextBoxInputView(
+            text: Binding(get: { text }, set: { text = $0 }),
+            attachments: Binding(get: { attachments }, set: { attachments = $0 }),
+            textViewHeight: Binding(get: { textViewHeight }, set: { textViewHeight = $0 }),
+            hasPendingAttachmentUpload: Binding(
+                get: { hasPendingAttachmentUpload },
+                set: { hasPendingAttachmentUpload = $0 }
+            ),
+            font: NSFont.systemFont(ofSize: 14),
+            backgroundColor: .textBackgroundColor,
+            foregroundColor: .labelColor,
+            terminalTitle: "codex",
+            completionRootDirectory: nil,
+            onSubmit: {},
+            onEscape: {},
+            onFocusTextBox: {},
+            onToggleFocus: {}, onCycleSubmitAction: {},
+            onForwardText: { _, _ in },
+            onForwardKey: { _ in },
+            onForwardControl: { _ in },
+            onPaste: { _, _ in false },
+            onInsertFileURLs: { _, _ in false },
+            onChooseFiles: {},
+            onContentChanged: {},
+            onMarkedTextStateChanged: { hasMarkedText in
+                markedTextEvents.append((hasMarkedText, text))
+            },
+            onTextViewCreated: { _ in },
+            onTextViewMovedToWindow: { _ in },
+            onTextViewDismantled: { _ in }
+        )
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        let coordinator = TextBoxInputView.Coordinator(parent: inputView)
+
+        coordinator.noteMarkedTextStateChanged(true, from: textView)
+        textView.string = "日本語"
+        coordinator.noteMarkedTextStateChanged(false, from: textView)
+
+        #expect(text == "日本語")
+        #expect(markedTextEvents.count == 2)
+        #expect(markedTextEvents.last?.hasMarkedText == false)
+        #expect(markedTextEvents.last?.text == "日本語")
+    }
+
+    @Test
+    func testTextBoxLiveMarkedTextStateCancelsQueuedInitialSync() {
+        var text = ""
+        var attachments: [TextBoxAttachment] = []
+        var textViewHeight: CGFloat = 24
+        var hasPendingAttachmentUpload = false
+        var markedTextEvents: [Bool] = []
+
+        let inputView = TextBoxInputView(
+            text: Binding(get: { text }, set: { text = $0 }),
+            attachments: Binding(get: { attachments }, set: { attachments = $0 }),
+            textViewHeight: Binding(get: { textViewHeight }, set: { textViewHeight = $0 }),
+            hasPendingAttachmentUpload: Binding(
+                get: { hasPendingAttachmentUpload },
+                set: { hasPendingAttachmentUpload = $0 }
+            ),
+            font: NSFont.systemFont(ofSize: 14),
+            backgroundColor: .textBackgroundColor,
+            foregroundColor: .labelColor,
+            terminalTitle: "codex",
+            completionRootDirectory: nil,
+            onSubmit: {},
+            onEscape: {},
+            onFocusTextBox: {},
+            onToggleFocus: {}, onCycleSubmitAction: {},
+            onForwardText: { _, _ in },
+            onForwardKey: { _ in },
+            onForwardControl: { _ in },
+            onPaste: { _, _ in false },
+            onInsertFileURLs: { _, _ in false },
+            onChooseFiles: {},
+            onContentChanged: {},
+            onMarkedTextStateChanged: { markedTextEvents.append($0) },
+            onTextViewCreated: { _ in },
+            onTextViewMovedToWindow: { _ in },
+            onTextViewDismantled: { _ in }
+        )
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        let coordinator = TextBoxInputView.Coordinator(parent: inputView)
+
+        coordinator.queuePendingMarkedTextStateSync(from: textView)
+        coordinator.noteMarkedTextStateChanged(true, from: textView)
+        coordinator.recalculateHeight(textView)
+
+        #expect(markedTextEvents == [true])
+    }
+
+    @Test
+    func testTextBoxRepeatedUnmarkedStateDoesNotRepublishContent() {
+        var text = "ready"
+        var attachments: [TextBoxAttachment] = []
+        var textViewHeight: CGFloat = 24
+        var hasPendingAttachmentUpload = false
+        var contentChangeCount = 0
+        var markedTextEvents: [Bool] = []
+
+        let inputView = TextBoxInputView(
+            text: Binding(get: { text }, set: { text = $0 }),
+            attachments: Binding(get: { attachments }, set: { attachments = $0 }),
+            textViewHeight: Binding(get: { textViewHeight }, set: { textViewHeight = $0 }),
+            hasPendingAttachmentUpload: Binding(
+                get: { hasPendingAttachmentUpload },
+                set: { hasPendingAttachmentUpload = $0 }
+            ),
+            font: NSFont.systemFont(ofSize: 14),
+            backgroundColor: .textBackgroundColor,
+            foregroundColor: .labelColor,
+            terminalTitle: "codex",
+            completionRootDirectory: nil,
+            onSubmit: {},
+            onEscape: {},
+            onFocusTextBox: {},
+            onToggleFocus: {}, onCycleSubmitAction: {},
+            onForwardText: { _, _ in },
+            onForwardKey: { _ in },
+            onForwardControl: { _ in },
+            onPaste: { _, _ in false },
+            onInsertFileURLs: { _, _ in false },
+            onChooseFiles: {},
+            onContentChanged: { contentChangeCount += 1 },
+            onMarkedTextStateChanged: { markedTextEvents.append($0) },
+            onTextViewCreated: { _ in },
+            onTextViewMovedToWindow: { _ in },
+            onTextViewDismantled: { _ in }
+        )
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.string = "changed without composition"
+        let coordinator = TextBoxInputView.Coordinator(parent: inputView)
+
+        coordinator.noteMarkedTextStateChanged(false, from: textView)
+        coordinator.noteMarkedTextStateChanged(false, from: textView)
+
+        #expect(text == "ready")
+        #expect(contentChangeCount == 0)
+        #expect(markedTextEvents == [false])
+    }
+
+    @Test
+    func testTextBoxStandardEditShortcutUsesTranslatedCommandCharacter() {
+        guard let event = makeKeyDownEvent(
+            key: "c",
+            modifiers: [.command],
+            keyCode: UInt16(kVK_ANSI_B),
+            windowNumber: 0
+        ) else {
+            #expect(Bool(false), "Failed to construct translated Command-C event")
+            return
+        }
+
+        var translatedKeyCode: UInt16?
+        var translatedFlags: NSEvent.ModifierFlags?
+
+        let shortcutKey = textBoxCommandShortcutKey(
+            for: event,
+            translateKey: { keyCode, flags in
+                translatedKeyCode = keyCode
+                translatedFlags = flags
+                return "c"
+            },
+            normalizedCharacters: { _ in "b" }
+        )
+
+        #expect(shortcutKey == "c")
+        #expect(translatedKeyCode == UInt16(kVK_ANSI_B))
+        #expect(translatedFlags?.contains(.command) == true)
+    }
+
+    @Test
+    func testTextBoxUndoShortcutUsesTranslatedCommandCharacter() {
+        guard let event = makeKeyDownEvent(
+            key: "z",
+            modifiers: [.command],
+            keyCode: UInt16(kVK_ANSI_Y),
+            windowNumber: 0
+        ) else {
+            #expect(Bool(false), "Failed to construct translated Command-Z event")
+            return
+        }
+
+        var translatedKeyCode: UInt16?
+        var translatedFlags: NSEvent.ModifierFlags?
+
+        let shortcutKey = textBoxCommandShortcutKey(
+            for: event,
+            translateKey: { keyCode, flags in
+                translatedKeyCode = keyCode
+                translatedFlags = flags
+                return "z"
+            },
+            normalizedCharacters: { _ in "y" }
+        )
+
+        #expect(shortcutKey == "z")
+        #expect(translatedKeyCode == UInt16(kVK_ANSI_Y))
+        #expect(translatedFlags?.contains(.command) == true)
     }
 
     @Test
@@ -653,46 +906,402 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionRefreshKeepsRowsOnSameTriggerEditButClearsOnTriggerChange() {
+    func testTextBoxMentionSkillSuggestionsPreferExactNameOverPathOnlyFuzzyMatches() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-textbox-skill-fuzzy-filter-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let skillsDirectory = root.appendingPathComponent("skills", isDirectory: true)
+        let skillNames = [
+            "agent-browser",
+            "agent-cli-integration",
+            "algorithmic-complexity-audit",
+            "auto-issue",
+            "cleanup-dev-builds",
+            "close-issues",
+            "pi-agent-rust",
+            "xcodebuildmcp-cli",
+            "iterate-pr"
+        ] + (0..<40).map { String(format: "zzz-distractor-%02d", $0) }
+        for skillName in skillNames {
+            let skillDirectory = skillsDirectory.appendingPathComponent(skillName, isDirectory: true)
+            try fileManager.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+            try "name: \(skillName)\n".write(
+                to: skillDirectory.appendingPathComponent("SKILL.md"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+
+        for trigger in ["/", "$"] as [Character] {
+            let suggestions = await TextBoxMentionIndexStore.shared.suggestions(
+                for: TextBoxMentionQuery(
+                    kind: .skill,
+                    range: NSRange(location: 0, length: 11),
+                    query: "iterate-pr",
+                    trigger: trigger
+                ),
+                rootDirectory: root.path
+            )
+
+            #expect(suggestions.first?.title == "\(trigger)iterate-pr")
+            #expect(!suggestions.contains { $0.title == "\(trigger)pi-agent-rust" })
+            #expect(!suggestions.contains { $0.title == "\(trigger)agent-browser" })
+        }
+    }
+
+    @Test
+    func testTextBoxMentionSkillSuggestionsFilterWeakPartialFuzzyMatches() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-textbox-skill-partial-fuzzy-filter-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let skillsDirectory = root.appendingPathComponent("skills", isDirectory: true)
+        for skillName in [
+            "agent-browser",
+            "agent-cli-integration",
+            "pi-agent-rust",
+            "iterate-pr"
+        ] {
+            let skillDirectory = skillsDirectory.appendingPathComponent(skillName, isDirectory: true)
+            try fileManager.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+            try "name: \(skillName)\n".write(
+                to: skillDirectory.appendingPathComponent("SKILL.md"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+
+        let suggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .skill,
+                range: NSRange(location: 0, length: 8),
+                query: "iterate",
+                trigger: "/"
+            ),
+            rootDirectory: root.path
+        )
+
+        #expect(suggestions.first?.title == "/iterate-pr")
+        #expect(!suggestions.contains { $0.title == "/agent-browser" })
+        #expect(!suggestions.contains { $0.title == "/pi-agent-rust" })
+    }
+
+    @Test
+    func testTextBoxMentionCandidateIndexDoesNotReturnUnvalidatedNucleoRows() {
+        let skillNames = [
+            "agent-browser",
+            "agent-cli-integration",
+            "algorithmic-complexity-audit",
+            "auto-issue",
+            "cleanup-dev-builds",
+            "close-issues",
+            "pi-agent-rust",
+            "xcodebuildmcp-cli"
+        ] + (0..<40).map { String(format: "zzz-distractor-%02d", $0) }
+        let candidates = skillNames.map { skillName in
+            TextBoxMentionCandidate(
+                title: "/\(skillName)",
+                subtitle: "/tmp/skills/\(skillName)/SKILL.md",
+                targetPath: "/tmp/skills/\(skillName)/SKILL.md",
+                systemImageName: "sparkle.magnifyingglass",
+                searchKey: skillName,
+                priority: 0
+            )
+        }
+
+        let matches = TextBoxMentionCandidateIndex(candidates: candidates).rankedCandidates(
+            matching: "iterate-pr",
+            limit: 500
+        )
+
+        #expect(matches.isEmpty)
+    }
+
+    @Test
+    func testTextBoxMentionCandidateIndexFiltersWeakPartialFuzzyRows() {
+        let candidates = [
+            "agent-browser",
+            "agent-cli-integration",
+            "pi-agent-rust",
+            "iterate-pr"
+        ].map { skillName in
+            TextBoxMentionCandidate(
+                title: "/\(skillName)",
+                subtitle: "/tmp/skills/\(skillName)/SKILL.md",
+                targetPath: "/tmp/skills/\(skillName)/SKILL.md",
+                systemImageName: "sparkle.magnifyingglass",
+                searchKey: skillName,
+                priority: 0
+            )
+        }
+
+        let matches = TextBoxMentionCandidateIndex(candidates: candidates).rankedCandidates(
+            matching: "iterate",
+            limit: 500
+        )
+
+        #expect(matches.map(\.title) == ["/iterate-pr"])
+    }
+
+    @Test
+    func testTextBoxMentionCandidateIndexStopsPrefilterWhenCancelled() {
+        let candidates = [
+            "agent-browser",
+            "agent-cli-integration",
+            "pi-agent-rust",
+            "iterate-pr"
+        ].map { skillName in
+            TextBoxMentionCandidate(
+                title: "/\(skillName)",
+                subtitle: "/tmp/skills/\(skillName)/SKILL.md",
+                targetPath: "/tmp/skills/\(skillName)/SKILL.md",
+                systemImageName: "sparkle.magnifyingglass",
+                searchKey: skillName,
+                priority: 0
+            )
+        }
+        var cancellationChecks = 0
+
+        let matches = TextBoxMentionCandidateIndex(candidates: candidates).rankedCandidates(
+            matching: "iterate",
+            limit: 500
+        ) {
+            cancellationChecks += 1
+            return cancellationChecks > 1
+        }
+
+        #expect(matches.isEmpty)
+        #expect(cancellationChecks > 1)
+    }
+
+    @Test
+    func testTextBoxMentionRefreshClearsRowsWhenSameTriggerQueryBecomesNonEmpty() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
-        textView.string = "@a"
-        textView.setSelectedRange(NSRange(location: 2, length: 0))
+        textView.string = "$"
+        textView.setSelectedRange(NSRange(location: 1, length: 0))
         let staleSuggestion = TextBoxMentionSuggestion(
-            id: "alpha",
-            title: "@alpha.txt",
-            subtitle: "alpha.txt",
-            insertionText: "[@alpha.txt](/tmp/alpha.txt)",
-            systemImageName: "doc"
+            id: "$:/tmp/agent-browser/SKILL.md",
+            title: "$agent-browser",
+            subtitle: "/tmp/agent-browser/SKILL.md",
+            insertionText: "$agent-browser",
+            systemImageName: "sparkle.magnifyingglass"
         )
 
         textView.debugSetMentionCompletionState(
-            query: TextBoxMentionQuery(kind: .file, range: NSRange(location: 0, length: 2), query: "a"),
+            query: TextBoxMentionQuery(
+                kind: .skill,
+                range: NSRange(location: 0, length: 1),
+                query: "",
+                trigger: "$"
+            ),
             suggestions: [staleSuggestion]
         )
         #expect(textView.debugMentionSuggestionCount() == 1)
 
-        // Editing within the same trigger keeps the previous rows visible until
-        // the async lookup returns, avoiding a per-keystroke popover flicker.
-        textView.string = "@z"
-        textView.setSelectedRange(NSRange(location: 2, length: 0))
-        textView.refreshMentionCompletions()
-        #expect(textView.debugMentionSuggestionCount() == 1)
-        #expect(!(textView.debugMentionSuggestionsAreCurrent()))
-        #expect(!(textView.debugAcceptMentionCompletion()))
-        #expect(!(textView.debugAcceptMentionCompletion(suggestion: staleSuggestion)))
-        #expect(textView.string == "@z")
-        var submitCount = 0
-        textView.onSubmit = { submitCount += 1 }
-        textView.doCommand(by: #selector(NSResponder.insertNewline(_:)))
-        #expect(submitCount == 1)
-        #expect(textView.string == "@z")
-
-        // Switching the trigger is a different completion kind, so stale rows are
-        // dropped immediately rather than shown under the wrong trigger.
-        textView.string = "/z"
-        textView.setSelectedRange(NSRange(location: 2, length: 0))
+        textView.string = "$iterate-pr"
+        textView.setSelectedRange(NSRange(location: 11, length: 0))
         textView.refreshMentionCompletions()
         #expect(textView.debugMentionSuggestionCount() == 0)
+        #expect(textView.debugMentionCompletionsShouldShowPopover())
+        #expect(!(textView.debugAcceptMentionCompletion()))
+        #expect(!(textView.debugAcceptMentionCompletion(suggestion: staleSuggestion)))
+    }
+
+    @Test
+    func testTextBoxMentionDidChangeTextRefreshesRowsWithoutDelegateNotification() {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.string = "$"
+        textView.setSelectedRange(NSRange(location: 1, length: 0))
+        let staleSuggestion = TextBoxMentionSuggestion(
+            id: "$:/tmp/agent-browser/SKILL.md",
+            title: "$agent-browser",
+            subtitle: "/tmp/agent-browser/SKILL.md",
+            insertionText: "$agent-browser",
+            systemImageName: "sparkle.magnifyingglass"
+        )
+
+        textView.debugSetMentionCompletionState(
+            query: TextBoxMentionQuery(
+                kind: .skill,
+                range: NSRange(location: 0, length: 1),
+                query: "",
+                trigger: "$"
+            ),
+            suggestions: [staleSuggestion]
+        )
+
+        textView.string = "$iterate-pr"
+        textView.setSelectedRange(NSRange(location: 11, length: 0))
+        textView.didChangeText()
+
+        #expect(textView.debugMentionSuggestionCount() == 0)
+        #expect(textView.debugMentionCompletionsShouldShowPopover())
+        #expect(!textView.debugAcceptMentionCompletion(suggestion: staleSuggestion))
+    }
+
+    @Test
+    func testTextBoxMentionRefreshKeepsRowsWhenSameTriggerQueryStaysNonEmpty() {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.string = "$it"
+        textView.setSelectedRange(NSRange(location: 3, length: 0))
+        let currentSuggestion = TextBoxMentionSuggestion(
+            id: "$:/tmp/iterate-pr/SKILL.md",
+            title: "$iterate-pr",
+            subtitle: "/tmp/iterate-pr/SKILL.md",
+            insertionText: "$iterate-pr",
+            systemImageName: "sparkle.magnifyingglass"
+        )
+
+        textView.debugSetMentionCompletionState(
+            query: TextBoxMentionQuery(
+                kind: .skill,
+                range: NSRange(location: 0, length: 3),
+                query: "it",
+                trigger: "$"
+            ),
+            suggestions: [currentSuggestion]
+        )
+        #expect(textView.debugMentionSuggestionCount() == 1)
+
+        textView.string = "$iterate-pr"
+        textView.setSelectedRange(NSRange(location: 11, length: 0))
+        textView.refreshMentionCompletions()
+        #expect(textView.debugMentionSuggestionCount() == 1)
+        #expect(!textView.debugMentionSuggestionsAreCurrent())
+        #expect(!textView.debugAcceptMentionCompletion())
+    }
+
+    @Test
+    func testTextBoxMentionRefreshFiltersStaleRowsWhenSameTriggerQueryNarrows() {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.string = "$it"
+        textView.setSelectedRange(NSRange(location: 3, length: 0))
+        let staleSuggestion = TextBoxMentionSuggestion(
+            id: "$:/tmp/agent-browser/SKILL.md",
+            title: "$agent-browser",
+            subtitle: "/tmp/agent-browser/SKILL.md",
+            insertionText: "$agent-browser",
+            systemImageName: "sparkle.magnifyingglass"
+        )
+        let currentSuggestion = TextBoxMentionSuggestion(
+            id: "$:/tmp/iterate-pr/SKILL.md",
+            title: "$iterate-pr",
+            subtitle: "/tmp/iterate-pr/SKILL.md",
+            insertionText: "$iterate-pr",
+            systemImageName: "sparkle.magnifyingglass"
+        )
+
+        textView.debugSetMentionCompletionState(
+            query: TextBoxMentionQuery(
+                kind: .skill,
+                range: NSRange(location: 0, length: 3),
+                query: "it",
+                trigger: "$"
+            ),
+            suggestions: [staleSuggestion, currentSuggestion]
+        )
+
+        textView.string = "$iterate-pr"
+        textView.setSelectedRange(NSRange(location: 11, length: 0))
+        textView.refreshMentionCompletions()
+
+        #expect(textView.debugMentionSuggestionTitles() == ["$iterate-pr"])
+        #expect(!textView.debugMentionSuggestionsAreCurrent())
+        #expect(!textView.debugAcceptMentionCompletion(suggestion: staleSuggestion))
+    }
+
+    @Test
+    func testTextBoxMentionFilteredRowsStayNonCurrentWhenQueryReturnsToPreviousValue() {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.string = "$it"
+        textView.setSelectedRange(NSRange(location: 3, length: 0))
+        let staleSuggestion = TextBoxMentionSuggestion(
+            id: "$:/tmp/agent-browser/SKILL.md",
+            title: "$agent-browser",
+            subtitle: "/tmp/agent-browser/SKILL.md",
+            insertionText: "$agent-browser",
+            systemImageName: "sparkle.magnifyingglass"
+        )
+        let currentSuggestion = TextBoxMentionSuggestion(
+            id: "$:/tmp/iterate-pr/SKILL.md",
+            title: "$iterate-pr",
+            subtitle: "/tmp/iterate-pr/SKILL.md",
+            insertionText: "$iterate-pr",
+            systemImageName: "sparkle.magnifyingglass"
+        )
+
+        textView.debugSetMentionCompletionState(
+            query: TextBoxMentionQuery(
+                kind: .skill,
+                range: NSRange(location: 0, length: 3),
+                query: "it",
+                trigger: "$"
+            ),
+            suggestions: [staleSuggestion, currentSuggestion]
+        )
+
+        textView.string = "$iterate-pr"
+        textView.setSelectedRange(NSRange(location: 11, length: 0))
+        textView.refreshMentionCompletions()
+        #expect(textView.debugMentionSuggestionTitles() == ["$iterate-pr"])
+        #expect(!textView.debugMentionSuggestionsAreCurrent())
+
+        textView.string = "$it"
+        textView.setSelectedRange(NSRange(location: 3, length: 0))
+        textView.refreshMentionCompletions()
+        #expect(textView.debugMentionSuggestionTitles() == ["$iterate-pr"])
+        #expect(!textView.debugMentionSuggestionsAreCurrent())
+        #expect(!textView.debugAcceptMentionCompletion())
+    }
+
+    @Test
+    func testTextBoxMentionRefreshClearsFilteredRowsWhenQueryReturnsToBareTrigger() {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.string = "$it"
+        textView.setSelectedRange(NSRange(location: 3, length: 0))
+        let staleSuggestion = TextBoxMentionSuggestion(
+            id: "$:/tmp/agent-browser/SKILL.md",
+            title: "$agent-browser",
+            subtitle: "/tmp/agent-browser/SKILL.md",
+            insertionText: "$agent-browser",
+            systemImageName: "sparkle.magnifyingglass"
+        )
+        let currentSuggestion = TextBoxMentionSuggestion(
+            id: "$:/tmp/iterate-pr/SKILL.md",
+            title: "$iterate-pr",
+            subtitle: "/tmp/iterate-pr/SKILL.md",
+            insertionText: "$iterate-pr",
+            systemImageName: "sparkle.magnifyingglass"
+        )
+
+        textView.debugSetMentionCompletionState(
+            query: TextBoxMentionQuery(
+                kind: .skill,
+                range: NSRange(location: 0, length: 3),
+                query: "it",
+                trigger: "$"
+            ),
+            suggestions: [staleSuggestion, currentSuggestion]
+        )
+
+        textView.string = "$iterate-pr"
+        textView.setSelectedRange(NSRange(location: 11, length: 0))
+        textView.refreshMentionCompletions()
+        #expect(textView.debugMentionSuggestionTitles() == ["$iterate-pr"])
+
+        textView.string = "$"
+        textView.setSelectedRange(NSRange(location: 1, length: 0))
+        textView.refreshMentionCompletions()
+        #expect(textView.debugMentionSuggestionCount() == 0)
+        #expect(textView.debugMentionCompletionsShouldShowPopover())
+        #expect(!textView.debugAcceptMentionCompletion())
     }
 
     @Test

@@ -219,18 +219,58 @@ final class VSCodeServeWebURLBuilderTests: XCTestCase {
 
 
 final class VSCodeCLILaunchConfigurationBuilderTests: XCTestCase {
-    func testLaunchConfigurationUsesCodeTunnelBinary() {
+    func testLaunchConfigurationPrefersCachedCodeServerOverCodeTunnelWrapper() {
+        let appURL = URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true)
+        let productURL = appURL.appendingPathComponent("Contents/Resources/app/product.json", isDirectory: false)
+        let cacheURL = URL(fileURLWithPath: "/Users/tester/.vscode/cli/serve-web", isDirectory: true)
+        let lruURL = cacheURL.appendingPathComponent("lru.json", isDirectory: false)
+        let codeTunnelPath = "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel"
+        let expectedExecutablePath = "/Users/tester/.vscode/cli/serve-web/server-new/bin/code-server"
+
+        let configuration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
+            vscodeApplicationURL: appURL,
+            homeDirectoryURL: URL(fileURLWithPath: "/Users/tester", isDirectory: true),
+            baseEnvironment: [
+                "ELECTRON_RUN_AS_NODE": "stale",
+            ],
+            isExecutableAtPath: { $0 == codeTunnelPath || $0 == expectedExecutablePath },
+            dataAtURL: { url in
+                if url == productURL {
+                    return Data(#"{"dataFolderName": ".vscode"}"#.utf8)
+                }
+                if url == lruURL {
+                    return Data(#"["missing","server-new"]"#.utf8)
+                }
+                return nil
+            },
+            contentsOfDirectoryAtURL: { _ in
+                XCTFail("Expected lru.json to select the cached code-server binary")
+                return []
+            },
+            contentModificationDateAtURL: { _ in nil }
+        )
+
+        XCTAssertEqual(configuration?.executableURL.path, expectedExecutablePath)
+        XCTAssertEqual(configuration?.argumentsPrefix, [])
+        XCTAssertNil(configuration?.environment["ELECTRON_RUN_AS_NODE"])
+    }
+
+    func testLaunchConfigurationFallsBackToCodeTunnelBinary() {
         let appURL = URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true)
         let expectedExecutablePath = "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel"
 
         let configuration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
             vscodeApplicationURL: appURL,
+            homeDirectoryURL: URL(fileURLWithPath: "/Users/tester", isDirectory: true),
             baseEnvironment: [:],
-            isExecutableAtPath: { $0 == expectedExecutablePath }
+            isExecutableAtPath: { $0 == expectedExecutablePath },
+            dataAtURL: { _ in nil },
+            contentsOfDirectoryAtURL: { _ in [] },
+            contentModificationDateAtURL: { _ in nil }
         )
 
         XCTAssertEqual(configuration?.executableURL.path, expectedExecutablePath)
-        XCTAssertEqual(configuration?.argumentsPrefix, [])
+        XCTAssertEqual(configuration?.argumentsPrefix, ["serve-web"])
         XCTAssertEqual(configuration?.environment["ELECTRON_RUN_AS_NODE"], "1")
     }
 
@@ -274,16 +314,18 @@ final class ServeWebOutputCollectorTests: XCTestCase {
     func testWaitForURLReturnsFalseAfterProcessExitSignal() {
         let collector = ServeWebOutputCollector()
 
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) {
-            collector.markProcessExited()
-        }
+        // The process exited without ever emitting a Web UI URL. markProcessExited()
+        // is the real completion signal that unblocks waitForURL; deliver it first so
+        // the wait returns the instant the signal is observed instead of racing an
+        // async dispatch and timing the latency. The outcome the prior elapsed-time
+        // guard stood for is exactly this: the exit signal (not the timeout) is what
+        // releases the wait, and with no URL collected the result is false. A generous
+        // timeout remains as a deadline so a regression that fails to signal still
+        // fails the test rather than hanging.
+        collector.markProcessExited()
 
-        let start = Date()
-        let resolved = collector.waitForURL(timeoutSeconds: 1)
-        let elapsed = Date().timeIntervalSince(start)
-
-        XCTAssertFalse(resolved)
-        XCTAssertLessThan(elapsed, 0.5)
+        XCTAssertFalse(collector.waitForURL(timeoutSeconds: 5))
+        XCTAssertNil(collector.webUIURL)
     }
 
     func testWaitForURLReturnsTrueWhenURLIsCollected() {
@@ -397,7 +439,6 @@ final class VSCodeServeWebControllerTests: XCTestCase {
     }
 }
 
-
 final class OmnibarStateMachineTests: XCTestCase {
     func testPointerFocusCanPreserveInitialClickSelection() throws {
         var state = OmnibarState()
@@ -412,7 +453,7 @@ final class OmnibarStateMachineTests: XCTestCase {
         XCTAssertFalse(effects.shouldSelectAll)
     }
 
-    func testRefocusRequestPreservesEditingBuffer() throws {
+    func testExplicitRefocusRequestPreservesEditingBufferAndSelectsAll() throws {
         var state = OmnibarState()
 
         _ = omnibarReduce(
@@ -424,7 +465,9 @@ final class OmnibarStateMachineTests: XCTestCase {
         let effects = omnibarReduce(
             state: &state,
             event: .focusReasserted(
-                shouldSelectAll: browserOmnibarShouldSelectAllOnFocusReassertion(isUserEditing: state.isUserEditing)
+                shouldSelectAll: browserOmnibarShouldSelectAllOnFocusReassertion(
+                    selectionIntent: .selectAll
+                )
             )
         )
 
@@ -432,12 +475,63 @@ final class OmnibarStateMachineTests: XCTestCase {
         XCTAssertTrue(state.isUserEditing)
         XCTAssertEqual(state.currentURLString, "https://example.com/")
         XCTAssertEqual(state.buffer, "abcdef")
-        XCTAssertFalse(effects.shouldSelectAll)
+        XCTAssertTrue(effects.shouldSelectAll)
     }
 
-    func testFocusReassertionDoesNotSelectAllDuringUserEdit() throws {
-        XCTAssertFalse(browserOmnibarShouldSelectAllOnFocusReassertion(isUserEditing: true))
-        XCTAssertTrue(browserOmnibarShouldSelectAllOnFocusReassertion(isUserEditing: false))
+    func testFocusReassertionHonorsSelectionIntent() throws {
+        XCTAssertTrue(
+            browserOmnibarShouldSelectAllOnFocusReassertion(
+                selectionIntent: .selectAll
+            )
+        )
+        XCTAssertFalse(
+            browserOmnibarShouldSelectAllOnFocusReassertion(
+                selectionIntent: .preserveFieldEditorSelection
+            )
+        )
+    }
+
+    // State 1 (issue #5459): the single click that moves first responder into the
+    // omnibar selects the whole URL so the next keystroke replaces it (Chrome parity).
+    func testFocusGainingClickSelectsAll() throws {
+        XCTAssertTrue(
+            browserOmnibarFocusGainingClickShouldSelectAll(
+                gainedFocusOnThisClick: true,
+                isShiftClick: false,
+                didDrag: false
+            )
+        )
+    }
+
+    // State 2 (issue #5268 must not regress): a click while the omnibar is already
+    // first responder keeps the caret placed at the click point — no select-all.
+    func testAlreadyFocusedClickPlacesCaret() throws {
+        XCTAssertFalse(
+            browserOmnibarFocusGainingClickShouldSelectAll(
+                gainedFocusOnThisClick: false,
+                isShiftClick: false,
+                didDrag: false
+            )
+        )
+    }
+
+    // A Shift-click or a drag expresses an explicit range, so the focus-gaining
+    // select-all defers to it even on the click that gains focus.
+    func testFocusGainingClickDefersToExplicitSelection() throws {
+        XCTAssertFalse(
+            browserOmnibarFocusGainingClickShouldSelectAll(
+                gainedFocusOnThisClick: true,
+                isShiftClick: true,
+                didDrag: false
+            )
+        )
+        XCTAssertFalse(
+            browserOmnibarFocusGainingClickShouldSelectAll(
+                gainedFocusOnThisClick: true,
+                isShiftClick: false,
+                didDrag: true
+            )
+        )
     }
 
     func testEscapeRevertsWhenEditingThenBlursOnSecondEscape() throws {
@@ -447,7 +541,7 @@ final class OmnibarStateMachineTests: XCTestCase {
         XCTAssertTrue(state.isFocused)
         XCTAssertEqual(state.buffer, "https://example.com/")
         XCTAssertFalse(state.isUserEditing)
-        XCTAssertTrue(effects.shouldSelectAll)
+        XCTAssertFalse(effects.shouldSelectAll)
 
         effects = omnibarReduce(state: &state, event: .bufferChanged("exam"))
         XCTAssertTrue(state.isUserEditing)
@@ -740,8 +834,27 @@ final class BrowserOmnibarNativeFieldRegistryWindowSelectionTests: XCTestCase {
 
 @MainActor
 final class BrowserPortalOmnibarSuggestionsTests: XCTestCase {
-    func testPortalSuggestionsOverlayPassesHitTestingOutsidePopupFrame() {
+    func testPortalSuggestionsOverlayPassesHitTestingOutsidePopupFrame() throws {
         let slot = WindowBrowserSlotView(frame: NSRect(x: 0, y: 0, width: 420, height: 260))
+        // The suggestions overlay is a SwiftUI hosting view, and SwiftUI only builds
+        // the content that answers a hit test once the view is in a window and has
+        // been through a layout/display pass. Host the slot in a window so the
+        // overlay reports real hits instead of nil for every point.
+        let window = NSWindow(
+            contentRect: slot.frame,
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = slot
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            window.contentView = nil
+            window.orderOut(nil)
+            window.close()
+        }
+
         let item = OmnibarSuggestion.search(engineName: "Google", query: "news")
         let popupFrame = CGRect(
             x: 40,
@@ -764,21 +877,62 @@ final class BrowserPortalOmnibarSuggestionsTests: XCTestCase {
                 onHighlight: { _ in XCTFail("Unexpected highlight") }
             )
         )
-        slot.layoutSubtreeIfNeeded()
+        let deadline = Date.now.addingTimeInterval(1.0)
+        var mountedOverlay: BrowserPortalOmnibarSuggestionsHostingView?
+        var readyInsidePoint: NSPoint?
+        var insideHit: NSView?
 
-        let overlay = slot.subviews.first {
-            String(describing: type(of: $0)).contains("OmnibarSuggestionsHostingView")
-        }
-        XCTAssertNotNil(overlay)
-        guard let overlay else { return }
+        repeat {
+            slot.layoutSubtreeIfNeeded()
+            slot.displayIfNeeded()
+
+            if let candidate = slot.subviews.compactMap({
+                $0 as? BrowserPortalOmnibarSuggestionsHostingView
+            }).first,
+               !candidate.bounds.isEmpty,
+               candidate.bounds.size == slot.bounds.size {
+                let insideTopLeftPoint = NSPoint(x: popupFrame.midX, y: popupFrame.midY)
+                let overlayLocalPoint = candidate.isFlipped
+                    ? insideTopLeftPoint
+                    : NSPoint(
+                        x: insideTopLeftPoint.x,
+                        y: candidate.bounds.height - insideTopLeftPoint.y
+                    )
+                let candidateInsidePoint = candidate.convert(overlayLocalPoint, to: candidate.superview)
+
+                mountedOverlay = candidate
+                readyInsidePoint = candidateInsidePoint
+                insideHit = candidate.hitTest(candidateInsidePoint)
+                if insideHit != nil { break }
+            }
+
+            RunLoop.current.run(mode: .default, before: Date.now.addingTimeInterval(0.01))
+        } while Date.now < deadline
+
+        let overlay = try XCTUnwrap(
+            mountedOverlay,
+            "Timed out waiting for the suggestions overlay to mount with final bounds"
+        )
+        let insidePoint = try XCTUnwrap(readyInsidePoint)
+
+        // The overlay is pinned to the slot with constraints, so it only has a
+        // usable coordinate space once layout has run. Hit-testing a zero-sized
+        // overlay would report "outside the popup" for every point, including
+        // points that must hit.
+        XCTAssertEqual(overlay.bounds.size, slot.bounds.size, "Overlay must fill the slot before hit-testing")
 
         XCTAssertNil(overlay.hitTest(NSPoint(x: 8, y: 8)))
 
-        let insideTopLeftPoint = NSPoint(x: popupFrame.midX, y: popupFrame.midY)
-        let insidePoint = overlay.isFlipped
-            ? insideTopLeftPoint
-            : NSPoint(x: insideTopLeftPoint.x, y: overlay.bounds.height - insideTopLeftPoint.y)
-        XCTAssertNotNil(overlay.hitTest(insidePoint))
+        // `popupFrame` is in the overlay's own top-left space, while `hitTest`
+        // takes a point in the superview's space. Convert through AppKit rather
+        // than flipping by hand: the overlay is a flipped hosting view inside an
+        // unflipped slot, so the two spaces disagree about y and a hand-rolled
+        // flip lands outside the popup.
+        XCTAssertNotNil(
+            insideHit,
+            "isFlipped=\(overlay.isFlipped) bounds=\(overlay.bounds) popup=\(popupFrame) "
+                + "point=\(insidePoint) inWindow=\(overlay.window != nil) subviews=\(overlay.subviews.count)"
+        )
     }
 }
 
@@ -843,6 +997,7 @@ private final class OmnibarInlineDeletionHarness {
         OmnibarTextFieldRepresentable.Coordinator(
             parent: OmnibarTextFieldRepresentable(
                 panelId: UUID(),
+                fontSize: 12,
                 text: Binding(
                     get: { self.state.buffer },
                     set: { self.state.buffer = $0 }
@@ -855,7 +1010,7 @@ private final class OmnibarInlineDeletionHarness {
                 inlineCompletion: inlineCompletion,
                 placeholder: "",
                 onTap: {},
-                onSubmit: {},
+                onSubmit: { _ in },
                 onEscape: {},
                 onFieldLostFocus: {},
                 onMoveSelection: { _ in },
