@@ -1,6 +1,6 @@
 import Foundation
 
-nonisolated enum BrowserHiddenWebViewDiscardPolicy {
+enum BrowserHiddenWebViewDiscardPolicy {
     struct ResolvedPolicy: Equatable {
         let isEnabled: Bool
         let hiddenDelay: TimeInterval
@@ -64,11 +64,10 @@ nonisolated enum BrowserHiddenWebViewDiscardPolicy {
         guard let rawValue, let value = TimeInterval(rawValue), let resolvedValue = resolvedHiddenDelay(value) else {
             let storedValue = defaults.double(forKey: hiddenDelayKey)
             guard defaults.object(forKey: hiddenDelayKey) != nil,
-                  storedValue.isFinite,
-                  storedValue >= minimumHiddenDelay else {
+                  let resolvedStoredValue = resolvedHiddenDelay(storedValue) else {
                 return defaultHiddenDelay
             }
-            return clampedHiddenDelay(storedValue)
+            return resolvedStoredValue
         }
         return resolvedValue
     }

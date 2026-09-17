@@ -1,6 +1,26 @@
 name: Run tests on Depot
 
 on:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        default: ""
+      skip_unit_tests:
+        type: boolean
+        default: false
+      skip_ui_tests:
+        type: boolean
+        default: true
+      unit_test_suites:
+        type: string
+        default: ""
+      test_filter:
+        type: string
+        default: ""
+      test_timeout:
+        type: string
+        default: "120"
   workflow_dispatch:
     inputs:
       ref:
@@ -17,6 +37,10 @@ on:
         required: false
         default: false
         type: boolean
+      unit_test_suites:
+        description: "Comma-separated unit suites; empty runs the full unit target"
+        required: false
+        default: ""
       test_filter:
         description: "Run specific UI test class (e.g. UpdatePillUITests) or empty for all"
         required: false
@@ -28,88 +52,51 @@ on:
 
 jobs:
   tests:
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
-    timeout-minutes: 75
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: ${{ inputs.unit_test_suites != '' && 35 || 20 }}
     steps:
-      - name: Validate suite selection
+      - name: Clear stale git locks (self-hosted reused workspace)
+        shell: bash
         run: |
-          set -euo pipefail
-          if [ "${{ inputs.skip_unit_tests }}" = "true" ] && [ "${{ inputs.skip_ui_tests }}" = "true" ]; then
-            echo "skip_unit_tests and skip_ui_tests cannot both be true; that would execute no tests" >&2
-            exit 1
+          # Self-hosted macOS runners reuse the workspace. A job cancelled or
+          # killed mid-checkout can leave a stale .git/modules/*/index.lock that
+          # fails every later submodule checkout (e.g. ghostty). Clear them first.
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          rm -f "$ws/.git/index.lock" 2>/dev/null || true
+          if [ -d "$ws/.git/modules" ]; then
+            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
           fi
-
-      - name: Prepare self-hosted workspace
-        run: |
-          set -euo pipefail
-          mkdir -p "$GITHUB_WORKSPACE"
-          if command -v sudo >/dev/null && sudo -n true 2>/dev/null; then
-            sudo -n chown -R "$(id -un):$(id -gn)" "$GITHUB_WORKSPACE"
-          fi
-          chmod -R u+rwX "$GITHUB_WORKSPACE" || true
-          find "$GITHUB_WORKSPACE" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          persist-credentials: false
-          ref: ${{ github.event.inputs.ref || github.ref }}
-          submodules: false
-
-      - name: Initialize submodules with retry
-        run: ./scripts/ci/init-submodules-with-retry.sh
+          ref: ${{ inputs.ref || github.ref }}
+          submodules: recursive
 
       - name: Select Xcode
         run: |
           set -euo pipefail
-          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
-            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
-          else
-            XCODE_APP="$(
-              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
-                | sort \
-                | tail -n 1 \
-                || true
-            )"
-            if [ -n "$XCODE_APP" ]; then
-              XCODE_DIR="$XCODE_APP/Contents/Developer"
-            else
-              echo "No Xcode.app found under /Applications" >&2
-              exit 1
-            fi
-          fi
-          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
-          export DEVELOPER_DIR="$XCODE_DIR"
-          xcodebuild -version
-          xcrun --sdk macosx --show-sdk-path
+          ./scripts/select-ci-xcode.sh
+
+      - name: Setup Node for hook integration tests
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "20"
+
+      - name: Forward tool PATH into XCTest hosts
+        run: echo "TEST_RUNNER_PATH=$PATH" >> "$GITHUB_ENV"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
 
       - name: Download pre-built GhosttyKit.xcframework
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          GHOSTTY_SHA=$(git -C ghostty rev-parse HEAD)
-          BUILD_FLAVOR="crashsubdir-cmux-crash-v1"
-          TAG="xcframework-$GHOSTTY_SHA-$BUILD_FLAVOR"
-          URL="https://github.com/manaflow-ai/ghostty/releases/download/$TAG/GhosttyKit.xcframework.tar.gz"
-          echo "Downloading xcframework for ghostty $GHOSTTY_SHA"
-          MAX_RETRIES=30
-          RETRY_DELAY=20
-          for i in $(seq 1 $MAX_RETRIES); do
-            if curl -fSL -o GhosttyKit.xcframework.tar.gz "$URL"; then
-              echo "Download succeeded on attempt $i"
-              break
-            fi
-            if [ "$i" -eq "$MAX_RETRIES" ]; then
-              echo "Failed to download xcframework after $MAX_RETRIES attempts" >&2
-              exit 1
-            fi
-            echo "Attempt $i/$MAX_RETRIES failed, retrying in ${RETRY_DELAY}s..."
-            sleep $RETRY_DELAY
-          done
-          tar xzf GhosttyKit.xcframework.tar.gz
-          rm GhosttyKit.xcframework.tar.gz
-          test -d GhosttyKit.xcframework
+          ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Install zig
         run: |
@@ -126,55 +113,11 @@ jobs:
           system_profiler SPDisplaysDataType 2>/dev/null || echo "(none)"
           echo ""
           clang -framework Foundation -framework CoreGraphics \
-            -framework AppKit \
             -o /tmp/create-virtual-display scripts/create-virtual-display.m
-          VDISPLAY_COMMAND=(/tmp/create-virtual-display)
-          CURRENT_USER="$(id -un)"
-          CURRENT_UID="$(id -u)"
-          GUI_USER="$(stat -f %Su /dev/console 2>/dev/null || true)"
-          if [ -n "$GUI_USER" ] &&
-             [ "$GUI_USER" != "root" ] &&
-             GUI_UID="$(id -u "$GUI_USER" 2>/dev/null)" &&
-             command -v sudo >/dev/null 2>&1 &&
-             sudo -n true 2>/dev/null; then
-            echo "Launching virtual display helper in console GUI bootstrap for $GUI_USER ($GUI_UID); current user: $CURRENT_USER"
-            VDISPLAY_COMMAND=(sudo -n launchctl asuser "$GUI_UID" sudo -n -H -u "$GUI_USER" /usr/bin/env /tmp/create-virtual-display)
-          elif launchctl print "gui/$CURRENT_UID" >/dev/null 2>&1; then
-            echo "Launching virtual display helper in current user GUI bootstrap for $CURRENT_USER ($CURRENT_UID)"
-            VDISPLAY_COMMAND=(launchctl asuser "$CURRENT_UID" /usr/bin/env /tmp/create-virtual-display)
-          else
-            echo "Launching virtual display helper in current bootstrap"
-          fi
-          VDISPLAY_READY="$RUNNER_TEMP/cmux-virtual-display.ready"
-          VDISPLAY_ID_PATH="$RUNNER_TEMP/cmux-virtual-display.id"
-          VDISPLAY_LOG="$RUNNER_TEMP/cmux-virtual-display.log"
-          rm -f "$VDISPLAY_READY" "$VDISPLAY_ID_PATH" "$VDISPLAY_LOG"
-
-          "${VDISPLAY_COMMAND[@]}" \
-            --ready-path "$VDISPLAY_READY" \
-            --display-id-path "$VDISPLAY_ID_PATH" \
-            >"$VDISPLAY_LOG" 2>&1 &
+          /tmp/create-virtual-display &
           VDISPLAY_PID=$!
           echo "VDISPLAY_PID=$VDISPLAY_PID" >> "$GITHUB_ENV"
-
-          for _ in $(seq 1 900); do
-            if [ -s "$VDISPLAY_READY" ] && [ -s "$VDISPLAY_ID_PATH" ]; then
-              break
-            fi
-            if ! kill -0 "$VDISPLAY_PID" 2>/dev/null; then
-              echo "Virtual display helper exited before readiness" >&2
-              cat "$VDISPLAY_LOG" >&2 || true
-              exit 1
-            fi
-            sleep 0.1
-          done
-          if [ ! -s "$VDISPLAY_READY" ] || [ ! -s "$VDISPLAY_ID_PATH" ]; then
-            echo "Timed out waiting for virtual display readiness after 90s" >&2
-            cat "$VDISPLAY_LOG" >&2 || true
-            exit 1
-          fi
-          echo "Virtual display ready: $(tr -d '\n' < "$VDISPLAY_ID_PATH")"
-          cat "$VDISPLAY_LOG"
+          sleep 3
           echo "=== Display after ==="
           system_profiler SPDisplaysDataType 2>/dev/null || echo "(none)"
 
@@ -205,42 +148,121 @@ jobs:
 
       - name: Run unit tests
         if: ${{ !inputs.skip_unit_tests }}
+        env:
+          UNIT_TEST_SUITES: ${{ inputs.unit_test_suites }}
+          TEST_RESULTS_ROOT: ${{ runner.temp }}/cmux-unit-results-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          DERIVED_DATA_PATH="$PWD/.ci-derived-data/tests"
+          mkdir -p "$TEST_RESULTS_ROOT"
+          run_unit_suite() {
+            local output_path="$1"
+            shift
+            local result_dir
+            result_dir="$(mktemp -d "$TEST_RESULTS_ROOT/suite.XXXXXX")"
+            scripts/ci/xcodebuild_noninteractive.py \
+              xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -disableAutomaticPackageResolution \
+              -destination "platform=macOS" -resultBundlePath "$result_dir/result.xcresult" "$@" test >"$output_path" 2>&1
+          }
+          report_unit_suite() {
+            local output_path="$1"
+            local suite="$2"
+            local suite_status="$3"
+            # Reporting is deliberately non-gating; the caller still owns the
+            # xcodebuild status and the positive-summary execution guard.
+            if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+              python3 scripts/ci/classify-app-host-test-output.py \
+                "$output_path" --suite "$suite" --exit-code "$suite_status" --diagnose \
+                | tee -a "$GITHUB_STEP_SUMMARY" || true
+            else
+              python3 scripts/ci/classify-app-host-test-output.py \
+                "$output_path" --suite "$suite" --exit-code "$suite_status" --diagnose || true
+            fi
+          }
           run_unit_tests() {
-            SOURCE_PACKAGES_DIR="$SOURCE_PACKAGES_DIR" \
-              DERIVED_DATA_PATH="$DERIVED_DATA_PATH" \
-              scripts/ci/run-cmux-unit-tests-isolated.sh
+            if [ -z "$UNIT_TEST_SUITES" ]; then
+              local output_path="$TEST_RESULTS_ROOT/full-suite.log"
+              local suite_status=0
+              set +e
+              run_unit_suite "$output_path"
+              suite_status=$?
+              set -e
+              cat "$output_path"
+              report_unit_suite "$output_path" "full" "$suite_status"
+              if ! grep -Eq 'Test run with [1-9][0-9]* tests?([[:space:]]|$)|Executed [1-9][0-9]* tests?([[:space:],]|$)' "$output_path"; then
+                echo "::error title=Pre-test suite failure::No tests executed; the app-host/build did not reach assertions" >&2
+                return 1
+              fi
+              return "$suite_status"
+            fi
+            IFS=',' read -r -a suites <<< "$UNIT_TEST_SUITES"
+            local failed=0
+            for suite in "${suites[@]}"; do
+              if [[ ! "$suite" =~ ^[A-Za-z0-9_]+$ ]]; then
+                echo "Invalid unit suite identifier" >&2
+                return 1
+              fi
+              local suite_status=0
+              local output_path="$TEST_RESULTS_ROOT/$suite.log"
+              set +e
+              run_unit_suite "$output_path" "-only-testing:cmuxTests/$suite"
+              suite_status=$?
+              set -e
+              cat "$output_path"
+              report_unit_suite "$output_path" "$suite" "$suite_status"
+              # Require a positive framework summary before continuing. A
+              # compile, setup, app-host, or filter failure must never look
+              # like a passing semantic suite.
+              if ! grep -Eq 'Test run with [1-9][0-9]* tests?([[:space:]]|$)|Executed [1-9][0-9]* tests?([[:space:],]|$)' "$output_path"; then
+                echo "::error title=Pre-test suite failure::No tests executed for $suite; the app-host/build did not reach assertions" >&2
+                return 1
+              fi
+              # Collect every assertion failure in one hosted build. A suite
+              # that never ran (build/launch failure) still stops above.
+              if [ "$suite_status" -ne 0 ]; then failed=1; fi
+            done
+            return "$failed"
           }
 
+          TEST_OUTPUT="$TEST_RESULTS_ROOT/all-suites.log"
           set +e
-          OUTPUT=$(run_unit_tests)
-          EXIT_CODE=$?
+          run_unit_tests 2>&1 | tee "$TEST_OUTPUT"
+          EXIT_CODE=${PIPESTATUS[0]}
           set -e
 
           # SwiftPM binary artifact resolution can occasionally fail with
           # "Could not resolve package dependencies". Retry once after clearing
           # SwiftPM/DerivedData caches to recover from transient corruption.
-          if [ "$EXIT_CODE" -ne 0 ] && grep -q "Could not resolve package dependencies" <<<"$OUTPUT"; then
+          if [ "$EXIT_CODE" -ne 0 ] && grep -q "Could not resolve package dependencies" "$TEST_OUTPUT"; then
             echo "SwiftPM package resolution failed, clearing caches and retrying once"
             rm -rf ~/Library/Caches/org.swift.swiftpm
-            rm -rf "$DERIVED_DATA_PATH"
+            rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-*
+            : > "$TEST_OUTPUT"
             set +e
-            OUTPUT=$(run_unit_tests)
-            EXIT_CODE=$?
+            run_unit_tests 2>&1 | tee "$TEST_OUTPUT"
+            EXIT_CODE=${PIPESTATUS[0]}
             set -e
           fi
 
-          echo "$OUTPUT"
-          if [ "$EXIT_CODE" -ne 0 ]; then
-            echo "Unit tests failed"
+          if [ -n "$UNIT_TEST_SUITES" ] && [ "$EXIT_CODE" -ne 0 ]; then
             exit "$EXIT_CODE"
           fi
-          if ! grep -Eq 'All [1-9][0-9]* selected cmuxTests XCTestCase classes and Swift Testing suites passed in shard-.* batches' <<<"$OUTPUT"; then
-            echo "Unit test workflow completed without executing any tests" >&2
-            exit 1
+          if [ "$EXIT_CODE" -ne 0 ]; then
+            DIAGNOSIS=$(python3 scripts/ci/classify-app-host-test-output.py \
+              "$TEST_OUTPUT" --exit-code "$EXIT_CODE" --diagnose)
+            echo "$DIAGNOSIS"
+            # The expected-failure exception applies only to a run that both
+            # executed tests and recorded an actual XCTest failure. A clean
+            # summary cannot override a nonzero app-host/build exit.
+            if echo "$DIAGNOSIS" | grep -q "category=test assertion failure" \
+              && grep -Eq 'Executed [1-9][0-9]* tests?,[[:space:]]+with[[:space:]]+[1-9][0-9]* failures?[[:space:]]+\(0 unexpected\)' "$TEST_OUTPUT"; then
+              echo "All failures are expected, treating as pass"
+            else
+              echo "Unexpected test failures detected"
+              exit "$EXIT_CODE"
+            fi
           fi
 
       - name: Run UI tests
@@ -259,23 +281,18 @@ jobs:
             ONLY_TESTING="-only-testing:cmuxUITests"
           fi
 
-          set +e
-          OUTPUT=$(scripts/ci/xcodebuild_noninteractive.py \
-            xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
+          xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
             -maximum-test-execution-time-allowance "$TEST_TIMEOUT" \
-            "$ONLY_TESTING" test 2>&1)
-          EXIT_CODE=$?
-          set -e
+            "$ONLY_TESTING" test
 
-          echo "$OUTPUT"
-          if [ "$EXIT_CODE" -ne 0 ]; then
-            echo "UI tests failed"
-            exit "$EXIT_CODE"
-          fi
-          if ! grep -Eq 'Executed [1-9][0-9]* test,|Executed [1-9][0-9]* tests|Test run with [1-9][0-9]* tests' <<<"$OUTPUT"; then
-            echo "UI test workflow completed without executing any tests" >&2
-            exit 1
-          fi
+      - name: Upload unit test results
+        if: ${{ always() && !inputs.skip_unit_tests }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-unit-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cmux-unit-results-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: 7

@@ -93,16 +93,15 @@ final class ShortcutUnbindingRoutingTests: XCTestCase {
     }
 
     private func closeWindow(withId windowId: UUID) {
-        AppDelegate.shared?.closeMainWindowForXCTest(windowId: windowId)
+        guard let window = window(withId: windowId) else { return }
+        window.performClose(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
     }
 }
 
 @MainActor
 final class ShortcutRecorderEventRoutingTests: XCTestCase {
     override func tearDown() {
-#if DEBUG
-        KeyboardShortcutRecorderActivity.resetForTesting()
-#endif
         KeyboardShortcutSettings.resetAll()
         super.tearDown()
     }
@@ -359,13 +358,7 @@ final class ShortcutUnbindingParsingTests: XCTestCase {
 
         XCTAssertEqual(
             SystemWideHotkeySettings.shortcut(),
-            StoredShortcut(
-                key: "h",
-                command: false,
-                shift: false,
-                option: true,
-                control: true
-            )
+            StoredShortcut(key: "h", command: false, shift: false, option: true, control: true)
         )
     }
 

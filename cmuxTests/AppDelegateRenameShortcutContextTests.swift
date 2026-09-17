@@ -1,4 +1,6 @@
-import XCTest
+import AppKit
+import Foundation
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -12,10 +14,6 @@ private final class ShortcutContextMenuActionProbe: NSObject {
     @objc func perform(_ sender: Any?) {
         callCount += 1
     }
-}
-
-private final class ShortcutContextNotificationCounter: @unchecked Sendable {
-    var count = 0
 }
 
 private final class ShortcutContextGhosttyCommandEquivalentProbeView: GhosttyNSView {
@@ -37,318 +35,390 @@ private final class ShortcutContextGhosttyCommandEquivalentProbeView: GhosttyNSV
     }
 }
 
+private final class ShortcutNotificationFlag {
+    var wasPosted = false
+
+    func markPosted() {
+        wasPosted = true
+    }
+}
+
 @MainActor
-final class AppDelegateRenameShortcutContextTests: XCTestCase {
-    private var savedShortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
-    private var actionsWithPersistedShortcut: Set<KeyboardShortcutSettings.Action> = []
-    private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
+@Suite(.serialized)
+struct AppDelegateRenameShortcutContextTests {
+    @Test func defaultCmdRRequestsRenameTabOnlyWhenBrowserNotFocused() throws {
+        try withIsolatedShortcutSettings {
+            let appDelegate = try #require(AppDelegate.shared)
 
-    override func setUp() {
-        super.setUp()
-        executionTimeAllowance = 30
-        actionsWithPersistedShortcut = Set(
-            KeyboardShortcutSettings.Action.allCases.filter {
-                UserDefaults.standard.object(forKey: $0.defaultsKey) != nil
-            }
-        )
-        savedShortcutsByAction = Dictionary(
-            uniqueKeysWithValues: actionsWithPersistedShortcut.map { action in
-                (action, KeyboardShortcutSettings.shortcut(for: action))
-            }
-        )
-        originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(prefix: "cmux-rename-shortcut-context")
-        KeyboardShortcutSettings.resetAll()
-    }
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
 
-    override func tearDown() {
-        KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
-        for action in KeyboardShortcutSettings.Action.allCases {
-            if actionsWithPersistedShortcut.contains(action),
-               let savedShortcut = savedShortcutsByAction[action] {
-                KeyboardShortcutSettings.setShortcut(savedShortcut, for: action)
-            } else {
-                KeyboardShortcutSettings.resetShortcut(for: action)
-            }
-        }
-        super.tearDown()
-    }
-
-    func testDefaultCmdRRequestsRenameTabOnlyWhenBrowserNotFocused() {
-        withShortcutAppDelegate(browserPanel: nil) { appDelegate in
-            let renameTabRequests = ShortcutContextNotificationCounter()
+            let window = try #require(mainWindow(withId: windowId))
+            let renameTabPosted = ShortcutNotificationFlag()
             let renameTabToken = NotificationCenter.default.addObserver(
                 forName: .commandPaletteRenameTabRequested,
                 object: nil,
                 queue: nil
             ) { _ in
-                renameTabRequests.count += 1
+                renameTabPosted.markPosted()
             }
             defer { NotificationCenter.default.removeObserver(renameTabToken) }
 
-            let renameWorkspaceRequests = ShortcutContextNotificationCounter()
+            let renameWorkspacePosted = ShortcutNotificationFlag()
             let renameWorkspaceToken = NotificationCenter.default.addObserver(
                 forName: .commandPaletteRenameWorkspaceRequested,
                 object: nil,
                 queue: nil
             ) { _ in
-                renameWorkspaceRequests.count += 1
+                renameWorkspacePosted.markPosted()
             }
             defer { NotificationCenter.default.removeObserver(renameWorkspaceToken) }
 
-            guard let cmdR = makeKeyDownEvent(
+            let cmdR = try #require(makeKeyDownEvent(
                 key: "r",
                 modifiers: [.command],
                 keyCode: 15,
-                windowNumber: 0
-            ) else {
-                XCTFail("Failed to construct Cmd+R event")
-                return
-            }
+                windowNumber: window.windowNumber
+            ))
 
 #if DEBUG
-            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: cmdR))
+            #expect(appDelegate.debugHandleCustomShortcut(event: cmdR))
 #else
-            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
 #endif
 
-            XCTAssertEqual(renameTabRequests.count, 1)
-            XCTAssertEqual(renameWorkspaceRequests.count, 0)
+            #expect(renameTabPosted.wasPosted)
+            #expect(!renameWorkspacePosted.wasPosted)
         }
     }
 
-    func testDefaultCmdShiftRRequestsRenameWorkspaceOnlyWhenBrowserNotFocused() {
-        withShortcutAppDelegate(browserPanel: nil) { appDelegate in
-            let renameWorkspaceRequests = ShortcutContextNotificationCounter()
+    @Test func defaultCmdShiftRRequestsRenameWorkspaceOnlyWhenBrowserNotFocused() throws {
+        try withIsolatedShortcutSettings {
+            let appDelegate = try #require(AppDelegate.shared)
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try #require(mainWindow(withId: windowId))
+            let renameWorkspacePosted = ShortcutNotificationFlag()
             let renameWorkspaceToken = NotificationCenter.default.addObserver(
                 forName: .commandPaletteRenameWorkspaceRequested,
                 object: nil,
                 queue: nil
             ) { _ in
-                renameWorkspaceRequests.count += 1
+                renameWorkspacePosted.markPosted()
             }
             defer { NotificationCenter.default.removeObserver(renameWorkspaceToken) }
 
-            let renameTabRequests = ShortcutContextNotificationCounter()
+            let renameTabPosted = ShortcutNotificationFlag()
             let renameTabToken = NotificationCenter.default.addObserver(
                 forName: .commandPaletteRenameTabRequested,
                 object: nil,
                 queue: nil
             ) { _ in
-                renameTabRequests.count += 1
+                renameTabPosted.markPosted()
             }
             defer { NotificationCenter.default.removeObserver(renameTabToken) }
 
-            guard let cmdShiftR = makeKeyDownEvent(
+            let cmdShiftR = try #require(makeKeyDownEvent(
                 key: "r",
                 modifiers: [.command, .shift],
                 keyCode: 15,
-                windowNumber: 0
-            ) else {
-                XCTFail("Failed to construct Cmd+Shift+R event")
-                return
-            }
+                windowNumber: window.windowNumber
+            ))
 
 #if DEBUG
-            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: cmdShiftR))
+            #expect(appDelegate.debugHandleCustomShortcut(event: cmdShiftR))
 #else
-            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
 #endif
 
-            XCTAssertEqual(renameWorkspaceRequests.count, 1)
-            XCTAssertEqual(renameTabRequests.count, 0)
+            #expect(renameWorkspacePosted.wasPosted)
+            #expect(!renameTabPosted.wasPosted)
         }
     }
 
-    func testFocusedBrowserCmdRUsesReloadInsteadOfRenameTabDefault() {
-        let browserPanel = BrowserPanel(workspaceId: UUID())
-        defer { closeBrowserPanel(browserPanel) }
+    @Test func focusedBrowserCmdRUsesReloadInsteadOfRenameTabDefault() throws {
+        try withIsolatedShortcutSettings {
+            let appDelegate = try #require(AppDelegate.shared)
 
-        withShortcutAppDelegate(browserPanel: browserPanel) { appDelegate in
-            let renameTabRequests = ShortcutContextNotificationCounter()
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try #require(mainWindow(withId: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let browserPanelId = try #require(manager.openBrowser(inWorkspace: workspace.id))
+            let browserPanel = try #require(workspace.browserPanel(for: browserPanelId))
+
+            #expect(manager.focusedBrowserPanel != nil)
+
+            let renameTabPosted = ShortcutNotificationFlag()
             let renameTabToken = NotificationCenter.default.addObserver(
                 forName: .commandPaletteRenameTabRequested,
                 object: nil,
                 queue: nil
             ) { _ in
-                renameTabRequests.count += 1
+                renameTabPosted.markPosted()
             }
             defer { NotificationCenter.default.removeObserver(renameTabToken) }
 
-            let browserReloadRequests = ShortcutContextNotificationCounter()
+            let browserReloadPosted = ShortcutNotificationFlag()
             let browserReloadToken = NotificationCenter.default.addObserver(
                 forName: .debugBrowserReloadShortcutInvoked,
                 object: browserPanel,
                 queue: nil
             ) { _ in
-                browserReloadRequests.count += 1
+                browserReloadPosted.markPosted()
             }
             defer { NotificationCenter.default.removeObserver(browserReloadToken) }
 
-            guard let event = makeKeyDownEvent(
+            let event = try #require(makeKeyDownEvent(
                 key: "r",
                 modifiers: [.command],
                 keyCode: 15,
-                windowNumber: 0
-            ) else {
-                XCTFail("Failed to construct Cmd+R event")
-                return
-            }
+                windowNumber: window.windowNumber
+            ))
 
 #if DEBUG
-            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+            #expect(appDelegate.debugHandleCustomShortcut(event: event))
 #else
-            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
 #endif
 
-            XCTAssertEqual(renameTabRequests.count, 0)
-            XCTAssertEqual(browserReloadRequests.count, 1)
+            #expect(!renameTabPosted.wasPosted)
+            #expect(browserReloadPosted.wasPosted)
         }
     }
 
-    func testFocusedBrowserCmdShiftRDoesNotRequestRenameWorkspaceDefault() {
-        let browserPanel = BrowserPanel(workspaceId: UUID())
-        defer { closeBrowserPanel(browserPanel) }
+    @Test func focusedBrowserCmdShiftRUsesHardReloadInsteadOfRenameWorkspaceDefault() throws {
+        try withIsolatedShortcutSettings {
+            let appDelegate = try #require(AppDelegate.shared)
 
-        withShortcutAppDelegate(browserPanel: browserPanel) { appDelegate in
-            let renameWorkspaceRequests = ShortcutContextNotificationCounter()
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try #require(mainWindow(withId: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let browserPanelId = try #require(manager.openBrowser(inWorkspace: workspace.id))
+            let browserPanel = try #require(workspace.browserPanel(for: browserPanelId))
+
+            #expect(manager.focusedBrowserPanel != nil)
+
+            let renameWorkspacePosted = ShortcutNotificationFlag()
             let renameWorkspaceToken = NotificationCenter.default.addObserver(
                 forName: .commandPaletteRenameWorkspaceRequested,
                 object: nil,
                 queue: nil
             ) { _ in
-                renameWorkspaceRequests.count += 1
+                renameWorkspacePosted.markPosted()
             }
             defer { NotificationCenter.default.removeObserver(renameWorkspaceToken) }
 
-            guard let event = makeKeyDownEvent(
+            let hardReloadPosted = ShortcutNotificationFlag()
+            let hardReloadToken = NotificationCenter.default.addObserver(
+                forName: .debugBrowserHardReloadShortcutInvoked,
+                object: browserPanel,
+                queue: nil
+            ) { _ in
+                hardReloadPosted.markPosted()
+            }
+            defer { NotificationCenter.default.removeObserver(hardReloadToken) }
+
+            let event = try #require(makeKeyDownEvent(
                 key: "r",
                 modifiers: [.command, .shift],
                 keyCode: 15,
-                windowNumber: 0
-            ) else {
-                XCTFail("Failed to construct Cmd+Shift+R event")
-                return
-            }
+                windowNumber: window.windowNumber
+            ))
 
 #if DEBUG
-            XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
+            #expect(appDelegate.debugHandleCustomShortcut(event: event))
 #else
-            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
 #endif
 
-            XCTAssertEqual(renameWorkspaceRequests.count, 0)
+            #expect(!renameWorkspacePosted.wasPosted)
+            #expect(hardReloadPosted.wasPosted)
         }
     }
 
-    func testReactGrabShortcutRoutesFromFocusedTerminalToSingleBrowserPane() {
-        let terminalPanelId = UUID()
-        let browserPanelId = UUID()
-        XCTAssertEqual(
-            resolveReactGrabShortcutRoute(
-                panels: [
-                    ReactGrabShortcutPanelSnapshot(
-                        id: terminalPanelId,
-                        panelType: .terminal,
-                        isFocused: true
-                    ),
-                    ReactGrabShortcutPanelSnapshot(
-                        id: browserPanelId,
-                        panelType: .browser,
-                        isFocused: false
-                    ),
-                ]
-            ),
-            ReactGrabShortcutRoute(
-                browserPanelId: browserPanelId,
-                returnTerminalPanelId: terminalPanelId
-            )
-        )
+    @Test func focusedWindowDockBrowserCmdRUsesReloadShortcut() throws {
+        try withIsolatedShortcutSettings {
+            let appDelegate = try #require(AppDelegate.shared)
+            let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled()
+            BrowserAvailabilitySettings.setDisabled(false)
+            defer { BrowserAvailabilitySettings.setDisabled(wasBrowserDisabled) }
 
-        withShortcutAppDelegate(browserPanel: nil) { appDelegate in
-            var handlerCallCount = 0
-            appDelegate.debugToggleReactGrabShortcutHandler = {
-                handlerCallCount += 1
-                return true
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try #require(mainWindow(withId: windowId))
+            let dock = appDelegate.windowDock(forWindowId: windowId)
+            let pane = try #require(dock.resolvePane(requestedPaneID: nil))
+            let browserPanelId = try #require(dock.newSurface(kind: .browser, inPane: pane, focus: true))
+            let browserPanel = try #require(dock.browserPanel(for: browserPanelId))
+
+            appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: window)
+            #expect(dock.focusedPanelId == browserPanelId)
+
+            let renameTabPosted = ShortcutNotificationFlag()
+            let renameTabToken = NotificationCenter.default.addObserver(
+                forName: .commandPaletteRenameTabRequested,
+                object: nil,
+                queue: nil
+            ) { _ in
+                renameTabPosted.markPosted()
             }
+            defer { NotificationCenter.default.removeObserver(renameTabToken) }
 
-            guard let event = makeKeyDownEvent(
+            let browserReloadPosted = ShortcutNotificationFlag()
+            let browserReloadToken = NotificationCenter.default.addObserver(
+                forName: .debugBrowserReloadShortcutInvoked,
+                object: browserPanel,
+                queue: nil
+            ) { _ in
+                browserReloadPosted.markPosted()
+            }
+            defer { NotificationCenter.default.removeObserver(browserReloadToken) }
+
+            let event = try #require(makeKeyDownEvent(
+                key: "r",
+                modifiers: [.command],
+                keyCode: 15,
+                windowNumber: window.windowNumber
+            ))
+
+#if DEBUG
+            #expect(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+            #expect(!renameTabPosted.wasPosted)
+            #expect(browserReloadPosted.wasPosted)
+        }
+    }
+
+    @Test func reactGrabShortcutRoutesFromFocusedTerminalToSingleBrowserPane() throws {
+        try withIsolatedShortcutSettings {
+            let appDelegate = try #require(AppDelegate.shared)
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try #require(mainWindow(withId: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let terminalPanelId = try #require(workspace.focusedPanelId)
+            let browserPanelId = try #require(manager.openBrowser(inWorkspace: workspace.id))
+            let browserPanel = try #require(workspace.browserPanel(for: browserPanelId))
+
+            workspace.focusPanel(terminalPanelId)
+            #expect(manager.focusedBrowserPanel == nil)
+            #expect(workspace.focusedPanelId == terminalPanelId)
+
+            let event = try #require(makeKeyDownEvent(
                 key: "g",
                 modifiers: [.command, .shift],
                 keyCode: 5,
-                windowNumber: 0
-            ) else {
-                XCTFail("Failed to construct Cmd+Shift+G event")
-                return
-            }
+                windowNumber: window.windowNumber
+            ))
 
 #if DEBUG
-            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+            #expect(appDelegate.debugHandleCustomShortcut(event: event))
 #else
-            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
 #endif
 
-            XCTAssertEqual(handlerCallCount, 1)
+            #expect(workspace.focusedPanelId == browserPanelId)
+            #expect(browserPanel.pendingReactGrabReturnTargetPanelId == terminalPanelId)
         }
     }
 
-    func testWindowPerformKeyEquivalentForwardsBrowserReloadShortcutToTerminalWhenRenameTabIsUnbound() {
-        let previousMainMenu = NSApp.mainMenu
-        let probeWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        let contentView = NSView(frame: probeWindow.contentRect(forFrameRect: probeWindow.frame))
-        let probeView = ShortcutContextGhosttyCommandEquivalentProbeView(
-            frame: NSRect(x: 0, y: 0, width: 200, height: 120)
-        )
-        let menuProbe = ShortcutContextMenuActionProbe()
+    @Test func windowPerformKeyEquivalentForwardsBrowserReloadShortcutToTerminalWhenRenameTabIsUnbound() throws {
+        try withIsolatedShortcutSettings {
+            let previousMainMenu = NSApp.mainMenu
+            let probeWindow = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            let contentView = NSView(frame: probeWindow.contentRect(forFrameRect: probeWindow.frame))
+            let probeView = ShortcutContextGhosttyCommandEquivalentProbeView(
+                frame: NSRect(x: 0, y: 0, width: 200, height: 120)
+            )
+            let menuProbe = ShortcutContextMenuActionProbe()
 
+            defer {
+                NSApp.mainMenu = previousMainMenu
+                probeWindow.orderOut(nil)
+            }
+
+            let menu = NSMenu(title: "Test")
+            let reloadItem = NSMenuItem(
+                title: "Reload Page",
+                action: #selector(ShortcutContextMenuActionProbe.perform(_:)),
+                keyEquivalent: "r"
+            )
+            reloadItem.keyEquivalentModifierMask = [.command]
+            reloadItem.target = menuProbe
+            menu.addItem(reloadItem)
+            NSApp.mainMenu = menu
+
+            probeWindow.contentView = contentView
+            contentView.addSubview(probeView)
+            probeWindow.makeKeyAndOrderFront(nil)
+            probeWindow.displayIfNeeded()
+            #expect(probeWindow.makeFirstResponder(probeView))
+
+            let event = try #require(makeKeyDownEvent(
+                key: "r",
+                modifiers: [.command],
+                keyCode: 15,
+                windowNumber: probeWindow.windowNumber
+            ))
+
+            KeyboardShortcutSettings.setShortcut(.unbound, for: .renameTab)
+            KeyboardShortcutSettings.resetShortcut(for: .browserReload)
+
+            #expect(probeWindow.performKeyEquivalent(with: event))
+            #expect(menuProbe.callCount == 0)
+            #expect(probeView.afterMenuMissCallCount == 1)
+            #expect(probeView.lastAfterMenuMissCharactersIgnoringModifiers == "r")
+            #expect(probeView.keyDownCallCount == 0)
+        }
+    }
+
+    private func withIsolatedShortcutSettings(_ body: () throws -> Void) rethrows {
+        let actionsWithPersistedShortcut = Set(
+            KeyboardShortcutSettings.Action.allCases.filter {
+                UserDefaults.standard.object(forKey: $0.defaultsKey) != nil
+            }
+        )
+        let savedShortcutsByAction = Dictionary(
+            uniqueKeysWithValues: actionsWithPersistedShortcut.map { action in
+                (action, KeyboardShortcutSettings.shortcut(for: action))
+            }
+        )
+        let originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
+            prefix: "cmux-rename-shortcut-context"
+        )
+        KeyboardShortcutSettings.resetAll()
         defer {
-            NSApp.mainMenu = previousMainMenu
-            probeWindow.orderOut(nil)
+            KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+            for action in KeyboardShortcutSettings.Action.allCases {
+                if actionsWithPersistedShortcut.contains(action),
+                   let savedShortcut = savedShortcutsByAction[action] {
+                    KeyboardShortcutSettings.setShortcut(savedShortcut, for: action)
+                } else {
+                    KeyboardShortcutSettings.resetShortcut(for: action)
+                }
+            }
         }
-
-        let menu = NSMenu(title: "Test")
-        let reloadItem = NSMenuItem(
-            title: "Reload Page",
-            action: #selector(ShortcutContextMenuActionProbe.perform(_:)),
-            keyEquivalent: "r"
-        )
-        reloadItem.keyEquivalentModifierMask = [.command]
-        reloadItem.target = menuProbe
-        menu.addItem(reloadItem)
-        NSApp.mainMenu = menu
-
-        probeWindow.contentView = contentView
-        contentView.addSubview(probeView)
-        probeWindow.makeKeyAndOrderFront(nil)
-        probeWindow.displayIfNeeded()
-        XCTAssertTrue(probeWindow.makeFirstResponder(probeView), "Expected probe Ghostty view to own first responder")
-
-        guard let event = makeKeyDownEvent(
-            key: "r",
-            modifiers: [.command],
-            keyCode: 15,
-            windowNumber: probeWindow.windowNumber
-        ) else {
-            XCTFail("Failed to construct Cmd+R event")
-            return
-        }
-
-        KeyboardShortcutSettings.setShortcut(.unbound, for: .renameTab)
-        KeyboardShortcutSettings.resetShortcut(for: .browserReload)
-
-        XCTAssertTrue(
-            probeWindow.performKeyEquivalent(with: event),
-            "Browser reload shortcut should pass to the focused terminal when rename tab no longer owns Cmd+R"
-        )
-
-        XCTAssertEqual(menuProbe.callCount, 0, "Reload Page menu item must not consume terminal Cmd+R")
-        XCTAssertEqual(probeView.afterMenuMissCallCount, 1, "Terminal Cmd+R should enter Ghostty's command path")
-        XCTAssertEqual(probeView.lastAfterMenuMissCharactersIgnoringModifiers, "r")
-        XCTAssertEqual(probeView.keyDownCallCount, 0, "Handled Ghostty command equivalents should not fall through to keyDown")
+        try body()
     }
 
     private func makeKeyDownEvent(
@@ -371,27 +441,14 @@ final class AppDelegateRenameShortcutContextTests: XCTestCase {
         )
     }
 
-    private func closeBrowserPanel(_ panel: BrowserPanel) {
-        BrowserWindowPortalRegistry.detach(webView: panel.webView)
-        panel.close()
-        panel.webView.removeFromSuperview()
+    private func mainWindow(withId windowId: UUID) -> NSWindow? {
+        let identifier = "cmux.main.\(windowId.uuidString)"
+        return NSApp.windows.first(where: { $0.identifier?.rawValue == identifier })
     }
 
-    private func withShortcutAppDelegate(
-        browserPanel: BrowserPanel? = nil,
-        _ body: (AppDelegate) -> Void
-    ) {
-        let previousShared = AppDelegate.shared
-        let appDelegate = AppDelegate()
-        appDelegate.debugShortcutEventFocusContextOverride = ShortcutEventFocusContext(
-            browserPanel: browserPanel,
-            markdownPanel: nil,
-            rightSidebarFocused: false
-        )
-        defer {
-            appDelegate.debugResetShortcutRoutingStateForTesting()
-            AppDelegate.shared = previousShared
-        }
-        body(appDelegate)
+    private func closeWindow(withId windowId: UUID) {
+        guard let window = mainWindow(withId: windowId) else { return }
+        window.performClose(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
     }
 }

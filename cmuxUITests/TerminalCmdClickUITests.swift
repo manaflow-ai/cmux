@@ -11,6 +11,8 @@ final class TerminalCmdClickUITests: XCTestCase {
         case grid
         case log
         case altScreenLog = "alt_screen_log"
+        case osc8
+        case plainURL = "url"
     }
 
     private struct SetupData {
@@ -20,6 +22,7 @@ final class TerminalCmdClickUITests: XCTestCase {
 
     private var hoverDiagnosticsPath = ""
     private var openCapturePath = ""
+    private var openURLCapturePath = ""
     private var setupDataPath = ""
     private var commandPath = ""
     private var fixtureDirectoryURL: URL!
@@ -32,11 +35,13 @@ final class TerminalCmdClickUITests: XCTestCase {
             .appendingPathComponent("cmux-ui-test-terminal-cmd-click-\(UUID().uuidString)", isDirectory: true)
         hoverDiagnosticsPath = fixtureDirectoryURL.appendingPathComponent("hover.json").path
         openCapturePath = fixtureDirectoryURL.appendingPathComponent("open.log").path
+        openURLCapturePath = fixtureDirectoryURL.appendingPathComponent("open-url.log").path
         setupDataPath = fixtureDirectoryURL.appendingPathComponent("setup.json").path
         commandPath = fixtureDirectoryURL.appendingPathComponent("command.json").path
 
         try? FileManager.default.removeItem(atPath: hoverDiagnosticsPath)
         try? FileManager.default.removeItem(atPath: openCapturePath)
+        try? FileManager.default.removeItem(atPath: openURLCapturePath)
         try? FileManager.default.removeItem(atPath: setupDataPath)
         try? FileManager.default.removeItem(atPath: commandPath)
         try? FileManager.default.createDirectory(at: fixtureDirectoryURL, withIntermediateDirectories: true)
@@ -52,6 +57,7 @@ final class TerminalCmdClickUITests: XCTestCase {
     override func tearDown() {
         try? FileManager.default.removeItem(atPath: hoverDiagnosticsPath)
         try? FileManager.default.removeItem(atPath: openCapturePath)
+        try? FileManager.default.removeItem(atPath: openURLCapturePath)
         try? FileManager.default.removeItem(atPath: setupDataPath)
         try? FileManager.default.removeItem(atPath: commandPath)
         try? FileManager.default.removeItem(at: fixtureDirectoryURL)
@@ -100,6 +106,14 @@ final class TerminalCmdClickUITests: XCTestCase {
         )
     }
 
+    func testBackgroundAppIsNotReadyForInteraction() {
+        XCTAssertFalse(
+            Self.isReadyForInteraction(.runningBackground),
+            "A backgrounded app can still have windows; readiness requires runningForeground."
+        )
+        XCTAssertTrue(Self.isReadyForInteraction(.runningForeground))
+    }
+
     func testCmdClickEscapedPathWithSpacesOpensResolvedFile() throws {
         let app = launchApp(
             displayMode: .escaped,
@@ -126,7 +140,8 @@ final class TerminalCmdClickUITests: XCTestCase {
             "Expected cmd-click to resolve the escaped-space path to the real file. result=\(result)"
         )
 
-        guard let openedPaths = waitForCapturedOpenPaths(timeout: 5.0) else {
+        let openedPaths = waitForCapturedOpenPaths(timeout: 5.0)
+        guard !openedPaths.isEmpty else {
             XCTFail("Expected cmd-click capture log after running the command harness. result=\(result)")
             return
         }
@@ -163,7 +178,8 @@ final class TerminalCmdClickUITests: XCTestCase {
             "Expected cmd-click to resolve the raw-space path to the real file. result=\(result)"
         )
 
-        guard let openedPaths = waitForCapturedOpenPaths(timeout: 5.0) else {
+        let openedPaths = waitForCapturedOpenPaths(timeout: 5.0)
+        guard !openedPaths.isEmpty else {
             XCTFail("Expected cmd-click capture log after running the raw-space command harness. result=\(result)")
             return
         }
@@ -171,6 +187,115 @@ final class TerminalCmdClickUITests: XCTestCase {
         XCTAssertTrue(
             openedPaths.contains(expectedPath),
             "Expected cmd-click to resolve the raw-space path to the real file. opened=\(openedPaths) expected=\(expectedPath)"
+        )
+    }
+
+    func testStationaryCmdClickOsc8FileHyperlinkOpensURL() throws {
+        let fileName = "Issue 3557 Link.md"
+        let app = launchApp(
+            displayMode: .raw,
+            lineFormat: .osc8,
+            fileName: fileName,
+            captureOpenPaths: false,
+            captureHoverDiagnostics: false
+        )
+        defer { app.terminate() }
+
+        let setup = try waitForReadySetup()
+        let expectedURL = URL(fileURLWithPath: expectedPath(for: fileName)).absoluteString
+        XCTAssertEqual(URL(fileURLWithPath: setup.expectedPath).absoluteString, expectedURL)
+
+        let result = try runCommand(action: "stationary_cmd_click_token")
+        XCTAssertEqual(
+            result["lastCommandSucceeded"] as? String,
+            "1",
+            "Expected stationary cmd-click on an OSC 8 file hyperlink to open the URL. result=\(result)"
+        )
+        XCTAssertEqual(
+            result["lastCommandOpenedURL"] as? String,
+            expectedURL,
+            "Expected OSC 8 cmd-click to route through Ghostty's open-url action. result=\(result)"
+        )
+
+        let openedURLs = waitForCapturedOpenPaths(timeout: 5.0, path: openURLCapturePath)
+        guard !openedURLs.isEmpty else {
+            XCTFail("Expected open capture after stationary OSC 8 cmd-click. result=\(result)")
+            return
+        }
+        XCTAssertTrue(
+            openedURLs.contains(expectedURL),
+            "Expected stationary OSC 8 cmd-click to open \(expectedURL). opened=\(openedURLs)"
+        )
+    }
+
+    func testStationaryCmdClickPlainURLWithMouseReportingOpensURL() throws {
+        let app = launchApp(
+            displayMode: .raw,
+            lineFormat: .plainURL,
+            captureOpenPaths: false,
+            captureHoverDiagnostics: false,
+            mouseReporting: true
+        )
+        defer { app.terminate() }
+
+        let setup = try waitForReadySetup()
+        XCTAssertEqual(
+            setup.payload["mouseReportingCaptured"] as? String,
+            "1",
+            "Expected the fixture to enable terminal mouse reporting before the click. payload=\(setup.payload)"
+        )
+        let expectedURL = "https://github.com"
+        let result = try runCommand(action: "stationary_cmd_click_token")
+        XCTAssertEqual(
+            result["lastCommandSucceeded"] as? String,
+            "1",
+            "Expected Cmd-click to open a plain URL while mouse reporting is active. result=\(result)"
+        )
+
+        let openedURLs = waitForCapturedOpenPaths(timeout: 5.0, path: openURLCapturePath)
+        XCTAssertTrue(
+            openedURLs.contains(expectedURL),
+            "Expected Cmd-click to emit the plain URL while mouse reporting is active. opened=\(openedURLs)"
+        )
+    }
+
+    func testCmdClickOsc8FileHyperlinkOpensExactlyOneHandler() throws {
+        let fileName = "Cmd Click Fixture.txt"
+        let app = launchApp(
+            displayMode: .raw,
+            lineFormat: .osc8,
+            fileName: fileName,
+            captureOpenPaths: true,
+            captureHoverDiagnostics: false
+        )
+        defer { app.terminate() }
+
+        let setup = try waitForReadySetup()
+        let expectedURL = URL(fileURLWithPath: setup.expectedPath).absoluteString
+
+        let result = try runCommand(action: "cmd_click_token")
+
+        let openedURLs = waitForCapturedOpenPaths(timeout: 5.0, path: openURLCapturePath)
+        XCTAssertEqual(
+            openedURLs,
+            [expectedURL],
+            "Expected Ghostty's open-url action to route the OSC 8 file link exactly once. result=\(result)"
+        )
+
+        // Issue #10222: when Ghostty consumes the click and dispatches its
+        // open-url action, the cmd-click word-path fallback must not ALSO open
+        // the same file through the preferred-editor/system path — that is the
+        // double-open (e.g. Preview and the preferred editor at once).
+        XCTAssertTrue(
+            waitForOpenCountToStay(0, timeout: 1.5),
+            "Cmd-click dispatched a second open for the same click: the word-path fallback ran even though Ghostty already routed the link. opened=\(loadCapturedOpenPaths()) result=\(result)"
+        )
+        // The open-url route itself must also stay at exactly one dispatch
+        // through the settle window — never a duplicate primary open either.
+        XCTAssertEqual(
+            loadCapturedOpenPaths(path: openURLCapturePath),
+            [expectedURL],
+            "Expected exactly one open-url dispatch for the click after settling. result=\(result)"
         )
     }
 
@@ -209,7 +334,8 @@ final class TerminalCmdClickUITests: XCTestCase {
             )
         }
 
-        guard let openedPaths = waitForCapturedOpenPaths(timeout: 5.0) else {
+        let openedPaths = waitForCapturedOpenPaths(timeout: 5.0)
+        guard !openedPaths.isEmpty else {
             XCTFail("Expected cmd-click capture log after forcing a quicklook mismatch. result=\(result)")
             return
         }
@@ -264,7 +390,8 @@ final class TerminalCmdClickUITests: XCTestCase {
             )
         }
 
-        guard let openedPaths = waitForCapturedOpenPaths(timeout: 5.0) else {
+        let openedPaths = waitForCapturedOpenPaths(timeout: 5.0)
+        guard !openedPaths.isEmpty else {
             XCTFail("Expected cmd-click capture log after forcing a viewport mismatch. result=\(result)")
             return
         }
@@ -612,7 +739,8 @@ final class TerminalCmdClickUITests: XCTestCase {
             "Expected cmd-click to open the full spaced path, not a suffix token. result=\(result)"
         )
 
-        guard let openedPaths = waitForCapturedOpenPaths(timeout: 5.0) else {
+        let openedPaths = waitForCapturedOpenPaths(timeout: 5.0)
+        guard !openedPaths.isEmpty else {
             XCTFail("Expected open capture after cmd-clicking the spaced path. result=\(result)")
             return
         }
@@ -757,9 +885,10 @@ final class TerminalCmdClickUITests: XCTestCase {
         openSupportedFilesInCmux: Bool = false,
         openMarkdownInCmuxViewer: Bool? = nil,
         quicklookOverride: String? = nil,
-        viewportOffsetDelta: Int? = nil
+        viewportOffsetDelta: Int? = nil,
+        mouseReporting: Bool = false
     ) -> XCUIApplication {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_TAG"] = "ui-test-terminal-cmd-click"
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_SETUP"] = "1"
@@ -769,6 +898,9 @@ final class TerminalCmdClickUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_FILE_NAME"] = fileName
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_DISPLAY_MODE"] = displayMode.rawValue
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_LINE_FORMAT"] = lineFormat.rawValue
+        if mouseReporting {
+            app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_MOUSE_REPORTING"] = "1"
+        }
         app.launchEnvironment["CMUX_UI_TEST_OPEN_SUPPORTED_FILES_IN_CMUX"] = openSupportedFilesInCmux ? "1" : "0"
         if !displaySuffix.isEmpty {
             app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_DISPLAY_SUFFIX"] = displaySuffix
@@ -790,6 +922,9 @@ final class TerminalCmdClickUITests: XCTestCase {
         if captureOpenPaths {
             app.launchEnvironment["CMUX_UI_TEST_CAPTURE_OPEN_PATH"] = openCapturePath
         }
+        if lineFormat == .osc8 || lineFormat == .plainURL {
+            app.launchEnvironment["CMUX_UI_TEST_CAPTURE_OPEN_URL_PATH"] = openURLCapturePath
+        }
         if captureHoverDiagnostics {
             app.launchEnvironment["CMUX_UI_TEST_CMD_HOVER_DIAGNOSTICS_PATH"] = hoverDiagnosticsPath
         }
@@ -803,19 +938,20 @@ final class TerminalCmdClickUITests: XCTestCase {
         return app
     }
 
-    private func waitForCapturedOpenPaths(timeout: TimeInterval) -> [String]? {
-        var openedPaths: [String]?
+    private func waitForCapturedOpenPaths(timeout: TimeInterval, path: String? = nil) -> [String] {
+        var openedPaths: [String] = []
         let matched = waitForCondition(timeout: timeout) {
-            let lines = self.loadCapturedOpenPaths()
+            let lines = self.loadCapturedOpenPaths(path: path)
             guard !lines.isEmpty else { return false }
             openedPaths = lines
             return true
         }
-        return matched ? openedPaths : nil
+        return matched ? openedPaths : []
     }
 
-    private func loadCapturedOpenPaths() -> [String] {
-        guard let contents = try? String(contentsOfFile: openCapturePath, encoding: .utf8) else {
+    private func loadCapturedOpenPaths(path: String? = nil) -> [String] {
+        let capturePath = path ?? openCapturePath
+        guard let contents = try? String(contentsOfFile: capturePath, encoding: .utf8) else {
             return []
         }
 
@@ -930,12 +1066,13 @@ final class TerminalCmdClickUITests: XCTestCase {
         return object
     }
 
+    /// Launches the app and fails unless it reaches the foreground before UI input begins.
     private func launchAndEnsureForeground(_ app: XCUIApplication, timeout: TimeInterval = 12.0) {
-        let options = XCTExpectedFailure.Options()
-        options.isStrict = false
-        XCTExpectFailure("App activation may fail on headless GUI runners", options: options) {
-            app.launch()
-        }
+        // Activation is required before this suite drives keyboard and pointer
+        // input. Do not mask launch failures with XCTExpectFailure: with
+        // continueAfterFailure disabled, XCTest can stop the test here and
+        // report the expected failure as a passing test without running its body.
+        app.launch()
 
         guard app.state == .runningForeground || app.state == .runningBackground else {
             XCTFail("App failed to start. state=\(app.state.rawValue)")
@@ -944,12 +1081,16 @@ final class TerminalCmdClickUITests: XCTestCase {
 
         app.activate()
         let foregrounded = waitForCondition(timeout: timeout) {
-            app.state == .runningForeground || app.windows.firstMatch.exists
+            Self.isReadyForInteraction(app.state)
         }
         XCTAssertTrue(
             foregrounded,
             "Expected app activation before driving cmd-key harness. state=\(app.state.rawValue)"
         )
+    }
+
+    private static func isReadyForInteraction(_ state: XCUIApplication.State) -> Bool {
+        state == .runningForeground
     }
 
     private func waitForCondition(

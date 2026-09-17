@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSettings
 
 struct SurfaceNewWorkspaceMoveResult {
     let sourceWindowId: UUID
@@ -9,12 +10,6 @@ struct SurfaceNewWorkspaceMoveResult {
     let paneId: UUID?
 }
 
-struct SurfaceNewWorkspaceCreationRequest {
-    let detached: Workspace.DetachedSurfaceTransfer
-    let title: String
-    let focusIntent: PanelFocusIntent
-}
-
 @MainActor
 extension AppDelegate {
     func canMoveSurfaceToNewWorkspace(panelId: UUID) -> Bool {
@@ -23,10 +18,7 @@ extension AppDelegate {
               sourceWorkspace.panels[panelId] != nil else {
             return false
         }
-        return Self.canMoveSurfaceToNewWorkspace(
-            sourceContainsPanel: true,
-            sourcePanelCount: sourceWorkspace.panels.count
-        )
+        return sourceWorkspace.panels.count > 1
     }
 
     func canMoveBonsplitTabToNewWorkspace(tabId: UUID) -> Bool {
@@ -35,14 +27,9 @@ extension AppDelegate {
     }
 
     func canMoveBonsplitTab(tabId: UUID, toWorkspace targetWorkspaceId: UUID) -> Bool {
-        guard let located = locateBonsplitSurface(tabId: tabId),
-              let sourceWorkspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }),
-              sourceWorkspace.panels[located.panelId] != nil,
-              let destinationManager = tabManagerFor(tabId: targetWorkspaceId),
-              destinationManager.tabs.contains(where: { $0.id == targetWorkspaceId }) else {
-            return false
-        }
-        return true
+        guard locateContainerSurface(tabId: tabId) != nil,
+              let destination = workspaceFor(tabId: targetWorkspaceId) else { return false }
+        return destination.surfaceOwnershipPolicy.rejection(for: machineOwningBonsplitTab(tabId)) == nil
     }
 
     func workspaceMoveTargets(forSurface panelId: UUID) -> [WorkspaceMoveTarget] {
@@ -68,7 +55,7 @@ extension AppDelegate {
         title: String? = nil,
         focus: Bool = true,
         focusWindow: Bool = true,
-        placementOverride: NewWorkspacePlacement? = nil,
+        placementOverride: WorkspacePlacement? = nil,
         insertionIndexOverride: Int? = nil
     ) -> SurfaceNewWorkspaceMoveResult? {
         guard let located = locateBonsplitSurface(tabId: tabId) else { return nil }
@@ -90,7 +77,7 @@ extension AppDelegate {
         title: String? = nil,
         focus: Bool = true,
         focusWindow: Bool = true,
-        placementOverride: NewWorkspacePlacement? = nil,
+        placementOverride: WorkspacePlacement? = nil,
         insertionIndexOverride: Int? = nil
     ) -> SurfaceNewWorkspaceMoveResult? {
         guard let source = locateSurface(surfaceId: panelId),
@@ -101,24 +88,29 @@ extension AppDelegate {
         }
 
         let targetManager = destinationManager ?? source.tabManager
-        let sourcePanelTitle = sourceWorkspace.panelTitle(panelId: panelId)
-        let sourcePane = sourceWorkspace.paneId(forPanelId: panelId)
-        let sourceIndex = sourceWorkspace.indexInPane(forPanelId: panelId)
-        guard let detached = sourceWorkspace.detachSurface(panelId: panelId) else { return nil }
-        let creationRequest = Self.surfaceNewWorkspaceCreationRequest(
-            detached: detached,
+        let hasExplicitTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        if !hasExplicitTitle {
+            source.tabManager.flushPendingPanelTitleUpdatesForWorkspaceSnapshot()
+        }
+        let destinationTitle = titleForDetachedWorkspace(
             explicitTitle: title,
-            panelTitle: sourcePanelTitle,
+            workspace: sourceWorkspace,
+            panelId: panelId,
             panel: sourcePanel
         )
+        let sourcePane = sourceWorkspace.paneId(forPanelId: panelId)
+        let sourceIndex = sourceWorkspace.indexInPane(forPanelId: panelId)
+        let activationIntent = focusIntentForNewWorkspaceMove(panel: sourcePanel)
+        guard let detached = sourceWorkspace.detachSurface(panelId: panelId) else { return nil }
 
         guard let destinationWorkspace = targetManager.addWorkspace(
-            fromDetachedSurface: creationRequest.detached,
-            title: creationRequest.title,
+            fromDetachedSurface: detached,
+            title: destinationTitle,
+            titleSource: hasExplicitTitle ? .user : .auto,
             select: false,
             placementOverride: placementOverride,
             insertionIndexOverride: insertionIndexOverride,
-            focusIntent: creationRequest.focusIntent
+            focusIntent: activationIntent
         ) else {
             rollbackDetachedSurface(
                 detached,
@@ -130,40 +122,30 @@ extension AppDelegate {
             return nil
         }
 
-        let postAttachActions = Self.surfaceMovePostAttachActions(
-            focus: focus,
-            sourceWorkspaceIsEmpty: sourceWorkspace.panels.isEmpty,
-            sourceWorkspaceIsRegistered: source.tabManager.tabs.contains { $0.id == sourceWorkspace.id },
-            sourceWorkspaceCount: source.tabManager.tabs.count
+        cleanupEmptySourceWorkspaceAfterSurfaceMove(
+            sourceWorkspace: sourceWorkspace,
+            sourceManager: source.tabManager,
+            sourceWindowId: source.windowId
         )
-        for action in postAttachActions {
-            switch action {
-            case .focusDestination:
-                let destinationWindowId = focusWindow ? windowId(for: targetManager) : nil
-                if let destinationWindowId {
-                    _ = focusMainWindow(windowId: destinationWindowId)
-                }
-                targetManager.focusTab(
-                    destinationWorkspace.id,
-                    surfaceId: panelId,
-                    suppressFlash: true,
-                    focusIntent: creationRequest.focusIntent
-                )
-                if let destinationWindowId {
-                    reassertCrossWindowSurfaceMoveFocusIfNeeded(
-                        destinationWindowId: destinationWindowId,
-                        sourceWindowId: source.windowId,
-                        destinationWorkspaceId: destinationWorkspace.id,
-                        destinationPanelId: panelId,
-                        destinationManager: targetManager
-                    )
-                }
-            case .cleanupEmptySourceWorkspace(let cleanupAction):
-                performEmptySourceWorkspaceCleanupAfterSurfaceMove(
-                    cleanupAction,
-                    sourceWorkspace: sourceWorkspace,
-                    sourceManager: source.tabManager,
-                    sourceWindowId: source.windowId
+
+        if focus {
+            let destinationWindowId = focusWindow ? windowId(for: targetManager) : nil
+            if let destinationWindowId {
+                _ = focusMainWindow(windowId: destinationWindowId)
+            }
+            targetManager.focusTab(
+                destinationWorkspace.id,
+                surfaceId: panelId,
+                suppressFlash: true,
+                focusIntent: activationIntent
+            )
+            if let destinationWindowId {
+                reassertCrossWindowSurfaceMoveFocusIfNeeded(
+                    destinationWindowId: destinationWindowId,
+                    sourceWindowId: source.windowId,
+                    destinationWorkspaceId: destinationWorkspace.id,
+                    destinationPanelId: panelId,
+                    destinationManager: targetManager
                 )
             }
         }
@@ -178,63 +160,27 @@ extension AppDelegate {
         )
     }
 
-    static func canMoveSurfaceToNewWorkspace(
-        sourceContainsPanel: Bool,
-        sourcePanelCount: Int
-    ) -> Bool {
-        sourceContainsPanel && sourcePanelCount > 1
-    }
-
-    static func surfaceNewWorkspaceCreationRequest(
-        detached: Workspace.DetachedSurfaceTransfer,
-        explicitTitle: String?,
-        panelTitle: String?,
-        panel: any Panel
-    ) -> SurfaceNewWorkspaceCreationRequest {
-        SurfaceNewWorkspaceCreationRequest(
-            detached: detached,
-            title: titleForDetachedWorkspace(
-                explicitTitle: explicitTitle,
-                panelTitle: panelTitle,
-                panelDisplayTitle: panel.displayTitle
-            ),
-            focusIntent: focusIntentForNewWorkspaceMove(
-                panelType: panel.panelType,
-                preferredFocusIntent: panel.preferredFocusIntentForActivation()
-            )
-        )
-    }
-
-    static func focusIntentForNewWorkspaceMove(
-        panelType: PanelType,
-        preferredFocusIntent: PanelFocusIntent
-    ) -> PanelFocusIntent {
-        if panelType == .browser {
+    private func focusIntentForNewWorkspaceMove(panel: any Panel) -> PanelFocusIntent {
+        if panel is BrowserPanel {
             // Moving a browser tab into a standalone workspace should expose browser chrome,
             // even if web content was the last in-panel responder before the drag.
             return .browser(.addressBar)
         }
-        return preferredFocusIntent
+        return panel.preferredFocusIntentForActivation()
     }
 
-    private func focusIntentForNewWorkspaceMove(panel: any Panel) -> PanelFocusIntent {
-        Self.focusIntentForNewWorkspaceMove(
-            panelType: panel.panelType,
-            preferredFocusIntent: panel.preferredFocusIntentForActivation()
-        )
-    }
-
-    static func titleForDetachedWorkspace(
+    private func titleForDetachedWorkspace(
         explicitTitle: String?,
-        panelTitle: String?,
-        panelDisplayTitle: String
+        workspace: Workspace,
+        panelId: UUID,
+        panel: any Panel
     ) -> String {
         let trimmedTitle = explicitTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let trimmedTitle, !trimmedTitle.isEmpty {
             return trimmedTitle
         }
 
-        let fallbackTitle = panelTitle ?? panelDisplayTitle
+        let fallbackTitle = workspace.panelTitle(panelId: panelId) ?? panel.displayTitle
         let trimmedFallbackTitle = fallbackTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedFallbackTitle.isEmpty {
             return trimmedFallbackTitle

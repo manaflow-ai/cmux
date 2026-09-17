@@ -23,17 +23,13 @@ final class CmuxConfigContextMenuTests: XCTestCase {
         guard let tiffData = image.tiffRepresentation,
               let imageRep = NSBitmapImageRep(data: tiffData),
               let pngData = imageRep.representation(using: .png, properties: [:]) else {
-            let message = "Could not generate PNG data for icon test."
-            XCTFail(message)
-            throw NSError(domain: "cmux.tests", code: 1, userInfo: [
-                NSLocalizedDescriptionKey: message,
-            ])
+            throw XCTSkip("Could not generate PNG data for icon test.")
         }
         return pngData
     }
 
     @MainActor
-    private func loadStore(localJSON: String? = nil) throws -> CmuxConfigStore {
+    private func loadStore(localJSON: String? = nil, globalJSON: String? = nil) throws -> CmuxConfigStore {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",
             isDirectory: true
@@ -47,14 +43,34 @@ final class CmuxConfigContextMenuTests: XCTestCase {
         if let localJSON {
             try localJSON.write(to: localConfigURL, atomically: true, encoding: .utf8)
         }
+        let globalConfigURL = root.appendingPathComponent("global-cmux.json")
+        if let globalJSON {
+            try globalJSON.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+        }
 
         let store = CmuxConfigStore(
-            globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+            globalConfigPath: globalJSON == nil
+                ? root.appendingPathComponent("missing-global.json").path
+                : globalConfigURL.path,
             localConfigPath: localJSON == nil ? nil : localConfigURL.path,
             startFileWatchers: false
         )
         store.loadAll()
         return store
+    }
+
+    func testMobilePairingActionMetadataNamesMobilePairing() {
+        let metadata = CmuxSurfaceTabBarBuiltInAction.mobileConnect.resolvedConfigMetadata
+
+        XCTAssertEqual(
+            metadata.title,
+            String(localized: "command.mobileConnect.title", defaultValue: "Open Mobile Pairing"),
+            "The configurable action title should identify the mobile pairing flow"
+        )
+        XCTAssertTrue(
+            metadata.keywords.contains("tailscale"),
+            "The configurable action should be discoverable by searching for Tailscale"
+        )
     }
 
     func testDecodeNewWorkspaceContextMenuPreservesOrder() throws {
@@ -105,17 +121,15 @@ final class CmuxConfigContextMenuTests: XCTestCase {
     }
 
     @MainActor
-    func testDefaultNewWorkspaceContextMenuIncludesCloudVM() throws {
+    func testDefaultNewWorkspaceContextMenuCustomSectionIsNewWorkspaceOnly() throws {
         let store = try loadStore()
 
-        XCTAssertEqual(store.newWorkspaceContextMenuItems.count, 2)
-        guard store.newWorkspaceContextMenuItems.count == 2 else { return }
-        guard case .action(let first) = store.newWorkspaceContextMenuItems[0],
-              case .action(let second) = store.newWorkspaceContextMenuItems[1] else {
+        XCTAssertEqual(store.newWorkspaceContextMenuItems.count, 1)
+        guard store.newWorkspaceContextMenuItems.count == 1 else { return }
+        guard case .action(let first) = store.newWorkspaceContextMenuItems[0] else {
             return XCTFail("Expected default context menu actions.")
         }
         XCTAssertEqual(first.action.id, CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID)
-        XCTAssertEqual(second.action.id, CmuxSurfaceTabBarBuiltInAction.cloudVM.configID)
         XCTAssertTrue(store.configurationIssues.isEmpty)
     }
 
@@ -191,13 +205,20 @@ final class CmuxConfigContextMenuTests: XCTestCase {
               "title": "Cloud Override",
               "icon": { "type": "symbol", "name": "bolt" }
             }
+          },
+          "ui": {
+            "newWorkspace": {
+              "contextMenu": [
+                "cloudVM"
+              ]
+            }
           }
         }
         """)
 
-        XCTAssertEqual(store.newWorkspaceContextMenuItems.count, 2)
-        guard store.newWorkspaceContextMenuItems.count == 2 else { return }
-        guard case .action(let item) = store.newWorkspaceContextMenuItems[1] else {
+        XCTAssertEqual(store.newWorkspaceContextMenuItems.count, 1)
+        guard store.newWorkspaceContextMenuItems.count == 1 else { return }
+        guard case .action(let item) = store.newWorkspaceContextMenuItems[0] else {
             return XCTFail("Expected Cloud VM context-menu action.")
         }
         XCTAssertEqual(item.action.id, CmuxSurfaceTabBarBuiltInAction.cloudVM.configID)

@@ -1,3 +1,5 @@
+import CMUXAgentLaunch
+import CmuxFoundation
 import Foundation
 
 extension CMUXCLI {
@@ -63,6 +65,108 @@ extension CMUXCLI {
     func tmuxStartCommand(commandTokens: [String]) -> String? {
         let commandText = commandTokens.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
         return commandText.isEmpty ? nil : commandText
+    }
+
+    /// Returns a pane start-command that the surface can exec correctly.
+    ///
+    /// cmux hands a respawn/start command to the surface as the pane's process
+    /// command. On macOS, Ghostty execs that command via `exec -l <command>`
+    /// (see ghostty/src/termio/Exec.zig), which only works when `<command>` is a
+    /// single executable. tmux shell-commands are arbitrary shell expressions —
+    /// Claude Code agent-team teammates respawn with `cd <dir> && env … <claude> …`
+    /// — so `exec -l cd …` tries to exec the `cd` builtin as a binary, fails, and
+    /// the pane exits before the real command runs; that is why Claude Code
+    /// 2.1.183 teammates never opened a split pane (issue #6447).
+    ///
+    /// Every command is run through `/bin/sh -lc '<command>'`, so Ghostty execs a
+    /// login shell rather than a builtin/expression/assignment-prefix. The `-l`
+    /// is important: Ghostty's `exec -l` only changes argv[0], and does not make
+    /// macOS `/bin/sh` read `/etc/profile` when it is given a non-interactive `-c`
+    /// command. The login shell therefore runs `path_helper` and restores the
+    /// user's full login PATH before the command starts (issue #10189). The whole
+    /// command is single-quoted, so it round-trips verbatim regardless of
+    /// operators or quoting — there is no attempt to classify which commands
+    /// "need" a shell, which was unreliable (tmux shell-commands can hide
+    /// operators with no surrounding whitespace). Commands that are already a
+    /// shell invocation (e.g. OMO's `/bin/sh -c "…"`) are simply run through one
+    /// more shell, which execs straight into them.
+    ///
+    /// A POSIX shell (`/bin/sh`) is used deliberately rather than the user's
+    /// `$SHELL`: the commands being wrapped are POSIX `sh` syntax (Claude Code's
+    /// `cd … && env …`, and the no-command fallback `exec ${SHELL:-/bin/sh} -l`),
+    /// and `csh`/`tcsh` cannot parse `${VAR:-default}` parameter expansion or
+    /// `NAME=value` command prefixes. `/bin/sh` is always present and runs the
+    /// bodies correctly for every user; its login mode is a shell-independent way to
+    /// invoke macOS `path_helper` without asking the user's shell to parse a
+    /// POSIX command body.
+    func tmuxShellInvokedStartCommand(_ command: String) -> String {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return command }
+        return "/bin/sh -lc \(tmuxShellQuote(trimmed))"
+    }
+
+    /// Like `tmuxShellInvokedStartCommand`, but first exports `prependEnv` inside
+    /// the wrapping shell so the respawned process — and any `env …`/`exec` it
+    /// chains into — inherits those variables. Used to re-supply claude-teams
+    /// teammate panes the environment they need (see
+    /// `tmuxClaudeTeamsRespawnEnvironment`); with an empty `prependEnv` it is
+    /// byte-for-byte identical to `tmuxShellInvokedStartCommand`, so OMO and the
+    /// public `respawn-pane` command are unchanged.
+    func tmuxRespawnStartCommand(
+        _ command: String,
+        prependEnv: [(key: String, value: String)]
+    ) -> String {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return command }
+        guard !prependEnv.isEmpty else { return tmuxShellInvokedStartCommand(trimmed) }
+        let exports = prependEnv
+            .map { "export \($0.key)=\(tmuxShellQuote($0.value))" }
+            .joined(separator: "; ")
+        return tmuxShellInvokedStartCommand("\(exports); \(trimmed)")
+    }
+
+    /// Environment that a claude-teams teammate pane must start with.
+    ///
+    /// Teammate panes are respawned by cmux's surface layer, not by `cmux
+    /// claude-teams`, so they do NOT inherit the launcher environment the lead
+    /// got from `configureClaudeTeamsEnvironment`. The launcher records a
+    /// replay-safe snapshot in
+    /// ``ClaudeTeamsRespawnEnvironmentTransport/environmentKey``;
+    /// re-supply that snapshot so PATH-based tools and allowlisted Claude
+    /// configuration match the lead without copying secrets or surface identity.
+    /// `CLAUDE_CODE_SANDBOXED` is handled alongside it: Claude Code short-circuits
+    /// its interactive "Do you trust this folder?" gate on that variable, and a
+    /// teammate that hits the gate hangs forever (issue #6447).
+    ///
+    /// That trust gate is a real safety boundary, so it is only waived when the
+    /// user already opted into skipping safety prompts. The opt-in is NOT inferred
+    /// from the respawn command text (a `--dangerously-skip-permissions` substring
+    /// can appear in a cwd, quoted value, or other non-flag position): the `cmux
+    /// claude-teams` launcher makes that decision once from its own argv and records
+    /// it in `CMUX_CLAUDE_TEAMS_SANDBOXED` (see `claudeTeamsExtraEnvVars`). That
+    /// launcher env is propagated by the tmux shim to this `__tmux-compat` process,
+    /// and is set only inside an opted-in claude-teams session, so OMO and the
+    /// public `respawn-pane` command never see it and are unaffected.
+    ///
+    /// The bypass is deliberately per-launch and is NOT baked into the pane's
+    /// `tmux_start_command` (kept raw for display / OMX-HUD / `#{pane_start_command}`),
+    /// so it is not carried into session persistence/restore. That is intentional:
+    /// a restored teammate pane is an orphan (its team/parent session is gone after
+    /// an app restart) and is not a fresh `--dangerously-skip-permissions` opt-in, so
+    /// it correctly falls back to Claude's trust prompt rather than silently bypassing
+    /// the trust boundary outside an explicit opt-in.
+    func tmuxClaudeTeamsRespawnEnvironment() -> [(key: String, value: String)] {
+        let processEnvironment = ProcessInfo.processInfo.environment
+        let transport = ClaudeTeamsRespawnEnvironmentTransport()
+        var environment = transport.decodedEnvironment(
+            from: processEnvironment[ClaudeTeamsRespawnEnvironmentTransport.environmentKey]
+        )
+        if processEnvironment["CMUX_CLAUDE_TEAMS_SANDBOXED"] == "1" {
+            environment["CLAUDE_CODE_SANDBOXED"] = "1"
+        }
+        return environment.keys.sorted().compactMap { key in
+            environment[key].map { (key: key, value: $0) }
+        }
     }
 
     func tmuxShellWords(_ commandText: String) -> [String] {
@@ -230,30 +334,6 @@ extension CMUXCLI {
         return Int(trimmed)
     }
 
-    func tmuxResizePaneToCells(
-        workspaceId: String,
-        paneId: String,
-        targetCells: Int,
-        currentCellsKey: String,
-        cellSizeKey: String,
-        client: SocketClient
-    ) throws {
-        guard targetCells > 0 else { return }
-        let panePayload = try client.sendV2(method: "pane.list", params: ["workspace_id": workspaceId])
-        let panes = panePayload["panes"] as? [[String: Any]] ?? []
-        guard let matchingPane = panes.first(where: { ($0["id"] as? String) == paneId }),
-              let cellSize = intFromAny(matchingPane[cellSizeKey]), cellSize > 0 else {
-            return
-        }
-        let axis = currentCellsKey == "columns" ? "horizontal" : "vertical"
-        _ = try client.sendV2(method: "pane.resize", params: [
-            "workspace_id": workspaceId,
-            "pane_id": paneId,
-            "absolute_axis": axis,
-            "target_pixels": targetCells * cellSize
-        ])
-    }
-
     func tmuxInitialDividerPosition(
         workspaceId: String,
         paneId: String,
@@ -342,22 +422,7 @@ extension CMUXCLI {
     }
 
     func prependPathEntries(_ newEntries: [String], to currentPath: String?) -> String {
-        var ordered: [String] = []
-        var seen: Set<String> = []
-        for entry in newEntries + (currentPath?.split(separator: ":").map(String.init) ?? []) where !entry.isEmpty {
-            if seen.insert(entry).inserted {
-                ordered.append(entry)
-            }
-        }
-        return ordered.joined(separator: ":")
+        CmuxPathEnvironment.prependingUniqueEntries(newEntries, to: currentPath)
     }
 
-    struct TmuxCompatFocusedContext {
-        let socketPath: String
-        let workspaceId: String
-        let windowId: String?
-        let paneHandle: String
-        let paneId: String?
-        let surfaceId: String?
-    }
 }

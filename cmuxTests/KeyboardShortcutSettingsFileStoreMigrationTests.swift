@@ -135,6 +135,11 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
             notificationCenter: NotificationCenter(),
             startWatching: false
         )
+        let lookupRecorder = ShortcutSettingsLookupRecorder()
+        KeyboardShortcutSettings.shortcutLookupObserver = { action in
+            lookupRecorder.actions.append(action.rawValue)
+        }
+
         let primaryURL = directoryURL.appendingPathComponent("primary/cmux.json", isDirectory: false)
         let legacySettingsURL = directoryURL.appendingPathComponent("fallback/settings.json", isDirectory: false)
         let parsingNotificationCenter = NotificationCenter()
@@ -177,18 +182,14 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
             notificationCenter: parsingNotificationCenter,
             startWatching: false
         )
-        let lookupRecorder = ShortcutSettingsLookupRecorder()
-        KeyboardShortcutSettings.shortcutLookupObserver = { action in
-            lookupRecorder.actions.append(action.rawValue)
-        }
 
+        XCTAssertEqual(lookupRecorder.actions, [])
         XCTAssertEqual(defaultNotificationCounter.count, 0)
         XCTAssertEqual(parsingNotificationCounter.count, 1)
         XCTAssertEqual(
             store.override(for: .selectWorkspaceByNumber),
             StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
         )
-        XCTAssertEqual(lookupRecorder.actions, [])
     }
 
     func testSettingsFileURLForEditingReturnsCanonicalConfigWhenLegacyFallbackExists() throws {

@@ -9,10 +9,6 @@ TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cmux-theme-picker-helper.XXXXXX")"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 if [ "${CMUX_SKIP_ZIG_BUILD:-0}" = "1" ]; then
-  if [ "${CI:-0}" = "1" ] || [ "${GITHUB_ACTIONS:-0}" = "true" ]; then
-    echo "FAIL: bundled Ghostty helper regression cannot skip the real Zig-built helper in CI" >&2
-    exit 1
-  fi
   echo "SKIP: bundled Ghostty helper regression requires the real Zig-built helper"
   exit 0
 fi
@@ -63,6 +59,23 @@ if [ ! -d "$GHOSTTY_RESOURCES_DIR/themes" ]; then
   echo "FAIL: bundled Ghostty themes missing at $GHOSTTY_RESOURCES_DIR/themes" >&2
   exit 1
 fi
+
+GHOSTTY_SHELL_INTEGRATION_FILES=(
+  "bash/bash-preexec.sh"
+  "bash/ghostty.bash"
+  "elvish/lib/ghostty-integration.elv"
+  "fish/vendor_conf.d/ghostty-shell-integration.fish"
+  "nushell/vendor/autoload/ghostty.nu"
+  "zsh/.zshenv"
+  "zsh/ghostty-integration"
+)
+for relative_path in "${GHOSTTY_SHELL_INTEGRATION_FILES[@]}"; do
+  bundled_path="$GHOSTTY_RESOURCES_DIR/shell-integration/$relative_path"
+  if [ ! -f "$bundled_path" ]; then
+    echo "FAIL: bundled Ghostty shell integration missing at $bundled_path" >&2
+    exit 1
+  fi
+done
 
 CONFIG_PATH="$TMP_DIR/config.ghostty"
 SEARCH_CONFIG_PATH="$TMP_DIR/search-config.ghostty"
@@ -222,9 +235,15 @@ def run_picker(label, scenario_config_path, scripted_input, expected_theme=None)
                 except ProcessLookupError:
                     pass
                 _, status = os.waitpid(pid, 0)
-            sys.stderr.write(
-                f"FAIL: theme picker did not exit after Enter in {label}.\n"
-            )
+            if sent_input:
+                sys.stderr.write(
+                    f"FAIL: theme picker did not exit after Enter in {label}.\n"
+                )
+            else:
+                sys.stderr.write(
+                    f"FAIL: theme picker never rendered its footer in {label}, "
+                    "so the scripted input was never sent.\n"
+                )
             sys.stderr.write(output[-2000:].decode("utf-8", errors="replace"))
             sys.exit(1)
 

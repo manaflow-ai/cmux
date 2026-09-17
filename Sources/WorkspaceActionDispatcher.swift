@@ -1,6 +1,24 @@
 import Foundation
 
 enum WorkspaceActionDispatcher {
+    struct PinResolutionContext {
+        let workspacesById: [UUID: Workspace]
+        let liveWorkspaceIds: Set<UUID>
+
+        @MainActor
+        init(workspaces: [Workspace]) {
+            self.init(
+                workspacesById: Dictionary(uniqueKeysWithValues: workspaces.map { ($0.id, $0) }),
+                liveWorkspaceIds: Set(workspaces.map(\.id))
+            )
+        }
+
+        init(workspacesById: [UUID: Workspace], liveWorkspaceIds: Set<UUID>) {
+            self.workspacesById = workspacesById
+            self.liveWorkspaceIds = liveWorkspaceIds
+        }
+    }
+
     struct Target: Equatable {
         let workspaceIds: [UUID]
         let anchorWorkspaceId: UUID?
@@ -32,15 +50,22 @@ enum WorkspaceActionDispatcher {
         in tabManager: TabManager,
         target: Target
     ) -> PinState? {
-        let workspacesById = Dictionary(uniqueKeysWithValues: tabManager.tabs.map { ($0.id, $0) })
-        let targetWorkspaceIds = liveWorkspaceIds(in: tabManager, from: target.workspaceIds)
+        pinState(in: PinResolutionContext(workspaces: tabManager.tabs), target: target)
+    }
+
+    @MainActor
+    static func pinState(
+        in context: PinResolutionContext,
+        target: Target
+    ) -> PinState? {
+        let targetWorkspaceIds = liveWorkspaceIds(in: context, from: target.workspaceIds)
         guard !targetWorkspaceIds.isEmpty else { return nil }
 
         let anchorWorkspaceId = target.anchorWorkspaceId.flatMap { anchorId in
-            workspacesById[anchorId] == nil ? nil : anchorId
+            context.workspacesById[anchorId] == nil ? nil : anchorId
         } ?? targetWorkspaceIds[0]
 
-        guard let anchorWorkspace = workspacesById[anchorWorkspaceId] else {
+        guard let anchorWorkspace = context.workspacesById[anchorWorkspaceId] else {
             return nil
         }
 
@@ -85,11 +110,24 @@ enum WorkspaceActionDispatcher {
         in tabManager: TabManager,
         from workspaceIds: [UUID]
     ) -> [UUID] {
+        liveWorkspaceIds(in: Set(tabManager.tabs.map(\.id)), from: workspaceIds)
+    }
+
+    private static func liveWorkspaceIds(
+        in context: PinResolutionContext,
+        from workspaceIds: [UUID]
+    ) -> [UUID] {
+        liveWorkspaceIds(in: context.liveWorkspaceIds, from: workspaceIds)
+    }
+
+    private static func liveWorkspaceIds(
+        in liveWorkspaceIds: Set<UUID>,
+        from workspaceIds: [UUID]
+    ) -> [UUID] {
         var seen = Set<UUID>()
-        let liveIds = Set(tabManager.tabs.map(\.id))
         var resolved: [UUID] = []
 
-        for workspaceId in workspaceIds where liveIds.contains(workspaceId) && !seen.contains(workspaceId) {
+        for workspaceId in workspaceIds where liveWorkspaceIds.contains(workspaceId) && !seen.contains(workspaceId) {
             seen.insert(workspaceId)
             resolved.append(workspaceId)
         }

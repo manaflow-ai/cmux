@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import SwiftUI
 
@@ -30,7 +31,7 @@ struct KeyboardShortcutRecorder: View {
                     Text(label)
                     if let subtitle {
                         Text(subtitle)
-                            .font(.caption)
+                            .cmuxFont(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -85,24 +86,24 @@ struct KeyboardShortcutRecorder: View {
             if let validationMessage {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.caption)
+                        .cmuxFont(.caption)
                         .foregroundStyle(.red)
 
                     Text(validationMessage)
-                        .font(.caption)
+                        .cmuxFont(.caption)
                         .foregroundStyle(.red)
                         .fixedSize(horizontal: false, vertical: true)
 
                     if let validationButtonTitle, let onValidationButtonPressed {
                         Button(validationButtonTitle, action: onValidationButtonPressed)
                             .buttonStyle(.link)
-                            .font(.caption)
+                            .cmuxFont(.caption)
                     }
 
                     if let undoButtonTitle, let onUndoButtonPressed {
                         Button(undoButtonTitle, action: onUndoButtonPressed)
                             .buttonStyle(.link)
-                            .font(.caption)
+                            .cmuxFont(.caption)
                     }
                 }
                 .padding(.horizontal, 8)
@@ -462,20 +463,6 @@ final class ShortcutRecorderNSButton: NSButton {
 
     var debugHasPendingRejection: Bool {
         hasPendingRejection
-    }
-
-    func debugBeginRecordingWithoutEventMonitorForTesting() {
-        guard !isRecording else { return }
-        KeyboardShortcutRecorderActivity.resetForTesting()
-        isRecording = true
-        hasPendingRejection = false
-        pendingChordStart = nil
-        Self.activeRecorder = self
-        previousFirstResponder = nil
-        registerRecordingActivityIfNeeded()
-        onRecordingChanged?(true)
-        onRecorderFeedbackChanged?(nil)
-        updateTitle()
     }
 
     func debugSetPendingChordStart(_ stroke: ShortcutStroke?) {

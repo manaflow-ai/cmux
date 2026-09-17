@@ -101,40 +101,18 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxExternalTextSyncDoesNotOverwriteActiveIMEMarkedText() {
-        #expect(!shouldSynchronizeExternalTextToTextBox(
-            inlineAttachmentCount: 0,
-            plainText: "に",
-            externalText: "",
-            hasMarkedText: true
-        ))
-        #expect(shouldSynchronizeExternalTextToTextBox(
-            inlineAttachmentCount: 0,
-            plainText: "に",
-            externalText: "",
-            hasMarkedText: false
-        ))
-        #expect(!shouldSynchronizeExternalTextToTextBox(
-            inlineAttachmentCount: 1,
-            plainText: "に",
-            externalText: "",
-            hasMarkedText: false
-        ))
-    }
-
-    @Test
     func testTextBoxPlaceholderHidesDuringActiveIMEMarkedText() {
-        #expect(!shouldShowTextBoxPlaceholder(
+        #expect(!TextBoxSubmitAvailability.shouldShowPlaceholder(
             text: "",
             attachmentCount: 0,
             hasMarkedText: true
         ))
-        #expect(shouldShowTextBoxPlaceholder(
+        #expect(TextBoxSubmitAvailability.shouldShowPlaceholder(
             text: "",
             attachmentCount: 0,
             hasMarkedText: false
         ))
-        #expect(!shouldShowTextBoxPlaceholder(
+        #expect(!TextBoxSubmitAvailability.shouldShowPlaceholder(
             text: "に",
             attachmentCount: 0,
             hasMarkedText: false
@@ -143,23 +121,23 @@ struct TextBoxMentionCompletionTests {
 
     @Test
     func testTextBoxSubmitIsDisabledDuringActiveIMEMarkedText() {
-        #expect(!shouldEnableTextBoxSubmit(
+        #expect(!TextBoxSubmitAvailability.shouldEnableSubmit(
             text: "に",
             attachmentCount: 0,
             hasPendingAttachmentUpload: false,
             hasMarkedText: true
         ))
-        #expect(!shouldSubmitTextBox(
+        #expect(!TextBoxSubmitAvailability.shouldSubmit(
             hasPendingAttachmentUpload: false,
             hasMarkedText: true
         ))
-        #expect(shouldEnableTextBoxSubmit(
+        #expect(TextBoxSubmitAvailability.shouldEnableSubmit(
             text: "send",
             attachmentCount: 0,
             hasPendingAttachmentUpload: false,
             hasMarkedText: false
         ))
-        #expect(shouldSubmitTextBox(
+        #expect(TextBoxSubmitAvailability.shouldSubmit(
             hasPendingAttachmentUpload: false,
             hasMarkedText: false
         ))
@@ -189,7 +167,7 @@ struct TextBoxMentionCompletionTests {
             onSubmit: {},
             onEscape: {},
             onFocusTextBox: {},
-            onToggleFocus: {},
+            onToggleFocus: {}, onCycleSubmitAction: {},
             onForwardText: { _, _ in },
             onForwardKey: { _ in },
             onForwardControl: { _ in },
@@ -241,7 +219,7 @@ struct TextBoxMentionCompletionTests {
             onSubmit: {},
             onEscape: {},
             onFocusTextBox: {},
-            onToggleFocus: {},
+            onToggleFocus: {}, onCycleSubmitAction: {},
             onForwardText: { _, _ in },
             onForwardKey: { _ in },
             onForwardControl: { _ in },
@@ -289,7 +267,7 @@ struct TextBoxMentionCompletionTests {
             onSubmit: {},
             onEscape: {},
             onFocusTextBox: {},
-            onToggleFocus: {},
+            onToggleFocus: {}, onCycleSubmitAction: {},
             onForwardText: { _, _ in },
             onForwardKey: { _ in },
             onForwardControl: { _ in },
@@ -726,7 +704,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionFileSuggestionsReturnRefreshedCachedMisses() async throws {
+    func testTextBoxMentionFileSuggestionsRefreshCachedMisses() async throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-textbox-mentions-refresh-\(UUID().uuidString)",
@@ -758,7 +736,7 @@ struct TextBoxMentionCompletionTests {
             encoding: .utf8
         )
 
-        let refreshedSuggestions = await TextBoxMentionIndexStore.shared.suggestions(
+        let newSuggestions = await TextBoxMentionIndexStore.shared.suggestions(
             for: TextBoxMentionQuery(
                 kind: .file,
                 range: NSRange(location: 0, length: 8),
@@ -767,7 +745,7 @@ struct TextBoxMentionCompletionTests {
             ),
             rootDirectory: root.path
         )
-        #expect(refreshedSuggestions.first?.title == "@new-file.txt")
+        #expect(newSuggestions.first?.title == "@new-file.txt")
     }
 
     @Test
@@ -1169,7 +1147,7 @@ struct TextBoxMentionCompletionTests {
     }
 
     @Test
-    func testTextBoxMentionRefreshClearsRowsWhenSameTriggerQueryStaysNonEmpty() {
+    func testTextBoxMentionRefreshKeepsRowsWhenSameTriggerQueryStaysNonEmpty() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         textView.string = "$it"
         textView.setSelectedRange(NSRange(location: 3, length: 0))
@@ -1195,14 +1173,13 @@ struct TextBoxMentionCompletionTests {
         textView.string = "$iterate-pr"
         textView.setSelectedRange(NSRange(location: 11, length: 0))
         textView.refreshMentionCompletions()
-        #expect(textView.debugMentionSuggestionCount() == 0)
-        #expect(textView.debugMentionCompletionsShouldShowPopover())
+        #expect(textView.debugMentionSuggestionCount() == 1)
         #expect(!textView.debugMentionSuggestionsAreCurrent())
         #expect(!textView.debugAcceptMentionCompletion())
     }
 
     @Test
-    func testTextBoxMentionRefreshClearsStaleRowsWhenSameTriggerQueryNarrows() {
+    func testTextBoxMentionRefreshFiltersStaleRowsWhenSameTriggerQueryNarrows() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         textView.string = "$it"
         textView.setSelectedRange(NSRange(location: 3, length: 0))
@@ -1235,14 +1212,13 @@ struct TextBoxMentionCompletionTests {
         textView.setSelectedRange(NSRange(location: 11, length: 0))
         textView.refreshMentionCompletions()
 
-        #expect(textView.debugMentionSuggestionTitles() == [])
-        #expect(textView.debugMentionCompletionsShouldShowPopover())
+        #expect(textView.debugMentionSuggestionTitles() == ["$iterate-pr"])
         #expect(!textView.debugMentionSuggestionsAreCurrent())
         #expect(!textView.debugAcceptMentionCompletion(suggestion: staleSuggestion))
     }
 
     @Test
-    func testTextBoxMentionRowsStayClearedWhenQueryReturnsToPreviousValue() {
+    func testTextBoxMentionFilteredRowsStayNonCurrentWhenQueryReturnsToPreviousValue() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         textView.string = "$it"
         textView.setSelectedRange(NSRange(location: 3, length: 0))
@@ -1274,14 +1250,13 @@ struct TextBoxMentionCompletionTests {
         textView.string = "$iterate-pr"
         textView.setSelectedRange(NSRange(location: 11, length: 0))
         textView.refreshMentionCompletions()
-        #expect(textView.debugMentionSuggestionTitles() == [])
+        #expect(textView.debugMentionSuggestionTitles() == ["$iterate-pr"])
         #expect(!textView.debugMentionSuggestionsAreCurrent())
 
         textView.string = "$it"
         textView.setSelectedRange(NSRange(location: 3, length: 0))
         textView.refreshMentionCompletions()
-        #expect(textView.debugMentionSuggestionTitles() == [])
-        #expect(textView.debugMentionCompletionsShouldShowPopover())
+        #expect(textView.debugMentionSuggestionTitles() == ["$iterate-pr"])
         #expect(!textView.debugMentionSuggestionsAreCurrent())
         #expect(!textView.debugAcceptMentionCompletion())
     }
@@ -1319,7 +1294,7 @@ struct TextBoxMentionCompletionTests {
         textView.string = "$iterate-pr"
         textView.setSelectedRange(NSRange(location: 11, length: 0))
         textView.refreshMentionCompletions()
-        #expect(textView.debugMentionSuggestionTitles() == [])
+        #expect(textView.debugMentionSuggestionTitles() == ["$iterate-pr"])
 
         textView.string = "$"
         textView.setSelectedRange(NSRange(location: 1, length: 0))

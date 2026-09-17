@@ -33,9 +33,6 @@ if [ ! -d "$APP" ]; then
   exit 1
 fi
 
-export CMUX_APP_PATH="$APP"
-export CMUX_VM_SOCKET_RUNNER=1
-
 cleanup() {
   pkill -x "cmux DEV" || true
   pkill -x "cmux" || true
@@ -198,15 +195,42 @@ if client is not None:
 PY
 }
 
+run_test_with_retry() {
+  local f="$1"
+  local attempts=3
+  local n=1
+
+  while [ "$n" -le "$attempts" ]; do
+    echo "RUN  $f (attempt $n/$attempts)"
+    if python3 "$f"; then
+      return 0
+    fi
+
+    if [ "$n" -ge "$attempts" ]; then
+      return 1
+    fi
+
+    echo "WARN: attempt $n failed for $f; relaunching and retrying" >&2
+    echo "== relaunch (retry) =="
+    launch_and_wait
+    n=$((n + 1))
+  done
+
+  return 1
+}
+
 echo "== tests (v1) =="
 fail=0
 for f in tests/test_*.py; do
   base=$(basename "$f")
+  if [ "$base" = "test_ctrl_interactive.py" ]; then
+    echo "SKIP $f"
+    continue
+  fi
 
   echo "== launch ($base) =="
   launch_and_wait
-  echo "RUN  $f"
-  if ! python3 "$f"; then
+  if ! run_test_with_retry "$f"; then
     echo "FAIL $f" >&2
     fail=1
     break

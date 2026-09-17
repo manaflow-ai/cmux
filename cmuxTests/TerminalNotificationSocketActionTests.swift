@@ -1,4 +1,4 @@
-import XCTest
+@preconcurrency import XCTest
 import AppKit
 import Darwin
 #if canImport(cmux_DEV)
@@ -7,15 +7,17 @@ import Darwin
 @testable import cmux
 #endif
 
+// This existing socket suite remains on XCTest because its tests share the
+// XCTestCase setup/teardown and socket fixture lifecycle below.
 @MainActor
 final class TerminalNotificationSocketActionTests: XCTestCase {
     override func setUp() {
         super.setUp()
-        TerminalController.shared.stop()
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
     }
 
     override func tearDown() {
-        TerminalController.shared.stop()
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
         super.tearDown()
     }
 
@@ -137,7 +139,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
     }
 
     func testNotificationOpenFocusesDestinationAndMarksRead() async throws {
-        let fixture = try makeSocketFixture(name: "notif-open")
+        let fixture = try makeSocketFixture(name: "notif-open", includeWindow: true)
         defer { fixture.cleanup() }
 
         let targetWorkspace = fixture.manager.addWorkspace(title: "Open Target", select: false)
@@ -164,7 +166,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
     }
 
     func testNotificationJumpToUnreadOpensLatestUnreadAndNoOpsWhenNoneRemain() async throws {
-        let fixture = try makeSocketFixture(name: "notif-jump")
+        let fixture = try makeSocketFixture(name: "notif-jump", includeWindow: true)
         defer { fixture.cleanup() }
 
         let targetWorkspace = fixture.manager.addWorkspace(title: "Unread Target", select: false)
@@ -208,7 +210,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
     }
 
     func testNotificationJumpToUnreadPayloadMatchesOpenedFallbackNotification() async throws {
-        let fixture = try makeSocketFixture(name: "notif-jump-skip")
+        let fixture = try makeSocketFixture(name: "notif-jump-skip", includeWindow: true)
         defer { fixture.cleanup() }
 
         let targetWorkspace = fixture.manager.addWorkspace(title: "Unread Fallback", select: false)
@@ -234,7 +236,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         XCTAssertEqual(fixture.notification(openable.id)?.isRead, true)
     }
 
-    private struct SocketFixture {
+    struct SocketFixture {
         let socketPath: String
         let store: TerminalNotificationStore
         let appDelegate: AppDelegate
@@ -247,8 +249,6 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         let originalTabManager: TabManager?
         let originalNotificationStore: TerminalNotificationStore?
         let originalAppFocusOverride: Bool?
-        let originalSuppressNotificationWindowFocus: Bool
-        let originalNotificationOpenHandler: ((UUID, UUID?, UUID?) -> Bool)?
 
         @MainActor
         func notification(_ id: UUID) -> TerminalNotification? {
@@ -257,7 +257,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
 
         @MainActor
         func cleanup() {
-            TerminalController.shared.stop()
+            TerminalController.shared.stop(cleanupDiscoveryState: true)
             if let windowId {
                 appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
             }
@@ -271,14 +271,11 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
             appDelegate.tabManager = originalTabManager
             appDelegate.notificationStore = originalNotificationStore
             AppFocusState.overrideIsFocused = originalAppFocusOverride
-            appDelegate.suppressNotificationWindowFocusForTesting = originalSuppressNotificationWindowFocus
-            appDelegate.notificationOpenHandlerForTesting = originalNotificationOpenHandler
             AppDelegate.shared = previousShared
             unlink(socketPath)
         }
     }
-
-    private func makeSocketFixture(name: String, includeWindow: Bool = false) throws -> SocketFixture {
+    func makeSocketFixture(name: String, includeWindow: Bool = false, eagerLoadTerminal: Bool = false) throws -> SocketFixture {
         let socketPath = makeSocketPath(name)
         let store = TerminalNotificationStore.shared
         let previousShared = AppDelegate.shared
@@ -287,8 +284,6 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         let originalTabManager = appDelegate.tabManager
         let originalNotificationStore = appDelegate.notificationStore
         let originalAppFocusOverride = AppFocusState.overrideIsFocused
-        let originalSuppressNotificationWindowFocus = appDelegate.suppressNotificationWindowFocusForTesting
-        let originalNotificationOpenHandler = appDelegate.notificationOpenHandlerForTesting
 
         AppDelegate.shared = appDelegate
         store.replaceNotificationsForTesting([])
@@ -297,18 +292,8 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         appDelegate.tabManager = manager
         appDelegate.notificationStore = store
         AppFocusState.overrideIsFocused = false
-        appDelegate.suppressNotificationWindowFocusForTesting = true
-        appDelegate.notificationOpenHandlerForTesting = { tabId, surfaceId, notificationId in
-            guard manager.focusTabFromNotification(tabId, surfaceId: surfaceId) else {
-                return false
-            }
-            if let notificationId {
-                store.markRead(id: notificationId)
-            }
-            return true
-        }
 
-        let workspace = manager.addWorkspace(title: "Socket Notifications", select: true)
+        let workspace = manager.addWorkspace(title: "Socket Notifications", select: true, eagerLoadTerminal: eagerLoadTerminal)
         let surfaceId = try XCTUnwrap(workspace.focusedPanelId)
 
         let windowId: UUID?
@@ -321,7 +306,13 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
                 backing: .buffered,
                 defer: false
             )
+            // AppKit releases a closed window unless the owner opts out, and this
+            // fixture's window is closed below. Without this the close over-releases
+            // and kills the test host, losing this suite's verdict and its
+            // shard-mates' along with it.
+            testWindow.isReleasedWhenClosed = false
             testWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(registeredWindowId.uuidString)")
+            testWindow.makeKeyAndOrderFront(nil)
             windowId = registeredWindowId
             window = testWindow
         } else {
@@ -348,12 +339,9 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
             window: window,
             originalTabManager: originalTabManager,
             originalNotificationStore: originalNotificationStore,
-            originalAppFocusOverride: originalAppFocusOverride,
-            originalSuppressNotificationWindowFocus: originalSuppressNotificationWindowFocus,
-            originalNotificationOpenHandler: originalNotificationOpenHandler
+            originalAppFocusOverride: originalAppFocusOverride
         )
     }
-
     private func makeNotification(
         tabId: UUID,
         surfaceId: UUID?,
@@ -396,7 +384,7 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         )
     }
 
-    private func sendV2RequestAsync(
+    func sendV2RequestAsync(
         method: String,
         params: [String: Any] = [:],
         to socketPath: String

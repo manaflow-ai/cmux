@@ -5,13 +5,12 @@
 #   ./scripts/run-e2e.sh UpdatePillUITests
 #   ./scripts/run-e2e.sh UpdatePillUITests --wait
 #   ./scripts/run-e2e.sh UpdatePillUITests/testFoo --ref my-branch
+#   ./scripts/run-e2e.sh cmuxTests/ForkParentFallbackGeneralizationTests
 #   ./scripts/run-e2e.sh UpdatePillUITests --no-video --timeout 300
 set -euo pipefail
 
 REPO="manaflow-ai/cmux"
 WORKFLOW="test-e2e.yml"
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Defaults
 REF=""
@@ -24,7 +23,8 @@ usage() {
 Usage: $(basename "$0") <test_filter> [options]
 
 Arguments:
-  test_filter    Test class or class/method (e.g. UpdatePillUITests)
+  test_filter    Test class or class/method. Bare filters target cmuxUITests;
+                 use cmuxUITests/Class or cmuxTests/Class for explicit targets.
 
 Options:
   --ref <ref>      Branch or SHA to test (default: current branch)
@@ -68,12 +68,6 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-NORMALIZED_TEST_FILTER="$("$ROOT_DIR/scripts/ci/validate-e2e-test-filter.sh" "$TEST_FILTER")"
-if [ "$NORMALIZED_TEST_FILTER" != "$TEST_FILTER" ]; then
-  echo "Normalized test_filter=$NORMALIZED_TEST_FILTER"
-fi
-TEST_FILTER="$NORMALIZED_TEST_FILTER"
-
 # Build workflow dispatch fields
 FIELDS=(-f "test_filter=$TEST_FILTER" -f "record_video=$RECORD_VIDEO" -f "test_timeout=$TIMEOUT")
 if [ -n "$REF" ]; then
@@ -100,10 +94,4 @@ if [ "$WAIT" = true ]; then
   echo ""
   echo "Result: $STATUS"
   echo "Run: $RUN_URL"
-
-  # Find the issue created for this run (search by run ID in body)
-  ISSUE_URL=$(gh search issues "$RUN_ID" --repo manaflow-ai/cmux-dev-artifacts --limit 1 --json url --jq '.[0].url' 2>/dev/null || true)
-  if [ -n "$ISSUE_URL" ]; then
-    echo "Issue: $ISSUE_URL"
-  fi
 fi

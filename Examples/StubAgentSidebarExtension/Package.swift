@@ -13,7 +13,7 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(path: "../../Packages/CmuxExtensionKit"),
+        .package(path: "../../Packages/macOS/CmuxExtensionKit"),
     ],
     targets: [
         .target(

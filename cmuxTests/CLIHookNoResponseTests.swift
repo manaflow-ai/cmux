@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 import Testing
 
-@Suite("CLI hook no-response telemetry")
+@Suite("CLI hook no-response telemetry", .serialized)
 struct CLIHookNoResponseTests {
     final class BundleProbe {}
 
@@ -11,71 +11,6 @@ struct CLIHookNoResponseTests {
         let stdout: String
         let stderr: String
         let timedOut: Bool
-    }
-
-    final class RunningProcess {
-        private let process: Process?
-        private let stdout: Pipe?
-        private let stderr: Pipe?
-        private let finished: DispatchSemaphore?
-        private let stdinHandle: FileHandle?
-        private let stdinURL: URL?
-        private let immediateResult: ProcessRunResult?
-
-        init(
-            process: Process,
-            stdout: Pipe,
-            stderr: Pipe,
-            finished: DispatchSemaphore,
-            stdinHandle: FileHandle?,
-            stdinURL: URL?
-        ) {
-            self.process = process
-            self.stdout = stdout
-            self.stderr = stderr
-            self.finished = finished
-            self.stdinHandle = stdinHandle
-            self.stdinURL = stdinURL
-            immediateResult = nil
-        }
-
-        init(immediateResult: ProcessRunResult) {
-            process = nil
-            stdout = nil
-            stderr = nil
-            finished = nil
-            stdinHandle = nil
-            stdinURL = nil
-            self.immediateResult = immediateResult
-        }
-
-        func wait(timeout: TimeInterval) -> ProcessRunResult {
-            if let immediateResult {
-                return immediateResult
-            }
-            guard let process, let stdout, let stderr, let finished else {
-                return ProcessRunResult(status: -1, stdout: "", stderr: "process was not started", timedOut: false)
-            }
-
-            let timedOut = finished.wait(timeout: .now() + timeout) != .success
-            if timedOut {
-                process.terminate()
-                _ = finished.wait(timeout: .now() + 1)
-            }
-
-            let stdoutData = stdout.fileHandleForReading.readDataToEndOfFile()
-            let stderrData = stderr.fileHandleForReading.readDataToEndOfFile()
-            try? stdinHandle?.close()
-            if let stdinURL {
-                try? FileManager.default.removeItem(at: stdinURL)
-            }
-            return ProcessRunResult(
-                status: process.terminationStatus,
-                stdout: String(data: stdoutData, encoding: .utf8) ?? "",
-                stderr: String(data: stderrData, encoding: .utf8) ?? "",
-                timedOut: timedOut
-            )
-        }
     }
 
     final class MockSocketServerState: @unchecked Sendable {
@@ -117,7 +52,9 @@ struct CLIHookNoResponseTests {
             FeedHookCase(source: "gemini", event: "PreToolUse", toolName: "read", pidKey: "CMUX_GEMINI_PID"),
             FeedHookCase(source: "kiro", event: "postToolUse", toolName: "fs_write", pidKey: "CMUX_KIRO_PID"),
             FeedHookCase(source: "hermes-agent", event: "pre_tool_call", toolName: "terminal", pidKey: "CMUX_HERMES_AGENT_PID"),
+            FeedHookCase(source: "antigravity", event: "PreToolUse", toolName: "Bash", pidKey: "CMUX_ANTIGRAVITY_PID"),
             FeedHookCase(source: "antigravity", event: "PostToolUse", toolName: "run_command", pidKey: "CMUX_ANTIGRAVITY_PID"),
+            FeedHookCase(source: "cursor", event: "beforeShellExecution", toolName: "Bash", pidKey: "CMUX_CURSOR_PID"),
         ]
 
         for testCase in cases {
@@ -229,7 +166,7 @@ struct CLIHookNoResponseTests {
             }
         }
 
-        let running = Self.startProcess(
+        let result = Self.runProcess(
             executablePath: cliPath,
             arguments: ["hooks", "kiro", "session-start"],
             environment: [
@@ -254,12 +191,11 @@ struct CLIHookNoResponseTests {
                 "CMUX_CLI_SENTRY_DISABLED": "1",
                 "CMUX_SOCKET_PASSWORD": "test-password",
             ],
-            standardInput: #"{"session_id":"kiro-lifecycle-no-response","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#
+            standardInput: #"{"session_id":"kiro-lifecycle-no-response","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
+            timeout: 1.0
         )
 
-        let observedFeedPush = server.wait(timeout: 5)
-        let result = running.wait(timeout: observedFeedPush ? 2.0 : 0.0)
-        #expect(observedFeedPush, "socket server did not observe lifecycle feed.push")
+        #expect(server.wait(timeout: 5), "socket server did not observe lifecycle feed.push")
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout == "{}\n")
@@ -283,8 +219,12 @@ struct CLIHookNoResponseTests {
             try? FileManager.default.removeItem(at: root)
         }
 
-        let server = Self.startAcceptedSocketThatDoesNotRead(listenerFD: listenerFD, holdFor: 1.0)
-        let largeToolInput = String(repeating: "x", count: 8 * 1024 * 1024)
+        let server = try Self.startAcceptedSocketThatDoesNotRead(listenerFD: listenerFD, holdFor: 1.0)
+        // Stay under the CLI's 1 MiB codex feed-hook stdin cap so the payload still
+        // reaches the socket, but far above what the non-reading peer will absorb
+        // (the fixture pins its receive buffer to 4 KiB) so the write stalls and has
+        // to be abandoned by the 0.05s write timeout.
+        let largeToolInput = String(repeating: "x", count: 512 * 1024)
         let input = """
         {"hook_event_name":"PreToolUse","session_id":"codex-session-no-read","cwd":"\(root.path)","tool_name":"apply_patch","tool_input":{"payload":"\(largeToolInput)"}}
         """
@@ -414,7 +354,6 @@ struct CLIHookNoResponseTests {
                 fulfillOnce()
                 return
             }
-            disableSigPipe(on: clientFD)
             defer { Darwin.close(clientFD) }
 
             readLines(from: clientFD) { line in
@@ -466,7 +405,6 @@ struct CLIHookNoResponseTests {
                     fulfillOnce()
                     return
                 }
-                disableSigPipe(on: clientFD)
                 accepted += 1
 
                 DispatchQueue.global(qos: .userInitiated).async {
@@ -485,7 +423,21 @@ struct CLIHookNoResponseTests {
         return MockSocketServer(handled: handled)
     }
 
-    private static func startAcceptedSocketThatDoesNotRead(listenerFD: Int32, holdFor: TimeInterval) -> MockSocketServer {
+    private static func startAcceptedSocketThatDoesNotRead(
+        listenerFD: Int32,
+        holdFor: TimeInterval
+    ) throws -> MockSocketServer {
+        var receiveBufferBytes: Int32 = 4 * 1024
+        guard setsockopt(
+            listenerFD,
+            SOL_SOCKET,
+            SO_RCVBUF,
+            &receiveBufferBytes,
+            socklen_t(MemoryLayout.size(ofValue: receiveBufferBytes))
+        ) == 0 else {
+            throw posixError("failed to constrain non-reading socket receive buffer")
+        }
+
         let handled = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .userInitiated).async {
             var clientAddr = sockaddr_un()
@@ -499,7 +451,6 @@ struct CLIHookNoResponseTests {
                 handled.signal()
                 return
             }
-            disableSigPipe(on: clientFD)
             handled.signal()
             _ = DispatchSemaphore(value: 0).wait(timeout: .now() + holdFor)
             Darwin.close(clientFD)
@@ -532,19 +483,6 @@ struct CLIHookNoResponseTests {
         let response = line + "\n"
         _ = response.withCString { ptr in
             Darwin.write(fd, ptr, strlen(ptr))
-        }
-    }
-
-    private static func disableSigPipe(on fd: Int32) {
-        var value: Int32 = 1
-        _ = withUnsafePointer(to: &value) { pointer in
-            Darwin.setsockopt(
-                fd,
-                SOL_SOCKET,
-                SO_NOSIGPIPE,
-                pointer,
-                socklen_t(MemoryLayout<Int32>.size)
-            )
         }
     }
 
@@ -593,20 +531,6 @@ struct CLIHookNoResponseTests {
         standardInput: String? = nil,
         timeout: TimeInterval
     ) -> ProcessRunResult {
-        startProcess(
-            executablePath: executablePath,
-            arguments: arguments,
-            environment: environment,
-            standardInput: standardInput
-        ).wait(timeout: timeout)
-    }
-
-    private static func startProcess(
-        executablePath: String,
-        arguments: [String],
-        environment: [String: String],
-        standardInput: String? = nil
-    ) -> RunningProcess {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
@@ -630,11 +554,17 @@ struct CLIHookNoResponseTests {
                 stdinURL = url
             } catch {
                 try? FileManager.default.removeItem(at: url)
-                return RunningProcess(immediateResult: ProcessRunResult(status: -1, stdout: "", stderr: "\(error)", timedOut: false))
+                return ProcessRunResult(status: -1, stdout: "", stderr: "\(error)", timedOut: false)
             }
         } else {
             stdinHandle = nil
             stdinURL = nil
+        }
+        defer {
+            try? stdinHandle?.close()
+            if let stdinURL {
+                try? FileManager.default.removeItem(at: stdinURL)
+            }
         }
 
         let finished = DispatchSemaphore(value: 0)
@@ -643,20 +573,22 @@ struct CLIHookNoResponseTests {
         do {
             try process.run()
         } catch {
-            try? stdinHandle?.close()
-            if let stdinURL {
-                try? FileManager.default.removeItem(at: stdinURL)
-            }
-            return RunningProcess(immediateResult: ProcessRunResult(status: -1, stdout: "", stderr: "\(error)", timedOut: false))
+            return ProcessRunResult(status: -1, stdout: "", stderr: "\(error)", timedOut: false)
         }
 
-        return RunningProcess(
-            process: process,
-            stdout: stdout,
-            stderr: stderr,
-            finished: finished,
-            stdinHandle: stdinHandle,
-            stdinURL: stdinURL
+        let timedOut = finished.wait(timeout: .now() + timeout) != .success
+        if timedOut {
+            process.terminate()
+            _ = finished.wait(timeout: .now() + 1)
+        }
+
+        let stdoutData = stdout.fileHandleForReading.readDataToEndOfFile()
+        let stderrData = stderr.fileHandleForReading.readDataToEndOfFile()
+        return ProcessRunResult(
+            status: process.terminationStatus,
+            stdout: String(data: stdoutData, encoding: .utf8) ?? "",
+            stderr: String(data: stderrData, encoding: .utf8) ?? "",
+            timedOut: timedOut
         )
     }
 

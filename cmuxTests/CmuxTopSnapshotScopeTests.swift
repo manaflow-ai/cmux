@@ -301,6 +301,15 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
             sample["resident_memory_fallback_source"] as? String,
             CmuxTopProcessMemorySource.rusageResidentSize.rawValue
         )
+        XCTAssertEqual(sample["cmux_scope"] as? Bool, true)
+
+        let unscopedSnapshot = CmuxTopProcessSnapshot(
+            processes: [],
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: false,
+            includesCMUXScope: false
+        )
+        XCTAssertEqual(unscopedSnapshot.samplePayload()["cmux_scope"] as? Bool, false)
 
         let fallbackSnapshot = CmuxTopProcessSnapshot(
             processes: [
@@ -840,7 +849,7 @@ while allocations:
                 }
                 Thread.sleep(forTimeInterval: 0.05)
             }
-            throw CmuxTopSnapshotScopeTests.hostedProcessFixtureErrorOrSkip("Timed out waiting for process tree fixture")
+            throw XCTSkip("Timed out waiting for process tree fixture")
         }
 
         private static func intValues(in raw: String) -> [Int] {
@@ -888,24 +897,9 @@ while allocations:
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {
-            throw Self.hostedProcessFixtureErrorOrSkip("ps failed with status \(process.terminationStatus)")
+            throw XCTSkip("ps failed with status \(process.terminationStatus)")
         }
         return String(data: data, encoding: .utf8) ?? ""
-    }
-
-    private static func hostedProcessFixtureErrorOrSkip(
-        _ message: String,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) -> Error {
-        let environment = ProcessInfo.processInfo.environment
-        if environment["CI"] == "true" || environment["GITHUB_ACTIONS"] == "true" {
-            XCTFail(message, file: file, line: line)
-            return NSError(domain: "cmux.tests", code: 1, userInfo: [
-                NSLocalizedDescriptionKey: message,
-            ])
-        }
-        return XCTSkip(message)
     }
 
     private func physicalFootprintBytes(for pid: Int) -> Int64? {

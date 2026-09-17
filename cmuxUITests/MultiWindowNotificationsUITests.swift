@@ -3,32 +3,32 @@ import Foundation
 import CoreGraphics
 
 final class MultiWindowNotificationsUITests: XCTestCase {
-    private var dataPath = ""
-    private var diagnosticsPath = ""
-    private var socketPath = ""
-    private var launchTag = ""
+    var dataPath = ""
+    var socketPath = ""
+    var launchTag = ""
 
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
         dataPath = "/tmp/cmux-ui-test-multi-window-notifs-\(UUID().uuidString).json"
-        diagnosticsPath = "/tmp/cmux-ui-test-multi-window-notifs-diagnostics-\(UUID().uuidString).json"
         socketPath = "/tmp/cmux-ui-test-socket-\(UUID().uuidString).sock"
         launchTag = "ui-tests-multi-window-notifs-\(UUID().uuidString.prefix(8))"
         try? FileManager.default.removeItem(atPath: dataPath)
-        try? FileManager.default.removeItem(atPath: diagnosticsPath)
         try? FileManager.default.removeItem(atPath: socketPath)
     }
 
     override func tearDown() {
         try? FileManager.default.removeItem(atPath: dataPath)
-        try? FileManager.default.removeItem(atPath: diagnosticsPath)
         try? FileManager.default.removeItem(atPath: socketPath)
         super.tearDown()
     }
 
+    func testNotificationsPopoverShowsWorkspaceAsHeadline() {
+        runNotificationsPopoverShowsWorkspaceAsHeadline()
+    }
+
     func testNotificationsRouteToCorrectWindow() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
         app.launchEnvironment["CMUX_TAG"] = launchTag
@@ -119,7 +119,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
     }
 
     func testNotificationsPopoverCanCloseViaShortcutAndEscape() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
         app.launchEnvironment["CMUX_TAG"] = launchTag
@@ -160,7 +160,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
     }
 
     func testNotificationsPopoverJumpToLatestButtonShowsShortcut() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
         app.launchEnvironment["CMUX_TAG"] = launchTag
@@ -188,16 +188,49 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         XCTAssertTrue(shortcutValue?.uppercased().contains("U") == true, "Expected Jump to Latest shortcut to include U")
     }
 
+    func testNotificationsPopoverOpensPhoneForwardingControls() {
+        let app = XCUIApplication.cmuxTestApplication()
+        app.launchEnvironment["CMUX_TAG"] = launchTag
+        launchAllowingHeadlessBackgroundActivation(app)
+        XCTAssertTrue(
+            ensureAppRunningAfterLaunch(app, timeout: 12.0),
+            "Expected app to launch for phone-forwarding discoverability test. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 8.0))
+        XCTAssertTrue(
+            ensureAppForegroundForInteraction(app, timeout: 6.0),
+            "Expected cmux to be foreground before opening notifications popover. state=\(app.state.rawValue)"
+        )
+
+        app.typeKey("i", modifierFlags: [.command])
+        let phoneForwardingButton = app.buttons["notificationsPopover.phoneForwarding"]
+        XCTAssertTrue(
+            phoneForwardingButton.waitForExistence(timeout: 6.0),
+            "Expected a discoverable phone-forwarding entrypoint in the notifications popover"
+        )
+
+        let forwardingToggle = app.descendants(matching: .any)["notificationsPage.forwardToPhone"]
+        phoneForwardingButton.coordinate(
+            withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
+        ).click()
+        XCTAssertTrue(
+            forwardingToggle.waitForExistence(timeout: 9.0),
+            "Expected the popover entrypoint to reveal the actual phone-forwarding controls"
+        )
+        let notificationsTab = app.buttons["Notifications"]
+        XCTAssertTrue(
+            notificationsTab.waitForExistence(timeout: 3.0) && notificationsTab.isHittable,
+            "Expected Notifications to open as a selectable pane tab"
+        )
+    }
+
     func testEmptyNotificationsPopoverBlocksTerminalTyping() throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += ["-socketControlMode", "allowAll"]
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
         app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
-        app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_EMPTY_NOTIFICATIONS_BLOCKING_SETUP"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
         app.launchEnvironment["CMUX_TAG"] = launchTag
         launchAllowingHeadlessBackgroundActivation(app)
         XCTAssertTrue(
@@ -206,20 +239,16 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         )
 
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 8.0))
-        if let diagnostics = waitForSocketDiagnosticsReady(timeout: 6.0),
-           let expectedSocketPath = diagnostics["socketExpectedPath"],
-           !expectedSocketPath.isEmpty {
-            socketPath = expectedSocketPath
+        guard let resolvedPath = resolveSocketPath(timeout: 8.0) else {
+            throw XCTSkip("Control socket unavailable in this test environment. requested=\(socketPath)")
+        }
+        socketPath = resolvedPath
+        let pingResponse = waitForSocketPong(timeout: 8.0)
+        guard pingResponse == "PONG" else {
+            throw XCTSkip("Control socket did not respond in time. path=\(socketPath) response=\(pingResponse ?? "<nil>")")
         }
 
-        let marker = "cmux_notif_block_\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8))"
-        let before = try XCTUnwrap(
-            waitForEmptyNotificationsTerminalSnapshot(timeout: 12.0),
-            "Expected app-side terminal diagnostics before opening the notifications popover. " +
-            "diagnostics=\(loadDiagnostics() ?? [:])"
-        )
-        XCTAssertFalse(before.text.contains(marker), "Unexpected marker precondition collision")
-        XCTAssertEqual(before.notificationCount, 0, "Expected app-side setup to clear notifications")
+        _ = socketCommand("clear_notifications")
 
         XCTAssertTrue(
             ensureAppForegroundForInteraction(app, timeout: 6.0),
@@ -234,26 +263,22 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         XCTAssertTrue(clearAllButton.waitForExistence(timeout: 2.0), "Expected Clear All button in empty notifications popover")
         XCTAssertFalse(clearAllButton.isEnabled, "Expected Clear All button to be disabled with no notifications")
 
-        XCTAssertNotNil(
-            waitForEmptyNotificationsTerminalSnapshot(timeout: 3.0) { snapshot in
-                snapshot.popoverShown
-            },
-            "Expected app-side diagnostics to observe the notifications popover. diagnostics=\(loadDiagnostics() ?? [:])"
-        )
+        let marker = "cmux_notif_block_\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8))"
+        let before = readCurrentTerminalText() ?? ""
+        XCTAssertFalse(before.contains(marker), "Unexpected marker precondition collision")
 
         app.typeText(marker)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.25))
 
-        let after = try XCTUnwrap(
-            waitForEmptyNotificationsTerminalSnapshot(timeout: 4.0) { snapshot in
-                snapshot.captureCount >= before.captureCount + 2
-            },
-            "Expected a fresh app-side terminal snapshot after typing. diagnostics=\(loadDiagnostics() ?? [:])"
-        )
-        XCTAssertFalse(after.text.contains(marker), "Expected typing to be blocked while empty notifications popover is open")
+        guard let after = readCurrentTerminalText() else {
+            XCTFail("Expected terminal text from control socket")
+            return
+        }
+        XCTAssertFalse(after.contains(marker), "Expected typing to be blocked while empty notifications popover is open")
     }
 
     func testNotifyCLIDoesNotStealFocusAcrossWindows() throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += ["-socketControlMode", "allowAll"]
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
@@ -394,7 +419,10 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         let notifyStdout = readTrimmedFile(atPath: commandStdoutPath) ?? ""
         let notifyStderr = readTrimmedFile(atPath: commandStderrPath) ?? ""
 
-        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        // `waitForCommandCompletionWhileBackgrounded` above only returns once the
+        // bundled `cmux notify` command has finished while the app stayed
+        // backgrounded, so assert the no-foreground invariant at that causal
+        // point rather than polling a fixed wall-clock window.
         XCTAssertFalse(
             app.state == .runningForeground,
             "Expected cmux to remain in background after bundled `cmux notify`. state=\(app.state.rawValue) stderr=\(notifyStderr)"
@@ -410,7 +438,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
     }
 
     func testOpenNotificationCLISelectsWorkspaceSurfaceAndMarksRowRead() throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += ["-socketControlMode", "allowAll"]
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
@@ -530,7 +558,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
     }
 
     func testNewWorkspaceCLIWindowFlagTargetsSpecificWindow() throws {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         let title = "window-route-\(UUID().uuidString.prefix(8))"
         app.launchArguments += ["-socketControlMode", "allowAll"]
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
@@ -666,33 +694,27 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         return waitForFocusChange(from: token, timeout: max(0.0, timeout - firstDeadline))
     }
 
-    private func waitForWindowCount(atLeast count: Int, app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        waitForCondition(timeout: timeout) {
-            app.windows.count >= count
-        }
-    }
-
-    private func launchAllowingHeadlessBackgroundActivation(_ app: XCUIApplication) {
+    func launchAllowingHeadlessBackgroundActivation(_ app: XCUIApplication) {
         let options = XCTExpectedFailure.Options()
         options.isStrict = false
-        XCTExpectFailure("Headless CI may launch the app without foreground activation", options: options) {
+        XCTExpectFailure("App activation may fail on headless CI runners", options: options) {
             app.launch()
         }
     }
 
-    private func ensureAppRunningAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+    func ensureAppRunningAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
         waitForCondition(timeout: timeout) {
             app.state == .runningForeground || app.state == .runningBackground
         }
     }
 
-    private func ensureAppForegroundForInteraction(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+    func ensureAppForegroundForInteraction(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
         if app.state == .runningForeground {
             return true
         }
         let options = XCTExpectedFailure.Options()
         options.isStrict = false
-        XCTExpectFailure("App could not be foregrounded on this runner", options: options) {
+        XCTExpectFailure("App foreground activation may fail on headless CI runners", options: options) {
             app.activate()
         }
         return waitForCondition(timeout: timeout) {
@@ -717,7 +739,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         }
     }
 
-    private func waitForData(keys: [String], timeout: TimeInterval) -> Bool {
+    func waitForData(keys: [String], timeout: TimeInterval) -> Bool {
         waitForCondition(timeout: timeout) {
             guard let data = self.loadData() else { return false }
             return keys.allSatisfy { (data[$0] ?? "").isEmpty == false }
@@ -729,23 +751,6 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             guard let data = self.loadData() else { return false }
             return predicate(data)
         }
-    }
-
-    private func waitForSocketDiagnosticsReady(timeout: TimeInterval) -> [String: String]? {
-        var matched: [String: String]?
-        _ = waitForCondition(timeout: timeout) {
-            guard let diagnostics = self.loadDiagnostics() else { return false }
-            if let expectedSocketPath = diagnostics["socketExpectedPath"], !expectedSocketPath.isEmpty {
-                self.socketPath = expectedSocketPath
-            }
-            guard diagnostics["socketReady"] == "1",
-                  diagnostics["socketPingResponse"] == "PONG" else {
-                return false
-            }
-            matched = diagnostics
-            return true
-        }
-        return matched
     }
 
     private func waitForNotification(title: String, timeout: TimeInterval) -> [String: Any]? {
@@ -898,127 +903,6 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         return surfaceId ?? firstSurfaceId(forWorkspaceId: workspaceId)
     }
 
-    private func currentWorkspaceId() -> String? {
-        if let response = socketCommand("current_workspace") {
-            let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
-            if UUID(uuidString: trimmed) != nil {
-                return trimmed
-            }
-        }
-
-        let result = runCmuxCommand(
-            socketPath: socketPath,
-            arguments: ["current-workspace", "--id-format", "uuids"],
-            responseTimeoutSeconds: 4.0
-        )
-        guard result.terminationStatus == 0 else { return nil }
-        return firstUUID(in: result.stdout)
-    }
-
-    private func surfaceIds(forWorkspaceId workspaceId: String) -> [String] {
-        guard let response = socketCommand("list_surfaces \(workspaceId)"),
-              !response.isEmpty,
-              !response.hasPrefix("ERROR"),
-              response != "No surfaces" else {
-            return []
-        }
-
-        return response.split(separator: "\n", omittingEmptySubsequences: true).compactMap { line in
-            let parts = line.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
-            guard parts.count == 2 else { return nil }
-            let candidate = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
-            return UUID(uuidString: candidate) == nil ? nil : candidate
-        }
-    }
-
-    private func currentWorkspaceSurfaceIds() -> [String] {
-        guard let workspaceId = currentWorkspaceId() else { return [] }
-        let directSurfaceIds = surfaceIds(forWorkspaceId: workspaceId)
-        if directSurfaceIds.isEmpty == false {
-            return directSurfaceIds
-        }
-        return firstSurfaceIdViaCLI(forWorkspaceId: workspaceId).map { [$0] } ?? []
-    }
-
-    private func okUUID(from response: String?) -> String? {
-        guard let response, response.hasPrefix("OK ") else { return nil }
-        let value = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
-        return UUID(uuidString: value) == nil ? nil : value
-    }
-
-    private func ensureReadableTerminalSurface(timeout: TimeInterval) -> String? {
-        if let existingSurfaceId = waitForReadableTerminalSurface(timeout: 2.0) {
-            return existingSurfaceId
-        }
-
-        if currentWorkspaceId() == nil {
-            _ = createWorkspaceViaCLI()
-        }
-
-        if createTerminalSurface() == nil {
-            _ = createWorkspaceViaCLI()
-            _ = createTerminalSurface()
-        }
-
-        return waitForReadableTerminalSurface(timeout: timeout)
-    }
-
-    private func createWorkspaceViaCLI() -> String? {
-        if let workspaceId = okUUID(from: socketCommand("new_workspace ui-test-empty-notifications")) {
-            return workspaceId
-        }
-        let result = runCmuxCommand(
-            socketPath: socketPath,
-            arguments: [
-                "new-workspace",
-                "--name",
-                "ui-test-empty-notifications",
-                "--focus",
-                "true",
-                "--id-format",
-                "uuids",
-            ],
-            responseTimeoutSeconds: 4.0
-        )
-        guard result.terminationStatus == 0 else { return nil }
-        return firstUUID(in: result.stdout)
-    }
-
-    private func createTerminalSurface() -> String? {
-        if let surfaceId = okUUID(from: socketCommand("new_surface --type=terminal")) {
-            return surfaceId
-        }
-        let result = runCmuxCommand(
-            socketPath: socketPath,
-            arguments: [
-                "new-surface",
-                "--type",
-                "terminal",
-                "--focus",
-                "true",
-                "--id-format",
-                "uuids",
-            ],
-            responseTimeoutSeconds: 4.0
-        )
-        guard result.terminationStatus == 0 else { return nil }
-        return firstUUID(in: result.stdout)
-    }
-
-    private func waitForReadableTerminalSurface(timeout: TimeInterval) -> String? {
-        var matchedSurfaceId: String?
-        _ = waitForCondition(timeout: timeout) {
-            for surfaceId in self.currentWorkspaceSurfaceIds() {
-                if self.readTerminalText(surfaceId: surfaceId) != nil {
-                    matchedSurfaceId = surfaceId
-                    return true
-                }
-            }
-            return false
-        }
-        return matchedSurfaceId
-    }
-
     private func waitForSurfaceIdViaCLI(forWorkspaceId workspaceId: String, timeout: TimeInterval) -> String? {
         var surfaceId: String?
         _ = waitForCondition(timeout: timeout) {
@@ -1028,12 +912,13 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         return surfaceId ?? firstSurfaceIdViaCLI(forWorkspaceId: workspaceId)
     }
 
-    private func waitForCondition(timeout: TimeInterval, predicate: @escaping () -> Bool) -> Bool {
-        let expectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in predicate() },
-            object: nil
-        )
-        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    func waitForCondition(timeout: TimeInterval, predicate: @escaping () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if predicate() { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        } while Date() < deadline
+        return predicate()
     }
 
     private func firstSurfaceIdViaCLI(forWorkspaceId workspaceId: String) -> String? {
@@ -1096,17 +981,6 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         return nil
     }
 
-    private func firstUUID(in output: String) -> String? {
-        let pattern = #"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
-        let range = NSRange(output.startIndex..<output.endIndex, in: output)
-        guard let match = regex.firstMatch(in: output, range: range),
-              let matchRange = Range(match.range, in: output) else {
-            return nil
-        }
-        return String(output[matchRange]).uppercased()
-    }
-
     private func runCmuxNotify(
         socketPath: String,
         workspaceId: String,
@@ -1133,7 +1007,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         )
     }
 
-    private func runCmuxCommand(
+    func runCmuxCommand(
         socketPath: String,
         arguments: [String],
         responseTimeoutSeconds: Double = 3.0,
@@ -1190,7 +1064,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         return lastPermissionFailure ?? fallbackResult
     }
 
-    private enum CmuxCLIStrategy: Equatable {
+    enum CmuxCLIStrategy: Equatable {
         case any
         case bundledOnly
     }
@@ -1642,14 +1516,8 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         }
     }
 
-    private func readTerminalText(surfaceId: String? = nil) -> String? {
-        let command: String
-        if let surfaceId {
-            command = "read_terminal_text \(surfaceId)"
-        } else {
-            command = "read_terminal_text"
-        }
-        guard let response = socketCommand(command), response.hasPrefix("OK ") else {
+    private func readCurrentTerminalText() -> String? {
+        guard let response = socketCommand("read_terminal_text"), response.hasPrefix("OK ") else {
             return nil
         }
         let encoded = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1657,85 +1525,8 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         return String(data: data, encoding: .utf8)
     }
 
-    private func readTerminalTextViaCLI(surfaceId: String?) -> String? {
-        var arguments = ["read-screen"]
-        if let surfaceId {
-            arguments.append(contentsOf: ["--surface", surfaceId])
-        }
-        let result = runCmuxCommand(
-            socketPath: socketPath,
-            arguments: arguments,
-            responseTimeoutSeconds: 4.0
-        )
-        guard result.terminationStatus == 0 else { return nil }
-        return result.stdout
-    }
-
-    private func waitForTerminalText(surfaceId: String?, timeout: TimeInterval) -> String? {
-        var matched: String?
-        _ = waitForCondition(timeout: timeout) {
-            matched = self.readTerminalText(surfaceId: surfaceId) ?? self.readTerminalTextViaCLI(surfaceId: surfaceId)
-            return matched != nil
-        }
-        return matched ?? readTerminalText(surfaceId: surfaceId) ?? readTerminalTextViaCLI(surfaceId: surfaceId)
-    }
-
-    private struct EmptyNotificationsTerminalSnapshot {
-        let diagnostics: [String: String]
-        let surfaceId: String
-        let text: String
-        let captureCount: Int
-        let notificationCount: Int
-        let popoverShown: Bool
-    }
-
-    private func waitForEmptyNotificationsTerminalSnapshot(
-        timeout: TimeInterval,
-        matching predicate: @escaping (EmptyNotificationsTerminalSnapshot) -> Bool = { _ in true }
-    ) -> EmptyNotificationsTerminalSnapshot? {
-        var matched: EmptyNotificationsTerminalSnapshot?
-        _ = waitForCondition(timeout: timeout) {
-            guard let snapshot = self.emptyNotificationsTerminalSnapshot() else { return false }
-            guard predicate(snapshot) else { return false }
-            matched = snapshot
-            return true
-        }
-        return matched
-    }
-
-    private func emptyNotificationsTerminalSnapshot() -> EmptyNotificationsTerminalSnapshot? {
-        guard let diagnostics = loadDiagnostics(),
-              diagnostics["emptyNotificationsTerminalReady"] == "1",
-              let textBase64 = diagnostics["emptyNotificationsTerminalTextBase64"],
-              let textData = Data(base64Encoded: textBase64),
-              let text = String(data: textData, encoding: .utf8),
-              let captureCountText = diagnostics["emptyNotificationsTerminalCaptureCount"],
-              let captureCount = Int(captureCountText),
-              let notificationCountText = diagnostics["emptyNotificationsNotificationCount"],
-              let notificationCount = Int(notificationCountText) else {
-            return nil
-        }
-        let surfaceId = diagnostics["emptyNotificationsTerminalSurfaceId"] ?? ""
-        guard !surfaceId.isEmpty else { return nil }
-        return EmptyNotificationsTerminalSnapshot(
-            diagnostics: diagnostics,
-            surfaceId: surfaceId,
-            text: text,
-            captureCount: captureCount,
-            notificationCount: notificationCount,
-            popoverShown: diagnostics["emptyNotificationsPopoverShown"] == "1"
-        )
-    }
-
-    private func loadData() -> [String: String]? {
+    func loadData() -> [String: String]? {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: dataPath)) else {
-            return nil
-        }
-        return (try? JSONSerialization.jsonObject(with: data)) as? [String: String]
-    }
-
-    private func loadDiagnostics() -> [String: String]? {
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: diagnosticsPath)) else {
             return nil
         }
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: String]

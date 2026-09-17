@@ -11,6 +11,12 @@ fi
 
 export CMUX_DB_TEST=1
 
+db_test_timeout_ms="${CMUX_DB_TEST_TIMEOUT_MS:-30000}"
+if [[ ! "$db_test_timeout_ms" =~ ^[1-9][0-9]*$ ]]; then
+  echo "CMUX_DB_TEST_TIMEOUT_MS must be a positive integer, got: $db_test_timeout_ms" >&2
+  exit 2
+fi
+
 test_files=()
 while IFS= read -r test_file; do
   if grep -q "process\\.env\\.CMUX_DB_TEST" "$test_file"; then
@@ -29,11 +35,17 @@ zero_test_files=()
 skipped_test_files=()
 for test_file in "${test_files[@]}"; do
   printf '\n==> bun test %s\n' "$test_file"
-  output_file="$(mktemp /tmp/cmux-db-behavior-test.XXXXXX.log)"
+  output_file="$(mktemp /tmp/cmux-db-behavior-test.XXXXXX)"
   set +e
-  bun test "$test_file" 2>&1 | tee "$output_file"
-  status=${PIPESTATUS[0]}
+  # DB behavior files share one database and may also mutate process-wide
+  # environment controls (for example VM plan limits). Bun's default
+  # intra-file concurrency runs those tests in parallel, allowing one test's
+  # truncate or env override to change another test's outcome. Keep each DB
+  # file deterministic while retaining the file-level loop above.
+  bun test --timeout="$db_test_timeout_ms" --max-concurrency=1 "$test_file" 2>&1 | tee "$output_file"
+  test_status=${PIPESTATUS[0]}
   set -e
+
   if ! grep -Eq 'Ran [1-9][0-9]* tests? across [1-9][0-9]* files?' "$output_file"; then
     zero_test_files+=("$test_file")
   fi
@@ -41,7 +53,8 @@ for test_file in "${test_files[@]}"; do
     skipped_test_files+=("$test_file")
   fi
   rm -f "$output_file"
-  if [[ "$status" -ne 0 ]]; then
+
+  if [[ "$test_status" -ne 0 ]]; then
     failed_files+=("$test_file")
   fi
 done

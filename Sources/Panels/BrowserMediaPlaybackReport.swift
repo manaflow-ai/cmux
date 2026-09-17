@@ -7,4 +7,6 @@ struct BrowserMediaPlaybackReport: Sendable {
     let frameID: String
     /// Whether that frame currently has any actively-playing media.
     let isPlaying: Bool
+    /// Whether that frame currently has an unmuted, non-zero-volume audio source.
+    let isAudible: Bool
 }

@@ -3,12 +3,11 @@
 
 from __future__ import annotations
 
-import select
-import signal
 import subprocess
 import sys
-import tempfile
 import textwrap
+import os
+import tempfile
 import time
 from pathlib import Path
 
@@ -19,10 +18,6 @@ PROMPT = "Press space to interact, D to debug, or any other key to quit"
 
 
 def main() -> int:
-    signal_result = test_signal_forwarding()
-    if signal_result != 0:
-        return signal_result
-
     child = textwrap.dedent(
         f"""
         import sys
@@ -62,79 +57,401 @@ def main() -> int:
         print("FAIL: helper did not answer each crash prompt with q")
         return 1
 
-    print("PASS: xcodebuild noninteractive helper dismisses crash prompts")
-    return 0
+    timeout_child = textwrap.dedent(
+        """
+        import time
 
+        print("ready", flush=True)
+        time.sleep(10)
+        """
+    )
+    timeout_env = {
+        **os.environ,
+        "CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS": "0.2",
+    }
+    timeout_result = subprocess.run(
+        [sys.executable, str(HELPER), sys.executable, "-c", timeout_child],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=5,
+        env=timeout_env,
+    )
+    if timeout_result.returncode != 124:
+        print(timeout_result.stdout, end="")
+        print(timeout_result.stderr, end="", file=sys.stderr)
+        print(f"FAIL: expected timeout exit 124, got {timeout_result.returncode}")
+        return 1
+    if "Idle timed out after 0.2s" not in timeout_result.stderr:
+        print(timeout_result.stdout, end="")
+        print(timeout_result.stderr, end="", file=sys.stderr)
+        print("FAIL: helper did not report idle timeout")
+        return 1
 
-def test_signal_forwarding() -> int:
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        marker = Path(tmp_dir) / "terminated"
-        child = textwrap.dedent(
+    # App-host log lines (NSLog-style prefix) are background noise: a stalled
+    # test host that keeps polling must still idle-time out.
+    noisy_idle_child = textwrap.dedent(
+        """
+        import time
+
+        print("ready", flush=True)
+        for _ in range(60):
+            print("2026-09-08 14:03:49.521479+0000 cmux DEV[13904:67193] [CloudVM] GET /api/vm not_signed_in 1ms", flush=True)
+            time.sleep(0.05)
+        """
+    )
+    noisy_idle_env = {
+        **os.environ,
+        "CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS": "0.5",
+    }
+    noisy_idle_result = subprocess.run(
+        [sys.executable, str(HELPER), sys.executable, "-c", noisy_idle_child],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=10,
+        env=noisy_idle_env,
+    )
+    if noisy_idle_result.returncode != 124 or "no test progress" not in noisy_idle_result.stderr:
+        print(noisy_idle_result.stdout, end="")
+        print(noisy_idle_result.stderr, end="", file=sys.stderr)
+        print(
+            "FAIL: app-host log noise kept the idle timeout from firing "
+            f"(exit {noisy_idle_result.returncode})"
+        )
+        return 1
+
+    # Real test progress interleaved with the same noise keeps the run alive.
+    progressing_child = textwrap.dedent(
+        """
+        import time
+
+        for index in range(6):
+            print("2026-09-08 14:03:49.521479+0000 cmux DEV[13904:67193] [generic_renderer] tick", flush=True)
+            print(f"\u25c7 Test example{index}() started.", flush=True)
+            time.sleep(0.25)
+        print("done", flush=True)
+        raise SystemExit(3)
+        """
+    )
+    # A generous idle window relative to the child's cadence: this asserts the
+    # reset, not scheduling latency on a loaded machine.
+    progressing_env = {
+        **os.environ,
+        "CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS": "3",
+    }
+    progressing_result = subprocess.run(
+        [sys.executable, str(HELPER), sys.executable, "-c", progressing_child],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=20,
+        env=progressing_env,
+    )
+    if progressing_result.returncode != 3:
+        print(progressing_result.stdout, end="")
+        print(progressing_result.stderr, end="", file=sys.stderr)
+        print(
+            "FAIL: test progress should reset the idle timeout "
+            f"(expected exit 3, got {progressing_result.returncode})"
+        )
+        return 1
+
+    # An outer timeout terminates the wrapper; the wrapped process group must
+    # go with it instead of surviving to hold the batch's output pipe open.
+    with tempfile.TemporaryDirectory() as sigterm_dir:
+        pid_file = Path(sigterm_dir) / "child.pid"
+        sigterm_child = textwrap.dedent(
             f"""
-            import signal
+            import os
             import time
-            from pathlib import Path
 
-            marker = Path({str(marker)!r})
-
-            def handle_term(signum, frame):
-                marker.write_text("terminated", encoding="utf-8")
-                raise SystemExit(0)
-
-            signal.signal(signal.SIGTERM, handle_term)
+            open({str(pid_file)!r}, "w").write(str(os.getpid()))
             print("ready", flush=True)
-            while True:
-                time.sleep(1)
+            time.sleep(30)
             """
         )
-
-        process = subprocess.Popen(
-            [sys.executable, str(HELPER), sys.executable, "-c", child],
+        wrapper = subprocess.Popen(
+            [sys.executable, str(HELPER), sys.executable, "-c", sigterm_child],
             cwd=ROOT,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        assert process.stdout is not None
-
-        deadline = time.monotonic() + 5
-        output = ""
-        while time.monotonic() < deadline and "ready" not in output:
-            readable, _, _ = select.select([process.stdout], [], [], 0.1)
-            if process.stdout in readable:
-                output += process.stdout.readline()
-
-        if "ready" not in output:
-            process.kill()
-            stdout, stderr = process.communicate()
-            print(output + stdout, end="")
-            print(stderr, end="", file=sys.stderr)
-            print("FAIL: helper child did not become ready")
-            return 1
-
-        process.send_signal(signal.SIGTERM)
+        deadline = time.monotonic() + 10
+        while not pid_file.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        wrapper.send_signal(15)
         try:
-            stdout, stderr = process.communicate(timeout=5)
+            wrapper_stdout, wrapper_stderr = wrapper.communicate(timeout=10)
         except subprocess.TimeoutExpired:
-            process.kill()
-            stdout, stderr = process.communicate()
-            print(output + stdout, end="")
-            print(stderr, end="", file=sys.stderr)
+            wrapper.kill()
             print("FAIL: helper did not exit after SIGTERM")
             return 1
-
-        if process.returncode not in (0, 128 + signal.SIGTERM):
-            print(output + stdout, end="")
-            print(stderr, end="", file=sys.stderr)
-            print(f"FAIL: expected helper SIGTERM exit, got {process.returncode}")
+        if wrapper.returncode != 124 or "Terminated by signal 15" not in wrapper_stdout:
+            print(wrapper_stdout, end="")
+            print(wrapper_stderr, end="", file=sys.stderr)
+            print(f"FAIL: expected SIGTERM to exit 124, got {wrapper.returncode}")
+            return 1
+        child_pid = int(pid_file.read_text())
+        alive_deadline = time.monotonic() + 6
+        child_alive = True
+        while time.monotonic() < alive_deadline:
+            try:
+                os.kill(child_pid, 0)
+            except ProcessLookupError:
+                child_alive = False
+                break
+            time.sleep(0.1)
+        if child_alive:
+            os.kill(child_pid, 9)
+            print("FAIL: wrapped child survived the helper's SIGTERM")
             return 1
 
-        if not marker.exists():
-            print(output + stdout, end="")
-            print(stderr, end="", file=sys.stderr)
-            print("FAIL: helper did not forward SIGTERM to its child")
+    heartbeat_result = subprocess.run(
+        [
+            sys.executable,
+            str(HELPER),
+            sys.executable,
+            "-c",
+            "import os, time; os.close(1); os.close(2); time.sleep(0.35)",
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=5,
+        env={
+            **os.environ,
+            "CMUX_XCODEBUILD_NONINTERACTIVE_HEARTBEAT_SECONDS": "0.1",
+        },
+    )
+    if heartbeat_result.returncode != 0 or heartbeat_result.stdout.count(
+        "[xcodebuild still running after"
+    ) < 2:
+        print(heartbeat_result.stdout, end="")
+        print(heartbeat_result.stderr, end="", file=sys.stderr)
+        print("FAIL: helper did not emit recurring heartbeats for a quiet child")
+        return 1
+
+    post_test_env = {
+        **os.environ,
+        "CMUX_XCODEBUILD_NONINTERACTIVE_POST_TEST_TIMEOUT_SECONDS": "0.2",
+    }
+    passing_post_test_child = textwrap.dedent(
+        """
+        import time
+
+        print("Test Suite 'Selected tests' passed at now", flush=True)
+        print("\\t Executed 1 test, with 0 failures (0 unexpected) in 0.001 seconds", flush=True)
+        time.sleep(10)
+        """
+    )
+    passing_post_test_result = subprocess.run(
+        [sys.executable, str(HELPER), sys.executable, "-c", passing_post_test_child],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=5,
+        env=post_test_env,
+    )
+    if passing_post_test_result.returncode != 0:
+        print(passing_post_test_result.stdout, end="")
+        print(passing_post_test_result.stderr, end="", file=sys.stderr)
+        print(
+            "FAIL: expected post-test timeout after passing Selected tests summary to exit 0, "
+            f"got {passing_post_test_result.returncode}"
+        )
+        return 1
+
+    noisy_post_test_child = textwrap.dedent(
+        """
+        import time
+
+        print("Test Suite 'Selected tests' passed at now", flush=True)
+        print("\\t Executed 1 test, with 0 failures (0 unexpected) in 0.001 seconds", flush=True)
+        for _ in range(20):
+            print("post-summary-noise", flush=True)
+            time.sleep(0.1)
+        """
+    )
+    noisy_started = time.monotonic()
+    noisy_post_test_result = subprocess.run(
+        [sys.executable, str(HELPER), sys.executable, "-c", noisy_post_test_child],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=5,
+        env=post_test_env,
+    )
+    noisy_elapsed = time.monotonic() - noisy_started
+    if noisy_post_test_result.returncode != 0:
+        print(noisy_post_test_result.stdout, end="")
+        print(noisy_post_test_result.stderr, end="", file=sys.stderr)
+        print(
+            "FAIL: expected noisy post-test timeout after passing Selected tests summary "
+            f"to exit 0, got {noisy_post_test_result.returncode}"
+        )
+        return 1
+    if noisy_elapsed > 1.5:
+        print(noisy_post_test_result.stdout, end="")
+        print(noisy_post_test_result.stderr, end="", file=sys.stderr)
+        print(f"FAIL: noisy post-test timeout was rearmed; elapsed {noisy_elapsed:.2f}s")
+        return 1
+
+    failing_post_test_child = textwrap.dedent(
+        """
+        import time
+
+        print("Test Suite 'Selected tests' failed at now", flush=True)
+        print("\\t Executed 1 test, with 1 failure (1 unexpected) in 0.001 seconds", flush=True)
+        time.sleep(10)
+        """
+    )
+    failing_post_test_result = subprocess.run(
+        [sys.executable, str(HELPER), sys.executable, "-c", failing_post_test_child],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=5,
+        env=post_test_env,
+    )
+    if failing_post_test_result.returncode != 125:
+        print(failing_post_test_result.stdout, end="")
+        print(failing_post_test_result.stderr, end="", file=sys.stderr)
+        print(
+            "FAIL: expected post-test timeout after failed Selected tests summary to exit 125, "
+            f"got {failing_post_test_result.returncode}"
+        )
+        return 1
+
+    mixed_framework_child = textwrap.dedent(
+        """
+        import time
+
+        print("Test Suite 'Selected tests' passed at now", flush=True)
+        print("\\t Executed 1 test, with 0 failures (0 unexpected) in 0.001 seconds", flush=True)
+        print("Test run started.", flush=True)
+        time.sleep(0.35)
+        print("Test run with 1 test in 1 suite passed after 0.350 seconds.", flush=True)
+        time.sleep(10)
+        """
+    )
+    mixed_framework_result = subprocess.run(
+        [sys.executable, str(HELPER), sys.executable, "-c", mixed_framework_child],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=5,
+        env=post_test_env,
+    )
+    if mixed_framework_result.returncode != 0:
+        print(mixed_framework_result.stdout, end="")
+        print(mixed_framework_result.stderr, end="", file=sys.stderr)
+        print(
+            "FAIL: expected the completed mixed-framework run to exit 0, "
+            f"got {mixed_framework_result.returncode}"
+        )
+        return 1
+    if "Test run with 1 test in 1 suite passed" not in mixed_framework_result.stdout:
+        print(mixed_framework_result.stdout, end="")
+        print(mixed_framework_result.stderr, end="", file=sys.stderr)
+        print("FAIL: helper killed Swift Testing after the XCTest summary")
+        return 1
+
+    failing_mixed_framework_child = textwrap.dedent(
+        """
+        import time
+
+        print("Test Suite 'Selected tests' passed at now", flush=True)
+        print("\\t Executed 1 test, with 0 failures (0 unexpected) in 0.001 seconds", flush=True)
+        print("Test run started.", flush=True)
+        time.sleep(0.35)
+        print("Test run with 1 test in 1 suite failed after 0.350 seconds.", flush=True)
+        time.sleep(10)
+        """
+    )
+    failing_mixed_framework_result = subprocess.run(
+        [
+            sys.executable,
+            str(HELPER),
+            sys.executable,
+            "-c",
+            failing_mixed_framework_child,
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=5,
+        env=post_test_env,
+    )
+    if failing_mixed_framework_result.returncode != 125:
+        print(failing_mixed_framework_result.stdout, end="")
+        print(failing_mixed_framework_result.stderr, end="", file=sys.stderr)
+        print(
+            "FAIL: expected failed Swift Testing summary to exit 125, "
+            f"got {failing_mixed_framework_result.returncode}"
+        )
+        return 1
+
+    direct_output_child = "import sys; sys.stdout.write('x' * 262144); sys.stdout.flush()"
+    direct_output_result = subprocess.run(
+        [sys.executable, str(HELPER), sys.executable, "-c", direct_output_child],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=5,
+    )
+    if direct_output_result.returncode != 0:
+        print(direct_output_result.stdout, end="")
+        print(direct_output_result.stderr, end="", file=sys.stderr)
+        print(f"FAIL: expected direct output child exit 0, got {direct_output_result.returncode}")
+        return 1
+    if direct_output_result.stdout.count("x") != 262144:
+        print(direct_output_result.stderr, end="", file=sys.stderr)
+        print(
+            f"FAIL: direct helper output was truncated to {direct_output_result.stdout.count('x')} bytes"
+        )
+        return 1
+
+    with tempfile.TemporaryDirectory() as tmp:
+        log_path = Path(tmp) / "helper.log"
+        log_child = "print('child-log-line', flush=True)"
+        log_result = subprocess.run(
+            [sys.executable, str(HELPER), sys.executable, "-c", log_child],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+            env={
+                **os.environ,
+                "CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH": str(log_path),
+            },
+        )
+        if log_result.returncode != 0:
+            print(log_result.stdout, end="")
+            print(log_result.stderr, end="", file=sys.stderr)
+            print(f"FAIL: expected log child exit 0, got {log_result.returncode}")
+            return 1
+        if "child-log-line" not in log_path.read_text():
+            print(log_result.stdout, end="")
+            print(log_result.stderr, end="", file=sys.stderr)
+            print("FAIL: helper did not write child output to log path")
             return 1
 
+    print(
+        "PASS: xcodebuild noninteractive helper dismisses crash prompts, "
+        "heartbeats quiet children, and idle-times out stuck children"
+    )
     return 0
 
 

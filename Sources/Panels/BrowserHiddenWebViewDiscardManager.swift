@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import Foundation
 
@@ -19,6 +20,8 @@ protocol BrowserHiddenWebViewDiscardManagerDelegate: AnyObject {
 
 @MainActor
 final class BrowserHiddenWebViewDiscardManager {
+    static let systemMemoryPressureReason = "system_memory_pressure"
+
     struct BlockerSnapshot {
         let isClosing: Bool
         let isVisibleInUI: Bool
@@ -28,16 +31,65 @@ final class BrowserHiddenWebViewDiscardManager {
         let isLoading: Bool
         let webViewIsLoading: Bool
         let hasActiveMainFrameProvisionalNavigation: Bool
+        let hasRecoverableWebContentTermination: Bool
         let isDownloading: Bool
         let activeDownloadCount: Int
         let preferredDeveloperToolsVisible: Bool
         let isDeveloperToolsVisible: Bool
         let isElementFullscreenActive: Bool
         let isReactGrabActive: Bool
+        var isDesignModeActive = false
         let isVisualAutomationCaptureActive: Bool
+        let isMobileBrowserStreamActive: Bool
         let hasPopups: Bool
         let isCapturingMedia: Bool
         let isPlayingMedia: Bool
+
+        init(
+            isClosing: Bool,
+            isVisibleInUI: Bool,
+            shouldRenderWebView: Bool,
+            hasPendingRemoteNavigation: Bool,
+            hasCurrentURL: Bool,
+            isLoading: Bool,
+            webViewIsLoading: Bool,
+            hasActiveMainFrameProvisionalNavigation: Bool,
+            hasRecoverableWebContentTermination: Bool = false,
+            isDownloading: Bool,
+            activeDownloadCount: Int,
+            preferredDeveloperToolsVisible: Bool,
+            isDeveloperToolsVisible: Bool,
+            isElementFullscreenActive: Bool,
+            isReactGrabActive: Bool,
+            isDesignModeActive: Bool = false,
+            isVisualAutomationCaptureActive: Bool,
+            isMobileBrowserStreamActive: Bool = false,
+            hasPopups: Bool,
+            isCapturingMedia: Bool,
+            isPlayingMedia: Bool
+        ) {
+            self.isClosing = isClosing
+            self.isVisibleInUI = isVisibleInUI
+            self.shouldRenderWebView = shouldRenderWebView
+            self.hasPendingRemoteNavigation = hasPendingRemoteNavigation
+            self.hasCurrentURL = hasCurrentURL
+            self.isLoading = isLoading
+            self.webViewIsLoading = webViewIsLoading
+            self.hasActiveMainFrameProvisionalNavigation = hasActiveMainFrameProvisionalNavigation
+            self.hasRecoverableWebContentTermination = hasRecoverableWebContentTermination
+            self.isDownloading = isDownloading
+            self.activeDownloadCount = activeDownloadCount
+            self.preferredDeveloperToolsVisible = preferredDeveloperToolsVisible
+            self.isDeveloperToolsVisible = isDeveloperToolsVisible
+            self.isElementFullscreenActive = isElementFullscreenActive
+            self.isReactGrabActive = isReactGrabActive
+            self.isDesignModeActive = isDesignModeActive
+            self.isVisualAutomationCaptureActive = isVisualAutomationCaptureActive
+            self.isMobileBrowserStreamActive = isMobileBrowserStreamActive
+            self.hasPopups = hasPopups
+            self.isCapturingMedia = isCapturingMedia
+            self.isPlayingMedia = isPlayingMedia
+        }
     }
 
     weak var delegate: BrowserHiddenWebViewDiscardManagerDelegate?
@@ -46,8 +98,14 @@ final class BrowserHiddenWebViewDiscardManager {
     private var policyObserver: NSObjectProtocol?
     private var systemSleepObservers: [NSObjectProtocol] = []
     private var systemSleepObserverCenter: NotificationCenter?
-    private var policyState = BrowserHiddenWebViewDiscardPolicy.resolved()
+    private let policyDefaults: UserDefaults
+    private var policyState: BrowserHiddenWebViewDiscardPolicy.ResolvedPolicy
     private var scheduleGeneration: UInt64 = 0
+
+    init(policyDefaults: UserDefaults = .standard) {
+        self.policyDefaults = policyDefaults
+        self.policyState = BrowserHiddenWebViewDiscardPolicy.resolved(defaults: policyDefaults)
+    }
 
     /// Sleep/wake state used to keep a hidden-webview discard from running in
     /// the fragile window right after system wake
@@ -60,22 +118,36 @@ final class BrowserHiddenWebViewDiscardManager {
     private(set) var lastDiscardReason: String?
     private(set) var lastRestoreReason: String?
     private(set) var restoredSessionShouldRenderWebView: Bool?
+    private(set) var isRestoreNavigationPending: Bool = false
 
     var hasScheduledDiscard: Bool {
         discardTimer != nil
     }
 
-    func blockers(for snapshot: BlockerSnapshot) -> [String] {
+    func blockers(
+        for snapshot: BlockerSnapshot,
+        now: Date = Date(),
+        allowingRecoverableWebContentTermination: Bool = false
+    ) -> [String] {
         var blockers: [String] = []
-        if !BrowserHiddenWebViewDiscardPolicy.isEnabled { blockers.append("policy_disabled") }
+        if !BrowserHiddenWebViewDiscardPolicy.isEnabled(defaults: policyDefaults) {
+            blockers.append("policy_disabled")
+        }
         if isSystemSleeping { blockers.append("system_sleeping") }
+        if snapshot.hasRecoverableWebContentTermination && !allowingRecoverableWebContentTermination {
+            blockers.append("webcontent_recovery")
+        }
         if snapshot.isClosing { blockers.append("closing") }
         if isDiscardedForMemory { blockers.append("already_discarded") }
         if snapshot.isVisibleInUI { blockers.append("visible") }
         if !snapshot.shouldRenderWebView { blockers.append("not_rendered") }
         if snapshot.hasPendingRemoteNavigation { blockers.append("pending_remote_navigation") }
         if !snapshot.hasCurrentURL { blockers.append("no_url") }
-        if snapshot.webViewIsLoading { blockers.append("loading") }
+        let allowsRecoverableDiscard = snapshot.hasRecoverableWebContentTermination &&
+            allowingRecoverableWebContentTermination
+        if (snapshot.isLoading || snapshot.webViewIsLoading) && !allowsRecoverableDiscard {
+            blockers.append("loading")
+        }
         if snapshot.hasActiveMainFrameProvisionalNavigation { blockers.append("provisional_navigation") }
         if snapshot.isDownloading || snapshot.activeDownloadCount != 0 { blockers.append("download") }
         if snapshot.isCapturingMedia { blockers.append("media_capture") }
@@ -85,18 +157,28 @@ final class BrowserHiddenWebViewDiscardManager {
         }
         if snapshot.isElementFullscreenActive { blockers.append("fullscreen") }
         if snapshot.isReactGrabActive { blockers.append("react_grab") }
+        if snapshot.isDesignModeActive { blockers.append("design_mode") }
         if snapshot.isVisualAutomationCaptureActive { blockers.append("visual_automation") }
+        if snapshot.isMobileBrowserStreamActive { blockers.append("mobile_browser_stream") }
         if snapshot.hasPopups { blockers.append("popup") }
         return blockers
     }
 
-    func scheduleIfNeeded(reason: String, now: Date = Date()) {
+    func scheduleIfNeeded(
+        reason: String,
+        now: Date = Date(),
+        allowingRecoverableWebContentTermination: Bool = false
+    ) {
         scheduleGeneration &+= 1
         discardTimer?.cancel()
         discardTimer = nil
 
         guard let delegate else { return }
-        guard blockers(for: delegate.hiddenWebViewDiscardSnapshot).isEmpty else { return }
+        guard blockers(
+            for: delegate.hiddenWebViewDiscardSnapshot,
+            now: now,
+            allowingRecoverableWebContentTermination: allowingRecoverableWebContentTermination
+        ).isEmpty else { return }
 
         let observedWebViewInstanceID = delegate.hiddenWebViewDiscardWebViewInstanceID
         let generation = scheduleGeneration
@@ -107,7 +189,8 @@ final class BrowserHiddenWebViewDiscardManager {
         // (https://github.com/manaflow-ai/cmux/issues/5261).
         let effectiveHiddenAt = lastSystemWakeAt.map { max(hiddenAt, $0) } ?? hiddenAt
         let elapsed = now.timeIntervalSince(effectiveHiddenAt)
-        let remaining = max(0, BrowserHiddenWebViewDiscardPolicy.hiddenDelay - elapsed)
+        let hiddenDelay = BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: policyDefaults)
+        let remaining = max(0, hiddenDelay - elapsed)
         if remaining <= 0 {
             delegate.hiddenWebViewDiscardManagerDidRequestDiscard(self, reason: reason)
             return
@@ -129,6 +212,40 @@ final class BrowserHiddenWebViewDiscardManager {
         }
         discardTimer = timer
         timer.resume()
+    }
+
+    @discardableResult
+    func requestImmediateDiscardIfSafe(reason: String, now: Date = Date()) -> Bool {
+        guard let delegate else { return false }
+        let allowsRecoverableWebContentTermination = reason == Self.systemMemoryPressureReason
+        guard blockers(
+            for: delegate.hiddenWebViewDiscardSnapshot,
+            now: now,
+            allowingRecoverableWebContentTermination: allowsRecoverableWebContentTermination
+        ).isEmpty else { return false }
+        guard delegate.hiddenWebViewDiscardHiddenAt != nil else {
+            scheduleIfNeeded(
+                reason: reason,
+                now: now,
+                allowingRecoverableWebContentTermination: allowsRecoverableWebContentTermination
+            )
+            return false
+        }
+        // Memory pressure bypasses the hidden-duration delay, not the WebKit post-wake crash guard.
+        guard !isInPostWakeDiscardDelay(now: now) else {
+            scheduleIfNeeded(
+                reason: reason,
+                now: now,
+                allowingRecoverableWebContentTermination: allowsRecoverableWebContentTermination
+            )
+            return false
+        }
+
+        scheduleGeneration &+= 1
+        discardTimer?.cancel()
+        discardTimer = nil
+        delegate.hiddenWebViewDiscardManagerDidRequestDiscard(self, reason: reason)
+        return true
     }
 
     func cancel() {
@@ -181,20 +298,16 @@ final class BrowserHiddenWebViewDiscardManager {
     func noteSystemDidWake(now: Date = Date()) {
         isSystemSleeping = false
         lastSystemWakeAt = now
-        scheduleIfNeeded(reason: "system_did_wake")
+        scheduleIfNeeded(reason: "system_did_wake", now: now)
 #if DEBUG
         cmuxDebugLog("browser.discard.wake rearmed=\(hasScheduledDiscard ? 1 : 0)")
 #endif
     }
 
     func installPolicyObserver() {
-        policyState = BrowserHiddenWebViewDiscardPolicy.resolved()
+        policyState = BrowserHiddenWebViewDiscardPolicy.resolved(defaults: policyDefaults)
         guard policyObserver == nil else { return }
-        policyObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
+        policyObserver = NotificationCenter.default.addUserDefaultsObserver(object: nil) { [weak self] in
             Task { @MainActor [weak self] in
                 self?.handlePolicyDefaultsChanged()
             }
@@ -209,29 +322,56 @@ final class BrowserHiddenWebViewDiscardManager {
 
     func markDiscarded(reason: String, now: Date) {
         isDiscardedForMemory = true
+        isRestoreNavigationPending = false
         discardedAt = now
         lastDiscardReason = reason
         updateRestoredSessionRenderIntent(true)
     }
 
     @discardableResult
-    func restoreIfNeeded(reason: String, performRestore: () -> Void) -> Bool {
+    func restoreIfNeeded(reason: String, force: Bool = false, performRestore: () -> Void) -> Bool {
         guard isDiscardedForMemory else { return false }
         cancel()
-        guard clearDiscardState(reason: reason) else { return false }
+        if isRestoreNavigationPending {
+            // An explicit user reload restarts an in-flight restore instead of
+            // being swallowed by the pending dedup.
+            guard force else { return true }
+            isRestoreNavigationPending = false
+        }
+        lastRestoreReason = reason
         updateRestoredSessionRenderIntent(nil)
         performRestore()
         return true
+    }
+
+    func noteRestoreNavigationStarted(reason: String) {
+        guard isDiscardedForMemory else { return }
+        isRestoreNavigationPending = true
+#if DEBUG
+        cmuxDebugLog("browser.discard.restoreNavigation.start reason=\(reason)")
+#endif
+    }
+
+    @discardableResult
+    func noteRestoreNavigationCommitted(reason: String) -> Bool {
+        isRestoreNavigationPending = false
+        return clearDiscardState(reason: reason)
+    }
+
+    func noteRestoreNavigationDidNotCommit(reason: String) {
+        guard isDiscardedForMemory else { return }
+        isRestoreNavigationPending = false
+#if DEBUG
+        cmuxDebugLog("browser.discard.restoreNavigation.didNotCommit reason=\(reason)")
+#endif
     }
 
     @discardableResult
     func reactivateWithoutNavigation(reason: String, performReactivate: () -> Void) -> Bool {
         guard isDiscardedForMemory else { return false }
         cancel()
-        guard clearDiscardState(reason: reason) else { return false }
-        updateRestoredSessionRenderIntent(nil)
         performReactivate()
-        return true
+        return clearDiscardState(reason: reason)
     }
 
     func updateRestoredSessionRenderIntent(_ shouldRenderWebView: Bool?) {
@@ -242,14 +382,17 @@ final class BrowserHiddenWebViewDiscardManager {
     func clearDiscardState(reason: String) -> Bool {
         guard isDiscardedForMemory else { return false }
         isDiscardedForMemory = false
+        isRestoreNavigationPending = false
         discardedAt = nil
         lastRestoreReason = reason
+        updateRestoredSessionRenderIntent(nil)
         return true
     }
 
     func resetMetadata() {
         cancel()
         isDiscardedForMemory = false
+        isRestoreNavigationPending = false
         discardedAt = nil
         lastDiscardReason = nil
         lastRestoreReason = nil
@@ -257,10 +400,15 @@ final class BrowserHiddenWebViewDiscardManager {
     }
 
     private func handlePolicyDefaultsChanged() {
-        let nextPolicyState = BrowserHiddenWebViewDiscardPolicy.resolved()
+        let nextPolicyState = BrowserHiddenWebViewDiscardPolicy.resolved(defaults: policyDefaults)
         guard policyState != nextPolicyState else { return }
         policyState = nextPolicyState
         delegate?.hiddenWebViewDiscardManagerPolicyDidChange(self, reason: "policy_changed")
+    }
+
+    private func isInPostWakeDiscardDelay(now: Date) -> Bool {
+        guard let lastSystemWakeAt else { return false }
+        return now.timeIntervalSince(lastSystemWakeAt) < BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: policyDefaults)
     }
 
     private func stopOnMainActor() {

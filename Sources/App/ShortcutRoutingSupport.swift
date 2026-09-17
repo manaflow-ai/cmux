@@ -1,154 +1,8 @@
 import AppKit
 import Bonsplit
+import CmuxCommandPalette
 import Foundation
-
-enum SplitShortcutTargetSource: Equatable {
-    case focusedTerminal
-    case activeSelection
-}
-
-struct SplitShortcutTarget: Equatable {
-    let workspaceId: UUID
-    let panelId: UUID
-    let source: SplitShortcutTargetSource
-}
-
-func splitShortcutTarget(
-    focusedTerminalWorkspaceId: UUID?,
-    focusedTerminalPanelId: UUID?,
-    activeWorkspaceId: UUID?,
-    activeFocusedPanelId: UUID?
-) -> SplitShortcutTarget? {
-    if let focusedTerminalWorkspaceId, let focusedTerminalPanelId {
-        return SplitShortcutTarget(
-            workspaceId: focusedTerminalWorkspaceId,
-            panelId: focusedTerminalPanelId,
-            source: .focusedTerminal
-        )
-    }
-    if let activeWorkspaceId, let activeFocusedPanelId {
-        return SplitShortcutTarget(
-            workspaceId: activeWorkspaceId,
-            panelId: activeFocusedPanelId,
-            source: .activeSelection
-        )
-    }
-    return nil
-}
-
-@discardableResult
-func performConfirmedCloseWindowShortcut<Window>(
-    targetWindow: Window?,
-    confirm: (Window) -> Bool,
-    close: (Window) -> Void,
-    missingTarget: () -> Void = {}
-) -> Bool {
-    guard let targetWindow else {
-        missingTarget()
-        return true
-    }
-    guard confirm(targetWindow) else { return true }
-    close(targetWindow)
-    return true
-}
-
-func shouldMarkExplicitCloseForLastSurfaceShortcut(
-    closesWorkspaceOnLastSurfaceShortcut: Bool,
-    panelCount: Int,
-    panelExists: Bool
-) -> Bool {
-    closesWorkspaceOnLastSurfaceShortcut && panelCount <= 1 && panelExists
-}
-
-enum WorkspaceCloseDestination: Equatable {
-    case window
-    case workspace
-}
-
-func workspaceCloseDestination(workspaceCount: Int) -> WorkspaceCloseDestination {
-    workspaceCount <= 1 ? .window : .workspace
-}
-
-func shouldBypassShortcutRoutingForUnresolvedEventWindow(
-    hasEventWindowContext: Bool,
-    didSynchronizeShortcutContext: Bool,
-    allowsFocusedCloseShortcutFallback: Bool
-) -> Bool {
-    hasEventWindowContext && !didSynchronizeShortcutContext && !allowsFocusedCloseShortcutFallback
-}
-
-enum ShortcutRoutingContextSelectionReason: String, Equatable {
-    case debugPreferredWindow = "debug_preferred_window"
-    case eventWindow = "event_window"
-    case eventContextRequiredNoFallback = "event_context_required_no_fallback"
-    case keyWindow = "key_window"
-    case mainWindow = "main_window"
-    case activeManager = "active_manager"
-    case fallbackFirstContext = "fallback_first_context"
-}
-
-struct ShortcutRoutingContextSelection: Equatable {
-    let windowId: UUID?
-    let reason: ShortcutRoutingContextSelectionReason
-}
-
-func selectShortcutRoutingContextAfterEventResolution(
-    debugPreferredWindowId: UUID?,
-    eventWindowId: UUID?,
-    hasAddressableEventWindow: Bool,
-    eventWindowAllowsFallback: Bool,
-    keyWindowId: UUID?,
-    mainWindowId: UUID?,
-    activeManagerWindowId: UUID?,
-    fallbackWindowId: UUID?
-) -> ShortcutRoutingContextSelection {
-    if let debugPreferredWindowId {
-        return ShortcutRoutingContextSelection(
-            windowId: debugPreferredWindowId,
-            reason: .debugPreferredWindow
-        )
-    }
-
-    if let eventWindowId {
-        return ShortcutRoutingContextSelection(
-            windowId: eventWindowId,
-            reason: .eventWindow
-        )
-    }
-
-    if hasAddressableEventWindow && !eventWindowAllowsFallback {
-        return ShortcutRoutingContextSelection(
-            windowId: nil,
-            reason: .eventContextRequiredNoFallback
-        )
-    }
-
-    if let keyWindowId {
-        return ShortcutRoutingContextSelection(
-            windowId: keyWindowId,
-            reason: .keyWindow
-        )
-    }
-
-    if let mainWindowId {
-        return ShortcutRoutingContextSelection(
-            windowId: mainWindowId,
-            reason: .mainWindow
-        )
-    }
-
-    if let activeManagerWindowId {
-        return ShortcutRoutingContextSelection(
-            windowId: activeManagerWindowId,
-            reason: .activeManager
-        )
-    }
-
-    return ShortcutRoutingContextSelection(
-        windowId: fallbackWindowId,
-        reason: .fallbackFirstContext
-    )
-}
+import CmuxTerminal
 
 func browserOmnibarSelectionDeltaForControlNavigation(
     hasFocusedAddressBar: Bool,
@@ -193,17 +47,25 @@ func browserOmnibarNormalizedModifierFlags(_ flags: NSEvent.ModifierFlags) -> NS
         .subtracting([.numericPad, .function, .capsLock])
 }
 
+/// Policy decisions shared by the window and text-input shortcut routers.
+enum ShortcutRoutingPolicy {
+    /// Returns whether a key-down event has Option as its only primary modifier.
+    /// Shift may still be present; Command and Control opt the event out of the
+    /// Option-text routing policy.
+    static func isOptionOnly(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown else { return false }
+        let normalizedFlags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
+        return normalizedFlags.contains(.option)
+            && !normalizedFlags.contains(.command)
+            && !normalizedFlags.contains(.control)
+    }
+}
+
 func shortcutRoutingShouldBypassForPrintableOptionText(
     event: NSEvent,
     textInputCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.textInputCharacter(forKeyCode:modifierFlags:)
 ) -> Bool {
-    guard event.type == .keyDown else { return false }
-    let normalizedFlags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
-    guard normalizedFlags.contains(.option),
-          !normalizedFlags.contains(.command),
-          !normalizedFlags.contains(.control) else {
-        return false
-    }
+    guard ShortcutRoutingPolicy.isOptionOnly(event) else { return false }
 
     if shortcutRoutingTextIsPrintable(event.characters) {
         return true
@@ -231,7 +93,7 @@ func browserOmnibarShouldSubmitOnReturn(flags: NSEvent.ModifierFlags) -> Bool {
     return normalizedFlags == [] || normalizedFlags == [.shift]
 }
 
-func browserResponderHasMarkedText(_ responder: NSResponder?) -> Bool {
+func shortcutResponderHasMarkedText(_ responder: NSResponder?) -> Bool {
     guard let responder else { return false }
 
     // During IME composition, Return/Enter belongs to the text system so the
@@ -257,9 +119,8 @@ func shouldDispatchBrowserReturnViaFirstResponderKeyDown(
     guard firstResponderIsBrowser else { return false }
     guard !firstResponderHasMarkedText else { return false }
     guard keyCode == 36 || keyCode == 76 else { return false }
-    // Keep browser Return forwarding narrow: only plain/Shift Return should be
-    // treated as submit-intent. Command-modified Return is reserved for app shortcuts
-    // like Toggle Pane Zoom (Cmd+Shift+Enter).
+    // Keep browser Return forwarding narrow: only plain/Shift Return is submit;
+    // Command-modified Return is reserved for app shortcuts like Toggle Pane Zoom.
     return browserOmnibarShouldSubmitOnReturn(flags: flags)
 }
 
@@ -273,18 +134,17 @@ func shouldDispatchBrowserArrowViaFirstResponderKeyDown(
     guard !firstResponderHasMarkedText else { return false }
     guard (123...126).contains(keyCode) else { return false }
 
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function, .capsLock])
-
-    if normalizedFlags.isEmpty {
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
+    if normalizedFlags.isEmpty || normalizedFlags == [.shift] ||
+        normalizedFlags == [.option] || normalizedFlags == [.option, .shift] {
+        // Selection and word/paragraph navigation need WebKit's native defaults.
         return true
     }
-
-    // Keep modified arrow routing narrow to avoid stealing cmux shortcuts such
-    // as Cmd+Option+Arrow pane focus. Browser document editors own Cmd+Up/Down
-    // as trusted keyDown navigation to the start/end of the document.
-    return normalizedFlags == [.command] && (keyCode == 125 || keyCode == 126)
+    // Cmd+Option+Arrow remains reserved for cmux pane-focus shortcuts.
+    if normalizedFlags == [.command] {
+        return keyCode == 125 || keyCode == 126
+    }
+    return normalizedFlags == [.command, .shift]
 }
 
 func shouldDispatchBrowserOmnibarArrowViaFirstResponderKeyDown(
@@ -299,6 +159,17 @@ func shouldDispatchBrowserOmnibarArrowViaFirstResponderKeyDown(
 
     let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
     return normalizedFlags.isEmpty
+}
+
+/// Returns true when a terminal arrow key-equivalent should be sent through keyDown.
+func shouldDispatchTerminalArrowViaFirstResponderKeyDown(
+    keyCode: UInt16,
+    firstResponderIsTerminal: Bool,
+    firstResponderHasMarkedText: Bool = false,
+    flags: NSEvent.ModifierFlags
+) -> Bool {
+    guard firstResponderIsTerminal, !firstResponderHasMarkedText, (123...126).contains(keyCode) else { return false }
+    return !browserOmnibarNormalizedModifierFlags(flags).contains(.command)
 }
 
 struct BrowserAddressBarTrackingContext {
@@ -336,9 +207,7 @@ func shouldDispatchCommandPaletteHorizontalArrowViaFirstResponderKeyDown(
     guard !firstResponderHasMarkedText else { return false }
     guard keyCode == 123 || keyCode == 124 else { return false }
 
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function, .capsLock])
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
     switch normalizedFlags {
     case [], [.shift], [.option], [.option, .shift], [.command], [.command, .shift]:
         return true
@@ -365,9 +234,7 @@ private func standaloneTextResponderOwnsArrowKeyDown(
     guard !firstResponderHasMarkedText else { return false }
     guard (123...126).contains(keyCode) else { return false }
 
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function, .capsLock])
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
     switch normalizedFlags {
     case [], [.shift], [.option], [.option, .shift], [.command], [.command, .shift]:
         return true
@@ -431,9 +298,7 @@ func shouldDispatchTextBoxInputControlNavViaFirstResponderKeyDown(
     guard firstResponderIsTextBoxInput else { return false }
     guard !firstResponderHasMarkedText else { return false }
 
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function, .capsLock])
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
     guard normalizedFlags == [.control] else { return false }
     let key = charactersIgnoringModifiers?.lowercased()
     return key == "n" || key == "p"
@@ -445,9 +310,7 @@ func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
     keyCode: UInt16,
     layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
 ) -> Bool {
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function, .capsLock])
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
     guard normalizedFlags == [.command, .control] else { return false }
     let normalizedChars = chars.lowercased()
     if normalizedChars == "f" {
@@ -476,30 +339,6 @@ func shouldRouteCommandPaletteSelectionNavigation(
 ) -> Bool {
     guard delta != nil, isInteractive else { return false }
     return !usesInlineTextHandling
-}
-
-func shouldBypassCommandPaletteEscapeForMarkedText(
-    isCommandPaletteEffectivelyVisible: Bool,
-    hasMarkedTextInput: Bool
-) -> Bool {
-    isCommandPaletteEffectivelyVisible && hasMarkedTextInput
-}
-
-enum CommandPaletteEscapeTargetResolution: Equatable {
-    case targetWindow
-    case activePaletteWindow
-    case none
-}
-
-func commandPaletteEscapeTargetResolution(
-    hasTargetWindow: Bool,
-    targetWindowIsEffective: Bool,
-    hasActivePaletteWindow: Bool
-) -> CommandPaletteEscapeTargetResolution {
-    if hasTargetWindow {
-        return targetWindowIsEffective ? .targetWindow : .none
-    }
-    return hasActivePaletteWindow ? .activePaletteWindow : .none
 }
 
 func shouldConsumeShortcutWhileCommandPaletteVisible(
@@ -531,7 +370,7 @@ func shouldConsumeShortcutWhileCommandPaletteVisible(
         }
 
         switch keyCode {
-        case 51, 117, 123, 124:
+        case 49, 51, 117, 123, 124:
             return false
         default:
             break
@@ -592,70 +431,10 @@ func shouldHandleCommandPaletteShortcutEvent(
     return false
 }
 
-func selectFocusedCloseShortcutTarget<Window>(
-    debugFocusedWindow: Window?,
-    keyWindow: Window?,
-    mainWindow: Window?,
-    orderedWindows: [Window],
-    eventWindow: Window?
-) -> Window? {
-    if let debugFocusedWindow {
-        return debugFocusedWindow
-    }
-    if let keyWindow {
-        return keyWindow
-    }
-    if let mainWindow {
-        return mainWindow
-    }
-    if let orderedWindow = orderedWindows.first {
-        return orderedWindow
-    }
-    return eventWindow
-}
-
-func selectAuxiliaryCloseShortcutTarget<Window>(
-    debugWindow: Window?,
-    keyWindow: Window?,
-    mainWindow: Window?,
-    eventWindow: Window?,
-    ownsCloseShortcut: (Window) -> Bool
-) -> Window? {
-    if let debugWindow, ownsCloseShortcut(debugWindow) {
-        return debugWindow
-    }
-    if let keyWindow, ownsCloseShortcut(keyWindow) {
-        return keyWindow
-    }
-    if let mainWindow, ownsCloseShortcut(mainWindow) {
-        return mainWindow
-    }
-    if let eventWindow, ownsCloseShortcut(eventWindow) {
-        return eventWindow
-    }
-    return nil
-}
-
 enum BrowserZoomShortcutAction: Equatable {
     case zoomIn
     case zoomOut
     case reset
-}
-
-struct CommandPaletteDebugResultRow {
-    let commandId: String
-    let title: String
-    let shortcutHint: String?
-    let trailingLabel: String?
-    let score: Int
-}
-
-struct CommandPaletteDebugSnapshot {
-    let query: String
-    let mode: String
-    let results: [CommandPaletteDebugResultRow]
-
-    static let empty = CommandPaletteDebugSnapshot(query: "", mode: "commands", results: [])
 }
 
 func browserZoomShortcutAction(
@@ -730,14 +509,16 @@ func focusedTerminalKeyRepairNeeded(
 func shouldRepairFocusedTerminalCommandEquivalentInputs(
     flags: NSEvent.ModifierFlags,
     responderIsWindow: Bool,
-    responderHasViableKeyRoutingOwner: Bool
+    responderHasViableKeyRoutingOwner: Bool,
+    responderMatchesPreferredKeyboardFocus: Bool
 ) -> Bool {
     let normalizedFlags = flags.intersection(.deviceIndependentFlagsMask)
     guard normalizedFlags.contains(.command) else { return false }
-    // Command shortcuts should only repair genuinely broken responder states.
-    // If another live view already owns first responder, let menu routing use
-    // that responder rather than retargeting to the selected terminal pane.
-    return responderIsWindow || !responderHasViableKeyRoutingOwner
+    // The caller filters foreign controls first. A live terminal responder is
+    // viable only for the pane whose preferred keyboard focus it matches.
+    return responderIsWindow
+        || !responderHasViableKeyRoutingOwner
+        || !responderMatchesPreferredKeyboardFocus
 }
 func shouldRouteTerminalFontZoomShortcutToGhostty(
     firstResponderIsGhostty: Bool,
@@ -754,6 +535,10 @@ func shouldRouteTerminalFontZoomShortcutToGhostty(
         literalChars: literalChars
     ) != nil
 }
+// Main-actor isolated: TerminalSurface.searchState carries the legacy
+// main-thread-only contract as compiler-enforced isolation after the
+// CmuxTerminal lift; both callers (TabManager, overlay tests) are @MainActor.
+@MainActor
 @discardableResult
 func startOrFocusTerminalSearch(
     _ terminalSurface: TerminalSurface,
@@ -767,7 +552,7 @@ func startOrFocusTerminalSearch(
         searchFocusNotifier(terminalSurface)
         return true
     }
-    if terminalSurface.performBindingAction("start_search") {
+    if terminalSurface.performExplicitInputBindingAction("start_search") {
         DispatchQueue.main.async { [weak terminalSurface] in
             guard let terminalSurface else { return }
             if let searchState = terminalSurface.searchState {
@@ -841,6 +626,7 @@ private enum BrowserDocumentEditingCommandEquivalent: CaseIterable {
     case copy
     case cut
     case selectAll
+    case italic
 
     var shortcut: StoredShortcut {
         switch self {
@@ -870,6 +656,19 @@ private enum BrowserDocumentEditingCommandEquivalent: CaseIterable {
                 option: false,
                 control: false,
                 keyCode: 0
+            )
+        case .italic:
+            // Cmd+I is the universal italics command in web writing apps (Notion,
+            // Google Docs, …). Let the focused editor handle it before the app's
+            // menu/Show Notifications fallback, just like copy/cut/select-all
+            // (issue #6776).
+            return StoredShortcut(
+                key: "i",
+                command: true,
+                shift: false,
+                option: false,
+                control: false,
+                keyCode: 34
             )
         }
     }
@@ -973,21 +772,64 @@ func shouldRouteInlineVSCodeCommandPaletteShortcutThroughWebContentFirst(
     return shortcutForAction(.commandPalette).matches(event: event)
 }
 
-func cmuxOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
+extension NSResponder {
+    /// Strict owner lookup for direct Ghostty responder chains, sidebar ownership,
+    /// and call sites that must not treat hosted surface descendants as Ghostty.
+    func cmuxStrictOwningGhosttyView() -> GhosttyNSView? {
+        cmuxOwningGhosttyView(for: self, includingHostedSurfaceDescendants: false)
+    }
+
+    /// Terminal focus lookup for AppKit responders hosted below
+    /// GhosttySurfaceScrollView, where keyboard focus still belongs to Ghostty.
+    func cmuxTerminalFocusOwningGhosttyView() -> GhosttyNSView? {
+        cmuxOwningGhosttyView(for: self, includingHostedSurfaceDescendants: true)
+    }
+
+    /// Terminal key-equivalent routing lookup; hosted surface descendants should
+    /// count as terminal-owned so app shortcuts can be repaired or forwarded.
+    func cmuxTerminalKeyEquivalentOwningGhosttyView() -> GhosttyNSView? {
+        cmuxTerminalFocusOwningGhosttyView()
+    }
+}
+
+extension Optional where Wrapped: NSResponder {
+    func cmuxStrictOwningGhosttyView() -> GhosttyNSView? {
+        self?.cmuxStrictOwningGhosttyView()
+    }
+
+    func cmuxTerminalFocusOwningGhosttyView() -> GhosttyNSView? {
+        self?.cmuxTerminalFocusOwningGhosttyView()
+    }
+
+    func cmuxTerminalKeyEquivalentOwningGhosttyView() -> GhosttyNSView? {
+        self?.cmuxTerminalKeyEquivalentOwningGhosttyView()
+    }
+}
+
+private func cmuxOwningGhosttyView(
+    for responder: NSResponder?,
+    includingHostedSurfaceDescendants: Bool
+) -> GhosttyNSView? {
     guard let responder else { return nil }
     if let ghosttyView = responder as? GhosttyNSView {
         return ghosttyView
     }
 
     if let view = responder as? NSView,
-       let ghosttyView = cmuxOwningGhosttyView(for: view) {
+       let ghosttyView = cmuxOwningGhosttyView(
+           for: view,
+           includingHostedSurfaceDescendants: includingHostedSurfaceDescendants
+       ) {
         return ghosttyView
     }
 
     if let textView = responder as? NSTextView {
         if textView.isFieldEditor,
            let ownerView = cmuxFieldEditorOwnerView(textView),
-           let ghosttyView = cmuxOwningGhosttyView(for: ownerView) {
+           let ghosttyView = cmuxOwningGhosttyView(
+               for: ownerView,
+               includingHostedSurfaceDescendants: includingHostedSurfaceDescendants
+           ) {
             return ghosttyView
         }
     }
@@ -998,10 +840,36 @@ func cmuxOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
             return ghosttyView
         }
         if let view = next as? NSView,
-           let ghosttyView = cmuxOwningGhosttyView(for: view) {
+           let ghosttyView = cmuxOwningGhosttyView(
+               for: view,
+               includingHostedSurfaceDescendants: includingHostedSurfaceDescendants
+           ) {
             return ghosttyView
         }
         current = next.nextResponder
+    }
+
+    return nil
+}
+
+private func cmuxOwningGhosttyView(
+    for view: NSView,
+    includingHostedSurfaceDescendants: Bool
+) -> GhosttyNSView? {
+    if let ghosttyView = view as? GhosttyNSView {
+        return ghosttyView
+    }
+
+    var current: NSView? = view.superview
+    while let candidate = current {
+        if let ghosttyView = candidate as? GhosttyNSView {
+            return ghosttyView
+        }
+        if includingHostedSurfaceDescendants,
+           let hostedView = candidate as? GhosttySurfaceScrollView {
+            return hostedView.surfaceView
+        }
+        current = candidate.superview
     }
 
     return nil
@@ -1019,22 +887,6 @@ func cmuxFieldEditorOwnerView(_ editor: NSTextView) -> NSView? {
     }
 
     return editor.superview
-}
-
-private func cmuxOwningGhosttyView(for view: NSView) -> GhosttyNSView? {
-    if let ghosttyView = view as? GhosttyNSView {
-        return ghosttyView
-    }
-
-    var current: NSView? = view.superview
-    while let candidate = current {
-        if let ghosttyView = candidate as? GhosttyNSView {
-            return ghosttyView
-        }
-        current = candidate.superview
-    }
-
-    return nil
 }
 
 #if DEBUG
@@ -1105,8 +957,7 @@ func shouldSuppressWindowMoveForFolderDrag(window: NSWindow, event: NSEvent) -> 
         return false
     }
 
-    let contentPoint = contentView.convert(event.locationInWindow, from: nil)
-    let hitView = contentView.hitTest(contentPoint)
+    let hitView = contentView.cmuxHitTest(windowPoint: event.locationInWindow)
     return shouldSuppressWindowMoveForFolderDrag(hitView: hitView)
 }
 
