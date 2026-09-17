@@ -22,17 +22,20 @@ enum Command {
     /// same with --quiet: it prints only the final reply.
     #[command(alias = "new-session", alias = "run")]
     New(NewArgs),
-    /// Block until sessions finish their turn. Exit 0 when every session is
-    /// idle, 2 when one needs a permission answer, 3 on timeout.
+    /// Block until a session resolves: its turn ends or it needs a permission
+    /// answer. Returns on the first one unless --all. Exit 0 when a turn
+    /// ended, 2 when a permission is waiting, 3 on timeout.
     #[command(alias = "wait-for")]
     Wait {
-        /// Session names or ids. All local sessions when omitted.
+        /// Session names or ids. Every running session on every host when omitted.
         sessions: Vec<String>,
         /// Give up after this many seconds.
         #[arg(long)]
         timeout: Option<u64>,
-        /// Return when the first session finishes instead of all of them.
+        /// Wait for every named session, not just the first to resolve.
         #[arg(long)]
+        all: bool,
+        #[arg(long, hide = true)]
         any: bool,
         /// Also print each finished session's last reply.
         #[arg(long, short)]

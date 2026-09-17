@@ -81,8 +81,8 @@ Every command takes `--json` before it for machine output. The pieces an orchest
 acpmux run -a codex --cwd ~/proj "fix the failing test"      # new session, send, print only the reply
 acpmux --json run -a claude --policy approve-all "..."       # {"sessionId","name","reply","stopReason"}
 acpmux send NAME --no-wait "..."                              # queue and return at once
-acpmux wait NAME [NAME…] [--any] [--timeout 300] [--print]    # block until the turns end; exit 2 = needs a permission, 3 = timeout
-acpmux wait                                                   # every running local session
+acpmux wait                                                   # block until any session on any host resolves (turn ends or needs a permission)
+acpmux wait NAME [NAME…] [--all] [--timeout 300] [--print]    # same for named sessions; --all waits for every one; exit 2 = permission waiting, 3 = timeout
 acpmux last NAME [-n 3]                                       # last reply text
 acpmux pending                                                # every pending permission, with the option ids to answer it
 acpmux session allow NAME [OPTION] | acpmux session deny NAME
@@ -90,7 +90,7 @@ acpmux ls --status running | --pending                        # filters; --json 
 acpmux session tail NAME --follow                             # the raw event stream as JSON lines
 ```
 
-A typical loop: `run` or `send --no-wait` on several sessions, `wait --any` to react to the
+A typical loop: `run` or `send --no-wait` on several sessions, `wait` to react to the
 first that finishes or needs a permission, `pending` and `session allow` to answer, `last` to
 read the result.
 

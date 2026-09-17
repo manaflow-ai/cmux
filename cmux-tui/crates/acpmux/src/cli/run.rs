@@ -13,30 +13,51 @@ use std::io::Write;
 
 pub(crate) async fn run_client(cmd: Command, json_out: bool) -> Result<()> {
     match cmd {
-        Command::Wait { sessions, timeout, any, print } => {
+        Command::Wait { sessions, timeout, all, any: _, print } => {
             let client = connect(true).await?;
             let mut targets: Vec<(String, String)> = Vec::new();
             if sessions.is_empty() {
+                // Everything in flight, on this host and every peer.
                 let v = client.request(method::MUX_SESSIONS, json!({})).await?;
                 for s in v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default() {
-                    if s.get("peer").is_none() && s.get("status").and_then(Value::as_str) == Some("running") {
+                    let running = s.get("status").and_then(Value::as_str) == Some("running");
+                    let pending = s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0;
+                    if running || pending {
                         targets.push((s.get("name").and_then(Value::as_str).unwrap_or("").to_owned(), s.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned()));
                     }
+                }
+                if targets.is_empty() {
+                    if json_out {
+                        print_json(&json!({"sessions": []}));
+                    } else {
+                        println!("nothing is running");
+                    }
+                    return Ok(());
                 }
             } else {
                 for name in &sessions {
                     targets.push((name.clone(), resolve_id(&client, name).await?));
                 }
             }
-            let outcome = wait_sessions(client.clone(), &targets, timeout, any).await?;
+            let outcome = wait_sessions(client.clone(), &targets, timeout, !all).await?;
             let mut code = 0;
             let mut rows = Vec::new();
+            let resolved = |st: &str, pend: u64| st != "running" || pend > 0;
+            let timed_out = !outcome.iter().any(|(_, _, st, p)| resolved(st, *p));
+            if timed_out {
+                code = 3;
+            }
             for (name, id, status, pending) in &outcome {
+                // Without --all, report only what resolved; still-running
+                // sessions are not news.
+                if !all && !timed_out && !resolved(status, *pending) {
+                    continue;
+                }
                 let reply = if print || json_out { last_replies(&client, id, 1).await?.pop().unwrap_or_default() } else { String::new() };
                 if *pending > 0 {
                     code = code.max(2);
                 }
-                if status == "running" {
+                if all && status == "running" {
                     code = 3;
                 }
                 rows.push(json!({"name": name, "sessionId": id, "status": status, "pendingPermissions": pending, "reply": reply}));
