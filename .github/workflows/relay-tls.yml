@@ -22,6 +22,7 @@ jobs:
         run: ./scripts/select-ci-xcode.sh
       - name: Verify diagnostic presentation against the published framework
         run: |
+          swift test --package-path Packages/Shared/CMUXMobileCore --filter CmxIrohConnectionCheckReportTests
           swift test --package-path Packages/Shared/CmuxIrohTransport --filter CmxIrohRelayDiagnosticObserverTests
           swift test --package-path Packages/Shared/CmuxIrxTransport --filter IrxEndpointDiagnosticTests
 
