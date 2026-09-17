@@ -349,7 +349,9 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                     identityGeneration: device.identityGeneration,
                     appVersion: device.metadata.appVersion,
                     releaseTrack: Self.hostReleaseTrack),
-                identity: LegacyCompatibilityService.compatibilityIdentity(from: identity),
+                identity: LegacyCompatibilityService.compatibilityIdentity(
+                    from: identity, deviceID: MobileHostIdentity.deviceID()),
+                previousDeviceID: LegacyCompatibilityService.compatibilityIdentity(from: identity).deviceID,
                 accessTokenPair: { [weak auth] in
                     guard let auth else { return nil }
                     guard await auth.isAuthenticatedTeamScopeCurrent(scope) else { return nil }
@@ -801,6 +803,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         let exit = await MobileHostService.acceptTransport(
             controlTransport,
             authorization: .irohAdmission(admittedPeer),
+            hostDeviceID: legacyCurrent?.current?.entries[peer.endpointIDHex] != nil
+                ? MobileHostIdentity.deviceID() : nil,
             artifactTransfers: artifactRegistry,
             independentEventWriter: eventWriter,
             // Admission has already authenticated this bounded pooled peer.

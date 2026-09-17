@@ -21,9 +21,13 @@ class FakeSocket {
   protocols: string | string[];
   private sentWaiters = new Map<number, (body: string) => void>();
   constructor(_url: string, protocols: string | string[]) { this.protocols = protocols; FakeSocket.instances.push(this); FakeSocket.created.get(FakeSocket.instances.length - 1)?.(this); }
-  send(body: string) { this.sent.push(body); this.sentWaiters.get(this.sent.length - 1)?.(body); }
+  send(body: string) {
+    const index = this.sent.push(body) - 1;
+    this.sentWaiters.get(index)?.(body);
+    this.sentWaiters.delete(index);
+  }
   waitForSent(index: number): Promise<string> {
-    return this.sent[index] ? Promise.resolve(this.sent[index]!) : new Promise(resolve => this.sentWaiters.set(index, resolve));
+    return this.sent[index] !== undefined ? Promise.resolve(this.sent[index]!) : new Promise(resolve => this.sentWaiters.set(index, resolve));
   }
   close() { this.readyState = 3; this.onclose?.({ code: 1000 } as CloseEvent); }
   open() { this.readyState = 1; this.onopen?.(); this.message({ schemaId: "dashboard.connected.v1", requestId: "connected", sessionId: "s", teamRevision: 1, expiresAt: 99 }); }
@@ -90,7 +94,7 @@ describe("IROH Dashboard v2 controller", () => {
     socket.message({ schemaId: "dashboard.directory.v1", requestId: directoryRequest.requestId, directory: { teamId: "t", revision: 1, devices: [], relayURLs: [], issuedAt: 1, nextCursor: null, canManageTeam: true, managedDeviceIds: [] } });
     await pending; expect(directories).toHaveLength(1);
     const revoke = controller.revoke("device");
-    const revokeRequest = JSON.parse(socket.sent[1]!);
+    const revokeRequest = JSON.parse(await socket.waitForSent(1));
     socket.message({ schemaId: "operation.completed.v1", requestId: revokeRequest.requestId, revision: 2 });
     // The post-mutation directory request is sent after the acknowledgement.
     const refresh = JSON.parse(await socket.waitForSent(2));
@@ -117,7 +121,7 @@ describe("IROH Dashboard v2 controller", () => {
     expect(directories[0].devices.map(device => device.deviceRecordId)).toEqual(["d1", "d2"]);
     expect(directories[0].managedDeviceIds).toEqual(["d1", "d2"]);
     const update = controller.updateRelayPreferences(["https://relay.example"]);
-    const updateRequest = JSON.parse(socket.sent[2]!);
+    const updateRequest = JSON.parse(await socket.waitForSent(2));
     expect(updateRequest.expectedRevision).toBe(4);
     socket.message({ schemaId: "operation.completed.v1", requestId: updateRequest.requestId, revision: 5 });
     const refresh = JSON.parse(await socket.waitForSent(3));

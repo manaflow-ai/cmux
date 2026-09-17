@@ -18,7 +18,7 @@ com.cmuxterm.app
 ```
 
 This is the release app's bundle identifier. Channel builds (debug,
-nightly, staging) run under their own bundle identifiers but also honor
+nightly, rc, staging) run under their own bundle identifiers but also honor
 profiles targeting `com.cmuxterm.app`, so one profile governs every
 channel. A profile may additionally target a channel's own domain (for
 example `com.cmuxterm.app.nightly`); a value forced in the app's own

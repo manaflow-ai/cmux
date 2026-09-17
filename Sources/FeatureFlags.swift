@@ -51,6 +51,7 @@ final class CmuxFeatureFlags {
     private static let appKitSidebarListDefault = true
     private static let mobileTerminalFilesChipDefault = true
     private nonisolated static let mobileTaskComposerDefault = true
+    private static let goPlanDefault = false
 
     private static let overrideKeyPrefix = "cmux.flags.override."
     private static let remoteCacheKeyPrefix = "cmux.flags.remote."
@@ -158,6 +159,20 @@ final class CmuxFeatureFlags {
         defaultWhenUnavailable: CmuxFeatureFlags.mobileTaskComposerDefault
     )
 
+    // FLAG(key: go-plan-enabled-release, owner: lawrencecchen,
+    //      reviewBy: 2026-12-01, defaultWhenUnavailable: false)
+    // Controls the $10/month Go plan rollout. Keep this off until capacity and
+    // support are ready; existing Go subscribers keep their entitlements.
+    static let goPlanFlag = CmuxFeatureFlagDefinition(
+        key: "go-plan-enabled-release",
+        title: String(localized: "featureFlags.goPlan.title", defaultValue: "Go plan"),
+        flagDescription: String(
+            localized: "featureFlags.goPlan.description",
+            defaultValue: "Shows and sells the $10/month Go personal Cloud VM plan."
+        ),
+        defaultWhenUnavailable: CmuxFeatureFlags.goPlanDefault
+    )
+
     // FLAG(key: cloud-machines-enabled-release, owner: austinwang,
     //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
     // Order is load-bearing for the positional typed accessors below. Flags
@@ -187,10 +202,10 @@ final class CmuxFeatureFlags {
             // local debug override enables it.
             CmuxFeatureFlagDefinition(
                 key: "mobile-connect-button-enabled-release",
-                title: String(localized: "featureFlags.mobileConnect.title", defaultValue: "Tailscale Pairing button"),
+                title: String(localized: "featureFlags.mobileConnect.title", defaultValue: "Mobile Pairing button"),
                 flagDescription: String(
                     localized: "featureFlags.mobileConnect.description",
-                    defaultValue: "Shows the Tailscale Pairing button in the sidebar footer."
+                    defaultValue: "Shows the Mobile Pairing button in the sidebar footer."
                 ),
                 defaultWhenUnavailable: CmuxFeatureFlags.mobileConnectButtonDefault
             ),
@@ -282,6 +297,7 @@ final class CmuxFeatureFlags {
 
             CmuxFeatureFlags.mobileTerminalFilesChipFlag,
             CmuxFeatureFlags.mobileTaskComposerFlag,
+            CmuxFeatureFlags.goPlanFlag,
             CmuxFeatureFlags.cloudMachinesFlag,
         ]
     }()
@@ -329,6 +345,10 @@ final class CmuxFeatureFlags {
 
     var isMobileTaskComposerEnabled: Bool {
         effectiveValue(for: Self.mobileTaskComposerFlag)
+    }
+
+    var isGoPlanEnabled: Bool {
+        effectiveValue(for: Self.goPlanFlag)
     }
 
     /// Effective values mirrored for nonisolated readers: the mobile host
