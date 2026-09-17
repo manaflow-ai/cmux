@@ -21,24 +21,6 @@ internal import CMUXDebugLog
 /// they never cross an isolation boundary) which keeps the nonisolated
 /// `deinit` teardown path exactly as it was.
 public final class TerminalSurface: Identifiable, ObservableObject {
-    /// The live find-in-terminal session state for one surface.
-    public final class SearchState: ObservableObject {
-        /// The current search needle.
-        @Published public var needle: String
-        /// The 1-based index of the selected match, if known.
-        @Published public var selected: UInt?
-
-        /// The total number of matches, if known.
-        @Published public var total: UInt?
-
-        /// Creates search state with an initial needle.
-        public init(needle: String = "") {
-            self.needle = needle
-            self.selected = nil
-            self.total = nil
-        }
-    }
-
     static let committedTextInputChunkByteLimit = 96
 
     /// `ESC[?7l`, disable DECAWM (autowrap). Injected around a mirror
@@ -92,6 +74,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let sessionPortRangeSize: Int
     let scrollbackReplayEnvironmentKey: String
     let globalFontMagnificationPercent: @Sendable () -> Int
+    let terminalWork: TerminalSurfaceWorkDiagnostics
     var rendererPresentationPhase = TerminalRendererPresentationPhase.awaitingFirstPresentation
     /// Current renderer health; the direct callback below is the observation seam for hosts.
     public internal(set) var renderHealth: TerminalSurfaceRenderHealth = .notStarted {
@@ -620,6 +603,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.sessionPortRangeSize = dependencies.sessionPortRangeSize
         self.scrollbackReplayEnvironmentKey = dependencies.scrollbackReplayEnvironmentKey
         self.globalFontMagnificationPercent = dependencies.globalFontMagnificationPercent
+        self.terminalWork = dependencies.terminalWork
         // Match Ghostty's own SurfaceView: ensure a non-zero initial frame so the backing layer
         // has non-zero bounds and the renderer can initialize without presenting a blank/stretched
         // intermediate frame on the first real resize.

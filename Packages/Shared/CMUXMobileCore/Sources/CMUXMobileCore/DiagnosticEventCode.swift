@@ -304,6 +304,11 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     /// A close carried a bounded remote reason token. `surface` is the peer
     /// alias, `a` is ``DiagnosticRemoteCloseReason``, and `c` is the session ID.
     case transportCloseReason = 79
+
+    /// A terminal phase began; `terminalWork` carries its typed metadata.
+    case terminalWorkStarted = 80
+    /// The phase returned; `ms` is elapsed time, not a PTY acknowledgement.
+    case terminalWorkFinished = 81
 }
 
 /// Scene phase carried by ``DiagnosticEventCode/appLifecycleChanged``.
