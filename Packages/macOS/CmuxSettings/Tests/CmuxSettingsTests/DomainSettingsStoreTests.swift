@@ -372,7 +372,7 @@ struct LanguageSettingsStoreTests {
         // domain to observe only the override this store writes/removes.
         let suiteName = "cmux.tests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
-        let store = LanguageSettingsStore(defaults: defaults)
+        let store = LanguageSettingsStore(defaults: defaults, domainName: suiteName)
 
         store.applyLanguageOverride(.ja)
         #expect(defaults.persistentDomain(forName: suiteName)?["AppleLanguages"] as? [String] == ["ja"])

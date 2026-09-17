@@ -2,15 +2,22 @@
 // Captured + restored in afterAll so the flag can't leak into other test files
 // sharing this process and silently suppress their env validation.
 const priorSkipEnvValidation = process.env.SKIP_ENV_VALIDATION;
+const priorVercel = process.env.VERCEL;
 process.env.SKIP_ENV_VALIDATION = "1";
+process.env.VERCEL = "0";
 
-import { afterAll, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 afterAll(() => {
   if (priorSkipEnvValidation === undefined) {
     delete process.env.SKIP_ENV_VALIDATION;
   } else {
     process.env.SKIP_ENV_VALIDATION = priorSkipEnvValidation;
+  }
+  if (priorVercel === undefined) {
+    delete process.env.VERCEL;
+  } else {
+    process.env.VERCEL = priorVercel;
   }
 });
 
@@ -49,6 +56,10 @@ function post(body: unknown): Request {
 }
 
 describe("waitlist route", () => {
+  beforeEach(() => {
+    process.env.VERCEL = "0";
+  });
+
   test("accepts a deliverable email in the validate phase", async () => {
     const res = await POST(
       post({ email: "a@good.test", platforms: ["linux"], notify: false }),

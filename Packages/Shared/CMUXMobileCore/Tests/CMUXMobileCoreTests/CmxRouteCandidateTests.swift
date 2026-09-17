@@ -19,10 +19,14 @@ import Testing
     }
 
     private func peer(_ id: String) throws -> CmxAttachRoute {
-        try CmxAttachRoute(
+        let endpointID = String(repeating: id == "nodeabc" ? "a" : "b", count: 64)
+        return try CmxAttachRoute(
             id: "p-\(id)",
             kind: .iroh,
-            endpoint: .peer(id: id, relayHint: nil, directAddrs: [], relayURL: nil)
+            endpoint: .peer(
+                identity: try CmxIrohPeerIdentity(endpointID: endpointID),
+                pathHints: []
+            )
         )
     }
 
@@ -84,7 +88,7 @@ import Testing
         // A general hostname needs DNS.
         #expect(proximityClassifier.classify(.hostPort(host: "example.com", port: 1)) == .relay)
         // iroh peer and websocket URL transports are relay-class.
-        #expect(proximityClassifier.classify(.peer(id: "abc", relayHint: nil, directAddrs: [], relayURL: nil)) == .relay)
+        #expect(proximityClassifier.classify(.peer(identity: try! CmxIrohPeerIdentity(endpointID: String(repeating: "a", count: 64)), pathHints: [])) == .relay)
         #expect(proximityClassifier.classify(.url("wss://relay.example/ws")) == .relay)
     }
 
@@ -122,8 +126,14 @@ import Testing
                 != CmxAttachEndpoint.url("wss://relay.example/ws?token=abc").routeDedupKey
         )
         #expect(
-            CmxAttachEndpoint.peer(id: "NodeABC", relayHint: nil, directAddrs: [], relayURL: nil).routeDedupKey
-                != CmxAttachEndpoint.peer(id: "nodeabc", relayHint: nil, directAddrs: [], relayURL: nil).routeDedupKey
+            CmxAttachEndpoint.peer(
+                identity: try! CmxIrohPeerIdentity(endpointID: String(repeating: "a", count: 64)),
+                pathHints: []
+            ).routeDedupKey
+                != CmxAttachEndpoint.peer(
+                    identity: try! CmxIrohPeerIdentity(endpointID: String(repeating: "b", count: 64)),
+                    pathHints: []
+                ).routeDedupKey
         )
     }
 

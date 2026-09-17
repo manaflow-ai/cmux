@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-nonisolated struct CmuxTopResourceSummary: Sendable {
+struct CmuxTopResourceSummary: Sendable {
     var cpuPercent: Double = 0
     var memoryBytes: Int64 = 0
     var residentBytes: Int64 = 0
@@ -45,7 +45,7 @@ nonisolated struct CmuxTopResourceSummary: Sendable {
     }
 }
 
-nonisolated enum CmuxTopProcessMemorySource: String, Sendable {
+enum CmuxTopProcessMemorySource: String, Sendable {
     case physicalFootprint = "proc_pid_rusage.RUSAGE_INFO_V4.ri_phys_footprint"
     case residentSize = "proc_pidinfo.PROC_PIDTASKINFO.pti_resident_size"
     case rusageResidentSize = "proc_pid_rusage.RUSAGE_INFO_V4.ri_resident_size"
@@ -53,7 +53,7 @@ nonisolated enum CmuxTopProcessMemorySource: String, Sendable {
     case unavailable
 }
 
-nonisolated struct CmuxTopProcessInfo: Sendable {
+struct CmuxTopProcessInfo: Sendable {
     let pid: Int
     let parentPID: Int
     let name: String
@@ -117,7 +117,7 @@ nonisolated struct CmuxTopProcessInfo: Sendable {
     }
 }
 
-nonisolated struct CmuxTopProcessScope: Sendable, Equatable {
+struct CmuxTopProcessScope: Sendable, Equatable {
     let workspaceID: UUID?
     let surfaceID: UUID?
     let attributionReason: String
@@ -129,37 +129,29 @@ nonisolated struct CmuxTopProcessScope: Sendable, Equatable {
     }
 }
 
-nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
+final class CmuxTopProcessSnapshot: @unchecked Sendable {
     let sampledAt: Date
+    let enumerationIsComplete: Bool
+    let enumerationMissingProcessCount: Int
     private let includesProcessDetails: Bool
     private let includesCMUXScope: Bool
     let processesByPID: [Int: CmuxTopProcessInfo]
     private let childrenByParentPID: [Int: [Int]]
     private let pidsByTTYDevice: [Int64: [Int]]
     private let pidsByCMUXSurfaceID: [UUID: [Int]]
+    private let pidsByProcessGroupID: [Int: [Int]]
     private let residentMemorySources: [CmuxTopProcessMemorySource]
-
-    static func capture(
-        includeProcessDetails: Bool = false,
-        includeCMUXScope: Bool = true
-    ) -> CmuxTopProcessSnapshot {
-        CmuxTopProcessSnapshot(
-            processes: allProcesses(
-                includeProcessDetails: includeProcessDetails,
-                includeCMUXScope: includeCMUXScope
-            ),
-            sampledAt: Date(),
-            includesProcessDetails: includeProcessDetails,
-            includesCMUXScope: includeCMUXScope
-        )
-    }
 
     init(
         processes: [CmuxTopProcessInfo],
         sampledAt: Date,
         includesProcessDetails: Bool,
-        includesCMUXScope: Bool = true
+        includesCMUXScope: Bool = true,
+        enumerationIsComplete: Bool = true,
+        enumerationMissingProcessCount: Int = 0
     ) {
+        self.enumerationIsComplete = enumerationIsComplete && enumerationMissingProcessCount == 0
+        self.enumerationMissingProcessCount = max(0, enumerationMissingProcessCount)
         self.sampledAt = sampledAt
         self.includesProcessDetails = includesProcessDetails
         self.includesCMUXScope = includesCMUXScope
@@ -176,6 +168,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         var children: [Int: [Int]] = [:]
         var ttyMap: [Int64: [Int]] = [:]
         var cmuxSurfaceMap: [UUID: [Int]] = [:]
+        var processGroupMap: [Int: [Int]] = [:]
         for process in processMap.values {
             if process.parentPID > 0 {
                 children[process.parentPID, default: []].append(process.pid)
@@ -186,17 +179,21 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             if let cmuxSurfaceID = process.cmuxSurfaceID {
                 cmuxSurfaceMap[cmuxSurfaceID, default: []].append(process.pid)
             }
+            if let processGroupID = process.processGroupID {
+                processGroupMap[processGroupID, default: []].append(process.pid)
+            }
         }
         self.childrenByParentPID = children.mapValues { $0.sorted() }
         self.pidsByTTYDevice = ttyMap.mapValues { $0.sorted() }
         self.pidsByCMUXSurfaceID = cmuxSurfaceMap.mapValues { $0.sorted() }
+        self.pidsByProcessGroupID = processGroupMap.mapValues { $0.sorted() }
     }
 
     func samplePayload() -> [String: Any] {
         let residentMemorySourceNames = residentMemorySources.map(\.rawValue)
         return [
             "sampled_at": ISO8601DateFormatter().string(from: sampledAt),
-            "source": "proc_listallpids+proc_pidinfo",
+            "source": "proc_listallpids+proc_pidinfo+sysctl(KERN_PROC_PID)",
             "cpu_source": "proc_pidinfo.PROC_PIDTASKINFO.pti_total_user+pti_total_system",
             "memory_source": CmuxTopProcessMemorySource.physicalFootprint.rawValue,
             "memory_fallback_source": CmuxTopProcessMemorySource.residentSize.rawValue,
@@ -204,7 +201,9 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             "resident_memory_sources": residentMemorySourceNames,
             "resident_memory_fallback_source": CmuxTopProcessMemorySource.rusageResidentSize.rawValue,
             "process_details": includesProcessDetails,
-            "cmux_scope": includesCMUXScope
+            "cmux_scope": includesCMUXScope,
+            "enumeration_complete": enumerationIsComplete,
+            "enumeration_missing_process_count": enumerationMissingProcessCount
         ]
     }
 
@@ -240,11 +239,19 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         guard let device = Self.deviceIdentifier(forTTYName: ttyName) else {
             return []
         }
-        return Set(pidsByTTYDevice[device] ?? [])
+        return pids(forTTYDevice: device)
+    }
+
+    func pids(forTTYDevice ttyDevice: Int64) -> Set<Int> {
+        Set(pidsByTTYDevice[ttyDevice] ?? [])
     }
 
     func pids(forCMUXSurfaceID surfaceID: UUID) -> Set<Int> {
         Set(pidsByCMUXSurfaceID[surfaceID] ?? [])
+    }
+
+    func pids(forProcessGroupID processGroupID: Int) -> Set<Int> {
+        Set(pidsByProcessGroupID[processGroupID] ?? [])
     }
 
     func cmuxScopedProcesses() -> [CmuxTopProcessInfo] {
@@ -267,6 +274,220 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         }
 
         return result
+    }
+
+    func agentHibernationProcessScope(
+        panelProcessIDs: Set<Int>,
+        agentProcessIDs: Set<Int>
+    ) -> RestorableAgentSessionIndex.HibernationProcessScope {
+        guard enumerationIsComplete else { return ([], [], true) }
+        let maximumProcessCount = AgentHibernationController.maximumScopedProcessTerminationCount
+        func appendBounded<S: Sequence>(
+            _ processIDs: S,
+            to values: inout Set<Int>
+        ) -> Bool where S.Element == Int {
+            for processID in processIDs {
+                guard processID > 0, !values.contains(processID) else { continue }
+                guard values.count < maximumProcessCount else { return true }
+                values.insert(processID)
+            }
+            return false
+        }
+        func boundedExpandedPIDs(
+            rootPIDs: Set<Int>
+        ) -> (values: Set<Int>, exceeded: Bool) {
+            var values: Set<Int> = []
+            var stack: [Int] = []
+            stack.reserveCapacity(min(rootPIDs.count, maximumProcessCount))
+            for rootPID in rootPIDs {
+                guard rootPID > 0, !values.contains(rootPID) else { continue }
+                guard values.count < maximumProcessCount else {
+                    return (values, true)
+                }
+                values.insert(rootPID)
+                stack.append(rootPID)
+            }
+            while let processID = stack.popLast() {
+                for childProcessID in childrenByParentPID[processID] ?? [] {
+                    guard childProcessID > 0, !values.contains(childProcessID) else {
+                        continue
+                    }
+                    guard values.count < maximumProcessCount else {
+                        return (values, true)
+                    }
+                    values.insert(childProcessID)
+                    stack.append(childProcessID)
+                }
+            }
+            return (values, false)
+        }
+
+        var boundedPanelProcessIDs: Set<Int> = []
+        let panelProcessIDsExceeded = appendBounded(
+            panelProcessIDs,
+            to: &boundedPanelProcessIDs
+        )
+        var boundedAgentProcessIDs: Set<Int> = []
+        let agentProcessIDsExceeded = appendBounded(
+            agentProcessIDs,
+            to: &boundedAgentProcessIDs
+        )
+        if panelProcessIDsExceeded || agentProcessIDsExceeded {
+            var boundedTerminationProcessIDs: Set<Int> = []
+            _ = appendBounded(boundedAgentProcessIDs, to: &boundedTerminationProcessIDs)
+            return (
+                boundedPanelProcessIDs,
+                boundedTerminationProcessIDs,
+                true
+            )
+        }
+
+        let boundedAgentRoots = boundedAgentProcessIDs
+        let terminalDevices = Set(boundedAgentRoots.compactMap {
+            processesByPID[$0]?.ttyDevice
+        })
+        var boundedTerminalProcessIDs: Set<Int> = []
+        var terminalProcessIDsExceeded = false
+        for terminalDevice in terminalDevices {
+            terminalProcessIDsExceeded = appendBounded(
+                pidsByTTYDevice[terminalDevice] ?? [],
+                to: &boundedTerminalProcessIDs
+            )
+            if terminalProcessIDsExceeded {
+                break
+            }
+        }
+        var boundedObservedPanelProcessIDs: Set<Int> = []
+        let panelObservationExceeded = appendBounded(
+            boundedPanelProcessIDs,
+            to: &boundedObservedPanelProcessIDs
+        ) || appendBounded(
+            boundedTerminalProcessIDs,
+            to: &boundedObservedPanelProcessIDs
+        )
+        if terminalProcessIDsExceeded || panelObservationExceeded {
+            var boundedTerminationProcessIDs: Set<Int> = []
+            _ = appendBounded(boundedAgentRoots, to: &boundedTerminationProcessIDs)
+            return (
+                boundedObservedPanelProcessIDs,
+                boundedTerminationProcessIDs,
+                true
+            )
+        }
+
+        let observedPanelProcessIDs = boundedObservedPanelProcessIDs
+        let descendantCollector = boundedExpandedPIDs(
+            rootPIDs: boundedAgentRoots
+        )
+        if descendantCollector.exceeded {
+            return (
+                observedPanelProcessIDs,
+                descendantCollector.values,
+                true
+            )
+        }
+        let descendantProcessIDs = descendantCollector.values
+        var boundedAllowedProcessIDs: Set<Int> = []
+        var scopeExceeded = appendBounded(
+            descendantProcessIDs,
+            to: &boundedAllowedProcessIDs
+        )
+
+        for rootProcessID in boundedAgentRoots {
+            var currentProcessID = rootProcessID
+            var visitedProcessIDs: Set<Int> = []
+            while visitedProcessIDs.insert(currentProcessID).inserted {
+                guard let parentProcessID = processesByPID[currentProcessID]?.parentPID,
+                      observedPanelProcessIDs.contains(parentProcessID) else {
+                    break
+                }
+                guard visitedProcessIDs.count < maximumProcessCount else {
+                    scopeExceeded = true
+                    break
+                }
+                if appendBounded(
+                    [parentProcessID],
+                    to: &boundedAllowedProcessIDs
+                ) {
+                    scopeExceeded = true
+                    break
+                }
+                currentProcessID = parentProcessID
+            }
+            if scopeExceeded {
+                break
+            }
+        }
+        if scopeExceeded {
+            var boundedTerminationProcessIDs: Set<Int> = []
+            _ = appendBounded(descendantProcessIDs, to: &boundedTerminationProcessIDs)
+            return (
+                observedPanelProcessIDs,
+                boundedTerminationProcessIDs,
+                true
+            )
+        }
+
+        let processGroupIDs = Set(descendantProcessIDs.compactMap {
+            processesByPID[$0]?.processGroupID
+        }).filter { $0 > 1 }
+        var boundedProcessGroupMemberIDs: Set<Int> = []
+        var processGroupMembersExceeded = false
+        for processGroupID in processGroupIDs {
+            processGroupMembersExceeded = appendBounded(
+                pidsByProcessGroupID[processGroupID] ?? [],
+                to: &boundedProcessGroupMemberIDs
+            )
+            if processGroupMembersExceeded {
+                break
+            }
+        }
+        var boundedTerminationProcessIDs: Set<Int> = []
+        let terminationProcessIDsExceeded = appendBounded(
+            descendantProcessIDs,
+            to: &boundedTerminationProcessIDs
+        ) || appendBounded(
+            boundedProcessGroupMemberIDs,
+            to: &boundedTerminationProcessIDs
+        )
+        if processGroupMembersExceeded || terminationProcessIDsExceeded {
+            return (
+                observedPanelProcessIDs,
+                boundedTerminationProcessIDs,
+                true
+            )
+        }
+        let processGroupMemberIDs = boundedProcessGroupMemberIDs
+        let terminationProcessIDs = boundedTerminationProcessIDs
+        let terminationTTYDevices = terminationProcessIDs.compactMap {
+            processesByPID[$0]?.ttyDevice
+        }
+        let hasCompleteTerminationTTYEvidence = terminationProcessIDs.isEmpty ||
+            (
+                terminationTTYDevices.count == terminationProcessIDs.count &&
+                    Set(terminationTTYDevices).count == 1
+            )
+
+        let hasCompleteAgentRoots =
+            !boundedAgentRoots.isEmpty &&
+            boundedAgentRoots.isSubset(of: terminationProcessIDs)
+        let hasTerminalEvidence = boundedAgentRoots.allSatisfy {
+            processesByPID[$0]?.ttyDevice != nil
+        }
+        let hasCompleteProcessGroups = processGroupIDs.allSatisfy { processGroupID in
+            processesByPID[processGroupID]?.processGroupID == processGroupID
+        }
+        return (
+            observedPanelProcessIDs,
+            terminationProcessIDs,
+            !hasCompleteAgentRoots ||
+                !hasTerminalEvidence ||
+                !hasCompleteTerminationTTYEvidence ||
+                processGroupIDs.isEmpty ||
+                !hasCompleteProcessGroups ||
+                !processGroupMemberIDs.isSubset(of: boundedAllowedProcessIDs) ||
+                !observedPanelProcessIDs.isSubset(of: boundedAllowedProcessIDs)
+        )
     }
 
     func descendantPIDs(rootPID: Int, includeRoot: Bool = false) -> Set<Int> {

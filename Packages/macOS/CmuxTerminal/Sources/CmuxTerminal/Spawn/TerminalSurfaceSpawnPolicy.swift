@@ -6,6 +6,9 @@
 /// read the individual settings stores, so each spawn observes the same live
 /// values in the same order.
 public struct TerminalSurfaceSpawnPolicy: Sendable {
+    /// Protected authentication values exported into the spawned terminal.
+    public var socketAuthenticationEnvironment: [String: String]
+
     /// Whether Claude Code hooks are enabled (`CMUX_CLAUDE_HOOKS_DISABLED`).
     public var claudeHooksEnabled: Bool
 
@@ -51,8 +54,12 @@ public struct TerminalSurfaceSpawnPolicy: Sendable {
     /// Whether sidebar pull-request watching is enabled (`CMUX_NO_PR_WATCH`).
     public var showPullRequestsEnabled: Bool
 
+    /// Whether supported agent sessions may attach the local computer-use MCP server.
+    public var computerUseEnabled: Bool
+
     /// Creates a spawn policy snapshot.
     public init(
+        socketAuthenticationEnvironment: [String: String] = [:],
         claudeHooksEnabled: Bool,
         codexHooksEnabled: Bool = true,
         customClaudePath: String?,
@@ -65,8 +72,10 @@ public struct TerminalSurfaceSpawnPolicy: Sendable {
         ampHooksEnabled: Bool,
         shellIntegrationEnabled: Bool,
         watchGitStatusEnabled: Bool,
-        showPullRequestsEnabled: Bool
+        showPullRequestsEnabled: Bool,
+        computerUseEnabled: Bool = true
     ) {
+        self.socketAuthenticationEnvironment = socketAuthenticationEnvironment
         self.claudeHooksEnabled = claudeHooksEnabled
         self.codexHooksEnabled = codexHooksEnabled
         self.customClaudePath = customClaudePath
@@ -80,5 +89,6 @@ public struct TerminalSurfaceSpawnPolicy: Sendable {
         self.shellIntegrationEnabled = shellIntegrationEnabled
         self.watchGitStatusEnabled = watchGitStatusEnabled
         self.showPullRequestsEnabled = showPullRequestsEnabled
+        self.computerUseEnabled = computerUseEnabled
     }
 }

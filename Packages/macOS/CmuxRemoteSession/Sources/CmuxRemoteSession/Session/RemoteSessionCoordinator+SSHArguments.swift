@@ -1,11 +1,26 @@
+internal import CmuxFoundation
 internal import Foundation
 
 // Per-exec SSH argument composition and subprocess error-line selection.
-// Faithful lift; argument text is wire/process behavior, do not alter. (The
-// configuration's own batch builders in CmuxCore cover the daemon-transport
-// argv; these compose the coordinator's general exec argv, including the
-// non-batch and drop-ControlPath variants the batch builders do not have.)
+// Faithful lift; argument text is wire/process behavior, do not alter
+// without a pinned-behavior reason. (The configuration's own batch builders
+// in CmuxCore cover the daemon-transport argv; these compose the
+// coordinator's general exec argv, including the non-batch and
+// drop-ControlPath variants the batch builders do not have.)
 extension RemoteSessionCoordinator {
+    /// Builds batch SSH arguments for daemon bootstrap traffic.
+    ///
+    /// Bootstrap owns the binary-install transaction, so it must not inherit
+    /// an existing multiplexed channel: a half-open ControlMaster can report
+    /// healthy while forwarding no payload bytes. `ControlPath=none` is placed
+    /// before caller options because OpenSSH keeps the first value it obtains.
+    func daemonBootstrapSSHArguments() -> [String] {
+        ["-o", "ControlPath=none"] + sshCommonArguments(
+            batchMode: true,
+            dropControlPath: true
+        )
+    }
+
     func sshCommonArguments(batchMode: Bool, dropControlPath: Bool = false) -> [String] {
         let effectiveSSHOptions: [String] = {
             if batchMode {
@@ -24,6 +39,14 @@ extension RemoteSessionCoordinator {
         if batchMode {
             args += ["-o", "BatchMode=yes"]
             args += ["-o", "ControlMaster=no"]
+            // Batch execs append their own positional remote command, which
+            // OpenSSH refuses while a host-configured RemoteCommand is in
+            // effect (issue #7246); pin RequestTTY=no so a host `RequestTTY
+            // force` cannot CRLF-corrupt parsed pipes. Placed before the
+            // configuration's options: OpenSSH honors the first value per
+            // option, so these also win over caller-supplied conflicts.
+            args += SSHHostConfiguredRemoteCommand().overrideArguments
+            args += ["-o", "RequestTTY=no"]
         }
         if let port = configuration.port {
             args += ["-p", String(port)]

@@ -19,8 +19,8 @@ extension CmxAttachEndpoint {
                 .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
                 .lowercased()
             return "hp|\(normalized)|\(port)"
-        case let .peer(id, _, _, _):
-            return "peer|\(id.trimmingCharacters(in: .whitespacesAndNewlines))"
+        case let .peer(identity, _):
+            return "peer|\(identity.endpointID)"
         case let .url(url):
             return "url|\(url.trimmingCharacters(in: .whitespacesAndNewlines))"
         }

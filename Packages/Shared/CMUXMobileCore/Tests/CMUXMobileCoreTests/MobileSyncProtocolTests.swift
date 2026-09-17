@@ -199,6 +199,31 @@ import Testing
     }
 }
 
+@Test func frameCodecDrainsLargeBatchesWithoutTreatingPacketSizeAsFailure() throws {
+    let frame = try MobileSyncFrameCodec.encodeFrame(Data("valid payload".utf8))
+    var buffer = Data()
+    for _ in 0..<1_000 { buffer.append(frame) }
+    var decoded = 0
+    while !buffer.isEmpty {
+        let frames = try MobileSyncFrameCodec.decodeFrames(from: &buffer, maximumDecodedFrameCount: 16)
+        #expect(!frames.isEmpty)
+        #expect(frames.count <= 16)
+        #expect(frames.allSatisfy { $0 == Data("valid payload".utf8) })
+        decoded += frames.count
+    }
+    #expect(decoded == 1_000)
+}
+
+@Test func frameCodecDefaultFrameCountLimitIsFinite() throws {
+    let frame = try MobileSyncFrameCodec.encodeFrame(Data())
+    var buffer = Data()
+    for _ in 0...MobileSyncFrameCodec.defaultMaximumDecodedFrameCount { buffer.append(frame) }
+    let frames = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
+    #expect(frames.count == MobileSyncFrameCodec.defaultMaximumDecodedFrameCount)
+    #expect(buffer == frame)
+}
+
+
 private func base64URLEncode(_ data: Data) -> String {
     data.base64EncodedString()
         .replacingOccurrences(of: "+", with: "-")

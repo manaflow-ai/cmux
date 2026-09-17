@@ -1,8 +1,7 @@
 /// A reasoning/thinking block the agent produced before responding.
 ///
-/// Renders collapsed by default ("Thought for a moment"); the full text is
-/// available on expansion. Sourced from claude `thinking` content blocks and
-/// codex `reasoning` items.
+/// Renders as a compact "Thought" marker in the mobile transcript. Sourced
+/// from claude `thinking` content blocks and codex `reasoning` items.
 public struct ChatThought: Sendable, Equatable, Codable {
     /// The reasoning text, possibly summarized by the agent runtime.
     public let text: String
