@@ -33,6 +33,9 @@ export type ChallengeIssue = Readonly<{ challengeId: string; nonceHash: string; 
 export const DEVICE_PROOF_WINDOW_SECONDS = 60;
 export const AUTHORITY_LEASE_SECONDS = 3600;
 const DEVICE_PROOF_RING_LIMIT = 256;
+const RETENTION_BATCH_SIZE = 512;
+
+export type ExpiredStatePruneResult = Readonly<{ deleted: number; nextExpiresAt: number | null }>;
 
 function identityKey(identity: Identity): string {
   return JSON.stringify([identity.environment, identity.projectId, identity.teamId, identity.userId, identity.deviceId, identity.appNamespace, identity.buildTag]);
@@ -122,9 +125,67 @@ export class TeamStore {
     this.#db.run(sql`INSERT INTO "authority_audit" ("event_type", "actor_user_id", "target_id", "revision", "created_at", "detail_json") VALUES (${eventType}, ${actorUserId}, ${targetId}, ${revision}, ${now}, ${JSON.stringify(detail)})`);
   }
 
+  nextRetentionAt(): number | null {
+    const row = this.#db.get<{
+      challenge_expires_at: number | null;
+      proof_expires_at: number | null;
+      authority_expires_at: number | null;
+    }>(sql`
+      SELECT
+        (SELECT MIN("expires_at") FROM "pending_challenges") AS "challenge_expires_at",
+        (SELECT MIN("expires_at") FROM "device_proof_replays") AS "proof_expires_at",
+        (SELECT MIN("expires_at") FROM "user_authority") AS "authority_expires_at"
+    `);
+    const candidates = [row?.challenge_expires_at, row?.proof_expires_at, row?.authority_expires_at]
+      .filter((value): value is number => value !== null && value !== undefined);
+    return candidates.length === 0 ? null : Math.min(...candidates);
+  }
+
+  pruneExpiredState(now: number, limit = RETENTION_BATCH_SIZE): ExpiredStatePruneResult {
+    if (!Number.isSafeInteger(now) || now < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 4096) {
+      throw new OperationError("invalid_request", 400);
+    }
+    return this.storage.transactionSync(() => {
+      const challengeRows = this.#db.all<{ rowid: number }>(sql`
+        SELECT rowid FROM "pending_challenges"
+        WHERE "expires_at" <= ${now}
+        ORDER BY "expires_at", rowid
+        LIMIT ${limit}
+      `);
+      if (challengeRows.length > 0) {
+        this.#db.run(sql`DELETE FROM "pending_challenges" WHERE rowid IN (${sql.join(challengeRows.map(row => sql`${row.rowid}`), sql`, `)})`);
+      }
+
+      const proofRows = this.#db.all<{ rowid: number }>(sql`
+        SELECT rowid FROM "device_proof_replays"
+        WHERE "expires_at" <= ${now}
+        ORDER BY "expires_at", rowid
+        LIMIT ${limit}
+      `);
+      if (proofRows.length > 0) {
+        this.#db.run(sql`DELETE FROM "device_proof_replays" WHERE rowid IN (${sql.join(proofRows.map(row => sql`${row.rowid}`), sql`, `)})`);
+      }
+
+      const authorityRows = this.#db.all<{ rowid: number }>(sql`
+        SELECT rowid FROM "user_authority"
+        WHERE "expires_at" <= ${now}
+        ORDER BY "expires_at", rowid
+        LIMIT ${limit}
+      `);
+      if (authorityRows.length > 0) {
+        this.#db.run(sql`DELETE FROM "user_authority" WHERE rowid IN (${sql.join(authorityRows.map(row => sql`${row.rowid}`), sql`, `)})`);
+      }
+
+      return {
+        deleted: challengeRows.length + proofRows.length + authorityRows.length,
+        nextExpiresAt: this.nextRetentionAt(),
+      };
+    });
+  }
+
   /**
    * Atomically checks the enrolled identity and consumes a signed request id.
-   * The bounded replay ring is pruned only when used, never by an alarm.
+   * Expired rows are pruned opportunistically and by the TeamControl retention alarm.
    */
   consumeDeviceProof(input: Readonly<{ identity: Identity; endpointId: string; identityGeneration: number; requestId: string; issuedAt: number; now: number }>): void {
     assertScope(this.scope, input.identity);

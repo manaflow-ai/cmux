@@ -8,7 +8,7 @@ import { SOCKET_MIGRATION_STATEMENTS } from "./socket-schema";
  * the source for generation and review; this manifest is the immutable runtime
  * copy loaded by the Worker bundle.
  */
-export const STORAGE_SCHEMA_VERSION = 6;
+export const STORAGE_SCHEMA_VERSION = 7;
 
 const statements = [
   `CREATE TABLE IF NOT EXISTS "schema_history" ("version" INTEGER PRIMARY KEY NOT NULL, "hash" TEXT NOT NULL, "applied_at" INTEGER NOT NULL)`,
@@ -64,6 +64,12 @@ const metadataBytesStatements = [
   `CREATE TRIGGER "devices_usage_update_bytes" AFTER UPDATE OF "capabilities_json", "relay_urls_json" ON "devices" BEGIN UPDATE "storage_usage" SET "metadata_bytes" = "metadata_bytes" - length(CAST(OLD."capabilities_json" AS BLOB)) - length(CAST(OLD."relay_urls_json" AS BLOB)) + length(CAST(NEW."capabilities_json" AS BLOB)) + length(CAST(NEW."relay_urls_json" AS BLOB)) WHERE "id" = 1; END`,
   `UPDATE "team_meta" SET "schema_version" = 6 WHERE "id" = 1`,
 ];
+const retentionStatements = [
+  `CREATE INDEX IF NOT EXISTS "pending_challenges_expiry_idx" ON "pending_challenges" ("expires_at")`,
+  `CREATE INDEX IF NOT EXISTS "device_proof_replays_global_expiry_idx" ON "device_proof_replays" ("expires_at")`,
+  `CREATE INDEX IF NOT EXISTS "user_authority_expiry_idx" ON "user_authority" ("expires_at")`,
+  `UPDATE "team_meta" SET "schema_version" = 7 WHERE "id" = 1`,
+];
 
 function contentHash(parts: readonly string[]): string {
   let hash = 1469598103934665603n;
@@ -81,6 +87,7 @@ const PROOF_MIGRATION_HASH = contentHash(proofRingStatements);
 export const STORAGE_MIGRATION_HASH = contentHash(authorityStatements);
 export const AUTHORITY_LEASE_MIGRATION_HASH = contentHash(authorityLeaseStatements);
 const METADATA_BYTES_MIGRATION_HASH = contentHash(metadataBytesStatements);
+const RETENTION_MIGRATION_HASH = contentHash(retentionStatements);
 
 export function applyStorageMigrations(storage: DurableObjectStorage, now = Date.now()): void {
   const db = drizzle(storage, { schema: storageSchema });
@@ -106,5 +113,6 @@ export function applyStorageMigrations(storage: DurableObjectStorage, now = Date
     apply(4, contentHash(SOCKET_MIGRATION_STATEMENTS), SOCKET_MIGRATION_STATEMENTS);
     apply(5, AUTHORITY_LEASE_MIGRATION_HASH, authorityLeaseStatements);
     apply(6, METADATA_BYTES_MIGRATION_HASH, metadataBytesStatements);
+    apply(7, RETENTION_MIGRATION_HASH, retentionStatements);
   });
 }

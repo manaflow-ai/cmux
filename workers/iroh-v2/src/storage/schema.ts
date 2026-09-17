@@ -61,6 +61,7 @@ export const pendingChallenges = sqliteTable(
   },
   (table) => ({
     challengeIndex: uniqueIndex("pending_challenges_id_idx").on(table.challengeId),
+    expiryIndex: index("pending_challenges_expiry_idx").on(table.expiresAt),
   }),
 );
 
@@ -103,11 +104,17 @@ export const authorityAudit = sqliteTable(
   }),
 );
 
-export const userAuthority = sqliteTable("user_authority", {
-  userId: text("user_id").primaryKey(),
-  verifiedAt: integer("verified_at").notNull(),
-  expiresAt: integer("expires_at").notNull(),
-});
+export const userAuthority = sqliteTable(
+  "user_authority",
+  {
+    userId: text("user_id").primaryKey(),
+    verifiedAt: integer("verified_at").notNull(),
+    expiresAt: integer("expires_at").notNull(),
+  },
+  (table) => ({
+    expiryIndex: index("user_authority_expiry_idx").on(table.expiresAt),
+  }),
+);
 
 export const deviceProofReplays = sqliteTable(
   "device_proof_replays",
@@ -120,6 +127,7 @@ export const deviceProofReplays = sqliteTable(
   (table) => ({
     pk: primaryKey({ columns: [table.identityKey, table.requestId] }),
     expiryIndex: index("device_proof_replays_expiry_idx").on(table.identityKey, table.expiresAt),
+    globalExpiryIndex: index("device_proof_replays_global_expiry_idx").on(table.expiresAt),
   }),
 );
 
