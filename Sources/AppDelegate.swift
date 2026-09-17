@@ -19289,8 +19289,7 @@ private extension NSWindow {
     }
 
     @objc func cmux_sendEvent(_ event: NSEvent) {
-        if event.type == .keyUp,
-           AppDelegate.shared?.forwardCloudMountKeyRelease(window: self, event: event) == true {
+        if AppDelegate.shared?.forwardCloudMountKeyEvent(window: self, event: event) == true {
             return
         }
 #if DEBUG

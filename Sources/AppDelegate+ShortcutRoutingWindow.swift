@@ -6,6 +6,7 @@ import ObjectiveC
 @MainActor
 private final class CloudMountKeyOwners {
     static var associationKey: UInt8 = 0
+    @MainActor
     final class Owner {
         weak var view: GhosttyNSView?
         weak var surface: TerminalSurface?
@@ -26,12 +27,20 @@ extension AppDelegate {
         owners.keys[event.keyCode] = CloudMountKeyOwners.Owner(view)
     }
 
-    func forwardCloudMountKeyRelease(window: NSWindow, event: NSEvent) -> Bool {
-        guard event.type == .keyUp,
+    func forwardCloudMountKeyEvent(window: NSWindow, event: NSEvent) -> Bool {
+        guard event.type == .keyUp || event.type == .keyDown,
               let owners = objc_getAssociatedObject(window, &CloudMountKeyOwners.associationKey) as? CloudMountKeyOwners,
-              let owner = owners.keys.removeValue(forKey: event.keyCode) else { return false }
+              let owner = owners.keys[event.keyCode] else { return false }
+        if event.type == .keyDown, !event.isARepeat {
+            // A release may have gone to another application after focus left.
+            // A new physical press starts a fresh ownership sequence.
+            owners.keys.removeValue(forKey: event.keyCode)
+            return false
+        }
+        if event.type == .keyUp { owners.keys.removeValue(forKey: event.keyCode) }
         if let view = owner.view, let surface = owner.surface, view.terminalSurface === surface {
-            view.keyUp(with: event)
+            if event.type == .keyUp { view.keyUp(with: event) }
+            else { view.keyDown(with: event) }
         }
         return true
     }
