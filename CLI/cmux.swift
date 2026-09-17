@@ -6113,7 +6113,6 @@ struct CMUXCLI {
                     idFormat: idFormat
                 )
 
-<<<<<<< HEAD
             case "tui":
                 let (windowOpt, vmArgs) = parseOption(rest, name: "--window")
                 try runVMTuiCommand(rest: vmArgs, windowRaw: windowOpt ?? windowId, client: client, jsonOutput: jsonOutput)
@@ -6147,10 +6146,7 @@ struct CMUXCLI {
                     print(String(format: format, vmId))
                 }
 
-            case "rm", "destroy", "delete":
-=======
             case "rm", "remove", "destroy", "delete":
->>>>>>> 59e9dbcd4ff (Add cmux vm command aliases)
                 guard let vmId = rest.first else {
                     throw CLIError(message: """
                         Usage: cmux vm rm <id>
