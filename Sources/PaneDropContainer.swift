@@ -270,7 +270,8 @@ extension PaneDropContainer {
         _ urls: [URL],
         context: PaneDropContext,
         hostedView: GhosttySurfaceScrollView?,
-        window: NSWindow?
+        window: NSWindow?,
+        pasteboard: NSPasteboard? = nil
     ) -> Bool {
         if let hostedView {
             return performPanelTextDrop(
@@ -278,7 +279,7 @@ extension PaneDropContainer {
                 focusIntent: .terminal(.surface),
                 window: window,
                 insert: {
-                    hostedView.handleDroppedURLs(urls)
+                    hostedView.handleDroppedURLs(urls, pasteboard: pasteboard)
                 }
             )
         }
@@ -292,7 +293,7 @@ extension PaneDropContainer {
                 focusIntent: .terminal(.surface),
                 window: window ?? terminalPanel.surface.uiWindow,
                 insert: {
-                    terminalPanel.hostedView.handleDroppedURLs(urls)
+                    terminalPanel.hostedView.handleDroppedURLs(urls, pasteboard: pasteboard)
                 }
             )
         }

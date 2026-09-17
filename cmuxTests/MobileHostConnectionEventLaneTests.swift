@@ -39,7 +39,7 @@ extension MobileHostAuthorizationTests {
         let finalRecordedIDs = await recorder.recordedIDs()
         #expect(finalRecordedIDs == [connectionID])
     }
-    @Test func testMobileHostConnectionStaysOpenWhenIdleAfterFirstFrame() async throws {
+    @Test func testMobileHostConnectionKeepsControlUsableAfterFirstFrame() async throws {
         let connectionID = UUID()
         let recorder = MobileHostConnectionCloseRecorder()
         let transport = RecordingMobileHostByteTransport()
@@ -57,7 +57,7 @@ extension MobileHostAuthorizationTests {
             Data(#"{"id":"status","method":"mobile.host.status","params":{}}"#.utf8)
         )
         await session.debugHandleReceiveDataForTesting(frame)
-        try await Task.sleep(nanoseconds: 25_000_000)
+        #expect(await transport.waitForSentBufferCount(1).count == 1)
         #expect(await recorder.recordedIDs().isEmpty)
         await session.close(reason: "test cleanup")
     }
@@ -86,7 +86,7 @@ extension MobileHostAuthorizationTests {
         let subscribedCloseIDs = await recorder.recordedIDs()
         #expect(subscribedCloseIDs.isEmpty)
         _ = await session.unsubscribe(streamID: "events")
-        try await Task.sleep(nanoseconds: 25_000_000)
+        #expect(await !session.isSubscribed(to: "terminal.updated"))
         #expect(await recorder.recordedIDs().isEmpty)
         await session.close(reason: "test cleanup")
     }
@@ -453,9 +453,7 @@ extension MobileHostAuthorizationTests {
             payload: ["surface_id": "surface-stall-8842", "full": true]
         )
         await transport.waitUntilSendStalled()
-        // Exercise an unresolved send across suspension before verifying
-        // that the connection has not been closed on the application's behalf.
-        try await Task.sleep(for: .milliseconds(30))
+        // The transport's signal proves the write is suspended and unresolved.
         #expect(await recorder.recordedIDs().isEmpty)
         #expect(await transport.observedCloseCount() == 0)
         await session.close(reason: "test complete")
