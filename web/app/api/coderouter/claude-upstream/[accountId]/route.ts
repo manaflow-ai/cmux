@@ -70,7 +70,7 @@ export function makeClaudeAccountHandlers(
       return Response.json({ error: "invalid_request" }, { status: 400 });
     }
     const teamId = resolved.value.team.teamId;
-    let result;
+    let result: Awaited<ReturnType<ClaudeAccountRouteDependencies["remove"]>>;
     try {
       result = await dependencies.remove(teamId, accountId, { kind: "user", userId: resolved.value.user.id });
     } catch (error) {

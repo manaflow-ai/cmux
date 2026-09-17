@@ -25,6 +25,7 @@ const dbTest = runDbTests ? test : test.skip;
 
 const TEAM = "team-routing-test";
 let sql: Sql | null = null;
+let vm1PoolId: string | null = null;
 
 beforeAll(() => {
   if (!runDbTests) return;
@@ -282,9 +283,10 @@ describe("coderouter route token VM binding db behavior", () => {
   beforeEach(async () => {
     if (!sql) return;
     await sql`delete from cloud_vms where id in (${vm1}, ${vm2})`;
-    await sql`insert into cloud_vms (id, user_id, billing_team_id, provider, image_id, status)
+    const inserted = await sql`insert into cloud_vms (id, user_id, billing_team_id, provider, image_id, status)
       values (${vm1}, 'user-1', ${TEAM}, 'freestyle', 'test', 'running'),
-             (${vm2}, 'user-1', ${TEAM}, 'freestyle', 'test', 'running')`;
+             (${vm2}, 'user-1', ${TEAM}, 'freestyle', 'test', 'running') returning id, coderouter_pool_id`;
+    vm1PoolId = inserted.find(row => row.id === vm1)?.coderouter_pool_id ?? null;
   });
   dbTest("API keys authenticate, update last-used metadata, and revoke", async () => {
     const issued = await createApiKey(TEAM, "user-1", "e2e");
@@ -350,6 +352,7 @@ describe("coderouter route token VM binding db behavior", () => {
       teamId: TEAM,
       stackUserId: "user-1",
       vmId: vm1,
+      poolId: vm1PoolId,
     });
   });
 

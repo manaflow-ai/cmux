@@ -34,7 +34,7 @@ const ADDRESSLESS_ID = "55555555-2222-4333-8444-555555555555";
 function row(overrides: Partial<VmPrincipalRow> & { id: string }): VmPrincipalRow {
   return {
     userId: "user-1",
-    ownerTeamId: overrides.ownerTeamId ?? overrides.billingTeamId ?? overrides.userId ?? "team-1",
+    ownerTeamId: overrides.ownerTeamId ?? overrides.billingTeamId ?? "team-1",
     billingTeamId: "team-1",
     billingPlanId: "pro",
     provider: "freestyle",
@@ -110,7 +110,10 @@ describe("requireVmPrincipal", () => {
     expect(await requireVmPrincipal(guestRequest({ [VM_ID_HEADER]: PEER_ID }), { authenticate: boundIdentity, loadVm: async () => self })).toEqual({ ok: false, reason: "vm_mismatch" });
     expect(await requireVmPrincipal(guestRequest({ [ROUTE_TOKEN_HEADER]: "crt_revoked" }), { authenticate: boundIdentity, loadVm: async () => self })).toEqual({ ok: false, reason: "invalid_route_token" });
     const unbound = async () => ({ teamId: "team-1", stackUserId: "user-1", vmId: null });
-    expect(await requireVmPrincipal(guestRequest(), { authenticate: unbound, loadVm: async () => self })).toEqual({ ok: false, reason: "vm_mismatch" });
+    const unboundRequest = new Request("https://coderouter.dev/api/vm/reflection", {
+      headers: { authorization: "Bearer cmux-vm-edge-placeholder", [ROUTE_TOKEN_HEADER]: "crt_edge-injected" },
+    });
+    expect(await requireVmPrincipal(unboundRequest, { authenticate: unbound, loadVm: async () => self })).toEqual({ ok: false, reason: "vm_bound_token_required" });
   });
 
   test("rejects a missing, destroyed, or foreign machine even with a valid token", async () => {

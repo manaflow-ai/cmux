@@ -101,7 +101,7 @@ export function makeClaudeUpstreamHandlers(
     if (!resolved.ok) return resolved.response;
     if (!resolved.value.team.manageAccounts) return Response.json({ error: "forbidden" }, { status: 403 });
     const teamId = resolved.value.team.teamId;
-    let result;
+    let result: Awaited<ReturnType<ClaudeUpstreamRouteDependencies["removeAll"]>>;
     try {
       result = await dependencies.removeAll(teamId, { kind: "user", userId: resolved.value.user.id });
     } catch (error) {
