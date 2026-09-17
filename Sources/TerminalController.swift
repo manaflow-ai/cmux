@@ -15893,6 +15893,15 @@ class TerminalController {
             )
             allowLiveSurfaceFallback = true
         }
+        if reportedGrid != nil {
+            // The viewport resize is a geometry change without PTY bytes. The
+            // render-grid observer must discard its old emission baseline now,
+            // before the resize-triggered render notification is flushed, so
+            // the phone receives a full frame at the settled row count.
+            MobileTerminalRenderObserver.shared.noteTerminalViewportChanged(
+                surfaceID: surfaceId
+            )
+        }
 
         var payload: [String: Any] = [
             "workspace_id": resolved.workspace.id.uuidString,
