@@ -1,4 +1,5 @@
 public import Foundation
+internal import CmuxFoundation
 internal import CMUXAgentLaunch
 internal import Darwin
 internal import OSLog
@@ -18,6 +19,19 @@ extension TerminalSurface {
 
     /// The managed `COLORTERM` value exported to spawned shells.
     public static let managedColorTerm = "truecolor"
+
+    /// Spawn-time fallback for the app-managed Computer Use setting.
+    public static let computerUseAppEnabledEnvironmentKey = "CMUX_COMPUTER_USE_APP_ENABLED"
+
+    /// The live computer-use authority read by every generated agent shim.
+    public static func computerUseLiveSettingFileURL(homeDirectory: URL) -> URL {
+        homeDirectory
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("cmux-cua", isDirectory: true)
+            .appendingPathComponent("enabled", isDirectory: false)
+    }
 
     private static let inheritedClaudeAuthSelectionEnvironmentKeys: Set<String> = [
         "ANTHROPIC_API_KEY",
@@ -77,26 +91,7 @@ extension TerminalSurface {
 
     /// Prepends `directory` to a `PATH`-style string exactly once.
     public static func pathByPrependingUniqueDirectory(_ directory: String, to path: String) -> String {
-        let trimmedDirectory = directory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedDirectory.isEmpty else { return path }
-        let standardizedDirectory = URL(fileURLWithPath: trimmedDirectory, isDirectory: true)
-            .standardizedFileURL
-            .path
-        guard !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return standardizedDirectory
-        }
-        var entries = path
-            .split(separator: ":", omittingEmptySubsequences: false)
-            .map(String.init)
-            .filter { entry in
-                let trimmedEntry = entry.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmedEntry.isEmpty else { return true }
-                return URL(fileURLWithPath: trimmedEntry, isDirectory: true)
-                    .standardizedFileURL
-                    .path != standardizedDirectory
-            }
-        entries.insert(standardizedDirectory, at: 0)
-        return entries.joined(separator: ":")
+        CmuxPathEnvironment.prependingUniqueDirectory(directory, to: path)
     }
 
     /// Merges base, additional, and override environments with key
