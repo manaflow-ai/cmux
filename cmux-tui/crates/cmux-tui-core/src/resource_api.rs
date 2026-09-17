@@ -733,7 +733,14 @@ pub(crate) fn public_session_snapshot_with_journal_head(
                 }
                 agent
             })
-            .map(|agent| agent.into_public_snapshot(&topology.session_id))
+            .map(|agent| {
+                let detected = mux.detected_agent_for_terminal(&agent.terminal_id);
+                let mut snapshot = agent.into_public_snapshot(&topology.session_id);
+                if let Some(detected) = detected {
+                    snapshot["agent"] = json!(detected);
+                }
+                snapshot
+            })
             .collect::<Vec<_>>();
         agents.sort_by(|left, right| {
             left["id"].as_str().unwrap_or_default().cmp(right["id"].as_str().unwrap_or_default())

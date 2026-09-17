@@ -1237,6 +1237,7 @@ pub struct AgentRecord {
     pub state: AgentState,
     pub source: AgentSource,
     pub session: Option<String>,
+    pub agent: Option<String>,
     pub updated_at_ms: u64,
 }
 
@@ -2301,6 +2302,10 @@ pub struct Mux {
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
     machine_usage: Mutex<Option<MachineUsage>>,
     agent_records: Mutex<HashMap<TerminalPublicId, TerminalAgentRecord>>,
+    /// Ephemeral provider identity from foreground-process detection. The
+    /// durable state remains the generic `detected` source; a fresh scanner
+    /// observation repopulates this map after restart.
+    detected_agent_by_terminal: Mutex<HashMap<TerminalPublicId, String>>,
     agent_hook_fences: Mutex<HashMap<TerminalPublicId, HookFence>>,
     /// Nonterminal notifications remain placement-local. Terminal unread
     /// state is keyed separately by stable content identity so every view of
@@ -2720,6 +2725,7 @@ impl Mux {
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             machine_usage: Mutex::new(None),
             agent_records: Mutex::new(agent_records),
+            detected_agent_by_terminal: Mutex::new(HashMap::new()),
             agent_hook_fences: Mutex::new(agent_hook_fences),
             placement_notifications: Mutex::new(HashMap::new()),
             terminal_notifications: Mutex::new(terminal_notifications),
@@ -2790,6 +2796,7 @@ impl Mux {
         }
         mux.retry_pending_agent_hooks()?;
         crate::journal_hooks::start(&mux)?;
+        crate::screen_detect::scanner::start(&mux);
         Ok(mux)
     }
 
@@ -5890,6 +5897,45 @@ impl Mux {
         &self,
     ) -> anyhow::Result<Vec<crate::workspace_registry::JournalHookState>> {
         self.workspace_registry.lock().unwrap().journal_hook_states()
+    }
+
+    /// Snapshot live terminals for the screen detector.
+    pub(crate) fn screen_detect_terminals(&self) -> Vec<(TerminalPublicId, Arc<Surface>)> {
+        self.state
+            .lock()
+            .unwrap()
+            .terminal_catalog
+            .iter()
+            .map(|(terminal_id, surface)| (terminal_id.clone(), surface.clone()))
+            .collect()
+    }
+
+    /// Returns the ephemeral provider identity detected for one terminal.
+    pub(crate) fn detected_agent_for_terminal(&self, terminal_id: &TerminalPublicId) -> Option<String> {
+        self.detected_agent_by_terminal.lock().unwrap().get(terminal_id).cloned()
+    }
+
+    /// Records one screen-detected transition through the existing agent
+    /// projection path. The provider identity is kept beside the generic
+    /// source so the public snapshot can brand the terminal.
+    pub(crate) fn append_screen_detect_event(
+        &self,
+        emission: &crate::screen_detect::ScreenDetectEmission,
+    ) {
+        let Ok(terminal_id) = TerminalPublicId::parse(&emission.terminal_id) else { return };
+        let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else { return };
+        let Ok(record) = self.report_agent(surface, emission.state, AgentSource::Detected, None) else {
+            return;
+        };
+        if emission.state == AgentState::Done {
+            self.detected_agent_by_terminal.lock().unwrap().remove(&record.terminal_id);
+        } else {
+            self.detected_agent_by_terminal
+                .lock()
+                .unwrap()
+                .insert(record.terminal_id, emission.agent.clone());
+        }
+        self.publish_resource_event();
     }
 
     pub(crate) fn journal_events_caused_by_hooks(
@@ -9980,6 +10026,7 @@ impl Mux {
             state: record.state,
             source: record.source,
             session: record.session,
+            agent: None,
             updated_at_ms: record.updated_at_ms,
         };
         if !commit.replayed {
@@ -10021,6 +10068,7 @@ impl Mux {
         }
         // The registry guard is dropped before acquiring the fence guard.
         self.agent_hook_fences.lock().unwrap().remove(terminal_id);
+        self.detected_agent_by_terminal.lock().unwrap().remove(terminal_id);
         self.agent_records.lock().unwrap().remove(terminal_id);
         self.terminal_notifications.lock().unwrap().remove(terminal_id);
     }
@@ -10076,6 +10124,7 @@ impl Mux {
                     state: record.state,
                     source: record.source,
                     session: record.session,
+                    agent: self.detected_agent_for_terminal(&terminal_id),
                     updated_at_ms: record.updated_at_ms,
                 })
             })
