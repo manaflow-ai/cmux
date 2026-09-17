@@ -337,6 +337,12 @@ export interface ProcessInfoResult {
   readonly executable?: string;
   readonly argv: readonly string[];
   readonly cwd?: string;
+  /**
+   * Working directory of the process group that owns the PTY, read at
+   * request time. Null when the lookup fails or when an older server
+   * omits the field.
+   */
+  readonly foregroundCwd: string | null;
   readonly children: readonly number[];
 }
 

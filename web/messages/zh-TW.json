@@ -1,4 +1,55 @@
 {
+  "vmErrors": {
+    "unsupported": {
+      "title": "雲端虛擬機操作無法使用",
+      "reason": "此機器類型不提供這項操作。",
+      "message": {
+        "snapshot": "此雲端虛擬機不支援已儲存的虛擬機狀態。",
+        "restore": "此雲端虛擬機類型不支援還原已儲存的虛擬機狀態。",
+        "fork": "此雲端虛擬機不支援複製到新的虛擬機。",
+        "openPort": "此 Cloud VM 的提供者無法將機器連接埠公開為預覽 URL。",
+        "default": "此雲端虛擬機不支援要求的操作。"
+      },
+      "action": {
+        "snapshot": "請勿重試。此機器類型的工作內容會保存在持久化主目錄磁碟區。",
+        "restore": "請勿重試。此機器類型的工作內容會保存在持久化主目錄磁碟區。",
+        "fork": "請勿重試。請使用 `cmux vm new` 建立新的虛擬機。",
+        "openPort": "請勿重試。請在機器內使用 `cmux vm exec` 存取服務，或使用支援開啟連接埠的機器類型。",
+        "default": "請勿重試。使用 `cmux vm ls` 查看虛擬機；如果你認為這是錯誤，請聯絡支援團隊。"
+      }
+    },
+    "requiresPro": {
+      "title": "需要 cmux Pro",
+      "message": "雲端虛擬機需要 cmux Pro 方案。",
+      "action": "請前往 {upgradeUrl} 升級至 cmux Pro 以建立雲端虛擬機。"
+    },
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "{memory} GiB 的機器需要 cmux {plan}。目前方案最多支援 {max} GiB。",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "無法驗證來源機器的記憶體大小。",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "此機器規格目前無法使用。請選擇不超過 {max} GiB 的規格。",
+      "action": "cmux vm new --size {max}g"
+    }
+  ,
+    "goLimit": {
+      "savedMessage": "Go 最多儲存兩台 VM，包括正在執行的 VM。",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "activeMessage": "Go 同時可執行一台 VM。",
+      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "hoursMessage": "Go 本月的 40 VM 小時已用完。儲存的 VM 可在下一個計費週期開始後繼續使用。",
+      "hoursAction": "cmux billing checkout --plan pro",
+      "shapeMessage": "Go 支援 2 vCPU、4 GiB 記憶體和 16 GiB 磁碟。",
+      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    }},
+  "billingRecovery": {
+    "message": "如果我們找到帳戶，請查看你的電子郵件以了解下一步"
+  },
   "cloudBillingReturn": {
     "eyebrow": "cmux Cloud",
     "returnTitle": "在終端機中繼續",
@@ -27,6 +78,22 @@
     "description": "基於 Ghostty 構建的免費開源原生 macOS 終端。支援 Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider 及任何 CLI 工具。垂直分頁、通知環、分割面板和 socket API。",
     "ogDescription": "面向 AI 編程代理的免費開源 macOS 終端。支援 Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider 及任何 CLI 工具。"
   },
+  "authError": {
+    "emailUnverifiedTitle": "驗證電子郵件後繼續",
+    "emailUnverifiedBody": "請使用最初註冊時的方式登入，然後驗證電子郵件，再使用此登入方式。",
+    "genericTitle": "無法完成登入",
+    "genericBody": "請重試。如果問題仍然存在，請聯絡支援。",
+    "backToSignIn": "返回登入"
+  },
+  "cloudPublicationAccess": {
+    "title": "你沒有存取權限",
+    "signIn": "登入 cmux",
+    "signedInAs": "已以 {identity} 的身分登入",
+    "switchAccount": "切換帳號",
+    "invalidTitle": "此存取連結無效",
+    "invalidBody": "返回網站，然後再試一次。",
+    "footer": "存取權限由 cmux 管理。"
+  },
   "common": {
     "downloadForMac": "下載 Mac 版",
     "viewOnGitHub": "在 GitHub 上查看",
@@ -43,6 +110,7 @@
     "blog": "部落格",
     "changelog": "更新日誌",
     "community": "社群",
+    "jobs": "職缺",
     "github": "GitHub"
   },
   "footer": {
@@ -52,8 +120,10 @@
     "social": "社群媒體",
     "blog": "部落格",
     "community": "社群",
+    "jobs": "職缺",
     "docs": "文件",
     "changelog": "更新日誌",
+    "support": "支援",
     "privacy": "隱私權",
     "terms": "服務條款",
     "eula": "EULA",
@@ -68,6 +138,115 @@
     "openSource": "開源",
     "guides": "指南",
     "compare": "比較"
+  },
+  "jobs": {
+    "metaTitle": "cmux 創始工程師職缺",
+    "metaDescription": "加入 cmux，成為創始工程師，在 macOS、Windows、Linux、iOS 與 Cloud 上共同打造 AI 程式設計的未來。",
+    "section": "職缺",
+    "eyebrow": "我們正在招募",
+    "title": "Founding Engineer",
+    "tagline": "一起打造 AI 程式設計的未來。",
+    "intro": "cmux 是一款建基於 Ghostty 的原生 macOS 終端機，專為平行執行多個 AI 程式設計代理而設計。數十萬名開發者使用 cmux 推動他們的代理程式設計工作流程。",
+    "hiring": "我們正在招募優秀的工程師，與我們一起打造 AI 程式設計的未來。",
+    "whatYoullDo": "你將做什麼",
+    "whatYoullDoItems": [
+      "打造橫跨整個技術堆疊的前沿開發者工具：cmux macOS（Swift/AppKit）、cmux Windows/Linux（C++/Chromium）、cmux iOS、cmux Cloud、sub-router (Go)、chatmux 等。",
+      "協助創造最適合開發者利用 AI 工作的產品。",
+      "端到端負責產品與功能，包括使用者回饋循環。",
+      "持續親自使用、測試與驗證 cmux；用 cmux 打造 cmux。"
+    ],
+    "excitedLead": "以下特質會讓我們特別期待：",
+    "excitedItems": [
+      "每天使用 10B+ tokens。",
+      "全方位人才，能以創意解決問題。",
+      "具備出色的設計品味，重視工藝。",
+      "具備 Swift/AppKit、C++、Rust、Go 或 Chromium 經驗。",
+      "開源維護者、前創辦人，或曾交付完整產品的人。",
+      "提交 cmux PR 供我們審查，或展示自訂 cmux 外掛程式/工作流程。"
+    ],
+    "details": "詳細資訊",
+    "roleTitle": "Founding Engineer",
+    "compensationLabel": "薪酬",
+    "compensation": "$130k–$170k + 0.5%–1.5% 股權",
+    "benefitsLabel": "福利",
+    "benefits": "醫療、牙科與視力保險",
+    "locationLabel": "地點",
+    "location": "舊金山",
+    "applyAriaLabel": "以電子郵件申請 Founding Engineer 職位",
+    "applyEmailSubject": "申請 cmux 創始工程師",
+    "applyCta": "寄送電子郵件",
+    "foundingChromiumEngineer": {
+      "metaTitle": "cmux 創始 Chromium 工程師職缺",
+      "metaDescription": "加入 cmux 擔任創始 Chromium 工程師，掌管我們的 Chromium 分支，用 C++ 和 Rust 把 cmux 帶到 Windows 和 Linux。",
+      "section": "職缺",
+      "eyebrow": "關於這個職位",
+      "title": "Founding Chromium Engineer",
+      "tagline": "把 cmux 帶到 Windows 和 Linux。",
+      "intro": "cmux 是一款建基於 Ghostty 的原生 macOS 終端機，專為平行執行多個 AI 程式設計代理而設計。數十萬名開發者使用 cmux 推動他們的代理程式設計工作流程。",
+      "hiring": "我們正在尋找一位創始工程師，以我們自己的 Chromium 分支為基礎，全權負責 Windows（以及 Linux）版 cmux。",
+      "whatYoullDo": "你將做什麼",
+      "whatYoullDoItems": [
+        "掌管我們的 Chromium 分支：追蹤上游、乾淨地 rebase，並維護 cmux 補丁（視窗/輸入/渲染整合、終端機介面、代理 UI）。",
+        "端到端負責 Windows 和 Linux 版 cmux：C++、安裝程式、自動更新、當機回報。",
+        "將以 Ghostty 為基礎的終端機核心與代理編排功能（垂直分頁、通知圓環、分割畫面、CLI）移植到 Windows。",
+        "讓效能體感有如原生：啟動時間、GPU 渲染、輸入延遲。",
+        "持續自家使用、測試與驗證。"
+      ],
+      "excitedLead": "以下特質會讓我們特別期待：",
+      "excitedItems": [
+        "深厚的 C++ 實力與真實的 Chromium 開發經驗——最好維護過分支：攜帶補丁、對齊上游里程碑 rebase、在 content/ 或 blink 中除錯。",
+        "熟悉 Rust 是大加分（我們的 TUI 和網路守護程式都是 Rust 寫的）。",
+        "曾發布或維護真正的 Windows 桌面應用程式。",
+        "加分：Chromium 上游貢獻、對 Swift/AppKit 有好奇心、開源維護者、前創辦人。"
+      ],
+      "details": "詳細資訊",
+      "roleTitle": "Founding Chromium Engineer",
+      "compensationLabel": "薪酬",
+      "compensation": "$130k–$170k + 0.5%–1.5% 股權",
+      "benefitsLabel": "福利",
+      "benefits": "醫療、牙科與視力保險",
+      "locationLabel": "地點",
+      "location": "舊金山",
+      "applyAriaLabel": "以電子郵件申請 Founding Chromium Engineer 職位",
+      "applyEmailSubject": "申請 cmux Founding Chromium Engineer",
+      "applyCta": "寄送電子郵件"
+    },
+    "foundingDesigner": {
+      "metaTitle": "cmux 創始設計師職缺",
+      "metaDescription": "加入 cmux，成為創始設計師，設計 macOS、TUI、Windows、Linux、iOS、Cloud、cmux.com 與 chatmux 上 AI 程式設計的未來。",
+      "section": "職缺",
+      "eyebrow": "關於這個職位",
+      "title": "Founding Designer",
+      "tagline": "設計 AI 程式設計的未來。",
+      "intro": "cmux 是一款建基於 Ghostty 的原生 macOS 終端機，專為平行執行多個 AI 程式設計代理而設計。數十萬名開發者使用 cmux 推動他們的代理程式設計工作流程。",
+      "hiring": "我們正在招募一位優秀的設計師，與我們一起設計 AI 程式設計的未來。",
+      "whatYoullDo": "你將做什麼",
+      "whatYoullDoItems": [
+        "設計橫跨整個技術堆疊的前沿開發者工具：cmux macOS、cmux TUI、cmux Windows/Linux、cmux iOS、cmux Cloud、cmux.com、chatmux 等。",
+        "協助設計最適合開發者利用 AI 工作的產品。",
+        "端到端負責產品的視覺、感受與互動模型，包括使用者回饋循環。",
+        "持續親自使用、製作原型並交付。"
+      ],
+      "excitedLead": "以下特質會讓我們特別期待：",
+      "excitedItems": [
+        "你熟悉各種應用程式的設計元件，像一本行走的設計百科全書。",
+        "人們總是向你詢問設計參考。",
+        "對原生 macOS 應用程式與開發者工具有極高品味並且熱愛。",
+        "你用程式碼製作原型，並交付真正的 UI。",
+        "重視字體、動態效果與系統思維，在 1px 細節和間距上都很講究。"
+      ],
+      "details": "詳細資訊",
+      "roleTitle": "Founding Designer",
+      "compensationLabel": "薪酬",
+      "compensation": "$130k–$170k + 0.5%–1.5% 股權",
+      "benefitsLabel": "福利",
+      "benefits": "醫療、牙科與視力保險",
+      "locationLabel": "地點",
+      "location": "舊金山",
+      "applyAriaLabel": "以電子郵件申請 Founding Designer 職位",
+      "applyEmailSubject": "申請 cmux 創始設計師",
+      "applyCta": "寄送電子郵件"
+    }
   },
   "home": {
     "taglinePrefix": "開源終端，專為 ",
@@ -138,7 +317,8 @@
     "nav": {
       "coderouterGroup": "coderouter",
       "coderouterOverview": "總覽",
-      "team": "團隊"
+      "team": "團隊",
+      "irohDevices": "IROH devices"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -152,7 +332,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "管理共用 AI 帳戶，並使用 coderouter 路由請求。",
       "title": "coderouter",
-      "description": "coderouter 在供應商帳戶之間路由 LLM 請求，支援容錯移轉和依用量排程。"
+      "description": "coderouter 在供應商帳戶之間路由 LLM 請求，支援容錯移轉和依用量排程。",
+      "machines": {
+        "title": "機器",
+        "description": "{team} 在過去 {days} 天內每台機器的 coderouter 使用情況。",
+        "machineColumn": "機器",
+        "tokensColumn": "總權杖數",
+        "apiEquivalentColumn": "API 等值金額",
+        "unnamed": "未命名機器",
+        "empty": "過去 {days} 天內沒有機器使用 coderouter。",
+        "unavailable": "機器使用情況暫時無法使用。",
+        "estimateNote": "API 等值金額是依公開牌價估算，並非實際支出。"
+      }
     },
     "accountMenu": {
       "label": "帳戶選單",
@@ -164,64 +355,6 @@
       "organizationSwitchError": "無法切換組織，請再試一次。",
       "signIn": "登入"
     },
-    "aiAccounts": {
-      "metaTitle": "AI 帳戶 — cmux",
-      "metaDescription": "管理 cmux 的團隊 AI 供應商帳戶。",
-      "section": "主控台",
-      "title": "AI 帳戶",
-      "description": "管理此團隊可用於 cmux AI 的供應商帳戶。",
-      "personalTeam": "個人",
-      "teamSwitcherLabel": "團隊",
-      "notConfiguredTitle": "AI 帳戶管理暫不可用",
-      "notConfiguredBody": "此部署尚未啟用團隊 AI 帳戶。請稍後再試或聯絡支援。",
-      "loadErrorTitle": "無法載入帳戶",
-      "loadErrorBody": "無法連線帳戶服務，請稍後再試。",
-      "accountsTitle": "已連接的帳戶",
-      "accountsCount": "{count} 個帳戶",
-      "emptyTitle": "還沒有帳戶",
-      "emptyBody": "新增供應商帳戶後，此團隊即可使用。",
-      "providerColumn": "供應商",
-      "labelColumn": "標籤",
-      "createdColumn": "建立時間",
-      "actionsColumn": "操作",
-      "unlabeledAccount": "無標籤",
-      "unknownCreatedAt": "未知",
-      "addAccountsTitle": "新增帳戶",
-      "providerClaude": "Claude OAuth",
-      "providerAnthropicApiKey": "Anthropic API 金鑰",
-      "providerCodex": "Codex OAuth",
-      "providerOpenAiApiKey": "OpenAI API 金鑰",
-      "providerUnknown": "未知供應商",
-      "labelField": "標籤",
-      "labelPlaceholder": "團隊預設",
-      "oauthJsonField": "OAuth JSON",
-      "apiKeyField": "API 金鑰",
-      "addClaude": "新增 Claude",
-      "addAnthropic": "新增 Anthropic",
-      "addCodex": "新增 Codex",
-      "addOpenAi": "新增 OpenAI",
-      "addSuccess": "帳戶已新增。",
-      "addError": "帳戶儲存失敗。",
-      "deleteError": "帳戶刪除失敗。",
-      "jsonError": "請貼上有效的 JSON 物件。",
-      "validationError": "請檢查帳戶資訊後再試一次。",
-      "teamAccessError": "你沒有存取此團隊的權限。",
-      "deletingAction": "刪除中",
-      "deleteAction": "刪除",
-      "deleteConfirmTitle": "刪除此帳戶？",
-      "deleteConfirmBody": "將為整個團隊移除該供應商帳戶。重新新增需要原始憑證。",
-      "cancelAction": "取消",
-      "claudeJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"expiresAt\":1770000000000}",
-      "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
-      "anthropicKeyPlaceholder": "sk-ant-...",
-      "openAiKeyPlaceholder": "sk-...",
-      "cliAddBody": "Add provider accounts securely from your terminal. Sign in with your team, then run one of these commands:",
-      "codexTool": "Codex",
-      "codexCommand": "Copy codex command",
-      "opencodeTool": "OpenCode",
-      "opencodeCommand": "Copy opencode command",
-      "copied": "Copied"
-    },
     "billing": {
       "plan": {
         "heading": "你的個人方案",
@@ -229,6 +362,31 @@
         "pro": "Pro",
         "loading": "載入中…"
       }
+    },
+    "iroh": {
+      "title": "IROH devices",
+      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
+      "team": "Team",
+      "loading": "Loading devices…",
+      "empty": "No IROH devices are registered for this team.",
+      "unavailable": "Dashboard authorization is unavailable.",
+      "mutationError": "The device change could not be completed.",
+      "revoke": "Revoke access",
+      "deviceId": "Device",
+      "revision": "Revision",
+      "status": "Status",
+      "active": "Active",
+      "revoked": "Revoked",
+      "relaySettings": "Relay settings",
+      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
+      "saveRelaySettings": "Save relay settings"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "與團隊共用",
+      "makePrivate": "設為私人",
+      "privateImportHint": "新帳戶預設為私人。共用帳戶後，此團隊的雲端虛擬機即可使用。",
+      "description": "共享帳戶可供此團隊的 Cloud VM 使用。私人帳戶僅供新增它們的人使用。",
+      "cancelAction": "取消"
     }
   },
   "community": {
@@ -803,8 +961,78 @@
     }
   },
   "docs": {
+    "computerUse": {
+      "title": "cmux Computer Use",
+      "metaTitle": "cmux Computer Use：讓 AI 代理自動操作 Mac",
+      "metaDescription": "透過 cmux Computer Use，讓 Claude Code 和 Codex 操作你的 Mac。結合截圖、輔助使用、點擊、文字輸入與鍵盤操作，實現原生應用程式自動化。",
+      "docsMetaTitle": "Computer Use 設定與代理工具",
+      "docsMetaDescription": "在 macOS 上設定 cmux Computer Use。瞭解權限、Claude Code 和 Codex 工具、應用程式定位、工作階段控制、技能與疑難排解。",
+      "tagline": "讓 Claude Code 和 Codex 操作你的 Mac。",
+      "intro": "讓 AI 程式開發代理使用 Mac 原生應用程式。透過 cmux Computer Use 讀取介面、擷取螢幕、點擊控制項並輸入文字。",
+      "imageAlt": "cmux Computer Use 的輔助使用與截圖權限設定畫面",
+      "caption": "Computer Use 權限由獨立的輔助程式管理，因此初始設定期間，終端機工作階段可以保持開啟。",
+      "featuresTitle": "操作 Mac 原生應用程式",
+      "featureInspect": "透過輔助使用樹與截圖查看應用程式介面。",
+      "featureAct": "在 macOS 應用程式中點擊、輸入、捲動、拖移並使用鍵盤快捷鍵。",
+      "featureReview": "跟隨代理的可見游標，檢查結果，並返回發起操作的終端機。",
+      "agentsTitle": "在 cmux 中使用程式開發代理",
+      "agentsBody": "在 cmux 中執行 {agents} 等命令列代理。",
+      "supportTitle": "支援的代理",
+      "supportBody": "原生 Computer Use 工具會自動連接至從 cmux 內啟動的 Claude Code 和 Codex 工作階段。其他代理也能在終端機中執行，但尚未支援這種自動連接的 Mac 控制整合。",
+      "setupTitle": "開始使用",
+      "step1": "安裝並開啟 Mac 版 cmux。在「設定」→「Computer Use」中啟用 Computer Use。",
+      "step2": "透過權限控制項開啟系統設定，為 cmux Computer Use 授予輔助使用與螢幕錄製權限。如果清單中沒有輔助程式，請將其應用程式圖塊加入或拖入權限面板。",
+      "step3": "在 cmux 內建立新的 Claude Code 或 Codex 工作階段。明確要求使用 Computer Use，並指定應用程式與任務。工具會自動連接，無需手動設定 MCP。",
+      "permissionsTitle": "權限與設定",
+      "permissionsBody": "輔助使用權限讓輔助程式讀取及操作應用程式介面；螢幕錄製權限用於截圖。請將兩項權限都授予 cmux Computer Use。開啟 cmux 或啟動代理不會自動授予權限，也不會自動開啟設定流程。",
+      "tahoeBody": "在 macOS Tahoe 上，還需在設定過程中核准額外的螢幕擷取確認。等 cmux 顯示兩項權限均已授予後，再重試任務。",
+      "promptTitle": "用計算機試試看",
+      "prompt": "使用 cmux Computer Use 開啟計算機，點擊輸入 100 + 105，並向我展示結果。",
+      "workflowBody": "先查看目標，再操作該快照中的控制項，然後重新查看以驗證結果。元素索引僅對目前快照有效，導覽或版面配置改變後應重新取得。點擊成功的回覆本身並不能證明任務已完成。",
+      "toolsTitle": "代理工具",
+      "toolsBody": "cmux-cua 是內建 MCP 伺服器，向代理提供操作原生應用程式的結構化工具。以下是工具名稱，不是 shell 指令。具體參數依代理設定而異，請以工作階段中的工具定義為準。",
+      "codexBody": "Codex 使用應用程式名稱或套件識別碼呼叫 get_app_state，取得截圖與輔助使用樹。使用目前的 element_index 或截圖座標操作，再呼叫 get_app_state 驗證。工具清單：",
+      "claudeBody": "Claude Code 使用 list_apps 和 list_windows 尋找目標，再透過 pid 和 window_id 呼叫 get_window_state。優先使用元素權杖或最新索引。原生設定也支援 perform_actions，可合併不會讓後續目標失效的操作。",
+      "controlTitle": "跟隨並停止 Computer Use",
+      "controlBody": "選單列的 Computer Use 項目顯示目前代理。Focus Computer Use 會跟隨其操作的應用程式，Focus Calling Terminal 則返回發起操作的終端機。返回終端機不會停止自動化。請使用選單中的停止操作結束目前控制工作階段。",
+      "disableBody": "在設定中關閉 Computer Use 即可停用。若要在新代理工作階段中排除這些工具，請在啟動前設定 CMUX_COMPUTER_USE_MCP_DISABLED=1。",
+      "skillTitle": "技能",
+      "skillBody": "cmux-cua 技能說明觀察與操作流程。技能是選用的，不會授予 macOS 權限。需要持續安裝時，請使用代理的技能安裝程式；cmux 預設不會安裝全域技能。",
+      "skillLink": "閱讀 cmux-cua 技能",
+      "browserTitle": "原生應用程式與瀏覽器自動化",
+      "browserBody": "Computer Use 透過截圖與輔助使用操作 Mac 原生視窗。對於 cmux 瀏覽器窗格，請使用 cmux browser 指令處理 DOM 快照、選擇器、表單及 JavaScript。瀏覽器表面參照與原生應用程式元素索引不同。",
+      "browserLink": "瀏覽器自動化參考",
+      "troubleTitle": "疑難排解",
+      "missingTitle": "代理沒有 Computer Use 工具",
+      "missingBody": "在 cmux 設定中啟用 Computer Use，然後在 cmux 內建立新的 Claude Code 或 Codex 工作階段。既有工作階段可能保留原本的工具設定。檢查環境變數或管理政策是否停用了 Computer Use。",
+      "blockedTitle": "設定未完成、點擊失敗或截圖空白",
+      "blockedBody": "重新開啟「設定」→「Computer Use」，完成兩項權限步驟及額外的擷取確認。設定完成後重試。即使輔助程式需要重新啟動，終端機工作階段也可以保持開啟。",
+      "targetTitle": "選錯視窗或點擊被阻擋",
+      "targetBody": "重新查看應用程式，從目前狀態中選擇新的元素。如果其他視窗遮住目標，請先顯示目標視窗再重新查看。不要重複使用過期座標或元素索引。",
+      "productLink": "cmux Computer Use 概覽",
+      "copyTitle": "複製 Computer Use 提示詞",
+      "copyPrompt": "複製提示詞",
+      "copiedPrompt": "已複製",
+      "installPrompt": "這項工作使用 $cmux-cua 技能。若無法使用，請用一般技能安裝程式安裝。若缺少權限，請告訴我開啟 cmux 設定 → Computer Use。操作前檢查，每次變更後驗證。\n\n工作：[在此描述工作]"
+    },
     "remoteTmux": {
       "moshContrast": "如需在網路之間漫遊，請使用 cmux mosh-tmux。它會開啟一個連接到具名 tmux 工作階段的完整 Mosh 終端；不會取代 SSH tmux 控制模式提供的原生工作區、分頁與分割鏡像。"
+    },
+    "claudeCodeTeams": {
+      "shimStep1": "在目前 surface 的暫存 shim 目錄中建立 tmux shim。路徑包含 surface UUID，且會隨面板及每次啟動而變更，因此無法提供固定路徑",
+      "shimStep2": "設定 TMUX 和 TMUX_PANE，以便在 Claude Teams 啟動工作階段中模擬 tmux",
+      "shimDiagnostic": "shim 只有在設定了 <marker>CMUX_CLAUDE_TEAMS_CMUX_BIN</marker> 時才會將請求路由至 cmux；未設定時會透明地落到下一個真正的 tmux 可執行檔。因此，<which>which tmux</which> 無法告訴你 Claude Teams 的攔截是否正在作用。",
+      "envTmux": "執行 cmux claude-teams 的工作階段所使用的合成 tmux socket 路徑",
+      "envTmuxPane": "執行 cmux claude-teams 的工作階段所使用的合成 tmux pane 識別碼；在產生的 agent 面板中為空",
+      "envSurface": "目前 surface 的 UUID；在產生的 agent 面板內將它用作 surface 識別碼",
+      "envScope": "合成的 <tmux>TMUX</tmux>、<tmuxPane>TMUX_PANE</tmuxPane> 及相關 tmux 相容值描述的是執行 <command>cmux claude-teams</command> 的工作階段，而不是產生的面板。從 agent 面板內使用 <surface>CMUX_SURFACE_ID</surface> 並執行 <tree>cmux tree --json</tree>；輸出的 <caller>caller</caller> 物件會識別呼叫面板。",
+      "dirShimPath": "系統暫存目錄下每個 surface 各自的目錄（沒有固定路徑）",
+      "dirShim": "包含目前有效的 tmux shim，並針對該 surface 加到 PATH 最前面",
+      "dirStore": "用於持久儲存 tmux-compat 緩衝區、hook，以及分割位置/版面配置狀態",
+      "storeDetails": "分割路由鍵包括：",
+      "storeLastSplitSurface": "將每個工作區 UUID 對應到最近一次分割所建立的 surface UUID。它會初始化 agent 欄錨點，用來決定下一個 main-vertical 分割的落點。",
+      "storeMainVerticalLayouts": "將每個工作區 UUID 對應到 <mainSurfaceId>mainSurfaceId</mainSurfaceId>（主要或 leader surface）和 <lastColumnSurfaceId>lastColumnSurfaceId</lastColumnSurfaceId>（agent 欄最底部的 surface）。後續隊友分割會以該欄為目標並向下堆疊。",
+      "storeTroubleshooting": "如果隊友面板出現在現有 surface 後方的分頁中，而不是旁邊的分割中，請檢查這些路由鍵。"
     },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
@@ -992,6 +1220,7 @@
           "globalFontMagnification": "依此百分比縮放 cmux 擁有的終端機、分頁標題、側邊欄、設定、覆蓋層和應用程式 chrome。不包含已算繪的瀏覽器頁面內容。"
         },
         "terminal": {
+          "adaptiveDefaultTheme": "為 true（預設）時，除非已設定 Ghostty 主題或終端機顏色，否則 cmux 會提供隨外觀變更的預設配色。字體和其他設定會保留。為 false 時，Ghostty 使用固定的內建配色。明確指定的主題和顏色一律優先，包括 theme = light:X,dark:Y。",
           "sessionContentMaxWidth": "終端機與內建代理程式聊天內容的選用最大寬度，單位為點。設為 false 可使用整個窗格寬度。",
           "sessionContentAlignment": "啟用 sessionContentMaxWidth 時，終端機與內建代理程式聊天內容的水平位置。",
           "copyOnSelect": "為 true 時，選取確認後會將所選終端機文字複製到系統剪貼簿。為 false 時，cmux 不會輸出 Ghostty copy-on-select 覆寫；選取剪貼簿行為由 Ghostty 設定與預設值控制。",
@@ -1000,12 +1229,16 @@
           "focusTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中聚焦測試版 TextBox 輸入。聚焦也會顯示 TextBox。"
         },
         "notifications": {
-          "suppressOnlyFocusedSurface": "啟用後，只有當通知橫幅的 Surface 正好是目前聚焦的 Surface 時，該橫幅才會自動撤回。對於目前可見 workspace 中未聚焦的 Surface 所投遞的橫幅，在你聚焦該 Surface（或點擊／關閉它）之前會持續顯示，而不會在 workspace 變為可見時被撤回。關閉則保留舊有的基於 workspace 可見性的撤回行為。"
+          "suppressOnlyFocusedSurface": "啟用後，只有當通知橫幅的 Surface 正好是目前聚焦的 Surface 時，該橫幅才會自動撤回。對於目前可見 workspace 中未聚焦的 Surface 所投遞的橫幅，在你聚焦該 Surface（或點擊／關閉它）之前會持續顯示，而不會在 workspace 變為可見時被撤回。關閉則保留舊有的基於 workspace 可見性的撤回行為。",
+          "agentIdleReminder": "當代理程式閒置並等待你的輸入時（回合結束後約 60 秒）傳送通知。只要上一回合的背景工作仍在等待，就會抑制通知，避免正在執行的建置或監看程式觸發錯誤的等待提醒。",
+          "soundOverrides": "依代理程式和提醒類型設定的稀疏通知聲音覆寫。缺少的儲存格會使用 notifications.sound。",
+          "soundOverride": "通知聲音覆寫。default 使用 notifications.sound，none 停用播放，其餘值選擇內建或自訂聲音。"
         },
         "browser": {
           "defaultSearchEngine": "瀏覽器位址列輸入不是 URL 時使用的預設搜尋引擎。任意提供者請使用 custom 與 customSearchEngineURLTemplate。",
           "customSearchEngineName": "defaultSearchEngine 為 custom 時使用的顯示名稱。",
-          "customSearchEngineURLTemplate": "defaultSearchEngine 為 custom 時使用的搜尋 URL。使用查詢佔位符或 %s 表示已編碼的查詢。若沒有佔位符，cmux 會將 q= 加到 URL。"
+          "customSearchEngineURLTemplate": "defaultSearchEngine 為 custom 時使用的搜尋 URL。使用查詢佔位符或 %s 表示已編碼的查詢。若沒有佔位符，cmux 會將 q= 加到 URL。",
+          "urlAllowlist": "限制內建瀏覽器導覽的主機或 URL 模式。設定介面會建議本機開發來源；儲存清單後會啟用選用限制。刪除項目即可封鎖這些來源；沒有受管理政策時，將使用者值留白可停用限制。"
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "群組內 Cmd-N、群組標題中的 + 按鈕，以及已設定的群組動作放置新 workspace 的全域預設位置：`afterCurrent`（在目前作用中的群組內 workspace 之後，沒有時回退到 top）、`top`（第二個位置，緊接錨點之後）或 `end`（最後一個成員之後）。",
@@ -1032,6 +1265,14 @@
         "shortcuts": {
           "when": "每個動作可選的內容述詞（VS Code 風格的 `when` 子句），依 cmux 動作 id 建立索引。每個值都是基於內容鍵的布林運算式，可用 !、&&、|| 與括號組合。布林鍵：sidebarFocus、browserFocus、markdownFocus、filePreviewTextEditorFocus、simulatorFocus、terminalFocus、commandPaletteVisible、terminalFindVisible、workspaceCanvasLayout。型別化鍵支援比較：字串 sidebarMode（files、find、sessions、feed 或 dock）以及整數 paneCount 與 workspaceCount。比較運算子為 ==、!=、=~（正規表示式）、<、<=、>、>= 和 `in [a, b]`；未知或不存在的鍵視為 false。也接受布林常值 true 和 false；`key == false` 等同於 `!key`。只有在子句成立時，該動作的快速鍵才會觸發，也只會在這種情況下與其他快速鍵衝突。範例：{ \"selectWorkspaceByNumber\": \"!sidebarFocus\" } 讓 Ctrl+1–9 在右側邊欄未聚焦時選取工作區；{ \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } 在工作區有多個窗格時，將綁定限制在尋找側邊欄。",
           "showModifierHoldHints": "按住 Cmd 或 Control 時顯示快捷鍵提示標籤。"
+        },
+        "fileEditor": {
+          "wordWrap": "在編輯器右緣換行顯示長行，而非水平捲動。",
+          "syntaxHighlighting": "在內建檔案編輯器中為原始碼標記上色。",
+          "lineNumbers": "在內建檔案編輯器中顯示行號欄。",
+          "indentGuides": "在內建檔案編輯器中繪製垂直縮排參考線。",
+          "currentLineHighlight": "選取範圍為空時醒目提示插入點所在行。",
+          "tabWidth": "用於縮排與縮排參考線的定位點寬度（欄數）。"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -1094,7 +1335,7 @@
       "plusButtonScreenshotAlt": "cmux 加號按鈕右鍵選單顯示 Worktree Agents、New Terminal 與 New Browser",
       "plusButtonScreenshotCaption": "右鍵選單會依照 ui.newWorkspace.contextMenu 的順序。",
       "newWorkspaceButton": "加號按鈕的自訂動作",
-      "newWorkspaceButtonDesc": "使用 <action>ui.newWorkspace.action</action> 覆寫加號按鈕的行為。使用 <contextMenu>ui.newWorkspace.contextMenu</contextMenu>（或別名 <rightClick>rightClick</rightClick>）定義有順序的右鍵選單。選單項目可以是動作 ID、動作物件，或 <separator>{ \"type\": \"separator\" }</separator>。",
+      "newWorkspaceButtonDesc": "使用 <action>ui.newWorkspace.action</action> 覆寫加號按鈕的行為。使用 <contextMenu>ui.newWorkspace.contextMenu</contextMenu>（或別名 <rightClick>rightClick</rightClick>）定義有順序的右鍵選單。選單項目可以是動作 ID、動作物件，或 <separator>{ \"type\": \"separator\" }</separator>。 未設定時，選單會列出 cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L)，並顯示各自目前的快速鍵。僅在啟用 Cloud Machines 時顯示雲端選單項目。",
       "newWorkspaceWorktreeNote": "此範例讓一般加號點擊執行 <action>worktree-agents</action> 動作。來自 <commands>commands</commands> 的工作區命令會先使用可見的設定終端機建立 Git <worktree>worktree</worktree>。Codex 與 Claude 同時啟動，等待該工作區專用的狀態檔，然後在 exec 前進入建立的目錄。",
       "simpleCommands": "簡單指令",
       "simpleCommandsDesc": "簡單指令會在目前聚焦的終端機中執行 shell 指令：",
@@ -1454,6 +1695,7 @@
       }
     },
     "navItems": {
+      "computerUse": "電腦操作",
       "gettingStarted": "入門指南",
       "concepts": "概念",
       "workspaceGroups": "工作區群組",
@@ -3654,6 +3896,52 @@
       "installBody": "執行一次使用者層級安裝程式。cmux 會在不需要 root 權限的情況下安裝到 ~/.local，並啟用經簽署的 App 內更新。若希望由套件管理員管理更新，請改選 Debian 套件。"
     }
   },
+  "support": {
+    "metaTitle": "支援 | cmux",
+    "metaDescription": "取得 cmux 協助。傳訊息給我們，我們會透過電子郵件回覆；也可以在 Discord 和 GitHub 上與我們聯絡。",
+    "section": "支援",
+    "title": "取得 cmux 協助。",
+    "body": "傳訊息給我們，我們會透過電子郵件回覆。請說明你當時在做什麼、預期的結果以及實際發生了什麼，這樣我們能更快幫上忙。",
+    "channels": {
+      "docs": {
+        "label": "文件",
+        "description": "涵蓋入門、設定與疑難排解的指南。"
+      },
+      "discord": {
+        "label": "Discord",
+        "description": "即時向社群和團隊提問。"
+      },
+      "github": {
+        "label": "GitHub issues",
+        "description": "公開回報 bug 和提出功能請求。"
+      },
+      "email": {
+        "label": "founders@manaflow.com",
+        "description": "偏好使用電子郵件？直接寫信給我們。"
+      }
+    },
+    "formAriaLabel": "支援聯絡表單",
+    "form": {
+      "name": "姓名",
+      "email": "電子郵件地址",
+      "topic": "主題",
+      "message": "我們可以幫你什麼？",
+      "selectPlaceholder": "請選擇",
+      "topicOptions": [
+        "Bug 回報",
+        "帳單或訂閱",
+        "帳號或登入",
+        "Cloud VMs",
+        "功能請求",
+        "其他"
+      ],
+      "privacy": "我們只會使用你的電子郵件地址回覆你的支援請求，不會出售聯絡資訊。",
+      "submit": "傳送訊息",
+      "submitting": "正在傳送…",
+      "success": "謝謝。我們已收到你的訊息，會從 founders@manaflow.com 回覆到你的電子郵件。",
+      "error": "發生錯誤。請再試一次，或寄電子郵件到 founders@manaflow.com。"
+    }
+  },
   "emails": {
     "proWelcome": {
       "subject": "歡迎加入 cmux Pro 🎉",
@@ -3684,5 +3972,12 @@
         "action": "管理方案"
       }
     }
+  },
+  "cliAuthIdentity": {
+    "email": "電子郵件",
+    "emailUnavailable": "無法取得電子郵件地址",
+    "organization": "組織",
+    "personalAccount": "個人帳戶",
+    "switchAccountButton": "使用其他帳號"
   }
 }

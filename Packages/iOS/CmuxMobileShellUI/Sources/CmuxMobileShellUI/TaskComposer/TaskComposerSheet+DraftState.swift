@@ -10,6 +10,7 @@ extension TaskComposerSheet {
             selectedTemplateID = template.id
             selectedModelID = validatedModelID
             explicitlySelectedModel = nil
+            selectedEffortID = nil
             if template.isPlainShell {
                 removeStagedAttachmentFiles()
                 attachments.removeAll()
@@ -34,6 +35,12 @@ extension TaskComposerSheet {
             )
         }
         explicitlySelectedModel = nil
+        let effortModel = selectedModel ?? modelAvailability.defaultModel
+        selectedEffortID = effortModel.flatMap { model in
+            model.efforts.contains { $0.id == snapshot.effortID }
+                ? snapshot.effortID
+                : model.defaultEffortID
+        }
         selectedMacDeviceID = snapshot.macDeviceID
         selectedMacInstanceTag = snapshot.macInstanceTag
         selectedWorkspaceGroupID = snapshot.workspaceGroupID
@@ -50,12 +57,15 @@ extension TaskComposerSheet {
         directory = Self.suggestedDirectory(
             template: selectedTemplate,
             macDeviceID: selectedMacDeviceID,
+            instanceTag: selectedMacInstanceTag,
             templateStore: store.taskTemplateStore,
             openDirectory: Self.preferredOpenDirectory(
                 workspaces: store.workspaces,
                 selectedWorkspaceID: store.selectedWorkspaceID,
                 macDeviceID: selectedMacDeviceID,
-                connectedMacDeviceID: store.connectedMacDeviceID
+                connectedMacDeviceID: store.connectedMacDeviceID,
+                instanceTag: selectedMacInstanceTag,
+                connectedMacInstanceTag: store.connectedMacInstanceTag
             )
         )
     }
@@ -153,6 +163,7 @@ extension TaskComposerSheet {
         return MobileTaskComposerDraft(
             prompt: prompt,
             modelID: selectedModel?.id,
+            effortID: selectedEffort?.id,
             templateID: selectedTemplateID,
             macDeviceID: selectedMacDeviceID.isEmpty ? nil : selectedMacDeviceID,
             macInstanceTag: selectedMacDeviceID.isEmpty ? nil : selectedMacInstanceTag,
@@ -176,6 +187,7 @@ extension TaskComposerSheet {
             template: selectedTemplate,
             prompt: prompt,
             modelID: selectedModel?.id,
+            effortID: selectedEffort?.id,
             macDeviceID: selectedMacDeviceID,
             macInstanceTag: selectedMacInstanceTag,
             directory: directory,

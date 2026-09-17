@@ -767,6 +767,7 @@ public enum DiagnosticAppEventKind: Int, Sendable, Codable, CaseIterable {
     case displayWorkspacePreviewLinesChanged = 528
     case terminalScrollbackRowsChanged = 529
     case telemetrySharingChanged = 530
+    /// `c`: ``DiagnosticConnectionMethod`` the user switched to.
     case connectionMethodPreferenceChanged = 531
     /// Detail: ``DiagnosticAppEventDetail/toolbarConfigurationAction(_:)``.
     case customToolbarChanged = 532
@@ -836,6 +837,31 @@ public enum DiagnosticAppEventKind: Int, Sendable, Codable, CaseIterable {
 
     // MARK: Appended persistence events
     case pairedMacStoreWriteStarted = 660
+
+    // MARK: Appended connection reporting events
+    /// The configured connection method, recorded at composition and on every
+    /// foreground so any shared report window states it even after the ring
+    /// rolls past app launch. `c`: ``DiagnosticConnectionMethod``.
+    case connectionMethodConfigured = 661
+    /// The transport that actually carries the foreground connection, recorded
+    /// on connect and on every active-route change. `c`: ``DiagnosticTransportKind``.
+    case foregroundTransportSelected = 662
+    /// Whether a DEBUG launch supplied an injected dogfood attach route.
+    /// `c`: boolean.
+    case dogfoodAttachEnvironmentObserved = 663
+    /// Whether authentication bootstrap completed with an authenticated user.
+    /// `c`: boolean.
+    case authBootstrapCompleted = 664
+    /// A DEBUG launch attach route was admitted by the startup coordinator.
+    case dogfoodAttachStarted = 665
+}
+
+/// The user's configured connection method, mirrored from the settings picker
+/// without account, address, or grant details.
+public enum DiagnosticConnectionMethod: Int, Sendable, Codable, CaseIterable {
+    case automatic = 0
+    case tailscale = 1
+    case direct = 2
 }
 
 /// High-level lifecycle state for one phone-controlled Simulator stream.

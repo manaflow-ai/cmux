@@ -71,8 +71,46 @@ export function sanitizeStartOptions(dirty: Record<string, OptionValue>, options
   return out;
 }
 
+export function optionsForSelectedModel(options: SessionOption[]): SessionOption[] {
+  const model = options.find((option) => option.id === "model" && option.kind === "select");
+  if (!model) return options;
+  const selected = model.choices?.find((choice) => choice.value === model.value);
+  const existingEffort = options.find((option) => option.role === "effort" && option.kind === "select");
+  const withoutEffort = options.filter((option) => option !== existingEffort);
+  const choices = selected?.efforts;
+  if (!existingEffort || !choices?.length) return withoutEffort;
+  const requested = String(existingEffort?.value ?? "");
+  const preferred = choices.some((choice) => choice.value === requested)
+    ? requested
+    : choices.some((choice) => choice.value === selected.defaultEffort)
+      ? selected.defaultEffort!
+      : choices[0]!.value;
+  const effort: SessionOption = {
+    id: existingEffort.id,
+    label: existingEffort.label,
+    kind: "select",
+    role: "effort",
+    value: preferred,
+    choices,
+    disabled: existingEffort.disabled && Boolean(existingEffort.choices?.length),
+    description: existingEffort.description,
+  };
+  const modelIndex = withoutEffort.indexOf(model);
+  return [
+    ...withoutEffort.slice(0, modelIndex + 1),
+    effort,
+    ...withoutEffort.slice(modelIndex + 1),
+  ];
+}
+
 export function withLocalValues(options: SessionOption[], local: Record<string, OptionValue>): SessionOption[] {
-  return options.map((o) => {
+  const modelFirst = options.map((o) => {
+    if (o.id !== "model" || !Object.prototype.hasOwnProperty.call(local, o.id)) return o;
+    const value = local[o.id];
+    return optionAcceptsValue(o, value) ? { ...o, value } : o;
+  });
+  return optionsForSelectedModel(modelFirst).map((o) => {
+    if (o.id === "model") return o;
     if (!Object.prototype.hasOwnProperty.call(local, o.id)) return o;
     const value = local[o.id];
     return optionAcceptsValue(o, value) ? { ...o, value } : o;

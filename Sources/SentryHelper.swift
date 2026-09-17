@@ -1,5 +1,4 @@
-import Darwin
-import CmuxTerminal
+import CmuxSentryReporting
 import Foundation
 import Sentry
 
@@ -90,41 +89,30 @@ private func sentryScheduleMemoryContextRefresh(
 }
 
 /// Refresh the memory/surface context attached to future Sentry events.
-func sentryRefreshMemoryContext(reason: String) async {
+#if compiler(>=6.2)
+@concurrent
+#else
+@Sendable
+#endif
+nonisolated func sentryRefreshMemoryContext(reason: String) async {
     guard SentrySDK.isEnabled else { return }
 
     let processSnapshot = CmuxTopProcessSnapshot.captureCached(
         includeProcessDetails: false,
         maximumAge: 2
     )
-    let pid = Int(Darwin.getpid())
-    let appProcess = processSnapshot.process(pid: pid)
-    let sampledAt = ISO8601DateFormatter().string(from: processSnapshot.sampledAt)
-    let physicalFootprintBytes = appProcess?.memoryBytes ?? 0
-    let residentBytes = appProcess?.residentBytes ?? 0
-    let virtualBytes = appProcess?.virtualBytes ?? 0
-    let threadCount = appProcess?.threadCount ?? 0
-    let memorySource = appProcess?.memorySource.rawValue ?? CmuxTopProcessMemorySource.unavailable.rawValue
-    let residentMemorySource = appProcess?.residentMemorySource.rawValue ?? CmuxTopProcessMemorySource.unavailable.rawValue
-    let surfaceSnapshot = GhosttyApp.terminalSurfaceRegistry.diagnosticSnapshot()
+    let sample = MemoryResourceSample(processSnapshot: processSnapshot)
     guard !Task.isCancelled else { return }
 
     await MainActor.run {
+        guard !Task.isCancelled else { return }
+        var payload = sample.payload(
+            views: MemoryResourceViewCounts.capture(),
+            monitor: MemoryPressureMonitor.shared.resourceDiagnosticPayload()
+        )
+        payload["reason"] = reason
         SentrySDK.configureScope { scope in
-            scope.setContext(value: [
-                "reason": reason,
-                "sampled_at": sampledAt,
-                "app": [
-                    "pid": pid,
-                    "physical_footprint_bytes": physicalFootprintBytes,
-                    "resident_bytes": residentBytes,
-                    "virtual_bytes": virtualBytes,
-                    "thread_count": threadCount,
-                    "memory_source": memorySource,
-                    "resident_memory_source": residentMemorySource
-                ],
-                "terminal_surfaces": surfaceSnapshot.payload()
-            ], key: "cmux.memory")
+            scope.setContext(value: payload, key: "cmux.memory")
         }
     }
 }

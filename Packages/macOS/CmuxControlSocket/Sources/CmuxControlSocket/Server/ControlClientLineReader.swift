@@ -286,7 +286,7 @@ public final class ControlClientLineReader {
     /// line. It rejects a second `method` key, including an escaped value, and
     /// rejects ambiguous escaped top-level keys. This avoids copying or
     /// appending an oversized line before the route is known.
-    private struct LateRouteScanState {
+    struct LateRouteScanState {
         private static let method = Array("method".utf8)
 
         private var depth = 0
@@ -389,7 +389,7 @@ public final class ControlClientLineReader {
     /// `{"padding":"\\\"method\\\":\\\"normal\\\""}` from disabling the
     /// CodeRouter cap. Escaped keys and values stay undecided and fail closed
     /// at the cap.
-    private static func classifyTopLevelMethod(in bytes: [UInt8]) -> Bool? {
+    static func classifyTopLevelMethod(in bytes: [UInt8]) -> Bool? {
         guard let commandStart = bytes.firstIndex(where: {
             !Self.isASCIIWhitespace($0)
         }) else {

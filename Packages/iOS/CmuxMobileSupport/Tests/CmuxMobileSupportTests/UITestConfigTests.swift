@@ -315,6 +315,25 @@ import Testing
         #endif
     }
 
+    @Test func screenshotCaptureCanHideWorkspaceChangesHint() {
+        #if DEBUG
+        #expect(UITestConfig.hideWorkspaceChangesHintForScreenshots(
+            from: ["CMUX_UITEST_HIDE_WORKSPACE_CHANGES_HINT": "1"]
+        ))
+        #expect(UITestConfig.hideWorkspaceChangesHintForScreenshots(
+            from: [:],
+            arguments: ["CMUX_UITEST_HIDE_WORKSPACE_CHANGES_HINT=1"]
+        ))
+        #else
+        #expect(!UITestConfig.hideWorkspaceChangesHintForScreenshots(
+            from: ["CMUX_UITEST_HIDE_WORKSPACE_CHANGES_HINT": "1"]
+        ))
+        #endif
+        #expect(!UITestConfig.hideWorkspaceChangesHintForScreenshots(
+            from: ["CMUX_UITEST_HIDE_WORKSPACE_CHANGES_HINT": "0"]
+        ))
+    }
+
     @Test func pushReadinessPreviewUsesExplicitInputsWithEnvironmentPrecedence() {
         #if DEBUG
         #expect(UITestConfig.pushReadinessPreviewState(
@@ -362,40 +381,6 @@ import Testing
         #expect(!UITestConfig.taskComposerPreviewEnabled(from: [
             "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "0",
         ]))
-    }
-
-    @Test func agentChatPreviewFlagIsDebugOnly() {
-        let env = ["CMUX_UITEST_AGENT_CHAT_PREVIEW": "1"]
-        let config = UITestEnvironmentConfig(environment: env)
-        #if DEBUG
-        #expect(config.agentChatPreviewEnabled == true)
-        #else
-        #expect(config.agentChatPreviewEnabled == false)
-        #endif
-    }
-
-    @Test func agentChatPreviewFlagRequiresOne() {
-        #expect(UITestEnvironmentConfig(environment: [:]).agentChatPreviewEnabled == false)
-        #expect(UITestEnvironmentConfig(
-            environment: ["CMUX_UITEST_AGENT_CHAT_PREVIEW": "0"]
-        ).agentChatPreviewEnabled == false)
-    }
-
-    @Test func agentChatInlinePreviewFlagIsDebugOnly() {
-        let env = ["CMUX_UITEST_AGENT_CHAT_INLINE_PREVIEW": "1"]
-        let config = UITestEnvironmentConfig(environment: env)
-        #if DEBUG
-        #expect(config.agentChatInlinePreviewEnabled == true)
-        #else
-        #expect(config.agentChatInlinePreviewEnabled == false)
-        #endif
-    }
-
-    @Test func agentChatInlinePreviewFlagRequiresOne() {
-        #expect(UITestEnvironmentConfig(environment: [:]).agentChatInlinePreviewEnabled == false)
-        #expect(UITestEnvironmentConfig(
-            environment: ["CMUX_UITEST_AGENT_CHAT_INLINE_PREVIEW": "0"]
-        ).agentChatInlinePreviewEnabled == false)
     }
 
     #if DEBUG

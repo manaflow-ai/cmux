@@ -7,6 +7,8 @@ import UserNotifications
 
 private actor LifecyclePushRegistration: PushRegistering {
     private var value: PushRegistrationSnapshot
+    private var intentGeneration: UInt64 = 0
+    private(set) var enabledReconciliationGenerations: [UInt64] = []
     private(set) var syncCount = 0
     private let setEnabledGate: LifecycleSetEnabledGate?
     private let syncGate: LifecycleSyncGate?
@@ -40,6 +42,23 @@ private actor LifecyclePushRegistration: PushRegistering {
 
     func setEnabled(_ enabled: Bool) async {
         await setEnabledGate?.pause()
+        apply(enabled)
+    }
+
+    func applyEnabledIntent(_ enabled: Bool, generation: UInt64) async {
+        guard generation >= intentGeneration else { return }
+        await setEnabledGate?.pause()
+        guard generation >= intentGeneration else { return }
+        intentGeneration = generation
+        apply(enabled)
+    }
+
+    func reconcileEnabledIntent(generation: UInt64) {
+        guard generation == intentGeneration, value.isEnabled else { return }
+        enabledReconciliationGenerations.append(generation)
+    }
+
+    private func apply(_ enabled: Bool) {
         value = enabled
             ? PushRegistrationSnapshot(
                 isEnabled: true,
@@ -352,6 +371,64 @@ private final class LifecyclePushURLProtocol: URLProtocol,
         )
     }
 
+    /// The workspace list is an automatic surface: it must never spend the
+    /// app's one OS permission prompt. Only an explicit opt-in (the onboarding
+    /// push page or the Settings toggle) may ask an undetermined system.
+    @MainActor
+    @Test func workspaceListNeverPromptsAnUndeterminedSystem() async {
+        let registration = LifecyclePushRegistration(enabled: false)
+        let suiteName = "push-coordinator-workspace-noprompt-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        var authorizationRequests = 0
+        let coordinator = MobilePushCoordinator(
+            registration: registration,
+            defaults: defaults,
+            authorizationStatus: { .notDetermined },
+            requestAuthorization: {
+                authorizationRequests += 1
+                return true
+            }
+        )
+
+        await coordinator.workspaceListDidBecomeVisible()
+
+        #expect(authorizationRequests == 0)
+        #expect(!coordinator.isEnabled)
+        #expect(defaults.object(forKey: "cmux.notifications.pushEnabled") == nil)
+
+        #expect(await coordinator.enable(trigger: "onboarding"))
+        #expect(authorizationRequests == 1)
+        #expect(coordinator.isEnabled)
+    }
+
+    @MainActor
+    @Test func deniedSettingsIntentReconcilesAfterPermissionIsGranted() async {
+        let registration = LifecyclePushRegistration(enabled: false)
+        let suiteName = "push-coordinator-denied-backend-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        var status = UNAuthorizationStatus.denied
+        let coordinator = MobilePushCoordinator(
+            registration: registration,
+            defaults: defaults,
+            authorizationStatus: { status },
+            requestAuthorization: { false }
+        )
+        await coordinator.refreshReadiness()
+
+        #expect(!(await coordinator.setEnabledIntent(true).value))
+        #expect(await registration.enabledReconciliationGenerations.isEmpty)
+        #expect(coordinator.isEnabled)
+
+        status = .authorized
+        await coordinator.refreshReadiness()
+
+        #expect(
+            await registration.enabledReconciliationGenerations == [1]
+        )
+    }
+
     @MainActor
     @Test func foregroundRefreshRegistersAfterPermissionIsEnabledInSettings() async {
         let registration = LifecyclePushRegistration(enabled: false)
@@ -551,6 +628,45 @@ private final class LifecyclePushURLProtocol: URLProtocol,
 
         await gate.release()
         await disabling.value
+    }
+
+    @MainActor
+    @Test func latestSettingsIntentSupersedesStalledEnable() async {
+        let settingsGate = LifecycleSetEnabledGate()
+        let registration = LifecyclePushRegistration(enabled: false)
+        let suiteName = "push-coordinator-latest-intent-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let coordinator = MobilePushCoordinator(
+            registration: registration,
+            defaults: defaults,
+            notificationSettings: {
+                await settingsGate.pause()
+                return .authorizationOnly(.authorized)
+            },
+            requestAuthorization: { true }
+        )
+
+        let enabling = coordinator.setEnabledIntent(true)
+        await settingsGate.waitUntilStarted()
+
+        let disabling = coordinator.setEnabledIntent(false)
+        #expect(!coordinator.isEnabled)
+        #expect(
+            defaults.object(forKey: "cmux.notifications.pushEnabled") as? Bool
+                == false
+        )
+
+        await disabling.value
+        let reenabling = coordinator.setEnabledIntent(true)
+        #expect(coordinator.isEnabled)
+        await settingsGate.release()
+        await enabling.value
+        #expect(await reenabling.value)
+
+        #expect(coordinator.isEnabled)
+        #expect(await registration.snapshot.isEnabled)
+        #expect(await registration.enabledReconciliationGenerations == [3])
     }
 
     @MainActor

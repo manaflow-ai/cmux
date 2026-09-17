@@ -21,4 +21,5 @@ self-hosted-runner:
     - blacksmith-4vcpu-ubuntu-2404-arm
     - blacksmith-8vcpu-ubuntu-2404
     - blacksmith-4vcpu-windows-2025
+    - blacksmith-32vcpu-ubuntu-2404
     - warp-ubuntu-latest-x64-4x

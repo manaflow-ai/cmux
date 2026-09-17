@@ -33,6 +33,11 @@ struct DisconnectedWorkspaceShellView: View {
     /// requirement is rendered in the empty state instead of a top banner.
     var tailscalePairingRequired = false
     var showSettings: () -> Void = {}
+    /// Present the Computers management sheet. Essential while disconnected:
+    /// the per-Computer connection method lives in the Computer detail, and a
+    /// Computer stuck on an undialable method (Tailscale Only with no grant)
+    /// can ONLY be fixed from there.
+    var showComputers: (() -> Void)? = nil
     var setupHelpPresentation = MobileChildSheetPresentation()
 
     #if os(iOS)
@@ -51,6 +56,7 @@ struct DisconnectedWorkspaceShellView: View {
     }
 
     #if os(iOS)
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// The computer a reconnect attempt is in flight for. Also the re-entry
     /// guard: while non-nil, row taps are ignored.
     @State private var connectingMacID: String?
@@ -68,6 +74,21 @@ struct DisconnectedWorkspaceShellView: View {
                     #if os(iOS)
                     ToolbarItem(placement: .topBarLeading) {
                         settingsMenu
+                    }
+                    if let showComputers {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button(action: showComputers) {
+                                MobileDevicesToolbarLabel(
+                                    gateWarningPairingIDs: store?.macVersionUpdateRequiredPairingIDs ?? [],
+                                    computerPairingIDs: savedComputerPairingIDs
+                                )
+                            }
+                            .accessibilityLabel(L10n.string(
+                                "mobile.connections.title",
+                                defaultValue: "Computers"
+                            ))
+                            .accessibilityIdentifier("MobileWorkspaceDevicesButton")
+                        }
                     }
                     ToolbarItem(placement: .topBarTrailing) {
                         addDeviceToolbarButton
@@ -87,15 +108,17 @@ struct DisconnectedWorkspaceShellView: View {
                     // known/restored Mac shows up here for one-tap reconnect.
                     // Same-account discovery is the primary path. Manual pairing
                     // is available only when the root supplies its Tailscale action.
-                    await store?.loadPairedMacs()
+                    async let pairedMacs: Void = store?.loadPairedMacs() ?? ()
+                    await pairedMacs
                     #if os(iOS)
+                    async let registryDevices: Void = store?.loadRegistryDevices() ?? ()
                     // Registry + presence enrich the rows (online dots, build
                     // labels). The loop then keeps presence and last-seen fresh
                     // while the app is parked on this screen; like the Computers
                     // screen it deliberately does NOT dial offline Macs (see
                     // `refreshComputersScreen()`), so no reconnect storm.
                     // Cancellation is wired to this `.task`'s lifecycle.
-                    await store?.loadRegistryDevices()
+                    await registryDevices
                     while !Task.isCancelled {
                         try? await Task.sleep(for: .seconds(10))
                         guard !Task.isCancelled else { break }
@@ -139,6 +162,12 @@ struct DisconnectedWorkspaceShellView: View {
         store.map { MacComputerSnapshot.snapshots(from: $0) } ?? []
     }
 
+    /// The Computers sheet includes both shown and hidden rows, so both sets
+    /// participate in the toolbar warning scope while this screen is open.
+    private var savedComputerPairingIDs: Set<String> {
+        Set(savedComputers.map(\.id) + (store?.hiddenComputers.map(\.id) ?? []))
+    }
+
     @ViewBuilder
     private var content: some View {
         if !savedComputers.isEmpty || !(store?.hiddenComputers.isEmpty ?? true) {
@@ -167,10 +196,10 @@ struct DisconnectedWorkspaceShellView: View {
                     unhide: unhideComputer
                 )
             } header: {
-                Text(L10n.string("mobile.devices.savedTitle", defaultValue: "Your Computers"))
+                Text(L10n.string("mobile.connections.savedTitle", defaultValue: "Your Computers"))
             } footer: {
                 Text(L10n.string(
-                    "mobile.disconnected.listFooter",
+                    "mobile.connections.disconnected.listFooter",
                     defaultValue: "Tap a shown computer to reconnect. Use its switch to show or hide it on this iPhone."
                 ))
             }
@@ -178,7 +207,7 @@ struct DisconnectedWorkspaceShellView: View {
                 if let showAddDevice {
                     Button(action: showAddDevice) {
                         Label(
-                            L10n.string("mobile.computers.add", defaultValue: "Add Computer"),
+                            L10n.string("mobile.connections.add", defaultValue: "Add Computer"),
                             systemImage: "plus"
                         )
                     }
@@ -196,6 +225,15 @@ struct DisconnectedWorkspaceShellView: View {
             }
         }
         .listStyle(.insetGrouped)
+        // The visibility switches mutate the store asynchronously, so a row's
+        // move between the shown and hidden runs of the section lands after
+        // the toggle's own transaction has ended; animating on membership
+        // keeps that reorder smooth. Keyed on ids only, so the 10s presence
+        // refresh (same rows, new status text) doesn't animate.
+        .animation(
+            reduceMotion ? nil : .smooth(duration: 0.3),
+            value: computers.map(\.id) + ["hidden"] + (store?.hiddenComputers.map(\.id) ?? [])
+        )
         .refreshable {
             // Same refresh the 10s loop performs (plus registry), so a pull
             // updates the presence/last-seen the rows lead with, not just the
@@ -210,7 +248,7 @@ struct DisconnectedWorkspaceShellView: View {
     private var emptyState: some View {
         ContentUnavailableView {
             Label(
-                L10n.string("mobile.devices.emptyTitle", defaultValue: "No Computers"),
+                L10n.string("mobile.connections.emptyTitle", defaultValue: "No Computers"),
                 systemImage: "desktopcomputer.and.iphone"
             )
         } description: {
@@ -229,7 +267,7 @@ struct DisconnectedWorkspaceShellView: View {
                 .accessibilityIdentifier("MobileDisconnectedScanPairingCode")
             } else if let showAddDevice {
                 Button(action: showAddDevice) {
-                    Text(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
+                    Text(L10n.string("mobile.connections.add", defaultValue: "Add Computer"))
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.blue)
@@ -252,9 +290,9 @@ struct DisconnectedWorkspaceShellView: View {
         }
         #endif
         return L10n.string(
-            "mobile.devices.emptyDescription",
-            defaultValue: "For Auto-Connect to find a Mac, run cmux 0.64.20 or later on the Mac, sign in to cmux on both devices with the same account, and keep cmux running on the Mac while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
-        )
+            "mobile.v2.devices.emptyDescription",
+            defaultValue: "On your Mac, turn on Enable iOS pairing in cmux Settings. Select the same team on both devices and keep cmux running. Only Macs you own or have permission to connect to appear here."
+        ) + " " + MobilePairingCopy().emptyWorkspaceMessage
     }
 
     /// Reconnect this row's computer. `switchToMac` promotes a live secondary
@@ -330,12 +368,12 @@ struct DisconnectedWorkspaceShellView: View {
     private var savedMacDescription: String {
         guard showAddDevice != nil else {
             return L10n.string(
-                "mobile.devices.savedDescription.reconnectOnly",
+                "mobile.connections.savedDescription.reconnectOnly",
                 defaultValue: "Tap a saved computer to reconnect."
             )
         }
         return L10n.string(
-            "mobile.devices.savedDescription",
+            "mobile.connections.savedDescription",
             defaultValue: "Tap a saved computer to reconnect, or add another."
         )
     }
@@ -344,16 +382,16 @@ struct DisconnectedWorkspaceShellView: View {
         ContentUnavailableView {
             Label(
                 savedMacs.isEmpty
-                    ? L10n.string("mobile.devices.emptyTitle", defaultValue: "No Computers")
-                    : L10n.string("mobile.devices.savedTitle", defaultValue: "Your Computers"),
+                    ? L10n.string("mobile.connections.emptyTitle", defaultValue: "No Computers")
+                    : L10n.string("mobile.connections.savedTitle", defaultValue: "Your Computers"),
                 systemImage: "desktopcomputer.and.iphone"
             )
         } description: {
             Text(
                 savedMacs.isEmpty
                     ? L10n.string(
-                        "mobile.devices.emptyDescription",
-                        defaultValue: "For Auto-Connect to find a Mac, run cmux 0.64.20 or later on the Mac, sign in to cmux on both devices with the same account, and keep cmux running on the Mac while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
+                        "mobile.v2.devices.emptyDescription",
+                        defaultValue: "On your Mac, turn on Enable iOS pairing in cmux Settings. Select the same team on both devices and keep cmux running. Only Macs you own or have permission to connect to appear here."
                     )
                     : savedMacDescription
             )
@@ -383,8 +421,8 @@ struct DisconnectedWorkspaceShellView: View {
                 Button(action: showAddDevice) {
                     Text(
                         savedMacs.isEmpty
-                            ? L10n.string("mobile.addDevice.title", defaultValue: "Add Computer")
-                            : L10n.string("mobile.addDevice.another", defaultValue: "Add another Computer")
+                            ? L10n.string("mobile.connections.add", defaultValue: "Add Computer")
+                            : L10n.string("mobile.connections.addAnother", defaultValue: "Add another Computer")
                     )
                 }
                 .buttonStyle(.borderedProminent)
@@ -434,7 +472,7 @@ struct DisconnectedWorkspaceShellView: View {
             Button(action: showAddDevice) {
                 Image(systemName: "plus")
             }
-            .accessibilityLabel(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
+            .accessibilityLabel(L10n.string("mobile.connections.add", defaultValue: "Add Computer"))
             .accessibilityIdentifier("MobileShowAddDeviceToolbarButton")
         }
     }
