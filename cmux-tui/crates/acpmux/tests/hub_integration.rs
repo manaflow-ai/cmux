@@ -199,6 +199,9 @@ async fn kill_then_prompt_resumes_via_load() {
     assert!(kinds.iter().any(|k| k == "resumed"), "{kinds:?}");
     assert!(kinds.iter().any(|k| k == "user_message_chunk.replay"), "{kinds:?}");
     assert_eq!(hub.session_summary(&session)["turnCount"], 2);
+    // The saved mode and options were re-asserted on the respawned agent.
+    let replayed = hub.events(&id, 0, 1000).unwrap().into_iter().any(|e| e.kind == "config" && e.msg.get("replayed") == Some(&json!(true)));
+    assert!(replayed, "{kinds:?}");
 }
 
 #[tokio::test]

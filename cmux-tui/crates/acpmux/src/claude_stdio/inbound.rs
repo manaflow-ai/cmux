@@ -185,6 +185,9 @@ impl Translator {
                 self.in_turn.store(false, Ordering::SeqCst);
                 let waiting: Vec<String> = self.pending.lock().await.iter().filter(|(_, p)| matches!(p, Pending::Prompt)).map(|(k, _)| k.clone()).collect();
                 let cancelled = self.cancelled.swap(false, Ordering::SeqCst);
+                // `is_error` with a success subtype is how Claude reports a
+                // usage limit or an API refusal: a failed turn, not a reply.
+                let is_error = line.get("is_error").and_then(Value::as_bool).unwrap_or(false);
                 let stop = if cancelled || (sub == "error_during_execution" && line.get("result").map(Value::is_null).unwrap_or(true)) {
                     "cancelled"
                 } else if sub == "error_max_turns" {
@@ -197,7 +200,7 @@ impl Translator {
                 for k in waiting {
                     self.pending.lock().await.remove(&k);
                     let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k.clone()));
-                    if sub.starts_with("error") && !cancelled && stop != "cancelled" {
+                    if (sub.starts_with("error") || is_error) && !cancelled && stop != "cancelled" {
                         out.push(Message::err(id, RpcError::internal(line.get("result").and_then(Value::as_str).unwrap_or(sub))));
                     } else {
                         out.push(Message::ok(id, json!({"stopReason": stop, "_meta": {"claude": {"subtype": sub, "cost_usd": line.get("total_cost_usd"), "usage": line.get("usage"), "num_turns": line.get("num_turns")}}})));

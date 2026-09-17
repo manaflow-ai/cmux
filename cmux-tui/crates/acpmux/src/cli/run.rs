@@ -3,82 +3,41 @@
 
 use crate::*;
 use crate::cli::output::*;
+use crate::cli::{errors, orchestrate};
 use acpmux::client::Client;
 use acpmux::config::{Config, home};
 use acpmux::daemon::connect;
-use acpmux::rpc::{Message, method};
+use acpmux::rpc::method;
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
-use std::io::Write;
 
-pub(crate) async fn run_client(cmd: Command, json_out: bool) -> Result<()> {
+pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: bool) -> Result<()> {
     match cmd {
-        Command::Wait { sessions, timeout, all, any: _, print } => {
+        Command::Wait { sessions, timeout, all, any: _, print, until, match_text, regex, notify } => {
             let client = connect(true).await?;
-            let mut targets: Vec<(String, String)> = Vec::new();
-            if sessions.is_empty() {
-                // Everything in flight, on this host and every peer.
-                let v = client.request(method::MUX_SESSIONS, json!({})).await?;
-                for s in v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default() {
-                    let running = s.get("status").and_then(Value::as_str) == Some("running");
-                    let pending = s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0;
-                    if running || pending {
-                        targets.push((s.get("name").and_then(Value::as_str).unwrap_or("").to_owned(), s.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned()));
-                    }
-                }
-                if targets.is_empty() {
-                    if json_out {
-                        print_json(&json!({"sessions": []}));
-                    } else {
-                        println!("nothing is running");
-                    }
-                    return Ok(());
-                }
-            } else {
-                for name in &sessions {
-                    targets.push((name.clone(), resolve_id(&client, name).await?));
-                }
-            }
-            let outcome = wait_sessions(client.clone(), &targets, timeout, !all).await?;
-            let mut code = 0;
-            let mut rows = Vec::new();
-            let resolved = |st: &str, pend: u64| st != "running" || pend > 0;
-            let timed_out = !outcome.iter().any(|(_, _, st, p)| resolved(st, *p));
-            if timed_out {
-                code = 3;
-            }
-            for (name, id, status, pending) in &outcome {
-                // Without --all, report only what resolved; still-running
-                // sessions are not news.
-                if !all && !timed_out && !resolved(status, *pending) {
-                    continue;
-                }
-                let reply = if print || json_out { last_replies(&client, id, 1).await?.pop().unwrap_or_default() } else { String::new() };
-                if *pending > 0 {
-                    code = code.max(2);
-                }
-                if all && status == "running" {
-                    code = 3;
-                }
-                rows.push(json!({"name": name, "sessionId": id, "status": status, "pendingPermissions": pending, "reply": reply}));
-            }
-            if json_out {
-                print_json(&json!({"sessions": rows}));
-            } else {
-                for r in &rows {
-                    let g = |k: &str| r.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
-                    let pend = r.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0);
-                    let state = if pend > 0 { format!("waiting for permission ({pend})") } else { g("status") };
-                    println!("{:<24} {}", g("name"), state);
-                    if print && !g("reply").is_empty() {
-                        println!("{}", g("reply"));
-                        println!();
-                    }
-                }
-            }
-            if code != 0 {
-                std::process::exit(code);
-            }
+            let matcher = match (match_text, regex) {
+                (Some(t), _) => Some(orchestrate::Matcher::Text(t)),
+                (None, Some(r)) => Some(orchestrate::Matcher::Regex(regex::Regex::new(&r).map_err(|e| errors::AppError::new(errors::Code::Usage, "invalid_regex", e.to_string()))?)),
+                _ => None,
+            };
+            orchestrate::wait(client, orchestrate::WaitOpts { sessions, until, all, timeout, print, notify, matcher }, json_out).await
+        }
+        Command::Ensure { name, agent, cwd, policy, model, effort } => orchestrate::ensure(connect(true).await?, &name, agent, cwd, policy, model, effort, json_out).await,
+        Command::History { session, limit } => orchestrate::history(connect(true).await?, &session, limit, json_out).await,
+        Command::TagCmd { session, assignments, remove, ttl } => orchestrate::tag(connect(true).await?, &session, assignments, remove, ttl, json_out).await,
+        Command::RulesCmd { session, rules, clear } => orchestrate::rules(connect(true).await?, &session, rules, clear, json_out).await,
+        Command::Compare { agents, prompt, cwd, policy, timeout } => {
+            let prompt = arg_or_stdin(&prompt)?;
+            orchestrate::compare(connect(true).await?, agents, prompt, cwd, policy, timeout, json_out).await
+        }
+        Command::Schema => {
+            use std::io::Write;
+            let _ = std::io::stdout().write_all(acpmux::schema::SCHEMA.as_bytes());
+            Ok(())
+        }
+        Command::Skill => {
+            use std::io::Write;
+            let _ = std::io::stdout().write_all(orchestrate::SKILL.as_bytes());
             Ok(())
         }
         Command::Last { session, count } => {
@@ -129,10 +88,10 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool) -> Result<()> {
             }
             Ok(())
         }
-        Command::Ls { status, pending } => {
+        Command::Ls { status, pending, tag } => {
             let client = connect(true).await?;
             let mut v = client.request(method::MUX_SESSIONS, json!({})).await?;
-            if status.is_some() || pending {
+            if status.is_some() || pending || tag.is_some() {
                 let keep: Vec<Value> = v
                     .get("sessions")
                     .and_then(Value::as_array)
@@ -147,7 +106,14 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool) -> Result<()> {
                             Some("waiting") => pend,
                             Some(want) => st == want,
                         };
-                        status_ok && (!pending || pend)
+                        let tag_ok = match tag.as_deref() {
+                            None => true,
+                            Some(t) => {
+                                let (k, want) = t.split_once('=').map(|(k, v)| (k, Some(v))).unwrap_or((t, None));
+                                s.get("tags").and_then(|m| m.get(k)).map(|v| want.map(|w| v.as_str() == Some(w)).unwrap_or(true)).unwrap_or(false)
+                            }
+                        };
+                        status_ok && (!pending || pend) && tag_ok
                     })
                     .collect();
                 v["sessions"] = Value::Array(keep);
@@ -216,11 +182,16 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool) -> Result<()> {
             if !args.prompt.is_empty() {
                 let text = args.prompt.join(" ");
                 if one_shot {
-                    let (reply, stop) = collect_reply(client.clone(), &id, &text).await?;
+                    let opts = CollectOpts { timeout: args.timeout, on_permission: OnPermission::parse(&args.on_permission)?, stall_secs: args.stall, retries: args.retries };
+                    let outcome = collect_reply(client.clone(), &id, &text, opts).await;
+                    if args.ephemeral {
+                        let _ = client.request(method::MUX_KILL, json!({"sessionId": id, "purge": true})).await;
+                    }
+                    let r = outcome?;
                     if json_out {
-                        print_json(&json!({"sessionId": id, "name": name, "reply": reply, "stopReason": stop}));
+                        print_json(&json!({"sessionId": id, "name": name, "reply": r.reply, "stopReason": r.stop_reason, "permissions": r.permissions_asked, "permissionsDenied": r.permissions_denied, "ephemeral": args.ephemeral}));
                     } else {
-                        println!("{reply}");
+                        println!("{}", r.reply);
                     }
                     return Ok(());
                 }
@@ -233,17 +204,31 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool) -> Result<()> {
                     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                     return Ok(());
                 }
-                return stream_prompt(client, &id, &text, false, false, json_out).await;
+                let opts = CollectOpts { timeout: args.timeout, on_permission: OnPermission::parse(&args.on_permission)?, stall_secs: args.stall, retries: args.retries };
+                return stream_prompt(client, &id, &text, false, false, json_out, opts, suppress_reads).await;
             }
             if args.detach || json_out {
                 return Ok(());
             }
             acpmux::tui::run(client, Some(id)).await
         }
-        Command::Send { session, prompt, steer, no_wait, quiet } => {
+        Command::Send { session, prompt, steer, no_wait, quiet, timeout, on_permission, stall } => {
             let client = connect(true).await?;
             let text = arg_or_stdin(&prompt)?;
             let id = resolve_id(&client, &session).await?;
+            let on_permission = OnPermission::parse(&on_permission)?;
+            // Never refuse: report what the prompt queues behind.
+            let info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
+            let running = info.get("status").and_then(Value::as_str) == Some("running") || info.get("turn").map(|t| !t.is_null()).unwrap_or(false);
+            let pending = info.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0);
+            let queued = info.get("queued").and_then(Value::as_u64).unwrap_or(0);
+            let behind = json!({"permissions": pending, "turns": if running { 1 + queued } else { queued }});
+            if (running || pending > 0) && !steer {
+                let mut parts = Vec::new();
+                if pending > 0 { parts.push(format!("{pending} pending permission{}", if pending == 1 { "" } else { "s" })); }
+                if running { parts.push(format!("{} running turn{}", 1 + queued, if queued == 0 { "" } else { "s" })); }
+                eprintln!("queued behind {}", parts.join(" and "));
+            }
             if no_wait {
                 let c = client.clone();
                 let id2 = id.clone();
@@ -251,10 +236,24 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool) -> Result<()> {
                     let _ = c.request(method::SESSION_PROMPT, json!({"sessionId": id2, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": {"steer": steer}}})).await;
                 });
                 tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-                println!("queued");
+                if json_out {
+                    print_json(&json!({"sessionId": id, "queued": true, "queuedBehind": behind}));
+                } else {
+                    println!("queued");
+                }
                 return Ok(());
             }
-            stream_prompt(client, &id, &text, steer, quiet, json_out).await
+            let opts = CollectOpts { timeout, on_permission, stall_secs: stall, retries: 0 };
+            if quiet || json_out {
+                let r = collect_reply(client, &id, &text, opts).await?;
+                if json_out {
+                    print_json(&json!({"sessionId": id, "reply": r.reply, "stopReason": r.stop_reason, "queuedBehind": behind, "permissions": r.permissions_asked, "permissionsDenied": r.permissions_denied}));
+                } else {
+                    println!("{}", r.reply);
+                }
+                return Ok(());
+            }
+            stream_prompt(client, &id, &text, steer, quiet, json_out, opts, suppress_reads).await
         }
         Command::Attach { session, plain } => {
             let client = connect(true).await?;
@@ -268,31 +267,7 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool) -> Result<()> {
             }
             acpmux::tui::run(client, id).await
         }
-        Command::Tail { session, last, follow } => {
-            let client = connect(true).await?;
-            let id = resolve_id(&client, &session).await?;
-            let mut notes = client.notifications().await.unwrap();
-            let v = client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": last})).await?;
-            for e in v.get("events").and_then(Value::as_array).cloned().unwrap_or_default() {
-                println!("{e}");
-            }
-            if !follow {
-                return Ok(());
-            }
-            let stdout = std::io::stdout();
-            while let Some(m) = notes.recv().await {
-                if let Message::Notification { method: m, params } = m {
-                    let p = params.unwrap_or(Value::Null);
-                    let sid = p.get("sessionId").and_then(Value::as_str).unwrap_or("");
-                    if sid != id {
-                        continue;
-                    }
-                    let mut lock = stdout.lock();
-                    let _ = writeln!(lock, "{}", json!({"method": m, "params": p}));
-                }
-            }
-            Ok(())
-        }
+        Command::Tail { session, last, follow, since } => orchestrate::tail(connect(true).await?, &session, last, since, follow, suppress_reads).await,
         Command::Info { session } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;
@@ -514,8 +489,12 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool) -> Result<()> {
 }
 
 pub(crate) async fn resolve_id(client: &Client, key: &str) -> Result<String> {
-    let v = client.request(method::MUX_INFO, json!({"sessionId": key})).await?;
-    Ok(v.get("sessionId").and_then(Value::as_str).unwrap_or(key).to_owned())
+    let key = orchestrate::expand_session_key(key)?;
+    let v = client.request(method::MUX_INFO, json!({"sessionId": key})).await.map_err(|e| {
+        let m = e.to_string().to_lowercase();
+        if m.contains("no session") || m.contains("not found") { anyhow::Error::from(errors::AppError::no_session(&key)) } else { e }
+    })?;
+    Ok(v.get("sessionId").and_then(Value::as_str).unwrap_or(&key).to_owned())
 }
 
 pub(crate) async fn answer_permission(session: &str, option: Option<String>, allow: bool) -> Result<()> {

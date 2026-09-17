@@ -25,6 +25,7 @@ pub mod render;
 mod collapse;
 pub mod links;
 pub mod menu;
+pub mod notify;
 pub use menu::{Menu, MenuAction};
 pub mod markdown;
 pub mod scroll;

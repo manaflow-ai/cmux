@@ -75,24 +75,46 @@ work but are hidden from help.
 
 ## Orchestrating agents from scripts
 
-Every command takes `--json` before it for machine output. The pieces an orchestrator needs:
+Every command takes `--json` before it for machine output; errors then go to stderr as one
+`{"error": {"code", "detail", "message", "sessionId", "retryable"}}` object and nothing is
+printed on stdout. Exit codes are stable: 0 ok, 1 runtime or agent error, 2 usage, 3 timeout,
+4 no such session, 5 every permission in the turn was denied, 130 interrupted.
 
 ```
 acpmux run -a codex --cwd ~/proj "fix the failing test"      # new session, send, print only the reply
-acpmux --json run -a claude --policy approve-all "..."       # {"sessionId","name","reply","stopReason"}
-acpmux send NAME --no-wait "..."                              # queue and return at once
-acpmux wait                                                   # block until any session on any host resolves (turn ends or needs a permission)
-acpmux wait NAME [NAME…] [--all] [--timeout 300] [--print]    # same for named sessions; --all waits for every one; exit 2 = permission waiting, 3 = timeout
+acpmux exec -a claude "one-shot"                              # same, and the session is deleted afterwards
+acpmux --json run -a claude --policy approve-all "..."       # {"sessionId","name","reply","stopReason","permissions",…}
+acpmux ensure NAME -a codex --cwd DIR                         # the session if it exists, else create it
+acpmux send NAME --no-wait "..."                              # queue and return; prints "queued behind 1 running turn"
+acpmux send NAME --timeout 120 --on-permission deny|fail "…"  # cancel after 120 s (exit 3); answer prompts without a human
+acpmux wait                                                   # until any session on any host resolves (turn ended or needs a permission)
+acpmux wait NAME… --until ready|permission|closed|done|running [--all] [--timeout 300] [--print] [--notify]
+acpmux wait NAME --match "tests pass" | --regex "pass(ed)?"   # until the agent's output contains it
 acpmux last NAME [-n 3]                                       # last reply text
+acpmux history NAME                                           # one line per turn: status, wall time, tools, tokens, prompt
 acpmux pending                                                # every pending permission, with the option ids to answer it
 acpmux session allow NAME [OPTION] | acpmux session deny NAME
+acpmux session rules NAME '{"autoDeny": ["rm -rf"], "ask": ["execute"], "default": "approve"}'
+acpmux session tag NAME task=review --ttl 3600; acpmux ls --tag task=review
 acpmux ls --status running | --pending                        # filters; --json for the full records
-acpmux session tail NAME --follow                             # the raw event stream as JSON lines
+acpmux session tail NAME --since <sessionId>:<seq> --follow   # raw events as JSON lines; a cursor past the log is exit 2
+acpmux compare -a claude -a codex "prompt"                    # one temporary session per harness, run one after another
+acpmux skill                                                  # the agent skill file; acpmux daemon schema prints the RPC surface
 ```
 
-A typical loop: `run` or `send --no-wait` on several sessions, `wait` to react to the
-first that finishes or needs a permission, `pending` and `session allow` to answer, `last` to
-read the result.
+Waits run in the daemon: a per-session `stateSeq` bumps on every status, permission and
+turn change and the wait subscribes to hub events, so nothing is missed between the check
+and the subscribe. `done` means a turn ended while no client was attached. `send` reports
+`prompt_stalled` (exit 1) when the agent produces nothing for 30 s (`--stall 0` disables); the
+turn keeps running. `run --retries N` retries only agent-internal errors that produced nothing.
+
+Agents spawned by acpmux get `ACPMUX_ENV=1`, `ACPMUX_SESSION_ID`, `ACPMUX_SESSION_NAME` and
+`ACPMUX_SOCKET`, and `@` names that session (`acpmux last @`), so an agent can drive its own
+session and siblings. The event log carries `turn_started` and `turn_result`
+(`completed|cancelled|failed`); a daemon that restarts mid-turn writes
+`turn_result failed outcome_unknown` so nobody replays a prompt that may have run. A
+`notify_command` in the config runs on a permission request and on a turn that ends
+unattended, with `ACPMUX_EVENT`, `ACPMUX_SESSION_NAME` and `ACPMUX_TEXT` set.
 
 ## TUI
 

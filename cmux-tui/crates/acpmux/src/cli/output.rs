@@ -51,7 +51,57 @@ pub(crate) fn age(ms: u64) -> String {
 }
 
 /// Send a prompt and print the reply as it streams.
-pub(crate) async fn stream_prompt(client: Arc<Client>, id: &str, text: &str, steer: bool, quiet: bool, json_out: bool) -> Result<()> {
+/// How a turn handles permissions when nobody is there to answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OnPermission {
+    Wait,
+    Deny,
+    Fail,
+}
+
+impl OnPermission {
+    pub(crate) fn parse(s: &str) -> Result<Self> {
+        match s {
+            "wait" => Ok(Self::Wait),
+            "deny" => Ok(Self::Deny),
+            "fail" => Ok(Self::Fail),
+            other => Err(crate::cli::errors::AppError::usage(format!("--on-permission must be wait, deny or fail, got {other:?}")).into()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct CollectOpts {
+    pub timeout: Option<u64>,
+    pub on_permission: OnPermission,
+    /// Seconds without any update after the prompt before `prompt_stalled`; 0 disables.
+    pub stall_secs: u64,
+    pub retries: u32,
+}
+
+pub(crate) struct CollectResult {
+    pub reply: String,
+    pub stop_reason: String,
+    pub permissions_asked: u64,
+    pub permissions_denied: u64,
+}
+
+/// Answer a pending permission on the caller's behalf when the run policy
+/// says so. Returns true when the turn should be treated as failed.
+async fn auto_answer(client: &Arc<Client>, id: &str, p: &Value, mode: OnPermission) -> bool {
+    let pid = p.get("permissionId").and_then(Value::as_str).unwrap_or("");
+    let options = p.pointer("/request/options").and_then(Value::as_array).cloned().unwrap_or_default();
+    let reject = options.iter().find(|o| o.get("kind").and_then(Value::as_str).map(|k| k.starts_with("reject")).unwrap_or(false)).and_then(|o| o.get("optionId").and_then(Value::as_str)).map(str::to_owned);
+    match mode {
+        OnPermission::Wait => false,
+        OnPermission::Deny | OnPermission::Fail => {
+            let _ = client.request(method::MUX_PERMISSION_RESPOND, json!({"sessionId": id, "permissionId": pid, "optionId": reject})).await;
+            mode == OnPermission::Fail
+        }
+    }
+}
+
+pub(crate) async fn stream_prompt(client: Arc<Client>, id: &str, text: &str, steer: bool, quiet: bool, json_out: bool, opts: CollectOpts, suppress_reads: bool) -> Result<()> {
     let mut notes = client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
     client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await?;
     let c = client.clone();
@@ -69,15 +119,59 @@ pub(crate) async fn stream_prompt(client: Arc<Client>, id: &str, text: &str, ste
     let mut last_tool = String::new();
     let stdout = std::io::stdout();
     let mut turn = turn;
+    let started = tokio::time::Instant::now();
+    let deadline = opts.timeout.map(|s| started + std::time::Duration::from_secs(s));
+    let mut activity = false;
+    let mut asked = 0u64;
+    let mut denied = 0u64;
+    let mut fail_permission = false;
     let result = loop {
+        let stall_at = if opts.stall_secs > 0 && !activity { Some(started + std::time::Duration::from_secs(opts.stall_secs)) } else { None };
+        let next_tick = match (deadline, stall_at) {
+            (Some(d), Some(s)) => Some(d.min(s)),
+            (Some(d), None) => Some(d),
+            (None, Some(s)) => Some(s),
+            (None, None) => None,
+        };
+        let tick = async {
+            match next_tick {
+                Some(t) => tokio::time::sleep_until(t).await,
+                None => std::future::pending::<()>().await,
+            }
+        };
         tokio::select! {
             r = &mut turn => break r?,
+            _ = tick => {
+                if let Some(d) = deadline {
+                    if tokio::time::Instant::now() >= d {
+                        let _ = client.notify(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+                        let _ = tokio::time::timeout(std::time::Duration::from_millis(2500), &mut turn).await;
+                        return Err(crate::cli::errors::AppError::timeout(format!("turn cancelled after {}s", opts.timeout.unwrap_or(0))).with_session(id).into());
+                    }
+                }
+                if !activity {
+                    return Err(crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "prompt_stalled", format!("no update from the agent within {}s of sending; the turn keeps running (acpmux last {id} to check)", opts.stall_secs)).with_session(id).into());
+                }
+            }
             n = notes.recv() => {
                 let Some(m) = n else { return Err(anyhow!("daemon connection closed")) };
                 let Message::Notification { method: m, params } = m else { continue };
                 let p = params.unwrap_or(Value::Null);
                 if p.get("sessionId").and_then(Value::as_str) != Some(id) { continue; }
+                activity = true;
+                if m == method::MUX_PERMISSION_PENDING {
+                    asked += 1;
+                    if opts.on_permission != OnPermission::Wait {
+                        denied += 1;
+                        if auto_answer(&client, id, &p, opts.on_permission).await {
+                            fail_permission = true;
+                            let _ = client.notify(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+                        }
+                        continue;
+                    }
+                }
                 if json_out {
+                    let p = if m == method::MUX_EVENT { crate::cli::orchestrate::sanitize(p, suppress_reads) } else { p };
                     println!("{}", json!({"method": m, "params": p}));
                     continue;
                 }
@@ -112,6 +206,9 @@ pub(crate) async fn stream_prompt(client: Arc<Client>, id: &str, text: &str, ste
             }
         }
     };
+    if fail_permission || (asked > 0 && denied == asked && opts.on_permission == OnPermission::Deny) {
+        return Err(crate::cli::errors::AppError::new(crate::cli::errors::Code::PermissionDenied, "all_denied", format!("every permission in the turn was denied ({denied}/{asked})")).with_session(id).into());
+    }
     match result {
         Ok(v) => {
             if quiet {
@@ -213,8 +310,31 @@ pub(crate) fn print_item(item: &Item) {
     }
 }
 
-/// Send a prompt and return (last reply text, stop reason) without printing.
-pub(crate) async fn collect_reply(client: Arc<Client>, id: &str, text: &str) -> Result<(String, String)> {
+/// Send a prompt and return the reply without printing. Honors the timeout
+/// (cooperative cancel, exit 3), the permission policy (deny answers
+/// reject; fail also ends the turn, exit 5), stall detection, and retries:
+/// a turn is retried only on an agent-internal error and only if nothing
+/// was produced, with backoff capped at 10 s.
+pub(crate) async fn collect_reply(client: Arc<Client>, id: &str, text: &str, opts: CollectOpts) -> Result<CollectResult> {
+    let mut attempt = 0u32;
+    loop {
+        match collect_once(client.clone(), id, text, opts).await {
+            Ok(r) => return Ok(r),
+            Err(e) => {
+                let retryable = e.downcast_ref::<crate::cli::errors::AppError>().map(|a| a.retryable).unwrap_or(false);
+                if !retryable || attempt >= opts.retries {
+                    return Err(e);
+                }
+                attempt += 1;
+                let backoff = std::time::Duration::from_millis((1000u64 * 2u64.pow(attempt.min(4))).min(10_000));
+                eprintln!("acpmux: agent error, retry {attempt}/{} in {:?}", opts.retries, backoff);
+                tokio::time::sleep(backoff).await;
+            }
+        }
+    }
+}
+
+async fn collect_once(client: Arc<Client>, id: &str, text: &str, opts: CollectOpts) -> Result<CollectResult> {
     let mut notes = client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
     client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await?;
     let c = client.clone();
@@ -222,30 +342,87 @@ pub(crate) async fn collect_reply(client: Arc<Client>, id: &str, text: &str) -> 
     let text2 = text.to_owned();
     let mut turn = tokio::spawn(async move { c.request(method::SESSION_PROMPT, json!({"sessionId": id2, "prompt": [{"type": "text", "text": text2}]})).await });
     let mut t = Transcript::default();
+    let started = tokio::time::Instant::now();
+    let deadline = opts.timeout.map(|s| started + std::time::Duration::from_secs(s));
+    let mut activity = false;
+    let mut produced = false;
+    let mut asked = 0u64;
+    let mut denied = 0u64;
+    let mut fail_permission = false;
     let result = loop {
+        let stall_at = if opts.stall_secs > 0 && !activity { Some(started + std::time::Duration::from_secs(opts.stall_secs)) } else { None };
+        let next_tick = [deadline, stall_at].into_iter().flatten().min();
+        let tick = async {
+            match next_tick {
+                Some(t) => tokio::time::sleep_until(t).await,
+                None => std::future::pending::<()>().await,
+            }
+        };
         tokio::select! {
             r = &mut turn => break r?,
+            _ = tick => {
+                if let Some(d) = deadline {
+                    if tokio::time::Instant::now() >= d {
+                        let _ = client.notify(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+                        let _ = tokio::time::timeout(std::time::Duration::from_millis(2500), &mut turn).await;
+                        return Err(crate::cli::errors::AppError::timeout(format!("turn cancelled after {}s", opts.timeout.unwrap_or(0))).with_session(id).into());
+                    }
+                }
+                if !activity {
+                    return Err(crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "prompt_stalled", format!("no update from the agent within {}s of sending; the turn keeps running (acpmux last {id} to check)", opts.stall_secs)).with_session(id).into());
+                }
+            }
             n = notes.recv() => {
                 let Some(m) = n else { return Err(anyhow!("daemon connection closed")) };
                 let Message::Notification { method: m, params } = m else { continue };
                 let p = params.unwrap_or(Value::Null);
                 if p.get("sessionId").and_then(Value::as_str) != Some(id) { continue; }
+                activity = true;
                 match m.as_str() {
-                    method::SESSION_UPDATE => t.apply_update(&p),
+                    method::SESSION_UPDATE => { produced = true; t.apply_update(&p) }
                     method::MUX_EVENT => t.apply_event(&p),
                     method::MUX_PERMISSION_PENDING => {
-                        let title = p.pointer("/request/toolCall/title").and_then(Value::as_str).unwrap_or("permission");
-                        eprintln!("permission needed: {title}  (acpmux session allow {id} | acpmux session deny {id})");
+                        asked += 1;
+                        produced = true;
+                        match opts.on_permission {
+                            OnPermission::Wait => {
+                                let title = p.pointer("/request/toolCall/title").and_then(Value::as_str).unwrap_or("permission");
+                                eprintln!("permission needed: {title}  (acpmux session allow {id} | acpmux session deny {id})");
+                            }
+                            mode => {
+                                denied += 1;
+                                if auto_answer(&client, id, &p, mode).await {
+                                    fail_permission = true;
+                                    let _ = client.notify(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+                                }
+                            }
+                        }
                     }
                     _ => {}
                 }
             }
         }
     };
+    if fail_permission || (asked > 0 && denied == asked && opts.on_permission == OnPermission::Deny) {
+        return Err(crate::cli::errors::AppError::new(crate::cli::errors::Code::PermissionDenied, "all_denied", format!("every permission in the turn was denied ({denied}/{asked})")).with_session(id).into());
+    }
+    let result = match result {
+        Ok(v) => v,
+        Err(e) => {
+            // ACP internal (-32603) or parse (-32700) errors with nothing
+            // produced are the only retryable failures.
+            let msg = e.to_string();
+            let retryable = !produced && (msg.contains("-32603") || msg.contains("-32700") || msg.to_lowercase().contains("internal error"));
+            let mut app = crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "agent_error", msg).with_session(id);
+            if retryable {
+                app = app.retryable();
+            }
+            return Err(app.into());
+        }
+    };
     let reply = t.items.iter().rev().find_map(|i| match i { Item::Assistant { text } => Some(text.clone()), _ => None }).unwrap_or_default();
-    let result = result?;
-    let stop = result.get("stopReason").and_then(Value::as_str).unwrap_or("end_turn").to_owned();
-    Ok((reply, stop))
+    let stop_reason = result.get("stopReason").and_then(Value::as_str).unwrap_or("end_turn").to_owned();
+    Ok(CollectResult { reply, stop_reason, permissions_asked: asked, permissions_denied: denied })
 }
 
 /// The last `count` assistant replies of a session, oldest first.
@@ -258,45 +435,4 @@ pub(crate) async fn last_replies(client: &Arc<Client>, id: &str, count: usize) -
     let mut out: Vec<String> = t.items.iter().rev().filter_map(|i| match i { Item::Assistant { text } => Some(text.clone()), _ => None }).take(count.max(1)).collect();
     out.reverse();
     Ok(out)
-}
-
-/// Wait until each target session is no longer running, or needs a
-/// permission answer. Returns (name, id, status, pending) per session.
-pub(crate) async fn wait_sessions(client: Arc<Client>, targets: &[(String, String)], timeout: Option<u64>, any: bool) -> Result<Vec<(String, String, String, u64)>> {
-    let mut notes = client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
-    client.request(method::MUX_WATCH, json!({"enabled": true})).await?;
-    let deadline = timeout.map(|s| tokio::time::Instant::now() + std::time::Duration::from_secs(s));
-    let snapshot = |client: Arc<Client>| async move {
-        let v = client.request(method::MUX_SESSIONS, json!({})).await?;
-        Ok::<Vec<Value>, anyhow::Error>(v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default())
-    };
-    loop {
-        let sessions = snapshot(client.clone()).await?;
-        let mut states = Vec::new();
-        for (name, id) in targets {
-            let s = sessions.iter().find(|s| s.get("sessionId").and_then(Value::as_str) == Some(id));
-            let status = s.and_then(|s| s.get("status").and_then(Value::as_str)).unwrap_or("closed").to_owned();
-            let pending = s.and_then(|s| s.get("pendingPermissions").and_then(Value::as_u64)).unwrap_or(0);
-            states.push((name.clone(), id.clone(), status, pending));
-        }
-        let done = |st: &(String, String, String, u64)| st.2 != "running" || st.3 > 0;
-        let finished = if any { states.iter().any(done) } else { states.iter().all(done) };
-        if finished || targets.is_empty() {
-            return Ok(states);
-        }
-        // Sleep until something changes, or a bounded poll interval passes.
-        let poll = tokio::time::sleep(std::time::Duration::from_millis(1500));
-        tokio::pin!(poll);
-        tokio::select! {
-            _ = &mut poll => {}
-            n = notes.recv() => {
-                if n.is_none() { return Err(anyhow!("daemon connection closed")); }
-            }
-        }
-        if let Some(d) = deadline {
-            if tokio::time::Instant::now() >= d {
-                return Ok(states);
-            }
-        }
-    }
 }

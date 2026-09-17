@@ -1,5 +1,8 @@
 # Orchestration to-do
 
+Status 2026-09-17: every item below is implemented and tested (`cargo test`,
+plus live runs against Claude and pi sessions). Kept as the design record.
+
 What acpmux should add so agents can drive other agents through it. Drawn
 from reading acpx (66208a7) and herdr (14351f1) source, kept to what fits a
 daemon that sees every ACP message, not a terminal emulator that scrapes

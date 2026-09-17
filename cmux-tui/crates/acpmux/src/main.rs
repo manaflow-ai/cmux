@@ -12,6 +12,9 @@ struct Cli {
     /// Print raw JSON instead of text.
     #[arg(long, global = true)]
     json: bool,
+    /// Blank read-tool payloads in event output, keeping the message shape.
+    #[arg(long, global = true)]
+    suppress_reads: bool,
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -20,7 +23,7 @@ struct Cli {
 enum Command {
     /// Create a session and optionally send a first prompt. `run` is the
     /// same with --quiet: it prints only the final reply.
-    #[command(alias = "new-session", alias = "run")]
+    #[command(alias = "new-session", alias = "run", alias = "exec")]
     New(NewArgs),
     /// Block until a session resolves: its turn ends or it needs a permission
     /// answer. Returns on the first one unless --all. Exit 0 when a turn
@@ -40,7 +43,55 @@ enum Command {
         /// Also print each finished session's last reply.
         #[arg(long, short)]
         print: bool,
+        /// States to wait for: ready, permission, closed, done, running. Default: ready or permission.
+        #[arg(long = "until", value_delimiter = ',')]
+        until: Vec<String>,
+        /// Resolve when the transcript contains this text.
+        #[arg(long = "match", conflicts_with = "regex")]
+        match_text: Option<String>,
+        /// Resolve when a transcript line matches this regular expression.
+        #[arg(long)]
+        regex: Option<String>,
+        /// Send a terminal notification (OSC 9/99) when it resolves.
+        #[arg(long)]
+        notify: bool,
     },
+    /// Get a session by name, or create it: idempotent for scripts.
+    Ensure {
+        name: String,
+        #[arg(long, short)]
+        agent: Option<String>,
+        #[arg(long)]
+        cwd: Option<PathBuf>,
+        #[arg(long)]
+        policy: Option<String>,
+        #[arg(long, short)]
+        model: Option<String>,
+        #[arg(long, short)]
+        effort: Option<String>,
+    },
+    /// One turn per turn: prompt preview, status, tools, tokens, wall time.
+    History {
+        session: String,
+        #[arg(long, short = 'n', default_value_t = 20)]
+        limit: usize,
+    },
+    /// Run one prompt on several harnesses, one after another, and compare.
+    Compare {
+        /// Agent profile names: -a claude -a codex …
+        #[arg(long = "agent", short = 'a', required = true)]
+        agents: Vec<String>,
+        /// The prompt.
+        prompt: Vec<String>,
+        #[arg(long)]
+        cwd: Option<PathBuf>,
+        #[arg(long)]
+        policy: Option<String>,
+        #[arg(long)]
+        timeout: Option<u64>,
+    },
+    /// Print the agent skill: how an agent drives acpmux.
+    Skill,
     /// Print the last reply of a session (plain text).
     #[command(alias = "reply")]
     Last {
@@ -66,6 +117,15 @@ enum Command {
         /// Do not stream; print only the final assistant text.
         #[arg(long, short)]
         quiet: bool,
+        /// Cancel the turn cooperatively after this many seconds and exit 3.
+        #[arg(long)]
+        timeout: Option<u64>,
+        /// What to do when the turn asks for a permission: wait (default), deny, or fail (exit 5).
+        #[arg(long, default_value = "wait")]
+        on_permission: String,
+        /// Report prompt_stalled (exit 1) when nothing happens for this many seconds after sending; 0 disables.
+        #[arg(long, default_value_t = 30)]
+        stall: u64,
     },
     /// List sessions on every host.
     #[command(alias = "list", alias = "list-sessions")]
@@ -76,6 +136,9 @@ enum Command {
         /// Only sessions with a pending permission request.
         #[arg(long)]
         pending: bool,
+        /// Only sessions carrying this tag (key or key=value).
+        #[arg(long)]
+        tag: Option<String>,
     },
     /// Open the TUI on a session, or on the session list.
     #[command(alias = "a")]
@@ -102,7 +165,13 @@ enum Command {
     Daemon(DaemonCmd),
     // Old spellings, kept working but hidden from help.
     #[command(hide = true)]
-    Tail { session: String, #[arg(long, default_value_t = 50)] last: u64, #[arg(long, short)] follow: bool },
+    Tail { session: String, #[arg(long, default_value_t = 50)] last: u64, #[arg(long, short)] follow: bool, #[arg(long)] since: Option<String> },
+    #[command(hide = true)]
+    TagCmd { session: String, assignments: Vec<String>, remove: Vec<String>, ttl: Option<u64> },
+    #[command(hide = true)]
+    RulesCmd { session: String, rules: Option<String>, clear: bool },
+    #[command(hide = true)]
+    Schema,
     #[command(hide = true)]
     Info { session: String },
     #[command(hide = true)]
@@ -175,7 +244,38 @@ enum SessionCmd {
     /// Import a session bundle directory.
     Import { path: PathBuf, #[arg(long, short)] name: Option<String> },
     /// Print the last raw events as JSON lines; -f keeps following.
-    Tail { session: String, #[arg(long, default_value_t = 50)] last: u64, #[arg(long, short)] follow: bool },
+    Tail {
+        session: String,
+        #[arg(long, default_value_t = 50)]
+        last: u64,
+        #[arg(long, short)]
+        follow: bool,
+        /// Start after this cursor (`<sessionId>:<seq>` or a seq). A cursor past the log is an error.
+        #[arg(long)]
+        since: Option<String>,
+    },
+    /// Label a session: key=value pairs, `--remove key`, `--ttl seconds`.
+    Tag {
+        session: String,
+        assignments: Vec<String>,
+        #[arg(long)]
+        remove: Vec<String>,
+        #[arg(long)]
+        ttl: Option<u64>,
+    },
+    /// Per-tool permission rules above the policy: a JSON object, `@file`, or `--clear`; omit to show.
+    Rules {
+        session: String,
+        rules: Option<String>,
+        #[arg(long)]
+        clear: bool,
+    },
+    /// One line per turn.
+    History {
+        session: String,
+        #[arg(long, short = 'n', default_value_t = 20)]
+        limit: usize,
+    },
 }
 
 #[derive(Subcommand)]
@@ -204,6 +304,8 @@ enum DaemonCmd {
     Config,
     /// Show configured agents.
     Agents,
+    /// Print the RPC schema (methods, notifications, types, exit codes) as JSON.
+    Schema,
 }
 
 #[derive(Subcommand)]
@@ -250,6 +352,21 @@ struct NewArgs {
     /// With a prompt: print only the final reply (implied by `acpmux run`).
     #[arg(long, short)]
     quiet: bool,
+    /// Delete the session after the reply (implied by `acpmux exec`).
+    #[arg(long)]
+    ephemeral: bool,
+    /// Cancel the turn cooperatively after this many seconds and exit 3.
+    #[arg(long)]
+    timeout: Option<u64>,
+    /// When the turn asks for a permission: wait (default), deny, or fail (exit 5).
+    #[arg(long, default_value = "wait")]
+    on_permission: String,
+    /// Retry the turn on an agent-internal error, only when it produced nothing yet.
+    #[arg(long, default_value_t = 0)]
+    retries: u32,
+    /// Report prompt_stalled (exit 1) when nothing happens for this many seconds; 0 disables.
+    #[arg(long, default_value_t = 30)]
+    stall: u64,
 }
 
 #[tokio::main]
@@ -259,12 +376,16 @@ async fn main() -> Result<()> {
     if argv.len() == 2 && argv[1] == "daemon" {
         argv.push("run".into());
     }
-    let run_alias = argv.get(1).map(|a| a == "run").unwrap_or(false);
+    let run_alias = argv.get(1).map(|a| a == "run" || a == "exec").unwrap_or(false);
+    let exec_alias = argv.get(1).map(|a| a == "exec").unwrap_or(false);
     let cli = Cli::parse_from(argv);
     let command = cli.command.map(flatten).map(|c| match c {
         Command::New(mut a) if run_alias => {
             a.quiet = true;
             a.detach = true;
+            if exec_alias {
+                a.ephemeral = true;
+            }
             Command::New(a)
         }
         other => other,
@@ -281,7 +402,18 @@ async fn main() -> Result<()> {
                 .init();
             acpmux::daemon::run(DaemonOptions { ws_listen: listen, ws_token: token, memory }).await
         }
-        Some(cmd) => run_client(cmd, cli.json).await,
+        Some(Command::Skill) => {
+            use std::io::Write;
+            let _ = std::io::stdout().write_all(cli::orchestrate::SKILL.as_bytes());
+            Ok(())
+        }
+        Some(cmd) => {
+            let json_out = cli.json;
+            match run_client(cmd, json_out, cli.suppress_reads).await {
+                Ok(()) => Ok(()),
+                Err(e) => cli::errors::exit_with(&e, json_out),
+            }
+        }
     }
 }
 
@@ -299,7 +431,10 @@ fn flatten(c: Command) -> Command {
             SessionCmd::Deny { session } => Command::Deny { session },
             SessionCmd::Export { session, dest } => Command::Export { session, dest },
             SessionCmd::Import { path, name } => Command::Import { path, name },
-            SessionCmd::Tail { session, last, follow } => Command::Tail { session, last, follow },
+            SessionCmd::Tail { session, last, follow, since } => Command::Tail { session, last, follow, since },
+            SessionCmd::Tag { session, assignments, remove, ttl } => Command::TagCmd { session, assignments, remove, ttl },
+            SessionCmd::Rules { session, rules, clear } => Command::RulesCmd { session, rules, clear },
+            SessionCmd::History { session, limit } => Command::History { session, limit },
         },
         Command::Daemon(dc) => match dc {
             DaemonCmd::Run { listen, token, memory, log } => Command::DaemonRun { listen, token, memory, log },
@@ -307,6 +442,7 @@ fn flatten(c: Command) -> Command {
             DaemonCmd::Shutdown => Command::Shutdown,
             DaemonCmd::Config => Command::Config,
             DaemonCmd::Agents => Command::Agents,
+            DaemonCmd::Schema => Command::Schema,
         },
         Command::Host(pc) => Command::Peer(pc),
         other => other,

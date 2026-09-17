@@ -20,6 +20,8 @@ impl App {
                     if level > 0 && self.selected_id().as_deref() != Some(&id) {
                         let e = self.attention.entry(id.clone()).or_insert(0);
                         *e = (*e).max(level);
+                        let who = self.sessions.iter().find(|s| s.get("sessionId").and_then(Value::as_str) == Some(&id)).and_then(|s| s.get("name").and_then(Value::as_str)).unwrap_or("session").to_owned();
+                        super::notify::send("acpmux", &if level == 3 { format!("{who} failed") } else { format!("{who} finished") });
                     }
                     self.transcripts.entry(id).or_default().apply_event(&p);
                 }
@@ -43,6 +45,7 @@ impl App {
                     .and_then(|s| s.get("name").and_then(Value::as_str))
                     .unwrap_or("?");
                 self.status = format!("permission needed in {who}: {title}  (y / n / 1-9)");
+                super::notify::send("acpmux", &format!("{who} needs a permission: {title}"));
                 if let Some(id) = sid.clone() {
                     if self.selected_id().as_deref() != Some(&id) {
                         let e = self.attention.entry(id).or_insert(0);

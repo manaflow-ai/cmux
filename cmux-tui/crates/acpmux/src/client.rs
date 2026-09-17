@@ -17,6 +17,8 @@ pub struct Client {
     next_id: AtomicI64,
     pending: Arc<Mutex<HashMap<String, oneshot::Sender<Result<Value, RpcError>>>>>,
     notifications: Mutex<Option<mpsc::Receiver<Message>>>,
+    notif_tx: Arc<Mutex<mpsc::Sender<Message>>>,
+    closed: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Client {
@@ -27,6 +29,8 @@ impl Client {
         let (rd, mut wr) = stream.into_split();
         let (out, mut out_rx) = mpsc::channel::<String>(1024);
         let (notif_tx, notif_rx) = mpsc::channel::<Message>(4096);
+        let notif_tx = Arc::new(Mutex::new(notif_tx));
+        let closed = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let pending: Arc<Mutex<HashMap<String, oneshot::Sender<Result<Value, RpcError>>>>> =
             Arc::new(Mutex::new(HashMap::new()));
         tokio::spawn(async move {
@@ -38,6 +42,8 @@ impl Client {
         });
         {
             let pending = pending.clone();
+            let notif_tx = notif_tx.clone();
+            let closed = closed.clone();
             tokio::spawn(async move {
                 let mut lines = BufReader::new(rd).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
@@ -52,12 +58,15 @@ impl Client {
                             }
                         }
                         other => {
-                            if notif_tx.send(other).await.is_err() {
-                                break;
-                            }
+                            // Whoever holds the current receiver gets it; a
+                            // dropped receiver just loses notifications and
+                            // never kills the connection.
+                            let tx = notif_tx.lock().await.clone();
+                            let _ = tx.send(other).await;
                         }
                     }
                 }
+                closed.store(true, Ordering::SeqCst);
                 let mut p = pending.lock().await;
                 for (_, tx) in p.drain() {
                     let _ = tx.send(Err(RpcError::internal("daemon connection closed")));
@@ -69,6 +78,8 @@ impl Client {
             next_id: AtomicI64::new(1),
             pending,
             notifications: Mutex::new(Some(notif_rx)),
+            notif_tx,
+            closed,
         });
         client
             .request(
@@ -79,12 +90,22 @@ impl Client {
         Ok(client)
     }
 
-    /// Take the notification stream. Only one taker.
+    /// Take the notification stream. The first call gets the original
+    /// receiver; later calls get a fresh one and the previous holder stops
+    /// receiving, so one command can stream several turns in sequence.
     pub async fn notifications(&self) -> Option<mpsc::Receiver<Message>> {
-        self.notifications.lock().await.take()
+        if let Some(rx) = self.notifications.lock().await.take() {
+            return Some(rx);
+        }
+        let (tx, rx) = mpsc::channel::<Message>(4096);
+        *self.notif_tx.lock().await = tx;
+        Some(rx)
     }
 
     pub async fn request(&self, m: &str, params: Value) -> Result<Value> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(anyhow!("daemon connection closed"));
+        }
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
         self.pending.lock().await.insert(Value::from(id).to_string(), tx);

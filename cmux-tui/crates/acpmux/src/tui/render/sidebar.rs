@@ -140,12 +140,15 @@ pub(super) fn draw_sidebar(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
         }
         let name_w = content_w.saturating_sub((name_x - area.x) as usize + 1);
         buf.set_stringn(name_x, y, &truncate(name, name_w), name_w, row_style);
+        let tags: Vec<String> = s.get("tags").and_then(Value::as_object).map(|m| m.iter().map(|(k, v)| format!("{k}={}", v.as_str().unwrap_or(""))).collect()).unwrap_or_default();
         let sub_text = s
             .get("lastPrompt")
             .and_then(Value::as_str)
             .filter(|t| !t.is_empty())
             .map(|t| format!("{agent} · {t}"))
             .unwrap_or_else(|| format!("{agent} · {status}"));
+        // Orchestrator tags lead the subtitle so a labelled session stands out.
+        let sub_text = if tags.is_empty() { sub_text } else { format!("[{}] {sub_text}", tags.join(" ")) };
 
         let sub_style = if is_sel { Style::default().bg(c.sidebar_selected_bg).fg(c.sidebar_dim_fg) } else { c.dim() };
         buf.set_stringn(area.x + 3, y + 1, &truncate(&sub_text, content_w.saturating_sub(4)), content_w.saturating_sub(4), sub_style);
