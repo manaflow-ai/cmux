@@ -463,6 +463,7 @@ final class PhonePushClient {
         guard let url = components.url else { return }
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
+        request.timeoutInterval = 10
         request.setValue("Bearer \(snapshot.accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue(snapshot.refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
         request.setValue(targetBundleIdentifier, forHTTPHeaderField: "X-Cmux-App-Namespace")
@@ -484,12 +485,11 @@ final class PhonePushClient {
         }
         recipientRefreshTask = Task { [weak self] in
             guard let self else { return }
+            defer { self.recipientRefreshTask = nil }
             guard let auth = self.auth else {
-                self.recipientRefreshTask = nil
                 return
             }
             await self.refreshPushRecipients(auth: auth)
-            self.recipientRefreshTask = nil
         }
     }
 
