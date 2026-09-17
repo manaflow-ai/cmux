@@ -27,6 +27,12 @@ class ObserveTests(unittest.TestCase):
         self.assertTrue(value['scrape_ok'])
         self.assertNotIn('secret', json.dumps(value))
         self.assertLess(len(json.dumps(value)), 4096)
+        self.assertEqual(value['cmux_v3_feed_healthy'], -1.0)
+        optional_body = body + '\ncmux_v3_feed_healthy 1\ncmux_v3_feed_sequence 7\ncmux_v3_feed_failures_total 0\n'
+        optional = snapshot.snapshot(lambda path: optional_body if path == 'metrics' else health)
+        self.assertTrue(optional['scrape_ok'])
+        self.assertEqual(optional['cmux_v3_feed_healthy'], 1.0)
+        self.assertEqual(optional['cmux_v3_feed_sequence'], 7.0)
 
     def test_missing_invalid_or_failed_scrape_still_emits_failure(self):
         for body in ['cmux_v3_ready 1', 'cmux_v3_circuits NaN', 'cmux_v3_ready -1']:

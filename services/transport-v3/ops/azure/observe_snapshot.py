@@ -42,7 +42,7 @@ def parse_metrics(body):
     result = {}
     for line in body.splitlines():
         parts = line.split()
-        if len(parts) != 2 or parts[0] not in METRICS:
+        if len(parts) != 2 or parts[0] not in METRICS | OPTIONAL_METRICS:
             continue
         value = float(parts[1])
         if not math.isfinite(value) or value < 0 or parts[0] in result:
