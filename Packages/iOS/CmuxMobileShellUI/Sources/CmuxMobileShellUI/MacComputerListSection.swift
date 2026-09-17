@@ -33,8 +33,6 @@ extension MobileConnectionMethod {
     /// User-facing name of the connection method ("Iroh"/"Tailscale"/"Direct").
     var mobileConnectionMethodName: String {
         switch self {
-        case .v3:
-            L10n.string("mobile.transport.v3", defaultValue: "libp2p v3")
         case .automatic:
             L10n.string("mobile.connections.method.iroh", defaultValue: "Iroh")
         case .tailscale:
@@ -62,6 +60,8 @@ extension CmxAttachTransportKind {
         switch self {
         case .iroh:
             L10n.string("mobile.connections.method.iroh", defaultValue: "Iroh")
+        case .v3:
+            L10n.string("mobile.transport.v3", defaultValue: "libp2p v3")
         case .tailscale:
             L10n.string("mobile.connections.method.tailscale", defaultValue: "Tailscale")
         case .websocket:
