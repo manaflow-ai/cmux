@@ -9,7 +9,7 @@
 //! datagram, a command, a stream write, the WireGuard timer tick, or the
 //! deadline smoltcp asks for.
 
-use std::collections::{VecDeque, hash_map::RandomState};
+use std::collections::{HashSet, VecDeque, hash_map::RandomState};
 use std::fmt;
 use std::hash::{BuildHasher, Hasher};
 use std::io;
@@ -90,6 +90,10 @@ pub enum WgError {
     NoTunnelAddress(IpAddr),
     /// The remote answered the SYN with a reset, or never answered.
     ConnectionRefused(SocketAddr),
+    /// The destination is outside the peer's configured `AllowedIPs`.
+    RouteNotAllowed(IpAddr),
+    /// No ephemeral TCP source port is available.
+    EphemeralPortsExhausted,
     /// A listener already owns the port.
     ListenerBusy(u16),
     /// The tunnel has been shut down.
@@ -112,6 +116,12 @@ impl fmt::Display for WgError {
                 write!(formatter, "no tunnel address in the same family as {remote}")
             }
             Self::ConnectionRefused(remote) => write!(formatter, "{remote} refused the connection"),
+            Self::RouteNotAllowed(remote) => {
+                write!(formatter, "destination {remote} is outside the tunnel routes")
+            }
+            Self::EphemeralPortsExhausted => {
+                formatter.write_str("no ephemeral TCP port is available")
+            }
             Self::ListenerBusy(port) => write!(formatter, "port {port} already has a listener"),
             Self::Shutdown => formatter.write_str("the tunnel is shut down"),
             Self::HandshakeTimeout(timeout) => {
@@ -442,6 +452,8 @@ enum Handoff {
 struct Conn {
     handle: SocketHandle,
     remote: SocketAddr,
+    /// Reserved ephemeral source port; accepted sockets use their listener port.
+    local_port: Option<u16>,
     /// The stream waiting to be handed to its owner once the socket is
     /// established. Taken on delivery.
     pending_stream: Option<(Handoff, WgStream)>,
@@ -461,6 +473,49 @@ struct Listener {
     accept: mpsc::Sender<WgStream>,
 }
 
+struct PortAllocator {
+    next_port: u16,
+    reserved: HashSet<u16>,
+}
+
+impl PortAllocator {
+    fn new() -> Self {
+        Self::with_next_port(random_ephemeral_port())
+    }
+
+    fn with_next_port(next_port: u16) -> Self {
+        Self { next_port, reserved: HashSet::new() }
+    }
+
+    #[cfg(test)]
+    fn set_next_port(&mut self, next_port: u16) {
+        self.next_port = next_port;
+    }
+
+    fn allocate(&mut self) -> Option<u16> {
+        self.allocate_with_probe_count().map(|(port, _)| port)
+    }
+
+    fn allocate_with_probe_count(&mut self) -> Option<(u16, usize)> {
+        for examined in 1..=usize::from(EPHEMERAL_PORT_COUNT) {
+            let port = self.next_port;
+            self.next_port = if self.next_port >= u16::MAX - 1 {
+                FIRST_EPHEMERAL_PORT
+            } else {
+                self.next_port + 1
+            };
+            if self.reserved.insert(port) {
+                return Some((port, examined));
+            }
+        }
+        None
+    }
+
+    fn release(&mut self, port: u16) {
+        self.reserved.remove(&port);
+    }
+}
+
 struct Driver {
     config: WgConfig,
     tunn: Tunn,
@@ -474,7 +529,7 @@ struct Driver {
     commands: mpsc::Receiver<Command>,
     wake: Arc<Notify>,
     epoch: std::time::Instant,
-    next_port: u16,
+    ports: PortAllocator,
     scratch: Vec<u8>,
     pending_udp: VecDeque<(Vec<u8>, SocketAddr)>,
 }
@@ -552,7 +607,7 @@ impl Driver {
             commands,
             wake,
             epoch,
-            next_port: random_ephemeral_port(),
+            ports: PortAllocator::new(),
             scratch: vec![0u8; BUFFER_BYTES + 32],
             pending_udp: VecDeque::new(),
         })
@@ -742,6 +797,11 @@ impl Driver {
         let now = self.now();
         self.iface.poll(now, &mut self.device, &mut self.sockets);
         self.flush_tx();
+        for conn in &self.conns {
+            if let Some(port) = conn.local_port {
+                self.ports.release(port);
+            }
+        }
         self.conns.clear();
         self.listeners.clear();
     }
@@ -759,25 +819,8 @@ impl Driver {
         }
     }
 
-    fn allocate_port(&mut self) -> u16 {
-        for _ in 0..EPHEMERAL_PORT_COUNT {
-            let port = self.next_port;
-            self.next_port = if self.next_port >= u16::MAX - 1 {
-                FIRST_EPHEMERAL_PORT
-            } else {
-                self.next_port + 1
-            };
-            let in_use = self.conns.iter().any(|conn| {
-                self.sockets
-                    .get::<tcp::Socket>(conn.handle)
-                    .local_endpoint()
-                    .is_some_and(|endpoint| endpoint.port == port)
-            });
-            if !in_use {
-                return port;
-            }
-        }
-        self.next_port
+    fn allocate_port(&mut self) -> Option<u16> {
+        self.ports.allocate()
     }
 
     fn new_socket() -> tcp::Socket<'static> {
@@ -801,11 +844,18 @@ impl Driver {
         if reply.is_closed() {
             return;
         }
+        if !self.config.routes_contain(remote.ip()) {
+            let _ = reply.send(Err(WgError::RouteNotAllowed(remote.ip())));
+            return;
+        }
         let Some(local_ip) = self.config.local_address_for(remote.ip()) else {
             let _ = reply.send(Err(WgError::NoTunnelAddress(remote.ip())));
             return;
         };
-        let port = self.allocate_port();
+        let Some(port) = self.allocate_port() else {
+            let _ = reply.send(Err(WgError::EphemeralPortsExhausted));
+            return;
+        };
         let local = SocketAddr::new(local_ip, port);
         let mut socket = Self::new_socket();
         let result = socket.connect(
@@ -814,11 +864,12 @@ impl Driver {
             IpListenEndpoint::from(IpEndpoint::new(ip_address(local.ip()), local.port())),
         );
         if let Err(error) = result {
+            self.ports.release(port);
             let _ = reply.send(Err(WgError::Stack(format!("{error}"))));
             return;
         }
         let handle = self.sockets.add(socket);
-        let (conn, stream) = self.bridge(handle, local, remote);
+        let (conn, stream) = self.bridge(handle, local, remote, Some(port));
         self.conns.push(Conn { pending_stream: Some((Handoff::Connect(reply), stream)), ..conn });
     }
 
@@ -850,6 +901,7 @@ impl Driver {
         handle: SocketHandle,
         local: SocketAddr,
         remote: SocketAddr,
+        local_port: Option<u16>,
     ) -> (Conn, WgStream) {
         let (inbound_tx, inbound_rx) = mpsc::channel(STREAM_CHANNEL_DEPTH);
         let (outbound_tx, outbound_rx) = mpsc::channel(STREAM_CHANNEL_DEPTH);
@@ -865,6 +917,7 @@ impl Driver {
         let conn = Conn {
             handle,
             remote,
+            local_port,
             pending_stream: None,
             inbound: Some(inbound_tx),
             outbound: outbound_rx,
@@ -903,7 +956,7 @@ impl Driver {
                         };
                         let accept = self.listeners[index].accept.clone();
                         let (conn, stream) =
-                            self.bridge(handle, socket_addr(local), socket_addr(remote));
+                            self.bridge(handle, socket_addr(local), socket_addr(remote), None);
                         self.conns.push(Conn {
                             pending_stream: Some((Handoff::Accept(accept), stream)),
                             ..conn
@@ -957,6 +1010,9 @@ impl Driver {
                     // The connect future was cancelled before the handshake
                     // completed. No stream owner remains to close this socket.
                     socket.abort();
+                    if let Some(port) = conn.local_port {
+                        self.ports.release(port);
+                    }
                     let handle = conn.handle;
                     self.sockets.remove(handle);
                     self.conns.swap_remove(index);
@@ -976,6 +1032,9 @@ impl Driver {
                 } else if !socket.is_open() {
                     if let Handoff::Connect(reply) = handoff {
                         let _ = reply.send(Err(WgError::ConnectionRefused(conn.remote)));
+                    }
+                    if let Some(port) = conn.local_port {
+                        self.ports.release(port);
                     }
                     let handle = conn.handle;
                     self.sockets.remove(handle);
@@ -1063,6 +1122,9 @@ impl Driver {
             }
 
             if !socket.is_open() && conn.pending_stream.is_none() {
+                if let Some(port) = conn.local_port {
+                    self.ports.release(port);
+                }
                 let handle = conn.handle;
                 self.sockets.remove(handle);
                 self.conns.swap_remove(index);
@@ -1108,6 +1170,39 @@ fn packet_source(packet: &[u8]) -> Option<IpAddr> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn ephemeral_port_allocator_stays_bounded_under_load() {
+        let mut allocator = PortAllocator::with_next_port(FIRST_EPHEMERAL_PORT);
+        let mut ports = HashSet::with_capacity(8_192);
+        let mut probes = 0;
+        for _ in 0..8_192 {
+            let (port, examined) = allocator.allocate_with_probe_count().expect("port available");
+            assert!(ports.insert(port), "allocator returned a duplicate port");
+            probes += examined;
+        }
+
+        // With an uncontended cursor, each allocation examines one candidate.
+        // This bound catches a regression to scanning every active connection.
+        assert!(
+            probes <= ports.len() * 2,
+            "allocator examined {probes} candidates for {} ports",
+            ports.len()
+        );
+
+        let occupied = FIRST_EPHEMERAL_PORT + 8_191;
+        assert!(ports.contains(&occupied));
+        allocator.set_next_port(occupied);
+        let (replacement, examined) =
+            allocator.allocate_with_probe_count().expect("port available");
+        assert_ne!(replacement, occupied);
+        assert_eq!(examined, 2);
+
+        let released = ports.iter().next().copied().expect("ports allocated");
+        allocator.release(released);
+        allocator.set_next_port(released);
+        assert_eq!(allocator.allocate(), Some(released));
+    }
+
     #[tokio::test]
     async fn cancelled_hub_dial_releases_the_pending_tcp_socket() {
         let pair = crate::testing::loopback_pair().await.unwrap();
@@ -1130,6 +1225,7 @@ mod tests {
 
         assert!(driver.conns.is_empty(), "a cancelled dial must not wait for TCP_TIMEOUT");
         assert_eq!(driver.sockets.iter().count(), 0);
+        assert!(driver.ports.reserved.is_empty(), "cancelled dial must release its port");
     }
 
     #[test]
