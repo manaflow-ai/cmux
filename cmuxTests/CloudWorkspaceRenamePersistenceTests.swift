@@ -38,8 +38,8 @@ struct CloudWorkspaceRenamePersistenceTests {
         let original = CmuxTuiSurfaceProvider(summary: summary, links: links, catalog: catalog)
         catalog.register(original)
         defer {
-            original.stop()
-            (catalog.provider(for: machine) as? CmuxTuiSurfaceProvider)?.stop()
+            original.suspendForFeatureFlag()
+            (catalog.provider(for: machine) as? CmuxTuiSurfaceProvider)?.suspendForFeatureFlag()
             catalog.unregister(machine: machine)
             manager.tabs = []
         }
