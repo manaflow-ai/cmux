@@ -25,7 +25,10 @@ use cmux_remote::connection::{
 use cmux_remote::crypto::{AuthKind, ClientAuthMode, CryptoError, StaticIdentity};
 #[cfg(test)]
 use cmux_remote::daemon::serve_unix;
-use cmux_remote::daemon::{DaemonSessionPolicy, serve_direct_websocket, serve_unix_with_shutdown};
+use cmux_remote::daemon::{
+    DaemonSessionPolicy, DirectWebSocketOptions, serve_direct_websocket_with_options,
+    serve_unix_with_shutdown,
+};
 use cmux_remote::http::serve_workspace_http;
 use cmux_remote::identity::{
     AuthDatabase, IdentityError, PersistedAuthStateSchema, credential_free_route_hint,
@@ -33,11 +36,14 @@ use cmux_remote::identity::{
 };
 use cmux_remote::observability::ClientConnectionSnapshot;
 use cmux_remote::provider::{
-    ConnectRequest, DirectWebSocketProvider, IrohListener, IrohPathMode, IrohProvider,
-    IrohProviderConfig, LinkGroup, ProviderError, RelayClientConfig, RelayCredentialSource,
-    RelayDaemonConfig, RelayDaemonRegistration, RelayProvider, SshProvider, SshProviderConfig,
-    SupportedClientAuthModes, TransportProvider, UnixProvider, load_or_create_iroh_secret,
-    register_relay_daemon_with_credentials, sanitized_route, sanitized_route_text,
+    ConnectRequest, Dialer, DirectWebSocketProvider, IrohPathMode, LinkGroup, ProviderError,
+    RelayClientConfig, RelayCredentialSource, RelayDaemonConfig, RelayDaemonRegistration,
+    RelayProvider, SshProvider, SshProviderConfig, SupportedClientAuthModes, TransportProvider,
+    UnixProvider, register_relay_daemon_with_credentials, sanitized_route, sanitized_route_text,
+};
+#[cfg(feature = "iroh-transport")]
+use cmux_remote::provider::{
+    IrohListener, IrohProvider, IrohProviderConfig, load_or_create_iroh_secret,
 };
 use cmux_remote::secure_directory::{DirectoryAccess, ensure_secure_directory};
 use cmux_remote::service::{EndpointRole, ServiceMultiplexer};
@@ -246,6 +252,10 @@ pub struct DaemonRuntimeOptions {
     pub admin_socket: Option<PathBuf>,
     pub direct_websocket: Option<SocketAddr>,
     pub allow_insecure_non_loopback: bool,
+    /// The direct WebSocket listener grants carrier authentication to every link
+    /// (`--remote-ws-trusted-carrier`): only for a listener reachable solely
+    /// from a network whose members are all authorized.
+    pub trusted_carrier_websocket: bool,
     pub workspace_http: Option<SocketAddr>,
     pub relays: Vec<RelayDaemonOptions>,
     pub iroh: bool,
@@ -269,6 +279,7 @@ impl fmt::Debug for DaemonRuntimeOptions {
             .field("admin_socket", &self.admin_socket)
             .field("direct_websocket", &self.direct_websocket)
             .field("allow_insecure_non_loopback", &self.allow_insecure_non_loopback)
+            .field("trusted_carrier_websocket", &self.trusted_carrier_websocket)
             .field("workspace_http", &self.workspace_http)
             .field("relays", &self.relays)
             .field("iroh", &self.iroh)
@@ -430,20 +441,38 @@ impl TransportProvider for RoutedRelayProvider {
     }
 }
 
+/// The client-side transport registry.
+///
+/// `direct_dialer` replaces the operating-system TCP dial for `ws`/`wss`
+/// routes: an in-process WireGuard tunnel (`WireGuardDialer`) or a shared hub
+/// (`SocksDialer`). Every other scheme is unaffected.
+/// `direct_carrier_auth` lets `ws`/`wss` routes dial with carrier authentication
+/// (`remote connect --carrier`): the daemon is expected to serve a trusted-network
+/// listener, as cmux Cloud machines do behind the owner's private network.
 pub fn client_provider_registry(
     ssh: SshProviderConfig,
     relay_routes: BTreeMap<String, RelayClientOptions>,
     iroh_path: IrohPathMode,
+    direct_dialer: Option<Arc<dyn Dialer>>,
+    direct_carrier_auth: bool,
 ) -> Result<cmux_remote::provider::ProviderRegistry, ProviderError> {
     let mut providers = cmux_remote::provider::ProviderRegistry::default();
-    providers.register(Arc::new(DirectWebSocketProvider::new(MAX_CARRIER_FRAME_BYTES)))?;
+    let direct = match direct_dialer {
+        Some(dialer) => DirectWebSocketProvider::with_dialer(MAX_CARRIER_FRAME_BYTES, dialer),
+        None => DirectWebSocketProvider::new(MAX_CARRIER_FRAME_BYTES),
+    }
+    .with_carrier_auth(direct_carrier_auth);
+    providers.register(Arc::new(direct))?;
     #[cfg(unix)]
     providers.register(Arc::new(UnixProvider::new(MAX_CARRIER_FRAME_BYTES)))?;
     providers.register(Arc::new(SshProvider::new(ssh)?))?;
     providers.register(Arc::new(RoutedRelayProvider { routes: relay_routes }))?;
+    #[cfg(feature = "iroh-transport")]
     providers.register(Arc::new(IrohProvider::new(
         IrohProviderConfig::default().with_path_mode(iroh_path),
     )?))?;
+    #[cfg(not(feature = "iroh-transport"))]
+    let _ = iroh_path;
     Ok(providers)
 }
 
@@ -1995,11 +2024,14 @@ async fn run_daemon(
             .await?;
             let websocket = match options.direct_websocket {
                 Some(address) => Some(
-                    serve_direct_websocket(
+                    serve_direct_websocket_with_options(
                         daemon.clone(),
                         address,
                         MAX_CARRIER_FRAME_BYTES,
-                        options.allow_insecure_non_loopback,
+                        DirectWebSocketOptions {
+                            allow_insecure_non_loopback: options.allow_insecure_non_loopback,
+                            trusted_carrier: options.trusted_carrier_websocket,
+                        },
                     )
                     .await?,
                 ),
@@ -2054,6 +2086,11 @@ async fn run_daemon(
                 relays.push(result.context("relay registration task failed")??);
             }
 
+            #[cfg(not(feature = "iroh-transport"))]
+            if options.iroh {
+                return Err(anyhow!("Iroh transport is not included in this cmux-tui build"));
+            }
+            #[cfg(feature = "iroh-transport")]
             let iroh = match options.iroh {
                 true => {
                     let config = IrohProviderConfig {
@@ -2069,6 +2106,8 @@ async fn run_daemon(
                 }
                 false => None,
             };
+            #[cfg(not(feature = "iroh-transport"))]
+            let iroh = None::<()>;
 
             let mut routes = Vec::new();
             for route in &options.advertised_routes {
@@ -2094,6 +2133,7 @@ async fn run_daemon(
             } else {
                 None
             };
+            #[cfg(feature = "iroh-transport")]
             let iroh_node_id = if let Some(listener) = &iroh {
                 let route = listener.route().await?;
                 let hints = route.routing_hints();
@@ -2113,6 +2153,8 @@ async fn run_daemon(
             } else {
                 None
             };
+            #[cfg(not(feature = "iroh-transport"))]
+            let iroh_node_id = None;
             if let Some(route) = websocket_route {
                 push_unique_route(&mut routes, route);
             }
@@ -2145,7 +2187,7 @@ async fn run_daemon(
             Ok((unix, websocket, workspace_http, relays, iroh, admin, info))
         }
         .await;
-        let (unix, websocket, workspace_http, relays, iroh, admin, info) = match transport_setup {
+        let (unix, websocket, workspace_http, relays, _iroh, admin, info) = match transport_setup {
             Ok(transports) => transports,
             Err(error) => {
                 return finalize_daemon_authorization(auth, state_dir, lifecycle_id, vec![error])
@@ -2172,7 +2214,8 @@ async fn run_daemon(
             shutdown_failures
                 .push(anyhow::Error::new(error).context("workspace HTTP shutdown failed"));
         }
-        if let Some(listener) = iroh
+        #[cfg(feature = "iroh-transport")]
+        if let Some(listener) = _iroh
             && let Err(error) = listener.shutdown().await
         {
             shutdown_failures
@@ -3048,7 +3091,10 @@ mod tests {
     }
 
     fn test_providers(ssh: SshProviderConfig) -> Arc<cmux_remote::provider::ProviderRegistry> {
-        Arc::new(client_provider_registry(ssh, BTreeMap::new(), IrohPathMode::Auto).unwrap())
+        Arc::new(
+            client_provider_registry(ssh, BTreeMap::new(), IrohPathMode::Auto, None, false)
+                .unwrap(),
+        )
     }
 
     #[derive(Debug, PartialEq, Eq)]
@@ -3326,13 +3372,23 @@ mod tests {
         .unwrap();
 
         assert_eq!(candidate.supported_client_auth(), SupportedClientAuthModes::DeviceOnly);
-        for scheme in ["ws", "wss", "relay+ws", "relay+wss", "relay+https", "relay+do", "iroh"] {
+        for scheme in ["ws", "wss", "relay+ws", "relay+wss", "relay+https", "relay+do"] {
             assert_eq!(
                 providers.supported_client_auth(scheme).unwrap(),
                 SupportedClientAuthModes::DeviceOnly,
                 "{scheme}"
             );
         }
+        #[cfg(feature = "iroh-transport")]
+        assert_eq!(
+            providers.supported_client_auth("iroh").unwrap(),
+            SupportedClientAuthModes::DeviceOnly
+        );
+        #[cfg(not(feature = "iroh-transport"))]
+        assert!(matches!(
+            providers.supported_client_auth("iroh"),
+            Err(ProviderError::UnsupportedScheme(scheme)) if scheme == "iroh"
+        ));
         assert_eq!(
             providers.supported_client_auth("ssh").unwrap(),
             SupportedClientAuthModes::DeviceOrCarrier
@@ -3396,6 +3452,7 @@ mod tests {
                 admin_socket: None,
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
@@ -3455,6 +3512,7 @@ mod tests {
                 admin_socket: None,
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
@@ -3492,6 +3550,7 @@ mod tests {
                 admin_socket: None,
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
@@ -3543,6 +3602,7 @@ mod tests {
                     admin_socket: None,
                     direct_websocket: None,
                     allow_insecure_non_loopback: false,
+                    trusted_carrier_websocket: false,
                     workspace_http: None,
                     relays: Vec::new(),
                     iroh: false,
@@ -3594,6 +3654,7 @@ mod tests {
                 admin_socket: None,
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
@@ -3636,6 +3697,7 @@ mod tests {
                 admin_socket: None,
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
@@ -3688,6 +3750,7 @@ mod tests {
                 admin_socket: None,
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
@@ -3735,6 +3798,7 @@ mod tests {
                     admin_socket: None,
                     direct_websocket: None,
                     allow_insecure_non_loopback: false,
+                    trusted_carrier_websocket: false,
                     workspace_http: None,
                     relays: Vec::new(),
                     iroh: false,
@@ -3781,6 +3845,7 @@ mod tests {
                 admin_socket: None,
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
@@ -3826,6 +3891,7 @@ mod tests {
                 admin_socket: None,
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
@@ -3889,6 +3955,7 @@ mod tests {
                 admin_socket: None,
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
@@ -3950,6 +4017,7 @@ mod tests {
                 admin_socket: None,
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
@@ -3993,6 +4061,7 @@ mod tests {
                 admin_socket: None,
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
@@ -4070,6 +4139,7 @@ mod tests {
                     admin_socket: None,
                     direct_websocket: None,
                     allow_insecure_non_loopback: false,
+                    trusted_carrier_websocket: false,
                     workspace_http: None,
                     relays: Vec::new(),
                     iroh: false,
@@ -4111,6 +4181,7 @@ mod tests {
                     admin_socket: None,
                     direct_websocket: None,
                     allow_insecure_non_loopback: false,
+                    trusted_carrier_websocket: false,
                     workspace_http: None,
                     relays: Vec::new(),
                     iroh: false,
@@ -4148,6 +4219,7 @@ mod tests {
                 admin_socket: None,
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
@@ -4193,6 +4265,7 @@ mod tests {
                 admin_socket: None,
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
@@ -4218,6 +4291,7 @@ mod tests {
                 admin_socket: None,
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
@@ -4266,6 +4340,7 @@ mod tests {
                 admin_socket: Some(directory.path().join("sockets/admin.sock")),
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
@@ -4299,6 +4374,7 @@ mod tests {
                 admin_socket: None,
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
@@ -4410,6 +4486,7 @@ mod tests {
                     admin_socket: None,
                     direct_websocket: None,
                     allow_insecure_non_loopback: false,
+                    trusted_carrier_websocket: false,
                     workspace_http: None,
                     relays: Vec::new(),
                     iroh: false,
@@ -4465,6 +4542,7 @@ mod tests {
                     admin_socket: None,
                     direct_websocket: None,
                     allow_insecure_non_loopback: false,
+                    trusted_carrier_websocket: false,
                     workspace_http: None,
                     relays: Vec::new(),
                     iroh: false,
@@ -4548,6 +4626,7 @@ mod tests {
                     admin_socket: None,
                     direct_websocket: None,
                     allow_insecure_non_loopback: false,
+                    trusted_carrier_websocket: false,
                     workspace_http: None,
                     relays: Vec::new(),
                     iroh: false,
@@ -4751,6 +4830,7 @@ mod tests {
             admin_socket: None,
             direct_websocket: None,
             allow_insecure_non_loopback: false,
+            trusted_carrier_websocket: false,
             workspace_http: None,
             relays: vec![relay_options],
             iroh: false,
@@ -5038,6 +5118,7 @@ mod tests {
                 admin_socket: Some(daemon_root.join("admin.sock")),
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
@@ -5084,7 +5165,8 @@ mod tests {
             ..SshProviderConfig::default()
         };
         let providers = Arc::new(
-            client_provider_registry(ssh.clone(), BTreeMap::new(), IrohPathMode::Auto).unwrap(),
+            client_provider_registry(ssh.clone(), BTreeMap::new(), IrohPathMode::Auto, None, false)
+                .unwrap(),
         );
         let mut unix_route = Url::parse("unix:///").unwrap();
         unix_route.set_path(proxy_link.to_str().unwrap());
@@ -6072,6 +6154,7 @@ mod tests {
                 admin_socket: None,
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,
@@ -6104,6 +6187,7 @@ mod tests {
                 admin_socket: None,
                 direct_websocket: None,
                 allow_insecure_non_loopback: false,
+                trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
                 iroh: false,

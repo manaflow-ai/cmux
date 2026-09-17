@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // Local stand-in for the Freestyle TLS egress edge, for verifying the coderouter
 // model plane end to end on one machine: it terminates TLS with a private CA,
-// OVERWRITES the two edge headers (`x-coderouter-route-token`, `x-cmux-vm-id`)
-// on every request like the real edge does, and re-originates to a coderouter
+// OVERWRITES the bearer plus the two edge headers (`authorization`,
+// `x-coderouter-route-token`, `x-cmux-vm-id`) on every request like the real
+// edge does, and re-originates to a coderouter
 // origin (a local `bun dev`, a tunnel, or a preview). Real agent CLIs (codex,
 // claude, pi, curl) then run against it with placeholder keys, exactly as a
 // Cloud machine would, and the origin's routing, VM binding, and usage ledger
@@ -105,11 +106,14 @@ const server = https.createServer({ key: readFileSync(leafKey), cert: readFileSy
   const headers = { ...req.headers };
   // The guest never legitimately sends these; a value here is a forgery attempt
   // that the real edge replaces. Record it, then overwrite (or strip).
+  const forgedAuthorization = headers.authorization;
   const forgedToken = headers[ROUTE_TOKEN_HEADER];
   const forgedVmId = headers[VM_ID_HEADER];
+  delete headers.authorization;
   delete headers[ROUTE_TOKEN_HEADER];
   delete headers[VM_ID_HEADER];
   if (inject) {
+    headers.authorization = `Bearer ${routeToken}`;
     headers[ROUTE_TOKEN_HEADER] = routeToken;
     headers[VM_ID_HEADER] = vmId;
   }
@@ -145,7 +149,9 @@ const server = https.createServer({ key: readFileSync(leafKey), cert: readFileSy
           writeFileSync(`${dumpBase}.req.json`, JSON.stringify({ headers: requestHeaders, body: Buffer.concat(reqChunks).toString("utf8") }, null, 2));
           writeFileSync(`${dumpBase}.res.txt`, `HTTP ${upstreamRes.statusCode}\n${JSON.stringify(upstreamRes.headers)}\n\n${Buffer.concat(resChunks).toString("utf8")}`);
         }
-        const forged = forgedToken || forgedVmId ? ` forged-headers-overwritten(token=${forgedToken ? "yes" : "no"},vm=${forgedVmId ? "yes" : "no"})` : "";
+        const forged = forgedAuthorization || forgedToken || forgedVmId
+          ? ` forged-headers-overwritten(auth=${forgedAuthorization ? "yes" : "no"},token=${forgedToken ? "yes" : "no"},vm=${forgedVmId ? "yes" : "no"})`
+          : "";
         const agent = (req.headers["user-agent"] ?? "").toString().slice(0, 40);
         console.error(`[edge] #${id} ${req.method} ${req.url} -> ${upstreamRes.statusCode} ${Date.now() - startedAt}ms ua="${agent}"${forged}`);
       });

@@ -37,6 +37,37 @@ fn seed_workspace(registry: &mut WorkspaceRegistry, key: &str) {
         .unwrap();
 }
 
+#[cfg(windows)]
+#[test]
+fn registry_opens_and_persists_under_a_long_windows_state_root() {
+    use std::os::windows::ffi::OsStrExt;
+
+    let mut root = temp_root("windows-long-state-root");
+    while root.as_os_str().encode_wide().count() + 1 + 120 < 423 {
+        root.push("x".repeat(120));
+    }
+    let remaining = 423 - root.as_os_str().encode_wide().count() - 1;
+    assert!((1..=255).contains(&remaining));
+    root.push("x".repeat(remaining));
+    assert_eq!(root.as_os_str().encode_wide().count(), 423);
+
+    let fixture_root = platform::normalize_filesystem_path(root.clone());
+    fs::create_dir_all(&fixture_root).unwrap();
+    let machine_id = MachinePublicId::random().unwrap();
+    fs::write(fixture_root.join(MACHINE_ID_FILE), format!("{}\n", machine_id.as_str())).unwrap();
+    let pepper = ResourceEffectPepper::random().unwrap();
+    fs::write(fixture_root.join(RESOURCE_EFFECT_PEPPER_FILE), pepper.0.as_ref()).unwrap();
+
+    let mut registry = WorkspaceRegistry::open(&root, "long-state-path").unwrap();
+    seed_workspace(&mut registry, "persisted");
+    drop(registry);
+
+    let reopened = WorkspaceRegistry::open(&root, "long-state-path").unwrap();
+    assert_eq!(reopened.snapshot().unwrap().workspaces[0].key, "persisted");
+    drop(reopened);
+    fs::remove_dir_all(fixture_root).unwrap();
+}
+
 #[test]
 fn interrupted_staged_workspace_keeps_reserved_public_id_without_early_publication() {
     let root = temp_root("interrupted-workspace-public-id");
@@ -573,6 +604,7 @@ fn terminal_host_reset_holds_structured_live_marker_lock() {
         supports_set_defaults: true,
         supports_clear_history: true,
         supports_terminate_ack: false,
+        supports_input_ack: false,
     };
     let record_path = record.record_path(&root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -666,6 +698,7 @@ fn terminal_host_reset_checks_legacy_live_marker_as_orphan() {
         supports_set_defaults: false,
         supports_clear_history: false,
         supports_terminate_ack: false,
+        supports_input_ack: false,
     };
     let record_path = record.record_path(&root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -773,6 +806,7 @@ fn reset_accepts_dead_v2_terminal_host_without_creating_live_marker() {
         supports_set_defaults: true,
         supports_clear_history: true,
         supports_terminate_ack: false,
+        supports_input_ack: false,
     };
     let record_path = record.record_path(&host_root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -1548,6 +1582,8 @@ fn terminal_topology_patch() -> ResourcePatch {
                 terminal: terminal(TERMINAL_ONE, "one"),
             },
             ResourceChange::UpsertTab(RegistryTab {
+                name_source: Default::default(),
+                name_revision: 0,
                 public_id: tab.clone(),
                 pane_id: pane.clone(),
                 position: 0,
@@ -1633,6 +1669,8 @@ fn commit_browser_topology(
                     }),
                     ResourceChange::UpsertBrowser(browser.clone()),
                     ResourceChange::UpsertTab(RegistryTab {
+                        name_source: Default::default(),
+                        name_revision: 0,
                         public_id: second_tab.clone(),
                         pane_id: second_pane.clone(),
                         position: 0,
@@ -2643,6 +2681,75 @@ fn resource_order_is_exact_and_positions_are_contiguous() {
 }
 
 #[test]
+fn cloud_rename_authority_repairs_each_additive_column() {
+    for missing in ["name_source", "name_revision"] {
+        let root = temp_root("name-column-upgrade");
+        {
+            let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+            commit_terminal_topology(&mut registry, "create");
+            registry
+                .connection
+                .execute_batch(&format!(
+                    "DROP TRIGGER resource_tab_legacy_name_owner;
+                     ALTER TABLE resource_tabs DROP COLUMN {missing};"
+                ))
+                .unwrap();
+        }
+        let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        let snapshot = registry.resource_topology_snapshot().unwrap();
+        assert_eq!(snapshot.tabs.len(), 1);
+        assert_eq!(snapshot.tabs[0].name_source, crate::resource_name::NameSource::User);
+        assert_eq!(snapshot.tabs[0].name_revision, 0);
+        drop(registry);
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+fn cloud_rename_authority_persists_across_registry_restart() {
+    let root = temp_root("rename-authority-restart");
+    let chosen = "API – 東京 🚀 / logs & tests";
+    let before = {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "create");
+        let mut tab = registry.resource_topology_snapshot().unwrap().tabs[0].clone();
+        tab.name = Some(chosen.into());
+        tab.name_source = crate::resource_name::NameSource::Auto;
+        tab.name_revision = 2;
+        registry
+            .commit_resource_patch(
+                &WorkspaceMutation::new("name", "test").unwrap(),
+                "tab.rename",
+                &json!({"name":chosen}),
+                None,
+                Some(1),
+                &ResourcePatch { changes: vec![ResourceChange::UpsertTab(tab)] },
+                &json!({}),
+                &json!([]),
+            )
+            .unwrap();
+        registry.resource_topology_snapshot().unwrap()
+    };
+    let restored = WorkspaceRegistry::open(&root, "session").unwrap();
+    let after = restored.resource_topology_snapshot().unwrap();
+    assert_eq!(after.tabs, before.tabs);
+    assert_eq!(after.tabs[0].name.as_deref(), Some(chosen));
+    assert_eq!(after.tabs[0].name_source, crate::resource_name::NameSource::Auto);
+    assert_eq!(after.tabs[0].name_revision, 2);
+    assert_ne!(after.generation, before.generation);
+    // Simulate a pre-authority daemon's SQL update: it cannot write the new columns.
+    restored.connection.execute(
+        "UPDATE resource_tabs SET name = 'Legacy user name', updated_revision = 3 WHERE public_id = ?1",
+        [after.tabs[0].public_id.as_str()],
+    ).unwrap();
+    let legacy = restored.resource_topology_snapshot().unwrap();
+    assert_eq!(legacy.tabs[0].name_source, crate::resource_name::NameSource::User);
+    assert_eq!(legacy.tabs[0].name_revision, 3);
+    drop(restored);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn resource_ids_survive_registry_restart() {
     let root = temp_root("resource-restart");
     let before = {
@@ -2784,6 +2891,8 @@ fn commit_browser_topology_unchecked(
                     }),
                     ResourceChange::UpsertBrowser(browser.clone()),
                     ResourceChange::UpsertTab(RegistryTab {
+                        name_source: Default::default(),
+                        name_revision: 0,
                         public_id: second_tab.clone(),
                         pane_id: second_pane.clone(),
                         position: 0,
@@ -2883,6 +2992,8 @@ fn split_and_browser_identities_follow_targeted_parent_lifecycle() {
                         24,
                     )),
                     ResourceChange::UpsertTab(RegistryTab {
+                        name_source: Default::default(),
+                        name_revision: 0,
                         public_id: second_tab.clone(),
                         pane_id: second_pane.clone(),
                         position: 0,
@@ -3815,6 +3926,61 @@ fn batch_terminal_close_rolls_back_every_tab_on_mid_transaction_failure() {
 }
 
 #[test]
+fn startup_repairs_legacy_terminal_close_dangling_resource_rows() {
+    let root = temp_root("terminal-close-dangling-resource");
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "seed-terminal-close-dangling");
+        let mutation = WorkspaceMutation::new("legacy-host-only-close", "legacy-client").unwrap();
+        registry.close_terminal(&mutation, None, Some(0), TERMINAL_ONE, None).unwrap();
+        let topology = registry.resource_topology_snapshot().unwrap();
+        assert_eq!(topology.revision, 1);
+        let live_terminals: i64 = registry
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM resource_terminals WHERE deleted_revision IS NULL",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(live_terminals, 1);
+    }
+
+    let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
+    let topology = reopened.resource_topology_snapshot().unwrap();
+    assert_eq!(topology.revision, 2);
+    let events = reopened.resource_events_after(1).unwrap();
+    assert_eq!(events.batches.len(), 1);
+    assert_eq!(events.batches[0].revision, 2);
+    assert_eq!(events.batches[0].changes[0]["resource"], "terminal");
+    let live_terminals: i64 = reopened
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM resource_terminals WHERE deleted_revision IS NULL",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(live_terminals, 0, "dangling terminal remained live: {topology:?}");
+    let public_id = terminal_resource(TERMINAL_ONE);
+    let (resource_deleted, identity_deleted): (Option<i64>, Option<i64>) = reopened
+        .connection
+        .query_row(
+            "SELECT rt.deleted_revision, ri.deleted_revision
+             FROM resource_terminals rt
+             JOIN resource_identities ri ON ri.public_id = rt.public_id
+             WHERE rt.public_id = ?1",
+            [public_id.as_str()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert!(resource_deleted.is_some());
+    assert_eq!(identity_deleted, resource_deleted);
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn terminal_close_tombstones_before_kill_and_retries_safely() {
     let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
     seed_workspace(&mut registry, "one");
@@ -4420,6 +4586,8 @@ fn current_schema_normalizes_legacy_single_view_resource_tabs() {
                         creation_ordinal: 1,
                     }),
                     ResourceChange::UpsertTab(RegistryTab {
+                        name_source: Default::default(),
+                        name_revision: 0,
                         public_id: second_tab.clone(),
                         pane_id: pane_id(1),
                         position: 1,
@@ -4534,8 +4702,6 @@ fn current_schema_canonicalizes_equivalent_formatted_browser_view_predicate_once
             |row| row.get::<_, String>(0),
         )
         .unwrap();
-    let schema_version_before =
-        formatted.query_row("PRAGMA schema_version", [], |row| row.get::<_, i64>(0)).unwrap();
     drop(formatted);
 
     let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
@@ -4548,16 +4714,20 @@ fn current_schema_canonicalizes_equivalent_formatted_browser_view_predicate_once
             |row| row.get::<_, String>(0),
         )
         .unwrap();
-    let schema_version_after_normalization = reopened
-        .connection
-        .query_row("PRAGMA schema_version", [], |row| row.get::<_, i64>(0))
-        .unwrap();
     assert_ne!(canonical_definition, definition_before);
     assert_eq!(
         canonical_definition.split_whitespace().collect::<Vec<_>>().join(" "),
         "CREATE UNIQUE INDEX live_resource_browser_view ON resource_tabs(content_id) WHERE content_kind = 'browser' AND deleted_revision IS NULL"
     );
-    assert!(schema_version_after_normalization > schema_version_before);
+    assert!(!resource_tabs_needs_multiview_normalization(&reopened.connection).unwrap());
+    reopened
+        .connection
+        .execute(
+            "CREATE INDEX browser_view_normalization_sentinel
+             ON resource_tabs(created_revision)",
+            [],
+        )
+        .unwrap();
     drop(reopened);
 
     let reopened_again = WorkspaceRegistry::open(&root, "session").unwrap();
@@ -4570,12 +4740,18 @@ fn current_schema_canonicalizes_equivalent_formatted_browser_view_predicate_once
             |row| row.get::<_, String>(0),
         )
         .unwrap();
-    let schema_version_after_second_open = reopened_again
+    let sentinel_count = reopened_again
         .connection
-        .query_row("PRAGMA schema_version", [], |row| row.get::<_, i64>(0))
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master
+             WHERE type = 'index' AND name = 'browser_view_normalization_sentinel'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
         .unwrap();
     assert_eq!(definition_after_second_open, canonical_definition);
-    assert_eq!(schema_version_after_second_open, schema_version_after_normalization);
+    assert_eq!(sentinel_count, 1, "resource_tabs was normalized more than once");
+    assert!(!resource_tabs_needs_multiview_normalization(&reopened_again.connection).unwrap());
     drop(reopened_again);
     fs::remove_dir_all(root).unwrap();
 }
@@ -4909,6 +5085,8 @@ fn terminal_journal_subject_expands_to_every_live_view_path() {
                         creation_ordinal: 1,
                     }),
                     ResourceChange::UpsertTab(RegistryTab {
+                        name_source: Default::default(),
+                        name_revision: 0,
                         public_id: second_tab.clone(),
                         pane_id: pane_id(1),
                         position: 1,
@@ -5738,4 +5916,39 @@ fn schema_preflight_failures_defer_to_authoritative_open() {
     assert!(preflight_unsupported_schema(&database).is_none());
 
     fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(windows)]
+#[test]
+fn long_database_descendant_is_normalized_even_when_root_is_short() {
+    let root = PathBuf::from(format!(r"C:\{}", "r".repeat(230)));
+    let session_dir = root.join(session_storage_component("session"));
+    let normalized_session = crate::platform::normalize_filesystem_path(session_dir);
+    assert!(normalized_session.to_string_lossy().starts_with(r"\\?\C:\"));
+
+    let resetter_session = PersistentSessionStateResetter::new(root.clone()).session_dir("session");
+    assert!(resetter_session.to_string_lossy().starts_with(r"\\?\C:\"));
+    let terminal_hosts = crate::terminal_host_runtime::terminal_host_root(&root, "session");
+    assert!(terminal_hosts.to_string_lossy().starts_with(r"\\?\C:\"));
+
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    let normalized = crate::platform::normalize_filesystem_path(database);
+    assert!(normalized.to_string_lossy().starts_with(r"\\?\C:\"));
+
+    let guard_dir = root.join(SESSION_GUARD_DIR);
+    let guard_lock = session_guard_lock_path(&guard_dir, "session");
+    let coordinator = session_guard_coordinator_path(&guard_dir);
+    let waiter_dir = session_guard_coordinator_waiter_dir(&coordinator);
+    for path in [
+        crate::platform::normalize_filesystem_path(guard_dir),
+        guard_lock,
+        coordinator,
+        waiter_dir,
+        crate::platform::normalize_filesystem_path(root.join(MACHINE_ID_LOCK_FILE)),
+        crate::platform::normalize_filesystem_path(root.join(MACHINE_ID_FILE)),
+        crate::platform::normalize_filesystem_path(root.join(RESOURCE_EFFECT_PEPPER_LOCK_FILE)),
+        crate::platform::normalize_filesystem_path(root.join(RESOURCE_EFFECT_PEPPER_FILE)),
+    ] {
+        assert!(path.to_string_lossy().starts_with(r"\\?\C:\"), "{}", path.display());
+    }
 }

@@ -365,6 +365,10 @@ if "archive" in args:
             "CFBundleIdentifier": bundle_id,
             "CFBundleVersion": build_number,
             "CFBundleShortVersionString": marketing_version,
+            "CMUXAuthEnvironment": "production",
+            "CMUXApiBaseURL": "https://cmux.com",
+            "CMUXIrohBrokerBaseURL": "https://cmux.com",
+            "CMUXPresenceBaseURL": "https://presence.cmux.dev",
             "CMUXCrashReportingEnabled": crash_reporting_enabled,
             "CMUXAuthEnvironment": setting("CMUX_IOS_AUTH_ENV=") or "production",
             "CMUXApiBaseURL": setting("CMUX_API_BASE_URL=") or "https://cmux.com",
@@ -650,6 +654,22 @@ def _write_fake_archive(path: Path, *, bundle_id: str, build_number: str, market
     (app / "Info.plist").write_bytes(_plist_bytes(info))
 
 
+def _set_fixture_versions(repo: Path) -> None:
+    """Keep test inputs independent of the versions currently being released."""
+    config = repo / "ios/Config/Shared.xcconfig"
+    text = config.read_text(encoding="utf-8")
+    for lane, version in (("BETA", BETA_MARKETING_VERSION), ("APPSTORE", APPSTORE_MARKETING_VERSION)):
+        text, count = re.subn(
+            rf"^CMUX_IOS_{lane}_MARKETING_VERSION = .*$",
+            f"CMUX_IOS_{lane}_MARKETING_VERSION = {version}",
+            text,
+            flags=re.MULTILINE,
+        )
+        if count != 1:
+            raise AssertionError(f"expected one {lane} version in fixture config")
+    config.write_text(text, encoding="utf-8")
+
+
 def _copy_isolated_ios_upload_repo(target: Path) -> Path:
     repo = target / "repo"
     for relative in (
@@ -663,6 +683,7 @@ def _copy_isolated_ios_upload_repo(target: Path) -> Path:
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
 
+    _set_fixture_versions(repo)
     subprocess.run(["git", "init"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
     subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=repo, check=True)
     subprocess.run(["git", "config", "user.name", "Test Runner"], cwd=repo, check=True)
@@ -687,6 +708,7 @@ def _copy_isolated_ios_version_repo(target: Path) -> Path:
         destination = repo / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
+    _set_fixture_versions(repo)
     return repo
 
 
@@ -703,13 +725,14 @@ def _read_xcconfig_setting(path: Path, key: str) -> str:
 
 
 def test_upload_beta_lane_uses_beta_marketing_version(tmp: Path, fakebin: Path) -> None:
+    isolated_repo = _copy_isolated_ios_upload_repo(tmp / "isolated")
     env = _base_env(tmp, fakebin)
     env["CMUX_IOS_UPLOAD_DIR"] = str(tmp / "upload")
     env["CMUX_BUILD_NUMBER_OUT_FILE"] = str(tmp / "build-number.txt")
     result = _run(
         [
             "bash",
-            str(ROOT / "ios" / "scripts" / "upload-testflight.sh"),
+            str(isolated_repo / "ios" / "scripts" / "upload-testflight.sh"),
             "--lane",
             "beta",
             "--signing",
@@ -720,6 +743,7 @@ def test_upload_beta_lane_uses_beta_marketing_version(tmp: Path, fakebin: Path) 
         ],
         env=env,
         tmp=tmp,
+        cwd=isolated_repo,
     )
     _check(result.returncode == 0, "beta export-only lane succeeds with fake Apple tools")
 

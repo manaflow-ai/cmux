@@ -56,6 +56,20 @@ final class CodexTurnLedger {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     }
     deinit {}
+
+    func isCurrent(sessionID: String, surfaceID: String) throws -> Bool {
+        guard let normalizedSessionID = Self.normalized(sessionID),
+              let normalizedSurfaceID = Self.normalized(surfaceID) else {
+            return false
+        }
+        return try withLockedState(persist: false) { state in
+            guard let ownerSessionID = state.surfaceOwners[normalizedSurfaceID] else {
+                return true
+            }
+            return ownerSessionID == normalizedSessionID
+        }
+    }
+
     func sessionStart(
         sessionID: String,
         workspaceID: String?,
