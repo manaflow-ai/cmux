@@ -67,26 +67,21 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
     )
 
     /// Cloud Machines: the Cloud tab in the right sidebar plus every other
-    /// Cloud VM surface (Settings section, palette commands, titlebar button,
-    /// new-workspace menu). Defaults off; the remote rollout flag can also
-    /// enable the same surfaces, so this opt-in only ever adds availability.
+    /// Cloud VM surface (Settings section, palette commands), and the gate
+    /// for launch-time Cloud work (fleet polling, the Cloud tunnel). Dev
+    /// builds default on for dogfood; release builds stay opt-in. An explicit
+    /// setting still wins on either build.
     public let cloudMachines = DefaultsKey<Bool>(
         id: "cloud.beta.machines.enabled",
-        defaultValue: false,
+        defaultValue: Self.cloudMachinesDefault,
         userDefaultsKey: "cloud.beta.machines.enabled"
     )
 
-    /// Cloud terminal manual IO: a cloud machine's cmux-tui terminal renders
-    /// through a manual-mirror Ghostty surface fed by an `attach --pipe-io`
-    /// relay (structured replay, in-pane reconnect overlay) instead of
-    /// running the full `cmux-tui attach` TUI as the pane's process. Defaults
-    /// on; off (or a bundled client without `--pipe-io`) falls back to the
-    /// exec attach pane. Only cloud machine terminals are affected.
-    public let cloudTerminalManualIO = DefaultsKey<Bool>(
-        id: "cloud.beta.terminalManualIO.enabled",
-        defaultValue: true,
-        userDefaultsKey: "cloud.beta.terminalManualIO.enabled"
-    )
+    #if DEBUG
+    private static let cloudMachinesDefault = true
+    #else
+    private static let cloudMachinesDefault = false
+    #endif
 
     /// Remote tmux: mirror a remote host's tmux sessions in the cmux sidebar
     /// over `ssh … tmux -CC` (iTerm2-style control mode). Sessions appear as

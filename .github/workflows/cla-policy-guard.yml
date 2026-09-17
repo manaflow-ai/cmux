@@ -6,7 +6,7 @@ on:
   # and the policy it protects in the same pull request.
   pull_request_target:
     branches: [main]
-    types: [opened,edited,reopened,synchronize]
+    types: [opened,edited,reopened,synchronize,ready_for_review]
 permissions: {}
 
 jobs:
@@ -31,6 +31,13 @@ jobs:
           persist-credentials: false
           sparse-checkout: scripts/ci/validate-cla-policy.rb
           sparse-checkout-cone-mode: false
+
+      - name: Require GitHub-hosted runner
+        if: runner.environment != 'github-hosted'
+        run: |
+          set -euo pipefail
+          echo "::error::CLA policy requires a GitHub-hosted runner"
+          exit 1
 
       - name: Verify trusted checkout
         env:

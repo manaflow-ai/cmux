@@ -5,6 +5,7 @@ import AppKit
 import Bonsplit
 import CmuxTerminal
 import CmuxWorkspaces
+import GhosttyKit
 
 /// TerminalPanel wraps an existing TerminalSurface and conforms to the Panel protocol.
 /// This allows TerminalSurface to be used within the bonsplit-based layout system.
@@ -22,10 +23,6 @@ final class TerminalPanel: Panel, ObservableObject {
 
     /// The underlying terminal surface
     let surface: TerminalSurface
-    /// Optional controller for a cloud terminal's renderer-less relay. The
-    /// panel owns this lifecycle so a detach transfer keeps the controller
-    /// with the surface, while a real close or respawn can stop it directly.
-    private(set) var cloudTuiManualIOPump: TuiManualIOPump?
     var fontSizePanelTransfer:
         WorkspaceTerminalFontSizePanelTransfer?
 
@@ -97,10 +94,16 @@ final class TerminalPanel: Panel, ObservableObject {
     @Published var viewReattachToken: UInt64 = 0
 
     @Published var agentHibernationPhase: AgentHibernationPanelPhase = .live
+    /// A native cloud pane's live attachment state (nil for local terminals).
+    /// Written only by the owning cloud session; the view shows it.
+    var cloudAttachment: CloudTerminalAttachmentStatus?
 
     var onRequestWorkspacePaneFlash: ((WorkspaceAttentionFlashReason) -> Void)?
     var onRequestAgentHibernationResume: ((Bool) -> Bool)?
     var onRequestAgentHibernationTerminationRetry: (() -> Void)?
+    /// Optional owner hook for a manual mirror that becomes the active pane.
+    /// Ordinary terminals leave this unset.
+    var onTerminalFocus: (() -> Void)?
 
     private var cancellables = Set<AnyCancellable>()
     /// Shared monotonic gate for AppKit and workspace-overlay flash renderers.
@@ -151,15 +154,10 @@ final class TerminalPanel: Panel, ObservableObject {
         surface.requestedWorkingDirectory
     }
 
-    init(
-        workspaceId: UUID,
-        surface: TerminalSurface,
-        cloudTuiManualIOPump: TuiManualIOPump? = nil
-    ) {
+    init(workspaceId: UUID, surface: TerminalSurface) {
         self.id = surface.id
         self.workspaceId = workspaceId
         self.surface = surface
-        self.cloudTuiManualIOPump = cloudTuiManualIOPump
         self.title = surface.agentPanelTitle ?? "Terminal"
         // Subscribe to surface's search state changes
         surface.$searchState
@@ -247,20 +245,6 @@ final class TerminalPanel: Panel, ObservableObject {
     func updateWorkspaceId(_ newWorkspaceId: UUID) {
         workspaceId = newWorkspaceId
         surface.updateWorkspaceId(newWorkspaceId)
-    }
-
-    /// Stops the cloud relay when the panel is permanently discarded. A
-    /// detach transfer intentionally does not call this method, so the same
-    /// panel and relay continue in the destination workspace.
-    func stopCloudTuiManualIO() {
-        cloudTuiManualIOPump?.stop()
-        cloudTuiManualIOPump = nil
-    }
-
-    /// Tells a cloud manual-IO relay that this panel became the authoritative
-    /// geometry owner. The next user input sends a claim before its bytes.
-    func markCloudTuiManualIOGeometryOwnershipChanged() {
-        cloudTuiManualIOPump?.markGeometryOwnershipChanged()
     }
 
     func updateTmuxLayoutReport(_ report: TmuxPaneLayoutReport?) {
@@ -356,6 +340,7 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func terminalDidBecomeFocused() {
+        onTerminalFocus?()
         guard isTextBoxActive else { return }
         shouldFocusTextBoxWhenAvailable = false
         shouldOpenTextBoxFilePickerWhenAvailable = false
@@ -653,7 +638,6 @@ final class TerminalPanel: Panel, ObservableObject {
             return false
         }
         surface.setFocus(true)
-        markCloudTuiManualIOGeometryOwnershipChanged()
         hostedView.ensureFocus(
             for: workspaceId,
             surfaceId: id,
@@ -679,7 +663,6 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func close() {
         isClosingPanel = true
-        stopCloudTuiManualIO()
         AgentHibernationController.shared.discardTrackingStateForClosedPanel(
             workspaceId: workspaceId,
             panelId: id

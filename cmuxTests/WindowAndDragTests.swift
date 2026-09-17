@@ -886,12 +886,37 @@ final class WindowDragHandleHitTests: XCTestCase {
                 "titlebarControl.toggleSidebar",
                 "titlebarControl.showNotifications",
                 "titlebarControl.newTab",
-                "titlebarControl.cloudVM",
+                "titlebarControl.newWorkspaceMenu",
                 "titlebarControl.focusHistoryBack",
                 "titlebarControl.focusHistoryForward",
             ],
             "The hidden minimal-mode click lanes must match the visible titlebar control order."
         )
+        let menuLane = ranges[MinimalModeSidebarControlActionSlot.newWorkspaceMenu.rawValue]
+        let newTabLane = ranges[MinimalModeSidebarControlActionSlot.newTab.rawValue]
+        XCTAssertEqual(
+            menuLane.lowerBound,
+            newTabLane.upperBound,
+            accuracy: 0.001,
+            "The caret lane must butt against the plus lane: the split button has no gap between its segments."
+        )
+        XCTAssertEqual(
+            menuLane.upperBound - menuLane.lowerBound,
+            TitlebarNewWorkspaceSplitButtonMetrics.dropdownWidth(config: config),
+            accuracy: 0.001,
+            "The hidden New Workspace menu lane should match the visible split-button caret width."
+        )
+        XCTAssertLessThan(
+            TitlebarNewWorkspaceSplitButtonMetrics.dropdownIconSize(config: config),
+            config.iconSize - 2,
+            "The caret glyph should stay visibly smaller than the primary titlebar icons."
+        )
+        for x in [menuLane.lowerBound + 1, (menuLane.lowerBound + menuLane.upperBound) / 2, menuLane.upperBound - 1] {
+            XCTAssertTrue(
+                TitlebarControlsHitRegions.pointFallsInButtonColumn(NSPoint(x: x, y: 14), config: config),
+                "The whole caret lane should receive left clicks."
+            )
+        }
         XCTAssertEqual(
             ranges[0].lowerBound,
             TitlebarControlsLayoutMetrics.hintLeadingPadding + config.groupPadding.leading,
@@ -906,46 +931,6 @@ final class WindowDragHandleHitTests: XCTestCase {
             ),
             "Icon button columns should stay interactive"
         )
-        XCTAssertEqual(
-            ranges[MinimalModeSidebarControlActionSlot.cloudVM.rawValue].upperBound
-                - ranges[MinimalModeSidebarControlActionSlot.cloudVM.rawValue].lowerBound,
-            TitlebarNewWorkspaceCloudSplitButtonMetrics.dropdownWidth(config: config),
-            accuracy: 0.001,
-            "The hidden Cloud menu lane should match the visible split-button dropdown width."
-        )
-        XCTAssertLessThan(
-            TitlebarNewWorkspaceCloudSplitButtonMetrics.dropdownIconSize(config: config),
-            config.iconSize - 2,
-            "The Cloud dropdown glyph should stay visibly smaller than the primary titlebar icons."
-        )
-        XCTAssertTrue(
-            TitlebarControlsHitRegions.pointFallsInButtonColumn(
-                NSPoint(
-                    x: (
-                        ranges[MinimalModeSidebarControlActionSlot.cloudVM.rawValue].lowerBound
-                            + ranges[MinimalModeSidebarControlActionSlot.cloudVM.rawValue].upperBound
-                    ) / 2,
-                    y: 14
-                ),
-                config: config
-            ),
-            "The padded Cloud dropdown lane should receive left clicks."
-        )
-        XCTAssertTrue(
-            TitlebarControlsHitRegions.pointFallsInButtonColumn(
-                NSPoint(x: ranges[MinimalModeSidebarControlActionSlot.cloudVM.rawValue].lowerBound + 1, y: 14),
-                config: config
-            ),
-            "The leading padding inside the Cloud dropdown lane should receive left clicks."
-        )
-        XCTAssertTrue(
-            TitlebarControlsHitRegions.pointFallsInButtonColumn(
-                NSPoint(x: ranges[MinimalModeSidebarControlActionSlot.cloudVM.rawValue].upperBound - 1, y: 14),
-                config: config
-            ),
-            "The trailing padding inside the Cloud dropdown lane should receive left clicks."
-        )
-
         let firstGapX = (ranges[0].upperBound + ranges[1].lowerBound) / 2
         let secondGapX = (ranges[1].upperBound + ranges[2].lowerBound) / 2
 
@@ -1895,6 +1880,7 @@ final class WindowDragHandleHitTests: XCTestCase {
             titlebarHeight: 36, windowAppearance: .rightSidebarPanelViewTestDefault,
             workspaceId: nil,
             onResumeSession: nil,
+            onOpenSession: nil,
             onOpenFilePreview: { _ in },
             onOpenAsPane: { _ in },
             onClose: {},
@@ -3216,25 +3202,23 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         await panel.loadTextContent().value
         panel.updateTextContent("first save")
 
-        try FileManager.default.removeItem(at: url)
-        XCTAssertEqual(mkfifo(url.path, 0o600), 0)
-
+        // `saveTextContent()` flips `isSaving` synchronously and the write
+        // finishes on a later main-actor hop, so the second request below is
+        // always observed while the first is still in flight. Earlier versions
+        // swapped the file for a FIFO to hold the first write open; with the
+        // preview panel now re-opening its watched path for change monitoring,
+        // that FIFO could block the app host's main thread and wedge the whole
+        // test batch (app-host shards 1 and 5 on runs 34232451577 and
+        // 34245949340 stalled inside this test).
         let firstSave = try XCTUnwrap(panel.saveTextContent())
         XCTAssertTrue(panel.isSaving)
 
         panel.updateTextContent("second save")
         XCTAssertNil(panel.saveTextContent())
 
-        let pipeRead = Task.detached { () throws -> String in
-            let handle = try FileHandle(forReadingFrom: url)
-            defer { try? handle.close() }
-            return String(data: handle.availableData, encoding: .utf8) ?? ""
-        }
-
-        let savedContent = try await pipeRead.value
-        XCTAssertEqual(savedContent, "first save")
         await firstSave.value
 
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "first save")
         XCTAssertEqual(panel.textContent, "second save")
         XCTAssertTrue(panel.isDirty)
         XCTAssertFalse(panel.isSaving)
