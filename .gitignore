@@ -78,3 +78,6 @@ tmux-*.log
 # Remote-only Blacksmith cmux-tui benchmark output
 /testbox-benchmark/
 /.cmux-scratch/
+
+# Locally downloaded prebuilt client for Packages/Shared/CmuxTerminalClient
+Packages/Shared/CmuxTerminalClient/CmuxTerminalClient.xcframework/
