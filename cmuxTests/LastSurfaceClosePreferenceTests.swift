@@ -351,7 +351,10 @@ struct LastSurfaceClosePreferenceTests {
     }
 
     @Test
-    func reopeningLastCloudDisplayPreservesItsResourceIdentity() throws {
+    /// A Cloud Desktop is a BrowserPanel backed by a `.display` projection
+    /// whose URL is the machine's noVNC view. Closing the final VNC view must
+    /// preserve that identity without creating a replacement terminal.
+    func reopeningLastCloudDesktopVNCViewPreservesItsResourceIdentity() throws {
         try withManager(closeWorkspaceOnLastSurface: false) { manager in
             let workspace = manager.addWorkspace(
                 initialSurface: .browser,
@@ -384,6 +387,8 @@ struct LastSurfaceClosePreferenceTests {
 
             let restoredPanelId = try #require(workspace.focusedPanelId)
             #expect(workspace.panels[restoredPanelId] is BrowserPanel)
+            #expect(workspace.panels.values.allSatisfy { !($0 is TerminalPanel) })
+            #expect(workspace.bonsplitController.allPaneIds.count == 1)
             let records = SurfaceCatalog.shared.projectionRecords(forWorkspace: workspace.id)
             #expect(records.contains {
                 $0.panelID == restoredPanelId && $0.resource == display &&
@@ -419,6 +424,10 @@ struct LastSurfaceClosePreferenceTests {
             #expect(workspace.bonsplitController.allPaneIds.count == 2)
             #expect(workspace.panels.values.contains { $0 is BrowserPanel })
             #expect(workspace.panels.values.contains { $0 is TerminalPanel })
+            let restoredTerminalId = try #require(workspace.panels.first { panelId, panel in
+                panel is TerminalPanel && panelId != focusedPanelId
+            }?.key)
+            #expect(workspace.paneId(forPanelId: restoredTerminalId) == workspace.paneId(forPanelId: browserId))
             let restoredOrientation: String = {
                 guard case .split(let split) = workspace.bonsplitController.treeSnapshot() else { return "" }
                 return split.orientation
