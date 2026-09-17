@@ -39,12 +39,10 @@ extension Workspace {
             #endif
             return nil
         }
-        // Reservation is a user input demand. Start the local manual Ghostty
-        // runtime now, including through its headless bootstrap window when the
-        // portal has not mounted yet. The remote PTY, auth, lease, and identity
-        // attachment still happen later through the normal persistent session.
-        // This makes an empty blinking cursor visible while Cloud provisions.
-        panel.surface.requestInputDemandSurfaceStartIfNeeded()
+        // A focused creation is user input demand. Start its local manual
+        // renderer before remote creation; keep hidden/restored reservations
+        // on normal admission so a restore cannot eagerly allocate every pane.
+        if focus { panel.surface.requestInputDemandSurfaceStartIfNeeded() }
         let reservation = CloudTerminalPaneReservation(workspaceID: id, panelID: panelID, machine: machine, inputRelay: relay)
         cloudPendingCreations[panelID] = reservation
         return reservation
