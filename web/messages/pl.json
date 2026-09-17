@@ -1967,11 +1967,11 @@
     "subtitle": "Następna stabilna wersja, kilka dni wcześniej",
     "metaTitle": "cmux Release Candidate — Wczesny dostęp do następnej stabilnej wersji",
     "metaDescription": "Wypróbuj release candidate cmux: następna stabilna wersja opublikowana kilka dni wcześniej na własnym kanale aktualizacji. Ta sama aplikacja, ten sam bundle ID, kanał zmienisz w Ustawieniach.",
-    "description": "Release candidate to następna stabilna wersja cmux, publikowana kilka dni wcześniej, abyśmy mogli wychwycić problemy, zanim trafi do wszystkich. To ta sama aplikacja co wersja stabilna: zainstaluj ją na obecnym cmux albo przełącz istniejącą instalację na kanał aktualizacji release candidate w Ustawienia > Aktualizacje. Gdy kandydat przejdzie testy, ta sama kompilacja staje się wersją stabilną.",
+    "description": "Release candidate to następna stabilna wersja cmux, publikowana kilka dni wcześniej, abyśmy mogli wychwycić problemy, zanim trafi do wszystkich. To ta sama aplikacja co wersja stabilna: zainstaluj ją na obecnym cmux albo przełącz istniejącą instalację na kanał aktualizacji release candidate w Ustawienia > App. Gdy kandydat przejdzie testy, ta sama kompilacja staje się wersją stabilną.",
     "download": "Pobierz release candidate na Maca",
     "downloadArm64": "DMG dla Apple silicon",
     "downloadIntel": "DMG dla Intel",
-    "channelHint": "Masz już cmux? Otwórz Ustawienia > Aktualizacje i ustaw kanał aktualizacji na Release candidate albo uruchom <code>cmux config set updates.channel rc</code>.",
+    "channelHint": "Masz już cmux? Otwórz Ustawienia > App i ustaw kanał aktualizacji na Release candidate albo dodaj <code>{\"updates\": {\"channel\": \"rc\"}}</code> do <code>~/.config/cmux/cmux.json</code>.",
     "warning": "Wersje release candidate mogą wciąż zawierać błędy. Jeśli coś się zepsuje, zgłoś to na <githubLink>GitHub</githubLink> lub na <discordLink>Discord</discordLink>. Powrót na kanał Stabilny zatrzymuje aktualizacje release candidate, ale nie cofa wersji; w tym celu zainstaluj ponownie wersję stabilną."
   },
   "languageSwitcher": {

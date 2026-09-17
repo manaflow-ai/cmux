@@ -3538,11 +3538,11 @@
     "subtitle": "The next stable build, a few days early",
     "metaTitle": "cmux Release Candidate — Early access to the next stable build",
     "metaDescription": "Try the cmux release candidate: the next stable build published a few days early on its own update channel. Same app, same bundle ID, switch channels in Settings.",
-    "description": "The release candidate is the next stable build of cmux, published a few days early so we can catch problems before everyone gets it. It is the same app as stable: install it over your current cmux, or switch an existing install to the release-candidate update channel in Settings > Updates. When the candidate passes, the same build becomes the stable release.",
+    "description": "The release candidate is the next stable build of cmux, published a few days early so we can catch problems before everyone gets it. It is the same app as stable: install it over your current cmux, or switch an existing install to the release-candidate update channel in Settings > App. When the candidate passes, the same build becomes the stable release.",
     "download": "Download the release candidate for Mac",
     "downloadArm64": "Apple silicon DMG",
     "downloadIntel": "Intel DMG",
-    "channelHint": "Already have cmux? Open Settings > Updates and set Update channel to Release candidate, or run <code>cmux config set updates.channel rc</code>.",
+    "channelHint": "Already have cmux? Open Settings > App and set Update channel to Release candidate, or add <code>{\"updates\": {\"channel\": \"rc\"}}</code> to <code>~/.config/cmux/cmux.json</code>.",
     "warning": "Release candidates can still have bugs. If something breaks, report it on <githubLink>GitHub</githubLink> or in <discordLink>Discord</discordLink>. Switching back to the Stable channel stops release-candidate updates but does not downgrade; reinstall the stable release for that."
   },
   "languageSwitcher": {

@@ -1965,11 +1965,11 @@
     "subtitle": "Bir sonraki kararlı sürüm, birkaç gün erken",
     "metaTitle": "cmux Sürüm Adayı — Bir sonraki kararlı sürüme erken erişim",
     "metaDescription": "cmux sürüm adayını deneyin: bir sonraki kararlı sürüm, kendi güncelleme kanalında birkaç gün erken yayımlanır. Aynı uygulama, aynı bundle ID, kanalı Ayarlar'dan değiştirin.",
-    "description": "Sürüm adayı, cmux'un bir sonraki kararlı sürümüdür; herkese ulaşmadan önce sorunları yakalayabilmemiz için birkaç gün erken yayımlanır. Kararlı sürümle aynı uygulamadır: mevcut cmux'unuzun üzerine kurun ya da mevcut kurulumu Ayarlar > Güncellemeler'den sürüm adayı güncelleme kanalına geçirin. Aday testleri geçtiğinde aynı derleme kararlı sürüm olur.",
+    "description": "Sürüm adayı, cmux'un bir sonraki kararlı sürümüdür; herkese ulaşmadan önce sorunları yakalayabilmemiz için birkaç gün erken yayımlanır. Kararlı sürümle aynı uygulamadır: mevcut cmux'unuzun üzerine kurun ya da mevcut kurulumu Ayarlar > App'den sürüm adayı güncelleme kanalına geçirin. Aday testleri geçtiğinde aynı derleme kararlı sürüm olur.",
     "download": "Mac için sürüm adayını indir",
     "downloadArm64": "Apple silicon DMG",
     "downloadIntel": "Intel DMG",
-    "channelHint": "cmux zaten kurulu mu? Ayarlar > Güncellemeler'i açıp güncelleme kanalını Sürüm adayı olarak ayarlayın ya da <code>cmux config set updates.channel rc</code> komutunu çalıştırın.",
+    "channelHint": "cmux zaten kurulu mu? Ayarlar > App'i açıp güncelleme kanalını Sürüm adayı olarak ayarlayın ya da <code>~/.config/cmux/cmux.json</code> dosyasına <code>{\"updates\": {\"channel\": \"rc\"}}</code> ekleyin.",
     "warning": "Sürüm adaylarında hâlâ hatalar olabilir. Bir şey bozulursa <githubLink>GitHub</githubLink> üzerinden veya <discordLink>Discord</discordLink> üzerinden bildirin. Kararlı kanala geri dönmek sürüm adayı güncellemelerini durdurur ama sürümü düşürmez; bunun için kararlı sürümü yeniden kurun."
   },
   "languageSwitcher": {

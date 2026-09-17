@@ -1967,11 +1967,11 @@
     "subtitle": "Der nächste stabile Build, ein paar Tage früher",
     "metaTitle": "cmux Release Candidate — Früher Zugang zum nächsten stabilen Build",
     "metaDescription": "Probiere den cmux Release Candidate aus: der nächste stabile Build, ein paar Tage früher auf einem eigenen Update-Kanal veröffentlicht. Gleiche App, gleiche Bundle-ID, Kanalwechsel in den Einstellungen.",
-    "description": "Der Release Candidate ist der nächste stabile Build von cmux, der ein paar Tage früher veröffentlicht wird, damit wir Probleme finden, bevor alle ihn bekommen. Es ist dieselbe App wie die stabile Version: Installiere sie über dein aktuelles cmux oder stelle eine bestehende Installation unter Einstellungen > Updates auf den Release-Candidate-Update-Kanal um. Besteht der Kandidat, wird derselbe Build zur stabilen Version.",
+    "description": "Der Release Candidate ist der nächste stabile Build von cmux, der ein paar Tage früher veröffentlicht wird, damit wir Probleme finden, bevor alle ihn bekommen. Es ist dieselbe App wie die stabile Version: Installiere sie über dein aktuelles cmux oder stelle eine bestehende Installation unter Einstellungen > App auf den Release-Candidate-Update-Kanal um. Besteht der Kandidat, wird derselbe Build zur stabilen Version.",
     "download": "Release Candidate für Mac herunterladen",
     "downloadArm64": "DMG für Apple Silicon",
     "downloadIntel": "DMG für Intel",
-    "channelHint": "Du hast cmux schon? Öffne Einstellungen > Updates und setze den Update-Kanal auf Release Candidate, oder führe <code>cmux config set updates.channel rc</code> aus.",
+    "channelHint": "Du hast cmux schon? Öffne Einstellungen > App und setze den Update-Kanal auf Release Candidate, oder füge <code>{\"updates\": {\"channel\": \"rc\"}}</code> in <code>~/.config/cmux/cmux.json</code> ein.",
     "warning": "Release Candidates können noch Fehler enthalten. Wenn etwas nicht funktioniert, melde es auf <githubLink>GitHub</githubLink> oder in <discordLink>Discord</discordLink>. Ein Wechsel zurück zum stabilen Kanal stoppt die Release-Candidate-Updates, führt aber kein Downgrade durch; installiere dafür die stabile Version neu."
   },
   "languageSwitcher": {

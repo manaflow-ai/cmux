@@ -1967,11 +1967,11 @@
     "subtitle": "Sljedeći stabilni build, nekoliko dana ranije",
     "metaTitle": "cmux Release Candidate — Rani pristup sljedećem stabilnom buildu",
     "metaDescription": "Isprobajte cmux release candidate: sljedeći stabilni build objavljen nekoliko dana ranije na vlastitom kanalu ažuriranja. Ista aplikacija, isti bundle ID, kanal mijenjate u Postavkama.",
-    "description": "Release candidate je sljedeći stabilni build cmux-a, objavljen nekoliko dana ranije kako bismo uočili probleme prije nego što ga svi dobiju. To je ista aplikacija kao stabilna: instalirajte je preko trenutnog cmux-a ili prebacite postojeću instalaciju na release candidate kanal ažuriranja u Postavke > Ažuriranja. Kada kandidat prođe, isti build postaje stabilno izdanje.",
+    "description": "Release candidate je sljedeći stabilni build cmux-a, objavljen nekoliko dana ranije kako bismo uočili probleme prije nego što ga svi dobiju. To je ista aplikacija kao stabilna: instalirajte je preko trenutnog cmux-a ili prebacite postojeću instalaciju na release candidate kanal ažuriranja u Postavke > App. Kada kandidat prođe, isti build postaje stabilno izdanje.",
     "download": "Preuzmi release candidate za Mac",
     "downloadArm64": "DMG za Apple silicon",
     "downloadIntel": "DMG za Intel",
-    "channelHint": "Već imate cmux? Otvorite Postavke > Ažuriranja i postavite kanal ažuriranja na Release candidate, ili pokrenite <code>cmux config set updates.channel rc</code>.",
+    "channelHint": "Već imate cmux? Otvorite Postavke > App i postavite kanal ažuriranja na Release candidate, ili dodajte <code>{\"updates\": {\"channel\": \"rc\"}}</code> u <code>~/.config/cmux/cmux.json</code>.",
     "warning": "Release candidate verzije i dalje mogu imati greške. Ako se nešto pokvari, prijavite na <githubLink>GitHub</githubLink> ili na <discordLink>Discord</discordLink>. Povratak na stabilni kanal zaustavlja release candidate ažuriranja, ali ne vraća stariju verziju; za to ponovo instalirajte stabilno izdanje."
   },
   "languageSwitcher": {

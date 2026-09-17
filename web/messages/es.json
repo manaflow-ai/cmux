@@ -1966,11 +1966,11 @@
     "subtitle": "La próxima versión estable, unos días antes",
     "metaTitle": "cmux Release Candidate — Acceso anticipado a la próxima versión estable",
     "metaDescription": "Prueba la release candidate de cmux: la próxima versión estable publicada unos días antes en su propio canal de actualizaciones. Misma app, mismo bundle ID, cambia de canal en Ajustes.",
-    "description": "La release candidate es la próxima versión estable de cmux, publicada unos días antes para detectar problemas antes de que la reciba todo el mundo. Es la misma app que la estable: instálala sobre tu cmux actual o cambia una instalación existente al canal de actualizaciones release candidate en Ajustes > Actualizaciones. Cuando la candidata pasa, esa misma compilación se convierte en la versión estable.",
+    "description": "La release candidate es la próxima versión estable de cmux, publicada unos días antes para detectar problemas antes de que la reciba todo el mundo. Es la misma app que la estable: instálala sobre tu cmux actual o cambia una instalación existente al canal de actualizaciones release candidate en Ajustes > App. Cuando la candidata pasa, esa misma compilación se convierte en la versión estable.",
     "download": "Descargar la release candidate para Mac",
     "downloadArm64": "DMG para Apple silicon",
     "downloadIntel": "DMG para Intel",
-    "channelHint": "¿Ya tienes cmux? Abre Ajustes > Actualizaciones y pon el canal de actualizaciones en Release candidate, o ejecuta <code>cmux config set updates.channel rc</code>.",
+    "channelHint": "¿Ya tienes cmux? Abre Ajustes > App y pon el canal de actualizaciones en Release candidate, o añade <code>{\"updates\": {\"channel\": \"rc\"}}</code> a <code>~/.config/cmux/cmux.json</code>.",
     "warning": "Las release candidates todavía pueden tener errores. Si algo falla, repórtalo en <githubLink>GitHub</githubLink> o en <discordLink>Discord</discordLink>. Volver al canal Estable detiene las actualizaciones de release candidate pero no hace downgrade; para eso, reinstala la versión estable."
   },
   "languageSwitcher": {

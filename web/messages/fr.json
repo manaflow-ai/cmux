@@ -1969,11 +1969,11 @@
     "subtitle": "La prochaine version stable, quelques jours en avance",
     "metaTitle": "cmux Release Candidate — Accès anticipé à la prochaine version stable",
     "metaDescription": "Essayez la release candidate de cmux : la prochaine version stable publiée quelques jours en avance sur son propre canal de mise à jour. Même application, même bundle ID, changez de canal dans les Réglages.",
-    "description": "La release candidate est la prochaine version stable de cmux, publiée quelques jours en avance pour repérer les problèmes avant que tout le monde la reçoive. C'est la même application que la version stable : installez-la par-dessus votre cmux actuel, ou basculez une installation existante sur le canal de mise à jour release candidate dans Réglages > Mises à jour. Quand la candidate est validée, la même build devient la version stable.",
+    "description": "La release candidate est la prochaine version stable de cmux, publiée quelques jours en avance pour repérer les problèmes avant que tout le monde la reçoive. C'est la même application que la version stable : installez-la par-dessus votre cmux actuel, ou basculez une installation existante sur le canal de mise à jour release candidate dans Réglages > App. Quand la candidate est validée, la même build devient la version stable.",
     "download": "Télécharger la release candidate pour Mac",
     "downloadArm64": "DMG Apple Silicon",
     "downloadIntel": "DMG Intel",
-    "channelHint": "Vous avez déjà cmux ? Ouvrez Réglages > Mises à jour et réglez le canal de mise à jour sur Release candidate, ou exécutez <code>cmux config set updates.channel rc</code>.",
+    "channelHint": "Vous avez déjà cmux ? Ouvrez Réglages > App et réglez le canal de mise à jour sur Release candidate, ou ajoutez <code>{\"updates\": {\"channel\": \"rc\"}}</code> dans <code>~/.config/cmux/cmux.json</code>.",
     "warning": "Les release candidates peuvent encore contenir des bugs. Si quelque chose casse, signalez-le sur <githubLink>GitHub</githubLink> ou sur <discordLink>Discord</discordLink>. Revenir au canal Stable arrête les mises à jour release candidate mais ne rétrograde pas ; réinstallez la version stable pour cela."
   },
   "languageSwitcher": {

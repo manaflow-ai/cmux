@@ -1967,11 +1967,11 @@
     "subtitle": "La prossima build stabile, qualche giorno in anticipo",
     "metaTitle": "cmux Release Candidate — Accesso anticipato alla prossima build stabile",
     "metaDescription": "Prova la release candidate di cmux: la prossima build stabile pubblicata qualche giorno in anticipo sul proprio canale di aggiornamento. Stessa app, stesso bundle ID, cambia canale nelle Impostazioni.",
-    "description": "La release candidate è la prossima build stabile di cmux, pubblicata qualche giorno in anticipo per individuare i problemi prima che la ricevano tutti. È la stessa app della versione stabile: installala sopra il tuo cmux attuale, oppure passa un'installazione esistente al canale di aggiornamento release candidate in Impostazioni > Aggiornamenti. Quando la candidata supera i test, la stessa build diventa la versione stabile.",
+    "description": "La release candidate è la prossima build stabile di cmux, pubblicata qualche giorno in anticipo per individuare i problemi prima che la ricevano tutti. È la stessa app della versione stabile: installala sopra il tuo cmux attuale, oppure passa un'installazione esistente al canale di aggiornamento release candidate in Impostazioni > App. Quando la candidata supera i test, la stessa build diventa la versione stabile.",
     "download": "Scarica la release candidate per Mac",
     "downloadArm64": "DMG per Apple silicon",
     "downloadIntel": "DMG per Intel",
-    "channelHint": "Hai già cmux? Apri Impostazioni > Aggiornamenti e imposta il canale di aggiornamento su Release candidate, oppure esegui <code>cmux config set updates.channel rc</code>.",
+    "channelHint": "Hai già cmux? Apri Impostazioni > App e imposta il canale di aggiornamento su Release candidate, oppure aggiungi <code>{\"updates\": {\"channel\": \"rc\"}}</code> a <code>~/.config/cmux/cmux.json</code>.",
     "warning": "Le release candidate possono ancora contenere bug. Se qualcosa si rompe, segnalalo su <githubLink>GitHub</githubLink> o su <discordLink>Discord</discordLink>. Tornare al canale Stabile interrompe gli aggiornamenti release candidate ma non esegue il downgrade; per quello reinstalla la versione stabile."
   },
   "languageSwitcher": {
