@@ -962,12 +962,12 @@ struct FeedRowActions {
             },
             jump: { workstreamId in
                 Task { @MainActor in
-                    _ = FeedCoordinator.shared.focusIfPossible(workstreamId: workstreamId)
+                    _ = await FeedCoordinator.shared.focusIfPossible(workstreamId: workstreamId)
                 }
             },
             sendText: { workstreamId, text in
                 Task { @MainActor in
-                    FeedCoordinator.shared.sendTextToWorkstream(
+                    _ = await FeedCoordinator.shared.sendTextToWorkstream(
                         workstreamId: workstreamId,
                         text: text
                     )
@@ -1534,7 +1534,7 @@ private struct PermissionActionArea: View {
                     Text(primary)
                         .cmuxFont(size: 11, design: .monospaced)
                         .foregroundColor(.primary.opacity(0.95))
-                        .textSelection(.enabled)
+                        .copyOnlyTextSelection(for: primary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }

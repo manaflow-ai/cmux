@@ -1,3 +1,4 @@
+import * as Exit from "effect/Exit";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -57,6 +58,7 @@ describe("execVm usage event (representative bestEffort site)", () => {
     const vmRow = {
       id: "row-1",
       userId: "user-1",
+      ownerTeamId: "user-1",
       billingTeamId: null,
       billingPlanId: "free",
       provider: "freestyle",
@@ -65,7 +67,7 @@ describe("execVm usage event (representative bestEffort site)", () => {
       imageVersion: null,
       status: "running",
       displayName: null,
-      providerMetadata: null,
+      providerMetadata: {},
       createdAt: new Date(),
       updatedAt: new Date(),
     } as unknown as CloudVmRow;
@@ -102,6 +104,6 @@ describe("execVm usage event (representative bestEffort site)", () => {
     // Keeps the adapter and the workflow programs aligned at the type level;
     // runtime coverage for the adapter lives in vm-workflow-exit.test.ts.
     const result = await runVmWorkflowExit(Effect.succeed("aligned"));
-    expect(result).toEqual({ ok: true, value: "aligned" });
+    expect(result).toEqual(Exit.succeed("aligned"));
   });
 });

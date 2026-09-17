@@ -67,7 +67,13 @@ extension RemoteDaemonUploadTests {
         let temporaryFiles = try fileManager.contentsOfDirectory(
             at: remoteDirectory,
             includingPropertiesForKeys: nil
-        ).filter { $0.lastPathComponent.contains(".tmp-") && $0.pathExtension != "pid" }
+        ).filter {
+            guard let values = try? $0.resourceValues(forKeys: [.isDirectoryKey]),
+                  values.isDirectory != true else {
+                return false
+            }
+            return $0.lastPathComponent.contains(".tmp-") && $0.pathExtension != "pid"
+        }
         let temporaryFile = try #require(temporaryFiles.first)
         #expect(temporaryFiles.count == 1)
         #expect(try Data(contentsOf: temporaryFile) == payload)

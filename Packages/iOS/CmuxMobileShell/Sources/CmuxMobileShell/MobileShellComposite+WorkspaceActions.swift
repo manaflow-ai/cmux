@@ -450,10 +450,20 @@ extension MobileShellComposite {
     }
 
     private func workspaceGroupActionCapabilities(for id: MobileWorkspaceGroupPreview.ID) -> MobileWorkspaceActionCapabilities {
-        guard let anchorWorkspaceID = workspaceGroups.first(where: { $0.id == id })?.anchorWorkspaceID else {
+        guard let group = workspaceGroups.first(where: { $0.id == id }) else {
             return .none
         }
-        return workspaceActionCapabilities(for: anchorWorkspaceID)
+        if let capabilities = group.actionCapabilities {
+            // Group actions belong to the owning Mac, so this remains valid for
+            // a header-only group with no workspace row.
+            return capabilities
+        }
+        if let anchorWorkspaceID = group.liveAnchorWorkspaceID {
+            return workspaceActionCapabilities(for: anchorWorkspaceID)
+        }
+        // Legacy/preview groups without a capability snapshot fail closed; a
+        // stable empty-header identity must never be used as a workspace target.
+        return .none
     }
 
     private func macScopedWorkspaceMutationIsAuthorized(target: WorkspaceMutationTarget) -> Bool {
@@ -691,14 +701,63 @@ extension MobileShellComposite {
     }
 
     private func workspaceGroupMutationTarget(for id: MobileWorkspaceGroupPreview.ID) -> WorkspaceMutationTarget {
-        guard let anchorWorkspaceID = workspaceGroups.first(where: { $0.id == id })?.anchorWorkspaceID else {
+        guard let group = workspaceGroups.first(where: { $0.id == id }) else {
             return WorkspaceMutationTarget(
                 client: remoteClient,
                 isForeground: true,
                 macDeviceID: foregroundMacDeviceID
             )
         }
-        return workspaceMutationTarget(for: anchorWorkspaceID)
+        if let anchorWorkspaceID = group.liveAnchorWorkspaceID {
+            return workspaceMutationTarget(for: anchorWorkspaceID)
+        }
+        if let owner = workspaces.first(where: { workspace in
+            CmxMacAppInstanceIdentity(
+                macDeviceID: group.macDeviceID ?? "",
+                instanceTag: group.macInstanceTag
+            ) == CmxMacAppInstanceIdentity(
+                macDeviceID: workspace.macDeviceID ?? "",
+                instanceTag: workspace.macInstanceTag
+            )
+        }) {
+            return workspaceMutationTarget(for: owner.id)
+        }
+        if let macDeviceID = group.macDeviceID,
+           !macDeviceID.isEmpty {
+            let ownerKey = MacPairingKey(
+                macDeviceID: macDeviceID,
+                instanceTag: group.macInstanceTag
+            )
+            if let subscription = secondaryMacSubscriptions[ownerKey] {
+                return WorkspaceMutationTarget(
+                    client: subscription.client,
+                    isForeground: false,
+                    macDeviceID: macDeviceID,
+                    ownerKey: ownerKey
+                )
+            }
+            let isForegroundOwner = foregroundMacDeviceID.map {
+                MacPairingKey(
+                    macDeviceID: $0,
+                    instanceTag: activeMacInstanceTag
+                ) == ownerKey
+            } ?? false
+            if !isForegroundOwner {
+                // A known owner with no live route must fail closed; never
+                // send a group mutation to the foreground Mac by accident.
+                return WorkspaceMutationTarget(
+                    client: nil,
+                    isForeground: false,
+                    macDeviceID: macDeviceID,
+                    ownerKey: ownerKey
+                )
+            }
+        }
+        return WorkspaceMutationTarget(
+            client: remoteClient,
+            isForeground: true,
+            macDeviceID: foregroundMacDeviceID
+        )
     }
 
     func workspaceMutationFailure(
@@ -764,7 +823,7 @@ extension MobileShellComposite {
         for id: MobileWorkspaceGroupPreview.ID,
         target: WorkspaceMutationTarget
     ) -> String? {
-        guard let anchorWorkspaceID = workspaceGroups.first(where: { $0.id == id })?.anchorWorkspaceID else {
+        guard let anchorWorkspaceID = workspaceGroups.first(where: { $0.id == id })?.liveAnchorWorkspaceID else {
             return workspaceMutationHostDisplayName(target: target, fallback: nil)
         }
         return workspaceMutationHostDisplayName(

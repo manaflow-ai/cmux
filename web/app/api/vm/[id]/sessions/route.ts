@@ -1,19 +1,17 @@
 import {
   jsonResponse,
-  notFoundVm,
   resolveVmRouteAccountScope,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
-import { isVmNotFoundError } from "../../../../../services/vms/errors";
-import { optionalVmClientIdentifier } from "../../../../../services/vms/requestSchemas";
-import {
-  listVmSessions,
-  openVmSession,
-  runVmWorkflow,
-} from "../../../../../services/vms/workflows";
+import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
+import { listVmSessions, openVmSession } from "../../../../../services/vms/workflows";
 import type { CloudVmSessionRow } from "../../../../../services/vms/repository";
-
+import {
+  optionalClientIdentifier,
+  optionalString,
+  parseLenientObjectBody,
+} from "../../../../../services/vms/routeInput";
 
 export async function GET(
   request: Request,
@@ -29,18 +27,15 @@ export async function GET(
       const account = resolveVmRouteAccountScope(user, request);
       if (!account.ok) return account.response;
       setSpanAttributes(span, { "cmux.vm.id": id });
-      try {
-        const sessions = await runVmWorkflow(listVmSessions({
-          userId: user.id,
-          billingTeamId: account.entitlements.billingTeamId,
-          teamIds: user.teamIds,
-          providerVmId: id,
-        }));
-        return jsonResponse({ sessions: sessions.map(sessionPayload) });
-      } catch (err) {
-        if (isVmNotFoundError(err)) return notFoundVm(id);
-        throw err;
-      }
+      const run = await runVmRoute(listVmSessions({
+        userId: user.id,
+        billingTeamId: account.entitlements.billingTeamId,
+        callerPlanId: account.entitlements.planId,
+        teamIds: user.teamIds,
+        providerVmId: id,
+      }), { request });
+      if (!run.ok) return run.response;
+      return jsonResponse({ sessions: run.value.map(sessionPayload) });
     },
   );
 }
@@ -56,62 +51,42 @@ export async function POST(
     "/api/vm/[id]/sessions failed",
     async ({ user, span }) => {
       const { id } = await params;
-      const body = await parseSessionBody(request);
-      const sessionIdResult = optionalVmClientIdentifier(body.sessionId ?? body.session_id, "sessionId");
-      if (!sessionIdResult.ok) {
-        return jsonResponse({ error: "invalid_request", message: sessionIdResult.message }, 400);
+      const body = await parseLenientObjectBody(request);
+      let sessionId: string | undefined;
+      let attachmentId: string | undefined;
+      try {
+        sessionId = optionalClientIdentifier(body.sessionId ?? body.session_id, "sessionId");
+        attachmentId = optionalClientIdentifier(body.attachmentId ?? body.attachment_id, "attachmentId");
+      } catch (err) {
+        return jsonResponse({
+          error: "invalid_request",
+          message: err instanceof Error ? err.message : "Invalid Cloud VM session request.",
+        }, 400);
       }
-      const attachmentIdResult = optionalVmClientIdentifier(
-        body.attachmentId ?? body.attachment_id,
-        "attachmentId",
-      );
-      if (!attachmentIdResult.ok) {
-        return jsonResponse({ error: "invalid_request", message: attachmentIdResult.message }, 400);
-      }
-      const sessionId = sessionIdResult.value;
-      const attachmentId = attachmentIdResult.value;
       const title = optionalString(body.title);
       const account = resolveVmRouteAccountScope(user, request);
       if (!account.ok) return account.response;
       setSpanAttributes(span, { "cmux.vm.id": id });
       if (sessionId) setSpanAttributes(span, { "cmux.vm.session.id": sessionId });
-      try {
-        const result = await runVmWorkflow(openVmSession({
-          userId: user.id,
-          billingTeamId: account.entitlements.billingTeamId,
-          teamIds: user.teamIds,
-          providerVmId: id,
-          sessionId,
-          attachmentId,
-          title,
-        }));
-        return jsonResponse({
-          endpoint: result.endpoint,
-          session: result.session ? sessionPayload(result.session) : null,
-        });
-      } catch (err) {
-        if (isVmNotFoundError(err)) return notFoundVm(id);
-        throw err;
-      }
+      const run = await runVmRoute(openVmSession({
+        userId: user.id,
+        billingTeamId: account.entitlements.billingTeamId,
+        maxActiveVms: account.entitlements.maxActiveVms,
+        callerPlanId: account.entitlements.planId,
+        teamIds: user.teamIds,
+        providerVmId: id,
+        sessionId,
+        attachmentId,
+        title,
+      }), { request });
+      if (!run.ok) return run.response;
+      const result = run.value;
+      return jsonResponse({
+        endpoint: result.endpoint,
+        session: result.session ? sessionPayload(result.session) : null,
+      });
     },
   );
-}
-
-async function parseSessionBody(request: Request): Promise<Record<string, unknown>> {
-  try {
-    const body = await request.json();
-    return body && typeof body === "object" && !Array.isArray(body)
-      ? body as Record<string, unknown>
-      : {};
-  } catch {
-    return {};
-  }
-}
-
-function optionalString(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed || null;
 }
 
 function sessionPayload(session: CloudVmSessionRow) {

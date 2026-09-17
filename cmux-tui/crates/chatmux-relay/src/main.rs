@@ -580,17 +580,7 @@ async fn main() {
     let parsed = match parse_cli_args(std::env::args().skip(1)) {
         Ok(parsed) => parsed,
         Err(error) => {
-            // Keep user-facing diagnostics independent from internal parser
-            // implementation names. Do not echo raw argv values here:
-            // positional arguments may contain copied credentials.
-            let (public_code, public_message) = match error.code {
-                "coderouter_unavailable" => (
-                    "unsupported_command",
-                    "cmux-relay: that command is not supported in this version.",
-                ),
-                _ => (error.code, error.message.as_str()),
-            };
-            eprintln!("cmux-relay error [{public_code}]: {public_message}");
+            eprintln!("{}", error.message);
             eprintln!("Run `cmux-relay --help` for usage.");
             std::process::exit(2);
         }

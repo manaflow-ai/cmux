@@ -1,3 +1,5 @@
+import * as Exit from "effect/Exit";
+import * as Cause from "effect/Cause";
 import { describe, expect, test } from "bun:test";
 import * as Effect from "effect/Effect";
 import {
@@ -10,28 +12,25 @@ import { runVmWorkflow, runVmWorkflowExit } from "../services/vms/workflows";
 describe("runVmWorkflowExit", () => {
   test("returns the success value in the ok branch", async () => {
     const result = await runVmWorkflowExit(Effect.succeed(42));
-    expect(result).toEqual({ ok: true, value: 42 });
+    expect(result).toEqual(Exit.succeed(42));
   });
 
   test("returns the tagged workflow error in the failure branch", async () => {
     const error = new VmNotFoundError({ vmId: "vm-1" });
     const result = await runVmWorkflowExit(Effect.fail(error));
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toBe(error);
-      expect(result.error._tag).toBe("VmNotFoundError");
-    }
+    expect(Exit.isFailure(result)).toBe(true);
+    if (Exit.isFailure(result)) expect(Cause.squash(result.cause)).toBe(error);
   });
 
   test("unwraps VmSnapshotNotFoundError (previously missed by the tag walk)", async () => {
     const error = new VmSnapshotNotFoundError({ snapshotId: "snap-1" });
     const result = await runVmWorkflowExit(Effect.fail(error));
-    expect(result).toEqual({ ok: false, error });
+    expect(result).toEqual(Exit.fail(error));
   });
 
-  test("rethrows defects raw so the route boundary can 500 and capture them", async () => {
+  test("retains defects in the Exit for the route boundary to capture", async () => {
     const defect = new Error("boom");
-    await expect(runVmWorkflowExit(Effect.die(defect))).rejects.toBe(defect);
+    expect(await runVmWorkflowExit(Effect.die(defect))).toEqual(Exit.die(defect));
   });
 });
 

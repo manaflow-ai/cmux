@@ -14,11 +14,16 @@ import Foundation
 @MainActor
 struct TerminalLinkOpenCoordinator {
     private let defaults: UserDefaults
+    private let externalNavigationHandler: BrowserExternalNavigationHandler
     private let containerResolver: @MainActor (UUID?, UUID?) -> (any TerminalLinkOpenContainer)?
     private let externalOpen: @MainActor @Sendable (URL) -> Bool
     private let fileOpen: any FileOpening
     private let deferOperation: @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void
 
+    /// Creates a coordinator using the supplied routing collaborators.
+    ///
+    /// The production preferred-editor service is created at the point of
+    /// opening so it always reads the current editor setting.
     init(
         defaults: UserDefaults = .standard,
         containerResolver: (@MainActor (UUID?, UUID?) -> (any TerminalLinkOpenContainer)?)? = nil,
@@ -29,12 +34,17 @@ struct TerminalLinkOpenCoordinator {
         }
     ) {
         self.defaults = defaults
+        self.externalNavigationHandler = BrowserExternalNavigationHandler(
+            defaults: defaults,
+            openURL: externalOpen
+        )
         self.containerResolver = containerResolver ?? Self.resolveContainer
         self.externalOpen = externalOpen
         self.fileOpen = fileOpen ?? PreferredEditorService(defaults: defaults)
         self.deferOperation = deferOperation
     }
 
+    /// Opens a terminal link according to the source terminal and URL policy.
     @discardableResult
     func open(_ request: TerminalLinkOpenRequest) -> Bool {
         log("link.openURL raw=\(request.rawValue)")
@@ -42,6 +52,7 @@ struct TerminalLinkOpenCoordinator {
         let trimmed = request.rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let container = containerResolver(request.sourceWorkspaceId, request.sourcePanelId)
         var normalizedOpenURLString = request.rawValue
+        let isExplicitLocalFileURL = isExplicitFileURL(trimmed)
 
         let canResolveLocalFilePath: Bool
         if let sourcePanelId = request.sourcePanelId, let container {
@@ -51,16 +62,30 @@ struct TerminalLinkOpenCoordinator {
         }
         if !trimmed.isEmpty,
            canResolveLocalFilePath,
-           let resolvedPath = TerminalPathResolver().resolveOpenURLFilePath(
+           let reference = TerminalPathResolver().resolveOpenURLFileReference(
                trimmed,
                cwd: resolvedWorkingDirectory(request: request, container: container)
            ) {
-            let fileURL = URL(fileURLWithPath: resolvedPath)
-            if CommandClickFileOpenRouter.shouldRouteInCmux(
-                path: resolvedPath,
-                defaults: defaults
-            ) {
-                log("link.openURL resolvedAsFilePath=\(resolvedPath)")
+            if let line = reference.line, !isExplicitLocalFileURL {
+                log(
+                    "link.openURL resolvedAsFileLocation=\(reference.path):\(line)" +
+                    (reference.column.map { ":\($0)" } ?? "")
+                )
+                PreferredEditorService(defaults: defaults).open(
+                    URL(fileURLWithPath: reference.path),
+                    line: reference.line,
+                    column: reference.column
+                )
+                return true
+            }
+
+            if !isExplicitLocalFileURL,
+               CommandClickFileOpenRouter.shouldRouteInCmux(
+                   path: reference.path,
+                   defaults: defaults
+               ) {
+                let fileURL = URL(fileURLWithPath: reference.path)
+                log("link.openURL resolvedAsFilePath=\(reference.path)")
                 return routeLocalFile(
                     fileURL,
                     request: request,
@@ -68,7 +93,9 @@ struct TerminalLinkOpenCoordinator {
                     unavailableReason: "file route unavailable"
                 )
             }
-            normalizedOpenURLString = resolvedPath
+            if !isExplicitLocalFileURL {
+                normalizedOpenURLString = reference.path
+            }
         }
 
         guard let target = resolveTerminalOpenURLTarget(normalizedOpenURLString) else {
@@ -100,15 +127,18 @@ struct TerminalLinkOpenCoordinator {
             )
         }
 
-        guard BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(defaults: defaults) else {
-            return openExternally(target.url, reason: "cmux browser disabled")
+        let cloudURL = request.sourcePanelId.flatMap {
+            container?.cloudTerminalLinkTarget(url: target.url, sourcePanelId: $0)?.url
         }
-
+        let destinationURL = cloudURL ?? target.url
+        guard BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(defaults: defaults) else {
+            return openExternally(destinationURL, reason: "cmux browser disabled")
+        }
         switch target {
-        case .external(let url):
-            return openExternally(url, reason: "external target")
-        case .embeddedBrowser(let url):
-            return openEmbeddedBrowserURL(url, request: request, container: container)
+        case .external:
+            return openExternally(destinationURL, reason: "external target")
+        case .embeddedBrowser:
+            return openEmbeddedBrowserURL(destinationURL, request: request, container: container)
         }
     }
 
@@ -205,8 +235,21 @@ struct TerminalLinkOpenCoordinator {
         request: TerminalLinkOpenRequest,
         container: (any TerminalLinkOpenContainer)?
     ) -> Bool {
-        if BrowserLinkOpenSettings.shouldOpenExternally(url, defaults: defaults) {
-            return openExternally(url, reason: "external pattern")
+        switch externalNavigationHandler.openConfiguredExternallyResult(url) {
+        case .opened:
+            log(
+                "link.openURL opening externally reason=external pattern " +
+                "opened=1 url=\(url)"
+            )
+            return true
+        case .failed:
+            log(
+                "link.openURL opening externally reason=external pattern " +
+                "opened=0 url=\(url)"
+            )
+            return false
+        case .notConfigured:
+            break
         }
         guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else {
             return openExternally(url, reason: "invalid host")
@@ -226,24 +269,12 @@ struct TerminalLinkOpenCoordinator {
         )
 
         deferOperation { [self] in
-            let currentContainer = self.containerResolver(
-                request.sourceWorkspaceId,
-                sourcePanelId
-            )
+            let currentContainer = self.containerResolver(request.sourceWorkspaceId, sourcePanelId)
             let openedInBrowser = BrowserAvailabilitySettings.isEnabled(defaults: self.defaults)
-                && currentContainer?.openTerminalBrowserLink(
-                    url: url,
-                    sourcePanelId: sourcePanelId
-                ) == true
+                && currentContainer?.openTerminalBrowserLink(url: url, sourcePanelId: sourcePanelId) == true
             if openedInBrowser { return }
-
-            self.log(
-                "link.openURL embedded open failed, opening externally " +
-                "host=\(host) surfaceId=\(sourcePanelId) url=\(url)"
-            )
-            if !self.externalOpen(url) {
-                NSSound.beep()
-            }
+            self.log("link.openURL embedded open failed, opening externally host=\(host) surfaceId=\(sourcePanelId) url=\(url)")
+            if !self.externalOpen(url) { NSSound.beep() }
         }
         return true
     }
@@ -269,6 +300,11 @@ struct TerminalLinkOpenCoordinator {
         }
         log("link.openURL opening externally reason=\(reason) url=\(url)")
         return externalOpen(url)
+    }
+
+    /// Returns whether a raw link is an explicit local `file` URL.
+    private func isExplicitFileURL(_ rawValue: String) -> Bool {
+        URL(string: rawValue)?.scheme?.caseInsensitiveCompare("file") == .orderedSame
     }
 
     private static func resolveContainer(

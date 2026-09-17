@@ -8,6 +8,7 @@ import {
   headersForCanonicalFetch,
 } from "../lib/agent-page-canonical-fetch";
 import { sameOriginRedirectUrl } from "../lib/agent-page-redirects";
+import { requestOrigin } from "../lib/request-origin";
 import {
   headersForAgentPage,
   headersForLlmsTxt,
@@ -28,7 +29,7 @@ export async function GET(request: NextRequest) {
     return new NextResponse("Not found\n", { status: 404 });
   }
 
-  const origin = request.nextUrl.origin;
+  const origin = requestOrigin(request);
 
   if (variant.kind === "llms") {
     return new NextResponse(buildLlmsText(origin), {
@@ -36,7 +37,7 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  const htmlUrl = new URL(request.url);
+  const htmlUrl = new URL(request.nextUrl.pathname, origin);
   htmlUrl.pathname = variant.canonicalPath;
   htmlUrl.search = "";
 

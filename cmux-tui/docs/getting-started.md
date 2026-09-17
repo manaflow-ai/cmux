@@ -53,8 +53,16 @@ Use `--term <value>` to set `TERM` for child PTYs. Without it, children get `xte
 
 ## Durable server and attach
 
-`server start` starts only the mux backend and control socket. `server status`
-checks it, `server stop` stops it, and `attach` opens a TUI on the session.
+A plain `cmux` run starts (or reuses) a detached headless owner for the
+session and attaches to it as a client, so several `cmux` runs for the same
+session share one live session and detaching never ends it. `server ensure`
+does the same start-or-reuse without attaching. Set
+`{"server":{"detached_owner":false}}` to host the session inside the first
+TUI process instead.
+
+`server start` starts only the mux backend and control socket, in the
+foreground. `server status` checks it, `server stop` stops it, and `attach`
+opens a TUI on the session.
 
 ```bash
 cd cmux-tui

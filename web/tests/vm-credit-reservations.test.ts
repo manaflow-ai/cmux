@@ -42,6 +42,9 @@ function vmRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
     provider: "freestyle",
     providerVmId: null,
     displayName: null,
+    slug: null,
+    coderouterPoolId: null,
+    ownerTeamId: "team-credit-reservations",
     imageId: "snapshot-test",
     imageVersion: null,
     status: "provisioning",
@@ -95,6 +98,10 @@ function reservationRepo(input: {
 }): VmRepositoryShape {
   const record = (name: string) => input.calls?.push(name);
   return {
+    findNetwork: () => Effect.succeed({ id: "network-row", userId: input.vm.userId, provider: "freestyle", providerNetworkId: "network-1", slug: "test-network", cidr: null, cidrV6: null, createdAt: new Date(), updatedAt: new Date() }),
+    upsertNetwork: () => Effect.die("existing network is used"),
+    recentReaperReportKeys: () => Effect.succeed([]),
+    pendingSnapshotDeletions: () => Effect.succeed([]),
     listUserVms: () => Effect.succeed([]),
     claimBillingGrant: () => Effect.succeed({ kind: "already_claimed" as const }),
     markBillingGrantApplied: () => Effect.void,
@@ -183,6 +190,8 @@ function billingGateway(input: {
 
 function providerGateway(input: { readonly createError?: VmProviderOperationError } = {}): VmProviderGatewayShape {
   return {
+    supportsPrivateNetworking: () => true,
+    ensureNetwork: () => Effect.die("existing network is used"),
     create: () =>
       input.createError
         ? Effect.fail(input.createError)

@@ -1,3 +1,5 @@
+import { authorizeCronRequest } from "../../../../services/cronAuth";
+import { vmModelPlaneRevoker } from "../../../../services/vms/modelPlaneGateway";
 import {
   reconcileCreditReservations,
   reconcileVmProviderStatuses,
@@ -7,13 +9,12 @@ import {
 
 
 export async function GET(request: Request): Promise<Response> {
-  const secret = process.env.CRON_SECRET;
-  if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) {
+  if (!authorizeCronRequest(request).ok) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 
   try {
-    const providerStatuses = await runVmWorkflow(reconcileVmProviderStatuses());
+    const providerStatuses = await runVmWorkflow(reconcileVmProviderStatuses({ modelPlane: vmModelPlaneRevoker() }));
     // Order matters: sweep first so a crashed create's row is durably failed
     // before the reservation reconciler decides whether to refund its credit.
     const stuckProvisioning = await runVmWorkflow(sweepStuckProvisioningVms());

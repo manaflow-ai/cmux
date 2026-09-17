@@ -57,7 +57,7 @@ public struct MobileWorkspaceGroupMoveMenu: Equatable, Sendable {
         movedWorkspaceID: MobileWorkspacePreview.ID
     ) {
         guard let moved = workspaces.first(where: { $0.id == movedWorkspaceID }),
-              !groups.contains(where: { $0.anchorWorkspaceID == movedWorkspaceID }) else {
+              !groups.contains(where: { $0.liveAnchorWorkspaceID == movedWorkspaceID }) else {
             entries = []
             canRemoveFromGroup = false
             return

@@ -7,15 +7,15 @@
 // operation-specific.
 
 import { z } from "zod";
-import type { ProviderId } from "./drivers";
+import { VM_IMAGE_KINDS, isVmImageKind, type VmImageKind } from "./images/resolver";
+import { isProviderId, type ProviderId } from "./drivers";
 import { jsonResponse, vmErrorResponse } from "./routeHelpers";
 
 export type ParsedVmBody<T> =
   | { readonly ok: true; readonly body: T }
   | { readonly ok: false; readonly response: Response };
 
-export const VM_PROVIDER_IDS = ["e2b", "freestyle", "daytona", "blaxel"] as const;
-export const vmProviderIdSchema = z.enum(VM_PROVIDER_IDS);
+export const vmProviderIdSchema = z.custom<ProviderId>(isProviderId);
 
 /** stringField equivalent: trimmed non-empty string, everything else silently undefined. */
 export function vmOptionalTrimmedString(value: unknown): string | undefined {
@@ -35,8 +35,8 @@ const vmCreateBodyShape = z.looseObject({
   provider: z.string().optional(),
   // `billingTeamId: null` is ignored (falls through to `teamId`); a null
   // `teamId` is rejected like any other non-string.
-  billingTeamId: z.string().nullable().optional(),
-  teamId: z.string().optional(),
+  billingTeamId: z.unknown().optional(),
+  teamId: z.unknown().optional(),
   persistentHome: z.boolean().optional(),
   perMachineHome: z.boolean().optional(),
   memoryMb: z.int().min(VM_CREATE_MIN_MEMORY_MB).optional(),
@@ -44,6 +44,7 @@ const vmCreateBodyShape = z.looseObject({
 
 export type VmCreateBody = {
   readonly image?: string;
+  readonly kind?: VmImageKind;
   readonly provider?: ProviderId;
   readonly billingTeamId?: string;
   readonly persistentHome: boolean;
@@ -76,6 +77,14 @@ export function parseVmCreateBody(candidate: Record<string, unknown>): ParsedVmB
       details: { field: "image" },
     }));
   }
+  if (candidate.kind !== undefined && !isVmImageKind(candidate.kind)) {
+    return invalid(vmErrorResponse({
+      error: "vm_invalid_request", status: 400,
+      message: `\`kind\` must be one of ${VM_IMAGE_KINDS.join(", ")} when provided.`,
+      action: "Remove `kind` to use the default Cloud VM image, or pass `desktop` or `base`.",
+      details: { field: "kind", allowedKinds: VM_IMAGE_KINDS },
+    }));
+  }
   if (issueFields.has("provider")) {
     return invalid(vmErrorResponse({
       error: "vm_invalid_request",
@@ -97,7 +106,8 @@ export function parseVmCreateBody(candidate: Record<string, unknown>): ParsedVmB
       details: { field: "provider" },
     }));
   }
-  if (issueFields.has("billingTeamId") || issueFields.has("teamId")) {
+  const requestedTeam = candidate.billingTeamId ?? candidate.teamId;
+  if (requestedTeam !== undefined && typeof requestedTeam !== "string") {
     return invalid(vmInvalidTeamIdResponse());
   }
   if (issueFields.has("persistentHome")) {
@@ -145,6 +155,7 @@ export function parseVmCreateBody(candidate: Record<string, unknown>): ParsedVmB
     ok: true,
     body: {
       image: data.image,
+      kind: isVmImageKind(candidate.kind) ? candidate.kind : undefined,
       provider: data.provider as ProviderId | undefined,
       billingTeamId: typeof bodyBillingTeamId === "string" ? bodyBillingTeamId.trim() : undefined,
       persistentHome: data.persistentHome === true,
@@ -171,6 +182,7 @@ const vmBaseBodyShape = z.looseObject({
 export type VmBaseBody = {
   readonly name?: string;
   readonly image?: string;
+  readonly kind?: VmImageKind;
   readonly provider?: ProviderId;
   readonly billingTeamId?: string;
   readonly reason?: string | null;
@@ -206,6 +218,14 @@ export function parseVmBaseBody(candidate: Record<string, unknown>): ParsedVmBod
     // Unreachable: every schema field is mapped above. Fail closed anyway.
     return stringFieldError("body");
   }
+  if (candidate.kind !== undefined && candidate.kind !== null && !isVmImageKind(candidate.kind)) {
+    return invalid(vmErrorResponse({
+      error: "vm_invalid_request", status: 400,
+      message: `\`kind\` must be one of ${VM_IMAGE_KINDS.join(", ")} when provided.`,
+      action: "Remove `kind` to use the default Cloud VM image, or pass `desktop` or `base`.",
+      details: { field: "kind", allowedKinds: VM_IMAGE_KINDS },
+    }));
+  }
   const provider = typeof result.data.provider === "string" ? result.data.provider.trim() : undefined;
   if (provider && !vmProviderIdSchema.safeParse(provider).success) {
     return invalid(vmErrorResponse({
@@ -220,6 +240,7 @@ export function parseVmBaseBody(candidate: Record<string, unknown>): ParsedVmBod
     ok: true,
     body: {
       name: vmOptionalTrimmedString(result.data.name),
+      kind: isVmImageKind(candidate.kind) ? candidate.kind : undefined,
       image: vmOptionalTrimmedString(result.data.image),
       provider: (provider || undefined) as ProviderId | undefined,
       billingTeamId: vmOptionalTrimmedString(bodyBillingTeamId),

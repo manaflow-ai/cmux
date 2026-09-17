@@ -1,4 +1,5 @@
 import CryptoKit
+import CmuxTerminalCore
 import Darwin
 import Foundation
 
@@ -558,6 +559,10 @@ extension CMUXCLI {
                 "expandAllDiffs": CMUXDiffViewerLocalization.string("diffViewer.expandAllDiffs", defaultValue: "Expand all diffs"),
                 "expandUnchangedContext": CMUXDiffViewerLocalization.string("diffViewer.expandUnchangedContext", defaultValue: "Expand unchanged context"),
                 "files": CMUXDiffViewerLocalization.string("diffViewer.files", defaultValue: "Files"),
+                "findClose": CMUXDiffViewerLocalization.string("diffViewer.findClose", defaultValue: "Close find"),
+                "findInDiff": CMUXDiffViewerLocalization.string("diffViewer.findInDiff", defaultValue: "Find in diff"),
+                "findNextMatch": CMUXDiffViewerLocalization.string("diffViewer.findNextMatch", defaultValue: "Next match"),
+                "findPreviousMatch": CMUXDiffViewerLocalization.string("diffViewer.findPreviousMatch", defaultValue: "Previous match"),
                 "hideBackgrounds": CMUXDiffViewerLocalization.string("diffViewer.hideBackgrounds", defaultValue: "Hide backgrounds"),
                 "hideFiles": CMUXDiffViewerLocalization.string("diffViewer.hideFiles", defaultValue: "Hide files"),
                 "hideFileSearch": CMUXDiffViewerLocalization.string("diffViewer.hideFileSearch", defaultValue: "Hide file search"),
@@ -1465,8 +1470,7 @@ extension CMUXCLI {
            scheme == "http" || scheme == "https" {
             return .url(url.absoluteString, defaultFocus: true)
         }
-
-        let resolved = resolvePath(raw)
+        let resolved = TerminalPathResolver().resolveOpenURLFileReference(raw, cwd: FileManager.default.currentDirectoryPath)?.path ?? resolvePath(raw)
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: resolved, isDirectory: &isDir) else {
             throw CLIError(message: "Path does not exist: \(resolved)")

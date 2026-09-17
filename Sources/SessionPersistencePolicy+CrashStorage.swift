@@ -279,11 +279,14 @@ extension SessionPersistencePolicy {
         let keptMembersByGroupId = Dictionary(grouping: keptWorkspaces, by: \.groupId)
         let occupiedGroupIds = Set(keptMembersByGroupId.keys.compactMap { $0 })
         let pruned = groups.compactMap { group -> SessionWorkspaceGroupSnapshot? in
-            guard occupiedGroupIds.contains(group.id) else { return nil }
+            let keepsEmptyPinnedGroup = group.isPinned == true && group.anchorIsEmpty == true
+            guard occupiedGroupIds.contains(group.id) || keepsEmptyPinnedGroup else { return nil }
             let groupId = Optional(group.id)
             let originalMembers = originalMembersByGroupId[groupId] ?? []
             let keptMembers = keptMembersByGroupId[groupId] ?? []
-            guard !keptMembers.isEmpty else { return nil }
+            if keptMembers.isEmpty {
+                return keepsEmptyPinnedGroup ? group : nil
+            }
 
             var copy = group
             let originalAnchorWorkspaceId = group.anchorWorkspaceId ?? group.anchorMemberIndex.flatMap { index in
@@ -294,6 +297,7 @@ extension SessionPersistencePolicy {
             } ?? 0
             copy.anchorMemberIndex = newAnchorIndex
             copy.anchorWorkspaceId = keptMembers[newAnchorIndex].workspaceId
+            copy.anchorIsEmpty = nil
             return copy
         }
         return pruned.isEmpty ? nil : pruned
