@@ -445,6 +445,8 @@ fn spawn_revocation_feed(
             metrics.feed_healthy.set(1);
             for event in body.events {
                 if event.cursor <= sequence || gate.apply_revocation_token(&event.update).is_err() {
+                    metrics.feed_healthy.set(0);
+                    metrics.feed_failures.inc();
                     break;
                 }
                 sequence = event.cursor;
