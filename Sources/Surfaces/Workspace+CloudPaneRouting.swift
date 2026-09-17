@@ -106,12 +106,11 @@ final class CloudWorkspaceRenameService {
            binding.vmID != target.machine.cloudMachineID {
             return
         }
-        bind(
+        catalog.bindCloudWorkspace(
             localWorkspaceID: localWorkspaceID,
             machine: target.machine,
             remoteWorkspaceID: target.remoteWorkspaceID
         )
-        updateCloudDirectories(localWorkspaceID: localWorkspaceID, catalog: catalog)
     }
     /// The one remote cmux-tui workspace a local workspace stands for. The persisted
     /// binding wins; otherwise the projected cloud resources decide, but only when
@@ -138,6 +137,21 @@ final class CloudWorkspaceRenameService {
         }
         guard seen.count == 1, let found else { return nil }
         return (found.0, found.1)
+    }
+
+    /// Converts a local title into the daemon name, removing only the generated
+    /// machine prefix used by legacy unbound Cloud workspaces.
+    func remoteName(
+        fromLocalTitle title: String,
+        machine: SurfaceMachineID,
+        stripGeneratedPrefix: Bool = true
+    ) -> String? {
+        var name = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefix = "\(machine.rawValue): "
+        if stripGeneratedPrefix, name.hasPrefix(prefix) {
+            name = String(name.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return name.isEmpty ? nil : name
     }
 
     /// Resolves the daemon tab represented by one local projection. An explicit
@@ -286,13 +300,16 @@ final class CloudWorkspaceRenameService {
         }
     }
 
-    /// Records which machine + remote workspace a just-opened local workspace stands
-    /// for, so later local renames write through without guessing from its panes.
+}
+
+extension CloudWorkspaceRenameService {
+    /// Records the stable machine/workspace identity for a local projection.
     @MainActor
     func bind(
         localWorkspaceID: UUID,
         machine: SurfaceMachineID,
         remoteWorkspaceID: String?,
+        isBase: Bool? = nil,
         generatedTitle: String? = nil
     ) {
         guard let vmID = machine.cloudMachineID,
@@ -302,22 +319,20 @@ final class CloudWorkspaceRenameService {
         let sameMachine = previousBinding?.vmID == vmID
         workspace.cloudVMBinding = WorkspaceCloudVMBinding(
             vmID: vmID,
-            isBase: sameMachine ? (previousBinding?.isBase ?? false) : false,
+            isBase: isBase ?? (sameMachine ? (previousBinding?.isBase ?? false) : false),
             remoteWorkspaceID: remoteWorkspaceID ?? (sameMachine ? previousBinding?.remoteWorkspaceID : nil)
         )
-        // Local workspace creation historically records its creation title as
-        // `.user`. Mark only an exact generated title as remote, and never erase
-        // a real user edit that raced the bind operation.
+
+        // The placeholder is marked automatic at creation. An explicit user
+        // title, including the literal "Cloud VM", is never inferred from text
+        // and therefore wins over a delayed daemon receipt.
         if let generatedTitle,
+           (workspace.effectiveCustomTitleSource == .auto || workspace.customTitleSource == nil),
            workspace.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
                == generatedTitle.trimmingCharacters(in: .whitespacesAndNewlines) {
-            _ = manager.setCustomTitle(
-                tabId: localWorkspaceID,
-                title: generatedTitle,
-                source: .remote,
-                propagateToRemoteTmux: false,
-                propagateToCloud: false
-            )
+            _ = manager.setCustomTitle(tabId: localWorkspaceID, title: generatedTitle, source: .remote,
+                                       propagateToRemoteTmux: false, propagateToCloud: false)
         }
+
     }
 }

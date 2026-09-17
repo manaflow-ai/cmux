@@ -11,6 +11,188 @@ final class cmuxUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    @MainActor
+    func testDeveloperSettingsReplaysWhatsNewRange() throws {
+        let app = launchApp(
+            mockData: false,
+            environment: ["CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1"]
+        )
+        defer { app.terminate() }
+        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 8))
+        tap(settings, in: app)
+
+        let replayRow = app.buttons["MobileSettingsReplayWhatsNew"]
+        for _ in 0..<10 where !replayRow.exists || !replayRow.isHittable {
+            app.swipeUp(velocity: .slow)
+        }
+        XCTAssertTrue(replayRow.isHittable)
+        tap(replayRow, in: app)
+        let show = app.buttons["MobileWhatsNewReplayShow"]
+        XCTAssertTrue(show.waitForExistence(timeout: 5))
+
+        func capture(_ name: String) {
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+
+        capture("Developer What's New range picker")
+        tap(show, in: app)
+        let continueButton = app.buttons["MobileWhatsNewContinue"]
+        XCTAssertTrue(continueButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["On this iPhone"].exists)
+        capture("Developer replay - pairing sheet")
+        app.staticTexts["On this iPhone"].swipeLeft()
+        XCTAssertTrue(app.staticTexts["Per-computer methods"].waitForExistence(timeout: 5))
+        capture("Developer replay - older sheet after swipe")
+        tap(continueButton, in: app)
+        XCTAssertTrue(show.waitForExistence(timeout: 5))
+
+        let first = app.buttons["MobileWhatsNewReplayFirst"]
+        tap(first, in: app)
+        tap(app.buttons["connections.v1"].firstMatch, in: app)
+        tap(show, in: app)
+        XCTAssertTrue(app.staticTexts["Per-computer methods"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["On this iPhone"].exists)
+        tap(continueButton, in: app)
+        XCTAssertTrue(show.waitForExistence(timeout: 5))
+        tap(show, in: app)
+        XCTAssertTrue(app.staticTexts["Per-computer methods"].waitForExistence(timeout: 5))
+        tap(continueButton, in: app)
+        XCTAssertTrue(show.waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testWhatsNewSheetFitsSwipedPageAndMatchesAppearance() throws {
+        let app = XCUIApplication()
+        defer { app.terminate() }
+
+        for appearance in ["light", "dark"] {
+            app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+            app.launchEnvironment = [
+                "CMUX_UITEST_WHATS_NEW_PREVIEW": "1",
+                "CMUX_UITEST_WHATS_NEW_APPEARANCE": appearance
+            ]
+            app.launch()
+            let image = app.images.matching(NSPredicate(
+                format: "label == %@",
+                "cmux Mac Settings, Mobile section, showing Enable iOS pairing."
+            )).firstMatch
+            XCTAssertTrue(image.waitForExistence(timeout: 15))
+            let sheet = app.collectionViews["MobileWhatsNewSheet"].firstMatch
+            let title = sheet.staticTexts["Action Required: Enable iOS pairing on your Mac"].firstMatch
+
+            func assertFitted(_ lastText: XCUIElement) {
+                XCTAssertTrue(lastText.exists)
+                let gap = app.buttons["Continue"].frame.minY - lastText.frame.maxY
+                XCTAssertGreaterThan(gap, 0)
+                XCTAssertLessThan(gap, 100, "The footer must follow this page's content")
+            }
+
+            let compatibilityDetail = app.staticTexts.matching(NSPredicate(
+                format: "label BEGINSWITH %@", "Use cmux 0.64.0 or later."
+            )).firstMatch
+            assertFitted(compatibilityDetail)
+            XCTAssertGreaterThanOrEqual(title.frame.minY - sheet.frame.minY, 28)
+            let pairingTop = title.frame.minY
+            let pixels = try XCTUnwrap(image.screenshot().image.cgImage)
+            var rgba = [UInt8](repeating: 0, count: 4)
+            let context = try XCTUnwrap(CGContext(
+                data: &rgba, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ))
+            context.draw(pixels, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+            let brightness = Double(Int(rgba[0]) + Int(rgba[1]) + Int(rgba[2])) / (3 * 255)
+            if appearance == "light" {
+                XCTAssertGreaterThan(brightness, 0.65, "Use the light Mac Settings capture")
+            } else {
+                XCTAssertLessThan(brightness, 0.35, "Use the dark Mac Settings capture")
+            }
+            let before = XCTAttachment(screenshot: app.screenshot())
+            before.name = "Fitted pairing page - \(appearance)"
+            before.lifetime = .keepAlways
+            add(before)
+
+            image.swipeLeft()
+            let olderTitle = sheet.staticTexts["What's New in cmux"].firstMatch
+            XCTAssertTrue(olderTitle.waitForExistence(timeout: 5))
+            let olderDetail = sheet.staticTexts.matching(NSPredicate(
+                format: "label BEGINSWITH %@", "Use cmux 0.64.0 or later."
+            )).firstMatch
+            assertFitted(olderDetail)
+            XCTAssertGreaterThan(abs(olderTitle.frame.minY - pairingTop), 20, "Swiping must resize the sheet")
+            let after = XCTAttachment(screenshot: app.screenshot())
+            after.name = "Fitted connections page - \(appearance)"
+            after.lifetime = .keepAlways
+            add(after)
+            olderTitle.swipeRight()
+            XCTAssertTrue(image.waitForExistence(timeout: 5))
+            assertFitted(compatibilityDetail)
+            XCTAssertEqual(title.frame.minY, pairingTop, accuracy: 2)
+            app.terminate()
+        }
+        try testWhatsNewSeparateUpdatesScreenshotCropAndLeadingAlignment()
+    }
+
+    @MainActor
+    func testWhatsNewSeparateUpdatesScreenshotCropAndLeadingAlignment() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchEnvironment = ["CMUX_UITEST_WHATS_NEW_PREVIEW": "1"]
+        app.launch()
+        defer { app.terminate() }
+
+        func verifyPairingPage(_ name: String) throws {
+            let screenshot = app.images.matching(NSPredicate(
+                format: "label == %@",
+                "cmux Mac Settings, Mobile section, showing Enable iOS pairing."
+            )).firstMatch
+            XCTAssertTrue(screenshot.waitForExistence(timeout: 15))
+            let title = app.staticTexts["On this iPhone"].firstMatch
+            let detail = app.staticTexts["Sign in to the same cmux account"].firstMatch
+            XCTAssertTrue(title.exists)
+            XCTAssertTrue(detail.exists)
+            XCTAssertEqual(title.frame.minX, screenshot.frame.minX, accuracy: 2)
+            XCTAssertEqual(detail.frame.minX, screenshot.frame.minX, accuracy: 2)
+            XCTAssertEqual(screenshot.frame.width / screenshot.frame.height, 642.0 / 95.0, accuracy: 0.05)
+
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = .accurate
+            request.recognitionLanguages = ["en-US"]
+            try VNImageRequestHandler(data: screenshot.screenshot().pngRepresentation).perform([request])
+            let text = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ")
+            XCTAssertTrue(text.contains("Mobile"), text)
+            XCTAssertTrue(text.contains("Enable iOS pairing"), text)
+            XCTAssertTrue(text.contains("for this Mac"), text)
+            XCTAssertFalse(text.contains("Notifications"), text)
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+
+        try verifyPairingPage("Pairing update sheet")
+        app.buttons["Continue"].tap()
+        XCTAssertTrue(app.staticTexts["Per-computer methods"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Auto-Connect is now Iroh"].exists)
+        app.buttons["Continue"].tap()
+        let newer = app.buttons["MobileWhatsNewEntry-connections.v2"]
+        let older = app.buttons["MobileWhatsNewEntry-connections.v1"]
+        XCTAssertTrue(newer.waitForExistence(timeout: 5))
+        XCTAssertTrue(older.exists)
+        newer.tap()
+        try verifyPairingPage("Pairing update in Settings")
+        let heading = app.staticTexts["Action Required: Enable iOS pairing on your Mac"].firstMatch
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.recognitionLanguages = ["en-US"]
+        try VNImageRequestHandler(data: heading.screenshot().pngRepresentation).perform([request])
+        let headingText = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ")
+        XCTAssertTrue(headingText.contains("on your Mac"), "The complete title must render: \(headingText)")
+    }
+
     func testMockHostInstanceTagFollowsTargetBuildScope() {
         XCTAssertEqual(
             mockHostInstanceTag(
@@ -394,7 +576,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(scannerGuidance.waitForExistence(timeout: 4))
         XCTAssertEqual(
             scannerGuidance.label,
-            "Install Tailscale on both devices and use the same Tailscale network. On cmux 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code. On newer versions, open Tailscale Pairing and scan its code here."
+            "Install Tailscale on both devices and use the same Tailscale network. On cmux 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code. On newer versions, open Mobile Pairing and scan its code here."
         )
         XCTAssertTrue(scannerCancel.waitForExistence(timeout: 4))
         capture("onboarding-05-scanner-fallback")
@@ -3711,6 +3893,51 @@ final class cmuxUITests: XCTestCase {
             rootFrame.minX + 8,
             "The collapsed-header drop must persist group membership after expansion"
         )
+    }
+
+    @MainActor
+    func testPrimaryTabsPreserveWorkspaceNavigationAcrossSupportedOSVersions() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS": "1",
+        ])
+        defer { app.terminate() }
+
+        let workspaceRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
+        XCTAssertTrue(workspaceRow.waitForExistence(timeout: 8))
+        let workspaces = app.tabBars.buttons["Workspaces"]
+        let notifications = app.tabBars.buttons["Notifications"]
+        XCTAssertTrue(workspaces.waitForExistence(timeout: 3))
+        XCTAssertTrue(notifications.waitForExistence(timeout: 3))
+
+        notifications.tap()
+        XCTAssertTrue(app.staticTexts["Notification feed fixture"].waitForExistence(timeout: 3))
+        XCTAssertTrue(notifications.isSelected)
+        workspaces.tap()
+        XCTAssertTrue(workspaceRow.waitForExistence(timeout: 3))
+        XCTAssertTrue(workspaces.isSelected)
+
+        workspaceRow.tap()
+        let detail = app.descendants(matching: .any)["FixtureWorkspaceDetail"]
+        XCTAssertTrue(detail.waitForExistence(timeout: 3))
+        XCTAssertFalse(workspaces.isHittable, "Detail must hide the primary tab bar on every supported OS")
+        let detailScreenshot = XCTAttachment(screenshot: app.screenshot())
+        detailScreenshot.name = "primary-tabs-hidden-in-workspace"
+        detailScreenshot.lifetime = .keepAlways
+        add(detailScreenshot)
+
+        // iOS 17 can report an invalid navigation-bar ancestor frame even
+        // while Back is visible. The shared helper taps its measured frame;
+        // the assertions below still require a real pop and usable tabs.
+        tap(app.buttons["MobileWorkspaceBackButton"], in: app)
+        XCTAssertTrue(workspaceRow.waitForExistence(timeout: 3))
+        XCTAssertTrue(waitForHittable(notifications, timeout: 3))
+
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "primary-tabs-os-compatibility"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
     }
 
     @MainActor
@@ -8414,8 +8641,11 @@ final class cmuxUITests: XCTestCase {
             XCTFail("Element has no usable frame: \(element.debugDescription)", file: file, line: line)
             return
         }
-        app.coordinate(withNormalizedOffset: .zero)
-            .withOffset(CGVector(dx: frame.midX, dy: frame.midY))
+        // iOS 17 may expose a valid screen frame while reporting the toolbar
+        // ancestor as non-hittable. Resolve the tap through the element's own
+        // coordinate space so SwiftUI's toolbar hit target receives the event.
+        element.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: frame.width / 2, dy: frame.height / 2))
             .tap()
     }
 

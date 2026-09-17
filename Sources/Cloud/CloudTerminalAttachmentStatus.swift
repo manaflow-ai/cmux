@@ -18,6 +18,9 @@ final class CloudTerminalAttachmentStatus {
     /// the presentation beside the attachment state makes that ownership
     /// explicit and survives catalog refreshes and pane moves.
     private(set) var presentation: CloudTerminalReconnectOverlayPolicy.Presentation?
+    /// One-shot style hook for owners that are not SwiftUI views (the workspace
+    /// clearing an optimistic pane's tab spinner). Set by the pane owner only.
+    @ObservationIgnored var onStateChange: (@MainActor (CloudTerminalAttachmentState) -> Void)?
 
     init(machineID: String) {
         self.machineID = machineID
@@ -27,8 +30,10 @@ final class CloudTerminalAttachmentStatus {
         _ state: CloudTerminalAttachmentState,
         presentation: CloudTerminalReconnectOverlayPolicy.Presentation?
     ) {
-        guard self.state != state || self.presentation != presentation else { return }
+        let stateChanged = self.state != state
+        guard stateChanged || self.presentation != presentation else { return }
         self.state = state
         self.presentation = presentation
+        if stateChanged { onStateChange?(state) }
     }
 }

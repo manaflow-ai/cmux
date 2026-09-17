@@ -1,56 +1,34 @@
 import Foundation
 
-/// Read-your-write overlays and receipt fences for Cloud terminal creation.
+/// Read-your-write overlays for Cloud terminal creation and rename receipts.
 ///
-/// This owner is separate from refresh orchestration so a delayed or restarted
-/// daemon cannot erase an acknowledged terminal while the canonical graph catches up.
+/// This extension owns the transient pending metadata used while the accepted
+/// daemon graph catches up with a mutation response.
 @MainActor
 extension CmuxTuiSurfaceProvider {
-    private static let pendingCreationGenerationRecoveryTimeout: TimeInterval = 120
     /// Merges pending mutation receipts into derived rows until an accepted
     /// graph reaches each receipt. The canonical graph is never edited here.
-    /// A delayed snapshot cannot retire a receipt overlay. A generation change
-    /// also leaves it in place until the exact terminal becomes visible again or
-    /// the graph explicitly reports an exited/tombstoned terminal; a restart is
-    /// a synchronization boundary, not evidence that a live create vanished.
+    /// A generation change, or a cursorless snapshot after a versioned receipt,
+    /// retires the overlay because the old placement cannot be proven to exist.
     func resourcesWithPendingCreations(
         _ resources: [SurfaceResource],
         state: CloudVMState?
     ) -> [SurfaceResource] {
         var merged = resources
         var completed: [SurfaceResourceID] = []
-        for (resourceID, var pending) in pendingRemoteCreations where resourceID.machine == machine {
+        for (resourceID, pending) in pendingRemoteCreations where resourceID.machine == machine {
             if let state {
                 if let receipt = pending.receipt {
-                    if let cursor = state.cursor, cursor.generation == receipt.generation,
-                       cursor.revision >= receipt.revision {
+                    guard let cursor = state.cursor,
+                          cursor.generation == receipt.generation else {
+                        completed.append(resourceID)
+                        continue
+                    }
+                    if cursor.revision >= receipt.revision {
                         // At or beyond the commit, the accepted graph is the
                         // source of truth, including an intentional close.
                         completed.append(resourceID)
                         continue
-                    }
-                    if state.cursor?.generation != receipt.generation {
-                        // A daemon restart invalidates the old cursor, but not
-                        // the remote operation. Keep the optimistic row until
-                        // this terminal is observed in the new graph or an
-                        // explicit lifecycle tombstone closes the operation.
-                        if pendingCreationIsVisible(pending, in: state)
-                            || pendingCreationIsExplicitlyEnded(pending, in: state) {
-                            completed.append(resourceID)
-                            continue
-                        }
-                        let now = Date()
-                        if let since = pending.generationMismatchSince,
-                           now.timeIntervalSince(since) >= Self.pendingCreationGenerationRecoveryTimeout {
-                            // The daemon has supplied a newer generation and
-                            // never reported this intent. Retire the local
-                            // optimistic row after the bounded recovery window;
-                            // the user can retry without accumulating phantoms.
-                            completed.append(resourceID)
-                            continue
-                        } else {
-                            pending.generationMismatchSince = pending.generationMismatchSince ?? now
-                        }
                     }
                 } else if pendingCreationIsVisible(pending, in: state) {
                     // Legacy mutation responses have no ordering fence. Stop
@@ -59,7 +37,6 @@ extension CmuxTuiSurfaceProvider {
                     continue
                 }
             }
-            pendingRemoteCreations[resourceID] = pending
             mergePendingCreation(pending, into: &merged)
         }
         for resourceID in completed {
@@ -75,14 +52,6 @@ extension CmuxTuiSurfaceProvider {
         guard state.lookupIndex.terminal(id: pending.resource.id.key) != nil else { return false }
         guard let tabID = pending.tabID else { return true }
         return state.lookupIndex.tab(id: tabID) != nil
-    }
-
-    private func pendingCreationIsExplicitlyEnded(
-        _ pending: PendingRemoteCreation,
-        in state: CloudVMState
-    ) -> Bool {
-        guard let terminal = state.lookupIndex.terminal(id: pending.resource.id.key) else { return false }
-        return terminal.lifecycle == "exited" || terminal.lifecycle == "tombstoned"
     }
 
     private func mergePendingCreation(
@@ -184,29 +153,6 @@ extension CmuxTuiSurfaceProvider {
 
     func pendingCreation(for resourceID: SurfaceResourceID) -> PendingRemoteCreation? {
         pendingRemoteCreations[resourceID]
-    }
-
-    func pendingCreationReceipt(forTerminalID terminalID: String) -> CloudVMCursor? {
-        pendingRemoteCreations.values.first { $0.resource.id.key == terminalID }?.receipt
-    }
-
-    func hasPendingCreation(forTerminalID terminalID: String) -> Bool {
-        pendingRemoteCreations.values.contains { $0.resource.id.key == terminalID }
-    }
-
-    /// Returns true while the accepted graph is still behind a creation receipt.
-    /// A detached result in this interval is a stale read, so attachment recovery
-    /// must wait rather than projecting another remote tab.
-    func pendingCreationAwaitingCurrentReceipt(forTerminalID terminalID: String) -> Bool {
-        guard let receipt = pendingCreationReceipt(forTerminalID: terminalID) else { return false }
-        guard let cursor = cloudState?.cursor else { return true }
-        return cursor.generation == receipt.generation && cursor.revision < receipt.revision
-    }
-
-    func pendingCreationRecoveryExhausted(forTerminalID terminalID: String) -> Bool {
-        pendingRemoteCreations.values.contains {
-            $0.resource.id.key == terminalID && $0.receipt == nil && $0.resource.lifecycle == .unavailable
-        }
     }
 
     func pendingCreation(forTabID tabID: String) -> PendingRemoteCreation? {

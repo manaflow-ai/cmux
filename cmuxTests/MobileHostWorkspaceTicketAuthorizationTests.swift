@@ -304,18 +304,8 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         defer { TerminalController.shared.setActiveTabManager(previousManager) }
 
         let service = MobileHostService.shared
-        service.debugSetListenerStateForTesting(
-            generation: UUID(),
-            usesEphemeralFallback: false,
-            port: 61_234
-        )
-        defer {
-            service.debugSetListenerStateForTesting(
-                generation: UUID(),
-                usesEphemeralFallback: false,
-                port: nil
-            )
-        }
+        MobileHostPublicStatusCache.update(routes: [try loopbackRoute()])
+        defer { MobileHostPublicStatusCache.removeAll() }
         let workspace = try #require(manager.selectedWorkspace)
 
         let response = await TerminalController.shared.mobileHostHandleRPC(
@@ -352,11 +342,7 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
     #if DEBUG
     @Test func attachTicketWithoutListenerPreservesNoRoutesError() async {
         let service = MobileHostService.shared
-        service.debugSetListenerStateForTesting(
-            generation: UUID(),
-            usesEphemeralFallback: false,
-            port: nil
-        )
+        MobileHostPublicStatusCache.removeAll()
 
         await #expect(throws: MobileAttachTicketStoreError.noRoutes) {
             try await service.createAttachTicket(
