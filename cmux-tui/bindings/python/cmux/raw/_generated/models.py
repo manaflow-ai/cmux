@@ -1247,6 +1247,8 @@ class AttachSurfaceRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/attach-surface/request'
     surface: Id
     cols: Union[int, None, MissingType] = field(default=MISSING)
+    expected_generation: Union[str, None, MissingType] = field(default=MISSING)
+    expected_terminal_id: Union[str, None, MissingType] = field(default=MISSING)
     mode: Union[Literal['bytes', 'render'], None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
 

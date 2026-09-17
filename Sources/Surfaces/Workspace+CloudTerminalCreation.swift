@@ -255,22 +255,22 @@ extension Workspace {
         reservation.retry = { [weak store] in store?.retry(requestID: requestID) }
         reservation.cancel = { [weak store] in store?.cancel(requestID: requestID) }
         store.run(
-                machine: reservation.machine,
-                requestID: requestID,
-                create: create,
-                project: project,
-                onStart: { [weak self, reservation] in
-                    onStart()
-                    self?.restartReservedCloudTerminalPane(reservation)
-                },
-                onFinish: onFinish,
-                inlineFailure: { [weak self, reservation] error in
-                    self?.failReservedCloudTerminalPane(reservation, error: error)
-                },
-                discardProjection: { projection in
-                    catalog.endProjections(panelID: projection.panelID, reason: .replaced)
-                },
-                operations: AppDelegate.shared?.cloudOperations
+            machine: reservation.machine,
+            requestID: requestID,
+            create: create,
+            project: project,
+            onStart: { [weak self, reservation] in
+                onStart()
+                self?.restartReservedCloudTerminalPane(reservation)
+            },
+            onFinish: onFinish,
+            inlineFailure: { [weak self, reservation] error in
+                self?.failReservedCloudTerminalPane(reservation, error: error)
+            },
+            discardProjection: { projection in
+                catalog.endProjections(panelID: projection.panelID, reason: .replaced)
+            },
+            operations: AppDelegate.shared?.cloudOperations
         )
     }
 

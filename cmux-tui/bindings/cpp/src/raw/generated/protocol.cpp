@@ -7733,6 +7733,16 @@ Result<Json> Codec<AttachSurfaceRequest>::encode(const AttachSurfaceRequest& val
         if (!encoded) return std::move(encoded).error();
         object.emplace("cols", std::move(encoded).value());
     }
+    if (!value.expected_generation.is_absent()) {
+        auto encoded = encode_value(value.expected_generation);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("expected_generation", std::move(encoded).value());
+    }
+    if (!value.expected_terminal_id.is_absent()) {
+        auto encoded = encode_value(value.expected_terminal_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("expected_terminal_id", std::move(encoded).value());
+    }
     if (!value.mode.is_absent()) {
         auto encoded = encode_value(value.mode);
         if (!encoded) return std::move(encoded).error();
@@ -7761,6 +7771,26 @@ Result<AttachSurfaceRequest> Codec<AttachSurfaceRequest>::decode(const Json& val
             auto decoded = decode_value<std::uint16_t>(*field_cols);
             if (!decoded) return std::move(decoded).error();
             result.cols = Field<std::uint16_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_expected_generation = value.find("expected_generation");
+    if (field_expected_generation) {
+        if (field_expected_generation->is_null()) {
+            result.expected_generation = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_expected_generation);
+            if (!decoded) return std::move(decoded).error();
+            result.expected_generation = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_expected_terminal_id = value.find("expected_terminal_id");
+    if (field_expected_terminal_id) {
+        if (field_expected_terminal_id->is_null()) {
+            result.expected_terminal_id = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_expected_terminal_id);
+            if (!decoded) return std::move(decoded).error();
+            result.expected_terminal_id = Field<std::string>(std::move(decoded).value());
         }
     }
     const Json* field_mode = value.find("mode");
@@ -18371,8 +18401,10 @@ Result<Event> Codec<Event>::decode(const Json& value) {
 }
 
 namespace {
-constexpr std::array<CommandFieldRequirement, 3> kCommand1FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 5> kCommand1FieldRequirements{{
     {"cols", 0U, "attach-initial-size"},
+    {"expected_generation", 0U, "attach-identity-v1"},
+    {"expected_terminal_id", 0U, "attach-identity-v1"},
     {"mode", 7U, ""},
     {"rows", 0U, "attach-initial-size"},
 }};

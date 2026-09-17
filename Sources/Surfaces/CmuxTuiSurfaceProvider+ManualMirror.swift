@@ -29,22 +29,21 @@ extension CmuxTuiSurfaceProvider {
         if let attachment = resource.creationAttachment {
             resolved = (attachment.surfaceID, nil)
         } else {
-        resolved = try await resolveSurfaceIDForMaterialization(
-            terminalID: resource.id.key,
-            socketPath: connected.socketPath,
-            link: link,
-            requiresExistingView: remoteTabID != nil,
-            correlationID: correlationID,
-            // A newly-created terminal carries the workspace selected by the
-            // creation request even before its first tab receipt arrives. Keep
-            // that identity ahead of the local binding or daemon focus so a
-            // missing tab_id cannot redirect projection to another workspace.
-            preferredWorkspaceID: resource.remoteWorkspace?.id
-                ?? catalog.cloudPlacementCoordinator.boundRemoteWorkspaceID(
-                    forLocalWorkspace: destination.workspaceID, on: machine
-                )
-        )
-
+            resolved = try await resolveSurfaceIDForMaterialization(
+                terminalID: resource.id.key,
+                socketPath: connected.socketPath,
+                link: link,
+                requiresExistingView: remoteTabID != nil,
+                correlationID: correlationID,
+                // A newly-created terminal carries the workspace selected by the
+                // creation request even before its first tab receipt arrives. Keep
+                // that identity ahead of the local binding or daemon focus so a
+                // missing tab_id cannot redirect projection to another workspace.
+                preferredWorkspaceID: resource.remoteWorkspace?.id
+                    ?? catalog.cloudPlacementCoordinator.boundRemoteWorkspaceID(
+                        forLocalWorkspace: destination.workspaceID, on: machine
+                    )
+            )
         }
         let session = CloudTuiManualMirrorSession(
             machineID: machineID,

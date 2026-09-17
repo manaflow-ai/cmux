@@ -3188,6 +3188,14 @@ Protocol v7 adds `mode`. `mode:"bytes"`, including the default when the field is
 
 Servers advertising the `attach-initial-size` capability accept paired `cols` and `rows`. The pair records the attaching client's initial viewer-size claim before initial state is generated. Supplying only one dimension is an error. Clients must not send either field to a server that omits the capability, including an older protocol-v7 server.
 
+Servers advertising `attach-identity-v1` accept paired `expected_generation`
+and `expected_terminal_id`. Both must match the referenced surface before any
+stream or lease is created. Terminal creation responses may include an
+`attachment` object with `surface`, `generation`, and `terminal_id`; it is
+computed from the receipt's live tab for each response, never persisted as a
+durable numeric handle. Use that object only with this capability. Replays
+whose tab no longer exists omit it; fall back to normal terminal resolution.
+
 When both peers negotiate `view-attachment-lease-v1` through `identify` and
 `set-client-info`, the response includes an opaque `lease`. The lease names
 this exact connection-local attach stream. Use it with
@@ -3202,6 +3210,8 @@ Params:
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
 | `surface` | `Id` | required | Must identify a live PTY or negotiated browser surface |
+| `expected_generation` | `string` | default null | `attach-identity-v1`; paired with `expected_terminal_id` |
+| `expected_terminal_id` | `string` | default null | Public terminal ID, validated against the live surface |
 | `mode` | `string` | default `"bytes"` | Protocol 7: `"bytes"` or `"render"` |
 | `cols` | `uint16` | default null | `attach-initial-size` capability; paired with `rows`, clamped to at least 1 |
 | `rows` | `uint16` | default null | `attach-initial-size` capability; paired with `cols`, clamped to at least 1 |
