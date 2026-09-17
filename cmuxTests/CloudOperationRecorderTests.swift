@@ -210,6 +210,14 @@ struct CloudOperationRecorderTests {
         #expect(CloudTelemetryClient.current(info: info, flavor: .dev).channel == "dev")
         #expect(CloudTelemetryClient.current(info: info, flavor: .nightly).revision == "abcdef123")
     }
+
+    @Test func machineUsageFailuresKeepTheirActionableCategories() {
+        #expect(CloudDiagnosticFailure.classify(MachineUsageClientError.notSignedIn) == .authentication)
+        #expect(CloudDiagnosticFailure.classify(MachineUsageClientError.sessionRefreshFailed) == .sessionRefresh)
+        #expect(CloudDiagnosticFailure.classify(MachineUsageClientError.backendUnreachable(url: "https://cmux.test", detail: "timeout")) == .network)
+        #expect(CloudDiagnosticFailure.classify(MachineUsageClientError.httpStatus(503, "")) == .server)
+        #expect(CloudDiagnosticFailure.classify(MachineUsageClientError.malformedResponse("bad")) == .response)
+    }
 }
 
 private actor CapturedCloudDiagnostics: CloudTelemetrySending {

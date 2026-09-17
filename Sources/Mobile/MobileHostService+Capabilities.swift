@@ -215,6 +215,7 @@ extension MobileHostService {
             "terminal.render_grid.screen_anchor.v1",
             "terminal.replay.v1",
             Self.terminalInputOrderedCapability,
+            MobileTerminalInputFrame.capability,
             "terminal.viewport.v1",
             "terminal.artifact.v1",
             "terminal.artifact.list.v1",
