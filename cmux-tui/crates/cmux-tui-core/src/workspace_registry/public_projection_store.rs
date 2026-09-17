@@ -725,6 +725,8 @@ mod tests {
                             },
                         },
                         ResourceChange::UpsertTab(RegistryTab {
+                            name_source: Default::default(),
+                            name_revision: 0,
                             public_id: tab.clone(),
                             pane_id: pane.clone(),
                             position: 0,

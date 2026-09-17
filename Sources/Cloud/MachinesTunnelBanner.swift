@@ -10,6 +10,7 @@ struct MachinesTunnelBanner: View {
     let banner: CloudTunnelBanner
     let backgroundColor: NSColor
     let openSystemSettings: () -> Void
+    let onDismiss: () -> Void
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 5) {
@@ -29,6 +30,7 @@ struct MachinesTunnelBanner: View {
                 .controlSize(.small)
                 .accessibilityIdentifier("CloudMachinesTunnelOpenSystemSettingsButton")
             }
+            CloudBannerDismissButton(action: onDismiss)
         }
         .foregroundColor(tint)
         .padding(.horizontal, 12)
@@ -62,8 +64,8 @@ struct MachinesTunnelBanner: View {
 
     private var helpText: String {
         String(
-            localized: "cloud.ports.explanation",
-            defaultValue: "Connect Cloud VPN, or choose Forward Port. Forwarding stays off until you start it. This table shows the address and lets you stop it."
+            localized: "cloud.vpn.setup.howItWorks.body",
+            defaultValue: "Connect Safari, Chrome, and other apps to your Cloud machines. Each machine keeps its private IP address and original ports. Only traffic to your Cloud network uses this encrypted connection. cmux terminals, Ports, and Desktop work without it."
         )
     }
 }

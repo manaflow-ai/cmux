@@ -378,7 +378,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         let tree = rows(snapshot)
         let byID = Dictionary(tree.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let workspaceRow = try #require(byID["machine:brave-otter/ws/ws_main"])
-        #expect(workspaceRow.children.compactMap(terminalKey) == ["term_b", "term_a", "term_c"], "all tabs are sibling rows in layout order")
+        #expect(workspaceRow.children.compactMap(terminalKey) == ["term_a", "term_b", "term_c"], "all tabs are sibling rows in layout order")
         #expect(workspaceRow.children.allSatisfy { $0.children.isEmpty }, "terminal rows are leaves")
         guard case .workspace(_, _, let count, _, _) = workspaceRow.kind else {
             Issue.record("expected the workspace row"); return
@@ -408,7 +408,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         }
         let shownB = try tabRows(focused: "term_b")
         let shownC = try tabRows(focused: "term_c")
-        #expect(Set(shownB.map(\.id)) == Set(shownC.map(\.id)), "tab rows retain exact identities across selection changes")
+        #expect(shownB.map(\.id) == shownC.map(\.id), "tab rows retain exact identities across selection changes")
         #expect(shownB.allSatisfy { $0.children.isEmpty } && shownC.allSatisfy { $0.children.isEmpty })
     }
 
@@ -849,7 +849,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             "the machine lists it, so it exists — with nothing in it"
         )
         #expect(CloudTreeNodeBuilder.lookupRemoteWorkspace("scratch", on: machine, snapshot: snapshot) == .ambiguous([scratchA, scratchB]))
-        // The rows agree: both scratch workspaces show under the one machine, each empty.
-        #expect(rows(snapshot).filter { $0.structureTag == "workspace" }.map(\.children.count) == [0, 0])
+        // Empty daemon workspaces remain resolvable, but the Cloud sidebar omits them.
+        #expect(rows(snapshot).filter { $0.structureTag == "workspace" }.isEmpty)
     }
 }

@@ -12,6 +12,8 @@ final class CloudBrowserAccessState {
     private(set) var hasCommittedNavigation = false
     private(set) var loaded = false
     private(set) var error: String?
+    private(set) var desktopFailure: String?
+    private var dismissedFailure: String?
     var showsPorts = true
     private(set) var unavailable: String?
 
@@ -22,6 +24,44 @@ final class CloudBrowserAccessState {
 
     var showsPage: Bool { model?.isReady == true && loaded && error == nil }
 
+    var failureMessage: String? {
+        if let error = desktopFailure ?? error ?? unavailable { return error }
+        if case .failed(let message)? = model?.phase { return message }
+        return nil
+    }
+
+    var showsFailureAlert: Bool {
+        failureMessage.map { $0 != dismissedFailure } ?? false
+    }
+
+    func dismissFailure() { dismissedFailure = failureMessage }
+
+    /// noVNC's document may finish loading before its RFB/WebSocket fails.
+    /// Only the current, committed Cloud Desktop document may report its state.
+    func desktopConnectionDidChange(url: URL, isConnected: Bool) {
+        guard model?.target.port == CmuxTuiSnapshotParser.desktopPort,
+              remoteURL?.path == "/vnc.html", hasCommittedNavigation,
+              let navigationURL, url == navigationURL else { return }
+        if isConnected {
+            desktopFailure = nil
+            dismissedFailure = nil
+        } else {
+            desktopFailure = String(localized: "cloud.portAccess.desktopDisconnected", defaultValue: "The Cloud desktop connection failed. Retry to reconnect to the machine.")
+        }
+    }
+
+    /// Persist the service identity; the local listener only lives for this app run.
+    func sessionURL(currentURL: URL?) -> URL? {
+        guard let remoteURL else { return nil }
+        guard let currentURL, currentURL.scheme != "about" else { return remoteURL }
+        guard owns(currentURL) else { return navigationURL == nil ? remoteURL : nil }
+        guard var parts = URLComponents(url: currentURL, resolvingAgainstBaseURL: false) else { return remoteURL }
+        parts.host = remoteURL.host
+        parts.port = remoteURL.port
+        parts.scheme = remoteURL.scheme
+        return parts.url ?? remoteURL
+    }
+
     func configure(model: CloudPortAccessModel, url: URL) {
         unavailable = nil
         self.model = model
@@ -30,6 +70,8 @@ final class CloudBrowserAccessState {
         hasCommittedNavigation = false
         loaded = false
         error = nil
+        desktopFailure = nil
+        dismissedFailure = nil
     }
 
     func nextURL() -> URL? {
@@ -51,6 +93,8 @@ final class CloudBrowserAccessState {
         hasCommittedNavigation = false
         loaded = false
         error = nil
+        desktopFailure = nil
+        dismissedFailure = nil
     }
 
     func didCommit(url: URL?) {
@@ -75,7 +119,8 @@ final class CloudBrowserAccessState {
         hasCommittedNavigation = false
         loaded = false
         error = nil
-        hasCommittedNavigation = false
+        desktopFailure = nil
+        dismissedFailure = nil
         model?.retry()
     }
 
@@ -91,6 +136,8 @@ final class CloudBrowserAccessState {
         navigationURL = nil
         loaded = false
         error = nil
+        desktopFailure = nil
+        dismissedFailure = nil
     }
 
     private static func sameService(_ a: URL, _ b: URL) -> Bool {

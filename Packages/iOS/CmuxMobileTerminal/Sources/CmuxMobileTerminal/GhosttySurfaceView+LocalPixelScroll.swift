@@ -89,7 +89,7 @@ extension GhosttySurfaceView {
         #if DEBUG
         let enqueuedAt = CACurrentMediaTime()
         #endif
-        workQueue.async { [weak self] in
+        workQueue.asyncPriority { [weak self] in
             #if DEBUG
             let batchStartedAt = CACurrentMediaTime()
             #endif

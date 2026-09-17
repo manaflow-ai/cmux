@@ -9,7 +9,7 @@ Everything cmux Cloud exposes from the CLI, for any coding agent (Claude Code, C
 
 **The mission is delegation.** A local agent (you, on the user's Mac) sends work to machines that outlive the laptop: every terminal and agent session lives in the machine's own cmux-tui daemon, so work keeps running with every pane closed and the lid shut, and any signed-in Mac reattaches later through the same addresses. Compose machine workspaces headlessly (as many as the task needs), watch them with `vm tree --json` and `vm terminal read` without opening anything, and surface panes or a `cmux notify` only when the user should look.
 
-**The shortest reliable loop is:** authenticate → inspect limits and routing → run or stage work headlessly → observe with `tree`/`terminal read` → open a pane or share a URL only when there is something useful to show. Ask for confirmation before creating, forking, resetting, or destroying a machine, because those operations consume plan capacity or delete data.
+**The shortest reliable loop is:** authenticate → inspect limits and routing → run or stage work headlessly → observe with `tree`/`terminal read` → open a pane or share a URL only when there is something useful to show. Ask for confirmation before creating, forking, resetting, destroying, or resizing a machine, because these operations consume plan capacity or change billed resources.
 
 **Treat the installed CLI as the contract.** Read `cmux vm --help` and the
 specific `cmux vm <verb> --help` before using a newly added flag, and check the
@@ -55,7 +55,7 @@ cmux vm tree                                             # the surface catalog: 
 cmux vm open vivid-newt/main/term_2f9c                   # show the human one terminal (reuses its pane if open)
 cmux surface open vivid-newt/terminal/term_2f9c --pane pane:2 --left   # any surface, at a pane edge (same drop rules as the sidebar)
 cmux cloud domains publish vivid-newt 3000                # public HTTPS hostname, personal access by default
-cmux pane resize vivid-newt --disk 40G                      # grow persistent disk (4 GiB steps; never shrinks)
+cmux vm resize vivid-newt --disk 40G                      # grow persistent disk (4 GiB steps; never shrinks)
 ```
 
 Repeat runs from the same directory hit the same machine (sticky binding, 14 days), so synced checkouts and dependencies stay warm. `--new` forces a fresh pool machine; `--machine <id>` pins one. For a machine the router creates, `--size` accepts `4g`, `8g`, `16g`, `24g`, `32g`, `64g`, or raw MB; read `vm ls --json` → `limits.memoryOptionsMb` first because the server advertises the current plan's allowed choices and resolves unsupported requests to its default.
@@ -66,7 +66,7 @@ Repeat runs from the same directory hit the same machine (sticky binding, 14 day
 2. Ongoing user work → Base (`cmux vm base open`, or `--machine <base-id>`).
 3. A new task on a machine you already use → a new **workspace**, not a new machine (`cmux vm workspace new <id> --name <task>`): one machine hosts many workspaces, and that is the intended unit of scale.
 4. Hard isolation (a different environment, a risky experiment) → `cmux vm fork <id>` of a warm machine, or `cmux vm new --detach --json` for a new devbox; add `--name <label>`. Choose `--size` from `vm ls --json` → `limits.memoryOptionsMb` (named aliases: `4g`, `8g`, `16g`, `24g`, `32g`, `64g`; raw MB also parses). Never pass `--image` unless you have a specific image id. Then `--machine <id>`, and `cmux vm wait <id> --wake` before the first command.
-5. Persistent disk growth → `cmux pane resize <id> --disk <GiB>` after confirming the target and requested capacity. Values are 4–256 GiB in 4 GiB steps; the operation is grow-only, keeps the machine data and identity intact, and can take a provider minute. Run `cmux vm stats <id>` afterward to verify `disk_total_mb`.
+5. Resource growth → `cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]` after confirming the target and requested capacity. CPU accepts 1–32 vCPUs; memory accepts 4–64 GiB in whole GiB; disk accepts 4–256 GiB in 4 GiB steps. Every resource is grow-only, the server enforces the account plan ceiling, and the provider-confirmed shape is returned. Run `cmux vm stats <id>` afterward to verify the result.
 6. Never draft the user's own machines without `--machine`, and respect the plan meter.
 
 ## Publish a VM port safely
