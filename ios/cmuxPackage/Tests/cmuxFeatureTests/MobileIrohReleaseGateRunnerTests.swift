@@ -93,6 +93,37 @@ struct MobileIrohReleaseGateRunnerTests {
     }
 
     @Test
+    func probeRequiresTwoReadyObservationsBeforeRunning() async throws {
+        let configuration = try temporaryConfiguration(mode: .automatic)
+        var readinessPasses = 0
+        var probeCalls = 0
+        let runner = MobileIrohReleaseGateRunner(
+            configuration: configuration,
+            dependencies: .init(
+                readinessUpdates: { _ in
+                    readinessPasses += 1
+                    return Self.readyReadinessUpdates()
+                },
+                runProbe: { _, _ in
+                    probeCalls += 1
+                    return Self.successfulProbe
+                },
+                settingsUpdates: { Self.managedRelaySettingsUpdates() },
+                writeReport: { report, url in
+                    try Self.write(report: report, to: url)
+                },
+                postReportReady: {},
+                timeout: .seconds(1)
+            )
+        )
+
+        await runner.run(store: CMUXMobileShellStore.preview())
+
+        #expect(readinessPasses == 2)
+        #expect(probeCalls == 1)
+    }
+
+    @Test
     func probeFailurePreservesTheVerifiedIrohRouteAndPath() async throws {
         let configuration = try temporaryConfiguration(
             mode: .relayOnly,

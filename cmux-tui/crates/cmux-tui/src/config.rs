@@ -64,6 +64,9 @@
 //!   "scrollbar": {
 //!     "position": "column"
 //!   },
+//!   "viewport": {
+//!     "animation": true
+//!   },
 //!   "server": {
 //!     "ws": "127.0.0.1:7681",
 //!     "ws_token": "replace-with-a-secret"
@@ -71,7 +74,8 @@
 //!   "keys": {
 //!     "prefix": "ctrl+b",
 //!     "alt_shortcuts": true,
-//!     "new-tab": ["t", "alt+t"],
+//!     "super_shortcuts": true,
+//!     "new-tab": ["t", "alt+t", "cmd+t"],
 //!     "next-tab": "tab",
 //!     "prev-tab": "backtab",
 //!     "select-screen-0": "0",
@@ -97,10 +101,10 @@
 //! `select-screen-0` through `select-screen-9`, `new-screen`,
 //! `prev-workspace`, `next-workspace`, `new-workspace`, `close-workspace`,
 //! `send-prefix`, `toggle-sidebar`, `toggle-sidebar-compact`,
-//! `toggle-sidebar-view`, `focus-sidebar`,
+//! `toggle-sidebar-view`, `focus-sidebar`, `new-pane-right`, `undo-layout`,
 //! `focus-left`, `focus-right`, `focus-up`, `focus-down`, `focus-next-pane`,
 //! `swap-pane-prev`, `swap-pane-next`, `zoom-pane`, `resize-grow`,
-//! `resize-shrink`, `scroll-up`, `scroll-down`, `browser-back`,
+//! `resize-shrink`, `scroll-up`, `scroll-down`, `clear-history`, `browser-back`,
 //! `browser-forward`, `browser-reload`, `browser-edit-url`, `show-shortcuts`,
 //! and `detach`.
 //!
@@ -129,6 +133,8 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::Color;
 use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
+
+use crate::localization::catalog;
 
 /// For a field typed `Option<Option<T>>`: makes an explicit `null` in the
 /// input deserialize to `Some(None)` rather than the `None` an absent key
@@ -161,10 +167,13 @@ struct RawConfig {
     #[serde(default)]
     scrollbar: RawScrollbar,
     #[serde(default)]
+    viewport: RawViewport,
+    #[serde(default)]
     server: RawServer,
     /// Key bindings: `"prefix"` plus one entry per action. Values may be
     /// a chord string, an array of chord strings, `"none"`, or
-    /// `"alt_shortcuts": false`.
+    /// `"alt_shortcuts": false`, `"super_shortcuts": false`, or the host
+    /// input mode `"macos_option_as_alt": false`.
     #[serde(default)]
     keys: HashMap<String, Value>,
 }
@@ -569,6 +578,12 @@ struct RawScrollbar {
     position: Option<ScrollbarPosition>,
 }
 
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawViewport {
+    animation: Option<bool>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ScrollbarPosition {
@@ -584,6 +599,17 @@ pub struct Scrollbar {
 impl Default for Scrollbar {
     fn default() -> Self {
         Scrollbar { position: ScrollbarPosition::Column }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Viewport {
+    pub animation: bool,
+}
+
+impl Default for Viewport {
+    fn default() -> Self {
+        Self { animation: true }
     }
 }
 
@@ -856,6 +882,8 @@ pub enum Action {
     ToggleSidebarCompact,
     ToggleSidebarView,
     FocusSidebar,
+    NewPaneRight,
+    UndoLayout,
     FocusLeft,
     FocusRight,
     FocusUp,
@@ -868,12 +896,210 @@ pub enum Action {
     ResizeShrink,
     ScrollUp,
     ScrollDown,
+    ClearHistory,
     BrowserBack,
     BrowserForward,
     BrowserReload,
     BrowserEditUrl,
     ShowShortcuts,
     Detach,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(test)]
+pub(crate) enum ActionExecution {
+    SendPrefix,
+    NewTab,
+    NewBrowserTab,
+    NewPaneSmart,
+    NextTab,
+    PrevTab,
+    SelectTab(ActionIndex),
+    SplitRight,
+    SplitDown,
+    CloseTab,
+    ClosePane,
+    RenameTab,
+    RenameScreen,
+    RenameWorkspace,
+    CloseScreen,
+    PrevScreen,
+    NextScreen,
+    SelectScreen(ActionIndex),
+    NewScreen,
+    PrevWorkspace,
+    NextWorkspace,
+    NewWorkspace,
+    CloseWorkspace,
+    ToggleSidebar,
+    ToggleSidebarCompact,
+    ToggleSidebarView,
+    FocusSidebar,
+    NewPaneRight,
+    UndoLayout,
+    FocusLeft,
+    FocusRight,
+    FocusUp,
+    FocusDown,
+    FocusNextPane,
+    SwapPanePrev,
+    SwapPaneNext,
+    ZoomPane,
+    ResizeGrow,
+    ResizeShrink,
+    ScrollUp,
+    ScrollDown,
+    ClearHistory,
+    BrowserBack,
+    BrowserForward,
+    BrowserReload,
+    BrowserEditUrl,
+    ShowShortcuts,
+    Detach,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(test)]
+enum ActionClassification {
+    Direct,
+    Composite,
+    PresentationOnly,
+}
+
+#[cfg(test)]
+impl ActionClassification {
+    const fn inventory_name(self) -> &'static str {
+        match self {
+            Self::Direct => "direct",
+            Self::Composite => "composite",
+            Self::PresentationOnly => "presentation-only",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(test)]
+enum WorkspaceOwnershipSource {
+    ActiveWorkspaceSession,
+}
+
+#[cfg(test)]
+impl WorkspaceOwnershipSource {
+    const fn inventory_name(self) -> &'static str {
+        match self {
+            Self::ActiveWorkspaceSession => "active-workspace-session",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(test)]
+enum ActionRouteTarget {
+    MuxCommand(&'static str),
+    MachineProviderRequest(&'static str),
+}
+
+#[cfg(test)]
+impl ActionRouteTarget {
+    const fn inventory_kind(self) -> &'static str {
+        match self {
+            Self::MuxCommand(_) => "mux-command",
+            Self::MachineProviderRequest(_) => "machine-provider-request",
+        }
+    }
+
+    const fn operation(self) -> &'static str {
+        match self {
+            Self::MuxCommand(operation) | Self::MachineProviderRequest(operation) => operation,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(test)]
+enum UnknownOwnership {
+    Reject,
+}
+
+#[cfg(test)]
+impl UnknownOwnership {
+    const fn inventory_name(self) -> &'static str {
+        match self {
+            Self::Reject => "reject",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(test)]
+enum ActionRoute {
+    Static(&'static str),
+    WorkspaceOwnership {
+        source: WorkspaceOwnershipSource,
+        session_owned: ActionRouteTarget,
+        provider_owned: ActionRouteTarget,
+        unknown: UnknownOwnership,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(test)]
+pub(crate) struct ActionMetadata {
+    key: &'static str,
+    classification: ActionClassification,
+    route: ActionRoute,
+    execution: ActionExecution,
+}
+
+#[cfg(test)]
+impl ActionMetadata {
+    const fn new(
+        key: &'static str,
+        classification: ActionClassification,
+        route: &'static str,
+        execution: ActionExecution,
+    ) -> Self {
+        Self { key, classification, route: ActionRoute::Static(route), execution }
+    }
+
+    const fn workspace_ownership(
+        key: &'static str,
+        classification: ActionClassification,
+        source: WorkspaceOwnershipSource,
+        session_owned: ActionRouteTarget,
+        provider_owned: ActionRouteTarget,
+        unknown: UnknownOwnership,
+        execution: ActionExecution,
+    ) -> Self {
+        Self {
+            key,
+            classification,
+            route: ActionRoute::WorkspaceOwnership {
+                source,
+                session_owned,
+                provider_owned,
+                unknown,
+            },
+            execution,
+        }
+    }
+
+    pub(crate) fn execution(self) -> ActionExecution {
+        debug_assert!(!self.key.is_empty());
+        debug_assert!(!self.classification.inventory_name().is_empty());
+        match self.route {
+            ActionRoute::Static(route) => debug_assert!(!route.is_empty()),
+            ActionRoute::WorkspaceOwnership { source, session_owned, provider_owned, unknown } => {
+                debug_assert!(!source.inventory_name().is_empty());
+                debug_assert_eq!(session_owned.inventory_kind(), "mux-command");
+                debug_assert!(!session_owned.operation().is_empty());
+                debug_assert_eq!(provider_owned.inventory_kind(), "machine-provider-request");
+                debug_assert!(!provider_owned.operation().is_empty());
+                debug_assert_eq!(unknown.inventory_name(), "reject");
+            }
+        }
+        self.execution
+    }
 }
 
 /// One executable TUI action and the metadata shared by key configuration,
@@ -932,6 +1158,8 @@ define_named_action_definitions! {
     TOGGLE_SIDEBAR_COMPACT_DEFINITION => (Action::ToggleSidebarCompact, "toggle-sidebar-compact", "Compact or expand sidebar", "サイドバーの幅を切り替え");
     TOGGLE_SIDEBAR_VIEW_DEFINITION => (Action::ToggleSidebarView, "toggle-sidebar-view", "Switch sidebar view", "サイドバー表示を切り替え");
     FOCUS_SIDEBAR_DEFINITION => (Action::FocusSidebar, "focus-sidebar", "Focus sidebar", "サイドバーにフォーカス");
+    NEW_PANE_RIGHT_DEFINITION => (Action::NewPaneRight, "new-pane-right", "New column to the right", "右に新しい列");
+    UNDO_LAYOUT_DEFINITION => (Action::UndoLayout, "undo-layout", "Undo layout", "レイアウトを元に戻す");
     FOCUS_LEFT_DEFINITION => (Action::FocusLeft, "focus-left", "Focus left", "左へフォーカス");
     FOCUS_RIGHT_DEFINITION => (Action::FocusRight, "focus-right", "Focus right", "右へフォーカス");
     FOCUS_UP_DEFINITION => (Action::FocusUp, "focus-up", "Focus up", "上へフォーカス");
@@ -944,6 +1172,7 @@ define_named_action_definitions! {
     RESIZE_SHRINK_DEFINITION => (Action::ResizeShrink, "resize-shrink", "Shrink pane", "ペインを縮小");
     SCROLL_UP_DEFINITION => (Action::ScrollUp, "scroll-up", "Scroll up", "上にスクロール");
     SCROLL_DOWN_DEFINITION => (Action::ScrollDown, "scroll-down", "Scroll down", "下にスクロール");
+    CLEAR_HISTORY_DEFINITION => (Action::ClearHistory, "clear-history", "Clear terminal history", "ターミナル履歴を消去");
     BROWSER_BACK_DEFINITION => (Action::BrowserBack, "browser-back", "Browser back", "ブラウザで戻る");
     BROWSER_FORWARD_DEFINITION => (Action::BrowserForward, "browser-forward", "Browser forward", "ブラウザで進む");
     BROWSER_RELOAD_DEFINITION => (Action::BrowserReload, "browser-reload", "Reload browser", "ブラウザを再読み込み");
@@ -1081,7 +1310,7 @@ static SELECT_SCREEN_DEFINITIONS: [ActionDefinition; 10] = [
 /// The canonical action catalog. Presentation surfaces derive their labels
 /// and ordering from these named definitions instead of positional offsets.
 pub fn action_definitions() -> &'static [&'static ActionDefinition] {
-    static DEFINITIONS: [&ActionDefinition; 63] = [
+    static DEFINITIONS: [&ActionDefinition; 66] = [
         &SEND_PREFIX_DEFINITION,
         &NEW_TAB_DEFINITION,
         &NEW_BROWSER_TAB_DEFINITION,
@@ -1127,6 +1356,8 @@ pub fn action_definitions() -> &'static [&'static ActionDefinition] {
         &TOGGLE_SIDEBAR_COMPACT_DEFINITION,
         &TOGGLE_SIDEBAR_VIEW_DEFINITION,
         &FOCUS_SIDEBAR_DEFINITION,
+        &NEW_PANE_RIGHT_DEFINITION,
+        &UNDO_LAYOUT_DEFINITION,
         &FOCUS_LEFT_DEFINITION,
         &FOCUS_RIGHT_DEFINITION,
         &FOCUS_UP_DEFINITION,
@@ -1139,6 +1370,7 @@ pub fn action_definitions() -> &'static [&'static ActionDefinition] {
         &RESIZE_SHRINK_DEFINITION,
         &SCROLL_UP_DEFINITION,
         &SCROLL_DOWN_DEFINITION,
+        &CLEAR_HISTORY_DEFINITION,
         &BROWSER_BACK_DEFINITION,
         &BROWSER_FORWARD_DEFINITION,
         &BROWSER_RELOAD_DEFINITION,
@@ -1147,6 +1379,311 @@ pub fn action_definitions() -> &'static [&'static ActionDefinition] {
         &DETACH_DEFINITION,
     ];
     &DEFINITIONS
+}
+
+impl Action {
+    /// Compiled source of truth for programmability classification and
+    /// execution routing. The specification inventory checker reads this
+    /// exhaustive catalog.
+    #[cfg(test)]
+    pub(crate) fn metadata(&self) -> ActionMetadata {
+        match self {
+            Action::SendPrefix => ActionMetadata::new(
+                "send-prefix",
+                ActionClassification::Composite,
+                "frontend prefix config + active surface + send-key",
+                ActionExecution::SendPrefix,
+            ),
+            Action::NewTab => ActionMetadata::new(
+                "new-tab",
+                ActionClassification::Direct,
+                "new-tab",
+                ActionExecution::NewTab,
+            ),
+            Action::NewBrowserTab => ActionMetadata::new(
+                "new-browser-tab",
+                ActionClassification::Composite,
+                "frontend omnibar + new-browser-tab",
+                ActionExecution::NewBrowserTab,
+            ),
+            Action::NewPaneSmart => ActionMetadata::new(
+                "new-pane-smart",
+                ActionClassification::Composite,
+                "list-workspaces + new-pane",
+                ActionExecution::NewPaneSmart,
+            ),
+            Action::NextTab => ActionMetadata::new(
+                "next-tab",
+                ActionClassification::Direct,
+                "select-tab delta:+1",
+                ActionExecution::NextTab,
+            ),
+            Action::PrevTab => ActionMetadata::new(
+                "prev-tab",
+                ActionClassification::Direct,
+                "select-tab delta:-1",
+                ActionExecution::PrevTab,
+            ),
+            Action::SelectTab(index) => ActionMetadata::new(
+                "select-tab-{number}",
+                ActionClassification::Direct,
+                "select-tab index",
+                ActionExecution::SelectTab(*index),
+            ),
+            Action::SplitRight => ActionMetadata::new(
+                "split-right",
+                ActionClassification::Direct,
+                "split dir:right",
+                ActionExecution::SplitRight,
+            ),
+            Action::SplitDown => ActionMetadata::new(
+                "split-down",
+                ActionClassification::Direct,
+                "split dir:down",
+                ActionExecution::SplitDown,
+            ),
+            Action::CloseTab => ActionMetadata::new(
+                "close-tab",
+                ActionClassification::Direct,
+                "close-surface",
+                ActionExecution::CloseTab,
+            ),
+            Action::ClosePane => ActionMetadata::new(
+                "close-pane",
+                ActionClassification::Direct,
+                "close-pane",
+                ActionExecution::ClosePane,
+            ),
+            Action::RenameTab => ActionMetadata::new(
+                "rename-tab",
+                ActionClassification::Composite,
+                "frontend prompt + rename-surface",
+                ActionExecution::RenameTab,
+            ),
+            Action::RenameScreen => ActionMetadata::new(
+                "rename-screen",
+                ActionClassification::Composite,
+                "frontend prompt + rename-screen",
+                ActionExecution::RenameScreen,
+            ),
+            Action::RenameWorkspace => ActionMetadata::new(
+                "rename-workspace",
+                ActionClassification::Composite,
+                "frontend prompt + rename-workspace",
+                ActionExecution::RenameWorkspace,
+            ),
+            Action::CloseScreen => ActionMetadata::new(
+                "close-screen",
+                ActionClassification::Direct,
+                "close-screen",
+                ActionExecution::CloseScreen,
+            ),
+            Action::PrevScreen => ActionMetadata::new(
+                "prev-screen",
+                ActionClassification::Direct,
+                "select-screen delta:-1",
+                ActionExecution::PrevScreen,
+            ),
+            Action::NextScreen => ActionMetadata::new(
+                "next-screen",
+                ActionClassification::Direct,
+                "select-screen delta:+1",
+                ActionExecution::NextScreen,
+            ),
+            Action::SelectScreen(index) => ActionMetadata::new(
+                "select-screen-{number}",
+                ActionClassification::Direct,
+                "select-screen index",
+                ActionExecution::SelectScreen(*index),
+            ),
+            Action::NewScreen => ActionMetadata::new(
+                "new-screen",
+                ActionClassification::Direct,
+                "new-screen",
+                ActionExecution::NewScreen,
+            ),
+            Action::PrevWorkspace => ActionMetadata::new(
+                "prev-workspace",
+                ActionClassification::Direct,
+                "select-workspace delta:-1",
+                ActionExecution::PrevWorkspace,
+            ),
+            Action::NextWorkspace => ActionMetadata::new(
+                "next-workspace",
+                ActionClassification::Direct,
+                "select-workspace delta:+1",
+                ActionExecution::NextWorkspace,
+            ),
+            Action::NewWorkspace => ActionMetadata::workspace_ownership(
+                "new-workspace",
+                ActionClassification::Composite,
+                WorkspaceOwnershipSource::ActiveWorkspaceSession,
+                ActionRouteTarget::MuxCommand("new-workspace"),
+                ActionRouteTarget::MachineProviderRequest("create_workspace"),
+                UnknownOwnership::Reject,
+                ActionExecution::NewWorkspace,
+            ),
+            Action::CloseWorkspace => ActionMetadata::workspace_ownership(
+                "close-workspace",
+                ActionClassification::Composite,
+                WorkspaceOwnershipSource::ActiveWorkspaceSession,
+                ActionRouteTarget::MuxCommand("close-workspace"),
+                ActionRouteTarget::MachineProviderRequest("delete_workspace"),
+                UnknownOwnership::Reject,
+                ActionExecution::CloseWorkspace,
+            ),
+            Action::ToggleSidebar => ActionMetadata::new(
+                "toggle-sidebar",
+                ActionClassification::PresentationOnly,
+                "frontend action adapter",
+                ActionExecution::ToggleSidebar,
+            ),
+            Action::ToggleSidebarCompact => ActionMetadata::new(
+                "toggle-sidebar-compact",
+                ActionClassification::PresentationOnly,
+                "frontend action adapter",
+                ActionExecution::ToggleSidebarCompact,
+            ),
+            Action::ToggleSidebarView => ActionMetadata::new(
+                "toggle-sidebar-view",
+                ActionClassification::PresentationOnly,
+                "frontend action adapter",
+                ActionExecution::ToggleSidebarView,
+            ),
+            Action::FocusSidebar => ActionMetadata::new(
+                "focus-sidebar",
+                ActionClassification::PresentationOnly,
+                "frontend action adapter",
+                ActionExecution::FocusSidebar,
+            ),
+            Action::NewPaneRight => ActionMetadata::new(
+                "new-pane-right",
+                ActionClassification::Direct,
+                "new-pane-right",
+                ActionExecution::NewPaneRight,
+            ),
+            Action::UndoLayout => ActionMetadata::new(
+                "undo-layout",
+                ActionClassification::Direct,
+                "undo-layout",
+                ActionExecution::UndoLayout,
+            ),
+            Action::FocusLeft => ActionMetadata::new(
+                "focus-left",
+                ActionClassification::Composite,
+                "frontend geometry + focus-pane",
+                ActionExecution::FocusLeft,
+            ),
+            Action::FocusRight => ActionMetadata::new(
+                "focus-right",
+                ActionClassification::Composite,
+                "frontend geometry + focus-pane",
+                ActionExecution::FocusRight,
+            ),
+            Action::FocusUp => ActionMetadata::new(
+                "focus-up",
+                ActionClassification::Composite,
+                "frontend geometry + focus-pane",
+                ActionExecution::FocusUp,
+            ),
+            Action::FocusDown => ActionMetadata::new(
+                "focus-down",
+                ActionClassification::Composite,
+                "frontend geometry + focus-pane",
+                ActionExecution::FocusDown,
+            ),
+            Action::FocusNextPane => ActionMetadata::new(
+                "focus-next-pane",
+                ActionClassification::Composite,
+                "list-workspaces + focus-pane",
+                ActionExecution::FocusNextPane,
+            ),
+            Action::SwapPanePrev => ActionMetadata::new(
+                "swap-pane-prev",
+                ActionClassification::Composite,
+                "list-workspaces + swap-pane",
+                ActionExecution::SwapPanePrev,
+            ),
+            Action::SwapPaneNext => ActionMetadata::new(
+                "swap-pane-next",
+                ActionClassification::Composite,
+                "list-workspaces + swap-pane",
+                ActionExecution::SwapPaneNext,
+            ),
+            Action::ZoomPane => ActionMetadata::new(
+                "zoom-pane",
+                ActionClassification::Direct,
+                "zoom-pane",
+                ActionExecution::ZoomPane,
+            ),
+            Action::ResizeGrow => ActionMetadata::new(
+                "resize-grow",
+                ActionClassification::Composite,
+                "list-workspaces + set-split-ratio",
+                ActionExecution::ResizeGrow,
+            ),
+            Action::ResizeShrink => ActionMetadata::new(
+                "resize-shrink",
+                ActionClassification::Composite,
+                "list-workspaces + set-split-ratio",
+                ActionExecution::ResizeShrink,
+            ),
+            Action::ScrollUp => ActionMetadata::new(
+                "scroll-up",
+                ActionClassification::PresentationOnly,
+                "frontend viewport adapter; scroll-surface for shared local viewport",
+                ActionExecution::ScrollUp,
+            ),
+            Action::ScrollDown => ActionMetadata::new(
+                "scroll-down",
+                ActionClassification::PresentationOnly,
+                "frontend viewport adapter; scroll-surface for shared local viewport",
+                ActionExecution::ScrollDown,
+            ),
+            Action::ClearHistory => ActionMetadata::new(
+                "clear-history",
+                ActionClassification::Direct,
+                "clear-history",
+                ActionExecution::ClearHistory,
+            ),
+            Action::BrowserBack => ActionMetadata::new(
+                "browser-back",
+                ActionClassification::Direct,
+                "browser-back",
+                ActionExecution::BrowserBack,
+            ),
+            Action::BrowserForward => ActionMetadata::new(
+                "browser-forward",
+                ActionClassification::Direct,
+                "browser-forward",
+                ActionExecution::BrowserForward,
+            ),
+            Action::BrowserReload => ActionMetadata::new(
+                "browser-reload",
+                ActionClassification::Direct,
+                "browser-reload",
+                ActionExecution::BrowserReload,
+            ),
+            Action::BrowserEditUrl => ActionMetadata::new(
+                "browser-edit-url",
+                ActionClassification::Composite,
+                "frontend prompt + browser-navigate",
+                ActionExecution::BrowserEditUrl,
+            ),
+            Action::ShowShortcuts => ActionMetadata::new(
+                "show-shortcuts",
+                ActionClassification::PresentationOnly,
+                "frontend shortcut overlay",
+                ActionExecution::ShowShortcuts,
+            ),
+            Action::Detach => ActionMetadata::new(
+                "detach",
+                ActionClassification::PresentationOnly,
+                "close frontend transport",
+                ActionExecution::Detach,
+            ),
+        }
+    }
 }
 
 impl Action {
@@ -1179,6 +1716,8 @@ impl Action {
             Action::ToggleSidebarCompact => &TOGGLE_SIDEBAR_COMPACT_DEFINITION,
             Action::ToggleSidebarView => &TOGGLE_SIDEBAR_VIEW_DEFINITION,
             Action::FocusSidebar => &FOCUS_SIDEBAR_DEFINITION,
+            Action::NewPaneRight => &NEW_PANE_RIGHT_DEFINITION,
+            Action::UndoLayout => &UNDO_LAYOUT_DEFINITION,
             Action::FocusLeft => &FOCUS_LEFT_DEFINITION,
             Action::FocusRight => &FOCUS_RIGHT_DEFINITION,
             Action::FocusUp => &FOCUS_UP_DEFINITION,
@@ -1191,6 +1730,7 @@ impl Action {
             Action::ResizeShrink => &RESIZE_SHRINK_DEFINITION,
             Action::ScrollUp => &SCROLL_UP_DEFINITION,
             Action::ScrollDown => &SCROLL_DOWN_DEFINITION,
+            Action::ClearHistory => &CLEAR_HISTORY_DEFINITION,
             Action::BrowserBack => &BROWSER_BACK_DEFINITION,
             Action::BrowserForward => &BROWSER_FORWARD_DEFINITION,
             Action::BrowserReload => &BROWSER_RELOAD_DEFINITION,
@@ -1236,20 +1776,39 @@ pub struct Chord {
     pub mods: KeyModifiers,
 }
 
+fn normalize_chord(code: KeyCode, mut mods: KeyModifiers) -> (KeyCode, KeyModifiers) {
+    match code {
+        KeyCode::Tab if mods.contains(KeyModifiers::SHIFT) => {
+            mods.remove(KeyModifiers::SHIFT);
+            (KeyCode::BackTab, mods)
+        }
+        KeyCode::Char(c) if mods.contains(KeyModifiers::SHIFT) => {
+            let Some(shifted) = crate::keys::shifted_ascii_char(c) else {
+                return (code, mods);
+            };
+            mods.remove(KeyModifiers::SHIFT);
+            (KeyCode::Char(shifted), mods)
+        }
+        KeyCode::BackTab => {
+            // Crossterm reports BackTab with an implied Shift modifier.
+            mods.remove(KeyModifiers::SHIFT);
+            (KeyCode::BackTab, mods)
+        }
+        _ => (code, mods),
+    }
+}
+
 impl Chord {
     pub fn matches(&self, key: &KeyEvent) -> bool {
-        // Shift is implied by uppercase/symbol chars and by BackTab. Crossterm
-        // reports the latter as BackTab + SHIFT even though users configure it
-        // as plain "backtab", so do not make that unavoidable modifier part
-        // of the chord comparison.
-        let mods_match = if matches!(self.code, KeyCode::Char(_) | KeyCode::BackTab) {
-            key.modifiers.contains(self.mods & !KeyModifiers::SHIFT)
-        } else {
-            const TRACKED: KeyModifiers =
-                KeyModifiers::CONTROL.union(KeyModifiers::ALT).union(KeyModifiers::SHIFT);
-            key.modifiers & TRACKED == self.mods & TRACKED
-        };
-        self.code == key.code && mods_match
+        const TRACKED: KeyModifiers = KeyModifiers::CONTROL
+            .union(KeyModifiers::ALT)
+            .union(KeyModifiers::SHIFT)
+            .union(KeyModifiers::SUPER)
+            .union(KeyModifiers::HYPER)
+            .union(KeyModifiers::META);
+        let (configured_code, configured_mods) = normalize_chord(self.code, self.mods);
+        let (event_code, event_mods) = normalize_chord(key.code, key.modifiers);
+        configured_code == event_code && configured_mods & TRACKED == event_mods & TRACKED
     }
 
     /// Human-readable form used beside context-menu actions. Keep this
@@ -1298,6 +1857,9 @@ impl Chord {
 #[derive(Debug, Clone)]
 pub struct Keys {
     pub prefix: Chord,
+    /// Resolve empty-text Alt character events using the host terminal's
+    /// macOS Option mode instead of guessing from each event.
+    pub macos_option_as_alt: bool,
     bindings: Vec<(Chord, Action)>,
 }
 
@@ -1305,9 +1867,11 @@ impl Default for Keys {
     fn default() -> Self {
         let bind = |code, action| (Chord { code, mods: KeyModifiers::NONE }, action);
         let alt = |code, action| (Chord { code, mods: KeyModifiers::ALT }, action);
+        let command = |code, action| (Chord { code, mods: KeyModifiers::SUPER }, action);
         let prefix = Chord { code: KeyCode::Char('b'), mods: KeyModifiers::CONTROL };
         Keys {
             prefix,
+            macos_option_as_alt: true,
             bindings: vec![
                 (prefix, Action::SendPrefix),
                 bind(KeyCode::Char('t'), Action::NewTab),
@@ -1349,6 +1913,8 @@ impl Default for Keys {
                 bind(KeyCode::Char('m'), Action::ToggleSidebarCompact),
                 bind(KeyCode::Char('e'), Action::ToggleSidebarView),
                 bind(KeyCode::Char('S'), Action::FocusSidebar),
+                bind(KeyCode::Char('g'), Action::NewPaneRight),
+                bind(KeyCode::Char('U'), Action::UndoLayout),
                 bind(KeyCode::Char('o'), Action::FocusNextPane),
                 bind(KeyCode::Char('h'), Action::FocusLeft),
                 bind(KeyCode::Left, Action::FocusLeft),
@@ -1374,6 +1940,7 @@ impl Default for Keys {
                 bind(KeyCode::Char('['), Action::ScrollUp),
                 bind(KeyCode::PageUp, Action::ScrollUp),
                 bind(KeyCode::PageDown, Action::ScrollDown),
+                command(KeyCode::Char('k'), Action::ClearHistory),
                 bind(KeyCode::Char('<'), Action::BrowserBack),
                 bind(KeyCode::Char('>'), Action::BrowserForward),
                 bind(KeyCode::Char('r'), Action::BrowserReload),
@@ -1386,17 +1953,35 @@ impl Default for Keys {
 }
 
 impl Keys {
+    fn is_modeless_binding(&self, chord: &Chord, action: Action) -> bool {
+        if action == Action::SendPrefix && *chord == self.prefix {
+            return false;
+        }
+        chord.mods.intersects(KeyModifiers::ALT | KeyModifiers::SUPER)
+            || (action == Action::ClearHistory && chord.mods.contains(KeyModifiers::CONTROL))
+    }
+
+    fn shortcut_label_for_chord(&self, action: Action, chord: &Chord) -> Option<String> {
+        let chord_label = chord.display_label()?;
+        if self.is_modeless_binding(chord, action) {
+            Some(chord_label)
+        } else {
+            Some(format!("{} {chord_label}", self.prefix.display_label()?))
+        }
+    }
+
     /// The action bound to a key event (after the prefix).
     pub fn action_for(&self, key: &KeyEvent) -> Option<Action> {
         self.bindings.iter().find(|(chord, _)| chord.matches(key)).map(|(_, a)| *a)
     }
 
-    /// The modeless action bound to a key event. Only Alt-modified
-    /// chords are modeless; non-Alt chords remain prefix-only.
+    /// The modeless action bound to a key event. Alt- and Super-modified
+    /// chords are modeless, as are Control-modified clear-history chords;
+    /// other chords remain prefix-only.
     pub fn modeless_action_for(&self, key: &KeyEvent) -> Option<Action> {
         self.bindings
             .iter()
-            .find(|(chord, _)| chord.mods.contains(KeyModifiers::ALT) && chord.matches(key))
+            .find(|(chord, action)| self.is_modeless_binding(chord, *action) && chord.matches(key))
             .map(|(_, a)| *a)
     }
 
@@ -1412,15 +1997,7 @@ impl Keys {
         self.bindings
             .iter()
             .filter(|(_, bound)| *bound == action)
-            .filter_map(|(chord, _)| {
-                let chord_label = chord.display_label()?;
-                let is_prefix_passthrough = action == Action::SendPrefix && *chord == self.prefix;
-                if chord.mods.contains(KeyModifiers::ALT) && !is_prefix_passthrough {
-                    Some(chord_label)
-                } else {
-                    Some(format!("{} {chord_label}", self.prefix.display_label()?))
-                }
-            })
+            .filter_map(|(chord, _)| self.shortcut_label_for_chord(action, chord))
             .collect()
     }
 
@@ -1429,23 +2006,27 @@ impl Keys {
     pub fn prefixed_key_label(&self, action: Action) -> Option<String> {
         self.bindings
             .iter()
-            .find(|(chord, bound)| {
-                *bound == action
-                    && (!chord.mods.contains(KeyModifiers::ALT)
-                        || (action == Action::SendPrefix && *chord == self.prefix))
-            })
+            .find(|(chord, bound)| *bound == action && !self.is_modeless_binding(chord, action))
             .and_then(|(chord, _)| chord.display_label())
     }
 
     /// Bound actions in canonical catalog order, ready for shortcut help and
     /// future command surfaces.
     pub fn resolved_shortcuts(&self) -> Vec<(&'static ActionDefinition, Vec<String>)> {
+        let mut shortcuts_by_action = HashMap::<Action, Vec<String>>::new();
+        for (chord, action) in &self.bindings {
+            if let Some(label) = self.shortcut_label_for_chord(*action, chord) {
+                shortcuts_by_action.entry(*action).or_default().push(label);
+            }
+        }
         action_definitions()
             .iter()
             .copied()
             .filter_map(|definition| {
-                let shortcuts = self.shortcut_labels(definition.action);
-                (!shortcuts.is_empty()).then_some((definition, shortcuts))
+                shortcuts_by_action
+                    .remove(&definition.action)
+                    .filter(|shortcuts| !shortcuts.is_empty())
+                    .map(|shortcuts| (definition, shortcuts))
             })
             .collect()
     }
@@ -1453,8 +2034,19 @@ impl Keys {
     /// Apply config overrides: `"prefix"` rebinds the prefix; any action
     /// name rebinds that action (replacing ALL default chords for it).
     fn apply(&mut self, raw: &HashMap<String, Value>) {
+        if let Some(value) = raw.get("macos_option_as_alt") {
+            if let Some(value) = value.as_bool() {
+                self.macos_option_as_alt = value;
+            } else {
+                let value = format!("{value:?}");
+                eprintln!("{}", catalog().config.invalid_macos_option_as_alt(&value));
+            }
+        }
         if raw.get("alt_shortcuts").and_then(Value::as_bool) == Some(false) {
             self.bindings.retain(|(chord, _)| !chord.mods.contains(KeyModifiers::ALT));
+        }
+        if raw.get("super_shortcuts").and_then(Value::as_bool) == Some(false) {
+            self.bindings.retain(|(chord, _)| !chord.mods.contains(KeyModifiers::SUPER));
         }
         if let Some(value) = raw.get("prefix") {
             if let Some(value) = value.as_str()
@@ -1477,7 +2069,11 @@ impl Keys {
             }
         }
         for (name, value) in raw {
-            if name == "alt_shortcuts" || name == "prefix" {
+            if name == "macos_option_as_alt"
+                || name == "alt_shortcuts"
+                || name == "super_shortcuts"
+                || name == "prefix"
+            {
                 continue;
             }
             // The numbered families accept both spellings: select-screen-N /
@@ -1521,6 +2117,11 @@ impl Keys {
         let prefix = self.prefix;
         self.bindings.retain(|(chord, action)| *action == Action::SendPrefix || *chord != prefix);
     }
+
+    #[cfg(test)]
+    pub(crate) fn apply_for_test(&mut self, raw: &HashMap<String, Value>) {
+        self.apply(raw);
+    }
 }
 
 fn key_values(value: &Value) -> Vec<&str> {
@@ -1540,6 +2141,7 @@ fn parse_chord(s: &str) -> Option<Chord> {
         match part.to_lowercase().as_str() {
             "ctrl" | "control" => mods |= KeyModifiers::CONTROL,
             "alt" | "option" => mods |= KeyModifiers::ALT,
+            "cmd" | "command" | "super" => mods |= KeyModifiers::SUPER,
             "shift" => mods |= KeyModifiers::SHIFT,
             "tab" => code = Some(KeyCode::Tab),
             "backtab" => code = Some(KeyCode::BackTab),
@@ -1565,11 +2167,11 @@ fn parse_chord(s: &str) -> Option<Chord> {
             }
         }
     }
-    let mut code = code?;
-    if code == KeyCode::Tab && mods.contains(KeyModifiers::SHIFT) {
-        code = KeyCode::BackTab;
-        mods.remove(KeyModifiers::SHIFT);
-    }
+
+    let code = code?;
+    // Store a shifted ASCII result so `D` and `shift+d` stay equivalent.
+    // Shift stays explicit when the character itself cannot represent it.
+    let (code, mods) = normalize_chord(code, mods);
     Some(Chord { code, mods })
 }
 
@@ -1589,6 +2191,7 @@ pub struct Config {
     pub machines: Vec<MachineConfig>,
     pub browser: Browser,
     pub scrollbar: Scrollbar,
+    pub viewport: Viewport,
     pub server: Server,
     pub keys: Keys,
 }
@@ -1854,6 +2457,9 @@ pub fn load() -> Config {
     if let Some(position) = raw.scrollbar.position {
         config.scrollbar.position = position;
     }
+    if let Some(animation) = raw.viewport.animation {
+        config.viewport.animation = animation;
+    }
     config.server.ws = raw.server.ws.filter(|value| !value.trim().is_empty());
     config.server.ws_token = raw.server.ws_token.filter(|value| !value.trim().is_empty());
     config.keys.apply(&raw.keys);
@@ -2053,8 +2659,15 @@ fn resolved_ghostty_defaults() -> Option<DefaultColors> {
 fn resolved_ghostty_defaults_from(
     installations: &[platform::GhosttyInstallation],
 ) -> Option<DefaultColors> {
+    resolved_ghostty_defaults_from_with(installations, run_ghostty_show_config)
+}
+
+fn resolved_ghostty_defaults_from_with(
+    installations: &[platform::GhosttyInstallation],
+    mut resolve: impl FnMut(&platform::GhosttyInstallation) -> Option<String>,
+) -> Option<DefaultColors> {
     installations.iter().find_map(|installation| {
-        let text = run_ghostty_show_config(installation)?;
+        let text = resolve(installation)?;
         let defaults = parse_resolved_ghostty_defaults(&text);
         // `+show-config` serializes Ghostty's effective application defaults,
         // including both colors. An executable that exits successfully but
@@ -2064,7 +2677,7 @@ fn resolved_ghostty_defaults_from(
     })
 }
 
-fn run_ghostty_show_config(installation: &platform::GhosttyInstallation) -> Option<String> {
+fn ghostty_show_config_command(installation: &platform::GhosttyInstallation) -> Command {
     let mut command = Command::new(&installation.binary);
     command
         .args(["+show-config", "--no-pager"])
@@ -2074,6 +2687,11 @@ fn run_ghostty_show_config(installation: &platform::GhosttyInstallation) -> Opti
     if let Some(resources_dir) = installation.resources_dir.as_deref() {
         command.env("GHOSTTY_RESOURCES_DIR", resources_dir);
     }
+    command
+}
+
+fn run_ghostty_show_config(installation: &platform::GhosttyInstallation) -> Option<String> {
+    let mut command = ghostty_show_config_command(installation);
     let mut child = command.spawn().ok()?;
     let deadline = Instant::now() + Duration::from_secs(2);
     let status = loop {
@@ -2381,11 +2999,14 @@ mod tests {
         .unwrap();
         std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
 
-        let output = run_ghostty_show_config(&platform::GhosttyInstallation {
+        let output = ghostty_show_config_command(&platform::GhosttyInstallation {
             binary,
             resources_dir: Some(resources.clone()),
         })
+        .output()
         .unwrap();
+        assert!(output.status.success());
+        let output = String::from_utf8(output.stdout).unwrap();
         assert!(output.contains(&format!("resource-path = {}", resources.display())));
         let defaults = parse_resolved_ghostty_defaults(&output);
         assert_eq!(defaults.bg, Some(Rgb { r: 0x27, g: 0x28, b: 0x22 }));
@@ -2393,36 +3014,28 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
-    #[cfg(unix)]
     #[test]
     fn unusable_packaged_ghostty_resolver_falls_through() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let root = std::env::temp_dir().join(format!(
-            "cmux-tui-ghostty-fallback-{}-{}",
-            std::process::id(),
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
-        ));
-        std::fs::create_dir_all(&root).unwrap();
-        let broken = root.join("copied-app-binary");
-        let working = root.join("standalone-cli-helper");
-        std::fs::write(&broken, "#!/bin/sh\nexit 0\n").unwrap();
-        std::fs::write(
-            &working,
-            "#!/bin/sh\nprintf 'background = #272822\\nforeground = #fdfff1\\n'\n",
-        )
+        let broken = PathBuf::from("/cmux-test/copied-app-binary");
+        let working = PathBuf::from("/cmux-test/standalone-cli-helper");
+        let installations = [
+            platform::GhosttyInstallation { binary: broken.clone(), resources_dir: None },
+            platform::GhosttyInstallation { binary: working.clone(), resources_dir: None },
+        ];
+        let mut visited = Vec::new();
+        let defaults = resolved_ghostty_defaults_from_with(&installations, |installation| {
+            visited.push(installation.binary.clone());
+            if installation.binary == broken {
+                Some(String::new())
+            } else {
+                Some("background = #272822\nforeground = #fdfff1\n".to_owned())
+            }
+        })
         .unwrap();
-        std::fs::set_permissions(&broken, std::fs::Permissions::from_mode(0o700)).unwrap();
-        std::fs::set_permissions(&working, std::fs::Permissions::from_mode(0o700)).unwrap();
 
-        let defaults = resolved_ghostty_defaults_from(&[
-            platform::GhosttyInstallation { binary: broken, resources_dir: None },
-            platform::GhosttyInstallation { binary: working, resources_dir: None },
-        ])
-        .unwrap();
+        assert_eq!(visited, vec![broken, working]);
         assert_eq!(defaults.bg, Some(Rgb { r: 0x27, g: 0x28, b: 0x22 }));
         assert_eq!(defaults.fg, Some(Rgb { r: 0xfd, g: 0xff, b: 0xf1 }));
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -2835,6 +3448,7 @@ mod tests {
                     }
                 ],
                 "scrollbar": {"position": "border"},
+                "viewport": {"animation": false},
                 "keys": {
                     "alt_shortcuts": false,
                     "rename-pane": "r",
@@ -2892,6 +3506,7 @@ mod tests {
         assert_eq!(plugin.command, vec!["/tmp/sidebar-plugin", "--mode", "test"]);
         assert_eq!(plugin.cwd.as_deref(), Some("/tmp"));
         assert_eq!(config.scrollbar.position, ScrollbarPosition::Border);
+        assert!(!config.viewport.animation);
         assert_eq!(
             config.keys.action_for(&KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE)),
             Some(Action::RenameTab)
@@ -2935,6 +3550,21 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("unknown variant `stealth`"), "{err}");
+    }
+
+    #[test]
+    fn viewport_animation_defaults_on_and_can_be_disabled() {
+        let raw: RawConfig = serde_json::from_str(r#"{}"#).unwrap();
+        assert!(raw.viewport.animation.is_none());
+        assert!(Config::default().viewport.animation);
+
+        let raw: RawConfig = serde_json::from_str(r#"{"viewport":{"animation":false}}"#).unwrap();
+        assert_eq!(raw.viewport.animation, Some(false));
+
+        let error = serde_json::from_str::<RawConfig>(r#"{"viewport":{"animation":"slow"}}"#)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("invalid type"), "{error}");
     }
 
     #[test]
@@ -2987,6 +3617,21 @@ mod tests {
     }
 
     #[test]
+    fn macos_option_as_alt_is_an_explicit_input_mode() {
+        let mut keys = Keys::default();
+        assert!(keys.macos_option_as_alt);
+
+        keys.apply(&HashMap::from([("macos_option_as_alt".to_string(), Value::Bool(false))]));
+        assert!(!keys.macos_option_as_alt);
+
+        keys.apply(&HashMap::from([(
+            "macos_option_as_alt".to_string(),
+            Value::String("guess".to_string()),
+        )]));
+        assert!(!keys.macos_option_as_alt);
+    }
+
+    #[test]
     fn default_key_table_has_no_duplicate_chords_or_reserved_alt_words() {
         let keys = Keys::default();
         for (i, (left, _)) in keys.bindings.iter().enumerate() {
@@ -3012,6 +3657,50 @@ mod tests {
     }
 
     #[test]
+    fn default_terminal_clear_shortcuts_keep_ctrl_l_child_owned() {
+        let keys = Keys::default();
+        let action = |code, modifiers| keys.modeless_action_for(&KeyEvent::new(code, modifiers));
+        assert_eq!(action(KeyCode::Char('k'), KeyModifiers::SUPER), Some(Action::ClearHistory));
+        assert_eq!(action(KeyCode::Char('l'), KeyModifiers::CONTROL), None);
+        assert_eq!(action(KeyCode::Char('k'), KeyModifiers::SUPER | KeyModifiers::CONTROL), None);
+        assert_eq!(action(KeyCode::Char('k'), KeyModifiers::SUPER | KeyModifiers::ALT), None);
+        assert_eq!(action(KeyCode::Char('t'), KeyModifiers::SUPER), None);
+        assert_eq!(action(KeyCode::Char('w'), KeyModifiers::SUPER), None);
+        assert_eq!(action(KeyCode::Char('d'), KeyModifiers::SUPER), None);
+    }
+
+    #[test]
+    fn super_shortcuts_can_be_disabled_or_configured_explicitly() {
+        let mut keys = Keys::default();
+        keys.apply(&HashMap::from([("super_shortcuts".to_string(), Value::Bool(false))]));
+        assert_eq!(
+            keys.modeless_action_for(&KeyEvent::new(KeyCode::Char('k'), KeyModifiers::SUPER)),
+            None
+        );
+        assert_eq!(
+            keys.modeless_action_for(&KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL)),
+            None
+        );
+
+        keys.apply(&HashMap::from([(
+            "clear-history".to_string(),
+            Value::String("command+l".to_string()),
+        )]));
+        assert_eq!(
+            keys.modeless_action_for(&KeyEvent::new(KeyCode::Char('l'), KeyModifiers::SUPER)),
+            Some(Action::ClearHistory)
+        );
+        assert_eq!(
+            parse_chord("cmd+shift+d"),
+            Some(Chord { code: KeyCode::Char('D'), mods: KeyModifiers::SUPER })
+        );
+        assert_eq!(
+            parse_chord("super+shift+["),
+            Some(Chord { code: KeyCode::Char('{'), mods: KeyModifiers::SUPER })
+        );
+    }
+
+    #[test]
     fn ordinary_binding_collision_preserves_doubled_prefix_passthrough() {
         let mut keys = Keys::default();
         let mut raw = HashMap::new();
@@ -3030,6 +3719,37 @@ mod tests {
             keys.action_for(&KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE)),
             Some(Action::NewTab)
         );
+    }
+
+    #[test]
+    fn shifted_character_chords_match_enhanced_base_key_events() {
+        let shifted_letter = parse_chord("super+shift+d").unwrap();
+        assert!(shifted_letter.matches(&KeyEvent::new(
+            KeyCode::Char('d'),
+            KeyModifiers::SUPER | KeyModifiers::SHIFT,
+        )));
+
+        let shifted_symbol = parse_chord("super+shift+[").unwrap();
+        assert!(shifted_symbol.matches(&KeyEvent::new(
+            KeyCode::Char('['),
+            KeyModifiers::SUPER | KeyModifiers::SHIFT,
+        )));
+
+        let plain_letter = parse_chord("super+d").unwrap();
+        assert!(!plain_letter.matches(&KeyEvent::new(
+            KeyCode::Char('d'),
+            KeyModifiers::SUPER | KeyModifiers::SHIFT,
+        )));
+    }
+
+    #[test]
+    fn shift_is_preserved_without_a_shifted_ascii_character() {
+        for (raw, character) in [("shift+space", ' '), ("shift+é", 'é')] {
+            let chord = parse_chord(raw).unwrap();
+            assert_eq!(chord, Chord { code: KeyCode::Char(character), mods: KeyModifiers::SHIFT });
+            assert!(chord.matches(&KeyEvent::new(KeyCode::Char(character), KeyModifiers::SHIFT,)));
+            assert!(!chord.matches(&KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE,)));
+        }
     }
 
     #[test]
@@ -3116,6 +3836,15 @@ mod tests {
     }
 
     #[test]
+    fn layout_undo_has_a_default_prefix_binding() {
+        let keys = Keys::default();
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('U'), KeyModifiers::SHIFT)),
+            Some(Action::UndoLayout)
+        );
+    }
+
+    #[test]
     fn new_action_names_parse_from_config_overrides() {
         let cases = [
             ("zoom-pane", Action::ZoomPane),
@@ -3125,6 +3854,8 @@ mod tests {
             ("scroll-up", Action::ScrollUp),
             ("toggle-sidebar-compact", Action::ToggleSidebarCompact),
             ("toggle-sidebar-view", Action::ToggleSidebarView),
+            ("new-pane-right", Action::NewPaneRight),
+            ("undo-layout", Action::UndoLayout),
             ("show-shortcuts", Action::ShowShortcuts),
             ("send-prefix", Action::SendPrefix),
             ("prev-workspace", Action::PrevWorkspace),
@@ -3196,6 +3927,8 @@ mod tests {
         assert_eq!(keys.shortcut_label(Action::SendPrefix).as_deref(), Some("Ctrl-b Ctrl-b"));
         assert_eq!(keys.shortcut_label(Action::ZoomPane).as_deref(), Some("Ctrl-b z"));
         assert_eq!(keys.shortcut_label(Action::NewPaneSmart).as_deref(), Some("Alt-n"));
+        assert_eq!(keys.shortcut_label(Action::ClearHistory).as_deref(), Some("Super-k"));
+        assert_eq!(keys.prefixed_key_label(Action::ClearHistory), None);
         assert_eq!(keys.prefixed_key_label(Action::ShowShortcuts).as_deref(), Some("?"));
         assert_eq!(
             keys.shortcut_labels(Action::FocusLeft),
@@ -3249,6 +3982,20 @@ mod tests {
             assert!(!definition.label_en.is_empty());
             assert!(!definition.label_ja.is_empty());
             assert_eq!(definition.action.definition(), definition);
+            let metadata = definition.action.metadata();
+            let metadata_key = metadata.key;
+            let _execution = metadata.execution();
+            let resolved_metadata_key = match definition.action {
+                Action::SelectTab(index) | Action::SelectScreen(index) => {
+                    metadata_key.replace("{number}", &index.get().to_string())
+                }
+                _ => metadata_key.to_string(),
+            };
+            assert_eq!(
+                resolved_metadata_key, definition.config_key,
+                "action catalog and programmability metadata disagree for {:?}",
+                definition.action
+            );
         }
         for (_, action) in Keys::default().bindings {
             assert!(actions.contains(&action), "default binding is not registered: {action:?}");

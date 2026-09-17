@@ -126,6 +126,15 @@ public final class ToastCenter {
         }
     }
 
+    /// Dismiss any toast carrying `coalescingKey`, visible or queued. Used when
+    /// the condition a persistent/status toast describes stops being true.
+    public func dismiss(coalescingKey: String) {
+        queue.removeAll { $0.coalescingKey == coalescingKey }
+        if presented?.toast.coalescingKey == coalescingKey {
+            dismissCurrent()
+        }
+    }
+
     /// Dismiss the visible toast and advance to the next queued one after a
     /// short gap.
     public func dismissCurrent() {

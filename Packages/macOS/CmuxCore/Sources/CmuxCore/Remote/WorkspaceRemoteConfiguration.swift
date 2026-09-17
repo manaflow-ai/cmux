@@ -14,6 +14,8 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     public let terminalTransport: WorkspaceRemoteTerminalTransport
     /// Durable program profile opened in the interactive terminal.
     public let terminalProfile: WorkspaceRemoteTerminalProfile
+    /// Effective host-configured command chained after cmux's interactive bootstrap.
+    public let configuredRemoteCommand: String?
     /// SSH destination (`user@host` or `host`).
     public let destination: String
     /// Explicit SSH port, when configured.
@@ -77,6 +79,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         ownerWorkspaceID: UUID? = nil,
         managedCloudVMID: String? = nil,
         terminalStartupCommand: String?,
+        configuredRemoteCommand: String? = nil,
         foregroundAuthToken: String? = nil,
         agentSocketPath: String? = nil,
         daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint? = nil,
@@ -100,6 +103,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         self.ownerWorkspaceID = ownerWorkspaceID
         self.managedCloudVMID = Self.normalizedOptionalValue(managedCloudVMID)
         self.terminalStartupCommand = terminalStartupCommand
+        self.configuredRemoteCommand = Self.normalizedOptionalValue(configuredRemoteCommand)
         self.foregroundAuthToken = foregroundAuthToken
         self.agentSocketPath = Self.normalizedAgentSocketPath(agentSocketPath)
         self.daemonWebSocketEndpoint = daemonWebSocketEndpoint
@@ -127,6 +131,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         localSocketPath: String?,
         ownerWorkspaceID: UUID? = nil,
         terminalStartupCommand: String?,
+        configuredRemoteCommand: String? = nil,
         foregroundAuthToken: String? = nil,
         agentSocketPath: String? = nil,
         daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint? = nil,
@@ -151,6 +156,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             ownerWorkspaceID: ownerWorkspaceID,
             managedCloudVMID: nil,
             terminalStartupCommand: terminalStartupCommand,
+            configuredRemoteCommand: configuredRemoteCommand,
             foregroundAuthToken: foregroundAuthToken,
             agentSocketPath: agentSocketPath,
             daemonWebSocketEndpoint: daemonWebSocketEndpoint,
@@ -166,6 +172,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         lhs.transport == rhs.transport &&
             lhs.terminalTransport == rhs.terminalTransport &&
             lhs.terminalProfile == rhs.terminalProfile &&
+            lhs.configuredRemoteCommand == rhs.configuredRemoteCommand &&
             lhs.destination == rhs.destination &&
             lhs.port == rhs.port &&
             lhs.identityFile == rhs.identityFile &&
@@ -332,6 +339,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             ownerWorkspaceID: workspaceID,
             managedCloudVMID: managedCloudVMID,
             terminalStartupCommand: terminalStartupCommand,
+            configuredRemoteCommand: configuredRemoteCommand,
             foregroundAuthToken: foregroundAuthToken,
             agentSocketPath: agentSocketPath,
             daemonWebSocketEndpoint: daemonWebSocketEndpoint,
@@ -359,6 +367,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             ownerWorkspaceID: ownerWorkspaceID,
             managedCloudVMID: managedCloudVMID,
             terminalStartupCommand: terminalStartupCommand,
+            configuredRemoteCommand: configuredRemoteCommand,
             foregroundAuthToken: foregroundAuthToken,
             agentSocketPath: agentSocketPath,
             daemonWebSocketEndpoint: daemonWebSocketEndpoint,
@@ -427,6 +436,7 @@ extension WorkspaceRemoteConfiguration {
             transport: transport,
             terminalTransport: terminalTransport,
             terminalProfile: terminalProfile,
+            configuredRemoteCommand: configuredRemoteCommand,
             destination: normalizedDestination,
             port: port,
             identityFile: Self.normalizedIdentityPath(identityFile),

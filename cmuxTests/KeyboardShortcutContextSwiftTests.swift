@@ -14,6 +14,52 @@ private typealias SimulatorStoredShortcut = cmux.StoredShortcut
 
 @Suite("Keyboard shortcut context")
 struct KeyboardShortcutContextSwiftTests {
+    @Test("focus history and browser history partition their shared default shortcuts by focus")
+    func focusAndBrowserHistoryContextsAreMutuallyExclusive() throws {
+        let pairs: [(KeyboardShortcutSettings.Action, KeyboardShortcutSettings.Action)] = [
+            (.focusHistoryBack, .browserBack),
+            (.focusHistoryForward, .browserForward),
+        ]
+        let outsideBrowserWhen: ShortcutWhenClause = .not(.atom(.browserFocus))
+
+        for (focusHistoryAction, browserAction) in pairs {
+            let focusHistoryContext = focusHistoryAction.shortcutContext
+            let browserContext = browserAction.shortcutContext
+            let sharedDefault = focusHistoryAction.defaultShortcut
+            let settingsAction = try #require(ShortcutAction(rawValue: focusHistoryAction.rawValue))
+
+            #expect(sharedDefault == browserAction.defaultShortcut)
+            #expect(focusHistoryContext.isAvailable(
+                focusedBrowserPanel: false,
+                focusedMarkdownPanel: false,
+                rightSidebarFocused: false
+            ))
+            #expect(focusHistoryContext.isAvailable(
+                focusedBrowserPanel: false,
+                focusedMarkdownPanel: false,
+                rightSidebarFocused: true
+            ))
+            #expect(!focusHistoryContext.isAvailable(
+                focusedBrowserPanel: true,
+                focusedMarkdownPanel: false,
+                rightSidebarFocused: false
+            ))
+            #expect(browserContext.isAvailable(
+                focusedBrowserPanel: true,
+                focusedMarkdownPanel: false,
+                rightSidebarFocused: false
+            ))
+            #expect(!focusHistoryContext.overlaps(browserContext))
+            #expect(focusHistoryContext.defaultWhenClause == outsideBrowserWhen)
+            #expect(settingsAction.defaultFocusWhenClause == outsideBrowserWhen)
+            #expect(!focusHistoryAction.conflicts(
+                with: browserAction.defaultShortcut,
+                proposedAction: browserAction,
+                configuredShortcut: sharedDefault
+            ))
+        }
+    }
+
     @Test("Simulator shortcuts are configurable, scoped, and priority routed")
     func simulatorShortcutPolicy() throws {
         let actions = KeyboardShortcutSettings.Action.simulatorActions
@@ -64,24 +110,30 @@ struct KeyboardShortcutContextSwiftTests {
         #expect(context.isAvailable(commandPaletteContext: palette))
     }
 
-    @Test("reopen workspace default yields to an explicit legacy browser binding")
-    func reopenWorkspaceDefaultYieldsToLegacyBrowserBinding() {
+    @Test("reopen last closed default yields to an explicit workspace binding")
+    func reopenLastClosedDefaultYieldsToExplicitWorkspaceBinding() {
         let workspaceAction = KeyboardShortcutSettings.Action.reopenClosedWorkspace
-        let browserAction = KeyboardShortcutSettings.Action.reopenClosedBrowserPanel
-        let commandShiftT = workspaceAction.defaultShortcut
+        let reopenLastClosedAction = KeyboardShortcutSettings.Action.reopenClosedBrowserPanel
+        let commandShiftT = reopenLastClosedAction.defaultShortcut
 
         let resolved = KeyboardShortcutSettings.defaultShortcutResolvingLegacyConflicts(
-            for: workspaceAction,
+            for: reopenLastClosedAction,
             explicitlyConfiguredShortcut: { action in
-                action == browserAction ? commandShiftT : nil
+                action == workspaceAction ? commandShiftT : nil
             }
         )
 
         #expect(resolved == nil)
         #expect(KeyboardShortcutSettings.defaultShortcutResolvingLegacyConflicts(
-            for: workspaceAction,
+            for: reopenLastClosedAction,
             explicitlyConfiguredShortcut: { _ in nil }
         ) == commandShiftT)
+        #expect(KeyboardShortcutSettings.defaultShortcutResolvingLegacyConflicts(
+            for: reopenLastClosedAction,
+            explicitlyConfiguredShortcut: { action in
+                action == workspaceAction ? .unbound : nil
+            }
+        ) == nil)
     }
 
     @Test("markdown and view zoom contexts do not collide")

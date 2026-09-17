@@ -54,6 +54,7 @@ const MAX_PROCESS_ARGUMENTS: usize = 4_096;
 const MAX_PROCESS_ENVIRONMENT: usize = 4_096;
 const MAX_PROCESS_CONFIGURATION_BYTES: usize = 4 * 1024 * 1024;
 const TERMINATION_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+const CHILD_REAP_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
 const MAX_PROCESS_REPLAY_EVENTS: u32 = 1_024;
 const MAX_PROCESS_TIMEOUT_MS: u64 = 7 * 24 * 60 * 60 * 1_000;
 const MAX_OPERATION_ID_BYTES: usize = 256;
@@ -146,7 +147,10 @@ impl AsyncPty {
                 Ok(Ok(written)) => offset += written,
                 Ok(Err(error)) if error.kind() == std::io::ErrorKind::Interrupted => continue,
                 Ok(Err(error)) => return Err(error),
-                Err(_) => continue,
+                // Linux PTYs can keep reporting writable after a nonblocking
+                // write returns EAGAIN. Yield so a full input queue cannot
+                // monopolize a current-thread runtime and starve termination.
+                Err(_) => tokio::task::yield_now().await,
             }
         }
         Ok(())
@@ -625,13 +629,28 @@ struct ProcessCatalogMetadata {
 
 struct ProcessTarget {
     serial: StdMutex<()>,
+    closing: AtomicBool,
     exited: AtomicBool,
     notify: Notify,
 }
 
 impl ProcessTarget {
     fn new() -> Self {
-        Self { serial: StdMutex::new(()), exited: AtomicBool::new(false), notify: Notify::new() }
+        Self {
+            serial: StdMutex::new(()),
+            closing: AtomicBool::new(false),
+            exited: AtomicBool::new(false),
+            notify: Notify::new(),
+        }
+    }
+
+    fn is_closing(&self) -> bool {
+        self.closing.load(Ordering::Acquire)
+    }
+
+    fn begin_closing(&self) {
+        self.closing.store(true, Ordering::Release);
+        self.notify.notify_waiters();
     }
 
     fn is_exited(&self) -> bool {
@@ -1507,7 +1526,7 @@ impl ProcessManager {
                             RpcError::new("process-write-failed", error.to_string())
                         })?;
                     }
-                    _ = wait_for_target_exit(&record) => {
+                    _ = wait_for_process_input_close(&record) => {
                         return Err(RpcError::new(
                             "process-exited",
                             "process exited while stdin was being written",
@@ -1549,7 +1568,7 @@ impl ProcessManager {
                         result = &mut write => result.map_err(|error| {
                             RpcError::new("process-write-failed", error.to_string())
                         })?,
-                        _ = wait_for_target_exit(&record) => {
+                        _ = wait_for_process_input_close(&record) => {
                             return Err(RpcError::new(
                                 "process-exited",
                                 "process exited while PTY input was being written",
@@ -1578,7 +1597,7 @@ impl ProcessManager {
                             format!("PTY write task failed: {error}"),
                         )
                     })?,
-                    _ = wait_for_target_exit(&record) => {
+                    _ = wait_for_process_input_close(&record) => {
                         return Err(RpcError::new(
                             "process-exited",
                             "process exited while PTY input was being written",
@@ -1971,10 +1990,10 @@ fn mark_target_exited(record: &ProcessRecord) {
     record.target.mark_exited();
 }
 
-async fn wait_for_target_exit(record: &ProcessRecord) {
+async fn wait_for_process_input_close(record: &ProcessRecord) {
     loop {
         let notified = record.target.notify.notified();
-        if record.target.is_exited() {
+        if record.target.is_closing() || record.target.is_exited() {
             return;
         }
         notified.await;
@@ -2319,9 +2338,7 @@ async fn wait_and_reap_pipe_child(
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(error) => return Err(error),
         }
-        child_events.recv().await.ok_or_else(|| {
-            std::io::Error::other("SIGCHLD listener closed before the child exited")
-        })?;
+        wait_for_child_exit_hint(child_events).await?;
     }
 }
 
@@ -2339,9 +2356,7 @@ async fn wait_and_reap_pty_child(
                 Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(error) => return Err(error),
             }
-            child_events.recv().await.ok_or_else(|| {
-                std::io::Error::other("SIGCHLD listener closed before the PTY child exited")
-            })?;
+            wait_for_child_exit_hint(child_events).await?;
         }
     }
     loop {
@@ -2351,9 +2366,17 @@ async fn wait_and_reap_pty_child(
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(error) => return Err(error),
         }
-        child_events.recv().await.ok_or_else(|| {
-            std::io::Error::other("SIGCHLD listener closed before the PTY child exited")
-        })?;
+        wait_for_child_exit_hint(child_events).await?;
+    }
+}
+
+#[cfg(unix)]
+async fn wait_for_child_exit_hint(
+    child_events: &mut tokio::signal::unix::Signal,
+) -> std::io::Result<()> {
+    match tokio::time::timeout(CHILD_REAP_POLL_INTERVAL, child_events.recv()).await {
+        Ok(Some(())) | Err(_) => Ok(()),
+        Ok(None) => Err(std::io::Error::other("SIGCHLD listener closed before the child exited")),
     }
 }
 
@@ -2429,6 +2452,9 @@ fn signal_record(record: &ProcessRecord, signal: ProcessSignal) -> Result<(), Rp
         return Ok(());
     };
     if result == 0 {
+        if matches!(signal, ProcessSignal::Terminate | ProcessSignal::Kill) {
+            record.target.begin_closing();
+        }
         Ok(())
     } else {
         let error = std::io::Error::last_os_error();
@@ -2456,7 +2482,9 @@ fn signal_record(record: &ProcessRecord, signal: ProcessSignal) -> Result<(), Rp
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .kill()
-        .map_err(|error| RpcError::new("process-signal-failed", error.to_string()))
+        .map_err(|error| RpcError::new("process-signal-failed", error.to_string()))?;
+    record.target.begin_closing();
+    Ok(())
 }
 
 #[cfg(unix)]
@@ -3444,7 +3472,12 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         assert!(!writer.is_finished(), "PTY input queue never filled during the regression test");
 
-        manager.close_client(&ClientScope::local()).await;
+        tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            manager.close_client(&ClientScope::local()),
+        )
+        .await
+        .expect("client cleanup should not block while signaling the PTY");
         let outcome = tokio::time::timeout(std::time::Duration::from_secs(5), writer)
             .await
             .expect("client cleanup should unblock PTY input")
@@ -3452,7 +3485,10 @@ mod tests {
         if let Err(error) = outcome {
             assert!(matches!(error.code.as_str(), "process-exited" | "process-write-failed"));
         }
-        manager.wait(process).await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), manager.wait(process))
+            .await
+            .expect("client cleanup should finish reaping the PTY")
+            .unwrap();
     }
 
     #[cfg(unix)]

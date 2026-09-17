@@ -70,10 +70,10 @@ extension CmxIrohClientRuntime {
         supervisorEventTask = nil
         await relayCoordinator?.deactivate()
         relayCoordinator = nil
-        await sessionPool.deactivate()
         await contextRouter.clear()
+        authoritativeDiscovery = nil
         if !preserveBinding { localBinding = nil }
-        await supervisor.deactivate()
+        await connectivityEngine.stop()
     }
 
     func validateRelayFleet(_ fleet: [String]) throws {

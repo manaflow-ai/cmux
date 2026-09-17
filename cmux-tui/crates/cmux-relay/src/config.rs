@@ -208,6 +208,9 @@ impl RelayConfig {
                 "relay join ticket TTL cannot exceed {MAXIMUM_JOIN_TICKET_TTL_SECONDS} seconds"
             )));
         }
+        if self.join_timeout > self.join_ticket_ttl {
+            return Err(ConfigError::new("relay join timeout cannot exceed the join ticket TTL"));
+        }
         if self.lease_duration.as_secs() > u64::from(u32::MAX) {
             return Err(ConfigError::new("relay lease does not fit the wire protocol"));
         }
@@ -219,6 +222,13 @@ impl RelayConfig {
         }
         if self.max_queue_frames == 0 {
             return Err(ConfigError::new("relay queue must hold at least one frame"));
+        }
+        if self.max_queue_frames > tokio::sync::Semaphore::MAX_PERMITS
+            || self.max_http_connections > tokio::sync::Semaphore::MAX_PERMITS
+        {
+            return Err(ConfigError::new(
+                "relay queue and HTTP connection limits exceed Tokio's maximum",
+            ));
         }
         if self.max_connections == 0
             || self.max_http_connections == 0
@@ -242,6 +252,7 @@ impl RelayConfig {
         if self.ticket_issuer.is_empty()
             || self.ticket_issuer.len() > 256
             || self.ticket_issuer.contains('\n')
+            || self.ticket_issuer.contains('\r')
         {
             return Err(ConfigError::new(
                 "CMUX_RELAY_ISSUER must contain 1 to 256 bytes without newline",
@@ -274,8 +285,12 @@ pub enum RelayCommand {
 
 impl RelayCommand {
     pub fn from_process() -> Result<Self, ConfigError> {
+        let arguments = env::args_os().skip(1).collect::<Vec<_>>();
+        if let Some(command) = informational_command(&arguments) {
+            return Ok(command);
+        }
         let config = RelayConfig::from_environment()?;
-        Self::parse(config, env::args_os().skip(1))
+        Self::parse(config, arguments)
     }
 
     pub fn parse(
@@ -509,6 +524,18 @@ impl RelayCommand {
          Set CMUX_RELAY_HMAC_SECRET to validate provider tickets and mint join tickets.\n\
          Endpoints: /healthz, /v1/relay, and /ws\n"
     }
+}
+
+fn informational_command(arguments: &[OsString]) -> Option<RelayCommand> {
+    let help = arguments.iter().any(|argument| matches!(argument.to_str(), Some("-h" | "--help")))
+        || matches!(arguments.first().and_then(|argument| argument.to_str()), Some("help"));
+    if help {
+        return Some(RelayCommand::Help);
+    }
+    let version =
+        arguments.iter().any(|argument| matches!(argument.to_str(), Some("-V" | "--version")))
+            || matches!(arguments.first().and_then(|argument| argument.to_str()), Some("version"));
+    version.then_some(RelayCommand::Version)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

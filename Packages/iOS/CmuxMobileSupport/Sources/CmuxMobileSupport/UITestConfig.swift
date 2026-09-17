@@ -97,6 +97,19 @@ public struct UITestConfig {
         #endif
     }
 
+    /// When `CMUX_UITEST_HIDDEN_COMPUTERS_PREVIEW=1`, the root view renders a
+    /// static Hidden Computers list with fixture rows so UI tests can exercise
+    /// the rows' swipe actions (the confirm-first Forget flow) without sign-in
+    /// or Mac pairing. DEBUG-only.
+    public static var hiddenComputersPreviewEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_HIDDEN_COMPUTERS_PREVIEW"] == "1"
+            || ProcessInfo.processInfo.arguments.contains("CMUX_UITEST_HIDDEN_COMPUTERS_PREVIEW=1")
+        #else
+        return false
+        #endif
+    }
+
     /// Changes preview mode selected by `CMUX_UITEST_CHANGES_PREVIEW`.
     ///
     /// Supported DEBUG-only values are `1`, `diff`, `empty`, and `states`.

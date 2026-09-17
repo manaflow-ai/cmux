@@ -146,6 +146,10 @@ fn track_source_files(git_root: &Path, source_files: &[u8]) {
     for path in nul_separated(source_files) {
         let path =
             std::str::from_utf8(path).unwrap_or_else(|_| panic!("cmux-tui has a non-UTF-8 path"));
+        assert!(
+            !path.chars().any(char::is_control),
+            "cmux-tui source path contains a control character"
+        );
         println!("cargo:rerun-if-changed={}", git_root.join(path).display());
     }
 }

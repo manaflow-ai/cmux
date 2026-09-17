@@ -819,6 +819,8 @@ extension ReconnectRouteSelectionTests {
         #expect(await store.switchToMac(macDeviceID: "mac-b"))
         #expect(store.foregroundMacDeviceID == "mac-b")
         #expect(store.activeRoute?.id == macBIroh.id)
+        #expect(store.liveMacConnections.map(\.macDeviceID) == ["mac-b", "mac-a"])
+        #expect(store.liveMacConnections.map(\.role) == [.focused, .control])
         #expect(await registry.counts() == .init(list: 1, fresh: 0))
     }
 

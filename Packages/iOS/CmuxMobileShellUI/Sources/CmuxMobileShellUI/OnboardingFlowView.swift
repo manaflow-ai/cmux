@@ -1,14 +1,17 @@
 #if os(iOS)
 import CMUXMobileCore
+import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
-/// A short product tour that hands directly into authentication and same-account
-/// computer discovery, with QR available only as fallback.
+/// A short product tour that routes into authentication after the tour, then
+/// same-account computer discovery, with QR available only as fallback.
 struct OnboardingFlowView: View {
     let context: OnboardingContext
     let isAuthenticated: Bool
     let connectionPhase: OnboardingConnectionPhase
+    let connectionMethod: MobileConnectionMethod
+    let onSelectConnectionMethod: (MobileConnectionMethod) -> Void
     let onReachedConnection: () -> Void
     let onSkip: () -> Void
     let onRetryConnection: () -> Void
@@ -24,6 +27,8 @@ struct OnboardingFlowView: View {
         context: OnboardingContext,
         isAuthenticated: Bool,
         connectionPhase: OnboardingConnectionPhase,
+        connectionMethod: MobileConnectionMethod = .automatic,
+        onSelectConnectionMethod: @escaping (MobileConnectionMethod) -> Void = { _ in },
         onReachedConnection: @escaping () -> Void,
         onSkip: @escaping () -> Void,
         onRetryConnection: @escaping () -> Void,
@@ -33,6 +38,8 @@ struct OnboardingFlowView: View {
         self.context = context
         self.isAuthenticated = isAuthenticated
         self.connectionPhase = connectionPhase
+        self.connectionMethod = connectionMethod
+        self.onSelectConnectionMethod = onSelectConnectionMethod
         self.onReachedConnection = onReachedConnection
         self.onSkip = onSkip
         self.onRetryConnection = onRetryConnection
@@ -48,9 +55,10 @@ struct OnboardingFlowView: View {
             onBack: handleBack,
             onSkip: skip,
             onPrimary: handlePrimary,
-            onSecondary: startFallbackPairing,
+            onSecondary: handleSecondary,
             pageContent: OnboardingPageViewport(
-                stage: stage
+                stage: stage,
+                onNavigate: { navigate(to: $0) }
             ) { pageStage in
                 page(for: pageStage)
             }
@@ -77,27 +85,24 @@ struct OnboardingFlowView: View {
         OnboardingSceneChrome(
             stage: stage,
             isAuthenticated: isAuthenticated,
-            connectionPhase: connectionPhase
+            connectionPhase: connectionPhase,
+            connectionMethod: connectionMethod
         )
     }
 
     @ViewBuilder
     private func page(for pageStage: OnboardingStage) -> some View {
-        if pageStage == .connect && !isAuthenticated {
-            if stage == .connect {
-                OnboardingSignInBridgeView()
-            } else {
-                Color.clear
-            }
-        } else {
-            switch pageStage {
-            case .agents:
-                OnboardingAgentsView()
-            case .notifications:
-                OnboardingNotificationsView()
-            case .connect:
-                OnboardingConnectionView(phase: connectionPhase)
-            }
+        switch pageStage {
+        case .agents:
+            OnboardingAgentsView()
+        case .notifications:
+            OnboardingNotificationsView()
+        case .connect:
+            OnboardingConnectionView(
+                phase: connectionPhase,
+                connectionMethod: connectionMethod,
+                onSelectConnectionMethod: selectConnectionMethod
+            )
         }
     }
 
@@ -119,7 +124,11 @@ struct OnboardingFlowView: View {
         case .notifications:
             showConnection()
         case .connect:
-            finishOrRetry()
+            if isAuthenticated {
+                finishOrRetry()
+            } else {
+                finishBeforeAuthentication()
+            }
         }
     }
 
@@ -154,16 +163,55 @@ struct OnboardingFlowView: View {
     private func finishOrRetry() {
         switch connectionPhase {
         case .idle:
-            onRetryConnection()
+            if connectionMethod == .tailscale {
+                startTailscalePairing()
+            } else {
+                onRetryConnection()
+            }
         case .searching:
             break
         case .fallback:
-            analytics.capture("ios_onboarding_connection_retried", eventProperties)
-            onRetryConnection()
+            if connectionMethod == .tailscale {
+                startTailscalePairing()
+            } else {
+                analytics.capture("ios_onboarding_connection_retried", eventProperties)
+                onRetryConnection()
+            }
         case .ready:
             analytics.capture("ios_onboarding_completed", eventProperties)
             onComplete()
         }
+    }
+
+    /// Secondary is "Use QR Code Instead" in the automatic fallback, but
+    /// "Check Again" when Tailscale owns the primary scan action.
+    private func handleSecondary() {
+        if connectionMethod == .tailscale, connectionPhase == .fallback {
+            analytics.capture("ios_onboarding_connection_retried", eventProperties)
+            onRetryConnection()
+            return
+        }
+        startFallbackPairing()
+    }
+
+    private func selectConnectionMethod(_ method: MobileConnectionMethod) {
+        guard method != connectionMethod else { return }
+        var properties = eventProperties
+        properties["connection_method"] = .string(method.rawValue)
+        analytics.capture("ios_onboarding_connection_method_selected", properties)
+        onSelectConnectionMethod(method)
+    }
+
+    private func startTailscalePairing() {
+        var properties = eventProperties
+        properties["source"] = .string("tailscale_choice")
+        analytics.capture("ios_onboarding_pairing_started", properties)
+        onStartFallbackPairing()
+    }
+
+    private func finishBeforeAuthentication() {
+        analytics.capture("ios_onboarding_tour_completed", eventProperties)
+        onComplete()
     }
 
     private func startFallbackPairing() {
@@ -175,9 +223,7 @@ struct OnboardingFlowView: View {
 
     private func captureSceneViewed() {
         var properties = eventProperties
-        properties["surface"] = .string(
-            stage == .connect && !isAuthenticated ? "sign_in" : stage.analyticsValue
-        )
+        properties["surface"] = .string(stage.analyticsValue)
         analytics.capture("ios_onboarding_scene_viewed", properties)
     }
 

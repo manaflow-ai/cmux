@@ -27,8 +27,8 @@ final class RemoteTmuxConnectionObservers {
 
     /// Registers a consumer's callbacks and returns a token to deregister them.
     ///
-    /// Multiple consumers (e.g. a mirrored workspace and a single-pane display
-    /// tab) can observe the same shared connection concurrently; every callback
+    /// Multiple mirrored workspaces can observe the same shared connection
+    /// concurrently; every callback
     /// fires for every event. Pass the returned token to ``remove(_:)`` when the
     /// consumer goes away.
     ///

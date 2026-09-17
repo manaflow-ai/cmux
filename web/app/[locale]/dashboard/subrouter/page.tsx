@@ -1,9 +1,10 @@
 import { getTranslations } from "next-intl/server";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
 import { Link } from "@/i18n/navigation";
 import { cloudDb } from "@/db/client";
-import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
+import { isStackConfigured } from "@/app/lib/stack";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
 import {
   createSubrouterClient,
@@ -11,6 +12,14 @@ import {
   type SubrouterAccount,
 } from "@/services/subrouter/client";
 import { getTenantForTeam } from "@/services/subrouter/tenants";
+import {
+  authorizedSubrouterTeams,
+} from "@/services/subrouter/routeHelpers";
+import {
+  isSubrouterAuthorizationError,
+  verifySubrouterRequest,
+  withSubrouterAuthorizationDeadline,
+} from "@/services/vms/auth";
 import {
   AddAiAccountForms,
   DeleteAiAccountButton,
@@ -23,17 +32,10 @@ type PageProps = {
   searchParams: Promise<{ team?: string | string[] }>;
 };
 
-type StackUserLike = {
-  readonly id: string;
-  readonly displayName: string | null;
-  readonly primaryEmail: string | null;
-  readonly selectedTeam?: unknown;
-  readonly listTeams?: () => Promise<readonly unknown[]>;
-};
-
 type DashboardTeam = {
   readonly id: string;
   readonly name: string;
+  readonly manageAccounts: boolean;
 };
 
 type AccountState =
@@ -68,8 +70,38 @@ export default async function SubrouterOverviewPage({ params, searchParams }: Pa
   if (!isStackConfigured()) {
     redirect("/");
   }
-  const stackUser = (await getStackServerApp().getUser({ or: "return-null" })) as StackUserLike | null;
-  if (!stackUser) {
+  const requestHeaders = await headers();
+  let authorized: Awaited<ReturnType<typeof authorizedSubrouterTeams>> | null;
+  try {
+    authorized = await withSubrouterAuthorizationDeadline(
+      async (signal) => {
+        const user = await verifySubrouterRequest(
+          new Request("https://cmux.com/dashboard/subrouter", {
+            headers: Object.fromEntries(requestHeaders.entries()),
+          }),
+          signal,
+          { allowCookie: true, listAllTeams: true },
+        );
+        return user ? authorizedSubrouterTeams(user) : null;
+      },
+    );
+  } catch (error) {
+    if (!isSubrouterAuthorizationError(error)) throw error;
+    const [tPage, t] = await Promise.all([
+      getTranslations({ locale, namespace: "dashboard.subrouter" }),
+      getTranslations({ locale, namespace: "dashboard.aiAccounts" }),
+    ]);
+    return (
+      <div className="mx-auto w-full max-w-5xl px-3 py-4">
+        <DashboardHeader
+          title={tPage("title")}
+          description={tPage("description")}
+        />
+        <StatusPanel title={t("loadErrorTitle")} body={t("loadErrorBody")} />
+      </div>
+    );
+  }
+  if (!authorized) {
     redirect(vaultSignInHref(localizedVaultPath(locale, "/dashboard/subrouter")));
   }
 
@@ -77,7 +109,16 @@ export default async function SubrouterOverviewPage({ params, searchParams }: Pa
     getTranslations({ locale, namespace: "dashboard.subrouter" }),
     getTranslations({ locale, namespace: "dashboard.aiAccounts" }),
   ]);
-  const teams = await dashboardTeams(stackUser, t("personalTeam"));
+  const teams = authorized
+    .filter((candidate) => candidate.use || candidate.manageAccounts)
+    .map((candidate) => ({
+      id: candidate.teamId,
+      name: candidate.teamName,
+      manageAccounts: candidate.manageAccounts,
+    }));
+  if (teams.length === 0) {
+    redirect("/dashboard");
+  }
   const selectedTeam = selectTeam(teams, team);
   const accountState = await loadAccounts(selectedTeam);
   const dateFormatter = new Intl.DateTimeFormat(locale, {
@@ -87,10 +128,10 @@ export default async function SubrouterOverviewPage({ params, searchParams }: Pa
 
   return (
     <div className="mx-auto w-full max-w-5xl px-3 py-4">
-      <div className="mb-4 border-b border-border pb-3">
-        <h1 className="text-sm font-medium">{tPage("title")}</h1>
-        <p className="mt-1 max-w-2xl text-muted">{tPage("description")}</p>
-      </div>
+      <DashboardHeader
+        title={tPage("title")}
+        description={tPage("description")}
+      />
 
       <section className="mb-4 border border-border p-3">
         <div className="mb-2 text-xs text-muted">{t("teamSwitcherLabel")}</div>
@@ -137,7 +178,9 @@ export default async function SubrouterOverviewPage({ params, searchParams }: Pa
                   <div>{t("providerColumn")}</div>
                   <div>{t("labelColumn")}</div>
                   <div>{t("createdColumn")}</div>
-                  <div className="text-right">{t("actionsColumn")}</div>
+                  {selectedTeam.manageAccounts ? (
+                    <div className="text-right">{t("actionsColumn")}</div>
+                  ) : <div />}
                 </div>
                 {accountState.accounts.map((account) => (
                   <div
@@ -162,19 +205,41 @@ export default async function SubrouterOverviewPage({ params, searchParams }: Pa
                       </div>
                       {formatCreatedAt(account.createdAt, dateFormatter, t("unknownCreatedAt"))}
                     </div>
-                    <DeleteAiAccountButton teamId={selectedTeam.id} accountId={account.id} />
+                    {selectedTeam.manageAccounts ? (
+                      <DeleteAiAccountButton
+                        teamId={selectedTeam.id}
+                        accountId={account.id}
+                      />
+                    ) : <div />}
                   </div>
                 ))}
               </div>
             )}
           </section>
 
-          <aside>
-            <h2 className="mb-2 text-sm font-medium">{t("addAccountsTitle")}</h2>
-            <AddAiAccountForms teamId={selectedTeam.id} />
-          </aside>
+          {selectedTeam.manageAccounts ? (
+            <aside>
+              <h2 className="mb-2 text-sm font-medium">{t("addAccountsTitle")}</h2>
+              <AddAiAccountForms teamId={selectedTeam.id} />
+            </aside>
+          ) : null}
         </div>
       )}
+    </div>
+  );
+}
+
+function DashboardHeader({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="mb-4 border-b border-border pb-3">
+      <h1 className="text-sm font-medium">{title}</h1>
+      <p className="mt-1 max-w-2xl text-muted">{description}</p>
     </div>
   );
 }
@@ -186,48 +251,6 @@ function StatusPanel({ title, body }: { title: string; body: string }) {
       <p className="mt-1 max-w-2xl text-xs text-muted">{body}</p>
     </section>
   );
-}
-
-async function dashboardTeams(user: StackUserLike, personalLabel: string): Promise<readonly DashboardTeam[]> {
-  const selectedTeam = teamFromUnknown(user.selectedTeam);
-  let listedTeams: readonly (DashboardTeam | null)[] = [];
-  if (typeof user.listTeams === "function") {
-    try {
-      listedTeams = (await user.listTeams()).map(teamFromUnknown);
-    } catch {
-      // Degrade to the selected/personal team when team listing fails,
-      // mirroring how loadAccounts degrades instead of crashing the page.
-      listedTeams = [];
-    }
-  }
-  const teams = uniqueTeams([selectedTeam, ...listedTeams]);
-  if (teams.length > 0) return teams;
-  return [{
-    id: user.id,
-    name: user.displayName ?? user.primaryEmail ?? personalLabel,
-  }];
-}
-
-function teamFromUnknown(value: unknown): DashboardTeam | null {
-  if (!value || typeof value !== "object") return null;
-  const record = value as { id?: unknown; displayName?: unknown; name?: unknown };
-  if (typeof record.id !== "string" || !record.id.trim()) return null;
-  const rawName = record.displayName ?? record.name;
-  return {
-    id: record.id,
-    name: typeof rawName === "string" && rawName.trim() ? rawName.trim() : record.id,
-  };
-}
-
-function uniqueTeams(values: readonly (DashboardTeam | null)[]): readonly DashboardTeam[] {
-  const teams: DashboardTeam[] = [];
-  const seen = new Set<string>();
-  for (const team of values) {
-    if (!team || seen.has(team.id)) continue;
-    seen.add(team.id);
-    teams.push(team);
-  }
-  return teams;
 }
 
 function selectTeam(teams: readonly DashboardTeam[], requestedTeamId: string | undefined): DashboardTeam {

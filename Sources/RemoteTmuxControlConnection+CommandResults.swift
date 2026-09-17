@@ -38,6 +38,10 @@ extension RemoteTmuxControlConnection {
                let completion = newWindowCompletions.removeValue(forKey: token) {
                 completion(nil)
             }
+            if case let .newPane(token) = kind,
+               let completion = newPaneCompletions.removeValue(forKey: token) {
+                completion(nil)
+            }
             if case let .tracked(token) = kind,
                let completion = trackedSendCompletions.removeValue(forKey: token) {
                 completion(false)
@@ -91,6 +95,12 @@ extension RemoteTmuxControlConnection {
                 RemoteTmuxControlStreamParser.id(Substring($0), sigil: "@")
             }
             completion(windowId)
+        case let .newPane(token):
+            guard let completion = newPaneCompletions.removeValue(forKey: token) else { break }
+            let paneId = lines.first.flatMap {
+                RemoteTmuxControlStreamParser.id(Substring($0), sigil: "%")
+            }
+            completion(paneId)
         case let .paneRects(windowId, generation):
             handlePaneRectsReply(windowId: windowId, generation: generation, lines: lines)
         case let .listWindows(requestGeneration, retainedPaneIDs):
@@ -391,6 +401,12 @@ extension RemoteTmuxControlConnection {
     func failPendingNewWindowRequests() {
         let completions = Array(newWindowCompletions.values)
         newWindowCompletions.removeAll()
+        completions.forEach { $0(nil) }
+    }
+
+    func failPendingNewPaneRequests() {
+        let completions = Array(newPaneCompletions.values)
+        newPaneCompletions.removeAll()
         completions.forEach { $0(nil) }
     }
 

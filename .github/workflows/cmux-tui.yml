@@ -173,6 +173,10 @@ jobs:
         working-directory: cmux-tui
         run: cargo test --workspace --locked
 
+      - name: crossterm parser tests
+        working-directory: cmux-tui
+        run: cargo test --manifest-path vendor/crossterm/Cargo.toml --lib
+
       - name: TUI smoke test (scripted pty)
         working-directory: cmux-tui
         run: |
@@ -239,10 +243,17 @@ jobs:
       - name: Init ghostty submodule
         run: git submodule update --init --depth 1 ghostty
 
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        shell: bash
+        run: |
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: Install zig
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
-          version: 0.15.2
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
 
       - name: Install Rust GNU target
         shell: bash

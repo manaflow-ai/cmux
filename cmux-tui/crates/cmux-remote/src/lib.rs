@@ -16,6 +16,8 @@ pub mod client;
 pub mod connection;
 pub mod crypto;
 pub mod daemon;
+#[cfg(feature = "daemon-services")]
+pub mod http;
 pub mod identity;
 pub mod link;
 pub mod message;

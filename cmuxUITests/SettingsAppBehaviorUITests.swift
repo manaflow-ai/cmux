@@ -38,9 +38,6 @@ import XCTest
 ///     observable after creating ≥2 workspaces and inspecting sidebar
 ///     order; requires workspace scaffolding the fresh UI-test launch
 ///     does not have (CMUX_UI_TEST_MODE skips session restore).
-///   - Inherit CWD effect on a real new workspace (the *subtitle* swap is
-///     TIER 1 below; the actual working-directory inheritance needs a
-///     spawned terminal to inspect, which is a terminal-surface seam).
 ///   - Keep Workspace Open When Closing Last Surface
 ///     (closeWorkspaceOnLastSurfaceShortcut): only observable by closing
 ///     the last surface of a real workspace and checking whether the
@@ -124,7 +121,7 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
         static let minimalOff = "Use the standard workspace title bar and controls."
 
         static let inheritOn = "New workspaces start in the focused workspace's working directory."
-        static let inheritOff = "New workspaces leave their working directory unset so Ghostty's working-directory setting can apply."
+        static let inheritOff = "New workspaces use Ghostty's working-directory setting instead."
 
         static let paletteOn = "Cmd+P also matches panel surfaces across workspaces."
         static let paletteOff = "Cmd+P matches workspace rows only."
@@ -207,7 +204,7 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
 
         XCTAssertTrue(
             poll(timeout: 4.0) { subtitleText(window, Subtitle.inheritOff).exists },
-            "Disabling inherit should show the unset-working-directory subtitle"
+            "Disabling inherit should show the Ghostty working-directory subtitle"
         )
         XCTAssertTrue(
             poll(timeout: 4.0) { !subtitleText(window, Subtitle.inheritOn).exists },

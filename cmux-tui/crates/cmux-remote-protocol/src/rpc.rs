@@ -88,7 +88,19 @@ pub struct PageCursor(pub String);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct ComputerUseInvocationId(pub u64);
+pub struct ComputerUseInvocationId(pub uuid::Uuid);
+
+impl ComputerUseInvocationId {
+    pub const fn from_u128(value: u128) -> Self {
+        Self(uuid::Uuid::from_u128(value))
+    }
+}
+
+impl std::fmt::Display for ComputerUseInvocationId {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -96,6 +108,14 @@ pub enum Service {
     MuxControl,
     WorkspaceRpc,
     ProcessStream,
+    /// A dedicated, ordered binary CMTH terminal renderer stream.
+    ///
+    /// Each service stream names exactly one cmux surface. The daemon uses a
+    /// short-lived renderer capability to bridge that surface's terminal host;
+    /// carriers, authentication, reconnect, and replay remain properties of
+    /// the enclosing remote session.
+    #[serde(rename = "terminal-bytes-v1")]
+    TerminalBytes,
     TcpTunnel,
     ComputerUse,
 }
@@ -122,6 +142,7 @@ pub enum RemoteCapability {
     ComputerUseNegotiationV1,
     WorkspacePaginationV1,
     WorkspacePatchV2,
+    WorkspacePatchV3,
     StructuredDiffV1,
     ProcessLifecycleV2,
     ProcessReplayV1,
@@ -967,6 +988,13 @@ mod tests {
     use super::*;
 
     #[test]
+    fn terminal_bytes_service_uses_the_versioned_wire_name() {
+        let encoded = serde_json::to_value(Service::TerminalBytes).unwrap();
+        assert_eq!(encoded, "terminal-bytes-v1");
+        assert_eq!(serde_json::from_value::<Service>(encoded).unwrap(), Service::TerminalBytes);
+    }
+
+    #[test]
     fn arbitrary_file_bytes_round_trip_through_json() {
         let bytes = ByteString::from_bytes(&[0, 1, 2, 255]);
         let json = serde_json::to_string(&bytes).unwrap();
@@ -1079,6 +1107,14 @@ mod tests {
         assert!(
             serde_json::to_value(ProcessId::from_u128(0x5a17)).unwrap().is_string(),
             "numeric process handles lose precision in JavaScript clients"
+        );
+    }
+
+    #[test]
+    fn computer_use_invocation_ids_are_json_strings() {
+        assert!(
+            serde_json::to_value(ComputerUseInvocationId::from_u128(0x5a17)).unwrap().is_string(),
+            "numeric computer-use handles lose precision in JavaScript clients"
         );
     }
 

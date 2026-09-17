@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobilePairedMac
 import CmuxMobileShellModel
 import Foundation
@@ -146,6 +147,263 @@ extension MobileShellComposite {
         }
     }
 
+    /// Revokes a hidden computer's account bindings, then drops its local row.
+    ///
+    /// The revoke is the meaningful action: it removes the binding from every
+    /// device on the account. On success the paired-Mac row and its hidden
+    /// marker are cleared so the computer disappears from every section; a Mac
+    /// that is still online re-registers a fresh binding and reappears on its
+    /// next connect. Returns `false` (leaving the row untouched) when no forget
+    /// capability is wired or the revoke fails, so the caller can surface an
+    /// error instead of a silent no-op.
+    public func forgetHiddenComputer(_ computer: MobileHiddenComputer) async -> Bool {
+        guard let personalIrohForget else { return false }
+        // Capture the scope BEFORE the network revoke so local cleanup targets the
+        // account/team that owned the row, not whatever scope is current after the
+        // await (the user can sign out or switch accounts while the call is in
+        // flight).
+        guard let scope = await currentScopeSnapshot() else { return false }
+        do {
+            // Pin the revoke to the ROW's owning account, not the live session.
+            // A row owned by account A can still be on screen right after auth
+            // switches to account B (the list has not refreshed yet). The runtime
+            // forget checks this pinned account against the live session and fails
+            // closed on a mismatch, so passing the live account here would let it
+            // revoke B's matching device/tag while local cleanup deletes A's row.
+            // `computer.stackUserID` is the row's captured owner; fall back to the
+            // display scope only for a legacy row that never stored one.
+            try await personalIrohForget.forgetComputer(
+                macDeviceID: computer.macDeviceID,
+                instanceTag: computer.instanceTag,
+                expectedAccountID: computer.stackUserID ?? scope.userID
+            )
+        } catch {
+            hiddenMacsLog.error(
+                "forget hidden computer revoke failed: \(String(describing: error), privacy: .private)"
+            )
+            return false
+        }
+        // Always clear the durable row(s) and hidden marker, even if the scope
+        // changed while the revoke was in flight. Every row is deleted against
+        // ITS OWN stored scope, never the live display scope: a team-less row
+        // is visible under any selected team (legacy visibility), so deleting
+        // with the display team would miss it and it would resurface once the
+        // marker cleared. For a tag-less row the revoke above was the
+        // device-wide wildcard (every tag of this device, for the pinned
+        // account), so cleanup matches that breadth: every account-owned row of
+        // the device, across teams, in ONE batched store call whose backup
+        // tombstones flush once per destination — per-row deletion would issue
+        // one sequential backup request per row, and a device can carry up to
+        // the discovery snapshot's 256 bindings. Rows owned by other accounts
+        // keep their bindings (the revoke was account-pinned) and stay.
+        let cleaned = await deleteStoredPairedMacRows(
+            for: computer,
+            pinnedAccountID: computer.stackUserID ?? scope.userID,
+            displayScope: scope
+        )
+        // ONE refresh for the whole cleanup, and only after COMPLETE success.
+        // Refreshing per deleted row re-runs the paired list load (and with it
+        // the backup restore fetch) and the registry fetch for every sibling.
+        // After a PARTIAL failure the markers were deliberately kept as the
+        // retry owner, but the batch may have deleted some rows already — the
+        // refresh's rowless-marker migration would see those markers as
+        // rowless and clear them, so the hidden entry the user retries from
+        // would vanish while a failed sibling keeps its revoked binding.
+        if cleaned {
+            await refreshAfterForget(displayScope: scope)
+        }
+        return cleaned
+    }
+
+    /// The single post-forget refresh: reload the paired list and registry and
+    /// drop the saved reconnect hint once the last stored Mac is gone. Skipped
+    /// when the display scope changed mid-forget (the new scope's own loads
+    /// already reflect its stores).
+    private func refreshAfterForget(displayScope: MobileShellScopeSnapshot) async {
+        guard await isScopeCurrent(displayScope) else { return }
+        await loadPairedMacs()
+        await loadRegistryDevices()
+        // Mirror the hide path: once the last stored Mac is gone, drop the saved
+        // reconnect hint so the app does not keep trying to redial a forgotten Mac.
+        clearSavedMacHintWhenNoStoredMacsRemainIfNeeded()
+    }
+
+    /// Deletes every row a forget covers — the exact forgotten row, plus (for a
+    /// tag-less wildcard forget) every account-owned instance of the device
+    /// across teams — as ONE batched store call, then clears their hidden
+    /// markers.
+    ///
+    /// The wildcard revoke kills the device's bindings for the WHOLE account,
+    /// across teams — an offline Mac never re-registers, so any row left behind
+    /// (in another team, or another tag) makes the supposedly forgotten
+    /// computer reappear when the user switches teams or restores. Enumeration
+    /// uses the cross-team `loadAllInstances` (the ordinary team-scoped read
+    /// cannot see past the display team); an enumeration FAILURE is a cleanup
+    /// failure — the revoke already succeeded account-wide, so silently
+    /// claiming success would leave dead rows whose bindings are gone. Rows
+    /// owned by other accounts still hold live bindings and must survive.
+    /// Markers are cleared only after the batch succeeds, so a failed cleanup
+    /// keeps the computer hidden and retryable rather than resurfacing it.
+    private func deleteStoredPairedMacRows(
+        for computer: MobileHiddenComputer,
+        pinnedAccountID: String,
+        displayScope: MobileShellScopeSnapshot
+    ) async -> Bool {
+        guard let pairedMacStore else {
+            await clearHiddenMacDeviceID(
+                computer.macDeviceID,
+                instanceTag: computer.instanceTag,
+                scope: displayScope
+            )
+            return true
+        }
+        let primary = MobilePairedMacExactScope(
+            macDeviceID: computer.macDeviceID,
+            instanceTag: computer.instanceTag,
+            stackUserID: pinnedAccountID,
+            teamID: computer.teamID
+        )
+        var scopes = [primary]
+        // Cross-team sibling cleanup runs for EVERY forget: the broker binding
+        // is account-wide, so revoking it kills the binding every team's copy
+        // of the pairing uses. A tagged forget revoked exactly the (device,
+        // tag) binding — other teams' SAME-TAG rows are dead, different-tag
+        // rows keep their own live bindings and survive. A tag-less forget's
+        // wildcard revoke covered every tag, so its cleanup does too.
+        let rows: [MobilePairedMac]
+        do {
+            rows = try await pairedMacStore.loadAllInstances(
+                macDeviceID: computer.macDeviceID,
+                stackUserID: pinnedAccountID
+            )
+        } catch {
+            hiddenMacsLog.error(
+                "forget hidden computer sibling enumeration failed: \(String(describing: error), privacy: .private)"
+            )
+            return false
+        }
+        for row in rows
+        where row.stackUserID == pinnedAccountID
+            && (computer.instanceTag == nil || row.instanceTag == computer.instanceTag)
+            && !(row.instanceTag == primary.instanceTag && row.teamID == primary.teamID) {
+            scopes.append(MobilePairedMacExactScope(
+                macDeviceID: row.macDeviceID,
+                instanceTag: row.instanceTag,
+                stackUserID: pinnedAccountID,
+                teamID: row.teamID
+            ))
+        }
+        do {
+            try await pairedMacStore.removeExactScopes(scopes)
+        } catch {
+            hiddenMacsLog.error(
+                "forget hidden computer row removal failed: \(String(describing: error), privacy: .private)"
+            )
+            // The batch deliberately attempts EVERY row, so some rows may be
+            // gone despite the failure — and a deleted row can never be
+            // re-enumerated on retry, so its markers must be cleared NOW or a
+            // re-registering Mac stays unexpectedly hidden in that team
+            // forever. Re-enumerate: scopes with no surviving row are the
+            // completed deletions. Clearing is NARROW — only the deleted row's
+            // own team scope and the user-wide key, never the display scope:
+            // the FAILED scope (the retry owner) shares the pairing's marker
+            // ids in the display scope, and the wide clear would erase the
+            // hidden entry the user retries from. If even the re-enumeration
+            // fails, clear nothing — markers err on the side of staying hidden
+            // and retryable.
+            if let survivors = try? await pairedMacStore.loadAllInstances(
+                macDeviceID: computer.macDeviceID,
+                stackUserID: pinnedAccountID
+            ) {
+                let survivorKeys = Set(survivors.map { row in
+                    "\(row.instanceTag ?? "")\u{0}\(row.teamID ?? "")"
+                })
+                for scope in scopes {
+                    let scopeKey = "\(scope.instanceTag ?? "")\u{0}\(scope.teamID ?? "")"
+                    if survivorKeys.contains(scopeKey) {
+                        // A SURVIVING failed scope needs a durable retry entry
+                        // in ITS OWN team: normally only the displayed row was
+                        // hidden, and once the deleted primary's marker turns
+                        // rowless and migrates away, this sibling — whose
+                        // binding is already revoked — would resurface as a
+                        // normal computer with nothing left to retry from.
+                        await rememberHiddenMacDeviceID(
+                            MobilePairedMac.pairingID(
+                                macDeviceID: scope.macDeviceID,
+                                instanceTag: scope.instanceTag
+                            ),
+                            scopeKey: makePairedMacScopeKey(
+                                userID: displayScope.userID,
+                                teamID: scope.teamID
+                            )
+                        )
+                        continue
+                    }
+                    guard scope.teamID != displayScope.teamID else { continue }
+                    let ids = [
+                        scope.macDeviceID,
+                        MobilePairedMac.pairingID(
+                            macDeviceID: scope.macDeviceID,
+                            instanceTag: scope.instanceTag
+                        ),
+                    ]
+                    for id in ids {
+                        await clearHiddenMacDeviceID(
+                            id,
+                            scopeKey: makePairedMacScopeKey(
+                                userID: displayScope.userID,
+                                teamID: scope.teamID
+                            )
+                        )
+                        await clearHiddenMacDeviceID(
+                            id,
+                            scopeKey: makePairedMacScopeKey(
+                                userID: displayScope.userID,
+                                teamID: nil
+                            )
+                        )
+                    }
+                }
+            }
+            return false
+        }
+        // Cleared only after the rows are gone, so a still-online Mac that
+        // re-registers is not re-hidden by a stale marker.
+        for scope in scopes {
+            await clearForgottenRowMarkers(scope: scope, displayScope: displayScope)
+        }
+        return true
+    }
+
+    /// Clears one deleted row's hidden markers. Markers are stored per
+    /// (user, team): one may live under the display scope (where the user hid
+    /// the row) AND under the row's OWN team (the same pairing can be hidden
+    /// from several teams), so clear both — a marker left in another team
+    /// would keep a re-registering Mac unexpectedly hidden there,
+    /// contradicting the forget confirmation that it reappears on its next
+    /// connect.
+    private func clearForgottenRowMarkers(
+        scope: MobilePairedMacExactScope,
+        displayScope: MobileShellScopeSnapshot
+    ) async {
+        await clearHiddenMacDeviceID(
+            scope.macDeviceID,
+            instanceTag: scope.instanceTag,
+            scope: displayScope
+        )
+        if scope.teamID != displayScope.teamID {
+            await clearHiddenMacDeviceID(
+                scope.macDeviceID,
+                instanceTag: scope.instanceTag,
+                scope: MobileShellScopeSnapshot(
+                    userID: displayScope.userID,
+                    teamID: scope.teamID,
+                    generation: displayScope.generation
+                )
+            )
+        }
+    }
+
     /// Unhides one stored pairing immediately without requiring network access.
     public func unhideMacDeviceID(
         _ macDeviceID: String,
@@ -270,8 +528,17 @@ extension MobileShellComposite {
                 instanceTag: connectedMacInstanceTag
             )
         }
-        let isActiveMac = targets.contains(where: \.isActive)
-            || foregroundPairingID.map(targetPairingIDs.contains) == true
+        // With a live foreground identity whose TAG is known, only hiding that
+        // EXACT pairing may disconnect it: stored `isActive` persists
+        // asynchronously after promotion, so a stale active row for the
+        // previous sibling must not tear down the build that is actually
+        // foreground now. Without a proven live tag the bare device pairing
+        // cannot name a build, so stored `isActive` remains the authority.
+        let isActiveMac = foregroundPairingID.map { pairingID in
+            targetPairingIDs.contains(pairingID)
+                || (macInstanceTagAuthority.normalize(connectedMacInstanceTag) == nil
+                    && targets.contains(where: \.isActive))
+        } ?? targets.contains(where: \.isActive)
         if isActiveMac {
             disconnectLiveConnection(preservingOtherMacWorkspaceState: true)
         }
@@ -279,15 +546,27 @@ extension MobileShellComposite {
         let remainingPhysicalIDs = Set(pairedMacsForIdentityMatching
             .filter { !targetPairingIDs.contains($0.id) }
             .map(\.macDeviceID))
-        // Workspace state is keyed by PHYSICAL device id, so it is shared by
-        // every app instance of a Mac. Prune it only when no visible sibling
-        // instance remains; a per-instance hide leaves the sibling's state.
+        // Subscriptions, workspace entries, and feed snapshots are keyed per
+        // pairing: tear down exactly the hidden pairings' entries, whether or
+        // not a sibling instance remains visible.
+        for pairingID in targetPairingIDs {
+            let ownerKey = MacPairingKey(pairingID: pairingID)
+            if let subscription = secondaryMacSubscriptions[ownerKey] {
+                subscription.cancel()
+                secondaryMacSubscriptions[ownerKey] = nil
+            }
+            workspacesByMac[ownerKey] = nil
+            removeNotificationFeedSnapshot(macDeviceID: pairingID)
+        }
+        // The foreground pairing's feed snapshot may live under the bare
+        // DEVICE key. Hiding it while a sibling pairing stays visible skips
+        // the fully-hidden prune below, so remove that spelling explicitly.
+        if let foregroundPairingID, targetPairingIDs.contains(foregroundPairingID) {
+            let identity = MobilePairedMac.pairingIdentity(from: foregroundPairingID)
+            removeNotificationFeedSnapshot(macDeviceID: identity.macDeviceID)
+        }
         let fullyHiddenPhysicalIDs = targetPhysicalIDs.subtracting(remainingPhysicalIDs)
         for id in fullyHiddenPhysicalIDs {
-            if let subscription = secondaryMacSubscriptions[id] {
-                subscription.cancel()
-                secondaryMacSubscriptions[id] = nil
-            }
             pruneWorkspaceStateForHiddenMac(id)
             removeNotificationFeedSnapshot(macDeviceID: id)
         }
@@ -303,9 +582,9 @@ extension MobileShellComposite {
         if foregroundMacDeviceID == storedMacID {
             foregroundMacDeviceID = nil
         }
-        let pruned = workspacesByMac.reduce(into: [String: MacWorkspaceState]()) { result, entry in
+        let pruned = workspacesByMac.reduce(into: [MacPairingKey: MacWorkspaceState]()) { result, entry in
             let (key, state) = entry
-            guard key != storedMacID, state.macDeviceID != storedMacID else { return }
+            guard !key.isOnDevice(storedMacID), state.macDeviceID != storedMacID else { return }
             let filteredWorkspaces = state.workspaces.filter { $0.macDeviceID != storedMacID }
             var filteredState = state
             filteredState.workspaces = filteredWorkspaces
@@ -330,7 +609,9 @@ extension MobileShellComposite {
                 instanceTag: mac.instanceTag,
                 displayName: mac.resolvedName,
                 customColor: mac.customColor,
-                customIcon: mac.customIcon
+                customIcon: mac.customIcon,
+                stackUserID: mac.stackUserID,
+                teamID: mac.teamID
             )
         }
         hiddenComputers = entries.sorted {

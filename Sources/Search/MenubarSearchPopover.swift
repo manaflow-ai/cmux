@@ -219,10 +219,22 @@ private struct GlobalSearchPaletteView: View {
         guard keyMonitor == nil else { return }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             let keyEvent = GlobalSearchKeyEvent(event)
-            let consumed = MainActor.assumeIsolated {
-                handleKeyEvent(keyEvent)
+            let route = MainActor.assumeIsolated {
+                AppDelegate.shared?
+                    .routeVisibleGlobalSearchShortcutFromLocalMonitor(event)
+                    ?? .notApplicable
             }
-            return consumed ? nil : event
+            switch route {
+            case .handled:
+                return nil
+            case .queryOwnsEvent:
+                return event
+            case .notApplicable:
+                let consumed = MainActor.assumeIsolated {
+                    handleKeyEvent(keyEvent)
+                }
+                return consumed ? nil : event
+            }
         }
     }
 
@@ -251,10 +263,10 @@ private struct GlobalSearchPaletteView: View {
         case 53:
             coordinator.dismissPalette()
             return true
-        case 126:
+        case 126 where flags.isDisjoint(with: [.command, .shift, .option, .control]):
             selectedIndex = max(0, selectedIndex - 1)
             return true
-        case 125:
+        case 125 where flags.isDisjoint(with: [.command, .shift, .option, .control]):
             selectedIndex = min(max(results.count - 1, 0), selectedIndex + 1)
             return true
         case 36, 76:
@@ -264,22 +276,8 @@ private struct GlobalSearchPaletteView: View {
             if flags.contains(.command),
                !flags.contains(.option),
                !flags.contains(.control) {
-                return !isTextEditingCommand(event) && !isSystemCommand(event)
+                return !event.queryOwnsEditingShortcut && !isSystemCommand(event)
             }
-            return false
-        }
-    }
-
-    private func isTextEditingCommand(_ event: GlobalSearchKeyEvent) -> Bool {
-        if let characters = event.charactersIgnoringModifiers?.lowercased(),
-           ["a", "c", "v", "x", "z"].contains(characters) {
-            return true
-        }
-
-        switch event.keyCode {
-        case 51, 117, 123, 124:
-            return true
-        default:
             return false
         }
     }
@@ -300,13 +298,15 @@ private struct GlobalSearchPaletteView: View {
     }
 }
 
-private struct GlobalSearchKeyEvent: Sendable {
+struct GlobalSearchKeyEvent: Sendable {
     let keyCode: UInt16
+    let characters: String?
     let charactersIgnoringModifiers: String?
     private let modifierFlagsRawValue: UInt
 
     init(_ event: NSEvent) {
         keyCode = event.keyCode
+        characters = event.characters
         charactersIgnoringModifiers = event.charactersIgnoringModifiers
         modifierFlagsRawValue = event.modifierFlags
             .intersection(.deviceIndependentFlagsMask)

@@ -15,6 +15,11 @@ struct RemoteInitialCommandBootstrap {
         encodedCommand = Data(command.utf8).base64EncodedString()
     }
 
+    /// Whether an explicit startup command will be claimed by the interactive shell.
+    var hasCommand: Bool {
+        encodedCommand != nil
+    }
+
     /// Stages the command without evaluating any of its contents in the local shell.
     var preparationLines: [String] {
         guard let encodedCommand else { return [] }

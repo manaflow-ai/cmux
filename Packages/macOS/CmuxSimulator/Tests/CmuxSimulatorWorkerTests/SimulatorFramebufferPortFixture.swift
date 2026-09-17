@@ -16,7 +16,8 @@ final class SimulatorFramebufferPortFixture {
         ],
         propertiesAvailableAfterRegistration: Bool = false,
         usesDefaultScreenFlag: Bool = false,
-        usesForwardingScreenProperties: Bool = false
+        usesForwardingScreenProperties: Bool = false,
+        mainScreenScale: Double = 3
     ) {
         let descriptors = displays.map {
             SimulatorFramebufferPortFixtureDescriptor(
@@ -37,7 +38,10 @@ final class SimulatorFramebufferPortFixture {
         }
         let io = SimulatorFramebufferPortFixtureIO(ports: ports)
         self.io = io
-        device = SimulatorFramebufferPortFixtureDevice(io: io)
+        device = SimulatorFramebufferPortFixtureDevice(
+            io: io,
+            mainScreenScale: mainScreenScale
+        )
     }
 
     func publishFrame(width: Int, height: Int) {

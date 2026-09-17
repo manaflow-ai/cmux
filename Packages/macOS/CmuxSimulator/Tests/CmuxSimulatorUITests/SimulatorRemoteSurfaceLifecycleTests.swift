@@ -324,6 +324,97 @@ struct SimulatorRemoteSurfaceLifecycleTests {
         ) == 8_333_333)
     }
 
+    @Test("Frame presentation does not request a second smoothing pass")
+    func framePresentationAvoidsSecondInterpolation() throws {
+        let presentation = try #require(SimulatorFramePresentation(
+            snapshot: simulatorFrameSnapshot(pixel: 0xFF_12_34_56, sequence: 1)
+        ))
+
+        #expect(!presentation.image.shouldInterpolate)
+    }
+
+    @Test("The managed frame layer preserves one-to-one backing pixels")
+    func frameLayerPreservesBackingPixels() throws {
+        let source = EmptySimulatorFrameSurfaceSource()
+        let view = SimulatorRemoteSurfaceView(frameSourceFactory: { _ in source })
+        defer { view.teardown() }
+        view.layer?.contentsScale = 2
+        view.frame = CGRect(x: 0, y: 0, width: 400, height: 800)
+
+        view.update(
+            frameTransport: simulatorFrameTransportDescriptor(
+                92,
+                width: 800,
+                height: 1_600
+            ),
+            display: SimulatorDisplayMetadata(
+                width: 1_200,
+                height: 2_400,
+                orientation: .portrait,
+                scale: 3
+            ),
+            chrome: nil
+        )
+
+        #expect(view.frameLayer?.contentsScale == 2)
+        #expect(view.frameLayer?.minificationFilter == .nearest)
+        #expect(view.frameLayer?.magnificationFilter == .nearest)
+    }
+
+    @Test("A magnified frame layer retains smooth interpolation")
+    func magnifiedFrameLayerRetainsSmoothInterpolation() {
+        let source = EmptySimulatorFrameSurfaceSource()
+        let view = SimulatorRemoteSurfaceView(frameSourceFactory: { _ in source })
+        defer { view.teardown() }
+        view.layer?.contentsScale = 2
+        view.frame = CGRect(x: 0, y: 0, width: 1_000, height: 2_000)
+
+        view.update(
+            frameTransport: simulatorFrameTransportDescriptor(
+                95,
+                width: 1_290,
+                height: 2_796
+            ),
+            display: SimulatorDisplayMetadata(
+                width: 1_290,
+                height: 2_796,
+                orientation: .portrait,
+                scale: 2
+            ),
+            chrome: nil
+        )
+
+        #expect(view.frameLayer?.minificationFilter == .linear)
+        #expect(view.frameLayer?.magnificationFilter == .linear)
+    }
+
+    @Test("Backing scale changes refresh frame sampling")
+    func backingScaleChangesRefreshFrameSampling() {
+        let source = EmptySimulatorFrameSurfaceSource()
+        let view = SimulatorRemoteSurfaceView(frameSourceFactory: { _ in source })
+        defer { view.teardown() }
+        view.layer?.contentsScale = 1
+        view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+
+        view.update(
+            frameTransport: simulatorFrameTransportDescriptor(96),
+            display: SimulatorDisplayMetadata(
+                width: 390,
+                height: 844,
+                orientation: .portrait,
+                scale: 1
+            ),
+            chrome: nil
+        )
+        #expect(view.frameLayer?.magnificationFilter == .nearest)
+
+        view.layer?.contentsScale = 2
+        view.viewDidChangeBackingProperties()
+
+        #expect(view.frameLayer?.minificationFilter == .linear)
+        #expect(view.frameLayer?.magnificationFilter == .linear)
+    }
+
     @Test("A released stale copy cannot replace a newer transport frame")
     func replacementRejectsStaleCopyCompletion() async throws {
         let oldDescriptor = simulatorFrameTransportDescriptor(44)
@@ -368,6 +459,53 @@ struct SimulatorRemoteSurfaceLifecycleTests {
         #expect(simulatorFrameImageFirstPixel(
             view.frameLayer?.contents
         ) == 0xFF_00_BB_00)
+    }
+
+    @Test("A resized transport preserves the last frame until its replacement is ready")
+    func resizedTransportPreservesFrameUntilReplacementIsReady() async throws {
+        let oldDescriptor = simulatorFrameTransportDescriptor(93)
+        let newDescriptor = simulatorFrameTransportDescriptor(
+            94,
+            width: 360,
+            height: 779
+        )
+        let oldSource = EmptySimulatorFrameSurfaceSource(snapshot: simulatorFrameSnapshot(
+            pixel: 0xFF_11_22_33,
+            sequence: 1
+        ))
+        let newSource = BlockingSimulatorFrameSurfaceSource(snapshot: simulatorFrameSnapshot(
+            pixel: 0xFF_44_55_66,
+            sequence: 1
+        ))
+        let view = SimulatorRemoteSurfaceView(frameSourceFactory: {
+            descriptor -> any SimulatorFrameSurfaceReading in
+            descriptor == oldDescriptor ? oldSource : newSource
+        })
+        defer { view.teardown() }
+        view.update(
+            frameTransport: oldDescriptor,
+            display: simulatorTestDisplay,
+            chrome: nil
+        )
+        try await waitUntil {
+            simulatorFrameImageFirstPixel(view.frameLayer?.contents) == 0xFF_11_22_33
+        }
+
+        view.update(
+            frameTransport: newDescriptor,
+            display: simulatorTestDisplay,
+            chrome: nil
+        )
+        try await waitUntil { await newSource.hasStarted() }
+
+        #expect(simulatorFrameImageFirstPixel(
+            view.frameLayer?.contents
+        ) == 0xFF_11_22_33)
+
+        await newSource.release()
+        try await waitUntil {
+            simulatorFrameImageFirstPixel(view.frameLayer?.contents) == 0xFF_44_55_66
+        }
     }
 
     @Test("A released copy cannot restore a torn-down frame layer")

@@ -188,7 +188,8 @@ final class MobileAttachTicketStore {
         // QR must open the matching iOS channel just like the v2 path in
         // ``CmxPairingQRCode/encode(_:)``, so a dev Mac never hands a release
         // phone a code the system camera routes to a dev build (or vice versa).
-        guard let url = URL(string: "\(CmxPairingURLScheme.current)://attach?v=\(ticket.version)&payload=\(payload)") else {
+        let rawURL = "\(CmxPairingURLScheme.current)://attach?v=\(ticket.version)&payload=\(payload)"
+        guard let url = URL(string: rawURL) else {
             throw MobileAttachTicketStoreError.invalidAttachURL
         }
         return url
@@ -220,10 +221,21 @@ final class MobileAttachTicketStore {
             )
         case .physicalDevice:
             if Self.hasOnlyIdentityOnlyIrohRoutes(ticket.routes) {
-                return try compactAttachURL(
-                    for: ticket,
+                guard let pairingURL = CmxPairingQRCode().encode(
+                    ticket,
                     routeDisclosureMode: .irohIdentityOnly
-                )
+                ),
+                let url = URL(string: pairingURL),
+                let components = URLComponents(
+                    url: url,
+                    resolvingAgainstBaseURL: false
+                ),
+                let decoded = try? CmxPairingQRCode().decode(components),
+                decoded.routes.count == ticket.routes.count,
+                decoded.routes.first?.endpoint == ticket.routes.first?.endpoint else {
+                    throw MobileAttachTicketStoreError.invalidAttachURL
+                }
+                return url
             }
             guard ticket.routes.allSatisfy({
                 $0.kind == .tailscale && !CmxLoopbackHost().matches($0)

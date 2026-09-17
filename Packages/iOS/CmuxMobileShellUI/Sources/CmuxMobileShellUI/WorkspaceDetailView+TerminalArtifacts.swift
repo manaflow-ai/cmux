@@ -31,6 +31,7 @@ extension WorkspaceDetailView {
         artifactFilesEnabled: store.supportsTerminalArtifacts,
         terminalFolderTapEnabled: terminalFolderTapEnabled,
         terminalFilesChipEnabled: terminalFilesChipEnabled,
+        showMissingFiles: showMissingFiles,
         sessionArtifactCountEnabled: store.supportsChatArtifactGallery,
         visibleArtifactCount: visibleArtifactCount,
         onArtifactFilesRequested: { anchor in

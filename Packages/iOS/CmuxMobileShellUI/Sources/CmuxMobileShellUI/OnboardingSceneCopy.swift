@@ -17,7 +17,8 @@ struct OnboardingSceneCopy: View {
             OnboardingBalancedText(
                 message,
                 role: .body,
-                alignment: alignment
+                alignment: alignment,
+                maximumNumberOfLines: 2
             )
         }
         .frame(maxWidth: .infinity, alignment: alignment == .leading ? .leading : .center)

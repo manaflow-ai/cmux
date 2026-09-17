@@ -74,6 +74,31 @@ def wait_for_control_socket(server, seconds=15):
     )
 
 
+def control_string_end(data, start, allow_bel):
+    ends = []
+    if allow_bel:
+        bel = data.find(b"\x07", start)
+        if bel >= 0:
+            ends.append((bel, bel + 1))
+    st = data.find(b"\x1b\\", start)
+    if st >= 0:
+        ends.append((st, st + 2))
+    if not ends:
+        return None
+    return min(ends, key=lambda entry: entry[0])[1]
+
+
+def non_csi_escape_end(data, start):
+    if start + 1 >= len(data):
+        return None
+    kind = data[start + 1]
+    if kind == ord("]"):
+        return control_string_end(data, start + 2, allow_bel=True)
+    if kind in (ord("P"), ord("X"), ord("^"), ord("_")):
+        return control_string_end(data, start + 2, allow_bel=False)
+    return start + 2
+
+
 def render_client_frame(data, rows=30, cols=100):
     chars = [[" " for _ in range(cols)] for _ in range(rows)]
     reverse = [[False for _ in range(cols)] for _ in range(rows)]
@@ -165,6 +190,12 @@ def render_client_frame(data, rows=30, cols=100):
                         rev = False
             i = j + 1
             continue
+        if b == 0x1B:
+            end = non_csi_escape_end(data, i)
+            if end is None:
+                break
+            i = end
+            continue
         if b == 0x0D:
             x = 0
             i += 1
@@ -197,6 +228,14 @@ def render_client_frame(data, rows=30, cols=100):
         i += width
         x = min(cols - 1, x + 1)
     return chars, reverse
+
+
+control_frame, _ = render_client_frame(
+    b"\x1b]12;#c0c1b5\x07A\x1bPignored payload\x1b\\B",
+    rows=1,
+    cols=2,
+)
+assert control_frame[0] == ["A", "B"], control_frame[0]
 
 
 def reverse_percent_cells(frame):
@@ -379,6 +418,15 @@ class Client:
                 return True
         return False
 
+    def wait_frame_text(self, needle, seconds):
+        deadline = time.time() + seconds
+        while time.time() < deadline:
+            self.drain(0.2)
+            frame, _ = render_client_frame(self.output, self.rows, self.cols)
+            if needle in "\n".join("".join(row) for row in frame):
+                return True
+        return False
+
     def send(self, data):
         os.write(self.fd, data)
 
@@ -431,7 +479,15 @@ try:
     assert c2.wait_output(MARKER, 15), "marker not rendered after reattach"
     # Live path still works after replay: type another command.
     c2.send(b"printf '\\033[3J\\033[H\\033[2J'; printf 'live-after-reattach\\n'\r")
-    assert c2.wait_output("live-after-reattach", 15), "live stream broken after reattach"
+    if not c2.wait_frame_text("live-after-reattach", 15):
+        stalled_screen = rpc({"id": 30, "cmd": "read-screen", "surface": surface_id})
+        stalled_frame, _ = render_client_frame(c2.output)
+        raise AssertionError(
+            "live stream broken after reattach; client frame:\n"
+            + "\n".join("".join(row) for row in stalled_frame)
+            + "\nserver screen:\n"
+            + stalled_screen["data"]["text"]
+        )
     live_screen = rpc({"id": 3, "cmd": "read-screen", "surface": surface_id})
     assert "live-after-reattach" in live_screen["data"]["text"], live_screen["data"]["text"]
 

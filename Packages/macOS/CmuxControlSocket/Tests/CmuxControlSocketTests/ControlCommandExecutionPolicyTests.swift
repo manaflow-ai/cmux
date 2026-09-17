@@ -153,6 +153,19 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy(forV1Command: "read_screen") == .socketWorker(mainThreadCallable: false))
     }
 
+    @Test func remoteTerminalReadinessRunsOffMainAndIsNotMainThreadCallable() {
+        #expect(
+            ControlCommandExecutionPolicy(
+                forMethod: "workspace.remote.terminal_session_launching"
+            ) == .socketWorker(mainThreadCallable: false)
+        )
+        #expect(
+            ControlCommandExecutionPolicy(
+                forMethod: "workspace.remote.terminal_session_connected"
+            ) == .socketWorker(mainThreadCallable: false)
+        )
+    }
+
     @Test func diagnosticReadsRunOnTheWorkerAndAreNotMainThreadCallable() {
         #expect(ControlCommandExecutionPolicy(forV1Command: "iroh_diag") == .socketWorker(mainThreadCallable: false))
     }
@@ -305,16 +318,26 @@ struct ControlCommandExecutionPolicyTests {
             "send_workspace",
         ]
         #expect(ControlCommandExecutionPolicy.terminalSendV1Commands == sends)
+        let configurationMutations: Set<String> = [
+            "reload_config",
+        ]
+        #expect(
+            ControlCommandExecutionPolicy.configurationMutationV1Commands
+                == configurationMutations
+        )
         let expectedWorker = telemetry.union(notification).union(terminalRead)
-            .union(diagnosticRead)
-            .union(resolutionReads).union(sends).union(["ping"])
+            .union(diagnosticRead).union(resolutionReads).union(sends)
+            .union(configurationMutations).union(["ping"])
         #expect(ControlCommandExecutionPolicy.socketWorkerV1Commands == expectedWorker)
         // Every member except terminal and diagnostic reads is deliberately main-thread
         // callable (deadlock-free inline: bus enqueues plus inline-collapsing
-        // hops). The read families opt out because their bodies must stay off-main.
+        // hops). Reads and blocking configuration mutations must stay off-main.
         #expect(
             ControlCommandExecutionPolicy.mainThreadCallableSocketWorkerV1Commands
-                == expectedWorker.subtracting(terminalRead).subtracting(diagnosticRead)
+                == expectedWorker
+                    .subtracting(terminalRead)
+                    .subtracting(diagnosticRead)
+                    .subtracting(configurationMutations)
         )
     }
 }

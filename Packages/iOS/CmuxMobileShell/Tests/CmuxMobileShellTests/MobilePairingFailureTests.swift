@@ -102,6 +102,19 @@ import Testing
         #expect(category.analyticsReason == "timeout")
     }
 
+    @Test func cleanupDebtNamesTheRequiredAppRestart() {
+        let category = MobilePairingFailureCategory.classify(
+            error: MobileShellConnectionError.routeCleanupBlocked,
+            route: nil
+        )
+
+        #expect(category == .routeCleanupBlocked)
+        #expect(category.analyticsReason == "route_cleanup_blocked")
+        #expect(category.message.contains("paused new connections"))
+        #expect(category.guidance?.contains("Force-quit") == true)
+        #expect(!category.isAuthorizationFailure)
+    }
+
     @Test func expiredTicketIsAuthorizationFailureNeedingRescan() {
         let category = MobilePairingFailureCategory.classify(
             error: MobileShellConnectionError.attachTicketExpired,

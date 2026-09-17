@@ -312,6 +312,9 @@ final class MobileWorkspaceListObserver {
     }
 
     private func emitIfNeeded(force: Bool) {
+        #if DEBUG
+        HostLatencyTrace.stamp("host.sync.observe")
+        #endif
         let signpost = MobileWorkspaceObserverSignposts.begin("mobile-workspace-emit-if-needed", "force=\(force)"); defer { MobileWorkspaceObserverSignposts.end(signpost) }
         guard let tabManager else { return }
         let hash = Self.summaryHash(

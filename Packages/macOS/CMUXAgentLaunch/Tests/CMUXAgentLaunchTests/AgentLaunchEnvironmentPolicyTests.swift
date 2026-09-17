@@ -20,6 +20,23 @@ struct AgentLaunchEnvironmentPolicyTests {
         ])
     }
 
+    @Test("Restore transport keeps Pi PATH without crossing secrets")
+    func restoreTransportKeepsPiPathWithoutSecrets() {
+        let selected = AgentLaunchEnvironmentPolicy().selectedRestoreEnvironment(
+            from: [
+                "PATH": "/nix/store/pi/bin:/usr/bin",
+                "PI_CONFIG_DIR": ".custom-pi",
+                "OPENAI_API_KEY": "secret-should-not-cross-socket",
+            ],
+            kind: "pi"
+        )
+
+        #expect(selected == [
+            "PATH": "/nix/store/pi/bin:/usr/bin",
+            "PI_CONFIG_DIR": ".custom-pi",
+        ])
+    }
+
     @Test("Preserves Campfire config roots and drops Pi-managed env")
     func preservesCampfireConfigRootsAndDropsManagedPackageDir() {
         let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(

@@ -74,6 +74,7 @@ function base64NulSeparated(values: string[]): string {
 
 function hookEnvironment(cwd: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
+  env.CMUX_OMP_PID = String(process.pid);
   if (!env.CMUX_AGENT_LAUNCH_ARGV_B64) {
     const argv = normalizedLaunchArgv();
     env.CMUX_AGENT_LAUNCH_KIND = "omp";
@@ -87,6 +88,7 @@ function hookEnvironment(cwd: string): NodeJS.ProcessEnv {
 interface HookInvocation {
   cmux: string;
   cwd: string;
+  sessionId: string;
   payload: string;
   env: NodeJS.ProcessEnv;
 }
@@ -128,9 +130,20 @@ function lastAssistantMessage(event: AgentEndEvent): string | undefined {
   return undefined;
 }
 
+function boundedHookText(value: string | undefined): string | undefined {
+  if (value === undefined || value.length <= 32768) return value;
+  return value.slice(0, 32768);
+}
+
+function isNestedArtifactSession(ctx: ExtensionContext): boolean {
+  const sessionFile = firstString(ctx.sessionManager.getSessionFile());
+  return sessionFile !== null && fs.existsSync(`${path.dirname(sessionFile)}.jsonl`);
+}
+
 function hookInvocation(subcommand: string, ctx: ExtensionContext, extra: Record<string, unknown> = {}): HookInvocation | null {
   if (process.env.CMUX_OMP_HOOKS_DISABLED === "1") return null;
   if (!process.env.CMUX_SURFACE_ID) return null;
+  if (isNestedArtifactSession(ctx)) return null;
 
   const sessionId = firstString(ctx.sessionManager.getSessionId());
   if (!sessionId) return null;
@@ -147,36 +160,160 @@ function hookInvocation(subcommand: string, ctx: ExtensionContext, extra: Record
   return {
     cmux,
     cwd,
+    sessionId,
     payload: JSON.stringify(payload),
     env: hookEnvironment(cwd),
   };
 }
 
-async function sendHook(subcommand: string, ctx: ExtensionContext, extra: Record<string, unknown> = {}): Promise<void> {
-  const invocation = hookInvocation(subcommand, ctx, extra);
-  if (!invocation) return;
-  await new Promise<void>((resolve) => {
+interface RunningHook {
+  completion: Promise<void>;
+  cancel: () => void;
+}
+
+function startHook(invocation: HookInvocation, subcommand: string): RunningHook {
+  let child: ReturnType<typeof spawn> | null = null;
+  let settle = () => {};
+  const terminate = () => {
+    if (child && !child.killed) child.kill("SIGKILL");
+  };
+  const completion = new Promise<void>((resolve) => {
     let settled = false;
-    const settle = () => {
+    const timeout = setTimeout(() => {
+      terminate();
+    }, 5000);
+    timeout.unref();
+    settle = () => {
       if (settled) return;
       settled = true;
+      clearTimeout(timeout);
       resolve();
     };
     try {
-      const child = spawn(invocation.cmux, ["hooks", "omp", subcommand], {
+      child = spawn(invocation.cmux, ["hooks", "omp", subcommand], {
         env: invocation.env,
         stdio: ["pipe", "ignore", "ignore"],
-        detached: true,
       });
       child.on("error", settle);
-      child.stdin.on("error", settle);
-      child.stdin.on("finish", settle);
-      child.unref();
+      child.on("close", settle);
+      child.stdin.on("error", () => {});
       child.stdin.end(invocation.payload);
     } catch (_) {
       settle();
     }
   });
+  return {
+    completion,
+    cancel: () => {
+      terminate();
+    },
+  };
+}
+
+interface QueuedHook {
+  invocation: HookInvocation;
+  subcommand: string;
+}
+
+function hookPriority(subcommand: string): number {
+  switch (subcommand) {
+    case "stop":
+      return 2;
+    case "session-start":
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+const maxQueuedHooks = 16;
+const hookShutdownDeadlineMs = 2000;
+const hookQueue: QueuedHook[] = [];
+let hookWorker: Promise<void> | null = null;
+let activeHook: RunningHook | null = null;
+let activeHookSubcommand: string | null = null;
+
+async function drainHookQueue(): Promise<void> {
+  while (hookQueue.length > 0) {
+    const next = hookQueue.shift();
+    if (!next) continue;
+    const running = startHook(next.invocation, next.subcommand);
+    activeHook = running;
+    activeHookSubcommand = next.subcommand;
+    await running.completion;
+    if (activeHook === running) {
+      activeHook = null;
+      activeHookSubcommand = null;
+    }
+  }
+}
+
+function startHookWorker(): void {
+  if (hookWorker) return;
+  hookWorker = drainHookQueue().finally(() => {
+    hookWorker = null;
+    if (hookQueue.length > 0) startHookWorker();
+  });
+}
+
+async function waitForHookWorker(worker: Promise<void>, timeoutMs: number): Promise<boolean> {
+  let completed = false;
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  await Promise.race([
+    worker.then(() => {
+      completed = true;
+    }),
+    new Promise<void>((resolve) => {
+      timeout = setTimeout(resolve, timeoutMs);
+    }),
+  ]);
+  if (timeout) clearTimeout(timeout);
+  return completed;
+}
+
+async function awaitHookQueueDrain(): Promise<void> {
+  for (let index = hookQueue.length - 1; index >= 0; index -= 1) {
+    if (hookQueue[index]?.subcommand === "prompt-submit") hookQueue.splice(index, 1);
+  }
+  const worker = hookWorker;
+  if (!worker) return;
+  if (await waitForHookWorker(worker, hookShutdownDeadlineMs)) return;
+
+  for (let index = hookQueue.length - 1; index >= 0; index -= 1) {
+    if (hookQueue[index]?.subcommand !== "stop") hookQueue.splice(index, 1);
+  }
+  if (activeHookSubcommand !== "stop") activeHook?.cancel();
+  if (await waitForHookWorker(worker, hookShutdownDeadlineMs)) return;
+
+  hookQueue.splice(0);
+  activeHook?.cancel();
+  await worker;
+}
+
+function enqueueHook(invocation: HookInvocation, subcommand: string): void {
+  const duplicate = hookQueue.findIndex(
+    (queued) => queued.invocation.sessionId === invocation.sessionId && queued.subcommand === subcommand
+  );
+  if (duplicate >= 0) {
+    hookQueue.splice(duplicate, 1);
+    hookQueue.push({ invocation, subcommand });
+  } else {
+    if (hookQueue.length >= maxQueuedHooks) {
+      const priority = hookPriority(subcommand);
+      const evictable = hookQueue.findIndex((queued) => hookPriority(queued.subcommand) < priority);
+      if (evictable >= 0) hookQueue.splice(evictable, 1);
+      else return;
+    }
+    hookQueue.push({ invocation, subcommand });
+  }
+  startHookWorker();
+}
+
+function sendHook(subcommand: string, ctx: ExtensionContext, extra: Record<string, unknown> = {}): Promise<void> {
+  const invocation = hookInvocation(subcommand, ctx, extra);
+  if (!invocation) return Promise.resolve();
+  enqueueHook(invocation, subcommand);
+  return Promise.resolve();
 }
 
 export default function cmuxOmpSessionExtension(api: ExtensionAPI) {
@@ -185,11 +322,15 @@ export default function cmuxOmpSessionExtension(api: ExtensionAPI) {
   });
 
   api.on("before_agent_start", async (event, ctx) => {
-    await sendHook("prompt-submit", ctx, { prompt: event.prompt });
+    await sendHook("prompt-submit", ctx, { prompt: boundedHookText(event.prompt) });
   });
 
   api.on("agent_end", async (event, ctx) => {
-    await sendHook("stop", ctx, { last_assistant_message: lastAssistantMessage(event) });
+    await sendHook("stop", ctx, { last_assistant_message: boundedHookText(lastAssistantMessage(event)) });
+  });
+
+  api.on("session_shutdown", async () => {
+    await awaitHookQueueDrain();
   });
 }
 """#

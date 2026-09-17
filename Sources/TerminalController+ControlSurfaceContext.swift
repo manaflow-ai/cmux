@@ -95,6 +95,13 @@ extension TerminalController: ControlSurfaceContext {
             checkpointID: effective.checkpointId,
             source: effective.source,
             environment: effective.environment,
+            launchCommand: effective.launchCommand.map {
+                controlAgentLaunchCommand(
+                    $0,
+                    replaySafeEnvironmentFor: effective.kind
+                )
+            },
+            permissionMode: effective.permissionMode,
             autoResume: effective.allowsAutomaticResume,
             approvalPolicyRawValue: effective.approvalPolicy?.rawValue,
             approvalRecordID: effective.approvalRecordId,

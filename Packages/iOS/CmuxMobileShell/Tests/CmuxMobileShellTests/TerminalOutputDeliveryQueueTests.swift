@@ -823,6 +823,7 @@ private func waitForReplayRequestCount(
     let latestTheme = TerminalOutputDelivery(theme: latestFrame)
     let latestViewport = TerminalOutputDelivery(renderGrid: latestFrame, replaceable: true)
 
+    #expect(latestTheme.endSequence == nil)
     #expect(queue.enqueue(inFlight) == inFlight)
     #expect(queue.enqueue(TerminalOutputDelivery(theme: oldFrame)) == nil)
     #expect(queue.enqueue(TerminalOutputDelivery(renderGrid: oldFrame, replaceable: true)) == nil)

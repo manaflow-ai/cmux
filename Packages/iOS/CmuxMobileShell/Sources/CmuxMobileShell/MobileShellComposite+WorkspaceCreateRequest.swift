@@ -137,7 +137,8 @@ extension MobileShellComposite {
                 setSelectedWorkspaceID(
                     rowWorkspaceID(
                         forRemoteWorkspaceID: createdWorkspace,
-                        macDeviceID: context.macDeviceID
+                        macDeviceID: context.macDeviceID,
+                        instanceTag: context.instanceTag
                     ) ?? createdWorkspace
                 )
             }

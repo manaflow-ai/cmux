@@ -102,6 +102,43 @@ struct CmxIrohEndpointServerTests {
     }
 
     @Test
+    func repeatedAcceptFailuresUseBoundedBackoffInsteadOfARecoveryLoop() async throws {
+        let localIdentity = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "3", count: 64)
+        )
+        let endpoint = TestAcceptingIrohEndpoint(identity: localIdentity)
+        let supervisor = CmxIrohEndpointSupervisor(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            configuration: try CmxIrohEndpointConfiguration(
+                secretKey: CmxIrohSecretKey(bytes: Data(repeating: 6, count: 32)),
+                alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
+                managedRelayURLs: [],
+                relays: []
+            )
+        )
+        _ = try await supervisor.activate()
+        let clock = EndpointServerManualClock()
+        let server = CmxIrohEndpointServer(
+            supervisor: supervisor,
+            clock: clock
+        ) { _, _, _ in }
+
+        await server.start()
+        await endpoint.enqueueAcceptFailure()
+        await clock.waitUntilSleeping()
+        let firstDeadline = try #require(await clock.lastDeadline())
+        await clock.fire()
+        await endpoint.enqueueAcceptFailure()
+        await clock.waitUntilSleeping()
+        let secondDeadline = try #require(await clock.lastDeadline())
+
+        #expect(abs(firstDeadline.timeIntervalSince1970 - 1_800_000_000.1) < 0.000_1)
+        #expect(abs(secondDeadline.timeIntervalSince1970 - 1_800_000_000.2) < 0.000_1)
+        await server.stop()
+        await supervisor.deactivate()
+    }
+
+    @Test
     func admissionTimeoutClosesTheConnectionAndReleasesCapacity() async throws {
         let localIdentity = try CmxIrohPeerIdentity(
             endpointID: String(repeating: "c", count: 64)
@@ -311,12 +348,14 @@ actor EndpointServerHandlerBlocker {
 actor EndpointServerManualClock: CmxIrohRelayClock {
     private var sleeper: CheckedContinuation<Void, Never>?
     private var sleepWaiters: [CheckedContinuation<Void, Never>] = []
+    private var deadline: Date?
 
     nonisolated func now() -> Date {
         Date(timeIntervalSince1970: 1_800_000_000)
     }
 
-    func sleep(until _: Date) async throws {
+    func sleep(until deadline: Date) async throws {
+        self.deadline = deadline
         let waiters = sleepWaiters
         sleepWaiters.removeAll()
         for waiter in waiters { waiter.resume() }
@@ -336,6 +375,10 @@ actor EndpointServerManualClock: CmxIrohRelayClock {
     func fire() {
         sleeper?.resume()
         sleeper = nil
+    }
+
+    func lastDeadline() -> Date? {
+        deadline
     }
 
     private func cancelSleep() {

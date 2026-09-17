@@ -1,6 +1,8 @@
 import AppKit
+import CmuxNotifications
 import CmuxSidebar
 import CmuxWorkspaces
+@_spi(CmuxHostTransport) import CmuxExtensionKit
 import SwiftUI
 import Testing
 #if canImport(cmux_DEV)
@@ -10,6 +12,62 @@ import Testing
 #endif
 
 @Suite struct SidebarWorkspaceSnapshotRefreshPolicyTests {
+    @Test @MainActor
+    func extensionSnapshotCacheDoesNotInflateSequenceForIdenticalProviderContent() throws {
+        let workspaceID = UUID()
+        let initial = CmuxSidebarSnapshot(
+            sequence: 10,
+            selectedWorkspaceID: workspaceID,
+            workspaces: [CmuxSidebarWorkspace(id: workspaceID, title: "Pi")]
+        )
+        let cache = CMUXSidebarSnapshotCache()
+        _ = cache.replace(with: initial)
+        let unread = SidebarUnreadSnapshot(
+            totalUnreadCount: 1,
+            summaryByWorkspaceId: [
+                workspaceID: SidebarWorkspaceUnreadSummary(
+                    unreadCount: 1,
+                    latestNotificationText: "Done"
+                ),
+            ]
+        )
+        let patched = try #require(cache.applyUnread(unread))
+        let matchingProvider = CmuxSidebarSnapshot(
+            sequence: 10,
+            selectedWorkspaceID: workspaceID,
+            workspaces: [
+                CmuxSidebarWorkspace(
+                    id: workspaceID,
+                    title: "Pi",
+                    unreadCount: 1,
+                    latestNotification: "Done"
+                ),
+            ]
+        )
+
+        let firstPoll = cache.replace(with: matchingProvider)
+        let secondPoll = cache.replace(with: matchingProvider)
+
+        #expect(firstPoll.sequence == patched.sequence)
+        #expect(secondPoll.sequence == patched.sequence)
+
+        let changedProvider = CmuxSidebarSnapshot(
+            sequence: 10,
+            selectedWorkspaceID: workspaceID,
+            workspaces: [
+                CmuxSidebarWorkspace(
+                    id: workspaceID,
+                    title: "Pi renamed",
+                    unreadCount: 1,
+                    latestNotification: "Done"
+                ),
+            ]
+        )
+        let changedPoll = cache.replace(with: changedProvider)
+        #expect(changedPoll.sequence == patched.sequence + 1)
+        #expect(changedPoll.workspaces.first?.title == "Pi renamed")
+    }
+
     @Test func contextMenuPinChangeUpdatesDisplayedFieldsAndDefersNoisyFields() {
         let current = Self.snapshot(
             title: "lmao",

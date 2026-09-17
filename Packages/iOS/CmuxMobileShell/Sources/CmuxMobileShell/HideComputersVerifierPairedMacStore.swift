@@ -188,5 +188,15 @@ actor HideComputersVerifierPairedMacStore: MobilePairedMacStoring {
     func removeAll() async throws {
         records.removeAll()
     }
+
+    // The hide-computers verifier only checks row visibility; grants are
+    // irrelevant to it and are not modeled.
+    func authorizeUserTailscaleRoutes(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?,
+        routes: [CmxAttachRoute]
+    ) async throws {}
 }
 #endif

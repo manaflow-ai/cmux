@@ -14,6 +14,9 @@ on:
 
 permissions: {}
 
+env:
+  RUST_TOOLCHAIN: "1.95.0"
+
 concurrency:
   group: sdk-publish-python-${{ github.ref }}
   cancel-in-progress: false
@@ -71,6 +74,7 @@ jobs:
               raise SystemExit(1)
           print(f"All package versions match {expected}")
           PY
+          python3 cmux-tui/bindings/check-versions.py --expected "$version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
   bindings-e2e-python:
@@ -95,23 +99,25 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
-      - name: Rust version
+      - name: Install Rust toolchain
         run: |
-          rustc --version || true
-          if ! command -v cargo >/dev/null; then
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
-            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          fi
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version
 
       - name: Build cmux-tui server
         working-directory: cmux-tui
-        run: cargo build -p cmux-tui
+        run: cargo build -p cmux-tui --bin cmux-tui --locked
 
-      - name: Python conformance fixtures
-        run: python3 cmux-tui/bindings/conformance/runner.py
-
-      - name: Python binding e2e
-        run: bash cmux-tui/bindings/conformance/e2e.sh --require python
+      - name: Python SDK conformance
+        run: |
+          report="$RUNNER_TEMP/cmux-sdk-conformance-python.txt"
+          python3 cmux-tui/bindings/conformance/runner.py \
+            --language python \
+            --require python \
+            --cmux-tui-bin "$GITHUB_WORKSPACE/cmux-tui/target/debug/cmux-tui" |
+            tee "$report"
+          grep -Eq '^PASS +python +live-creation-exit-restart-unix$' "$report"
 
   build:
     needs: bindings-e2e-python

@@ -654,6 +654,11 @@ final class NotificationDockBadgeTests: XCTestCase {
     }
 
     func testNotificationClickActionRoundTripsAndIsStored() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("AppDelegate.shared must be set for this test")
+            return
+        }
+        let manager = TabManager()
         let store = TerminalNotificationStore.shared
         let path = "/tmp/cmux-crash-\(UUID().uuidString).ghosttycrash"
         let action = TerminalNotificationClickAction.revealInFinder(path: path)
@@ -662,17 +667,30 @@ final class NotificationDockBadgeTests: XCTestCase {
 
         XCTAssertEqual(TerminalNotificationClickAction(userInfo: userInfo), action)
 
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
         store.replaceNotificationsForTesting([])
         store.configureNotificationDeliveryHandlerForTesting { _, notification in
             delivered = notification
         }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
         defer {
             store.replaceNotificationsForTesting([])
             store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
         }
 
+        guard let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected a selected workspace to address the notification to")
+            return
+        }
+
+        // Delivery resolves its target from live identity, so the notification must
+        // address a workspace some TabManager actually owns or it is never recorded.
         store.addNotification(
-            tabId: UUID(),
+            tabId: workspace.id,
             surfaceId: nil,
             title: "Crash",
             subtitle: "Diagnostic",

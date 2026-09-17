@@ -207,13 +207,18 @@ struct WorkspaceListView: View {
     var filteredWorkspaces: [MobileWorkspacePreview] {
         let query = trimmedQuery
         let currentFilter = activeFilter
+        let parsedMachines = MobileWorkspaceListFilter.parsedMachineEntries(
+            currentFilter.machines
+        )
         let matches: [MobileWorkspacePreview]
         if query.isEmpty {
-            matches = workspaces.filter(currentFilter.matches)
+            matches = workspaces.filter {
+                currentFilter.matches($0, parsedMachines: parsedMachines)
+            }
         } else {
             let groupLookup = groupsByID
             matches = workspaces.filter { workspace in
-                currentFilter.matches(workspace)
+                currentFilter.matches(workspace, parsedMachines: parsedMachines)
                     && matchesQuery(workspace, query: query, groupsByID: groupLookup)
             }
         }
@@ -251,7 +256,12 @@ struct WorkspaceListView: View {
 
     var groupedWorkspaces: [MobileWorkspacePreview] {
         let currentFilter = activeFilter
-        return workspaces.filter { currentFilter.matches($0) }
+        let parsedMachines = MobileWorkspaceListFilter.parsedMachineEntries(
+            currentFilter.machines
+        )
+        return workspaces.filter {
+            currentFilter.matches($0, parsedMachines: parsedMachines)
+        }
     }
 
     var body: some View {
@@ -274,16 +284,21 @@ struct WorkspaceListView: View {
                     Section {
                         MobileConnectionRecoveryBanner(
                             connectionRequiresReauth: store.connectionRequiresReauth,
-                            connectionRecoveryFailed: store.connectionRecoveryFailed,
-                            isRecoveringConnection: store.isRecoveringConnection,
                             connectionError: store.connectionError,
-                            retry: { store.retryMobileConnection() },
                             signOut: signOut,
                             rendersInline: true
                         )
                         .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
                         .listRowSeparator(.hidden)
                     }
+                }
+            case .statusLine(let line):
+                // On macOS there is no principal computers picker to host the
+                // status line, so render it as a slim inline row instead.
+                Section {
+                    WorkspaceConnectionStatusLineView(line: line)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+                        .listRowSeparator(.hidden)
                 }
             case .macStatusRow:
                 Section {
@@ -580,7 +595,9 @@ struct WorkspaceListView: View {
             connectionRequiresReauth: store?.connectionRequiresReauth ?? false,
             connectionRecoveryFailed: store?.connectionRecoveryFailed ?? false,
             isRecoveringConnection: store?.isRecoveringConnection ?? false,
-            connectionStatus: connectionStatus
+            connectionStatus: connectionStatus,
+            isInitialConnectionLoading: isInitialConnectionLoading,
+            initialConnectionTimedOut: initialConnectionTimedOut
         )
     }
 

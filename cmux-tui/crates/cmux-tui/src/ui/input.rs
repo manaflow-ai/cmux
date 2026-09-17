@@ -91,11 +91,7 @@ impl TextInput {
                 self.handle_control(c)
             }
             KeyCode::Char(c) if key.modifiers.contains(KeyModifiers::ALT) => self.handle_alt(c),
-            KeyCode::Char(c)
-                if !key.modifiers.intersects(
-                    KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER,
-                ) =>
-            {
+            KeyCode::Char(c) if !key.modifiers.intersects(crate::keys::SHORTCUT_MODIFIERS) => {
                 self.insert_char(c);
                 InputEvent::Changed
             }

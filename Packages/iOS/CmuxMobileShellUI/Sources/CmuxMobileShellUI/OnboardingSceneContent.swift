@@ -38,6 +38,10 @@ struct OnboardingSceneContent<Visual: View>: View {
             .frame(maxWidth: .infinity)
         }
         .scrollIndicators(.hidden)
+        // Pages usually fit their viewport; without scrollable overflow the
+        // vertical ScrollView must not bounce, so vertical drags don't rubber-
+        // band and diagonal swipes reach the horizontal pager cleanly.
+        .scrollBounceBehavior(.basedOnSize)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 

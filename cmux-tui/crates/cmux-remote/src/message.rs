@@ -36,7 +36,9 @@ struct MessageReadState {
 impl MessageStream {
     pub fn new(stream: Arc<ServiceStream>) -> Self {
         let lane = match stream.service() {
-            Service::MuxControl | Service::ComputerUse => Lane::Interactive,
+            Service::MuxControl | Service::TerminalBytes | Service::ComputerUse => {
+                Lane::Interactive
+            }
             Service::ProcessStream => Lane::Bulk,
             Service::WorkspaceRpc => Lane::Control,
             Service::TcpTunnel => Lane::Tunnel,
@@ -139,7 +141,6 @@ impl MessageStream {
     }
 }
 
-
 #[derive(Debug)]
 pub enum ServicesError {
     Service(ServiceError),
@@ -216,4 +217,3 @@ impl From<crate::mux_input::MuxInputError> for ServicesError {
         Self::MuxInput(error)
     }
 }
-

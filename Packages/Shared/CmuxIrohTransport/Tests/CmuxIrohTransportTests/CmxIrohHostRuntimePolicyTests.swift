@@ -7,6 +7,77 @@ import Testing
 
 extension CmxIrohHostRuntimeTests {
     @Test
+    func embeddedDiscoveryMustExactlyMatchTheRegistrationRevision() async throws {
+        let fixture = try HostRuntimeFixture()
+        let discovery = try HostRuntimeFixture.discovery(
+            binding: fixture.binding,
+            relays: HostRuntimeFixture.relayURLs,
+            lanGeneration: 2,
+            revision: 2
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [
+                TestIrohEndpoint(identity: fixture.endpointID),
+            ]),
+            broker: TestIrohHostBroker(
+                registrationBinding: fixture.binding,
+                discovery: discovery,
+                embedDiscoveryInRegistration: true,
+                registrationRevision: 1
+            ),
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            handleTransport: { session, _ in await session.close() }
+        )
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.invalidResponse) {
+            try await runtime.start()
+        }
+    }
+
+    @Test
+    func embeddedDiscoveryCannotRegressTheInstalledAuthoritativeRevision() async throws {
+        let fixture = try HostRuntimeFixture()
+        let revisionTwo = try HostRuntimeFixture.discovery(
+            binding: fixture.binding,
+            relays: HostRuntimeFixture.relayURLs,
+            lanGeneration: 2,
+            revision: 2
+        )
+        let revisionOne = try HostRuntimeFixture.discovery(
+            binding: fixture.binding,
+            relays: HostRuntimeFixture.relayURLs,
+            lanGeneration: 1,
+            revision: 1
+        )
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: revisionTwo,
+            subsequentDiscoveries: [revisionOne],
+            embedDiscoveryStartingAtRegistrationCount: 2
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            handleTransport: { session, _ in await session.close() }
+        )
+        try await runtime.start()
+        #expect(await runtime.connectivityEngine?.snapshot().routeRevision == 2)
+
+        await endpoint.emit(.networkChanged)
+        await broker.waitForRegistrationCount(2)
+        for _ in 0..<1_000 {
+            if await runtime.snapshot().state == .failed { break }
+            await Task.yield()
+        }
+
+        #expect(await runtime.snapshot().state == .failed)
+    }
+
+    @Test
     func unauthorizedRegistrationRefreshDeactivatesActiveEndpoint() async throws {
         let fixture = try HostRuntimeFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)

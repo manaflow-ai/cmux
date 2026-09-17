@@ -95,6 +95,11 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     /// id). Not part of the Mac's reported data, so it has a default and is set by
     /// derivation, not the decoders.
     public var machineColorIndex: Int? = nil
+    /// The app-instance tag of the Mac pairing that reported this row
+    /// ("default", "nightly", a dev tag), stamped from the connection's pairing
+    /// during ingest/derivation, never decoded from the wire. `nil` for rows
+    /// from a legacy untagged pairing or outside a per-Mac derivation.
+    public var macInstanceTag: String? = nil
     /// The owning Mac's user color override ("palette:<n>" or "#RRGGBB"), stamped
     /// during aggregation so the workspace avatar matches the computer's color.
     /// `nil` = use ``machineColorIndex`` (the automatic color).

@@ -36,13 +36,50 @@ export async function withVaultApiRoute(
   failureLog: string,
   handler: (context: VaultRouteContext) => Promise<Response>,
 ): Promise<Response> {
+  return withVaultApiRouteConfiguration(
+    request,
+    route,
+    attributes,
+    failureLog,
+    true,
+    handler,
+  );
+}
+
+// CLI authentication is shared infrastructure for Subrouter and transcript
+// vaults. It needs Stack Auth and Postgres, but not transcript object storage.
+export async function withCliAuthApiRoute(
+  request: Request,
+  route: string,
+  attributes: MaybeAttributes,
+  failureLog: string,
+  handler: (context: VaultRouteContext) => Promise<Response>,
+): Promise<Response> {
+  return withVaultApiRouteConfiguration(
+    request,
+    route,
+    attributes,
+    failureLog,
+    false,
+    handler,
+  );
+}
+
+async function withVaultApiRouteConfiguration(
+  request: Request,
+  route: string,
+  attributes: MaybeAttributes,
+  failureLog: string,
+  requiresObjectStorage: boolean,
+  handler: (context: VaultRouteContext) => Promise<Response>,
+): Promise<Response> {
   return withApiRouteSpan(
     request,
     route,
     { "cmux.subsystem": "vault", ...attributes },
     async (span) => {
       return runVaultRoute(span, failureLog, async (context) => {
-        if (!isVaultConfigured()) {
+        if (requiresObjectStorage && !isVaultConfigured()) {
           return jsonResponse({ error: "vault_not_configured" }, 503);
         }
         return handler(context);
@@ -62,14 +99,64 @@ export async function withAuthedVaultApiRoute(
   // other suites install for app/lib/stack in the shared bun test process.
   verify: typeof verifyRequest = verifyRequest,
 ): Promise<Response> {
-  return withVaultApiRoute(request, route, attributes, failureLog, async (context) => {
-    const user = await verify(request, verifyOptions);
-    if (!user) return unauthorized();
-    const mutationForbidden = enforceBrowserMutationProtection(request);
-    if (mutationForbidden) return mutationForbidden;
-    setSpanAttributes(context.span, { "cmux.vault.user_id": user.id });
-    return handler({ ...context, user });
-  });
+  return withAuthedVaultApiRouteConfiguration(
+    request,
+    route,
+    attributes,
+    failureLog,
+    verifyOptions,
+    handler,
+    true,
+    verify,
+  );
+}
+
+export async function withAuthedCliAuthApiRoute(
+  request: Request,
+  route: string,
+  attributes: MaybeAttributes,
+  failureLog: string,
+  verifyOptions: VerifyRequestOptions,
+  handler: (context: AuthedVaultRouteContext) => Promise<Response>,
+  verify: typeof verifyRequest = verifyRequest,
+): Promise<Response> {
+  return withAuthedVaultApiRouteConfiguration(
+    request,
+    route,
+    attributes,
+    failureLog,
+    verifyOptions,
+    handler,
+    false,
+    verify,
+  );
+}
+
+async function withAuthedVaultApiRouteConfiguration(
+  request: Request,
+  route: string,
+  attributes: MaybeAttributes,
+  failureLog: string,
+  verifyOptions: VerifyRequestOptions,
+  handler: (context: AuthedVaultRouteContext) => Promise<Response>,
+  requiresObjectStorage: boolean,
+  verify: typeof verifyRequest,
+): Promise<Response> {
+  return withVaultApiRouteConfiguration(
+    request,
+    route,
+    attributes,
+    failureLog,
+    requiresObjectStorage,
+    async (context) => {
+      const user = await verify(request, verifyOptions);
+      if (!user) return unauthorized();
+      const mutationForbidden = enforceBrowserMutationProtection(request);
+      if (mutationForbidden) return mutationForbidden;
+      setSpanAttributes(context.span, { "cmux.vault.user_id": user.id });
+      return handler({ ...context, user });
+    },
+  );
 }
 
 async function runVaultRoute(

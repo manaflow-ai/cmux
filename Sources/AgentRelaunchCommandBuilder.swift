@@ -10,7 +10,8 @@ struct AgentRelaunchCommandBuilder {
     func shellCommand(
         kind: RestorableAgentKind,
         launchCommand: AgentLaunchCommandSnapshot?,
-        workingDirectory: String?
+        workingDirectory: String?,
+        includeWorkingDirectoryPrefix: Bool = true
     ) -> String? {
         guard kind.restoreMode == .relaunchCommand,
               let launchCommand,
@@ -39,6 +40,7 @@ struct AgentRelaunchCommandBuilder {
         let command = commandParts
             .map { TerminalStartupShellQuoting.singleQuoted($0) }
             .joined(separator: " ")
+        guard includeWorkingDirectoryPrefix else { return command }
         return TerminalStartupWorkingDirectoryPrefix.prefix(
             command,
             workingDirectory: workingDirectory ?? launchCommand.workingDirectory

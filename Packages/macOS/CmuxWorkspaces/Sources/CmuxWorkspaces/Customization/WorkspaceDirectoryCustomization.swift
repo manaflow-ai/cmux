@@ -1,4 +1,4 @@
-/// The user-owned identity that cmux reapplies when a directory becomes a workspace again.
+/// Legacy v1 directory-keyed customization decoded during stable-ID migration.
 public struct WorkspaceDirectoryCustomization: Codable, Equatable, Sendable {
     /// The explicit user-owned workspace label.
     public let customTitle: String?

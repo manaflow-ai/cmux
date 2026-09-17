@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, tes
 import {
   accountAnalyticsForwardLeases,
   accountDeletionTombstones,
+  accountMutationLeases,
   cloudVmBaseGenerations,
   cloudVmBases,
   cloudVmBillingGrants,
@@ -11,6 +12,7 @@ import {
   cloudVmUsageEvents,
   cloudVms,
   devices,
+  proWelcomeFulfillments,
   stripeCustomers,
   stripeSubscriptions,
   subrouterTenants,
@@ -87,6 +89,9 @@ const transactionSelect = mock(() => {
   const rows = () => {
     if (selectedTable === accountDeletionTombstones) return nextTransactionTombstoneSelectResult();
     if (selectedTable === accountAnalyticsForwardLeases) return nextTransactionAnalyticsLeaseSelectResult();
+    if (selectedTable === accountMutationLeases) {
+      return nextTransactionMutationLeaseSelectResult();
+    }
     if (
       selectedTable === vaultSnapshots ||
       selectedTable === vaultUploadGrants ||
@@ -119,6 +124,9 @@ const transactionExecute = mock(async () => {
   routeEvents.push("transaction-lock");
 });
 const transactionDeleteRows = mock((table: unknown) => {
+  if (table === accountMutationLeases) {
+    return { where: async () => undefined };
+  }
   if (table === accountAnalyticsForwardLeases) {
     return {
       where: async () => {
@@ -263,6 +271,8 @@ const updateSubscription = mock(async (...args: unknown[]) => {
 const removeTester = mock(async (...args: unknown[]) => {
   const [email] = args as [string];
   routeEvents.push(`testflight-remove:${email}`);
+  const sequenceError = removeTesterErrors.shift();
+  if (sequenceError) throw sequenceError;
   if (removeTesterError) throw removeTesterError;
 });
 const captureAscError = mock((..._args: unknown[]) => {
@@ -299,6 +309,7 @@ let selectResults: unknown[][] = [];
 let transactionSelectResults: unknown[][] = [];
 let transactionTombstoneSelectResults: unknown[][] = [];
 let transactionAnalyticsLeaseSelectResults: unknown[][] = [];
+let transactionMutationLeaseSelectResults: unknown[][] = [];
 let deletedVaultObjects: string[] = [];
 let vaultDeleteError: unknown = null;
 let postStackVaultDeleteError: unknown = null;
@@ -313,6 +324,7 @@ let stripeDeleteCustomerError: unknown = null;
 let stripeUpdateCustomerError: unknown = null;
 let stripeUpdateSubscriptionError: unknown = null;
 let removeTesterError: unknown = null;
+let removeTesterErrors: unknown[] = [];
 let destroyVmFailureProviderIds = new Set<string>();
 let destroyVmFailureErrorsByProviderId = new Map<string, unknown>();
 let destroyVmAfterProviderErrorsByProviderId = new Map<string, unknown>();
@@ -325,6 +337,7 @@ let subrouterRevokeError: unknown = null;
 let subrouterRevokeErrors: unknown[] = [];
 let stackUserSelectedTeam: unknown = null;
 let stackUserTeams: StackList = [];
+let stackUserClientReadOnlyMetadata: unknown = { cmuxPlan: "pro" };
 let useAccountRouteStubs = false;
 let lastRevokeIdentityCall: { readonly userId: string; readonly afterBatch?: unknown } | null = null;
 let vaultLockUsers: string[] = [];
@@ -405,6 +418,10 @@ function nextTransactionTombstoneSelectResult(): unknown[] {
 
 function nextTransactionAnalyticsLeaseSelectResult(): unknown[] {
   return transactionAnalyticsLeaseSelectResults.shift() ?? [];
+}
+
+function nextTransactionMutationLeaseSelectResult(): unknown[] {
+  return transactionMutationLeaseSelectResults.shift() ?? [];
 }
 
 function chainableSelectResult(rows: unknown[]): SelectResult {
@@ -523,8 +540,7 @@ mock.module("../services/asc/client", () => ({
 mock.module("../services/asc/testflight", () => ({
   ...ascTestflightModule,
   removeTester: ((...args: Parameters<typeof realRemoveTester>) => {
-    const [email] = args;
-    if (useAccountRouteStubs) return removeTester(email);
+    if (useAccountRouteStubs) return removeTester(...args);
     return realRemoveTester(...args);
   }) as typeof realRemoveTester,
 }));
@@ -628,6 +644,7 @@ beforeEach(() => {
   transactionSelectResults = [];
   transactionTombstoneSelectResults = [];
   transactionAnalyticsLeaseSelectResults = [];
+  transactionMutationLeaseSelectResults = [];
   deletedVaultObjects = [];
   vaultDeleteError = null;
   postStackVaultDeleteError = null;
@@ -642,6 +659,7 @@ beforeEach(() => {
   stripeUpdateCustomerError = null;
   stripeUpdateSubscriptionError = null;
   removeTesterError = null;
+  removeTesterErrors = [];
   destroyVmFailureProviderIds = new Set();
   destroyVmFailureErrorsByProviderId = new Map();
   destroyVmAfterProviderErrorsByProviderId = new Map();
@@ -655,6 +673,7 @@ beforeEach(() => {
   subrouterRevokeErrors = [];
   stackUserSelectedTeam = null;
   stackUserTeams = [];
+  stackUserClientReadOnlyMetadata = { cmuxPlan: "pro" };
   vaultLockUsers = [];
   postHogDeleteRequests = [];
   postHogDeleteError = null;
@@ -718,6 +737,7 @@ describe("account deletion route", () => {
     expect(deletedTableCount).toBeGreaterThan(10);
     expect(deletedTables).toContain(cloudVmBillingGrants);
     expect(deletedTables).toContain(devices);
+    expect(deletedTables).toContain(proWelcomeFulfillments);
     const nonStripeUpdates = updatedRows.filter(({ table }) =>
       table !== stripeSubscriptions && table !== stripeCustomers
     );
@@ -1083,6 +1103,26 @@ describe("account deletion route", () => {
     expect(deleteStackUser).not.toHaveBeenCalled();
   });
 
+  test("waits for an active account mutation before starting deletion", async () => {
+    transactionMutationLeaseSelectResults = [[{
+      operationId: "active-account-mutation",
+    }]];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 0,
+    });
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(routeEvents).not.toContain("tombstone-upsert");
+    expect(updateStackUser).not.toHaveBeenCalled();
+    expect(postHogDeleteFetch).not.toHaveBeenCalled();
+    expect(deleteStackUser).not.toHaveBeenCalled();
+  });
+
   test("returns completed when a retry sees a completed account deletion tombstone", async () => {
     transactionTombstoneSelectResults = [[{
       userIdHash: "existing-hash",
@@ -1361,8 +1401,33 @@ describe("account deletion route", () => {
     const response = await DELETE(accountDeletionRequest());
 
     expect(response.status).toBe(200);
-    expect(removeTester).toHaveBeenCalledWith("account@example.com");
+    expect(removeTester).toHaveBeenCalledWith("account@example.com", {
+      ownedLegacyGroupIDs: [],
+    });
     expect(routeEvents).toContain("testflight-remove:account@example.com");
+  });
+
+  test("keeps account deletion retryable when TestFlight cleanup partially succeeds", async () => {
+    ascConfigured = true;
+    listedPersonalVmIds = [];
+    stackUserClientReadOnlyMetadata = {
+      cmuxPlan: "pro",
+      cmuxProTestflightEnrollmentEmails: ["previous@example.com"],
+    };
+    removeTesterErrors = [null, new Error("second TestFlight removal failed")];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 0,
+    });
+    expect(removeTester).toHaveBeenCalledTimes(2);
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(captureAscError).toHaveBeenCalledTimes(1);
+    expect(updateStackUser).toHaveBeenCalledTimes(1);
   });
 
   test("revokes active account SSH identities before deleting cmux rows", async () => {
@@ -1710,7 +1775,7 @@ describe("account deletion route", () => {
     });
     expect(transaction).toHaveBeenCalledTimes(3);
     expect(transactionExecute).toHaveBeenCalledTimes(3);
-    expect(transactionSelect).toHaveBeenCalledTimes(3);
+    expect(transactionSelect).toHaveBeenCalledTimes(4);
     expect(deletedTableCount).toBe(0);
     expect(deleteStackUser).not.toHaveBeenCalled();
     expect(consoleError).toHaveBeenCalledWith(
@@ -2243,7 +2308,7 @@ function stackUser(id = "account-user-1") {
     id,
     displayName: null,
     primaryEmail: "account@example.com",
-    clientReadOnlyMetadata: { cmuxPlan: "pro" },
+    clientReadOnlyMetadata: stackUserClientReadOnlyMetadata,
     selectedTeam: stackUserSelectedTeam,
     listTeams: async (options?: { readonly cursor?: string; readonly limit?: number }) =>
       typeof stackUserTeams === "function" ? await stackUserTeams(options) : stackUserTeams,

@@ -9,7 +9,6 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestSplitTmuxCmd(t *testing.T) {
@@ -416,7 +415,7 @@ func TestConfigureAgentEnvironment(t *testing.T) {
 	envKeys := []string{
 		"CMUX_CLAUDE_TEAMS_CMUX_BIN", "PATH", "TMUX", "TMUX_PANE",
 		"TERM", "CMUX_SOCKET_PATH", "TERM_PROGRAM",
-		"CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID",
+		"CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_PANEL_ID", "CMUX_TAB_ID", "CMUX_PANE_ID",
 		"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", "COLORTERM",
 	}
 	saved := make(map[string]string)
@@ -438,7 +437,7 @@ func TestConfigureAgentEnvironment(t *testing.T) {
 	configureAgentEnvironment(agentConfig{
 		shimDir:    "/tmp/test-shim",
 		socketPath: "127.0.0.1:54321",
-		focused: &focusedContext{
+		launchContext: &agentLaunchContext{
 			workspaceId: "ws-abc",
 			windowId:    "win-123",
 			paneHandle:  "pane:456",
@@ -482,44 +481,18 @@ func TestConfigureAgentEnvironment(t *testing.T) {
 	if os.Getenv("CMUX_SURFACE_ID") != "surf-789" {
 		t.Errorf("CMUX_SURFACE_ID = %q", os.Getenv("CMUX_SURFACE_ID"))
 	}
+	if os.Getenv("CMUX_TAB_ID") != "ws-abc" {
+		t.Errorf("CMUX_TAB_ID = %q", os.Getenv("CMUX_TAB_ID"))
+	}
+	if os.Getenv("CMUX_PANEL_ID") != "surf-789" {
+		t.Errorf("CMUX_PANEL_ID = %q", os.Getenv("CMUX_PANEL_ID"))
+	}
+	if os.Getenv("CMUX_PANE_ID") != "pane-456" {
+		t.Errorf("CMUX_PANE_ID = %q", os.Getenv("CMUX_PANE_ID"))
+	}
 	// Verify extra env
 	if os.Getenv("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS") != "1" {
 		t.Error("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS should be 1")
-	}
-}
-
-func TestGetFocusedContextCanonicalizesPaneRef(t *testing.T) {
-	sockPath := startMockTmuxCompatSocket(t)
-	rc := &rpcContext{socketPath: sockPath}
-
-	focused := getFocusedContext(rc)
-	if focused == nil {
-		t.Fatal("getFocusedContext returned nil")
-	}
-	if focused.paneHandle != "pane:1" {
-		t.Fatalf("paneHandle = %q, want pane:1", focused.paneHandle)
-	}
-	if focused.paneId != "33333333-3333-4333-8333-333333333333" {
-		t.Fatalf("paneId = %q, want canonical pane UUID", focused.paneId)
-	}
-}
-
-func TestGetFocusedContextKeepsBaseContextWhenCanonicalizationTimesOut(t *testing.T) {
-	sockPath := startSlowFocusedCanonicalizationSocket(t, 200*time.Millisecond)
-	rc := &rpcContext{socketPath: sockPath}
-
-	focused := getFocusedContextWithTimeout(rc, 50*time.Millisecond)
-	if focused == nil {
-		t.Fatal("getFocusedContextWithTimeout returned nil")
-	}
-	if focused.workspaceId != "11111111-1111-4111-8111-111111111111" {
-		t.Fatalf("workspaceId = %q", focused.workspaceId)
-	}
-	if focused.paneHandle != "pane:1" {
-		t.Fatalf("paneHandle = %q, want pane:1", focused.paneHandle)
-	}
-	if focused.paneId != "pane:1" {
-		t.Fatalf("paneId = %q, want base pane id when canonicalization times out", focused.paneId)
 	}
 }
 
@@ -627,72 +600,6 @@ func startMockTmuxSelectorPrioritySocket(t *testing.T) string {
 							{"id": "44444444-4444-4444-8444-444444444444", "ref": "surface:index", "index": 1},
 							{"id": "55555555-5555-4555-8555-555555555555", "ref": "1", "index": 2},
 						},
-					}
-				default:
-					resp["result"] = map[string]any{}
-				}
-
-				data, _ := json.Marshal(resp)
-				_, _ = conn.Write(append(data, '\n'))
-			}(conn)
-		}
-	}()
-
-	return sockPath
-}
-
-func startSlowFocusedCanonicalizationSocket(t *testing.T, delay time.Duration) string {
-	t.Helper()
-	sockPath := makeShortUnixSocketPath(t)
-	ln, err := net.Listen("unix", sockPath)
-	if err != nil {
-		t.Fatalf("failed to listen: %v", err)
-	}
-	t.Cleanup(func() { ln.Close() })
-
-	go func() {
-		for {
-			conn, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			go func(conn net.Conn) {
-				defer conn.Close()
-				reader := bufio.NewReader(conn)
-				line, err := reader.ReadBytes('\n')
-				if err != nil {
-					return
-				}
-
-				var req map[string]any
-				if err := json.Unmarshal(line, &req); err != nil {
-					_, _ = conn.Write([]byte(`{"ok":false,"error":{"code":"parse","message":"bad json"}}` + "\n"))
-					return
-				}
-
-				method, _ := req["method"].(string)
-				resp := map[string]any{
-					"id": req["id"],
-					"ok": true,
-				}
-				switch method {
-				case "system.identify":
-					resp["result"] = map[string]any{
-						"focused": map[string]any{
-							"workspace_id": "11111111-1111-4111-8111-111111111111",
-							"pane_id":      "pane:1",
-							"pane_ref":     "pane:1",
-							"surface_ref":  "surface:1",
-						},
-					}
-				case "pane.list":
-					time.Sleep(delay)
-					resp["result"] = map[string]any{
-						"panes": []map[string]any{{
-							"id":    "33333333-3333-4333-8333-333333333333",
-							"ref":   "pane:1",
-							"index": 1,
-						}},
 					}
 				default:
 					resp["result"] = map[string]any{}

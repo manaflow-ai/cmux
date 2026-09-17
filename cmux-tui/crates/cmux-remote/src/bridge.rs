@@ -307,7 +307,7 @@ where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
-    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
     let upload = {
         let remote = remote.clone();
         async move {
@@ -316,7 +316,10 @@ where
             let mut message = 1_u64;
             loop {
                 line.clear();
-                let size = reader.read_until(b'\n', &mut line).await?;
+                let size = (&mut reader)
+                    .take((MAX_MUX_LINE_BYTES + 1) as u64)
+                    .read_until(b'\n', &mut line)
+                    .await?;
                 if size == 0 {
                     remote.close().await?;
                     break;

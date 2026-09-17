@@ -120,6 +120,33 @@ import Testing
 }
 
 @MainActor
+@Test func handoffSuppressionEndsAfterSuccessfulSubscription() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(
+        router: router,
+        box: box,
+        clock: clock
+    )
+    store.stopTerminalRefreshPolling()
+    let readiness = MobileTerminalEventSubscriptionReadiness()
+    store.startTerminalRefreshPolling(
+        subscriptionReadiness: readiness,
+        recoversConnectionOnSubscriptionFailure: false
+    )
+    #expect(await readiness.wait())
+    let transport = try #require(box.get())
+
+    await transport.close()
+
+    #expect(try await pollUntil {
+        guard let replacement = box.get() else { return false }
+        return replacement !== transport
+    })
+}
+
+@MainActor
 @Test func renderGridOnlyHostKeepsPrimaryRenderGridDelivery() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()

@@ -31,10 +31,12 @@ struct NotificationFeedView: View {
                 sourceItemCount: projection.sourceItemCount,
                 isSourceRebuilding: projection.isSourceRebuilding,
                 hasStaleSourceSections: projection.hasStaleSourceSections,
+                hasMoreRows: projection.hasMoreRows,
                 filter: projection.filter,
                 hasSearchQuery: !projection.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                 status: status,
-                actions: actions
+                actions: actions,
+                loadMoreRows: { projection.extendRowWindow() }
             )
         }
         .navigationTitle(L10n.string("mobile.notificationFeed.title", defaultValue: "Notifications"))
@@ -92,10 +94,12 @@ private struct NotificationFeedList: View {
     let sourceItemCount: Int
     let isSourceRebuilding: Bool
     let hasStaleSourceSections: Bool
+    let hasMoreRows: Bool
     let filter: MobileNotificationFeedFilter
     let hasSearchQuery: Bool
     let status: MobileNotificationFeedStatus
     let actions: NotificationFeedActions
+    let loadMoreRows: @MainActor () -> Void
 
     var body: some View {
         List {
@@ -111,8 +115,8 @@ private struct NotificationFeedList: View {
             } else {
                 ForEach(sections) { section in
                     Section {
-                        ForEach(section.items) { item in
-                            NotificationFeedRow(item: item, actions: actions)
+                        ForEach(section.items) { model in
+                            NotificationFeedRow(model: model, actions: actions)
                                 .equatable()
                                 .disabled(hasStaleSourceSections)
                                 .allowsHitTesting(!hasStaleSourceSections)
@@ -120,6 +124,9 @@ private struct NotificationFeedList: View {
                     } header: {
                         NotificationFeedDayHeader(section: section)
                     }
+                }
+                if hasMoreRows {
+                    NotificationFeedLoadMoreRow(loadMore: loadMoreRows)
                 }
             }
         }

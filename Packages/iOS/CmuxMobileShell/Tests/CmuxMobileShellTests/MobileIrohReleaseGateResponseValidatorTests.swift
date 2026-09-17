@@ -1,5 +1,6 @@
 #if DEBUG
 import CmuxAgentChat
+import CmuxMobileRPC
 import CmuxMobileShell
 import Foundation
 import Testing

@@ -6,6 +6,7 @@ struct TerminalPickerMenuActions {
     let createWorkspace: () -> Void
     let createTerminal: () -> Void
     let openBrowser: () -> Void
+    let selectBrowserStream: (String) -> Void
     let openTextSheet: () -> Void
     let copyDebugLogs: () -> Void
     let sendFeedback: () -> Void

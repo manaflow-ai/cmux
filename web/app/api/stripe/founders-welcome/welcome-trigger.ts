@@ -1,8 +1,7 @@
 // Classifies a completed Stripe checkout session for the welcome-email
-// telemetry. Every completed checkout on this webhook sends the identical
-// Founder's Edition welcome (product decision: all customers get the same
-// founders treatment); the classification exists so telemetry records which
-// purchase shape triggered each send.
+// telemetry. cmux Pro is handled by the billing webhook, while explicit
+// Founder's Edition sessions and the existing catch-all purchase shapes retain
+// this endpoint's personal founder welcome.
 //
 // - "founders_edition": sessions created from the cmux Founder's Edition
 //   payment link, which copies `founders_edition=true` onto each session.

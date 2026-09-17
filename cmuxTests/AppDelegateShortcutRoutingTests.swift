@@ -1149,6 +1149,55 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testSenderRelativeSidebarActionKeysItsOriginatingWindowBeforeMutation() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let originatingWindowId = appDelegate.createMainWindow()
+        let previouslyFocusedWindowId = appDelegate.createMainWindow()
+
+        defer {
+            closeWindow(withId: originatingWindowId)
+            closeWindow(withId: previouslyFocusedWindowId)
+        }
+
+        guard let originatingWindow = window(withId: originatingWindowId),
+              let previouslyFocusedWindow = window(withId: previouslyFocusedWindowId),
+              let originatingVisibilityBefore = appDelegate.sidebarVisibility(windowId: originatingWindowId),
+              let previouslyFocusedVisibilityBefore = appDelegate.sidebarVisibility(windowId: previouslyFocusedWindowId) else {
+            XCTFail("Expected both window contexts to exist")
+            return
+        }
+
+        originatingWindow.orderFront(nil)
+        previouslyFocusedWindow.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertTrue(appDelegate.shortcutRoutingKeyWindow === previouslyFocusedWindow)
+
+        XCTAssertTrue(
+            appDelegate.toggleSidebarInActiveMainWindow(preferredWindow: originatingWindow)
+        )
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertTrue(
+            appDelegate.shortcutRoutingKeyWindow === originatingWindow,
+            "An in-window action must request key status for its originating window before mutating window state"
+        )
+        XCTAssertEqual(
+            appDelegate.sidebarVisibility(windowId: originatingWindowId),
+            !originatingVisibilityBefore,
+            "The originating window should receive the sidebar mutation"
+        )
+        XCTAssertEqual(
+            appDelegate.sidebarVisibility(windowId: previouslyFocusedWindowId),
+            previouslyFocusedVisibilityBefore,
+            "The previously focused window must remain unchanged"
+        )
+    }
+
     func testWelcomeWindowSidebarShortcutsUseSharedToggleCommands() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -3284,6 +3333,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             XCTFail("Expected main window")
             return
         }
+
+        XCTAssertFalse(
+            window.titlebarAccessoryViewControllers.contains {
+                $0.view.identifier?.rawValue == "cmux.titlebarMobileConnect"
+            },
+            "Account, Upgrade, and Mobile controls belong exclusively in the sidebar footer"
+        )
 
         let titlebarAccessory: () -> NSTitlebarAccessoryViewController? = {
             window.titlebarAccessoryViewControllers.first {

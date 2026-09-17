@@ -1026,6 +1026,8 @@ final class GhosttyConfigTests: XCTestCase {
         switch plan {
         case .unchanged:
             XCTAssertFalse(plan.shouldReloadConfiguration)
+        case .deferred:
+            XCTFail("Unchanged appearance should not produce a deferred plan")
         case .reload:
             XCTFail("Unchanged appearance should not produce a reload plan")
         }
@@ -1053,6 +1055,8 @@ final class GhosttyConfigTests: XCTestCase {
             switch plan {
             case .unchanged:
                 XCTFail("Changed appearance should produce a reload plan")
+            case .deferred:
+                XCTFail("Changed appearance should not defer without an active reload")
             case let .reload(colorScheme, runtimeColorScheme):
                 XCTAssertEqual(colorScheme, testCase.current)
                 XCTAssertEqual(runtimeColorScheme, testCase.runtime)
@@ -4725,38 +4729,6 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         XCTAssertTrue(output.contains("PREEXEC=0"), output)
     }
 
-    func testGhosttySemanticPatchRetriesAfterDeferredInitCreatesLiveHooks() throws {
-        let output = try runInteractiveZsh(
-            cmuxLoadGhosttyIntegration: true,
-            cmuxLoadShellIntegration: true,
-            command: """
-            _cmux_patch_ghostty_semantic_redraw
-            (( $+functions[_ghostty_deferred_init] )) && _ghostty_deferred_init >/dev/null 2>&1
-            _cmux_patch_ghostty_semantic_redraw
-            print -r -- "PRECMD_BODY=${functions[_ghostty_precmd]}"
-            print -r -- "PREEXEC_BODY=${functions[_ghostty_preexec]}"
-            """
-        )
-
-        XCTAssertTrue(output.contains("PRECMD_BODY="), output)
-        XCTAssertTrue(output.contains("PREEXEC_BODY="), output)
-        XCTAssertTrue(output.contains("133;A;redraw=last;cl=line"), output)
-    }
-
-    func testShellIntegrationWinchGuardDoesNotPrintSpacerLineOnResize() throws {
-        let output = try runInteractiveZsh(
-            cmuxLoadGhosttyIntegration: false,
-            cmuxLoadShellIntegration: true,
-            command: """
-            print -r -- BEFORE
-            TRAPWINCH
-            print -r -- AFTER
-            """
-        )
-
-        XCTAssertEqual(output, "BEFORE\nAFTER", output)
-    }
-
     func testShellIntegrationPreservesStartupTermForThemeSelectionBeforeRestoringManagedTerm() throws {
         let output = try runPromptInteractiveZsh(
             cmuxLoadGhosttyIntegration: false,
@@ -6207,6 +6179,40 @@ final class BrowserInstallDetectorTests: XCTestCase {
                 userInfo: [NSFilePathErrorKey: url.path]
             )
         }
+    }
+}
+
+@Suite("Ghostty appearance synchronization")
+struct GhosttyAppearanceSynchronizationTests {
+    @Test("Appearance transition defers while a configuration reload is active")
+    func appearanceTransitionDefersDuringConfigurationReload() {
+        let plan = GhosttyApp.appearanceSynchronizationPlan(
+            previousColorScheme: .dark,
+            currentColorScheme: .light,
+            isConfigurationReloadInProgress: true
+        )
+
+        guard case let .deferred(colorScheme) = plan else {
+            Issue.record("Expected the appearance transition to defer")
+            return
+        }
+        #expect(colorScheme == .light)
+        #expect(!plan.shouldReloadConfiguration)
+    }
+
+    @Test("Appearance matching the committed scheme still defers during a reload")
+    func committedAppearanceDefersDuringConfigurationReload() {
+        let plan = GhosttyApp.appearanceSynchronizationPlan(
+            previousColorScheme: .dark,
+            currentColorScheme: .dark,
+            isConfigurationReloadInProgress: true
+        )
+
+        guard case let .deferred(colorScheme) = plan else {
+            Issue.record("Expected the latest appearance observation to defer")
+            return
+        }
+        #expect(colorScheme == .dark)
     }
 }
 

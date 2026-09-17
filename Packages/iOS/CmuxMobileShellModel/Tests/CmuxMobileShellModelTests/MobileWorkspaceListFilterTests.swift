@@ -83,3 +83,74 @@ import Testing
         #expect(!filter.isActive)
     }
 }
+
+@Suite struct MobileWorkspaceListFilterPairingTests {
+    @Test func pairingEntryMatchesExactlyItsOwnBuild() {
+        let pairing = "mac-a\u{1F}nightly"
+        #expect(MobileWorkspaceListFilter.machineEntryMatches(
+            pairing, deviceID: "mac-a", rowTag: "nightly"))
+        // Unknown-tag rows never enter an exact build scope: acting on them
+        // could route to a sibling. They stay under device entries only.
+        #expect(!MobileWorkspaceListFilter.machineEntryMatches(
+            pairing, deviceID: "mac-a", rowTag: nil))
+        #expect(!MobileWorkspaceListFilter.machineEntryMatches(
+            pairing, deviceID: "mac-a", rowTag: "default"))
+        #expect(!MobileWorkspaceListFilter.machineEntryMatches(
+            pairing, deviceID: "mac-b", rowTag: "nightly"))
+    }
+
+    @Test func deviceEntryMatchesEveryBuild() {
+        #expect(MobileWorkspaceListFilter.machineEntryMatches(
+            "mac-a", deviceID: "mac-a", rowTag: "nightly"))
+        #expect(MobileWorkspaceListFilter.machineEntryMatches(
+            "mac-a", deviceID: "mac-a", rowTag: nil))
+        #expect(!MobileWorkspaceListFilter.machineEntryMatches(
+            "mac-a", deviceID: "mac-b", rowTag: nil))
+    }
+
+    @Test func siblingNotificationIdentitiesStayDistinct() {
+        let nightly = MobileNotificationFeedItemID(
+            macDeviceID: "mac-a", macInstanceTag: "nightly", notificationID: "n-1")
+        let stable = MobileNotificationFeedItemID(
+            macDeviceID: "mac-a", macInstanceTag: "default", notificationID: "n-1")
+        #expect(nightly != stable)
+    }
+
+    @Test func siblingStatesDeriveDistinctRowsAndTags() {
+        let aggregation = MobileWorkspaceAggregation()
+        func preview(_ id: String) -> MobileWorkspacePreview {
+            MobileWorkspacePreview(
+                id: .init(rawValue: id),
+                macDeviceID: "mac-a",
+                name: "ws",
+                hasUnread: false,
+                terminals: []
+            )
+        }
+        let states = [
+            "mac-a\u{1F}nightly": MacWorkspaceState(
+                macDeviceID: "mac-a",
+                instanceTag: "nightly",
+                displayName: "Desk Mac",
+                workspaces: [preview("ws-1")],
+                status: .connected
+            ),
+            "mac-a\u{1F}default": MacWorkspaceState(
+                macDeviceID: "mac-a",
+                instanceTag: "default",
+                displayName: "Desk Mac",
+                workspaces: [preview("ws-1")],
+                status: .connected
+            ),
+        ]
+        let derived = aggregation.derivedWorkspaces(
+            statesByMac: states,
+            foregroundMacDeviceID: nil,
+            machineColorIndex: ["mac-a": 0]
+        )
+        #expect(derived.count == 2)
+        #expect(Set(derived.map(\.id)).count == 2)
+        #expect(Set(derived.compactMap(\.macInstanceTag)) == ["nightly", "default"])
+        #expect(Set(derived.compactMap(\.machineColorIndex)) == [0])
+    }
+}

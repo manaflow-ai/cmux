@@ -23,8 +23,7 @@ struct ShortcutListStableLazyView: View {
                     subtitle: model.scopeCaption(for: action),
                     placeholder: model.formatPlaceholder(effective: effective, numbered: action.usesNumberedDigitMatching),
                     chordsEnabled: model.chordModeActions.contains(action.rawValue),
-                    hasPendingRejection: model.bareKeyRejections.contains(action.rawValue)
-                        || model.numberedDigitRejections.contains(action.rawValue),
+                    hasPendingRejection: model.hasPendingRejection(for: action),
                     firstStrokeRequiresModifier: !action.allowsBareFirstStroke,
                     isUnbound: effective?.isUnbound ?? true,
                     canRestore: model.canRestore(for: action),

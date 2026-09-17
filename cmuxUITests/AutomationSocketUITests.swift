@@ -156,7 +156,7 @@ final class AutomationSocketUITests: XCTestCase {
                 "iterate-pr",
             ]
         )
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         configureTextBoxMentionLaunchEnvironment(app)
         defer { app.terminate() }
         app.launch()
@@ -226,7 +226,7 @@ final class AutomationSocketUITests: XCTestCase {
     }
 
     private func configuredApp(mode: String) -> XCUIApplication {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += ["-\(modeKey)", mode]
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"

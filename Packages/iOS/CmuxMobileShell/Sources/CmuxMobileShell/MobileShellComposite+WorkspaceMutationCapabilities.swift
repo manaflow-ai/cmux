@@ -10,6 +10,15 @@ extension MobileShellComposite {
     func allowsMacScopedWorkspaceMutations(targetClient: MobileCoreRPCClient?) -> Bool {
         let ticket = activeTicket ?? targetClient?.attachTicket
         return MobileShellWorkspaceMutationTicketPolicy(now: runtime?.now() ?? Date())
-            .allowsMacScopedWorkspaceMutations(ticket)
+            .allowsMacScopedWorkspaceMutations(
+                ticket,
+                hostAuthorizesByAccount: hostAuthorizesAccountScopedMutations
+            )
+    }
+
+    /// Whether the foreground Mac authorizes Mac-scoped workspace mutations by
+    /// the signed-in account (attach tickets only narrow while current).
+    var hostAuthorizesAccountScopedMutations: Bool {
+        supportedHostCapabilities.contains(Self.workspaceMutationAccountAuthCapability)
     }
 }

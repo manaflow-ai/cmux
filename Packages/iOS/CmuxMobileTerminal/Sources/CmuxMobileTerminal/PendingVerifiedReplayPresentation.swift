@@ -29,6 +29,7 @@ nonisolated struct PendingVerifiedReplayPresentation: @unchecked Sendable {
     let read: VerifiedReplaySurfaceRead?
     var fence: VerifiedReplayPresentationFence
     var observedFrame: MobileTerminalRenderGridFrame?
+    var rearmReadyFenceOnPresent: Bool = false
     let continuation: CheckedContinuation<VerifiedReplayPresentedSubmission?, Never>
 }
 #endif

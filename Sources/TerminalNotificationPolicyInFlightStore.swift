@@ -131,6 +131,14 @@ final class TerminalNotificationPolicyInFlightStore {
         identities.forEach(drainCompletedRequests)
     }
 
+    func discard(forTabId tabId: UUID, correlationKey: String) {
+        let idsToDiscard = requests.compactMap { id, entry in
+            entry.indexedTabId == tabId && entry.request.correlationKey == correlationKey ? id : nil
+        }
+        let identities = Set(idsToDiscard.compactMap(discardRequest))
+        identities.forEach(drainCompletedRequests)
+    }
+
     /// Moves pending trusted-local work with the surface so O(1) unread and
     /// dismissal gates always reflect the workspace that currently owns it.
     func rebindSurface(fromTabId sourceTabId: UUID, toTabId destinationTabId: UUID, surfaceId: UUID) {

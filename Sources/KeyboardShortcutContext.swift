@@ -153,7 +153,7 @@ extension AppDelegate {
                 context.setBool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue, workspace.layoutMode == .canvas)
                 context.setBool(
                     ShortcutContextKnownKey.terminalFindVisible.rawValue,
-                    workspace.focusedTerminalPanel?.searchState != nil
+                    workspace.focusedTerminalInputTarget()?.panel.searchState != nil
                 )
             }
         }

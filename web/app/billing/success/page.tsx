@@ -8,9 +8,12 @@ import type { Locale } from "../../../i18n/routing";
 import { locales, routing } from "../../../i18n/routing";
 import {
   nativeCallbackHrefForScheme,
+  trustedNativeCallbackScheme,
   validatedNativeCallbackScheme,
 } from "../../lib/native-callback";
+import { appPricingNativeReturnURL } from "../../lib/billing";
 import {
+  isCmuxCheckoutSession,
   isActiveStripeSubscriptionStatus,
   latestStripeSubscriptionForSession,
 } from "../../../services/billing/purchase";
@@ -60,7 +63,10 @@ export default async function BillingSuccessPage({
   if (!sessionId) redirect("/pricing?billing=error");
 
   const request = requestFromHeaders(requestHeaders, "/billing/success");
-  const scheme = validatedNativeCallbackScheme(firstParam(params.cmux_scheme), request);
+  const requestedScheme = validatedNativeCallbackScheme(
+    firstParam(params.cmux_scheme),
+    request,
+  );
   let session: Stripe.Checkout.Session;
   try {
     session = await stripe().checkout.sessions.retrieve(sessionId, {
@@ -73,6 +79,12 @@ export default async function BillingSuccessPage({
     });
     redirect("/pricing?billing=error");
   }
+  if (!isCmuxCheckoutSession(session)) {
+    redirect("/pricing?billing=error");
+  }
+  const scheme =
+    trustedNativeCallbackScheme(session.metadata?.nativeCallbackScheme) ??
+    requestedScheme;
   const subscription = expandedSubscription(session);
   let recordedSubscription: Awaited<ReturnType<typeof latestStripeSubscriptionForSession>> = null;
   try {
@@ -91,8 +103,11 @@ export default async function BillingSuccessPage({
 
   const email = purchaseEmail(session) ?? "";
   const { locale, messages } = await billingSuccessMessages(requestHeaders);
-  const openCmuxHref = new URL("/handler/after-sign-in", request.nextUrl.origin);
-  openCmuxHref.searchParams.set("native_app_return_to", nativeCallbackHrefForScheme(scheme));
+  const openCmuxHref = appPricingNativeReturnURL(
+    new URL("/handler/after-sign-in", request.nextUrl.origin),
+    nativeCallbackHrefForScheme(scheme),
+    sessionId,
+  );
   const featureCards: readonly {
     key: BillingSuccessFeatureKey;
     href: string;

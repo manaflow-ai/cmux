@@ -15,6 +15,14 @@ target/debug/cmux-tui daemon --session dev --iroh --remote-ws 127.0.0.1:8443
 
 The daemon prints its owner-only admin socket and every usable route. Runtime metadata and its stable identity live under the remote state directory. `--remote-state-dir`, `--remote-link-socket`, and `--remote-admin-socket` override those locations.
 
+For local automation or an SSH/TLS-forwarded caller, enable the plain HTTP workspace API on loopback:
+
+```sh
+cmux-tui daemon --session dev --remote-http 127.0.0.1:8765
+```
+
+Startup prints the HTTP address and its persistent owner-only bearer-token file. Every HTTP route requires `Authorization: Bearer <token>`. Plain HTTP refuses non-loopback binds so the token cannot cross an untrusted network without encryption. Use SSH port forwarding or a TLS reverse proxy for a remote caller. The bearer token grants the same full daemon authority as an enrolled device.
+
 For a public direct WebSocket, keep the plaintext listener on loopback, terminate TLS in a reverse proxy, and advertise the externally reachable URL:
 
 ```sh
@@ -191,6 +199,19 @@ printf '%s\n' \
 ```
 
 The CLI accepts a bare workspace request and prints a bare workspace response. A direct service client uses the request ID and result envelopes documented in the [remote RPC contract](../spec/remote-rpc.md).
+
+The authenticated HTTP listener exposes that same handler at `POST /v1/workspace-rpc`. Send the normal request-ID envelope as JSON. It also exposes a text-oriented patch action for Codex-compatible callers:
+
+```sh
+TOKEN="$(tr -d '\r\n' < /path/printed/by/daemon/workspace-http.token)"
+curl --fail-with-body \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: text/plain' \
+  --data-binary @change.patch \
+  'http://127.0.0.1:8765/v1/workspaces/w:abc/apply-patch?dry_run=false'
+```
+
+The direct action accepts the native Codex `*** Begin Patch` body or a unified diff. Use `/v1/workspace-rpc` when file preconditions or another workspace action is needed. HTTP and authenticated remote sessions share one `WorkspaceService`; patch parsing, limits, snapshotting, commit, and rollback are not transport-specific.
 
 The protocol includes:
 

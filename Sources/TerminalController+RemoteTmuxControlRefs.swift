@@ -12,8 +12,16 @@ extension TerminalController {
         }
     }
 
-    static func remoteTmuxControlSurfaceRemovalHandler() -> (UUID) -> Void {
+    static func remoteTmuxControlSurfaceRemovalHandler(
+        workspaceID: UUID? = nil
+    ) -> (UUID) -> Void {
         { [weak controller = TerminalController.shared] surfaceID in
+            if let workspaceID {
+                AppDelegate.shared?.notificationStore?.clearNotifications(
+                    forTabId: workspaceID,
+                    surfaceId: surfaceID
+                )
+            }
             controller?.cleanupSurfaceState(surfaceIds: [surfaceID])
         }
     }

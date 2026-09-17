@@ -16,8 +16,10 @@ pub(crate) mod terminal_grid;
 
 use cmux_tui_core::Rect;
 use ratatui::Frame;
-use ratatui::layout::Position;
+use ratatui::buffer::Buffer;
+use ratatui::layout::{Position, Rect as RatatuiRect};
 use ratatui::style::{Color, Modifier, Style};
+use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 use crate::app::{App, Hit};
@@ -26,9 +28,74 @@ use crate::localization::catalog;
 use crate::machine::DurableNoticeLevel;
 
 pub(crate) use scrollbar::{
-    ScrollbarState, ScrollbarStyle, thumb_geometry, viewport_drag_offset, viewport_jump_offset,
+    ScrollbarState, ScrollbarStyle, horizontal_drag_offset, horizontal_offset_at,
+    horizontal_thumb_geometry, thumb_geometry, viewport_drag_offset, viewport_jump_offset,
     viewport_thumb_geometry,
 };
+
+#[derive(Default)]
+pub(crate) struct ReusableRowBuffer {
+    buffer: Option<Buffer>,
+}
+
+impl ReusableRowBuffer {
+    pub(crate) fn take(&mut self, width: u16) -> Buffer {
+        let mut buffer =
+            self.buffer.take().unwrap_or_else(|| Buffer::empty(RatatuiRect::default()));
+        buffer.resize(RatatuiRect::new(0, 0, width, 1));
+        buffer.reset();
+        buffer
+    }
+
+    pub(crate) fn put(&mut self, buffer: Buffer) {
+        debug_assert!(self.buffer.is_none(), "row scratch buffer returned twice");
+        self.buffer = Some(buffer);
+    }
+}
+
+/// Copy one logical buffer row into a visible destination slice.
+///
+/// Ratatui stores a wide glyph in its lead cell and leaves its following
+/// cell blank. Blanking a lead or tail cut by either crop boundary prevents
+/// the terminal renderer from overwriting an adjacent pane or wrapping.
+pub(crate) fn copy_buffer_row_cropped(
+    source: &Buffer,
+    source_row: u16,
+    source_x: u16,
+    target: &mut Buffer,
+    target_rect: Rect,
+) -> u16 {
+    let source_y = source.area.y.saturating_add(source_row);
+    let source_left = source.area.x.saturating_add(source_x);
+    let source_right = source.area.x.saturating_add(source.area.width);
+    let target_right = target.area.x.saturating_add(target.area.width);
+    let target_bottom = target.area.y.saturating_add(target.area.height);
+    if source_y >= source.area.y.saturating_add(source.area.height)
+        || source_left >= source_right
+        || target_rect.y < target.area.y
+        || target_rect.y >= target_bottom
+        || target_rect.x < target.area.x
+        || target_rect.x >= target_right
+    {
+        return 0;
+    }
+    let width = target_rect
+        .width
+        .min(source_right.saturating_sub(source_left))
+        .min(target_right.saturating_sub(target_rect.x));
+    let partial_left =
+        source_left > source.area.x && source[(source_left - 1, source_y)].symbol().width() > 1;
+    for dx in 0..width {
+        let source_cell = &source[(source_left + dx, source_y)];
+        let target_cell = &mut target[(target_rect.x + dx, target_rect.y)];
+        *target_cell = source_cell.clone();
+        let symbol_width = source_cell.symbol().width() as u16;
+        if (dx == 0 && partial_left) || symbol_width > width.saturating_sub(dx) {
+            target_cell.set_symbol(" ");
+        }
+    }
+    width
+}
 
 pub fn draw(app: &mut App, frame: &mut Frame) {
     app.reset_frame_cursor_spec();
@@ -68,6 +135,7 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
         frame.set_cursor_position(Position::new(x, y));
     }
     draw_durable_notice_banner(app, frame);
+    sanitize_render_buffer(frame.buffer_mut());
 }
 
 fn draw_durable_notice_banner(app: &mut App, frame: &mut Frame) {
@@ -115,6 +183,18 @@ fn draw_surface_status(app: &App, frame: &mut Frame) {
     );
 }
 
+fn sanitize_render_buffer(buffer: &mut Buffer) {
+    // Ratatui rejects control bytes while diffing a frame. Keep the
+    // component-level text sanitizers for useful output, then enforce this
+    // final invariant across titles, plugin UI, browser text, and future
+    // renderers so one malformed cell cannot take down the frontend.
+    for cell in &mut buffer.content {
+        if cell.symbol().chars().any(char::is_control) {
+            cell.set_symbol(" ");
+        }
+    }
+}
+
 /// Status bar: the active workspace's screens, one clickable segment per
 /// screen plus a trailing `+` for a new one. It spans only the pane
 /// region (it does not extend under the sidebar).
@@ -135,7 +215,7 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     let mut hits = Vec::new();
     let put = |frame: &mut Frame, x: &mut u16, text: &str, style: Style| -> (u16, u16) {
         let start = *x;
-        let width = (text.chars().count() as u16).min(area.width.saturating_sub(*x));
+        let width = text.width().min(area.width.saturating_sub(*x) as usize) as u16;
         if width > 0 {
             frame.buffer_mut().set_stringn(*x, status_y, text, width as usize, style);
             *x += width;
@@ -165,17 +245,39 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     if width > 0 {
         hits.push((Rect { x: start, y: status_y, width, height: 1 }, Hit::NewScreen));
     }
-    app.hits.extend(hits);
-
     // Session label / status message, right-aligned. Prefix help renders
     // over the pane border above this row.
+    let available_label_width = area.width.saturating_sub(x) as usize;
     let label = app
         .status_message
         .as_ref()
-        .map(|msg| format!(" {} ", truncate(msg, area.width.saturating_sub(x) as usize)))
-        .unwrap_or_else(|| format!("[{}] ", app.session_label));
-    let label_w = label.chars().count() as u16;
-    if x + label_w < area.width {
+        .map(|msg| format!(" {} ", truncate(msg, available_label_width.saturating_sub(2))))
+        .unwrap_or_else(|| {
+            format!("[{}] ", truncate(&app.session_label, available_label_width.saturating_sub(3)))
+        });
+    let label_w = label.width().min(area.width as usize) as u16;
+    let track_end = area.width.saturating_sub(label_w);
+    let track_start = x.saturating_add(1);
+    let track_width = track_end.saturating_sub(track_start.saturating_add(1));
+    if let Some((content_width, viewport_width, offset)) = app.horizontal_scrollbar_state()
+        && track_width > 0
+    {
+        let track = Rect { x: track_start, y: status_y, width: track_width, height: 1 };
+        let track_style = base.fg(chrome.status_dim_fg);
+        for cell_x in track.x..track.x + track.width {
+            frame.buffer_mut()[(cell_x, status_y)].set_symbol("─").set_style(track_style);
+        }
+        let (thumb_x, thumb_width) =
+            horizontal_thumb_geometry(content_width, viewport_width, offset, track.width);
+        let thumb_style = base.fg(chrome.scrollbar_thumb_active_fg);
+        for cell_x in track.x + thumb_x..track.x + thumb_x + thumb_width {
+            frame.buffer_mut()[(cell_x, status_y)].set_symbol("━").set_style(thumb_style);
+        }
+        hits.push((track, Hit::HorizontalScrollbar { track }));
+    }
+    app.hits.extend(hits);
+
+    if x.saturating_add(label_w) <= area.width {
         frame.buffer_mut().set_stringn(
             area.width - label_w,
             status_y,
@@ -261,14 +363,58 @@ fn draw_prefix_help_bar(app: &App, frame: &mut Frame, bar_x: u16, y: u16) {
     }
 }
 
+const TRUNCATE_BYTES_PER_CELL: usize = 128;
+const TRUNCATE_MAX_OUTPUT_BYTES: usize = 4_096;
+
 pub(crate) fn truncate(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
-        s.to_string()
-    } else {
-        let mut out: String = s.chars().take(max.saturating_sub(1)).collect();
-        out.push('…');
-        out
+    if max == 0 {
+        return String::new();
     }
+
+    // Display width alone does not bound combining marks or other zero-width
+    // scalars. Limit the UTF-8 prefix inspected and copied on every paint.
+    let output_byte_budget = max
+        .saturating_mul(TRUNCATE_BYTES_PER_CELL)
+        .clamp(TRUNCATE_BYTES_PER_CELL, TRUNCATE_MAX_OUTPUT_BYTES);
+    let mut prefix_end = s.len().min(output_byte_budget);
+    while !s.is_char_boundary(prefix_end) {
+        prefix_end -= 1;
+    }
+    let byte_truncated = prefix_end < s.len();
+    let bounded_prefix = &s[..prefix_end];
+
+    if !byte_truncated && bounded_prefix.width() <= max {
+        return bounded_prefix.to_string();
+    }
+
+    // A byte cutoff can land inside one extended grapheme. Conservatively
+    // discard that final grapheme so a pathological first grapheme becomes
+    // just an ellipsis instead of leaking a partial combining sequence.
+    let complete_prefix = if byte_truncated {
+        let last_grapheme_start =
+            bounded_prefix.grapheme_indices(true).next_back().map(|(index, _)| index).unwrap_or(0);
+        &bounded_prefix[..last_grapheme_start]
+    } else {
+        bounded_prefix
+    };
+    let content_width = max - 1;
+    let content_byte_budget = output_byte_budget.saturating_sub('…'.len_utf8());
+    let mut width: usize = 0;
+    let mut out = String::with_capacity(
+        complete_prefix.len().min(content_byte_budget).saturating_add('…'.len_utf8()),
+    );
+    for grapheme in complete_prefix.graphemes(true) {
+        let grapheme_width = grapheme.width();
+        if width.saturating_add(grapheme_width) > content_width
+            || out.len().saturating_add(grapheme.len()) > content_byte_budget
+        {
+            break;
+        }
+        out.push_str(grapheme);
+        width += grapheme_width;
+    }
+    out.push('…');
+    out
 }
 
 pub(crate) fn middle_truncate(input: &str, max_chars: usize) -> String {
@@ -293,7 +439,14 @@ pub(crate) fn middle_truncate(input: &str, max_chars: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::middle_truncate;
+    use ratatui::buffer::Buffer;
+    use ratatui::layout::Rect;
+    use ratatui::style::Style;
+
+    use super::{
+        ReusableRowBuffer, copy_buffer_row_cropped, middle_truncate, sanitize_render_buffer,
+        truncate,
+    };
 
     #[test]
     fn middle_truncates_for_narrow_columns() {
@@ -301,5 +454,82 @@ mod tests {
         assert_eq!(middle_truncate("abcdefghi", 3), "...");
         assert_eq!(middle_truncate("abc", 3), "abc");
         assert_eq!(middle_truncate("abc", 0), "");
+    }
+
+    #[test]
+    fn truncation_uses_terminal_cell_width_and_preserves_graphemes() {
+        assert_eq!(truncate("復元失敗", 5), "復元…");
+        assert_eq!(truncate("e\u{301}clair", 2), "e\u{301}…");
+        assert_eq!(truncate("復元", 1), "…");
+        assert_eq!(truncate("復元", 0), "");
+    }
+
+    #[test]
+    fn truncation_bounds_pathological_zero_width_input() {
+        let oversized_grapheme = format!("x{}", "\u{301}".repeat(10_000));
+        assert_eq!(truncate(&oversized_grapheme, 20), "…");
+
+        let invisible = "\u{200b}".repeat(10_000);
+        assert_eq!(truncate(&invisible, 0), "");
+        assert!(truncate(&invisible, 4).len() <= 4_096);
+    }
+
+    #[test]
+    fn render_buffer_rejects_control_bytes_from_every_ui_source() {
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 3, 1));
+        buffer[(0, 0)].set_symbol("\u{1b}");
+        buffer[(1, 0)].set_symbol("bad\ncell");
+        buffer[(2, 0)].set_symbol("ok");
+
+        sanitize_render_buffer(&mut buffer);
+
+        assert_eq!(buffer[(0, 0)].symbol(), " ");
+        assert_eq!(buffer[(1, 0)].symbol(), " ");
+        assert_eq!(buffer[(2, 0)].symbol(), "ok");
+    }
+
+    #[test]
+    fn cropped_buffer_rows_blank_partial_wide_glyphs_at_both_edges() {
+        let mut source = Buffer::empty(Rect::new(0, 0, 5, 1));
+        source.set_string(0, 0, "a界b", Style::default());
+        assert_eq!(source[(1, 0)].symbol(), "界");
+
+        let draw_crop = |source_x| {
+            let mut target = Buffer::empty(Rect::new(0, 0, 2, 1));
+            copy_buffer_row_cropped(
+                &source,
+                0,
+                source_x,
+                &mut target,
+                cmux_tui_core::Rect { x: 0, y: 0, width: 2, height: 1 },
+            );
+            target
+        };
+
+        let clipped_lead = draw_crop(0);
+        assert_eq!(clipped_lead[(0, 0)].symbol(), "a");
+        assert_eq!(clipped_lead[(1, 0)].symbol(), " ");
+
+        let complete = draw_crop(1);
+        assert_eq!(complete[(0, 0)].symbol(), "界");
+        assert_eq!(complete[(1, 0)].symbol(), " ");
+
+        let clipped_tail = draw_crop(2);
+        assert_eq!(clipped_tail[(0, 0)].symbol(), " ");
+        assert_eq!(clipped_tail[(1, 0)].symbol(), "b");
+    }
+
+    #[test]
+    fn reusable_row_buffer_keeps_its_allocation_for_smaller_rows() {
+        let mut scratch = ReusableRowBuffer::default();
+        let first = scratch.take(512);
+        let pointer = first.content.as_ptr();
+        let capacity = first.content.capacity();
+        scratch.put(first);
+
+        let second = scratch.take(256);
+        assert_eq!(second.area.width, 256);
+        assert_eq!(second.content.as_ptr(), pointer);
+        assert_eq!(second.content.capacity(), capacity);
     }
 }

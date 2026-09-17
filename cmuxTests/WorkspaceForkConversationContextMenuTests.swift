@@ -4539,14 +4539,26 @@ struct WorkspaceForkConversationContextMenuTests {
             dateProvider: { Date(timeIntervalSince1970: 42) }
         )
 
-        await liveAgentIndex.refreshForkAvailabilityNow(
-            workspaceId: workspace.id,
-            panelId: panelId,
-            fallbackSnapshot: snapshotWithExecutable
+        #expect(
+            workspace.forkAgentConversationContextMenuPresentationAvailability(
+                forPanelId: panelId,
+                liveAgentIndex: liveAgentIndex
+            ) == .agentIndexRefreshing
+        )
+        let refreshingSelection = workspace.forkAgentConversationContextMenuOpenSelection(
+            forPanelId: panelId,
+            liveAgentIndex: liveAgentIndex
+        )
+        #expect(refreshingSelection.availability == .agentIndexRefreshing)
+        #expect(refreshingSelection.validationFallbackSnapshot?.sessionId == snapshotWithExecutable.sessionId)
+
+        await workspace.resolveForkAgentConversationContextMenuAvailability(
+            forPanelId: panelId,
+            liveAgentIndex: liveAgentIndex
         )
 
         #expect(
-            workspace.forkAgentConversationContextMenuOpenAvailability(
+            workspace.forkAgentConversationContextMenuPresentationAvailability(
                 forPanelId: panelId,
                 liveAgentIndex: liveAgentIndex
             ) == .available

@@ -1013,15 +1013,6 @@ func shouldHandleTextBoxPlainArrowLocally(
     }
 }
 
-func shouldSynchronizeExternalTextToTextBox(
-    inlineAttachmentCount: Int,
-    plainText: String,
-    externalText: String,
-    hasMarkedText: Bool
-) -> Bool {
-    inlineAttachmentCount == 0 && !hasMarkedText && plainText != externalText
-}
-
 func textBoxCommandShortcutKey(
     for event: NSEvent,
     translateKey: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:),
@@ -3044,14 +3035,9 @@ struct TextBoxInputView: NSViewRepresentable {
                 height: CGFloat.greatestFiniteMagnitude
             )
         }
-        if shouldSynchronizeExternalTextToTextBox(
-            inlineAttachmentCount: textView.inlineAttachments().count,
-            plainText: textView.plainText(),
-            externalText: text,
-            hasMarkedText: textView.hasMarkedText()
-        ) {
-            textView.string = text
-        }
+        // The mounted AppKit editor owns the live draft. Its binding publications can lag this
+        // update, so treating an older binding snapshot as input would clobber text, selection,
+        // marked text, and undo state. Restored drafts enter through the explicit install paths.
         updateTextView(textView, context: context)
     }
 

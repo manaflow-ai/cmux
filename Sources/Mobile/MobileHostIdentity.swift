@@ -28,7 +28,7 @@ enum MobileHostIdentity {
         bundleIdentifier: String? = Bundle.main.bundleIdentifier
     ) -> String {
         if let id = readSharedDeviceID(from: sharedIDURL) {
-            defaults.set(id, forKey: deviceIDKey)
+            persistDeviceIDIfNeeded(id, defaults: defaults)
             return id
         }
 
@@ -83,10 +83,16 @@ enum MobileHostIdentity {
         return normalizedID(existing)
     }
 
+    private static func persistDeviceIDIfNeeded(_ id: String, defaults: UserDefaults) {
+        let stored = normalizedID(defaults.string(forKey: deviceIDKey))
+        guard stored != id else { return }
+        defaults.set(id, forKey: deviceIDKey)
+    }
+
     private static func settleSharedDeviceID(_ candidate: String, defaults: UserDefaults, sharedIDURL: URL?) -> String {
         let candidate = cmxCanonicalDeviceID(candidate)
         guard let sharedIDURL else {
-            defaults.set(candidate, forKey: deviceIDKey)
+            persistDeviceIDIfNeeded(candidate, defaults: defaults)
             return candidate
         }
         try? FileManager.default.createDirectory(
@@ -96,13 +102,13 @@ enum MobileHostIdentity {
         let data = Data(candidate.utf8)
         if !FileManager.default.createFile(atPath: sharedIDURL.path, contents: data) {
             if let winner = readSharedDeviceID(from: sharedIDURL) {
-                defaults.set(winner, forKey: deviceIDKey)
+                persistDeviceIDIfNeeded(winner, defaults: defaults)
                 return winner
             }
             try? data.write(to: sharedIDURL, options: .atomic)
         }
         let settled = readSharedDeviceID(from: sharedIDURL) ?? candidate
-        defaults.set(settled, forKey: deviceIDKey)
+        persistDeviceIDIfNeeded(settled, defaults: defaults)
         return settled
     }
 

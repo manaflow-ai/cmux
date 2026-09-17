@@ -8,20 +8,25 @@ public struct MobileWorkspaceAggregation: Sendable {
     /// Create a workspace aggregation derivation helper.
     public init() {}
 
-    /// The Macs in deterministic display order.
+    /// The aggregate keys in deterministic display order. A key is the
+    /// foreground owner key or a pairing/device id for secondaries; sibling
+    /// builds of one Mac order deterministically by instance tag.
     public func orderedMacIDs(
         statesByMac: [String: MacWorkspaceState],
-        foregroundMacDeviceID: String?
+        foregroundMacDeviceID foregroundKey: String?
     ) -> [String] {
-        statesByMac.values.sorted { lhs, rhs in
-            let lhsForeground = lhs.macDeviceID == foregroundMacDeviceID
-            let rhsForeground = rhs.macDeviceID == foregroundMacDeviceID
+        statesByMac.sorted { lhs, rhs in
+            let lhsForeground = lhs.key == foregroundKey
+            let rhsForeground = rhs.key == foregroundKey
             if lhsForeground != rhsForeground { return lhsForeground }
-            let lhsName = lhs.displayName ?? lhs.macDeviceID
-            let rhsName = rhs.displayName ?? rhs.macDeviceID
+            let lhsName = lhs.value.displayName ?? lhs.value.macDeviceID
+            let rhsName = rhs.value.displayName ?? rhs.value.macDeviceID
             if lhsName != rhsName { return lhsName.localizedCaseInsensitiveCompare(rhsName) == .orderedAscending }
-            return lhs.macDeviceID < rhs.macDeviceID
-        }.map(\.macDeviceID)
+            if lhs.value.macDeviceID != rhs.value.macDeviceID {
+                return lhs.value.macDeviceID < rhs.value.macDeviceID
+            }
+            return (lhs.value.instanceTag ?? "") < (rhs.value.instanceTag ?? "")
+        }.map(\.key)
     }
 
     /// Return stable color index assignments after appending any newly seen Macs.
@@ -55,9 +60,17 @@ public struct MobileWorkspaceAggregation: Sendable {
     /// id remains on ``MobileWorkspacePreview/remoteWorkspaceID`` for RPC.
     public func rowID(
         macDeviceID: String,
+        instanceTag: String? = nil,
         workspaceID: MobileWorkspacePreview.ID
     ) -> MobileWorkspacePreview.ID {
-        MobileWorkspacePreview.ID(rawValue: "\(macDeviceID)\(rowIDSeparator)\(workspaceID.rawValue)")
+        guard let instanceTag, !instanceTag.isEmpty else {
+            return MobileWorkspacePreview.ID(
+                rawValue: "\(macDeviceID)\(rowIDSeparator)\(workspaceID.rawValue)"
+            )
+        }
+        return MobileWorkspacePreview.ID(
+            rawValue: "\(macDeviceID)\(rowIDSeparator)\(instanceTag)\(rowIDSeparator)\(workspaceID.rawValue)"
+        )
     }
 
     /// Derive the flat, ordered workspace list across all Macs.
@@ -78,12 +91,17 @@ public struct MobileWorkspaceAggregation: Sendable {
                     stamped.macDisplayName = state.displayName
                     stamped.machineColorIndex = machineColorIndex[ownerID]
                 }
+                stamped.macInstanceTag = workspace.macInstanceTag ?? state.instanceTag
                 let remoteID = workspace.remoteWorkspaceID ?? workspace.id
                 stamped.remoteWorkspaceID = shouldScopeRowIDs && !ownerID.isEmpty ? remoteID : workspace.remoteWorkspaceID
                 stamped.macConnectionStatus = state.status
                 stamped.actionCapabilities = state.actionCapabilities
                 if shouldScopeRowIDs && !ownerID.isEmpty {
-                    stamped.id = rowID(macDeviceID: ownerID, workspaceID: remoteID)
+                    stamped.id = rowID(
+                        macDeviceID: ownerID,
+                        instanceTag: stamped.macInstanceTag,
+                        workspaceID: remoteID
+                    )
                 }
                 result.append(stamped)
             }
@@ -107,7 +125,11 @@ public struct MobileWorkspaceAggregation: Sendable {
         return state.groups.map { group in
             var scoped = group
             let remoteID = remoteIDByLocalID[group.anchorWorkspaceID] ?? group.anchorWorkspaceID
-            scoped.anchorWorkspaceID = rowID(macDeviceID: foregroundMacDeviceID, workspaceID: remoteID)
+            scoped.anchorWorkspaceID = rowID(
+                macDeviceID: state.macDeviceID,
+                instanceTag: state.instanceTag,
+                workspaceID: remoteID
+            )
             return scoped
         }
     }

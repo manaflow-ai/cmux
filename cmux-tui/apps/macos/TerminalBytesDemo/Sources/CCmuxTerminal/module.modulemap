@@ -1,0 +1,4 @@
+module CCmuxTerminal [system] {
+    header "cmux_terminal_client.h"
+    export *
+}

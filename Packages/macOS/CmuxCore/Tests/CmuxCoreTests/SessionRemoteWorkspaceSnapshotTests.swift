@@ -11,6 +11,7 @@ struct SessionRemoteWorkspaceSnapshotTests {
             transport: .ssh,
             terminalTransport: .mosh,
             terminalProfile: .defaultTmux,
+            configuredRemoteCommand: "exec fish",
             destination: "user@host",
             port: 2222,
             identityFile: "/id",
@@ -42,6 +43,7 @@ struct SessionRemoteWorkspaceSnapshotTests {
         #expect(decoded.transport == .ssh)
         #expect(decoded.terminalTransport == nil)
         #expect(decoded.terminalProfile == nil)
+        #expect(decoded.configuredRemoteCommand == nil)
         #expect(decoded.destination == "user@host")
         #expect(decoded.port == nil)
         #expect(decoded.identityFile == nil)

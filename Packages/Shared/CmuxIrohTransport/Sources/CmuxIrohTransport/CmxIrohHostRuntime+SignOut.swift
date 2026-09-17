@@ -73,8 +73,8 @@ extension CmxIrohHostRuntime {
         notify: Bool,
         preserveBinding: Bool = false
     ) async {
-        supervisorEventTask?.cancel()
-        supervisorEventTask = nil
+        connectivityEventTask?.cancel()
+        connectivityEventTask = nil
         registrationRefreshTask?.cancel()
         registrationRefreshTask = nil
         registrationRenewalTask?.cancel()
@@ -107,8 +107,9 @@ extension CmxIrohHostRuntime {
         }
         endpointAttestation = nil
         lanRendezvous = nil
-        await supervisor?.deactivate()
-        supervisor = nil
+        authoritativeDiscovery = nil
+        await connectivityEngine?.stop()
+        connectivityEngine = nil
         if notify { await handleDeactivation(bindingID) }
     }
 }

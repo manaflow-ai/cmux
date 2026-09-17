@@ -154,6 +154,8 @@ struct MobileShellStateSyncTests {
         // A workspace.updated push must no longer trigger the legacy full-list
         // refetch while v2 owns the list.
         let listCallsBefore = await router.count(of: "mobile.workspace.list")
+        let legacyEventGenerationBefore =
+            store.workspaceListEventGeneration
         let transport = try #require(box.get())
         await transport.deliver(try workspaceUpdatedEventFrame())
         // Deliver a delta behind it; its application proves the updated event
@@ -191,6 +193,11 @@ struct MobileShellStateSyncTests {
         #expect(
             listCallsAfter == listCallsBefore,
             "workspace.updated must not schedule a full-list refetch while state sync is active"
+        )
+        #expect(
+            store.workspaceListEventGeneration
+                == legacyEventGenerationBefore,
+            "state-sync events must not impersonate pending legacy refresh work"
         )
     }
 

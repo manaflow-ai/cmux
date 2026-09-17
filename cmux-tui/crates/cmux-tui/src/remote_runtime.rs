@@ -24,6 +24,7 @@ use cmux_remote::connection::{
 };
 use cmux_remote::crypto::{AuthKind, ClientAuthMode, CryptoError, StaticIdentity};
 use cmux_remote::daemon::{DaemonSessionPolicy, serve_direct_websocket, serve_unix};
+use cmux_remote::http::serve_workspace_http;
 use cmux_remote::identity::{AuthDatabase, credential_free_route_hint, default_state_dir};
 use cmux_remote::observability::ClientConnectionSnapshot;
 use cmux_remote::provider::{
@@ -90,6 +91,7 @@ pub struct DaemonRuntimeOptions {
     pub admin_socket: Option<PathBuf>,
     pub direct_websocket: Option<SocketAddr>,
     pub allow_insecure_non_loopback: bool,
+    pub workspace_http: Option<SocketAddr>,
     pub relays: Vec<RelayDaemonOptions>,
     pub iroh: bool,
     pub advertised_routes: Vec<String>,
@@ -112,6 +114,7 @@ impl fmt::Debug for DaemonRuntimeOptions {
             .field("admin_socket", &self.admin_socket)
             .field("direct_websocket", &self.direct_websocket)
             .field("allow_insecure_non_loopback", &self.allow_insecure_non_loopback)
+            .field("workspace_http", &self.workspace_http)
             .field("relays", &self.relays)
             .field("iroh", &self.iroh)
             .field("advertised_routes", &advertised_routes)
@@ -1413,6 +1416,7 @@ async fn run_daemon(
             SessionLimits::default(),
             DaemonSessionPolicy { resume_lease: options.resume_lease },
         )?;
+        let workspace = WorkspaceService::new();
 
         let unix = serve_unix(daemon.clone(), &link_socket, MAX_CARRIER_FRAME_BYTES).await?;
         let websocket = match options.direct_websocket {
@@ -1425,6 +1429,23 @@ async fn run_daemon(
                 )
                 .await?,
             ),
+            None => None,
+        };
+        let workspace_http = match options.workspace_http {
+            Some(address) => {
+                let server = serve_workspace_http(
+                    workspace.clone(),
+                    address,
+                    state_dir.join("workspace-http.token"),
+                )
+                .await?;
+                eprintln!(
+                    "cmux-tui: authenticated workspace HTTP at http://{}; bearer token file {}",
+                    server.local_addr(),
+                    server.token_file().display()
+                );
+                Some(server)
+            }
             None => None,
         };
 
@@ -1537,10 +1558,13 @@ async fn run_daemon(
         persist_runtime_info(&state_dir, &info)?;
         ready.send(Ok(info)).map_err(|_| anyhow!("daemon owner stopped during startup"))?;
 
-        let services = DaemonServices::new(WorkspaceService::new(), Some(mux_socket));
+        let services = DaemonServices::new(workspace, Some(mux_socket));
         services.run_with_shutdown(clients, shutdown).await;
 
         admin.shutdown().await;
+        if let Some(server) = workspace_http {
+            server.shutdown().await?;
+        }
         if let Some(listener) = iroh {
             listener.shutdown().await?;
         }
@@ -2007,6 +2031,7 @@ mod tests {
             admin_socket: None,
             direct_websocket: None,
             allow_insecure_non_loopback: false,
+            workspace_http: None,
             relays: vec![relay_options],
             iroh: false,
             advertised_routes: vec!["%%% malformed-route-marker %%%".into()],
@@ -2321,6 +2346,161 @@ mod tests {
         })
         .await
         .expect("SSH bootstrap shutdown lifecycle did not complete");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn client_shutdown_cancels_reconnect_ssh_bootstrap_and_kills_child() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let daemon_root = directory.path().join("daemon");
+        let daemon_link = daemon_root.join("link.sock");
+        let proxy_link = directory.path().join("proxy-link.sock");
+        let daemon = start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: "shutdown-cancel".into(),
+                state_dir: Some(daemon_root.clone()),
+                link_socket: Some(daemon_link.clone()),
+                admin_socket: Some(daemon_root.join("admin.sock")),
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                workspace_http: None,
+                relays: Vec::new(),
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: false,
+            },
+        )
+        .unwrap();
+        let proxy_listener = std::os::unix::net::UnixListener::bind(&proxy_link).unwrap();
+        proxy_listener.set_nonblocking(true).unwrap();
+        let (cut_tx, cut_rx) = tokio::sync::oneshot::channel();
+        let proxy = thread::spawn(move || {
+            let runtime = build_remote_runtime("cmux-remote-carrier-cut-test").unwrap();
+            runtime.block_on(async move {
+                let listener = tokio::net::UnixListener::from_std(proxy_listener).unwrap();
+                let (mut client_stream, _) = listener.accept().await.unwrap();
+                let mut daemon_stream = tokio::net::UnixStream::connect(daemon_link).await.unwrap();
+                tokio::select! {
+                    _ = cut_rx => {}
+                    result = tokio::io::copy_bidirectional(
+                        &mut client_stream,
+                        &mut daemon_stream,
+                    ) => {
+                        result.unwrap();
+                    }
+                }
+            });
+        });
+
+        let script = directory.path().join("ssh");
+        let pid_file = directory.path().join("ssh.pid");
+        fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\nprintf '%s' \"$$\" > '{}'\nexec /bin/sleep 30\n",
+                pid_file.display()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        let ssh = SshProviderConfig {
+            ssh_binary: script.to_string_lossy().into_owned(),
+            ..SshProviderConfig::default()
+        };
+        let providers = Arc::new(
+            client_provider_registry(ssh.clone(), None, BTreeMap::new(), IrohPathMode::Auto)
+                .unwrap(),
+        );
+        let mut unix_route = Url::parse("unix:///").unwrap();
+        unix_route.set_path(proxy_link.to_str().unwrap());
+        let routes = [unix_route, Url::parse("ssh://fallback.example").unwrap()]
+            .into_iter()
+            .map(|endpoint| {
+                ResolvedRouteCandidate::resolve(endpoint, BTreeMap::new(), &providers).unwrap()
+            })
+            .collect();
+        let client = start_client_runtime(ClientRuntimeOptions {
+            routes,
+            providers,
+            identity: StaticIdentity::generate().unwrap(),
+            expected_daemon: None,
+            auth: ClientAuthMode::Carrier,
+            device_name: "shutdown-cancel-test".into(),
+            session: SessionId([21; 16]),
+            lane_policy: LanePolicy::Single,
+            reconnect: ReconnectPolicy {
+                initial_delay: Duration::from_millis(10),
+                maximum_delay: Duration::from_millis(10),
+                attempt_timeout: Duration::from_millis(50),
+                full_jitter: false,
+                heartbeat_interval: Some(Duration::from_millis(10)),
+                heartbeat_timeout: Duration::from_millis(10),
+                maximum_attempts: None,
+            },
+            startup_timeout: Duration::from_secs(5),
+            state_dir: directory.path().join("client"),
+            local_socket: Some(directory.path().join("client.sock")),
+            ssh,
+            ssh_bootstrap: SshBootstrapOptions {
+                auto_install: true,
+                upgrade: false,
+                attempt_timeout: Duration::from_secs(10),
+            },
+        })
+        .unwrap();
+
+        cut_tx.send(()).unwrap();
+        proxy.join().unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        let pid = loop {
+            if let Ok(value) = fs::read_to_string(&pid_file)
+                && let Ok(pid) = value.parse::<libc::pid_t>()
+            {
+                break pid;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "client did not enter reconnect SSH bootstrap"
+            );
+            thread::sleep(Duration::from_millis(10));
+        };
+
+        let (done_tx, done_rx) = mpsc::sync_channel(1);
+        thread::spawn(move || {
+            let _ = done_tx.send(client.shutdown());
+        });
+        let completed_promptly = match done_rx.recv_timeout(Duration::from_millis(500)) {
+            Ok(result) => {
+                result.unwrap();
+                true
+            }
+            Err(_) => {
+                unsafe {
+                    libc::kill(pid, libc::SIGKILL);
+                }
+                done_rx
+                    .recv_timeout(Duration::from_secs(3))
+                    .expect("client shutdown stayed blocked after SSH cleanup")
+                    .unwrap();
+                false
+            }
+        };
+        assert!(
+            completed_promptly,
+            "client shutdown waited for the reconnect SSH bootstrap timeout"
+        );
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while unsafe { libc::kill(pid, 0) } == 0 && std::time::Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(unsafe { libc::kill(pid, 0) }, -1, "cancelled SSH child is still alive");
+        assert_eq!(std::io::Error::last_os_error().raw_os_error(), Some(libc::ESRCH));
+        daemon.shutdown().unwrap();
     }
 
     #[tokio::test]

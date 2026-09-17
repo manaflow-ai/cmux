@@ -116,7 +116,11 @@ extension MobileShellComposite {
             let overlap = deliveredSequence - frame.sequence
             let bytes = Data(frame.bytes.dropFirst(Int(overlap)))
             if !bytes.isEmpty {
-                guard deliverTerminalBytes(bytes, surfaceID: surfaceID) else {
+                guard deliverTerminalBytes(
+                    bytes,
+                    surfaceID: surfaceID,
+                    endSequence: frame.currentSequence
+                ) else {
                     return .accepted(outputReady: false)
                 }
             }
@@ -144,7 +148,11 @@ extension MobileShellComposite {
             )
             return .accepted(outputReady: true)
         }
-        guard deliverTerminalBytes(frame.bytes, surfaceID: surfaceID) else {
+        guard deliverTerminalBytes(
+            frame.bytes,
+            surfaceID: surfaceID,
+            endSequence: frame.currentSequence
+        ) else {
             return .accepted(outputReady: false)
         }
         markTerminalBytesDelivered(

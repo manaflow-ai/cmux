@@ -3,6 +3,10 @@ import {
   DEFAULT_NATIVE_CALLBACK_SCHEME,
   isAllowedNativeReturnTo,
 } from "../../lib/native-callback";
+import {
+  APP_PRICING_NATIVE_RETURN_QUERY_PARAMS,
+  verifiedAppPricingNativeReturnTo,
+} from "../../lib/billing";
 import type { Locale } from "../../../i18n/routing";
 import { locales, routing } from "../../../i18n/routing";
 import {
@@ -280,6 +284,10 @@ function currentAfterSignInPath(request: NextRequest): string {
   const afterSignIn = new URL(request.nextUrl.pathname, request.nextUrl.origin);
   const nativeReturnTo = request.nextUrl.searchParams.get("native_app_return_to");
   if (nativeReturnTo) afterSignIn.searchParams.set("native_app_return_to", nativeReturnTo);
+  for (const name of APP_PRICING_NATIVE_RETURN_QUERY_PARAMS) {
+    const value = request.nextUrl.searchParams.get(name);
+    if (value) afterSignIn.searchParams.set(name, value);
+  }
   return `${afterSignIn.pathname}${afterSignIn.search}`;
 }
 
@@ -335,7 +343,13 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
       accessCookie &&
       nativeReturnTo !== null
     ) {
-      if (isAllowedNativeReturnTo(nativeReturnTo, request)) {
+      const trustedPurchaseReturnTo = verifiedAppPricingNativeReturnTo(
+        request.nextUrl,
+      );
+      if (
+        trustedPurchaseReturnTo === nativeReturnTo ||
+        isAllowedNativeReturnTo(nativeReturnTo, request)
+      ) {
         const href = buildNativeHref(nativeReturnTo, refreshToken, accessCookie);
         if (href) {
           if (verifiedNativeHandoff(request, stackCookies, nativeReturnTo)) {

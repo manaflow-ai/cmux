@@ -894,7 +894,7 @@ impl LinkGroup for RelayLinkGroup {
                         connect_provider_control(&self.endpoint, &self.credentials)
                             .await
                             .map_err(|error| relay_reconnect_error(&control_error, error))?;
-                    let allocation = request_allocation(
+                    match request_allocation(
                         &mut replacement,
                         &self.config,
                         &self.credentials,
@@ -902,9 +902,17 @@ impl LinkGroup for RelayLinkGroup {
                         request.generation,
                     )
                     .await
-                    .map_err(AllocationError::into_provider_error)?;
-                    *stored_control = Some(replacement);
-                    allocation
+                    {
+                        Ok(allocation) => {
+                            *stored_control = Some(replacement);
+                            allocation
+                        }
+                        Err(AllocationError::Terminal(error)) => {
+                            *stored_control = Some(replacement);
+                            return Err(error);
+                        }
+                        Err(error) => return Err(error.into_provider_error()),
+                    }
                 }
             }
         };

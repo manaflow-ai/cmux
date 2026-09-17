@@ -1,24 +1,12 @@
 import { cloudDb } from "../../../../../db/client";
 import {
-  browserMutationOriginAllowed,
   jsonResponse,
-  parseBearer,
-  requestedVmTeamIdFromRequest,
-  requiresBrowserMutationProtection,
 } from "../../../../../services/vms/routeHelpers";
 import {
-  unauthorized,
-  verifyRequest,
-} from "../../../../../services/vms/auth";
-import {
-  createSubrouterClient,
-  subrouterRuntimeConfig,
-} from "../../../../../services/subrouter/client";
-import {
-  resolveTeam,
-  serviceUnavailableResponse,
+  normalizeAccountId,
   subrouterErrorResponse,
 } from "../../../../../services/subrouter/routeHelpers";
+import { resolveSubrouterRequestContext } from "../../../../../services/subrouter/requestContext";
 import { getTenantForTeam } from "../../../../../services/subrouter/tenants";
 
 export const runtime = "nodejs";
@@ -29,32 +17,17 @@ type RouteContext = {
 };
 
 export async function DELETE(request: Request, context: RouteContext): Promise<Response> {
-  const { accountId } = await context.params;
-  const normalizedAccountId = accountId.trim();
-  if (!normalizedAccountId || normalizedAccountId.length > 200) {
+  const { accountId: rawAccountId } = await context.params;
+  const accountId = normalizeAccountId(rawAccountId);
+  if (!accountId) {
     return jsonResponse({ error: "invalid_request" }, 400);
   }
 
-  const requestedTeamId = requestedVmTeamIdFromRequest(request);
-  const user = await verifyRequest(request, {
-    requestedTeamId,
-    allowCookie: true,
+  const resolved = await resolveSubrouterRequestContext(request, {
+    permission: "manage",
   });
-  if (!user) return unauthorized();
-  const bearer = parseBearer(request);
-  if (requiresBrowserMutationProtection(request.method, bearer) && !browserMutationOriginAllowed(request)) {
-    return jsonResponse({ error: "forbidden" }, 403);
-  }
-
-  const team = resolveTeam(request, user);
-  if (!team.ok) return team.response;
-
-  const config = subrouterRuntimeConfig();
-  if (!config) return serviceUnavailableResponse();
-  const client = createSubrouterClient({
-    baseUrl: config.baseUrl,
-    adminToken: config.adminToken,
-  });
+  if (!resolved.ok) return resolved.response;
+  const { team, config, client } = resolved.value;
 
   try {
     const tenant = await getTenantForTeam(
@@ -67,7 +40,7 @@ export async function DELETE(request: Request, context: RouteContext): Promise<R
     if (!tenant) {
       return jsonResponse({ ok: true, teamId: team.teamId });
     }
-    await client.deleteAccount(tenant.tenantKey, normalizedAccountId);
+    await client.deleteAccount(tenant.tenantKey, accountId);
     return jsonResponse({ ok: true, teamId: team.teamId });
   } catch (err) {
     return subrouterErrorResponse(err);

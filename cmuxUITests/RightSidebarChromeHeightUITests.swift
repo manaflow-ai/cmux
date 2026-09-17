@@ -5,7 +5,7 @@ import ImageIO
 
 final class RightSidebarChromeHeightUITests: XCTestCase {
     func testSecondaryBarMatchesModeBarAndPaneTabs() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         let dataPath = "/tmp/cmux-ui-test-right-sidebar-chrome-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: dataPath)
 
@@ -103,7 +103,7 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
     }
 
     func testMatchedTerminalBackgroundKeepsSidebarBackgroundsAndBordersUnified() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         let dataPath = "/tmp/cmux-ui-test-sidebar-appearance-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: dataPath)
 
@@ -463,7 +463,7 @@ final class TerminalViewportUITests: XCTestCase {
         let dataPath = "/tmp/cmux-ui-test-terminal-viewport-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: dataPath)
 
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_VIEWPORT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_VIEWPORT_PATH"] = dataPath

@@ -125,17 +125,19 @@ export async function POST(request: Request) {
 
       setSpanAttributes(span, { "cmux.stripe.event_type": event.type ?? "" });
 
-      // Every completed checkout session gets the identical Founder's Edition
-      // welcome (product decision: all customers get the same founders
-      // treatment) — Founder's Edition payment-link purchases, cmux Pro and
-      // Team subscriptions, and anything else checked out on this Stripe
-      // account. Other event types (including renewals, which never create a
-      // checkout session) are acknowledged with 200 so Stripe stops retrying.
+      // Pro purchases have their own transactional welcome and TestFlight
+      // fulfillment in /api/stripe/webhook. Acknowledge them here without
+      // sending the personal Founder's Edition email as well. Explicit
+      // Founder's Edition metadata wins in welcomeTriggerForMetadata, so its
+      // behavior remains unchanged even if extra metadata is present.
       if (event.type !== "checkout.session.completed") {
         return NextResponse.json({ ok: true, skipped: "event_type" });
       }
       const session = event.data?.object;
       const trigger = welcomeTriggerForMetadata(session?.metadata);
+      if (trigger === "pro_plan") {
+        return NextResponse.json({ ok: true, skipped: "pro_plan" });
+      }
       const customerEmail = session?.customer_details?.email ?? null;
       setSpanAttributes(span, {
         "cmux.stripe.is_founders": trigger === "founders_edition",

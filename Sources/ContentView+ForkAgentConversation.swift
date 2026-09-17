@@ -68,7 +68,7 @@ extension ContentView {
 
         let allowsAgentContinuation = currentContext.workspace.allowsAgentContinuation(forPanelId: panelId)
         var fallbackSnapshot = currentContext.workspace.restoredAgentSnapshotForContinuation(panelId: panelId)
-        let isRemoteContext = currentContext.workspace.isRemoteTerminalSurface(panelId)
+        let isRemoteContext = currentContext.workspace.isRemoteTerminalContext(panelId)
         let sharedIndex = SharedLiveAgentIndex.shared
         let liveIndexSnapshot = sharedIndex.snapshotForForkAvailability(
             workspaceId: workspaceId,
@@ -162,7 +162,8 @@ extension ContentView {
                 guard let refreshedContext = focusedPanelContext,
                       refreshedContext.workspace.id == workspaceId,
                       refreshedContext.panelId == panelId,
-                      refreshedContext.workspace.isRemoteTerminalSurface(panelId) == isRemoteContext else {
+                      refreshedContext.workspace.isRemoteTerminalContext(panelId)
+                        == isRemoteContext else {
                     return
                 }
                 let refreshedFallbackSnapshot = refreshedContext.workspace.restoredAgentSnapshotForContinuation(
@@ -247,31 +248,42 @@ extension ContentView {
         commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] = isRemoteContext
         commandPaletteForkableAgentResultHadFallbackByPanelKey[panelKey] = selection.usedFallbackSnapshot
 
+        let workspace = currentContext.workspace
+        let ownership = workspace.surfaceOwnershipTarget(for: panelId)
+        let mutationPanelID = ownership?.containerPanelID ?? panelId
         let didFork: Bool
-        if let direction = destination.splitDirection {
-            didFork = currentContext.workspace.forkAgentConversation(
-                fromPanelId: panelId,
+        if let projectedPane = ownership.flatMap({
+            workspace.remoteTmuxControlPane(surfaceID: $0.surfaceID)
+        }) {
+            didFork = workspace.forkProjectedTmuxAgentConversation(
+                projectedPane,
+                snapshot: snapshot,
+                destination: destination
+            )
+        } else if let direction = destination.splitDirection {
+            didFork = workspace.forkAgentConversation(
+                fromPanelId: mutationPanelID,
                 snapshot: snapshot,
                 direction: direction
             ) != nil
         } else {
             switch destination {
             case .newTab:
-                guard let anchorTabId = currentContext.workspace.surfaceIdFromPanelId(panelId),
-                      let paneId = currentContext.workspace.paneId(forPanelId: panelId) else {
+                guard let anchorTabId = workspace.surfaceIdFromPanelId(mutationPanelID),
+                      let paneId = workspace.paneId(forPanelId: mutationPanelID) else {
                     clearCommandPaletteForkableAgentCache(panelKey: panelKey)
                     NSSound.beep()
                     return
                 }
-                didFork = currentContext.workspace.forkAgentConversationToNewTab(
-                    fromPanelId: panelId,
+                didFork = workspace.forkAgentConversationToNewTab(
+                    fromPanelId: mutationPanelID,
                     snapshot: snapshot,
                     anchorTabId: anchorTabId,
                     paneId: paneId
                 ) != nil
             case .newWorkspace:
-                guard let launch = currentContext.workspace.forkAgentWorkspaceLaunch(
-                    fromPanelId: panelId,
+                guard let launch = workspace.forkAgentWorkspaceLaunch(
+                    fromPanelId: mutationPanelID,
                     snapshot: snapshot
                 ) else {
                     clearCommandPaletteForkableAgentCache(panelKey: panelKey)

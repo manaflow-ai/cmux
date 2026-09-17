@@ -5,6 +5,7 @@
 //! `cmux-remote` crate. VM lifecycle is intentionally absent.
 
 mod blocking;
+mod codex_patch;
 mod files;
 mod git;
 mod patch;
@@ -286,6 +287,7 @@ impl WorkspaceService {
                     RemoteCapability::ComputerUseNegotiationV1,
                     RemoteCapability::WorkspacePaginationV1,
                     RemoteCapability::WorkspacePatchV2,
+                    RemoteCapability::WorkspacePatchV3,
                     RemoteCapability::StructuredDiffV1,
                     RemoteCapability::ProcessLifecycleV2,
                     RemoteCapability::ProcessReplayV1,

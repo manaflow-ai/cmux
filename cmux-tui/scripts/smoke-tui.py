@@ -869,20 +869,21 @@ assert "┌" in text, text[-800:]
 assert "├" in text, text[-800:]
 assert "[ OK ⏎ ]" not in text, text[-800:]
 menu_lines = render_text_snapshot(output).splitlines()
-assert "Rename tab" in menu_lines[5], menu_lines[4:18]
-assert "Close tab" in menu_lines[6], menu_lines[4:18]
-assert "├" in menu_lines[7], menu_lines[4:18]
-assert "New tab" in menu_lines[8], menu_lines[4:18]
-assert "New browser tab" in menu_lines[9], menu_lines[4:18]
-assert "├" in menu_lines[10], menu_lines[4:18]
-assert "Split right" in menu_lines[11], menu_lines[4:18]
-assert "Split down" in menu_lines[12], menu_lines[4:18]
-assert "Close pane" in menu_lines[13], menu_lines[4:18]
-assert "├" in menu_lines[14], menu_lines[4:18]
-assert "Copy tab id" in menu_lines[15], menu_lines[4:18]
-assert "Copy pane id" in menu_lines[16], menu_lines[4:18]
+assert "Rename tab" in menu_lines[5], menu_lines[4:19]
+assert "Close tab" in menu_lines[6], menu_lines[4:19]
+assert "├" in menu_lines[7], menu_lines[4:19]
+assert "New pane" in menu_lines[8], menu_lines[4:19]
+assert "New tab" in menu_lines[9], menu_lines[4:19]
+assert "New browser tab" in menu_lines[10], menu_lines[4:19]
+assert "├" in menu_lines[11], menu_lines[4:19]
+assert "Split right" in menu_lines[12], menu_lines[4:19]
+assert "Split down" in menu_lines[13], menu_lines[4:19]
+assert "Close pane" in menu_lines[14], menu_lines[4:19]
+assert "├" in menu_lines[15], menu_lines[4:19]
+assert "Copy tab id" in menu_lines[16], menu_lines[4:19]
+assert "Copy pane id" in menu_lines[17], menu_lines[4:19]
 output = b""
-os.write(fd, b"\x1b[<34;81;16M\x1b[<2;81;16m")
+os.write(fd, b"\x1b[<34;81;17M\x1b[<2;81;17m")
 drain(0.8)
 osc52 = re.findall(rb"\x1b\]52;c;([A-Za-z0-9+/=]+)", output)
 assert osc52, "no OSC 52 clipboard write after menu copy"
@@ -901,7 +902,7 @@ tabs_before = sum(
     for s in w["screens"]
     for p in s["panes"]
 )
-os.write(fd, b"\x1b[<2;81;6M\x1b[<34;81;9M\x1b[<2;81;9m")
+os.write(fd, b"\x1b[<2;81;6M\x1b[<34;81;10M\x1b[<2;81;10m")
 drain(1.0)
 tabs_after = sum(
     len(p["tabs"])

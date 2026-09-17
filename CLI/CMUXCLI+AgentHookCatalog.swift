@@ -142,8 +142,7 @@ extension CMUXCLI {
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
             aliases: ["agy"],
-            sessionEndIsTurnBoundary: true,
-            feedHookEvents: ["PreToolUse", "PostToolUse"]
+            sessionEndIsTurnBoundary: true
         ),
         AgentHookDef(
             name: "rovodev", displayName: "Rovo Dev", statusKey: "rovodev",

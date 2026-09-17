@@ -23,6 +23,8 @@ if test "$_cmux_integration_enabled" != 0
     set -g _CMUX_PWD_LAST_PWD ""
     set -g _CMUX_TMUX_PULL_SIGNATURE ""
     set -g _CMUX_TMUX_PUSH_SIGNATURE ""
+    # Keep CMUX_SOCKET_CAPABILITY inherited; tmux's global environment is
+    # readable by clients that were not started inside cmux.
     set -g _CMUX_TMUX_SYNC_KEYS \
         CMUX_BUNDLED_CLI_PATH \
         CMUX_BUNDLE_ID \
@@ -177,16 +179,32 @@ if test "$_cmux_integration_enabled" != 0
         test -n "$relay_cli"
     end
 
+    function _cmux_write_socket_payload --argument-names payload
+        if set -q CMUX_SOCKET_CAPABILITY
+            and test -n "$CMUX_SOCKET_CAPABILITY"
+            and not string match -qr '[[:space:]]' -- "$CMUX_SOCKET_CAPABILITY"
+            printf '_cmux_capability_v1 %s %s\n' "$CMUX_SOCKET_CAPABILITY" "$payload"
+        else
+            printf '%s\n' "$payload"
+        end
+    end
+
     function _cmux_send --argument-names payload
         test -n "$payload"; or return 0
         test -n "$CMUX_SOCKET_PATH"; or return 0
+        if test -x /usr/bin/nc
+            # Apple's -N takes a value, so use the bounded response-waiting form.
+            _cmux_write_socket_payload "$payload" | /usr/bin/nc -w 1 -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1; or true
+            return 0
+        end
         switch "$_CMUX_SEND_TOOL"
             case ncat
-                printf '%s\n' "$payload" | ncat -w 1 -U "$CMUX_SOCKET_PATH" --send-only >/dev/null 2>&1
+                _cmux_write_socket_payload "$payload" | ncat -w 1 -U "$CMUX_SOCKET_PATH" --send-only >/dev/null 2>&1
             case socat
-                printf '%s\n' "$payload" | socat -T 1 - "UNIX-CONNECT:$CMUX_SOCKET_PATH" >/dev/null 2>&1
+                _cmux_write_socket_payload "$payload" | socat -T 1 - "UNIX-CONNECT:$CMUX_SOCKET_PATH" >/dev/null 2>&1
             case nc
-                printf '%s\n' "$payload" | nc -N -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1; or printf '%s\n' "$payload" | nc -w 1 -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1
+                _cmux_write_socket_payload "$payload" | nc -N -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1; or \
+                    _cmux_write_socket_payload "$payload" | nc -w 1 -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1
         end
     end
 
@@ -283,15 +301,21 @@ if test "$_cmux_integration_enabled" != 0
     end
 
     function _cmux_install_cli_command_shim --argument-names command_name wrapper_path
-        set -l tmp_root /tmp
-        if set -q TMPDIR; and test -n "$TMPDIR"
-            set tmp_root "$TMPDIR"
-        end
         set -l surface_component "$fish_pid"
         if set -q CMUX_SURFACE_ID; and test -n "$CMUX_SURFACE_ID"
             set surface_component "$CMUX_SURFACE_ID"
         end
-        set -l shim_root "$tmp_root/cmux-cli-shims/$surface_component"
+        set -l shim_root ""
+        if set -q CMUX_CLAUDE_WRAPPER_SHIM_ROOT
+            set shim_root (string trim -r -c / -- "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT")
+        end
+        if test -z "$shim_root"; or not string match -q "*/cmux-cli-shims/$surface_component" -- "$shim_root"
+            set -l tmp_root /tmp
+            if set -q TMPDIR; and test -n "$TMPDIR"
+                set tmp_root "$TMPDIR"
+            end
+            set shim_root "$tmp_root/cmux-cli-shims/$surface_component"
+        end
         set -l shim_path "$shim_root/$command_name"
         mkdir -p "$shim_root" >/dev/null 2>&1; or return 0
         begin

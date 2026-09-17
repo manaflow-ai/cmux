@@ -708,9 +708,10 @@ impl Relay {
         if let Some(replaced) = replaced {
             replaced.shutdown(CloseNotice::normal("daemon registration replaced"));
         }
-        if let Err(error) = peer.send_control(RelayControl::Registered {
-            lease_seconds: self.inner.config.lease_duration.as_secs() as u32,
-        }) {
+        let lease_seconds =
+            deadline.saturating_duration_since(instant_now).as_secs().min(u64::from(u32::MAX))
+                as u32;
+        if let Err(error) = peer.send_control(RelayControl::Registered { lease_seconds }) {
             self.disconnect(peer.id).await;
             return Err(error);
         }
@@ -1143,6 +1144,7 @@ impl Relay {
                 .into_iter()
                 .flat_map(|id| remove_circuit(&mut state, &id))
                 .collect::<Vec<_>>();
+            prune_inactive_slot_usage(&mut state, now);
             (expired_controls, expired_circuits)
         };
 
@@ -1391,10 +1393,27 @@ fn release_control_socket(state: &mut RelayState, slot: &str) {
 
 fn prune_slot_usage(state: &mut RelayState, slot: &str) {
     if state.slot_usage.get(slot).is_some_and(|usage| {
-        usage.control_sockets == 0 && usage.pending_circuits == 0 && usage.active_circuits == 0
+        usage.control_sockets == 0
+            && usage.pending_circuits == 0
+            && usage.active_circuits == 0
+            && usage.recent_allocations.is_empty()
     }) {
         state.slot_usage.remove(slot);
     }
+}
+
+fn prune_inactive_slot_usage(state: &mut RelayState, now: Instant) {
+    state.slot_usage.retain(|_, usage| {
+        while usage.recent_allocations.front().is_some_and(|allocation| {
+            now.saturating_duration_since(*allocation) >= ALLOCATION_RATE_WINDOW
+        }) {
+            usage.recent_allocations.pop_front();
+        }
+        usage.control_sockets != 0
+            || usage.pending_circuits != 0
+            || usage.active_circuits != 0
+            || !usage.recent_allocations.is_empty()
+    });
 }
 
 fn remove_circuit(state: &mut RelayState, circuit_id: &CircuitId) -> Vec<Peer> {

@@ -27,7 +27,7 @@ public actor CmxIrohRelayCredentialCoordinator {
         let task: Task<InstalledCredential, any Error>
     }
 
-    private let supervisor: CmxIrohEndpointSupervisor
+    private let supervisor: any CmxIrohRelayEndpointControlling
     private let broker: any CmxIrohRelayTokenServing
     private let managedRelayURLs: Set<String>
     private let selectedRelayURLs: Set<String>
@@ -47,7 +47,7 @@ public actor CmxIrohRelayCredentialCoordinator {
 
     /// Creates an inactive relay credential coordinator.
     public init(
-        supervisor: CmxIrohEndpointSupervisor,
+        supervisor: any CmxIrohRelayEndpointControlling,
         broker: any CmxIrohRelayTokenServing,
         managedRelayURLs: Set<String>,
         selectedRelayURLs: Set<String>? = nil,

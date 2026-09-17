@@ -393,6 +393,136 @@ extension CmxIrohHostRuntimeTests {
         await runtime.stop()
     }
 
+    @Test(arguments: [
+        CmxIrohTrustBrokerClientError.rateLimited(
+            code: "rate_limited",
+            retryAfterSeconds: 600
+        ),
+        .rejected(statusCode: 503, code: "relay_policy_unavailable"),
+    ])
+    func transientBrokerFailureUsesVerifiedCacheWithoutWaitingForRetry(
+        _ failure: CmxIrohTrustBrokerClientError
+    ) async throws {
+        let fixture = try HostRuntimeFixture()
+        let cachedFixture = try fixture.cachedPolicyFixture()
+        let now = cachedFixture.now
+        let cachedPolicy = try cachedFixture.policy()
+        let routes = HostRuntimeRouteRecorder()
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery,
+            registrationError: failure
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(
+                endpoints: [TestIrohEndpoint(identity: fixture.endpointID)]
+            ),
+            broker: broker,
+            configuration: fixture.configuration(cachedHostPolicy: cachedPolicy),
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { now },
+            registrationClock: ImmediateHostActivationClock(),
+            handleTransport: { session, _ in await session.close() },
+            handleRoute: { binding, pathHints in
+                await routes.record(binding: binding, pathHints: pathHints)
+            }
+        )
+
+        try await runtime.start()
+
+        #expect(await broker.observedRegistrationCount() == 1)
+        #expect(await runtime.snapshot().state == .active)
+        #expect(await runtime.snapshot().bindingID == cachedPolicy.binding.bindingID)
+        #expect(await routes.values() == [
+            .init(binding: cachedPolicy.binding, pathHints: []),
+        ])
+        await runtime.stop()
+    }
+
+    @Test
+    func cachedActivationRegistersTheCurrentEndpointPortWithoutRestartingIt() async throws {
+        let fixture = try HostRuntimeFixture()
+        let cachedFixture = try fixture.cachedPolicyFixture()
+        let now = cachedFixture.now
+        let currentPort: UInt16 = 55_123
+        let endpoint = TestIrohEndpoint(
+            identity: fixture.endpointID,
+            directAddresses: ["0.0.0.0:\(currentPort)"]
+        )
+        let factory = TestIrohEndpointFactory(endpoints: [endpoint])
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery,
+            preflightErrors: [
+                CmxIrohBrokerCooldownError(retryAfterSeconds: 600),
+            ]
+        )
+        let clock = RecordingImmediateHostActivationClock(now: now)
+        let runtime = CmxIrohHostRuntime(
+            factory: factory,
+            broker: broker,
+            configuration: fixture.configuration(
+                cachedHostPolicy: try cachedFixture.policy()
+            ),
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { now },
+            registrationClock: clock,
+            registrationRetryJitter: { 0 },
+            handleTransport: { session, _ in await session.close() }
+        )
+
+        try await runtime.start()
+
+        #expect(
+            await broker.waitForRegistrationCount(1, timeout: .seconds(1)),
+            "A cached activation must retry registration for its live endpoint generation"
+        )
+        let prepared = try #require(
+            await broker.observedPreparedRegistrations().first
+        )
+        #expect(
+            try registrationDirectPorts(prepared)
+                == CmxIrohDirectPorts(ipv4: currentPort, ipv6: nil)
+        )
+        #expect(await factory.observedConfigurations().count == 1)
+        #expect(clock.observedSleepDeadlines() == [
+            now.addingTimeInterval(600),
+        ])
+        await runtime.stop()
+    }
+
+    @Test
+    func restoredBrokerCooldownUsesVerifiedCacheBeforeRegistration() async throws {
+        let fixture = try HostRuntimeFixture()
+        let cachedFixture = try fixture.cachedPolicyFixture()
+        let now = cachedFixture.now
+        let cachedPolicy = try cachedFixture.policy()
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery,
+            preflightErrors: [
+                CmxIrohBrokerCooldownError(retryAfterSeconds: 600),
+            ]
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(
+                endpoints: [TestIrohEndpoint(identity: fixture.endpointID)]
+            ),
+            broker: broker,
+            configuration: fixture.configuration(cachedHostPolicy: cachedPolicy),
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { now },
+            handleTransport: { session, _ in await session.close() }
+        )
+
+        try await runtime.start()
+
+        #expect(await broker.observedRegistrationCount() == 0)
+        #expect(await runtime.snapshot().state == .active)
+        #expect(await runtime.snapshot().bindingID == cachedPolicy.binding.bindingID)
+        await runtime.stop()
+    }
+
     @Test
     func endpointNetworkChangeRequestsImmediateLANRefresh() async throws {
         let fixture = try HostRuntimeFixture()

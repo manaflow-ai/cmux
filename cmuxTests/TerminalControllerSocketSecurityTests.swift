@@ -1008,6 +1008,146 @@ final class TerminalControllerSocketSecurityTests {
         XCTAssertEqual(moved.destination.activeRemoteTerminalSessionCount, 0)
     }
 
+    @Test func testWindowDockRemoteReadinessSurvivesLaunchWorkspaceRemoval() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let manager = TabManager()
+        let sourceWorkspace = try #require(manager.selectedWorkspace)
+        _ = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowID) }
+
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64_011,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+        sourceWorkspace.configureRemoteConnection(configuration, autoConnect: false)
+        let surfaceID = try #require(sourceWorkspace.focusedTerminalPanel?.id)
+        let terminalLifecycleID = try #require(
+            sourceWorkspace.focusedTerminalPanel?.surface.startupEnvironmentValue(
+                "CMUX_TERMINAL_LIFECYCLE_ID"
+            ).flatMap(UUID.init(uuidString:))
+        )
+        let windowDock = appDelegate.windowDock(forWindowId: windowID)
+        let dockPaneID = try #require(windowDock.bonsplitController.allPaneIds.first)
+        let transfer = try #require(sourceWorkspace.detachSurface(panelId: surfaceID))
+        #expect(transfer.remoteCleanupConfiguration == configuration)
+        #expect(
+            windowDock.attachDetachedSurface(transfer, inPane: dockPaneID, focus: false)
+                == surfaceID
+        )
+
+        manager.closeWorkspace(sourceWorkspace)
+        #expect(!manager.tabs.contains(where: { $0.id == sourceWorkspace.id }))
+
+        let attemptID = UUID()
+        guard case .resolved = TerminalController.shared
+            .controlWorkspaceRemoteTerminalSessionLaunching(
+                workspaceID: sourceWorkspace.id,
+                surfaceID: surfaceID,
+                terminalLifecycleID: terminalLifecycleID,
+                attemptID: attemptID
+            ) else {
+            Issue.record("window Dock lost launch-attempt ownership with its launch workspace")
+            return
+        }
+
+        #expect(TerminalController.shared.controlWorkspaceRemoteTerminalSessionConnected(
+            workspaceID: sourceWorkspace.id,
+            surfaceID: surfaceID,
+            authority: .relayPort(
+                64_012,
+                terminalLifecycleID: terminalLifecycleID
+            ),
+            attemptID: attemptID
+        ) == .notFound)
+
+        guard case .resolved(
+            let resolvedWindowID,
+            let resolvedWorkspaceID,
+            let remoteStatus
+        ) = TerminalController.shared.controlWorkspaceRemoteTerminalSessionConnected(
+            workspaceID: sourceWorkspace.id,
+            surfaceID: surfaceID,
+            authority: .relayPort(
+                64_011,
+                terminalLifecycleID: terminalLifecycleID
+            ),
+            attemptID: attemptID
+        ) else {
+            Issue.record("window Dock lost readiness ownership with its launch workspace")
+            return
+        }
+        #expect(resolvedWindowID == windowID)
+        #expect(resolvedWorkspaceID == nil)
+        #expect(remoteStatus == .object([:]))
+    }
+
+    @Test func testRelayReadinessRejectsAnotherTerminalProcessGeneration() async throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowID) }
+        let socketPath = makeSocketPath("relay-generation")
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64_011,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: socketPath,
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        let surfaceID = try #require(workspace.focusedTerminalPanel?.id)
+
+        let response = try await sendV2RequestAsync(
+            method: "workspace.remote.terminal_session_connected",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": surfaceID.uuidString,
+                "relay_port": 64_011,
+                "terminal_lifecycle_id": UUID().uuidString,
+                "attempt_id": UUID().uuidString,
+            ],
+            to: socketPath
+        )
+
+        #expect(response["ok"] as? Bool == false)
+        let error = try #require(response["error"] as? [String: Any])
+        #expect(error["code"] as? String == "not_found")
+        #expect(
+            workspace.remoteTerminalSessionStatesBySurfaceId[surfaceID]?.phase
+                == .launching
+        )
+    }
+
     @Test func testRemotePTYRejectsWorkspaceSurfaceMismatchWithoutMovedSurfaceOptIn() async throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()

@@ -16,6 +16,10 @@ import struct CmuxSettings.AgentIntegrationSettingsStore
 extension GhosttyApp: TerminalEngineHosting {
     var runtimeApp: ghostty_app_t? { app }
     var runtimeConfig: ghostty_config_t? { config }
+    var terminalFontConfigurationRuntimePoints: Float32 {
+        terminalFontConfigurationSnapshot()
+            .configuredRuntimePoints
+    }
     // `userGhosttyShellIntegrationMode` already matches the seam requirement.
 }
 
@@ -121,19 +125,15 @@ extension RendererRealizationController: TerminalRendererRealizationScheduling {
 
 // MARK: Agent hibernation
 
-/// The legacy `recordAgentHibernationTerminalInput` free helper as an
-/// injected recorder: same gate, same timestamp capture, same main-actor hop.
+/// The app-owned safety tracker injected into the terminal input path.
+@MainActor
 final class TerminalAgentHibernationRecorder: AgentHibernationRecording {
     func recordTerminalInput(workspaceId: UUID, panelId: UUID) {
         guard AgentHibernationTrackingGate.isEnabled() else { return }
-        let recordedAt = Date()
-        Task { @MainActor in
-            AgentHibernationController.shared.recordTerminalInput(
-                workspaceId: workspaceId,
-                panelId: panelId,
-                recordedAt: recordedAt
-            )
-        }
+        AgentHibernationController.shared.recordTerminalInput(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
     }
 }
 
@@ -177,8 +177,9 @@ extension TerminalSurface {
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
-        manualIO: Bool = false,
-        manualInputHandler: (@Sendable (Data) -> Void)? = nil,
+        ioMode: TerminalSurfaceIOMode = .exec,
+        manualInputHandler: (@Sendable (TerminalManualInput) -> Void)? = nil,
+        manualInputKeyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
         preparePaneHost: @Sendable @MainActor (any TerminalSurfacePaneHosting) -> Void = { _ in }
     ) {
@@ -195,8 +196,9 @@ extension TerminalSurface {
             initialEnvironmentOverrides: initialEnvironmentOverrides,
             additionalEnvironment: additionalEnvironment,
             focusPlacement: focusPlacement,
-            manualIO: manualIO,
+            ioMode: ioMode,
             manualInputHandler: manualInputHandler,
+            manualInputKeyNameResolver: manualInputKeyNameResolver,
             runtimeSpawnPolicy: runtimeSpawnPolicy,
             preparePaneHost: preparePaneHost,
             dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies

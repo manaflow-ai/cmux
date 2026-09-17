@@ -8,9 +8,9 @@ Workspace groups let you nest workspaces into collapsible named sections in the 
 
 Every group is owned by exactly one workspace called the **anchor**. The group header in the sidebar IS the anchor's representation — there is no separate row for it. Clicking the header name area focuses the anchor's panels. Clicking the chevron toggles collapse.
 
-Anchors are always brand new when a group is created. They are never promoted from an existing workspace. The anchor's working directory is inherited from the first selected workspace (when grouping a selection) or from the active workspace (when creating via the CLI without `--cwd`).
+A group's anchor is always a brand new workspace at creation time; grouping a selection or `create` never promotes one of your existing workspaces into the anchor. The anchor's working directory is inherited from the first selected workspace (when grouping a selection) or from the active workspace (when creating via the CLI without `--cwd`).
 
-Closing the anchor workspace **dissolves the group**: every other member loses its `groupId` and stays in the tabs list as an ungrouped workspace. Nothing is closed besides the anchor itself. The app shows a confirm dialog with a "Don't ask again" toggle before this happens.
+Closing the anchor workspace closes only that workspace and **promotes the group's next member to be the new anchor**, so the group and its other members stay intact (the promoted member then shows the group name as the header). When the anchor is the group's only workspace, the group is removed. To flatten a group back into ungrouped workspaces, use **Ungroup**; to close every workspace in a group, use **Delete Group**.
 
 ### Group identity
 

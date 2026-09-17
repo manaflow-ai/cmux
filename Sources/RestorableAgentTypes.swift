@@ -198,12 +198,4 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
     }
 }
 
-struct AgentLaunchCommandSnapshot: Codable, Equatable, Sendable {
-    var launcher: String?
-    var executablePath: String?
-    var arguments: [String]
-    var workingDirectory: String?
-    var environment: [String: String]?
-    var capturedAt: TimeInterval?
-    var source: String?
-}
+typealias AgentLaunchCommandSnapshot = AgentLaunchCommand

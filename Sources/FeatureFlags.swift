@@ -1,8 +1,9 @@
 import Foundation
 import Observation
 import PostHog
+import os
 
-struct CmuxFeatureFlagDefinition: Identifiable, Equatable {
+struct CmuxFeatureFlagDefinition: Identifiable, Equatable, Sendable {
     var id: String { key }
 
     let key: String
@@ -33,7 +34,7 @@ struct CmuxFeatureFlagDefinition: Identifiable, Equatable {
 @MainActor
 @Observable
 final class CmuxFeatureFlags {
-    static let shared = CmuxFeatureFlags()
+    static let shared = CmuxFeatureFlags(publishesOffMainSnapshot: true)
 
     #if DEBUG
     private static let proUpgradeUIDefault = true
@@ -42,6 +43,7 @@ final class CmuxFeatureFlags {
     #endif
 
     private static let mobileConnectButtonDefault = false
+    private static let sidebarAccountButtonDefault = true
 
     #if DEBUG
     private static let cloudVMUIDefault = true
@@ -49,6 +51,11 @@ final class CmuxFeatureFlags {
     private static let cloudVMUIDefault = false
     #endif
     private static let agentChatUIDefault = false
+    #if DEBUG
+    private nonisolated static let mobileWorkspaceChangesDefault = true
+    #else
+    private nonisolated static let mobileWorkspaceChangesDefault = false
+    #endif
     private static let sidebarWorkspaceAgentSpinnerDefault = false
     private static let simulatorDefault = true
     private static let workspaceTodoControlsDefault = false
@@ -80,6 +87,28 @@ final class CmuxFeatureFlags {
         defaultWhenUnavailable: CmuxFeatureFlags.appKitSidebarListDefault
     )
 
+    // FLAG(key: mobile-workspace-changes-enabled-release, owner: lawrencecchen,
+    //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+    // Serves the iOS diff viewer: advertises workspace.changes.v1 to phones
+    // and answers the mobile.workspace.changes.* RPCs behind it. Every iOS
+    // entry point (workspace-row chip, toolbar button, one-time hint, Changes
+    // sheet, summary polling) feature-detects on that capability, so this one
+    // Mac-side flag turns the whole feature off end to end. Release builds
+    // keep it off until the PostHog flag enables it; DEBUG keeps it on for
+    // dogfood.
+    nonisolated static let mobileWorkspaceChangesFlag = CmuxFeatureFlagDefinition(
+        key: "mobile-workspace-changes-enabled-release",
+        title: String(
+            localized: "featureFlags.mobileWorkspaceChanges.title",
+            defaultValue: "Mobile diff viewer"
+        ),
+        flagDescription: String(
+            localized: "featureFlags.mobileWorkspaceChanges.description",
+            defaultValue: "Serves workspace diffs to paired phones: the iOS changes chip, toolbar button, and Changes sheet."
+        ),
+        defaultWhenUnavailable: CmuxFeatureFlags.mobileWorkspaceChangesDefault
+    )
+
     // Order is load-bearing for the positional typed accessors below. Flags
     // that need a stable public definition are declared independently and
     // included here without repeating their key literal.
@@ -102,18 +131,31 @@ final class CmuxFeatureFlags {
 
             // FLAG(key: mobile-connect-button-enabled-release, owner: lawrencecchen,
             //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
-            // Shows the top-right iPhone button that opens the Mobile Connect
-            // window. Hidden by default so QR pairing does not sit in primary
-            // window chrome; pairing remains available from Settings > Mobile
-            // and the command palette, and PostHog can re-enable the button.
+            // Shows the bottom-left sidebar iPhone button that opens the Mobile
+            // Connect workspace. It stays hidden until the remote flag or a
+            // local debug override enables it.
             CmuxFeatureFlagDefinition(
                 key: "mobile-connect-button-enabled-release",
                 title: String(localized: "featureFlags.mobileConnect.title", defaultValue: "Mobile Connect button"),
                 flagDescription: String(
                     localized: "featureFlags.mobileConnect.description",
-                    defaultValue: "Shows the iPhone button that opens the Mobile Connect pairing window."
+                    defaultValue: "Shows Mobile Connect entrypoints that open the iPhone pairing workspace."
                 ),
                 defaultWhenUnavailable: CmuxFeatureFlags.mobileConnectButtonDefault
+            ),
+
+            // FLAG(key: sidebar-account-button-enabled-release, owner: lawrencecchen,
+            //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
+            // Shows the account control in the bottom-left sidebar footer. The
+            // Settings account section remains available when this shortcut is off.
+            CmuxFeatureFlagDefinition(
+                key: "sidebar-account-button-enabled-release",
+                title: String(localized: "featureFlags.sidebarAccount.title", defaultValue: "Sidebar account button"),
+                flagDescription: String(
+                    localized: "featureFlags.sidebarAccount.description",
+                    defaultValue: "Shows the profile and sign-in control in the sidebar footer."
+                ),
+                defaultWhenUnavailable: CmuxFeatureFlags.sidebarAccountButtonDefault
             ),
 
             // FLAG(key: cloud-vm-ui-enabled-release, owner: lawrencecchen,
@@ -202,6 +244,8 @@ final class CmuxFeatureFlags {
             ),
 
             CmuxFeatureFlags.appKitSidebarListFlag,
+
+            CmuxFeatureFlags.mobileWorkspaceChangesFlag,
         ]
     }()
 
@@ -214,29 +258,55 @@ final class CmuxFeatureFlags {
     }
 
     var isCloudVMUIEnabled: Bool {
-        effectiveValue(for: Self.allFlags[2])
-    }
-
-    var isAgentChatUIEnabled: Bool {
         effectiveValue(for: Self.allFlags[3])
     }
 
-    var isSidebarWorkspaceAgentSpinnerEnabled: Bool {
+    var isAgentChatUIEnabled: Bool {
         effectiveValue(for: Self.allFlags[4])
     }
 
-    var isSimulatorEnabled: Bool {
+    var isSidebarAccountButtonEnabled: Bool {
+        effectiveValue(for: Self.allFlags[2])
+    }
+
+    var isSidebarWorkspaceAgentSpinnerEnabled: Bool {
         effectiveValue(for: Self.allFlags[5])
     }
 
-    var isWorkspaceTodoControlsEnabled: Bool {
+    var isSimulatorEnabled: Bool {
         effectiveValue(for: Self.allFlags[6])
+    }
+
+    var isWorkspaceTodoControlsEnabled: Bool {
+        effectiveValue(for: Self.allFlags[7])
     }
 
     var isAppKitSidebarListEnabled: Bool {
         effectiveValue(for: Self.appKitSidebarListFlag)
     }
 
+    var isMobileWorkspaceChangesEnabled: Bool {
+        effectiveValue(for: Self.mobileWorkspaceChangesFlag)
+    }
+
+    /// Effective values mirrored for nonisolated readers: the mobile host
+    /// serves status payloads (which carry the capability list) off the main
+    /// actor. Written only by the shared instance so test instances cannot
+    /// stomp process-wide state. Before the shared instance exists, readers
+    /// get the per-flag compile-time default (fail-closed for release flags).
+    private nonisolated static let offMainEffectiveValues = OSAllocatedUnfairLock(
+        initialState: [String: Bool]()
+    )
+
+    nonisolated static func offMainEffectiveValue(
+        for definition: CmuxFeatureFlagDefinition
+    ) -> Bool {
+        offMainEffectiveValues.withLock { $0[definition.key] }
+            ?? definition.defaultWhenUnavailable
+    }
+
+    @ObservationIgnored
+    private let publishesOffMainSnapshot: Bool
     @ObservationIgnored
     private let defaults: UserDefaults
     @ObservationIgnored
@@ -256,9 +326,11 @@ final class CmuxFeatureFlags {
         defaults: UserDefaults = .standard,
         telemetryEnabled: Bool = TelemetrySettings.enabledForCurrentLaunch,
         remoteFlagValueProvider: @escaping (String) -> Any? = { PostHogSDK.shared.getFeatureFlag($0) },
-        remoteFlagLoader: (@Sendable () async -> [String: Bool]?)? = nil
+        remoteFlagLoader: (@Sendable () async -> [String: Bool]?)? = nil,
+        publishesOffMainSnapshot: Bool = false
     ) {
         self.defaults = defaults
+        self.publishesOffMainSnapshot = publishesOffMainSnapshot
         self.remoteFlagValueProvider = remoteFlagValueProvider
         if let remoteFlagLoader {
             self.remoteFlagLoader = remoteFlagLoader
@@ -551,6 +623,10 @@ final class CmuxFeatureFlags {
                 overrideValue: localOverridesByKey[definition.key],
                 defaultValue: definition.defaultWhenUnavailable
             )
+        }
+        if publishesOffMainSnapshot {
+            let effectiveValues = resolutionsByKey.mapValues(\.effectiveValue)
+            Self.offMainEffectiveValues.withLock { $0 = effectiveValues }
         }
     }
 

@@ -409,6 +409,7 @@ describe("agent page variants", () => {
 
   test("limits partially translated blog variants to authored locales", () => {
     for (const path of [
+      "/blog/367-billion-tokens",
       "/blog/claude-code-best-worktree-manager",
       "/blog/cmux-ssh",
     ]) {

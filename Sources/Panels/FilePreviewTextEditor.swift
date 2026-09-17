@@ -70,9 +70,26 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         textView.applyFilePreviewWordWrap(wordWrap, scrollView: scrollView)
         panel.attachTextView(textView)
         guard textView.string != panel.textContent else { return }
+        let selectedRanges = textView.selectedRanges
+        let visibleOrigin = scrollView.contentView.bounds.origin
         context.coordinator.isApplyingPanelUpdate = true
         textView.string = panel.textContent
         context.coordinator.isApplyingPanelUpdate = false
+        let contentLength = (textView.string as NSString).length
+        let clampedRanges = selectedRanges.map { value -> NSValue in
+            let range = value.rangeValue
+            let location = min(range.location, contentLength)
+            let length = min(range.length, contentLength - location)
+            return NSValue(range: NSRange(location: location, length: length))
+        }
+        textView.setSelectedRanges(clampedRanges, affinity: .downstream, stillSelecting: false)
+        scrollView.layoutSubtreeIfNeeded()
+        let clipView = scrollView.contentView
+        let constrained = clipView.constrainBoundsRect(
+            NSRect(origin: visibleOrigin, size: clipView.bounds.size)
+        )
+        clipView.scroll(to: constrained.origin)
+        scrollView.reflectScrolledClipView(clipView)
     }
 
     static func applyTheme(

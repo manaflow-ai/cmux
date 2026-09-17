@@ -755,6 +755,27 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "キャンセル" } }
       }
     },
+    "mobile.computers.forget" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Forget" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "登録解除" } }
+      }
+    },
+    "mobile.computers.forget.confirmMessage" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "It's removed from all your devices. If it's still online, it reappears the next time it connects." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "すべてのデバイスから削除されます。オンラインのままの場合は、次回接続時に再表示されます。" } }
+      }
+    },
+    "mobile.computers.forget.confirmTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Forget this computer?" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このコンピュータの登録を解除しますか？" } }
+      }
+    },
     "mobile.common.edit" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1082,6 +1103,13 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Secure Channel Failed" } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "安全なチャネルの確立に失敗" } }
+      }
+    },
+    "mobile.iroh.diagnostics.failure.routeGated" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Route Gated" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "経路が一時的に制限されています" } }
       }
     },
     "mobile.iroh.diagnostics.failure.sendQueueOverflow" : {

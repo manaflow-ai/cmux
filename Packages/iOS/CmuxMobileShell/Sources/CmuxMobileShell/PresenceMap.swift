@@ -31,6 +31,9 @@ public struct PresenceMap: Equatable, Sendable {
     /// the map, so the rollup must stay O(instances of one device), never
     /// O(all instances on the team).
     private var instancesByDevice: [String: [String: PresenceInstance]] = [:]
+    /// Distinguishes the startup window from an authoritative empty snapshot.
+    /// A snapshot with zero devices still proves every absent Mac is offline.
+    public private(set) var hasReceivedSnapshot = false
 
     public init() {}
 
@@ -44,6 +47,7 @@ public struct PresenceMap: Equatable, Sendable {
     public mutating func apply(_ update: PresenceUpdate) {
         switch update {
         case .snapshot(let snapshot):
+            hasReceivedSnapshot = true
             var next: [String: [String: PresenceInstance]] = [:]
             for device in snapshot.devices {
                 for instance in device.instances {

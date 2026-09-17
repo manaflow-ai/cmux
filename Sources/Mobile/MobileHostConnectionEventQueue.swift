@@ -50,12 +50,15 @@ struct MobileHostEventEnqueueResult: Sendable {
     /// Surfaces whose queued render-grid frames were shed; the caller must ask
     /// the producer for a full-frame resync of each.
     let renderGridResyncSurfaceIDs: Set<String>
+    /// Queue depth immediately after an admitted append.
+    let depthAfterEnqueue: Int?
 
     static let rejected = MobileHostEventEnqueueResult(
         admitted: false,
         startDrain: false,
         shouldClose: false,
-        renderGridResyncSurfaceIDs: []
+        renderGridResyncSurfaceIDs: [],
+        depthAfterEnqueue: nil
     )
 }
 
@@ -76,6 +79,7 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
         let topic: String
         let coalesceKey: String?
         let frame: Data
+        let stateSeq: UInt64?
     }
 
     static let defaultMaximumEventCount = 256
@@ -140,6 +144,7 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
         topic: String,
         coalesceKey: String?,
         isFullRenderGridFrame: Bool,
+        stateSeq: UInt64? = nil,
         frame: Data
     ) -> MobileHostEventEnqueueResult {
         lock.lock()
@@ -172,7 +177,8 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
                 admitted: false,
                 startDrain: false,
                 shouldClose: false,
-                renderGridResyncSurfaceIDs: resyncSurfaceIDs
+                renderGridResyncSurfaceIDs: resyncSurfaceIDs,
+                depthAfterEnqueue: nil
             )
         }
         guard hasRoomLocked(for: frame) else {
@@ -182,7 +188,8 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
                     admitted: false,
                     startDrain: false,
                     shouldClose: true,
-                    renderGridResyncSurfaceIDs: resyncSurfaceIDs
+                    renderGridResyncSurfaceIDs: resyncSurfaceIDs,
+                    depthAfterEnqueue: nil
                 )
             }
             if isRenderGrid, let coalesceKey {
@@ -199,11 +206,20 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
                 admitted: false,
                 startDrain: false,
                 shouldClose: false,
-                renderGridResyncSurfaceIDs: resyncSurfaceIDs
+                renderGridResyncSurfaceIDs: resyncSurfaceIDs,
+                depthAfterEnqueue: nil
             )
         }
-        queuedEvents.append(QueuedEvent(topic: topic, coalesceKey: coalesceKey, frame: frame))
+        queuedEvents.append(
+            QueuedEvent(
+                topic: topic,
+                coalesceKey: coalesceKey,
+                frame: frame,
+                stateSeq: stateSeq
+            )
+        )
         queuedByteCount += frame.count
+        let depthAfterEnqueue = queuedEvents.count
         if isRenderGrid, isFullRenderGridFrame, let coalesceKey {
             poisonedRenderGridSurfaceIDs.remove(coalesceKey)
             resyncAfterDrainSurfaceIDs.remove(coalesceKey)
@@ -217,7 +233,8 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
             admitted: true,
             startDrain: startDrain,
             shouldClose: false,
-            renderGridResyncSurfaceIDs: resyncSurfaceIDs
+            renderGridResyncSurfaceIDs: resyncSurfaceIDs,
+            depthAfterEnqueue: depthAfterEnqueue
         )
     }
 

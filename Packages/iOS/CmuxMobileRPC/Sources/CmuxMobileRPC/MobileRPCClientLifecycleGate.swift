@@ -45,16 +45,22 @@ final class MobileRPCClientLifecycleGate: Sendable {
             throw error
         }
 
-        let accepted = state.withLock { state in
-            state.inFlightTransportAdmissions -= 1
-            guard !state.retired, state.revision == admission else {
-                startTransportDisposal(transport, state: &state)
-                return false
+        let rejectedDisposal: Task<Void, Never>? =
+            state.withLock { state in
+                state.inFlightTransportAdmissions -= 1
+                guard !state.retired,
+                      state.revision == admission else {
+                    return startTransportDisposal(
+                        transport,
+                        state: &state
+                    )
+                }
+                return nil
             }
-            return true
-        }
-        guard accepted else {
-            throw MobileShellConnectionError.connectionClosed
+        if let rejectedDisposal {
+            throw MobileRPCRejectedTransportDisposal(
+                task: rejectedDisposal
+            )
         }
         return transport
     }
@@ -155,16 +161,18 @@ final class MobileRPCClientLifecycleGate: Sendable {
     private func startTransportDisposal(
         _ transport: any CmxByteTransport,
         state: inout State
-    ) {
+    ) -> Task<Void, Never> {
         let disposalID = state.nextDisposalID
         state.nextDisposalID &+= 1
         // The handle is installed before this critical region is released. A
         // fast close can only report completion after that installation, so no
         // finished task can remain orphaned in the registry.
-        state.transportDisposals[disposalID] = Task { [weak self] in
+        let task = Task { [weak self] in
             await transport.close()
             self?.finishTransportDisposal(disposalID)
         }
+        state.transportDisposals[disposalID] = task
+        return task
     }
 
     private func finishTransportDisposal(_ disposalID: UInt64) {

@@ -126,7 +126,7 @@ extension TerminalController {
             return .ok(["sessions": []])
         }
         let workspace = resolved.workspace
-        let terminalSurfaceIDs = Set(workspace.panels.compactMap { panelID, panel in panel is TerminalPanel ? panelID : nil })
+        let terminalSurfaceIDs = Set(mobileTerminalPanels(in: workspace).map(\.id))
         // Workspace GUI pulls force a scoped scan and wait only to a local deadline.
         let observedBeforeListing = await service.observeAgentProcessesForListing(
             surfaceIDs: terminalSurfaceIDs,
@@ -145,7 +145,7 @@ extension TerminalController {
         for record in service.sessionRecords(workspaceID: nil) {
             guard let surfaceID = record.surfaceID,
                   let surfaceUUID = UUID(uuidString: surfaceID),
-                  workspace.terminalPanel(for: surfaceUUID) != nil else {
+                  workspace.terminalInputTarget(forPanelID: surfaceUUID) != nil else {
                 #if DEBUG
                 dropNotInWorkspace += 1
                 #endif
@@ -420,7 +420,7 @@ extension TerminalController {
         let params: [String: Any] = ["workspace_id": workspaceID, "surface_id": surfaceID]
         guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
               let surfaceId = resolved.surfaceId,
-              resolved.workspace.terminalPanel(for: surfaceId) != nil else {
+              resolved.workspace.terminalInputTarget(forPanelID: surfaceId) != nil else {
             return false
         }
         return true
@@ -445,7 +445,7 @@ extension TerminalController {
                   requireTerminal: true
               ),
               let surfaceId = resolved.surfaceId,
-              resolved.workspace.terminalPanel(for: surfaceId) != nil else {
+              resolved.workspace.terminalInputTarget(forPanelID: surfaceId) != nil else {
             return false
         }
         return mobileChatRecordMatchesAgent(record: record)
@@ -479,7 +479,7 @@ extension TerminalController {
             #endif
             return nil
         }
-        return resolved.workspace.terminalPanel(for: surfaceId)
+        return resolved.workspace.terminalInputTarget(forPanelID: surfaceId)?.panel
     }
 
 }

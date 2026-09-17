@@ -111,6 +111,47 @@ enum AuthEnvironment {
         resolvedAppWebOrigin(environment: ProcessInfo.processInfo.environment)
     }
 
+    /// Credential-bearing native-to-web handoffs are pinned to cmux.com in
+    /// release builds. Debug builds may additionally use an exact loopback
+    /// origin so tagged local web servers can participate without making an
+    /// arbitrary launch environment variable a token destination.
+    static var appSessionHandoffOrigin: URL {
+        #if DEBUG
+        let isDebugBuild = true
+        #else
+        let isDebugBuild = false
+        #endif
+        return resolvedAppSessionHandoffOrigin(
+            environment: ProcessInfo.processInfo.environment,
+            isDebugBuild: isDebugBuild
+        )
+    }
+
+    static func resolvedAppSessionHandoffOrigin(
+        environment: [String: String],
+        isDebugBuild: Bool
+    ) -> URL {
+        let productionOrigin = URL(string: "https://cmux.com")!
+        guard isDebugBuild else { return productionOrigin }
+
+        let candidate = canonicalizedLoopbackURL(appWebOrigin(environment: environment))
+        if candidate == productionOrigin { return productionOrigin }
+        guard let components = URLComponents(
+            url: candidate,
+            resolvingAgainstBaseURL: false
+        ),
+              components.scheme == "http" || components.scheme == "https",
+              components.host?.lowercased() == "localhost",
+              components.user == nil,
+              components.password == nil,
+              components.path.isEmpty || components.path == "/",
+              components.query == nil,
+              components.fragment == nil else {
+            return productionOrigin
+        }
+        return candidate
+    }
+
     static func resolvedAppWebOrigin(environment: [String: String]) -> URL {
         appWebOrigin(environment: environment)
     }

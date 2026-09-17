@@ -21,6 +21,7 @@ extension AgentHibernationTranscriptGuard {
         clock: ContinuousClock = ContinuousClock(),
         fileManager: FileManager = .default,
         snapshotDisposal: PostTeardownSnapshotDisposal = .deleteWhenSafe,
+        awaitProcessExit: (@Sendable () async -> Bool)? = nil,
         shouldContinue: @Sendable () async -> Bool = { true },
         shouldRestoreOnCancellation: @Sendable () async -> Bool = { true }
     ) async {
@@ -66,7 +67,16 @@ extension AgentHibernationTranscriptGuard {
             }
         }
 
-        if !processIDs.isEmpty {
+        if let awaitProcessExit {
+            let didExit = await awaitProcessExit()
+            if Task.isCancelled {
+                await restoreBeforeStoppedReturn()
+                return
+            }
+            if didExit {
+                if await stopIfNoLongerCurrent() { return }
+            }
+        } else if !processIDs.isEmpty {
             let deadline = clock.now.advanced(by: .seconds(30))
             while clock.now < deadline {
                 let anyAlive = processIDs.contains { pid in

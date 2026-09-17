@@ -373,6 +373,87 @@ printf 'real claude reached %s\\n' "$*"
             failures.append(f"guard fired for finite shim chain: {combined_output!r}")
 
 
+def test_app_owned_resume_keeps_authorization_across_finite_shim_reentry(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-restore-shim-chain-") as td:
+        root = Path(td)
+        cmux_shim_dir = root / "tmp" / "cmux-cli-shims" / "surface-restore"
+        foreign_shim_dir = root / "foreign-shim"
+        real_dir = root / "real-bin"
+        for directory in (cmux_shim_dir, foreign_shim_dir, real_dir):
+            directory.mkdir(parents=True, exist_ok=True)
+
+        cmux_shim = cmux_shim_dir / "claude"
+        shutil.copy2(WRAPPER, cmux_shim)
+        cmux_shim.chmod(0o755)
+        write_executable(
+            foreign_shim_dir / "claude",
+            f"""#!/usr/bin/env bash
+export PATH="{cmux_shim_dir}:{real_dir}:/usr/bin:/bin"
+exec claude "$@"
+""",
+        )
+        write_executable(
+            cmux_shim_dir / "cmux",
+            """#!/usr/bin/env bash
+if [[ "${1:-}" == "--socket" ]]; then
+  shift 2
+fi
+[[ "${1:-}" == "ping" ]] && exit 1
+exit 0
+""",
+        )
+        environment_log = root / "real-env.log"
+        arguments_log = root / "real-args.log"
+        write_executable(
+            real_dir / "claude",
+            """#!/usr/bin/env bash
+printf 'restore=%s\n' "${CMUX_AGENT_RESTORE_LAUNCH-__UNSET__}" > "$FAKE_REAL_ENV_LOG"
+printf 'surface=%s\n' "${CMUX_SURFACE_ID-__UNSET__}" >> "$FAKE_REAL_ENV_LOG"
+printf '%s\n' "$@" > "$FAKE_REAL_ARGS_LOG"
+""",
+        )
+
+        session_id = "5b5d0816-ef91-4a8d-8933-68a114787c40"
+        socket_path = root / "stale.sock"
+        stale_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        stale_socket.bind(str(socket_path))
+        env = {
+            "HOME": str(root / "home"),
+            "PATH": f"{cmux_shim_dir}:{foreign_shim_dir}:{real_dir}:/usr/bin:/bin",
+            "CMUX_CLAUDE_WRAPPER_SHIM": str(cmux_shim),
+            "CMUX_CLAUDE_WRAPPER_SHIM_ROOT": str(cmux_shim_dir),
+            "CMUX_AGENT_RESTORE_LAUNCH": f"claude:{session_id}",
+            "CMUX_SOCKET_PATH": str(socket_path),
+            "CMUX_SURFACE_ID": "surface:restore-test",
+            "FAKE_REAL_ENV_LOG": str(environment_log),
+            "FAKE_REAL_ARGS_LOG": str(arguments_log),
+        }
+        try:
+            result = subprocess.run(
+                [str(cmux_shim), "--resume", session_id],
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+        finally:
+            stale_socket.close()
+
+        combined_output = result.stdout + result.stderr
+        if result.returncode != 0:
+            failures.append(f"app-owned finite shim resume failed with {result.returncode}: {combined_output!r}")
+            return
+        observed_env = dict(line.split("=", 1) for line in environment_log.read_text().splitlines())
+        observed_args = arguments_log.read_text().splitlines()
+        if observed_env.get("restore") != "__UNSET__":
+            failures.append(f"restore marker leaked through finite shim chain: {observed_env!r}")
+        if observed_env.get("surface") != "surface:restore-test":
+            failures.append(f"finite shim chain lost cmux surface authorization: {observed_env!r}")
+        if "--settings" not in observed_args or observed_args[-2:] != ["--resume", session_id]:
+            failures.append(f"finite shim chain lost hook settings or resume argv: {observed_args!r}")
+
+
 def test_passthrough_real_node_claude_does_not_receive_guard_env(failures: list[str]) -> None:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-passthrough-guard-env-") as td:
         root = Path(td)
@@ -876,6 +957,7 @@ def main() -> int:
     test_wrapper_stops_indirect_shell_foreign_shim_loop(failures)
     test_wrapper_guard_allows_child_claude_process(failures)
     test_wrapper_allows_finite_layered_foreign_shims(failures)
+    test_app_owned_resume_keeps_authorization_across_finite_shim_reentry(failures)
     test_passthrough_real_node_claude_does_not_receive_guard_env(failures)
     test_custom_shim_path_with_colon_is_tracked_as_one_target(failures)
     test_real_shell_claude_launcher_allows_child_claude_process(failures)

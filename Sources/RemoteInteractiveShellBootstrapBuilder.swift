@@ -6,6 +6,7 @@ enum RemoteInteractiveShellBootstrapBuilder {
         remoteRelayPort: Int,
         shellFeatures: String,
         initialCommand: String? = nil,
+        configuredRemoteCommand: String? = nil,
         terminfoSource: String? = nil,
         bundledZshIntegration: String? = nil,
         bundledBashIntegration: String? = nil,
@@ -31,6 +32,19 @@ enum RemoteInteractiveShellBootstrapBuilder {
         bashShellLines.append(contentsOf: initialCommandBootstrap.posixInteractiveShellLines)
         let zshBootstrap = RemoteRelayZshBootstrap(shellStateDir: shellStateDir)
         let relayWarmupLines = relayWarmupLines(remoteRelayPort: remoteRelayPort)
+        // A captured/approved startup command is an explicit restore target;
+        // it takes precedence over the host's default interactive program.
+        // Launching the configured command with `-c` would bypass the shell
+        // hooks that atomically claim and execute the startup command.
+        let chainedRemoteCommand = terminalProfile.kind == .shell && !initialCommandBootstrap.hasCommand
+            ? configuredRemoteCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
+            : nil
+        let chainedRemoteCommandLaunch = chainedRemoteCommand.flatMap { command -> String? in
+            guard !command.isEmpty else { return nil }
+            // Match sshd's normal RemoteCommand execution through the account
+            // shell while retaining cmux's persistent-PTY hangup protection.
+            return "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"$CMUX_LOGIN_SHELL\" \"$CMUX_LOGIN_SHELL\" -c \(shellQuote(command))"
+        }
 
         var outerLines: [String] = [
             "mkdir -p \"$HOME/.cmux/relay\"",
@@ -95,7 +109,8 @@ enum RemoteInteractiveShellBootstrapBuilder {
             terminalLaunchLine(
                 profile: terminalProfile,
                 indentation: "    ",
-                directShellCommand: "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"$CMUX_LOGIN_SHELL\" \"$CMUX_LOGIN_SHELL\" -il",
+                directShellCommand: chainedRemoteCommandLaunch
+                    ?? "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"$CMUX_LOGIN_SHELL\" \"$CMUX_LOGIN_SHELL\" -il",
                 tmuxShellCommand: "export CMUX_REAL_ZDOTDIR=\"${CMUX_REAL_ZDOTDIR:-${ZDOTDIR:-$HOME}}\"; export ZDOTDIR=\"\(shellStateDir)\"; exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"${SHELL:-/bin/zsh}\" \"${SHELL:-/bin/zsh}\" -il"
             ),
             "    ;;",
@@ -121,7 +136,8 @@ enum RemoteInteractiveShellBootstrapBuilder {
             terminalLaunchLine(
                 profile: terminalProfile,
                 indentation: "    ",
-                directShellCommand: "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"$CMUX_LOGIN_SHELL\" \"$CMUX_LOGIN_SHELL\" --rcfile \"$cmux_shell_dir/.bashrc\" -i",
+                directShellCommand: chainedRemoteCommandLaunch
+                    ?? "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"$CMUX_LOGIN_SHELL\" \"$CMUX_LOGIN_SHELL\" --rcfile \"$cmux_shell_dir/.bashrc\" -i",
                 tmuxShellCommand: "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"${SHELL:-/bin/bash}\" \"${SHELL:-/bin/bash}\" --rcfile \"\(shellStateDir)/.bashrc\" -i"
             ),
             "    ;;",
@@ -139,7 +155,8 @@ enum RemoteInteractiveShellBootstrapBuilder {
             terminalLaunchLine(
                 profile: terminalProfile,
                 indentation: "    ",
-                directShellCommand: "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"$CMUX_LOGIN_SHELL\" \"$CMUX_LOGIN_SHELL\" -il --init-command \(fishInitCommand)",
+                directShellCommand: chainedRemoteCommandLaunch
+                    ?? "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"$CMUX_LOGIN_SHELL\" \"$CMUX_LOGIN_SHELL\" -il --init-command \(fishInitCommand)",
                 tmuxShellCommand: "export CMUX_FISH_INTEGRATION_FILE=\"\(shellStateDir)/fish/config.fish\"; export CMUX_FISH_USER_CONFIG_ALREADY_LOADED=1; exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"${SHELL:-/bin/fish}\" \"${SHELL:-/bin/fish}\" -il --init-command \(fishInitCommand)"
             ),
             "    ;;",
@@ -151,7 +168,8 @@ enum RemoteInteractiveShellBootstrapBuilder {
             terminalLaunchLine(
                 profile: terminalProfile,
                 indentation: "",
-                directShellCommand: "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"$CMUX_LOGIN_SHELL\" \"$CMUX_LOGIN_SHELL\" -i",
+                directShellCommand: chainedRemoteCommandLaunch
+                    ?? "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"$CMUX_LOGIN_SHELL\" \"$CMUX_LOGIN_SHELL\" -i",
                 tmuxShellCommand: "exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"${SHELL:-/bin/sh}\" \"${SHELL:-/bin/sh}\" -i"
             ),
             ";;",
@@ -245,7 +263,9 @@ enum RemoteInteractiveShellBootstrapBuilder {
             "case \"$cmux_workspace_id\" in \"\"|'__CMUX_''WORKSPACE_ID__') ;; *) export CMUX_WORKSPACE_ID=\"$cmux_workspace_id\"; export CMUX_TAB_ID=\"$cmux_workspace_id\" ;; esac",
             "cmux_surface_id='__CMUX_SURFACE_ID__'",
             "case \"$cmux_surface_id\" in \"\"|'__CMUX_''SURFACE_ID__') ;; *) export CMUX_SURFACE_ID=\"$cmux_surface_id\"; export CMUX_PANEL_ID=\"$cmux_surface_id\" ;; esac",
-            "unset cmux_workspace_id cmux_surface_id",
+            "cmux_terminal_lifecycle_id='__CMUX_TERMINAL_LIFECYCLE_ID__'",
+            "case \"$cmux_terminal_lifecycle_id\" in \"\"|'__CMUX_''TERMINAL_LIFECYCLE_ID__') ;; *) export CMUX_TERMINAL_LIFECYCLE_ID=\"$cmux_terminal_lifecycle_id\" ;; esac",
+            "unset cmux_workspace_id cmux_surface_id cmux_terminal_lifecycle_id",
             "hash -r >/dev/null 2>&1 || true",
             "rehash >/dev/null 2>&1 || true",
         ])

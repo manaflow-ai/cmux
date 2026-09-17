@@ -18,7 +18,7 @@ struct WorkspaceShellHost: View {
     /// True while the startup stored-Mac reconnect window is active. Drives the
     /// shell's initial-loading and timed-out inputs; never this host's identity.
     let isRestoringStoredMac: Bool
-    let signOut: () -> Void
+    let signOut: @MainActor @Sendable () -> Void
     let showAddDevice: (() -> Void)?
     let showPairingScanner: (() -> Void)?
     let reconnectStoredMac: () -> Void

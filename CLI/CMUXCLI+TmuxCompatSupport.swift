@@ -415,12 +415,4 @@ extension CMUXCLI {
         return ordered.joined(separator: ":")
     }
 
-    struct TmuxCompatFocusedContext {
-        let socketPath: String
-        let workspaceId: String
-        let windowId: String?
-        let paneHandle: String
-        let paneId: String?
-        let surfaceId: String?
-    }
 }

@@ -1,0 +1,489 @@
+import AppKit
+import Combine
+import Darwin
+import Foundation
+import PDFKit
+import Testing
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+@MainActor
+@Suite("File preview reloads")
+struct FilePreviewReloadTests {
+    @Test("A text preview reloads after its file changes on disk")
+    func textPreviewReloadsAfterFileChange() async throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-file-preview-reload-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let fileURL = directoryURL.appending(path: "live.txt")
+        let originalContent = "before\n"
+        let updatedContent = "after\n"
+        try originalContent.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: fileURL.path)
+        defer { panel.close() }
+        await panel.loadTextContent().value
+        #expect(panel.textContent == originalContent)
+
+        let (contentChanges, continuation) = AsyncStream.makeStream(of: String.self)
+        let observation = panel.$textContent.sink { continuation.yield($0) }
+        defer {
+            observation.cancel()
+            continuation.finish()
+        }
+
+        try updatedContent.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        #expect(await firstMatch(updatedContent, in: contentChanges))
+        #expect(panel.textContent == updatedContent)
+        #expect(!panel.isDirty)
+    }
+
+    @Test("Observed sibling changes do not reload a file preview")
+    func observedSiblingChangeDoesNotReloadPreview() async throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-file-preview-state-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let fileURL = directoryURL.appending(path: "preview.bin")
+        let siblingURL = directoryURL.appending(path: "sibling.bin")
+        try Data([0x00]).write(to: fileURL)
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: fileURL.path,
+            startFileWatcher: false
+        )
+        defer { panel.close() }
+        let initialRevision = panel.previewRevision
+
+        try Data([0x01]).write(to: siblingURL)
+        #expect(panel.handleObservedFileChange() == nil)
+        #expect(panel.previewRevision == initialRevision)
+
+        try Data([0x00, 0x02, 0x03]).write(to: fileURL)
+        let reloadTask = try #require(panel.handleObservedFileChange())
+        await reloadTask.value
+        #expect(panel.previewRevision == initialRevision + 1)
+    }
+
+    @Test("Metadata-only changes do not alter the preview content fingerprint")
+    func metadataChangesDoNotAlterFileState() throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-file-preview-metadata-\(UUID().uuidString).txt")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        try "unchanged\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let initialState = FilePreviewFileState.capture(path: fileURL.path)
+        var initialAttributes = stat()
+        #expect(stat(fileURL.path, &initialAttributes) == 0)
+        #expect(chmod(fileURL.path, 0o600) == 0)
+        var updatedAttributes = stat()
+        #expect(stat(fileURL.path, &updatedAttributes) == 0)
+        #expect(
+            initialAttributes.st_ctimespec.tv_sec != updatedAttributes.st_ctimespec.tv_sec
+                || initialAttributes.st_ctimespec.tv_nsec != updatedAttributes.st_ctimespec.tv_nsec
+        )
+
+        #expect(FilePreviewFileState.capture(path: fileURL.path) == initialState)
+    }
+
+    @Test("The manual refresh path reloads a text preview")
+    func manualRefreshReloadsTextPreview() async throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-file-preview-manual-\(UUID().uuidString).txt")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        try "before\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: fileURL.path,
+            startFileWatcher: false
+        )
+        defer { panel.close() }
+        await panel.loadTextContent().value
+
+        try "after\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        await panel.reloadFromDisk().value
+
+        #expect(panel.textContent == "after\n")
+        #expect(!panel.isDirty)
+    }
+
+    @Test("Refreshing a dirty text preview preserves unsaved edits")
+    func manualRefreshPreservesDirtyText() async throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-file-preview-dirty-\(UUID().uuidString).txt")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        try "on disk\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: fileURL.path,
+            startFileWatcher: false
+        )
+        defer { panel.close() }
+        await panel.loadTextContent().value
+        panel.updateTextContent("unsaved edits\n")
+
+        try "changed on disk\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        await panel.reloadFromDisk().value
+
+        #expect(panel.textContent == "unsaved edits\n")
+        #expect(panel.isDirty)
+    }
+
+    @Test("Rapid text reloads run only the active and latest request")
+    func rapidTextReloadsConflatePendingWork() async throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-file-preview-conflated-\(UUID().uuidString).txt")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        try "placeholder\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let loader = ControlledFilePreviewTextLoader()
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: fileURL.path,
+            startFileWatcher: false,
+            textLoader: { _ in await loader.load() }
+        )
+        defer { panel.close() }
+        await loader.waitForFirstStart()
+
+        let superseded = panel.loadTextContent()
+        let latest = panel.loadTextContent()
+        await loader.releaseAll()
+        await superseded.value
+        await latest.value
+
+        #expect(await loader.count == 2)
+        #expect(panel.textContent == "load 2")
+    }
+
+    @Test("Rapid file refreshes run only the active and latest mode resolution")
+    func rapidRefreshesConflateModeResolution() async throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-file-preview-mode-\(UUID().uuidString).bin")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        try Data([0x00]).write(to: fileURL)
+
+        let resolver = ControlledFilePreviewModeResolver()
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: fileURL.path,
+            startFileWatcher: false,
+            modeResolver: { _ in await resolver.resolve() }
+        )
+        defer { panel.close() }
+        await resolver.waitForFirstStart()
+
+        let superseded = panel.reloadFromDisk()
+        let latest = panel.reloadFromDisk()
+        await resolver.releaseAll()
+        await superseded.value
+        await latest.value
+
+        #expect(await resolver.count == 2)
+    }
+
+    @Test("Saving a text preview does not route its own write through file-change reload")
+    func saveUpdatesObservedFileState() async throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-file-preview-save-state-\(UUID().uuidString).txt")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        try "before\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: fileURL.path,
+            startFileWatcher: false
+        )
+        defer { panel.close() }
+        await panel.loadTextContent().value
+        panel.updateTextContent("after with a different size\n")
+
+        let save = try #require(panel.saveTextContent())
+        await save.value
+
+        #expect(panel.handleObservedFileChange() == nil)
+    }
+
+    @Test("An external edit during save is reconciled after the app write")
+    func externalEditDuringSaveIsReconciled() async throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-file-preview-save-race-\(UUID().uuidString).txt")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        try "before\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let saver = ControlledFilePreviewTextSaver()
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: fileURL.path,
+            startFileWatcher: false,
+            textSaver: { content, url, encoding in
+                await saver.save(content: content, to: url, encoding: encoding)
+            }
+        )
+        defer { panel.close() }
+        await panel.loadTextContent().value
+        panel.updateTextContent("saved by cmux\n")
+
+        let save = try #require(panel.saveTextContent())
+        await saver.waitForWrite()
+        try "formatted externally\n".write(to: fileURL, atomically: false, encoding: .utf8)
+        let routedReload = panel.handleObservedFileChange()
+        #expect(routedReload == nil)
+
+        await saver.release()
+        await save.value
+        if let routedReload {
+            await routedReload.value
+        }
+
+        #expect(panel.textContent == "formatted externally\n")
+        #expect(!panel.isDirty)
+    }
+
+    @Test("Markdown manual refresh rereads the file")
+    func markdownManualRefreshRereadsFile() throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-markdown-manual-\(UUID().uuidString).md")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        try "# Before\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let panel = MarkdownPanel(workspaceId: UUID(), filePath: fileURL.path)
+        defer { panel.close() }
+        try "# After\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        panel.reloadFromDisk()
+
+        #expect(panel.content == "# After\n")
+        #expect(!panel.isDirty)
+    }
+
+    @Test("A PDF reload preserves user-applied page rotation")
+    func pdfReloadPreservesUserRotations() async throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appending(path: "cmux-file-preview-pdf-rotation-\(UUID().uuidString).pdf")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let sourceDocument = PDFDocument()
+        let sourceImage = NSImage(size: NSSize(width: 100, height: 100))
+        sourceImage.lockFocus()
+        NSColor.white.setFill()
+        NSBezierPath(rect: NSRect(origin: .zero, size: sourceImage.size)).fill()
+        sourceImage.unlockFocus()
+        let sourcePage = try #require(PDFPage(image: sourceImage))
+        sourceDocument.insert(sourcePage, at: 0)
+        #expect(sourceDocument.write(to: fileURL))
+
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: fileURL.path,
+            startFileWatcher: false
+        )
+        defer { panel.close() }
+        let container = FilePreviewPDFContainerView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        defer { container.close() }
+        container.setPanel(panel)
+        let pdfView = try #require(Mirror(reflecting: container).descendant("pdfView") as? PDFView)
+
+        await waitForPDFDocumentReplacement(in: pdfView, replacing: nil) {
+            container.setURL(fileURL, revision: 0)
+        }
+        let originalDocument = try #require(pdfView.document)
+        let originalPage = try #require(originalDocument.page(at: 0))
+        let rotateRight = NSSelectorFromString("rotateRight")
+        #expect(container.responds(to: rotateRight))
+        _ = container.perform(rotateRight)
+        #expect(originalPage.rotation == 90)
+        let manualScale: CGFloat = 1.75
+        pdfView.autoScales = false
+        pdfView.scaleFactor = manualScale
+
+        await waitForPDFDocumentReplacement(in: pdfView, replacing: originalDocument) {
+            container.setURL(fileURL, revision: 1)
+        }
+
+        #expect(pdfView.document?.page(at: 0)?.rotation == 90)
+        #expect(!pdfView.autoScales)
+        #expect(abs(pdfView.scaleFactor - manualScale) < 0.001)
+    }
+
+    @Test("Latest preview load state keeps one active and one latest pending request")
+    func latestPreviewLoadStateConflatesPendingRequests() throws {
+        var state = FilePreviewLatestRequestState<String>()
+        let active = try #require(state.submit("active").start)
+
+        #expect(state.submit("superseded").start == nil)
+        let replacement = state.submit("latest")
+        #expect(replacement.start == nil)
+        #expect(replacement.superseded?.request == "superseded")
+        let activeCompletion = state.complete(id: active.id)
+
+        #expect(!activeCompletion.shouldDeliver)
+        let pending = try #require(activeCompletion.next)
+        #expect(pending.request == "latest")
+        let latestCompletion = state.complete(id: pending.id)
+        #expect(latestCompletion.shouldDeliver)
+        #expect(latestCompletion.next == nil)
+    }
+
+    @Test("Canceling preview load state retains its active slot until it drains")
+    func latestPreviewLoadStateCancelsPendingRequests() throws {
+        var state = FilePreviewLatestRequestState<String>()
+        let active = try #require(state.submit("active").start)
+        #expect(state.submit("pending").start == nil)
+
+        let cancellation = state.cancel()
+        #expect(cancellation.active?.request == "active")
+        #expect(cancellation.pending?.request == "pending")
+        let replacement = state.submit("replacement")
+        #expect(replacement.start == nil)
+        let canceledCompletion = state.complete(id: active.id)
+
+        #expect(canceledCompletion.matchedActive)
+        #expect(!canceledCompletion.shouldDeliver)
+        let replacementSubmission = try #require(canceledCompletion.next)
+
+        let replacementCompletion = state.complete(id: replacementSubmission.id)
+        #expect(replacementCompletion.matchedActive)
+        #expect(replacementCompletion.shouldDeliver)
+        #expect(replacementCompletion.next == nil)
+    }
+
+    private func waitForPDFDocumentReplacement(
+        in pdfView: PDFView,
+        replacing previousDocument: PDFDocument?,
+        perform action: () -> Void
+    ) async {
+        let notifications = NotificationCenter.default.notifications(
+            named: Notification.Name.PDFViewDocumentChanged,
+            object: pdfView
+        )
+        action()
+        if let document = pdfView.document, document !== previousDocument { return }
+        for await _ in notifications {
+            if let document = pdfView.document, document !== previousDocument { return }
+        }
+    }
+
+    private func firstMatch(_ expected: String, in changes: AsyncStream<String>) async -> Bool {
+        for await content in changes where content == expected {
+            return true
+        }
+        return false
+    }
+}
+
+private actor ControlledFilePreviewTextLoader {
+    private(set) var count = 0
+    private var isReleased = false
+    private var firstStartContinuation: CheckedContinuation<Void, Never>?
+    private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
+
+    func load() async -> FilePreviewTextLoader.Result {
+        count += 1
+        let invocation = count
+        if invocation == 1 {
+            firstStartContinuation?.resume()
+            firstStartContinuation = nil
+        }
+        if !isReleased {
+            await withCheckedContinuation { continuation in
+                releaseContinuations.append(continuation)
+            }
+        }
+        return .loaded(content: "load \(invocation)", encoding: .utf8)
+    }
+
+    func waitForFirstStart() async {
+        guard count == 0 else { return }
+        await withCheckedContinuation { continuation in
+            firstStartContinuation = continuation
+        }
+    }
+
+    func releaseAll() {
+        isReleased = true
+        let continuations = releaseContinuations
+        releaseContinuations.removeAll()
+        for continuation in continuations {
+            continuation.resume()
+        }
+    }
+}
+
+private actor ControlledFilePreviewModeResolver {
+    private(set) var count = 0
+    private var isReleased = false
+    private var firstStartContinuation: CheckedContinuation<Void, Never>?
+    private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
+
+    func resolve() async -> FilePreviewMode {
+        count += 1
+        if count == 1 {
+            firstStartContinuation?.resume()
+            firstStartContinuation = nil
+        }
+        if !isReleased {
+            await withCheckedContinuation { releaseContinuations.append($0) }
+        }
+        return .quickLook
+    }
+
+    func waitForFirstStart() async {
+        guard count == 0 else { return }
+        await withCheckedContinuation { firstStartContinuation = $0 }
+    }
+
+    func releaseAll() {
+        isReleased = true
+        let continuations = releaseContinuations
+        releaseContinuations.removeAll()
+        for continuation in continuations {
+            continuation.resume()
+        }
+    }
+}
+
+private actor ControlledFilePreviewTextSaver {
+    private var didWrite = false
+    private var writeContinuation: CheckedContinuation<Void, Never>?
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+    func save(
+        content: String,
+        to url: URL,
+        encoding: String.Encoding
+    ) async -> FilePreviewTextSaver.Result {
+        guard let data = content.data(using: encoding) else {
+            return .failed(fileExists: FileManager.default.fileExists(atPath: url.path))
+        }
+        do {
+            try data.write(to: url)
+        } catch {
+            return .failed(fileExists: FileManager.default.fileExists(atPath: url.path))
+        }
+        didWrite = true
+        writeContinuation?.resume()
+        writeContinuation = nil
+        await withCheckedContinuation { releaseContinuation = $0 }
+        return .saved
+    }
+
+    func waitForWrite() async {
+        guard !didWrite else { return }
+        await withCheckedContinuation { writeContinuation = $0 }
+    }
+
+    func release() {
+        releaseContinuation?.resume()
+        releaseContinuation = nil
+    }
+}

@@ -23,7 +23,7 @@ use cmux_remote::connection::ReconnectPolicy;
 use cmux_remote::crypto::ClientAuthMode;
 use cmux_remote::identity::{
     ClientIdentityStore, EnrollmentInvitation, EnrollmentRelayAccess, KnownDaemon, KnownDaemonAuth,
-    credential_free_route_hint, default_state_dir,
+    MAX_INVITATION_URI_BYTES, credential_free_route_hint, default_state_dir,
 };
 use cmux_remote::provider::{
     IrohPathMode, ProviderError, ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID, ROUTING_RELAY_URL,
@@ -61,8 +61,6 @@ const REMOTE_COMMANDS: &[&str] = &[
 
 const DEFAULT_STARTUP_TIMEOUT: Duration = Duration::from_secs(90);
 const ENROLLMENT_APPROVAL_TIMEOUT: Duration = Duration::from_secs(5 * 60);
-const MAX_INVITATION_URI_BYTES: usize = "cmux://enroll/".len() + 16 * 1024;
-
 pub fn is_remote_invocation(args: &[String]) -> bool {
     args.first().is_some_and(|argument| REMOTE_COMMANDS.contains(&argument.as_str()))
 }
@@ -1764,6 +1762,7 @@ fn run_remote_sidecar(args: &[String]) -> anyhow::Result<()> {
             admin_socket: None,
             direct_websocket: None,
             allow_insecure_non_loopback: false,
+            workspace_http: None,
             relays: Vec::new(),
             iroh: false,
             advertised_routes: Vec::new(),

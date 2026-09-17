@@ -98,7 +98,7 @@ struct PasteboardTextContentsTests {
     }
 }
 
-@Suite("Clipboard write capture")
+@Suite("Clipboard write capture", .serialized)
 struct ClipboardWriteCaptureTests {
     @Test func capturesStandardWriteWithoutTouchingPasteboard() {
         let service = TerminalPasteboardService()
@@ -107,6 +107,21 @@ struct ClipboardWriteCaptureTests {
             return true
         }
         #expect(captured == "captured-value")
+    }
+
+    @Test func mixedCapturePrefersPlainText() {
+        let service = TerminalPasteboardService()
+        let captured = service.captureNextStandardClipboardWrite {
+            service.writeRepresentations(
+                [
+                    .init(mimeType: "text/html", string: "<strong>captured</strong>"),
+                    .init(mimeType: "text/plain", string: "captured"),
+                ],
+                to: GHOSTTY_CLIPBOARD_STANDARD
+            )
+            return true
+        }
+        #expect(captured == "captured")
     }
 
     @Test func returnsNilWhenActionFails() {
@@ -122,6 +137,43 @@ struct ClipboardWriteCaptureTests {
         let board = service.pasteboard(for: GHOSTTY_CLIPBOARD_SELECTION)
         #expect(board?.string(forType: .string) == marker)
         #expect(service.hasString(for: GHOSTTY_CLIPBOARD_SELECTION))
+    }
+
+    @Test func mixedRepresentationsShareOnePasteboardItem() {
+        let service = TerminalPasteboardService()
+        let marker = "mixed-\(UUID().uuidString)"
+        let html = "<strong>\(marker)</strong>"
+
+        service.writeRepresentations(
+            [
+                .init(mimeType: "text/plain; charset=utf-8", string: marker),
+                .init(mimeType: "text/html", string: html),
+            ],
+            to: GHOSTTY_CLIPBOARD_SELECTION
+        )
+
+        let board = service.pasteboard(for: GHOSTTY_CLIPBOARD_SELECTION)
+        #expect(board?.pasteboardItems?.count == 1)
+        #expect(board?.string(forType: .string) == marker)
+        #expect(board?.string(forType: .html) == html)
+    }
+
+    @Test func duplicateMIMETypesPreserveFirstMappedRepresentation() {
+        let service = TerminalPasteboardService()
+
+        service.writeRepresentations(
+            [
+                .init(mimeType: "text/plain; charset=utf-8", string: "preferred plain"),
+                .init(mimeType: "text/plain", string: "later plain"),
+                .init(mimeType: "text/html", string: "<b>preferred html</b>"),
+                .init(mimeType: "text/html; charset=utf-8", string: "<i>later html</i>"),
+            ],
+            to: GHOSTTY_CLIPBOARD_SELECTION
+        )
+
+        let board = service.pasteboard(for: GHOSTTY_CLIPBOARD_SELECTION)
+        #expect(board?.string(forType: .string) == "preferred plain")
+        #expect(board?.string(forType: .html) == "<b>preferred html</b>")
     }
 }
 

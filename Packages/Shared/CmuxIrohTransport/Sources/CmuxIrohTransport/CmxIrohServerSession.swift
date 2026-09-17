@@ -267,6 +267,14 @@ public actor CmxIrohServerSession {
         explicitCloseFailure
     }
 
+    func closeAttribution() async -> CmxIrohConnectionCloseAttribution {
+        await connection.closeAttribution()
+    }
+
+    func observedPathEvents() async -> AsyncStream<CmxIrohConnectionPathEvent> {
+        await connection.observedPathEvents()
+    }
+
     private func closeConnection() async {
         guard !closed else { return }
         closed = true

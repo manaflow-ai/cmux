@@ -66,6 +66,36 @@ struct XcodeProjectAdapterTests {
     }
 
     @Test
+    func workspaceLoadFindsProjectsInsideFileSystemSynchronizedGroups() throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-synchronized-workspace-\(UUID().uuidString)")
+        let temporaryWorkspace = temporaryDirectory
+            .appendingPathComponent("Synchronized.xcworkspace")
+        try FileManager.default.createDirectory(
+            at: temporaryWorkspace,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let workspaceXML = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <Workspace version="1.0">
+          <FileSystemSynchronizedGroup location="container:">
+            <FileRef location="absolute:\(projectURL.path)"/>
+          </FileSystemSynchronizedGroup>
+        </Workspace>
+        """
+        try Data(workspaceXML.utf8).write(
+            to: temporaryWorkspace.appendingPathComponent("contents.xcworkspacedata")
+        )
+
+        let adapter = XcodeProjectAdapter()
+        let model = try adapter.load(at: temporaryWorkspace)
+        #expect(model.modules.count == 1)
+        #expect(model.modules.first?.displayName == projectURL.deletingPathExtension().lastPathComponent)
+    }
+
+    @Test
     func canLoadAcceptsXcodeprojDirectly() {
         let adapter = XcodeProjectAdapter()
         #expect(adapter.canLoad(projectURL))

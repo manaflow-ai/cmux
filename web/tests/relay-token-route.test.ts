@@ -60,6 +60,7 @@ function deps(overrides: Partial<RelayTokenDeps> = {}): RelayTokenDeps {
     checkRateLimit: async () => ({ rateLimited: false }),
     rateLimitRuleId: () => undefined,
     isVercel: () => false,
+    credentialSigningRequired: () => false,
     ...overrides,
   };
 }
@@ -162,6 +163,40 @@ describe("POST /api/relay/token", () => {
     expect(body.relays).toBeUndefined();
     expect(body.expiresAt).toBeUndefined();
     expect(body.ttlSeconds).toBeUndefined();
+  });
+
+  test("returns signed policy without private relay credentials in local development", async () => {
+    const response = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      deps({ signingKey: () => null }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      endpointId: ENDPOINT_ID,
+      policy: "signed.policy.value",
+      preference: {
+        mode: "managed",
+        selectedManagedRelayIds: ["managed-one"],
+        customRelays: [],
+      },
+      preferenceRevision: 3,
+    });
+  });
+
+  test("fails closed without the private relay signer in deployed runtimes", async () => {
+    const response = await handleRelayTokenRequest(
+      request({ endpointId: ENDPOINT_ID }),
+      deps({
+        signingKey: () => null,
+        credentialSigningRequired: () => true,
+      }),
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      error: "relay_token_not_configured",
+    });
   });
 
   test("preserves distinct URL-token associations without ambiguous legacy fields", async () => {

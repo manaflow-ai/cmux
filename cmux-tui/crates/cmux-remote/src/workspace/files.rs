@@ -1009,20 +1009,17 @@ impl RawEntryState {
     }
 
     fn is_regular(&self) -> bool {
-        self.mode & normalize_stat_value::<_, u32>(libc::S_IFMT)
-            == normalize_stat_value::<_, u32>(libc::S_IFREG)
+        file_type_bits(self.mode) == normalize_stat_value::<_, u32>(libc::S_IFREG)
     }
 
     fn is_symlink(&self) -> bool {
-        self.mode & normalize_stat_value::<_, u32>(libc::S_IFMT)
-            == normalize_stat_value::<_, u32>(libc::S_IFLNK)
+        file_type_bits(self.mode) == normalize_stat_value::<_, u32>(libc::S_IFLNK)
     }
 
     fn same_object(&self, other: &Self) -> bool {
         self.dev == other.dev
             && self.ino == other.ino
-            && self.mode & normalize_stat_value::<_, u32>(libc::S_IFMT)
-                == other.mode & normalize_stat_value::<_, u32>(libc::S_IFMT)
+            && file_type_bits(self.mode) == file_type_bits(other.mode)
     }
 
     fn matches_snapshot(&self, other: &Self) -> bool {
@@ -1031,6 +1028,11 @@ impl RawEntryState {
             && self.size == other.size
             && self.modified == other.modified
     }
+}
+
+#[cfg(unix)]
+fn file_type_bits(mode: u32) -> u32 {
+    mode & normalize_stat_value::<_, u32>(libc::S_IFMT)
 }
 
 #[cfg(unix)]

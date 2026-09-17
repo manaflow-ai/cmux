@@ -28,6 +28,20 @@ struct SimulatorFramebufferPortDiscoveryTests {
         #expect(metadata?.height == 12)
     }
 
+    @Test("Display metadata uses the device type's pixels-per-point scale")
+    func deviceTypeScale() async throws {
+        let fixture = SimulatorFramebufferPortFixture(mainScreenScale: 3)
+        var metadata: SimulatorDisplayMetadata?
+        let framebuffer = SimulatorFramebuffer(
+            onFrameTransportChange: { _ in },
+            onDisplayChange: { metadata = $0 }
+        )
+
+        try await framebuffer.start(device: fixture.device)
+
+        #expect(metadata?.scale == 3)
+    }
+
     @Test("Display identity may be published by callback registration")
     func callbackRegistrationPublishesDisplayIdentity() async throws {
         let fixture = SimulatorFramebufferPortFixture(

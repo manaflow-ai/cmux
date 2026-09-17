@@ -3,7 +3,8 @@ public import Foundation
 
 /// Generation-scoped accept loop with bounded, timed admission work.
 public actor CmxIrohEndpointServer {
-    private static let acceptRetryDelay: TimeInterval = 0.1
+    private static let initialAcceptRetryDelay: TimeInterval = 0.1
+    private static let maximumAcceptRetryDelay: TimeInterval = 5
 
     public typealias ConnectionHandler = @Sendable (
         _ connection: any CmxIrohConnection,
@@ -11,6 +12,9 @@ public actor CmxIrohEndpointServer {
         _ markAdmitted: @escaping AdmissionMarker
     ) async throws -> Void
     public typealias AdmissionMarker = @Sendable () async -> Bool
+    typealias EndpointRecovery = @Sendable (
+        _ expectedGeneration: UInt64
+    ) async throws -> CmxIrohEndpointSnapshot
 
     private struct PendingAdmission {
         let generation: UInt64
@@ -34,6 +38,7 @@ public actor CmxIrohEndpointServer {
     private let maximumConnectionsPerIdentity: Int
     private let admissionTimeout: TimeInterval
     private let clock: any CmxIrohRelayClock
+    private let recoverEndpoint: EndpointRecovery
     private let handler: ConnectionHandler
     private var eventTask: Task<Void, Never>?
     private var acceptTask: Task<Void, Never>?
@@ -51,6 +56,32 @@ public actor CmxIrohEndpointServer {
         clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock(),
         handler: @escaping ConnectionHandler
     ) {
+        self.init(
+            supervisor: supervisor,
+            maximumPendingAdmissions: maximumPendingAdmissions,
+            maximumPendingAdmissionsPerIdentity: maximumPendingAdmissionsPerIdentity,
+            maximumConnections: maximumConnections,
+            maximumConnectionsPerIdentity: maximumConnectionsPerIdentity,
+            admissionTimeout: admissionTimeout,
+            clock: clock,
+            recoverEndpoint: { _ in
+                try await supervisor.ensureHealthy()
+            },
+            handler: handler
+        )
+    }
+
+    init(
+        supervisor: CmxIrohEndpointSupervisor,
+        maximumPendingAdmissions: Int = 10,
+        maximumPendingAdmissionsPerIdentity: Int = 1,
+        maximumConnections: Int = 10,
+        maximumConnectionsPerIdentity: Int = 2,
+        admissionTimeout: TimeInterval = 15,
+        clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock(),
+        recoverEndpoint: @escaping EndpointRecovery,
+        handler: @escaping ConnectionHandler
+    ) {
         precondition(maximumPendingAdmissions > 0)
         precondition(maximumPendingAdmissionsPerIdentity > 0)
         precondition(maximumPendingAdmissionsPerIdentity <= maximumPendingAdmissions)
@@ -65,6 +96,7 @@ public actor CmxIrohEndpointServer {
         self.maximumConnectionsPerIdentity = maximumConnectionsPerIdentity
         self.admissionTimeout = admissionTimeout
         self.clock = clock
+        self.recoverEndpoint = recoverEndpoint
         self.handler = handler
     }
 
@@ -143,9 +175,11 @@ public actor CmxIrohEndpointServer {
         endpoint: any CmxIrohEndpoint,
         generation: UInt64
     ) async {
+        var consecutiveFailures = 0
         while !Task.isCancelled, currentGeneration == generation {
             do {
                 guard let connection = try await endpoint.accept() else { return }
+                consecutiveFailures = 0
                 guard currentGeneration == generation else {
                     await connection.close(errorCode: 1, reason: "stale_generation")
                     return
@@ -156,10 +190,16 @@ public actor CmxIrohEndpointServer {
             } catch {
                 guard currentGeneration == generation else { return }
                 do {
-                    let snapshot = try await supervisor.ensureHealthy()
+                    let snapshot = try await recoverEndpoint(generation)
                     guard snapshot.runtimeGeneration == generation else { return }
+                    let retryDelay = min(
+                        Self.initialAcceptRetryDelay
+                            * pow(2, Double(consecutiveFailures)),
+                        Self.maximumAcceptRetryDelay
+                    )
+                    consecutiveFailures = min(consecutiveFailures + 1, 20)
                     try await clock.sleep(
-                        until: clock.now().addingTimeInterval(Self.acceptRetryDelay)
+                        until: clock.now().addingTimeInterval(retryDelay)
                     )
                 } catch {
                     return

@@ -139,7 +139,9 @@ impl AdmissionStream {
     }
 
     fn record_activity(&mut self) {
-        self.idle_deadline = Some(Instant::now() + self.keepalive_timeout);
+        let idle_deadline = Instant::now() + self.keepalive_timeout;
+        self.idle_deadline = Some(idle_deadline);
+        self.deadline.as_mut().reset(idle_deadline);
     }
 
     fn poll_deadline(&mut self, context: &mut Context<'_>) -> Poll<io::Result<()>> {

@@ -2,6 +2,10 @@ import AppKit
 import Bonsplit
 
 extension DockSplitStore {
+    static func liveStore(containingPanel panelId: UUID) -> DockSplitStore? {
+        liveStores.first(where: { $0.containsPanel(panelId) })
+    }
+
     var focusedPanelId: UUID? {
         guard let paneId = bonsplitController.focusedPaneId,
               let tabId = bonsplitController.selectedTab(inPane: paneId)?.id else { return nil }
@@ -46,6 +50,22 @@ extension DockSplitStore {
         applyDockSelection(tabId: tabId, inPane: paneId)
     }
 
+    /// Applies the complete user-interaction focus transaction for a Dock panel.
+    /// Model selection and window-scoped shortcut intent move together so AppKit
+    /// focus cannot point at one panel while Dock selection points at another.
+    func focusPanelFromDockInteraction(_ panelId: UUID, window: NSWindow?) {
+        noteKeyboardFocusIntent(window: window)
+        focusPanel(panelId)
+    }
+
+    /// Resolves both workspace and per-window Docks through their shared live
+    /// registry before applying pointer focus. The terminal portal can outlive a
+    /// SwiftUI host callback briefly, so pointer activation cannot depend on that
+    /// callback to update the authoritative Dock selection.
+    static func focusPanelFromDockPointer(_ panelId: UUID, window: NSWindow?) {
+        liveStore(containingPanel: panelId)?.focusPanelFromDockInteraction(panelId, window: window)
+    }
+
     func triggerFocusFlash(panelId: UUID) {
         panels[panelId]?.triggerFlash(reason: .navigation)
     }
@@ -55,7 +75,8 @@ extension DockSplitStore {
     }
 
     func focusFirstControl() -> Bool {
-        guard let paneId = bonsplitController.allPaneIds.first else { return false }
+        guard let paneId = bonsplitController.focusedPaneId
+            ?? bonsplitController.allPaneIds.first else { return false }
         bonsplitController.focusPane(paneId)
         guard let tabId = bonsplitController.selectedTab(inPane: paneId)?.id,
               let panelId = surfaceIdToPanelId[tabId],
@@ -65,7 +86,11 @@ extension DockSplitStore {
     }
 
     func noteKeyboardFocusIntent(window: NSWindow?) {
-        AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: window)
+        guard let appDelegate = AppDelegate.shared else { return }
+        let ownerWindow = appDelegate.dockReferenceTabManager(for: self)
+            .flatMap { appDelegate.windowId(for: $0) }
+            .flatMap { appDelegate.mainWindow(for: $0) }
+        appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: ownerWindow ?? window)
     }
 
     func browserPanel(owning responder: NSResponder?, in window: NSWindow?) -> BrowserPanel? {

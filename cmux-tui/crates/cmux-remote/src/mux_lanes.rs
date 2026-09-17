@@ -94,6 +94,9 @@ pub(crate) fn classify_client_line(line: &[u8]) -> Lane {
     let Ok(value) = serde_json::from_slice::<Value>(line) else { return Lane::Control };
     match value.get("cmd").and_then(Value::as_str) {
         Some("attach-surface" | "read-screen" | "read-scrollback" | "vt-state") => Lane::Bulk,
+        Some("copy") if value.get("mode").and_then(Value::as_str) == Some("scrollback") => {
+            Lane::Bulk
+        }
         Some(
             "identify" | "ping" | "list-clients" | "list-workspaces" | "export-layout" | "wait-for"
             | "ids" | "list-agents" | "pane-neighbor" | "process-info" | "subscribe",
@@ -199,6 +202,10 @@ mod tests {
     #[test]
     fn large_snapshot_requests_use_bulk_lane() {
         assert_eq!(classify_client_line(br#"{"id":2,"cmd":"vt-state"}"#), Lane::Bulk);
+        assert_eq!(
+            classify_client_line(br#"{"id":2,"cmd":"copy","mode":"scrollback"}"#),
+            Lane::Bulk
+        );
         assert_eq!(classify_client_line(br#"{"id":3,"cmd":"list-workspaces"}"#), Lane::Control);
     }
 

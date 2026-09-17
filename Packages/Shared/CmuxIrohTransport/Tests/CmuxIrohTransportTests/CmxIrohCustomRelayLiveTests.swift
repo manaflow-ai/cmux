@@ -134,8 +134,12 @@ struct CmxIrohCustomRelayLiveTests {
         let broker = try CmxIrohTrustBrokerClient(
             baseURL: baseURL,
             tokenSource: CmxIrohBrokerTokenSource(
-                accessToken: { accessToken },
-                refreshToken: { refreshToken }
+                credentialPair: {
+                    CmxIrohBrokerCredentials(
+                        accessToken: accessToken,
+                        refreshToken: refreshToken
+                    )
+                }
             )
         )
         let runTag = "relay-live-\(UUID().uuidString.lowercased())"

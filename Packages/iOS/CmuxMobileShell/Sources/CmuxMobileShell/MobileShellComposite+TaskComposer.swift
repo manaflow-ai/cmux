@@ -77,6 +77,7 @@ extension MobileShellComposite {
             ].contains(code?.lowercased() ?? ""):
                 return .failure(.unsupported)
             case .requestTimedOut,
+                 .connectAttemptGated,
                  .rpcError("request_timeout", _):
                 return .failure(.timedOut)
             case .authorizationFailed,
@@ -89,6 +90,7 @@ extension MobileShellComposite {
                 return .failure(.cancelled)
             case .connectionClosed,
                  .transportWriteTimedOut,
+                 .routeCleanupBlocked,
                  .insecureManualRoute,
                  .attachTicketExpired:
                 return .failure(.unavailable)

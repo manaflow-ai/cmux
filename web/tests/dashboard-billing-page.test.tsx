@@ -3,6 +3,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { stripeCustomers, stripeSubscriptions } from "../db/schema";
 import enMessages from "../messages/en.json";
+import jaMessages from "../messages/ja.json";
+import { withAccountMutationLeaseSupport } from
+  "./helpers/account-mutation-db-mock";
 
 const dbClientModule = await import("../db/client");
 const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
@@ -64,7 +67,7 @@ mock.module("../app/lib/stack", () => ({
 mock.module("../db/client", () => ({
   createAwsRdsIamPool: realCreateAwsRdsIamPool,
   closeCloudDbForTests: realCloseCloudDbForTests,
-  cloudDb: () => ({
+  cloudDb: () => withAccountMutationLeaseSupport({
     select: () => ({
       from: (table: unknown) => ({
         where: () => selectableResult(table),
@@ -96,13 +99,35 @@ describe("dashboard billing page", () => {
     expect(html).toContain("Free");
     expect(html).toContain("You are currently on the Free plan.");
     expect(html).toContain("Upgrade when you need cloud agents or team billing.");
-    expect(html).toContain('href="/api/billing/checkout?plan=pro&amp;cmux_external_browser=1"');
-    expect(html).toContain('href="/api/billing/checkout?plan=team&amp;cmux_external_browser=1"');
+    expect(html).toContain(
+      'href="/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;interval=month"',
+    );
+    expect(html).toContain(
+      'href="/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;interval=month"',
+    );
     expect(html).toContain("Get Pro");
     expect(html).toContain("Get Teams");
     expect(html).toContain('href="/dashboard/testflight"');
     expect(html).toContain("Join the iOS beta");
+    expect(html).toContain("active personal Pro subscribers");
     expect(html).not.toContain("/api/billing/subscription");
+  });
+
+  test("renders annual Pro and Team pricing from the billing upsell", async () => {
+    const html = await renderBillingPage({ interval: "year" });
+
+    expect(html).toContain("$24");
+    expect(html).toContain("$28");
+    expect(html).toContain("per month billed yearly");
+    expect(html).toContain("per user per month billed yearly");
+    expect(html).toContain("Billed $288 annually · save 20%");
+    expect(html).toContain("Billed $336 annually · save 20%");
+    expect(html).toContain(
+      'href="/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;interval=year"',
+    );
+    expect(html).toContain(
+      'href="/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;interval=year"',
+    );
   });
 
   test("renders active Stripe Pro with cancel and portal actions", async () => {
@@ -117,6 +142,25 @@ describe("dashboard billing page", () => {
     expect(html).toContain("Cancel plan");
     expect(html).toContain('action="/api/billing/subscription"');
     expect(html).toContain('href="/api/billing/portal"');
+  });
+
+  test("labels new and grandfathered annual Stripe prices", async () => {
+    subscriptionRows = [
+      stripeSubscriptionRow({
+        cancelAtPeriodEnd: false,
+        lookupKey: "cmux-pro-yearly-288",
+      }),
+    ];
+    customerRows = [{ id: "cus_123" }];
+    expect(await renderBillingPage()).toContain("$288/year");
+
+    subscriptionRows = [
+      stripeSubscriptionRow({
+        cancelAtPeriodEnd: false,
+        lookupKey: "cmux-pro-yearly",
+      }),
+    ];
+    expect(await renderBillingPage()).toContain("$240/year");
   });
 
   test("renders pending cancellation with resume and end-date copy", async () => {
@@ -156,6 +200,68 @@ describe("dashboard billing page", () => {
     expect(html).toContain("$35/seat/month");
     expect(html).toContain('name="scope" value="team"');
     expect(html).toContain('href="/api/billing/portal?scope=team"');
+  });
+
+  test("labels annual Stripe Team subscriptions", async () => {
+    proUser.selectedTeam = { id: "team-pro", displayName: "Team Pro" };
+    subscriptionResults = [
+      [],
+      [],
+      [
+        stripeSubscriptionRow({
+          cancelAtPeriodEnd: false,
+          plan: "team",
+          scope: "team",
+          seats: 4,
+          lookupKey: "cmux-team-yearly-336",
+        }),
+      ],
+    ];
+    customerRows = [{ id: "cus_team" }];
+
+    expect(await renderBillingPage()).toContain("$336/seat/year");
+  });
+
+  test("uses the current Stripe price interval over stale checkout metadata", async () => {
+    proUser.selectedTeam = { id: "team-pro", displayName: "Team Pro" };
+    subscriptionResults = [
+      [],
+      [],
+      [
+        stripeSubscriptionRow({
+          cancelAtPeriodEnd: false,
+          plan: "team",
+          scope: "team",
+          seats: 4,
+          lookupKey: "cmux-team-monthly",
+          billingInterval: "year",
+        }),
+      ],
+    ];
+    customerRows = [{ id: "cus_team" }];
+
+    expect(await renderBillingPage()).toContain("$35/seat/month");
+
+    subscriptionResults = [
+      [],
+      [],
+      [
+        stripeSubscriptionRow({
+          cancelAtPeriodEnd: false,
+          plan: "team",
+          scope: "team",
+          seats: 4,
+          lookupKey: "operator-managed-annual-price",
+          recurringInterval: "year",
+        }),
+      ],
+    ];
+    expect(await renderBillingPage()).toContain("$336/seat/year");
+  });
+
+  test("localizes active annual Pro prices", () => {
+    expect(enMessages.dashboard.billing.pro.annualPrice).toBe("$288/year");
+    expect(jaMessages.dashboard.billing.pro.annualPrice).toBe("$288/年");
   });
 
   test("renders active Stripe Team for a paid team when no team is selected", async () => {
@@ -242,11 +348,17 @@ function stripeSubscriptionRow({
   plan = "pro",
   scope = "user",
   seats = null,
+  lookupKey = "cmux-pro-monthly",
+  billingInterval,
+  recurringInterval,
 }: {
   cancelAtPeriodEnd: boolean;
   plan?: string;
   scope?: string;
   seats?: number | null;
+  lookupKey?: string;
+  billingInterval?: "month" | "year";
+  recurringInterval?: "month" | "year";
 }) {
   return {
     id: "sub_123",
@@ -258,11 +370,13 @@ function stripeSubscriptionRow({
     currentPeriodEnd: new Date("2026-12-01T00:00:00Z"),
     cancelAtPeriodEnd,
     raw: {
+      metadata: billingInterval ? { billingInterval } : {},
       items: {
         data: [
           {
             price: {
-              lookup_key: "cmux-pro-monthly",
+              lookup_key: lookupKey,
+              recurring: recurringInterval ? { interval: recurringInterval } : undefined,
             },
           },
         ],

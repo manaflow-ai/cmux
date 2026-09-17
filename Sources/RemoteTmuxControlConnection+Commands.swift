@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import Foundation
 
 extension RemoteTmuxControlConnection {
@@ -62,6 +63,20 @@ extension RemoteTmuxControlConnection {
         newWindowCompletions[token] = completion
         guard sendInternal(command, kind: .newWindow(token)) else {
             newWindowCompletions.removeValue(forKey: token)?(nil)
+            return false
+        }
+        return true
+    }
+
+    /// Sends `split-window -P -F '#{pane_id}'` and returns the stable pane id
+    /// printed by that exact command block. Concurrent pane publications cannot
+    /// be mistaken for the locally-created pane.
+    @discardableResult
+    func sendNewPane(_ command: String, completion: @escaping (Int?) -> Void) -> Bool {
+        let token = UUID()
+        newPaneCompletions[token] = completion
+        guard sendInternal(command, kind: .newPane(token)) else {
+            newPaneCompletions.removeValue(forKey: token)?(nil)
             return false
         }
         return true
@@ -376,6 +391,13 @@ extension RemoteTmuxControlConnection {
         guard !data.isEmpty else { return true }
         let hex = Self.hexByteArguments(data)
         return sendInternal("send-keys -t %\(paneId) -H \(hex)", kind: .other)
+    }
+
+    /// Sends a physical named key and lets tmux encode it for the target pane's
+    /// advertised terminal and live input modes.
+    @discardableResult
+    func sendKey(paneId: Int, key: RemoteTmuxKeyName) -> Bool {
+        sendInternal("send-keys -t %\(paneId) \(key.value)", kind: .other)
     }
 
     nonisolated static func hexByteArguments(_ data: Data) -> String {

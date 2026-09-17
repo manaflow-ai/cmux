@@ -34,6 +34,7 @@ struct HostBrowserSignInFlowHarness {
         clock: (any Clock<Duration>)? = nil,
         openSucceeds: Bool = true,
         beginSignOut: @escaping @MainActor @Sendable () -> Void = {},
+        localSignOut: @escaping @MainActor @Sendable () async -> Void = {},
         onSignedOut: @escaping @Sendable (
             _ accessToken: String?,
             _ refreshToken: String?
@@ -68,6 +69,7 @@ struct HostBrowserSignInFlowHarness {
             browserAttemptTimeout: browserAttemptTimeout,
             slowSignInThreshold: slowSignInThreshold,
             beginSignOut: beginSignOut,
+            localSignOut: localSignOut,
             onSignedOut: onSignedOut
         )
         self.coordinator = coordinator

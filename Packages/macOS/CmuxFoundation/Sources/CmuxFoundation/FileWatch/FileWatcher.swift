@@ -38,8 +38,9 @@ private final class FileWatchDispatchSource: @unchecked Sendable {
 /// An optional leading-edge ``throttle`` coalesces a burst of events into a
 /// single yield, driven through the injectable ``FileWatchClock`` (see
 /// ``RecursivePathWatcher`` for the rationale and the deterministic test
-/// pattern). With no throttle, every coalesced `DispatchSource` batch yields one
-/// element.
+/// pattern). Both internal and public streams retain only the newest undelivered
+/// signal because events are invalidations rather than quantities. With no
+/// throttle, every coalesced `DispatchSource` batch offers one element.
 ///
 /// ```swift
 /// let watcher = FileWatcher(path: configPath, throttle: .milliseconds(300))
@@ -109,10 +110,14 @@ public actor FileWatcher {
         self.throttle = throttle
         self.clock = clock
         self.queue = DispatchQueue(label: "com.cmux.file-watcher", qos: .utility)
-        let (events, eventsContinuation) = AsyncStream<Void>.makeStream()
+        let (events, eventsContinuation) = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
         self.events = events
         self.continuation = eventsContinuation
-        let (rawEvents, rawContinuation) = AsyncStream<Void>.makeStream()
+        let (rawEvents, rawContinuation) = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
         self.rawContinuation = rawContinuation
 
         // Attach the sources synchronously so the watcher is already listening

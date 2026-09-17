@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxTerminalCore
 import Foundation
 
 /// Synchronous callback ingress: duplicate titles are rejected before an
@@ -8,13 +9,17 @@ import Foundation
 final class GhosttyTitleUpdateIngress {
     private let attachmentGeneration: AtomicUInt64Generation
     private let dispatcher: GhosttyTitleUpdateDispatcher
+    private let titleChurnFilter: TerminalTitleChurnFilter
     private let continuation: AsyncStream<GhosttyTitleUpdate>.Continuation
     private let consumerTask: Task<Void, Never>
     /// Ghostty serializes action callbacks for a view; no other context reads
     /// or writes this duplicate-rejection snapshot.
     private var lastSubmittedUpdate: GhosttyTitleUpdate?
 
-    init(center: NotificationCenter = .default) {
+    init(
+        center: NotificationCenter = .default,
+        titleChurnFilter: TerminalTitleChurnFilter = TerminalTitleChurnFilter()
+    ) {
         let attachmentGeneration = AtomicUInt64Generation()
         let dispatcher = GhosttyTitleUpdateDispatcher(
             attachmentGeneration: attachmentGeneration
@@ -44,6 +49,7 @@ final class GhosttyTitleUpdateIngress {
         )
         self.attachmentGeneration = attachmentGeneration
         self.dispatcher = dispatcher
+        self.titleChurnFilter = titleChurnFilter
         self.continuation = continuation
         consumerTask = Task {
             for await update in updates {
@@ -57,14 +63,18 @@ final class GhosttyTitleUpdateIngress {
         consumerTask.cancel()
     }
 
-    /// Returns false only when the update duplicates the callback-local
-    /// snapshot or the ingress has already terminated.
+    /// Returns false when normalization removes a label-less spinner frame,
+    /// when the update duplicates the callback-local snapshot, or when the
+    /// ingress has already terminated.
     @discardableResult
     func submit(tabId: UUID, surfaceId: UUID, sourceSurface: AnyObject, title: String) -> Bool {
+        guard let stableTitle = titleChurnFilter.stableTitle(for: title) else {
+            return false
+        }
         let update = GhosttyTitleUpdate(
             tabId: tabId,
             surfaceId: surfaceId,
-            title: title,
+            title: stableTitle,
             sourceSurfaceIdentifier: ObjectIdentifier(sourceSurface),
             attachmentGeneration: attachmentGeneration.loadRelaxed()
         )

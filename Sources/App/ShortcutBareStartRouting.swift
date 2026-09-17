@@ -15,7 +15,7 @@ enum KeyboardShortcutBareStartCache {
 
         let resolvedKeys = Set(
             KeyboardShortcutSettings.Action.allCases.compactMap { action -> String? in
-                guard action != .showHideAllWindows else { return nil }
+                guard !action.isSystemWideHotkey else { return nil }
                 guard !action.isBrowserContentShortcut else { return nil }
                 guard action.participatesInAppWideBareStartRouting else { return nil }
                 return KeyboardShortcutSettings.shortcut(for: action).bareShortcutStartKey
@@ -127,6 +127,34 @@ extension AppDelegate {
         return !configuredCmuxShortcutActions(for: configuredCmuxShortcutContext).contains {
             $0.shortcut?.bareShortcutStartKey == bareShortcutKey
         }
+    }
+
+    func matchGlobalSearchShortcut(
+        event: NSEvent,
+        normalizedFlags: NSEvent.ModifierFlags? = nil
+    ) -> Bool {
+        let shortcut = globalSearchShortcutForRouting()
+        guard let stroke = activeGlobalSearchStroke(for: shortcut),
+              stroke.modifierFlags
+                  == (normalizedFlags ?? ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)),
+              matchShortcutStroke(event: event, stroke: stroke) else {
+            return false
+        }
+        return globalSearchShortcutWhenClauseAllows(event: event)
+    }
+
+    /// Returns the foreground Search binding from the observer's authoritative snapshot.
+    func globalSearchShortcutForRouting() -> StoredShortcut {
+        KeyboardShortcutSettingsObserver.shared.globalSearchShortcut
+    }
+
+    private func activeGlobalSearchStroke(for shortcut: StoredShortcut) -> ShortcutStroke? {
+        guard !shortcut.isUnbound else { return nil }
+        if let activePrefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
+            guard shortcut.firstStroke == activePrefix else { return nil }
+            return shortcut.secondStroke
+        }
+        return shortcut.hasChord ? nil : shortcut.firstStroke
     }
 }
 

@@ -32,7 +32,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private let mediaCameraView = NSImageView()
     private let statusGlyphButton = SidebarRowTaskStatusGlyphButton()
     private let titleView = SidebarRowTextView(lines: 1)
-    private let renameField = SidebarRowInlineRenameField()
+    let renameField = SidebarRowInlineRenameField()
     private let trailingBadge = SidebarRowUnreadBadgeView()
     private var trailingSpinner: GPUSpinnerNSView?
     private let closeButton = SidebarHeaderGlyphButton()
@@ -65,7 +65,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private var contextMenuVisible = false
     private var contextMenuDidOpen: (() -> Void)?
     private var contextMenuDidClose: (() -> Void)?
-    private var isEditing = false
+    var isEditing = false
     private var pumpCancellables: [AnyCancellable] = []
     private var isPresentationActive = true
 

@@ -110,6 +110,11 @@ fn ssh_destination(endpoint: &url::Url) -> Result<(String, String), ProviderErro
     {
         return Err(ProviderError::Configuration("SSH username is not shell-safe".into()));
     }
+    if username.is_empty() && host.starts_with('-') {
+        return Err(ProviderError::Configuration(
+            "SSH host cannot start with '-' when no username is present".into(),
+        ));
+    }
     let destination = if username.is_empty() { host } else { format!("{username}@{host}") };
     let description = sanitized_route(endpoint);
     Ok((destination, description))

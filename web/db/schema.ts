@@ -176,6 +176,21 @@ export const accountAnalyticsForwardLeases = pgTable(
   ],
 );
 
+export const accountMutationLeases = pgTable(
+  "account_mutation_leases",
+  {
+    userIdHash: text("user_id_hash").primaryKey(),
+    operationId: uuid("operation_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("account_mutation_leases_expiry_idx").on(table.expiresAt),
+    index("account_mutation_leases_operation_idx").on(table.operationId),
+  ],
+);
+
 export const cloudVmLeases = pgTable(
   "cloud_vm_leases",
   {
@@ -434,6 +449,24 @@ export const stripeWebhookEvents = pgTable("stripe_webhook_events", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const proWelcomeFulfillments = pgTable(
+  "pro_welcome_fulfillments",
+  {
+    checkoutSessionId: text("checkout_session_id").primaryKey(),
+    stackUserId: text("stack_user_id").notNull(),
+    deliveryStartedAt: timestamp("delivery_started_at", { withTimezone: true }),
+    attemptLeaseExpiresAt: timestamp("attempt_lease_expires_at", {
+      withTimezone: true,
+    }),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("pro_welcome_fulfillments_stack_user_idx").on(table.stackUserId),
+  ],
+);
+
 export const billingEmailClaims = pgTable(
   "billing_email_claims",
   {
@@ -560,6 +593,7 @@ export const vaultCliAuthRequests = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     deviceCodeHash: text("device_code_hash").notNull(),
     userCode: text("user_code").notNull(),
+    client: text("client").notNull().default("cmux-vault"),
     status: text("status").notNull(),
     userId: text("user_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
@@ -569,6 +603,10 @@ export const vaultCliAuthRequests = pgTable(
     uniqueIndex("vault_cli_auth_requests_device_hash_unique").on(table.deviceCodeHash),
     index("vault_cli_auth_requests_expires_idx").on(table.expiresAt),
     index("vault_cli_auth_requests_user_code_idx").on(table.userCode),
+    check(
+      "vault_cli_auth_requests_client_check",
+      sql`${table.client} in ('cmux-vault', 'subrouter')`,
+    ),
   ],
 );
 
@@ -696,11 +734,13 @@ export const irohAccountSecurityStates = pgTable(
   {
     userId: text("user_id").primaryKey(),
     lanDiscoveryGeneration: integer("lan_discovery_generation").notNull().default(1),
+    routeRevision: bigint("route_revision", { mode: "number" }).notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     check("iroh_account_security_states_generation_check", sql`${table.lanDiscoveryGeneration} >= 1`),
+    check("iroh_account_security_states_route_revision_check", sql`${table.routeRevision} >= 0`),
   ],
 );
 
@@ -747,14 +787,22 @@ export const irohEndpointBindings = pgTable(
     uniqueIndex("iroh_endpoint_bindings_active_endpoint_unique")
       .on(table.endpointId)
       .where(sql`${table.revokedAt} is null`),
-    uniqueIndex("iroh_endpoint_bindings_active_app_instance_unique")
-      .on(table.appInstanceId)
+    // One active binding per (user, device, tag) slot. A reinstall, sign-out/in,
+    // or key rotation overwrites that slot in place instead of stacking a new row.
+    // Contract: deviceUuid MUST be stable across app reinstalls, or a reinstall
+    // mints a fresh slot and orphans the old row (it stays active, wasting a
+    // sanity-cap slot and lingering in discovery until it is revoked or expires).
+    // The DB cannot enforce this; the client owns it. iOS derives deviceUuid from
+    // a Keychain-backed identity (kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly)
+    // that survives reinstall, NOT a UserDefaults value that a reinstall clears.
+    uniqueIndex("iroh_endpoint_bindings_active_slot_unique")
+      .on(table.userId, table.deviceUuid, table.tag)
       .where(sql`${table.revokedAt} is null`),
     index("iroh_endpoint_bindings_user_active_idx")
       .on(table.userId, table.updatedAt)
       .where(sql`${table.revokedAt} is null`),
-    index("iroh_endpoint_bindings_user_device_active_idx")
-      .on(table.userId, table.deviceUuid)
+    index("iroh_endpoint_bindings_user_active_page_idx")
+      .on(table.userId, table.id)
       .where(sql`${table.revokedAt} is null`),
     index("iroh_endpoint_bindings_user_idx")
       .on(table.userId),

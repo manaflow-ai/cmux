@@ -10,7 +10,10 @@ func renderGridFrame(
     seq: UInt64,
     text: String,
     activeScreen: MobileTerminalRenderGridFrame.Screen = .primary,
-    full: Bool = true
+    full: Bool = true,
+    anchor: MobileTerminalRenderGridFrame.Anchor = .viewport,
+    historyRows: UInt64? = nil,
+    deltaBaseHistoryRows: UInt64? = nil
 ) throws -> MobileTerminalRenderGridFrame {
     try MobileTerminalRenderGridFrame(
         surfaceID: surfaceID,
@@ -26,6 +29,9 @@ func renderGridFrame(
                 text: text
             ),
         ],
-        activeScreen: activeScreen
+        activeScreen: activeScreen,
+        anchor: anchor,
+        historyRows: historyRows,
+        deltaBaseHistoryRows: deltaBaseHistoryRows
     )
 }

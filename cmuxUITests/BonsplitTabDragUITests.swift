@@ -10,7 +10,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         super.setUp()
         continueAfterFailure = false
 
-        let cleanup = XCUIApplication()
+        let cleanup = XCUIApplication.cmuxTestApplication()
         cleanup.terminate()
         _ = cleanup.wait(for: .notRunning, timeout: 2.0)
     }
@@ -878,7 +878,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         windowSize: String? = nil,
         actionButtonCount: Int? = nil
     ) -> (XCUIApplication, String) {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         let dataPath = "/tmp/cmux-ui-test-bonsplit-tab-drag-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: dataPath)
 
