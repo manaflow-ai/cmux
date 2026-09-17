@@ -2436,7 +2436,7 @@ public final class MobileIrohRuntimeComposition:
         return validatedBrokerBaseURL(apiBaseURL, allowsLoopback: allowsLoopback)
     }
 
-    private static func isOfficialReleaseBundle(_ bundleIdentifier: String?) -> Bool {
+    private nonisolated static func isOfficialReleaseBundle(_ bundleIdentifier: String?) -> Bool {
         guard let bundleIdentifier else { return false }
         return bundleIdentifier == "com.cmux.app"
             || bundleIdentifier == "com.cmuxterm.app.nightly"

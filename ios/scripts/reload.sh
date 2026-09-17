@@ -273,8 +273,9 @@ fi
 cmux_ios_require_production_origin() {
   local label="$1"
   local value="$2"
-  if [[ -n "$value" && "$value" != "https://cmux.com" ]]; then
-    echo "error: --prod-auth cannot use $label '$value'; production builds must use https://cmux.com" >&2
+  local expected_origin="${3:-https://cmux.com}"
+  if [[ -n "$value" && "$value" != "$expected_origin" ]]; then
+    echo "error: --prod-auth cannot use $label '$value'; production builds must use $expected_origin" >&2
     return 1
   fi
 }
@@ -322,7 +323,7 @@ cmux_ios_resolve_iroh_broker_base_url() {
 }
 
 if [[ "$PROD_AUTH" -eq 1 ]]; then
-  cmux_ios_require_production_origin "the presence origin" "${CMUX_PRESENCE_BASE_URL:-}" || exit 1
+  cmux_ios_require_production_origin "the presence origin" "${CMUX_PRESENCE_BASE_URL:-}" "https://presence.cmux.dev" || exit 1
   CMUX_PRESENCE_BASE_URL="https://presence.cmux.dev"
   export CMUX_PRESENCE_BASE_URL
 fi
