@@ -62,6 +62,7 @@ extension CMUXCLI {
                 )
             )
         }
+        CLIChildLaunchSignalDiagnostics.log(context: "restore.invocation", target: executable)
         let executionError = withCStringArray(invocation.arguments) { argv in
             withEnvironmentCStringArray(invocationEnvironment) { environment in
                 executable.withCString {
@@ -104,6 +105,7 @@ extension CMUXCLI {
     ) throws {
         let shell = restoreCompatibilityShell(environment: environment)
         let arguments = [shell, "-lc", command]
+        CLIChildLaunchSignalDiagnostics.log(context: "restore.legacy-shell", target: shell)
         let executionError = withCStringArray(arguments) { argv in
             withEnvironmentCStringArray(environment) { childEnvironment in
                 shell.withCString {

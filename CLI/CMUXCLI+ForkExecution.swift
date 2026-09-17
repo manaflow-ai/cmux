@@ -186,6 +186,7 @@ extension CMUXCLI {
                 detail: invocation.arguments.first ?? "none"
             )
         }
+        CLIChildLaunchSignalDiagnostics.log(context: "fork.invocation", target: executable)
         let executionError = withCStringArray(invocation.arguments) { argv in
             withEnvironmentCStringArray(invocationEnvironment) { environment in
                 executable.withCString {
@@ -218,6 +219,7 @@ extension CMUXCLI {
         client.close()
         let shell = forkCompatibilityShell(environment: legacyEnvironment)
         let arguments = [shell, "-lc", command]
+        CLIChildLaunchSignalDiagnostics.log(context: "fork.legacy-shell", target: shell)
         let executionError = withCStringArray(arguments) { argv in
             withEnvironmentCStringArray(legacyEnvironment) { childEnvironment in
                 shell.withCString {

@@ -118,8 +118,13 @@ func cliRunProcess(_ process: Process) throws {
     try process.run()
 }
 
-func cliExecFailureErrno(_ body: () -> Void) -> Int32 {
+func cliExecFailureErrno(
+    context: String = "cli.exec",
+    target: String = "",
+    _ body: () -> Void
+) -> Int32 {
     withCLIDefaultSIGPIPEForChildLaunch {
+        CLIChildLaunchSignalDiagnostics.log(context: context, target: target)
         body()
         return errno
     }
