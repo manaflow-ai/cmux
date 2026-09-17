@@ -15,49 +15,6 @@ import Foundation
 /// app socket. After the first enrollment the device key and private route are
 /// local facts. Later attaches make no connection or approval request.
 extension CMUXCLI {
-    /// A newly-created VM announces its id before its private cmux-tui route is
-    /// ready. Retry only the structured, pre-operation readiness errors. This
-    /// keeps one workspace and one seeded terminal identity, and never retries
-    /// an unknown-result mutation.
-    private func sendCloudOpenRequest(
-        method: String,
-        params: [String: Any] = [:],
-        responseTimeout: TimeInterval,
-        client: SocketClient
-    ) throws -> [String: Any] {
-        let deadline = Date().addingTimeInterval(90)
-        var delay = 0.25
-        var attempt = 0
-        while true {
-            do {
-                return try client.sendV2(
-                    method: method,
-                    params: params,
-                    responseTimeout: responseTimeout,
-                    deadline: deadline
-                )
-            } catch let error as CLIError where Self.shouldRetryCloudOpen(error) && Date() < deadline {
-                attempt += 1
-                cliWriteStderr("cmux vm: waiting for the Cloud machine to finish starting (attempt \(attempt))…\n")
-                Thread.sleep(forTimeInterval: min(delay, max(0, deadline.timeIntervalSinceNow)))
-                delay = min(delay * 2, 8)
-            }
-        }
-    }
-
-    private static func shouldRetryCloudOpen(_ error: CLIError) -> Bool {
-        if error.v2Retryable || error.v2Code == "not_ready" {
-            return true
-        }
-        switch error.vmBackendCode {
-        case "vm_create_in_progress", "vm_starting", "vm_not_ready", "vm_attach_not_ready",
-             "vm_cloud_service_unavailable", "vm_cloud_state_unavailable", "vm_billing_unavailable":
-            return true
-        default:
-            return false
-        }
-    }
-
     struct VMTuiConnectConfig: Codable {
         let vmId: String
         let route: String
@@ -363,12 +320,7 @@ extension CMUXCLI {
         if let capabilities = clientProbe?.capabilities, !capabilities.isEmpty {
             infoParams["client_capabilities"] = capabilities
         }
-        let info = try sendCloudOpenRequest(
-            method: "vm.cmux_remote_info",
-            params: infoParams,
-            responseTimeout: 16 * 60,
-            client: client
-        )
+        let info = try client.sendV2(method: "vm.cmux_remote_info", params: infoParams, responseTimeout: 16 * 60)
         guard let route = info["route"] as? String, !route.isEmpty else {
             throw CLIError(message: "vm.cmux_remote_info returned no route")
         }
@@ -391,15 +343,11 @@ extension CMUXCLI {
         // new one must serve the trusted listener, which the app has just proven.
         let trustedCarrier = (info["trusted_carrier"] as? Bool) ?? false
         if known == nil {
-                guard trustedCarrier else {
-                throw CLIError(
-                    message: String(
-                        localized: "cli.vm.tui.trustedListenerPending",
-                        defaultValue: "The Cloud machine is still preparing remote access. Try again shortly."
-                    ),
-                    v2Code: "vm_attach_not_ready",
-                    v2Retryable: true
-                )
+            guard trustedCarrier else {
+                throw CLIError(message: String(
+                    localized: "cli.vm.tui.trustedListenerPending",
+                    defaultValue: "The Cloud machine is still preparing remote access. Try again shortly."
+                ))
             }
             // Later opens reuse the private route with no control-plane call.
             Self.saveVMTuiDevice(vmId: vmId, deviceFingerprint: Self.carrierDeviceMarker)
@@ -509,23 +457,13 @@ extension CMUXCLI {
             // create sessions; opening or reconnecting the machine does not.
             let terminalStartedAt = Date()
             do {
-                let catalog = try sendCloudOpenRequest(
-                    method: "surface.catalog",
-                    params: ["machine": vmId, "refresh": true],
-                    responseTimeout: 180,
-                    client: client
-                )
+                let catalog = try client.sendV2(method: "surface.catalog", params: ["machine": vmId, "refresh": true], responseTimeout: 180)
                 let opened: [String: Any]
                 switch VMRemoteWorkspaceResolver().resolveVMMachineTerminal(machine: vmId, catalog: catalog) {
                 case .resolved(let remoteWorkspaceID, let terminalID, let tabID):
                     var params: [String: Any] = ["resource": "\(vmId)/terminal/\(terminalID)", "workspace_id": workspaceId, "remote_workspace_id": remoteWorkspaceID, "focus": paneFocus, "reuse": false]
                     if let tabID { params["remote_tab_id"] = tabID }
-                    var projected = try sendCloudOpenRequest(
-                        method: "surface.project",
-                        params: params,
-                        responseTimeout: 180,
-                        client: client
-                    )
+                    var projected = try client.sendV2(method: "surface.project", params: params, responseTimeout: 180)
                     projected["terminal_id"] = terminalID
                     projected["remote_workspace_id"] = remoteWorkspaceID
                     opened = projected

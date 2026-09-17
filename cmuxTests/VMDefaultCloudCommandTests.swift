@@ -83,7 +83,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let workspaceID = "11111111-1111-1111-1111-111111111111"
         let workspaceRef = "workspace:sshd"
         let windowID = "22222222-2222-2222-2222-222222222222"
-        var catalogCalls = 0
 
         defer {
             Darwin.close(listenerFD)
@@ -150,18 +149,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             case "surface.catalog":
                 let params = payload["params"] as? [String: Any] ?? [:]
                 XCTAssertEqual(params["machine"] as? String, vmID)
-                catalogCalls += 1
-                if catalogCalls == 1 {
-                    return self.v2Response(
-                        id: id,
-                        ok: false,
-                        error: [
-                            "code": "not_ready",
-                            "message": "The Cloud machine is still preparing remote access. Try again shortly.",
-                            "data": ["retryable": true],
-                        ]
-                    )
-                }
                 return self.v2Response(id: id, ok: true, result: [
                     "machines": [[
                         "id": vmID, "link_state": "connected",
