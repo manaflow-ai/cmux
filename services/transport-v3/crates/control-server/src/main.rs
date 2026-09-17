@@ -61,6 +61,8 @@ async fn main() -> Result<()> {
         stack: Arc::new(stack),
         signer,
         audience,
+        relay_operator_team: std::env::var("CMUX_V3_RELAY_OPERATOR_TEAM")
+            .context("CMUX_V3_RELAY_OPERATOR_TEAM required")?,
     };
     let listener = tokio::net::TcpListener::bind(
         std::env::var("CMUX_V3_CONTROL_HTTP").unwrap_or_else(|_| "127.0.0.1:8081".into()),

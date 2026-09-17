@@ -21,6 +21,8 @@ pub struct Service {
     pub stack: Arc<auth::Stack>,
     pub signer: Arc<GrantSigner>,
     pub audience: String,
+    /// Only administrators of this operator team may register shared relays.
+    pub relay_operator_team: String,
 }
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -367,6 +369,9 @@ async fn register_relay(
     headers: HeaderMap,
     Json(input): Json<RelayRegistration>,
 ) -> Result<Json<serde_json::Value>, Error> {
+    if input.team != s.relay_operator_team {
+        return Err(Error::Denied);
+    }
     let identity = s
         .stack
         .authorize(token(&headers)?, &input.team, true)
