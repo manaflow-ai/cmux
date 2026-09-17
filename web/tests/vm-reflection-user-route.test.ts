@@ -44,6 +44,7 @@ const OTHER_OWNER_ID = "33333333-2222-4333-8444-555555555555";
 function row(overrides: Partial<VmPrincipalRow> & { id: string }): VmPrincipalRow {
   return {
     userId: "user-1",
+    ownerTeamId: overrides.ownerTeamId ?? overrides.billingTeamId ?? "team-1",
     billingTeamId: "team-1",
     billingPlanId: "pro",
     provider: "freestyle",

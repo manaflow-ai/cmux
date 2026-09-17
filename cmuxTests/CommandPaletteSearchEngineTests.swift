@@ -362,8 +362,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         let mobileConnect = FixtureEntry(
             id: "palette.mobileConnect",
             rank: 0,
-            title: "Open Tailscale Pairing",
-            searchableTexts: ["Open Tailscale Pairing", "Tailscale"]
+            title: "Open Mobile Pairing",
+            searchableTexts: ["Open Mobile Pairing", "Mobile"]
                 + ContentView.commandPaletteMobileConnectKeywords
         )
         // Dense, realistic decoy corpus so the assertion exercises ranking, not a
@@ -378,11 +378,11 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         }
         let corpus = [mobileConnect] + decoys
 
-        for query in ["ios", "ipados", "iphone", "ipad", "pair", "mobile", "phone", "connect", "tailscale"] {
+        for query in ["ios", "ipados", "iphone", "ipad", "pair", "mobile", "phone", "connect", "tailscale", "iroh"] {
             XCTAssertEqual(
                 optimizedResults(entries: corpus, query: query).first?.id,
                 "palette.mobileConnect",
-                "Expected Open Tailscale Pairing to be the top command palette result for query \"\(query)\""
+                "Expected Open Mobile Pairing to be the top command palette result for query \"\(query)\""
             )
         }
     }

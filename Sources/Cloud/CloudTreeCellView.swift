@@ -14,7 +14,6 @@ final class CloudTreeCellView: NSTableCellView {
     private var buttonsLeadingConstraint: NSLayoutConstraint?
     private var buttonsTopConstraint: NSLayoutConstraint?
     private var buttonsCenterConstraint: NSLayoutConstraint?
-    private var trackingArea: NSTrackingArea?
     private var hovered = false {
         didSet { buttonsHost?.alphaValue = hovered ? 1 : 0 }
     }
@@ -24,8 +23,8 @@ final class CloudTreeCellView: NSTableCellView {
         identifier = Self.identifier
         displayHost.translatesAutoresizingMaskIntoConstraints = false
         addSubview(displayHost)
-        // The outline's `frameOfCell` already shifted this cell 2pt past the 16pt
-        // disclosure slot; the remaining 4pt completes `CloudTreeRowGrid.disclosureGap`.
+        // The outline and host share the compact disclosure gap rather than
+        // independently adding padding before the attention and identity slots.
         // Content pads its own trailing edge (`CloudTreeRowGrid.trailingPadding`).
         NSLayoutConstraint.activate([
             displayHost.leadingAnchor.constraint(
@@ -48,6 +47,13 @@ final class CloudTreeCellView: NSTableCellView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    /// Rehosts one immutable tree snapshot and its optional row actions.
+    ///
+    /// - Parameters:
+    ///   - node: The row snapshot to display.
+    ///   - machineActions: Actions for machine and creation controls.
+    ///   - nodeActions: Actions for workspace and surface controls.
+    ///   - style: The visual preset for the row.
     func configure(
         node: CloudTreeNode,
         machineActions: MachineRowActions,
@@ -59,8 +65,10 @@ final class CloudTreeCellView: NSTableCellView {
             cmuxDebugLog("cloudTree.cell.configure unread terminal=\(row.resource.id.key.suffix(4)) node=\(node.id.suffix(12))")
         }
         #endif
+        displayHost.isHidden = false
         displayHost.rootView = AnyView(
-            CloudTreeRowContentView(kind: node.kind, style: style, isPinned: node.isPinned)
+            CloudTreeRowContentView(kind: node.kind, style: style)
+                .modifier(CloudSidebarRowDecoration(isPinned: node.isPinned, showsAttentionSlot: node.showsAttentionSlot, hasUnreadNotification: node.hasUnreadAttention))
                 .frame(maxWidth: .infinity, alignment: .leading)
         )
         // An in-place row reload reuses this cell; the new content can be wider
@@ -73,10 +81,10 @@ final class CloudTreeCellView: NSTableCellView {
             buttons.isHidden = false
             buttons.alphaValue = hovered ? 1 : 0
             buttonsLeadingConstraint?.isActive = true
-            // Two-line machine cards pin the buttons to the name line; every
-            // other row centers them vertically.
-            let pinToNameLine = node.isMachineRow && style.machineRowLayout == .twoLine
-            buttonsTopConstraint?.constant = style.machineVerticalPadding
+            // Keep hover buttons on the name line above the resource summary.
+            // Local and pending rows retain their preset alignment.
+            let pinToNameLine = node.isMachineRow && (style.machineRowLayout == .twoLine || node.structureTag == "machine")
+            buttonsTopConstraint?.constant = style.machineVerticalPadding + (style.machineBand ? 4 : 0)
             buttonsTopConstraint?.isActive = pinToNameLine
             buttonsCenterConstraint?.isActive = !pinToNameLine
         } else {
@@ -84,7 +92,7 @@ final class CloudTreeCellView: NSTableCellView {
             buttonsLeadingConstraint?.isActive = false
         }
         if case .machine(let machine, _) = node.kind {
-            toolTip = [machine.displayName, machine.activityLabel, machine.image].joined(separator: "\n")
+            toolTip = CloudTreeMachineRowContent(machine: machine).toolTip
         } else if case .pendingMachine(let operation) = node.kind {
             // The failure's first line rides along so a red row explains itself on hover.
             toolTip = operation.summaryLine
@@ -93,7 +101,11 @@ final class CloudTreeCellView: NSTableCellView {
         } else {
             toolTip = nil
         }
-        setAccessibilityLabel(node.searchableTitle)
+        if case .machine(let machine, _) = node.kind {
+            setAccessibilityLabel(CloudTreeMachineRowContent(machine: machine).accessibilityLabel)
+        } else {
+            setAccessibilityLabel(node.searchableTitle)
+        }
     }
 
     private func makeButtonsHost() -> NSHostingView<AnyView> {
@@ -118,27 +130,9 @@ final class CloudTreeCellView: NSTableCellView {
         return host
     }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let trackingArea {
-            removeTrackingArea(trackingArea)
-        }
-        let area = NSTrackingArea(
-            rect: bounds,
-            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(area)
-        trackingArea = area
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        hovered = true
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        hovered = false
+    func setHovered(_ hovered: Bool) {
+        guard self.hovered != hovered else { return }
+        self.hovered = hovered
     }
 
     override func prepareForReuse() {
@@ -151,7 +145,9 @@ final class CloudTreeCellView: NSTableCellView {
 /// it owns selection, drag, double-click, and the context menu.
 final class CloudTreePassthroughHostingView: NSHostingView<AnyView> {
     override func hitTest(_ point: NSPoint) -> NSView? {
-        nil
+        // The outline owns all ordinary row interaction. Returning nil here is
+        // what keeps a header click from being swallowed by the SwiftUI host.
+        return nil
     }
 }
 

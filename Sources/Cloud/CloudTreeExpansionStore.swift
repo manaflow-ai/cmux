@@ -1,4 +1,3 @@
-import CmuxFoundation
 import Foundation
 
 /// Remembers which Cloud outline nodes the person collapsed.
@@ -10,14 +9,12 @@ import Foundation
 final class CloudTreeExpansionStore {
     private static let collapsedMachinesKey = "cloudTree.collapsedMachineIDs"
 
-    let organizationStore: CloudTreeOrganizationStore<CloudTreeNode>
     private let defaults: UserDefaults
     private var collapsedMachineIDs: Set<String>
     private var collapsedNodeIDs: Set<String> = []
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        organizationStore = CloudTreeOrganizationStore<CloudTreeNode>(defaults: defaults)
         collapsedMachineIDs = Set(defaults.stringArray(forKey: Self.collapsedMachinesKey) ?? [])
     }
 

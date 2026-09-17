@@ -1173,7 +1173,7 @@ struct cmuxApp: App {
                 performBrowserSplitFromMenu(direction: .down)
             }
 
-            equalizeSplitsCommandButton()
+            paneSizingCommandButtons()
             Divider()
 
             splitCommandButton(title: String(localized: "menu.view.toggleCanvasLayout", defaultValue: "Toggle Canvas Layout"), shortcut: menuShortcut(for: .toggleCanvasLayout)) {
@@ -5271,6 +5271,7 @@ final class AppIconAppearanceObserver: NSObject {
 enum BuildFlavor: String, Sendable {
     case dev
     case nightly
+    case rc
     case stable
 
     static var current: BuildFlavor {
@@ -5301,12 +5302,8 @@ enum BuildFlavor: String, Sendable {
         if SocketControlSettings.isDebugLikeBundleIdentifier(normalizedBundleIdentifier) {
             return .dev
         }
-        if normalizedBundleIdentifier == "com.cmuxterm.app.nightly"
-            || normalizedBundleIdentifier?.hasPrefix("com.cmuxterm.app.nightly.") == true {
-            return .nightly
-        }
-        if bundleNames.contains(where: containsNightlyToken) {
-            return .nightly
+        if let channel = releaseChannel(normalizedBundleIdentifier: normalizedBundleIdentifier, bundleNames: bundleNames) {
+            return channel
         }
         return .stable
     }
@@ -5315,11 +5312,7 @@ enum BuildFlavor: String, Sendable {
         containsToken("DEV", in: name)
     }
 
-    private static func containsNightlyToken(_ name: String) -> Bool {
-        containsToken("NIGHTLY", in: name)
-    }
-
-    private static func containsToken(_ token: String, in name: String) -> Bool {
+    static func containsToken(_ token: String, in name: String) -> Bool {
         name
             .uppercased()
             .split { !$0.isLetter && !$0.isNumber }

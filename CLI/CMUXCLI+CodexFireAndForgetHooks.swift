@@ -93,6 +93,10 @@ extension CMUXCLI {
             telemetry.breadcrumb("codex-hook.native-title-sync.invalid-target")
             return
         }
+        // Capture the Cloud name revision before reading Codex's database.
+        let probe = try? client.sendV2(method: "surface.sync_codex_native_title", params: [
+            "probe": true, "workspace_id": workspaceId, "panel_id": surfaceId
+        ])
         let titleStore = CodexNativeTitleStore(
             codexHome: normalizedHookValue(environment["CODEX_HOME"])
         )
@@ -109,7 +113,8 @@ extension CMUXCLI {
             _ = try client.sendV2(method: "surface.sync_codex_native_title", params: [
                 "workspace_id": workspaceId,
                 "panel_id": surfaceId,
-                "title": title
+                "title": title,
+                "cloud_name_context": probe?["cloud_name_context"] ?? NSNull()
             ])
             telemetry.breadcrumb("codex-hook.native-title-sync.sent")
         } catch {
@@ -248,7 +253,7 @@ extension CMUXCLI {
             out.append(Data(arg.utf8))
             out.append(0)
         }
-        FileHandle.standardOutput.write(out)
+        cliWriteStdout(out)
     }
 
     /// The cmux-owned directory holding the generated codex hook scripts.

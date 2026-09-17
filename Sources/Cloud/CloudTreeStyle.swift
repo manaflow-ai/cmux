@@ -9,9 +9,9 @@ import SwiftUI
 /// side by side so a variant is picked by looking, not by rebuilding.
 struct CloudTreeStyle: Equatable, Identifiable, Sendable {
     enum MachineRowLayout: String, Sendable {
-        /// Name line plus a dim subtitle (and stats when enabled).
+        /// Name and usage plus a dim metadata subtitle.
         case twoLine
-        /// One Finder-like line: dot, name, dim inline detail.
+        /// Compact name and usage, without a metadata subtitle.
         case singleLine
     }
 
@@ -75,26 +75,25 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
     let showsGroupCounts: Bool
     /// The daemon-tab count badge on pool terminal rows.
     let showsViewBadges: Bool
-    /// The CPU/Mem/Disk reading: a line under the machine in two-line layout,
-    /// the dim inline fact after the name in single-line layout.
+    /// One CPU/RAM/Disk line beneath the machine identity and usage.
     let showsMachineStats: Bool
     let machineVerticalPadding: CGFloat
 
     var fontDesign: Font.Design { monospacedText ? .monospaced : .default }
     var machineNameLineHeight: CGFloat { machineNameSize + 3.5 }
     var machineSubtitleLineHeight: CGFloat { detailSize + 3.5 }
+    var machineResourceHeight: CGFloat { detailSize + 3.5 }
 
-    /// `hasUsage` adds the coderouter spend line under the stats in the
-    /// two-line layout; single-line rows carry it inline at a fixed height.
+    /// Compact rows remain one line; the card style reserves its additional details.
     func machineRowHeight(hasStats: Bool, hasUsage: Bool = false) -> CGFloat {
         switch machineRowLayout {
         case .singleLine:
             return rowHeight + (machineBand ? 7 : 2)
         case .twoLine:
-            let lines = machineNameLineHeight + CloudTreeRowGrid.machineLineSpacing + machineSubtitleLineHeight
-                + (hasStats && showsMachineStats ? CloudTreeRowGrid.machineLineSpacing + CloudTreeRowGrid.machineStatsLineHeight : 0)
-                + (hasUsage ? CloudTreeRowGrid.machineLineSpacing + CloudTreeRowGrid.machineStatsLineHeight : 0)
-            return machineVerticalPadding * 2 + lines
+            let statsHeight = hasStats && showsMachineStats ? 1 + machineResourceHeight : 0
+            let usageHeight = hasUsage ? 1 + machineResourceHeight : 0
+            return machineVerticalPadding * 2 + machineNameLineHeight + 1 + machineSubtitleLineHeight
+                + statsHeight + usageHeight + (machineBand ? 8 : 0)
         }
     }
 

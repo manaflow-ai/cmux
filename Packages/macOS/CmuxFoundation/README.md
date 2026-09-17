@@ -176,23 +176,21 @@ tasks.replace("search", priority: .userInitiated) {
 }
 ```
 
-## Cloud tree organization
+## SSH PTY attach primitives
 
-`CloudTreeOrganizationStore<Node>` persists presentation preferences using an
-injected `UserDefaults` domain. `Node` conforms to `CloudTreeOrganizationNode` and
-copies its payload when applying child order and pin state. The package does not
-open sessions or change notification identities. Arrangement walks catalog and
-saved identities in linear time; absent identities keep their saved slots.
+`SSHPTYTerminalInputMode(fileDescriptor:)` captures a borrowed PTY without
+changing it, enters disconnected/raw forwarding phases, and restores the original
+mode. The executable owns one instance per attach. `SSHPTYDaemonCompatibility`
+provides pure release admission; the executable supplies whether development
+fingerprints are allowed and formats localized rejection errors.
 
-Tests use value nodes and a disposable preferences domain without launching the app:
+`SSHPTYAttachSignalMonitor(bridgeFD:)` owns signal cancellation for one foreground
+attach. `SSHPTYOutputWriter(fileDescriptor:)` writes ordered output using
+nonblocking writes and a kernel wait that also observes that cancellation.
+Its original output flags are restored when the writer is released.
 
-```swift
-let suite = "cloud-tree-test-\(UUID().uuidString)"
-let defaults = UserDefaults(suiteName: suite)!
-defer { defaults.removePersistentDomain(forName: suite) }
-let store = CloudTreeOrganizationStore<TestNode>(defaults: defaults)
-let displayed = store.arranged(catalogNodes)
-```
-
-See `CloudTreeOrganizationStoreTests` for the value-node fixture, pending creation
-replacement, persistence, and a thousand-item nested tree.
+Package tests instantiate terminal ownership with `openpty` descriptors, version
+policy with literal release identities, and output with an isolated `Pipe`; no
+app launch, user settings, or filesystem state is required. Process signal
+delivery and exact attach exit/restoration are additionally covered by the CLI
+integration tests.

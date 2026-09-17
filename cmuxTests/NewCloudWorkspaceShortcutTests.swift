@@ -83,11 +83,14 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
 
     private static let cloudOptInKey = BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey
     private static var cloudRemoteFlag: CmuxFeatureFlagDefinition? {
-        CmuxFeatureFlags.allFlags.first { $0.key == "cloud-vm-ui-enabled-release" }
+        CmuxFeatureFlags.allFlags.first { $0.key == "cloud-machines-enabled-release" }
     }
 
     private func setCloudMachinesEnabled(_ enabled: Bool) {
         UserDefaults.standard.set(enabled, forKey: Self.cloudOptInKey)
+        if let definition = Self.cloudRemoteFlag {
+            CmuxFeatureFlags.shared.setOverride(enabled, for: definition)
+        }
         XCTAssertEqual(CloudMachinesFeature.isEnabled, enabled)
     }
 
@@ -343,6 +346,52 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
             keyCode: 16 // kVK_ANSI_Y
         ))
         XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+        await appDelegate.cloudWorkspaceOperationController?.waitForPendingOperations()
+        XCTAssertEqual(presenter.presentCount, 0)
+#else
+        throw XCTSkip("Shortcut routing seam is DEBUG-only")
+#endif
+    }
+
+    func testCommandYCoalescesOneCreateAndOpenIntentUntilItFinishes() async throws {
+#if DEBUG
+        let appDelegate = AppDelegate()
+        setCloudMachinesEnabled(true)
+        let presenter = RecordingSheetPresenter()
+        let defaults = UserDefaults(suiteName: "CloudShortcutCoalescingTests.\(UUID().uuidString)")!
+        let store = DefaultCloudMachineStore(defaults: defaults)
+        var createCount = 0
+        var releaseCreate: CheckedContinuation<Void, Never>?
+        appDelegate.cloudWorkspaceCoordinator = CloudWorkspaceCoordinator(
+            defaultMachineStore: store,
+            allowsOperation: { true },
+            loadMachines: { [CloudMachineDescriptor(id: "starred", isDesktop: true)] },
+            createWorkspace: { _, _ in
+                createCount += 1
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    releaseCreate = continuation
+                }
+                return UUID()
+            }
+        )
+        appDelegate.newMachineSheetPresenter = presenter
+        appDelegate.cloudWorkspaceOperationController = CloudWorkspaceOperationController(isAvailable: { true })
+
+        XCTAssertTrue(appDelegate.performNewCloudWorkspaceOnDefaultMachineAction(debugSource: "test.first"))
+        XCTAssertFalse(
+            appDelegate.performNewCloudWorkspaceOnDefaultMachineAction(debugSource: "test.duplicate"),
+            "a second Cmd+Y must not create another remote workspace while the first is attaching"
+        )
+        for _ in 0..<20 where releaseCreate == nil {
+            await Task.yield()
+        }
+        XCTAssertEqual(createCount, 1)
+        guard let releaseCreate else {
+            appDelegate.cloudWorkspaceOperationController?.cancelAll()
+            XCTFail("the first create operation did not reach its receipt gate")
+            return
+        }
+        releaseCreate.resume()
         await appDelegate.cloudWorkspaceOperationController?.waitForPendingOperations()
         XCTAssertEqual(presenter.presentCount, 0)
 #else
