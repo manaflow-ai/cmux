@@ -29,6 +29,7 @@ public final class MobileTerminalLatencyReporter: MobileTerminalLatencyObserving
     private final class SurfaceState {
         var window = Window()
         var windowStartedAt: UInt64
+        var activeWindowNanos: UInt64 = 0
         var lastActivityAt: UInt64
         var inputStarts: [UInt64: UInt64] = [:]
         var presentationStarts: [UInt64: UInt64] = [:]
@@ -85,8 +86,16 @@ public final class MobileTerminalLatencyReporter: MobileTerminalLatencyObserving
     /// Suspension and permission prompts are not terminal responsiveness samples.
     public func setForeground(_ active: Bool) {
         guard active != isForeground else { return }
+        let timestamp = now()
+        for surface in states.values {
+            if active {
+                surface.windowStartedAt = timestamp
+            } else if timestamp >= surface.windowStartedAt {
+                surface.activeWindowNanos += timestamp - surface.windowStartedAt
+            }
+        }
         isForeground = active
-        if active { foregroundStartedAt = now() }
+        if active { foregroundStartedAt = timestamp }
         else {
             cadenceTask?.cancel()
             cadenceTask = nil
@@ -188,9 +197,14 @@ public final class MobileTerminalLatencyReporter: MobileTerminalLatencyObserving
         var snapshots: [Snapshot] = []
         for surface in states.values {
             if surface.window.hasActivity {
-                snapshots.append(Snapshot(window: surface.window, elapsedNanos: timestamp >= surface.windowStartedAt ? timestamp - surface.windowStartedAt : 0))
+                // A window can cross inactive scenes before its asynchronous
+                // flush runs. Count only its active segments, preserving both
+                // counters and their duration through delayed lifecycle work.
+                let currentSegment = isForeground && timestamp >= surface.windowStartedAt ? timestamp - surface.windowStartedAt : 0
+                snapshots.append(Snapshot(window: surface.window, elapsedNanos: surface.activeWindowNanos + currentSegment))
                 surface.window = Window()
             }
+            surface.activeWindowNanos = 0
             surface.windowStartedAt = timestamp
             // No output is normal for some inputs. Expiry is missing coverage,
             // never an invented slow response or Sentry incident.
