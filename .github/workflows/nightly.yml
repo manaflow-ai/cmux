@@ -653,6 +653,7 @@ jobs:
       NIGHTLY_FAST_BUILD: ${{ needs.decide.outputs.fast_build }}
       NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
       NIGHTLY_MARKETING_VERSION: ${{ needs.build-nightly-app.outputs.daemon_version }}
+      BUNDLE_REMOTE_DAEMON_ASSETS: ${{ needs.decide.outputs.fast_build == 'true' || needs.decide.outputs.should_publish != 'true' }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -894,10 +895,15 @@ jobs:
 
       - name: Embed verified SSH daemon manifest
         run: |
+          bundle_args=()
+          if [[ "$BUNDLE_REMOTE_DAEMON_ASSETS" == "true" ]]; then
+            # Unpublished dogfood builds must work without GitHub release URLs.
+            bundle_args+=(--bundle-assets)
+          fi
           python3 scripts/verify_remote_daemon_release.py \
             --manifest "remote-daemon-assets/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
             --assets-dir remote-daemon-assets \
-            --app "build-universal/Build/Products/Release/cmux NIGHTLY.app" --embed --verify-cli
+            --app "build-universal/Build/Products/Release/cmux NIGHTLY.app" --embed --verify-cli "${bundle_args[@]}"
 
       - name: Import signing cert
         env:
@@ -1006,10 +1012,14 @@ jobs:
 
       - name: Verify signed app SSH daemon contract
         run: |
+          bundle_args=()
+          if [[ "$BUNDLE_REMOTE_DAEMON_ASSETS" == "true" ]]; then
+            bundle_args+=(--require-bundled-assets)
+          fi
           python3 scripts/verify_remote_daemon_release.py \
             --manifest "remote-daemon-assets/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
             --assets-dir remote-daemon-assets \
-            --app "build-universal/Build/Products/Release/cmux NIGHTLY.app" --verify-cli
+            --app "build-universal/Build/Products/Release/cmux NIGHTLY.app" --verify-cli "${bundle_args[@]}"
 
       - name: Smoke launch signed app before notarization
         run: |

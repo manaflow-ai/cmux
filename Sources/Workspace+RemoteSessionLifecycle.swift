@@ -113,7 +113,8 @@ extension Workspace {
             proxyBroker: TerminalController.shared.remoteProxyBroker,
             connectionBroker: nativeSSHConnectionBroker,
             manifestRepository: RemoteDaemonManifestRepository(
-                homeDirectory: FileManager.default.homeDirectoryForCurrentUser
+                homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
+                bundledAssetsDirectory: Bundle.main.resourceURL?.appendingPathComponent("remote-daemons", isDirectory: true)
             ),
             processRunner: processRunner,
             reachabilityProbe: RemoteHostReachabilityProbe(),

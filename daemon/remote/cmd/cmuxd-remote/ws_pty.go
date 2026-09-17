@@ -202,12 +202,13 @@ type wsPTYSession struct {
 	idleTimer      *time.Timer
 	closed         bool
 	ptyWriteMu     sync.Mutex
-	ptyResizeMu    sync.Mutex
-	ptyFileMu      sync.Mutex
-	closeTTYOnce   sync.Once
-	closePTYOnce   sync.Once
-	terminateOnce  sync.Once
-	initialPhase   wsPTYSessionInitialPhase
+	// Resize must remain usable when a foreground process stops reading input.
+	ptyResizeMu   sync.Mutex
+	ptyFileMu     sync.Mutex
+	closeTTYOnce  sync.Once
+	closePTYOnce  sync.Once
+	terminateOnce sync.Once
+	initialPhase  wsPTYSessionInitialPhase
 	// initialClaims counts the start owner and live joiners that must consume
 	// this exact generation rather than interpreting an early exit as absence.
 	initialClaims int
@@ -2135,11 +2136,11 @@ func (h *wsPTYHub) applyCurrentPTYSize(session *wsPTYSession) bool {
 		return false
 	}
 
-	h.applyPTYSizeWithWriteLock(session, cols, rows)
+	h.applyPTYSizeWithResizeLock(session, cols, rows)
 	return true
 }
 
-func (h *wsPTYHub) applyPTYSizeWithWriteLock(session *wsPTYSession, cols int, rows int) bool {
+func (h *wsPTYHub) applyPTYSizeWithResizeLock(session *wsPTYSession, cols int, rows int) bool {
 	desired := &pty.Winsize{
 		Cols: uint16(cols),
 		Rows: uint16(rows),
@@ -2276,8 +2277,7 @@ func (h *wsPTYHub) writeInputChunk(session *wsPTYSession, chunk wsPTYInputChunk)
 	if !ackOK {
 		// enqueueInputAck canceled the attachment because its send queue
 		// was saturated; finish the cleanup like the output path does.
-		// Must run outside ptyWriteMu: dropAttachment can resize via
-		// applyCurrentPTYSize, which takes ptyResizeMu.
+		// Finish attachment cleanup after releasing the input writer.
 		h.dropAttachment(chunk.attachment)
 	}
 	return written

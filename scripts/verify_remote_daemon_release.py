@@ -14,6 +14,7 @@ import plistlib
 import re
 import subprocess
 import sys
+import zlib
 from urllib.parse import quote
 
 
@@ -76,7 +77,8 @@ def verify_assets(manifest_path, directory):
     return manifest
 
 
-def verify_bundle(app, manifest, embed=False, verify_cli=False):
+def verify_bundle(app, manifest, embed=False, verify_cli=False,
+                  bundle_assets_from=None, require_bundled_assets=False):
     plist_path = app / "Contents/Info.plist"
     raw_plist = plist_path.read_bytes()
     info = plistlib.loads(raw_plist)
@@ -88,6 +90,24 @@ def verify_bundle(app, manifest, embed=False, verify_cli=False):
         plist_path.write_bytes(plistlib.dumps(info, fmt=plist_format, sort_keys=False))
     require(MANIFEST_KEY in info, "app is missing the SSH daemon manifest")
     require(json.loads(info[MANIFEST_KEY]) == manifest, "embedded and published daemon manifests differ")
+    bundled = app / "Contents/Resources/remote-daemons"
+    if bundle_assets_from is not None:
+        bundled.mkdir(parents=True, exist_ok=True)
+        for entry in manifest["entries"]:
+            payload = asset_path(bundle_assets_from, entry["assetName"]).read_bytes()
+            # Raw DEFLATE is Foundation NSData.CompressionAlgorithm.zlib's format.
+            # Resource data is sealed by codesign without rewriting daemon bytes.
+            compressor = zlib.compressobj(level=9, wbits=-15)
+            (bundled / (entry["assetName"] + ".deflate")).write_bytes(
+                compressor.compress(payload) + compressor.flush())
+    if require_bundled_assets:
+        require(bundled.is_dir(), "app is missing bundled SSH daemon assets")
+    if bundled.exists():
+        for entry in manifest["entries"]:
+            payload = zlib.decompress(
+                asset_path(bundled, entry["assetName"] + ".deflate").read_bytes(), wbits=-15)
+            require(hashlib.sha256(payload).hexdigest() == entry["sha256"],
+                    f"bundled daemon checksum mismatch: {entry['assetName']}")
     if not verify_cli:
         return
     cli = app / "Contents/Resources/bin/cmux"
@@ -121,14 +141,19 @@ def main():
     parser.add_argument("--app", type=Path)
     parser.add_argument("--embed", action="store_true")
     parser.add_argument("--verify-cli", action="store_true")
+    parser.add_argument("--bundle-assets", action="store_true",
+                        help="bundle verified daemon bytes for unpublished dogfood apps")
+    parser.add_argument("--require-bundled-assets", action="store_true")
     args = parser.parse_args()
-    if (args.embed or args.verify_cli) and not args.app:
-        parser.error("--embed and --verify-cli require --app")
+    if (args.embed or args.verify_cli or args.bundle_assets or args.require_bundled_assets) and not args.app:
+        parser.error("bundle operations require --app")
     try:
         manifest = verify_assets(args.manifest, args.assets_dir)
         if args.app:
-            verify_bundle(args.app, manifest, args.embed, args.verify_cli)
-    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
+            verify_bundle(args.app, manifest, args.embed, args.verify_cli,
+                          args.assets_dir if args.bundle_assets else None,
+                          args.require_bundled_assets)
+    except (OSError, ValueError, KeyError, TypeError, zlib.error, subprocess.SubprocessError) as error:
         print(f"Remote daemon release verification failed: {error}", file=sys.stderr)
         return 1
     print(f"Verified SSH daemon release {manifest['appVersion']} ({len(TARGETS)} platforms)")

@@ -2037,27 +2037,54 @@ func TestWebSocketPTYReattachWritesAcceptedOldInputBeforeNew(t *testing.T) {
 }
 
 func TestWebSocketPTYResizeDoesNotWaitForPTYWriter(t *testing.T) {
-	hub, session, _, readFile, writeFile, done := newTestPTYInputSession(t, "sess-resize-writer", "attachment", false)
-	defer close(done)
-	defer readFile.Close()
-	defer writeFile.Close()
+	for _, action := range []string{"resize", "reattach"} {
+		t.Run(action, func(t *testing.T) {
+			hub, session, attachment, readFile, writeFile, done := newTestPTYInputSession(t, "sess-resize-writer", "attachment", false)
+			defer close(done)
+			defer readFile.Close()
+			defer writeFile.Close()
+			master, slave, err := pty.Open()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer master.Close()
+			defer slave.Close()
+			session.ptyFile = master
 
-	// A blocking PTY input write must not prevent a resize from reaching the
-	// terminal. The two operations use independent synchronization because the
-	// write can wait indefinitely for the foreground process to read input.
-	session.ptyWriteMu.Lock()
-	resizeDone := make(chan struct{})
-	go func() {
-		hub.applyCurrentPTYSize(session)
-		close(resizeDone)
-	}()
-	select {
-	case <-resizeDone:
-	case <-time.After(5 * time.Second):
-		session.ptyWriteMu.Unlock()
-		t.Fatal("resize blocked behind a stalled PTY writer")
+			// Hold the input writer at the point where a full PTY buffer stalls
+			// it, then verify both public operations still resize the real PTY.
+			session.ptyWriteMu.Lock()
+			resizeDone := make(chan error, 1)
+			go func() {
+				if action == "resize" {
+					hub.resize(attachment, 100, 35)
+					resizeDone <- nil
+				} else {
+					_, _, _, err := hub.prepareAttachment(context.Background(), nil,
+						session.id, attachment.id, 100, 35, true, "", "new-token", true, false)
+					resizeDone <- err
+				}
+			}()
+			select {
+			case err := <-resizeDone:
+				session.ptyWriteMu.Unlock()
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-time.After(5 * time.Second):
+				session.ptyWriteMu.Unlock()
+				<-resizeDone
+				t.Fatal("resize blocked behind a stalled PTY writer")
+			}
+			size, err := pty.GetsizeFull(master)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if size.Cols != 100 || size.Rows != 35 {
+				t.Fatalf("terminal size = %dx%d, want 100x35", size.Cols, size.Rows)
+			}
+		})
 	}
-	session.ptyWriteMu.Unlock()
 }
 
 func TestWebSocketPTYInputSeqEnforcement(t *testing.T) {

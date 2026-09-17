@@ -7,6 +7,8 @@ import importlib.util
 import json
 from pathlib import Path
 import plistlib
+import subprocess
+import sys
 import tempfile
 import unittest
 import zlib
@@ -127,6 +129,21 @@ class ReleaseVerificationTests(unittest.TestCase):
         (directory / (self.manifest["entries"][0]["assetName"] + ".deflate")).unlink()
         with self.assertRaisesRegex(ValueError, "missing or empty asset"):
             verify.verify_bundle(self.app, self.manifest)
+
+    def test_unpublished_bundle_contains_every_verified_platform(self):
+        subprocess.run([sys.executable, str(ROOT / "scripts/verify_remote_daemon_release.py"),
+                        "--manifest", str(self.manifest_path), "--assets-dir", str(self.root),
+                        "--app", str(self.app), "--embed", "--bundle-assets"], check=True, capture_output=True)
+        verify.verify_bundle(self.app, self.manifest, require_bundled_assets=True)
+        for entry in self.manifest["entries"]:
+            path = self.app / "Contents/Resources/remote-daemons" / (entry["assetName"] + ".deflate")
+            self.assertEqual(zlib.decompress(path.read_bytes(), wbits=-15),
+                             (self.root / entry["assetName"]).read_bytes())
+
+    def test_unpublished_bundle_cannot_omit_all_daemons(self):
+        verify.verify_bundle(self.app, self.manifest, embed=True)
+        with self.assertRaisesRegex(ValueError, "missing bundled SSH daemon assets"):
+            verify.verify_bundle(self.app, self.manifest, require_bundled_assets=True)
 
 
 if __name__ == "__main__":
