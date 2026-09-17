@@ -1,11 +1,7 @@
 import Foundation
 import Testing
 
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
+@testable import CmuxTextActions
 
 /// Pure value behaviour of `type: "text"` action payloads: sanitisation,
 /// delivery plan, trust requirement, and JSON defaults.
@@ -24,16 +20,23 @@ struct CmuxTextActionPayloadTests {
         #expect(CmuxTextActionPayload.sanitizedText("\u{200B}\u{FEFF}") == nil)
     }
 
+    @Test func initializerSanitisesAndRejectsBlankText() throws {
+        #expect(CmuxTextActionPayload(text: "   ", submit: true) == nil)
+        #expect(CmuxTextActionPayload(text: "\u{200B}", submit: false) == nil)
+        let payload = try #require(CmuxTextActionPayload(text: "ls\u{200B} -la", submit: false))
+        #expect(payload.text == "ls -la")
+    }
+
     // MARK: - Delivery plan
 
-    @Test func insertOnlyPayloadPastesWithoutSubmitting() {
-        let payload = CmuxTextActionPayload(text: "review this diff for regressions", submit: false)
+    @Test func insertOnlyPayloadPastesWithoutSubmitting() throws {
+        let payload = try #require(CmuxTextActionPayload(text: "review this diff for regressions", submit: false))
         #expect(payload.deliverySteps == [.pasteText("review this diff for regressions")])
         #expect(payload.requiresProjectTrust == false)
     }
 
-    @Test func submitPayloadPastesThenPressesEnter() {
-        let payload = CmuxTextActionPayload(text: "npm test", submit: true)
+    @Test func submitPayloadPastesThenPressesEnter() throws {
+        let payload = try #require(CmuxTextActionPayload(text: "npm test", submit: true))
         #expect(payload.deliverySteps == [
             .pasteText("npm test"),
             .namedKey(CmuxTextActionPayload.submitKeyName)
@@ -42,23 +45,23 @@ struct CmuxTextActionPayloadTests {
         #expect(payload.requiresProjectTrust == true)
     }
 
-    @Test func multiLineTextIsDeliveredAsOnePasteChunk() {
+    @Test func multiLineTextIsDeliveredAsOnePasteChunk() throws {
         let text = "line one\nline two\n  indented three"
-        let payload = CmuxTextActionPayload(text: text, submit: false)
+        let payload = try #require(CmuxTextActionPayload(text: text, submit: false))
         #expect(payload.deliverySteps == [.pasteText(text)])
     }
 
     // MARK: - Identifier slug
 
-    @Test func identifierSlugIsFilesystemSafeAndBounded() {
-        let payload = CmuxTextActionPayload(text: "echo \"hi there\" && ls -la /tmp", submit: false)
+    @Test func identifierSlugIsFilesystemSafeAndBounded() throws {
+        let payload = try #require(CmuxTextActionPayload(text: "echo \"hi there\" && ls -la /tmp", submit: false))
         let slug = payload.identifierSlug
         #expect(!slug.isEmpty)
         #expect(slug.unicodeScalars.allSatisfy {
             CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-%")).contains($0)
         })
 
-        let long = CmuxTextActionPayload(text: String(repeating: "a", count: 500), submit: false)
+        let long = try #require(CmuxTextActionPayload(text: String(repeating: "a", count: 500), submit: false))
         #expect(long.identifierSlug.count <= CmuxTextActionPayload.identifierSlugMaxLength)
     }
 
@@ -87,14 +90,14 @@ struct CmuxTextActionPayloadTests {
     }
 
     @Test func encodingRoundTripsAndOmitsDefaultSubmit() throws {
-        let original = CmuxTextActionPayload(text: "a\nb", submit: false)
+        let original = try #require(CmuxTextActionPayload(text: "a\nb", submit: false))
         let data = try JSONEncoder().encode(original)
         let json = String(decoding: data, as: UTF8.self)
         #expect(!json.contains("submit"))
         let decoded = try JSONDecoder().decode(CmuxTextActionPayload.self, from: data)
         #expect(decoded == original)
 
-        let submitting = CmuxTextActionPayload(text: "x", submit: true)
+        let submitting = try #require(CmuxTextActionPayload(text: "x", submit: true))
         let submittingData = try JSONEncoder().encode(submitting)
         let roundTripped = try JSONDecoder().decode(CmuxTextActionPayload.self, from: submittingData)
         #expect(roundTripped == submitting)

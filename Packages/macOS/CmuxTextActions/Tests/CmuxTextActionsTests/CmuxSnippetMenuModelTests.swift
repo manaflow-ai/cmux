@@ -1,39 +1,35 @@
 import Foundation
 import Testing
 
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
+@testable import CmuxTextActions
 
 /// Grouping of `type: "text"` actions into the right-click Snippets submenu:
 /// categories become sub-submenus, uncategorised snippets sit at the top,
 /// everything sorted for a stable menu.
 struct CmuxSnippetMenuModelTests {
-    private func entry(_ id: String, _ title: String, category: String? = nil, text: String = "x") -> CmuxSnippetMenuEntry {
+    private func entry(_ id: String, _ title: String, category: String? = nil, text: String = "x") throws -> CmuxSnippetMenuEntry {
         CmuxSnippetMenuEntry(
             actionID: id,
             title: title,
             category: category,
-            payload: CmuxTextActionPayload(text: text, submit: false)
+            payload: try #require(CmuxTextActionPayload(text: text, submit: false))
         )
     }
 
-    @Test func emptyInputYieldsEmptyModel() {
+    @Test func emptyInputYieldsEmptyModel() throws {
         let model = CmuxSnippetMenuModel.build(from: [])
         #expect(model.isEmpty)
         #expect(model.uncategorized.isEmpty)
         #expect(model.categories.isEmpty)
     }
 
-    @Test func groupsByCategoryAndSortsCategoriesAndItems() {
+    @Test func groupsByCategoryAndSortsCategoriesAndItems() throws {
         let model = CmuxSnippetMenuModel.build(from: [
-            entry("b", "Zeta", category: "Git"),
-            entry("a", "Alpha", category: "Git"),
-            entry("c", "Lint", category: "Build"),
-            entry("d", "Loose one"),
-            entry("e", "Another loose")
+            try entry("b", "Zeta", category: "Git"),
+            try entry("a", "Alpha", category: "Git"),
+            try entry("c", "Lint", category: "Build"),
+            try entry("d", "Loose one"),
+            try entry("e", "Another loose")
         ])
         #expect(model.categories.map(\.name) == ["Build", "Git"])
         #expect(model.categories[1].items.map(\.title) == ["Alpha", "Zeta"])
@@ -41,20 +37,20 @@ struct CmuxSnippetMenuModelTests {
         #expect(!model.isEmpty)
     }
 
-    @Test func blankOrWhitespaceCategoryCountsAsUncategorised() {
+    @Test func blankOrWhitespaceCategoryCountsAsUncategorised() throws {
         let model = CmuxSnippetMenuModel.build(from: [
-            entry("a", "One", category: "   "),
-            entry("b", "Two", category: ""),
-            entry("c", "Three", category: " Ops ")
+            try entry("a", "One", category: "   "),
+            try entry("b", "Two", category: ""),
+            try entry("c", "Three", category: " Ops ")
         ])
         #expect(model.uncategorized.map(\.title) == ["One", "Two"])
         #expect(model.categories.map(\.name) == ["Ops"])
     }
 
-    @Test func categoryNamesMergeCaseInsensitivelyKeepingFirstSpelling() {
+    @Test func categoryNamesMergeCaseInsensitivelyKeepingFirstSpelling() throws {
         let model = CmuxSnippetMenuModel.build(from: [
-            entry("a", "One", category: "git"),
-            entry("b", "Two", category: "Git")
+            try entry("a", "One", category: "git"),
+            try entry("b", "Two", category: "Git")
         ])
         #expect(model.categories.count == 1)
         #expect(model.categories[0].name == "git")
@@ -63,7 +59,7 @@ struct CmuxSnippetMenuModelTests {
 
     @Test func itemsKeepActionIDAndPayloadForDelivery() throws {
         let model = CmuxSnippetMenuModel.build(from: [
-            entry("review", "Review", category: "Prompts", text: "review this\nplease")
+            try entry("review", "Review", category: "Prompts", text: "review this\nplease")
         ])
         let item = try #require(model.categories.first?.items.first)
         #expect(item.actionID == "review")
