@@ -44,11 +44,14 @@ type FormStatus = {
 const idleStatus: FormStatus = { state: "idle" };
 
 /** Everything the add panel offers, in display order. */
-type AddKind = ClaudeUpstreamKind | "codex" | "opencode";
+type ApiKeyAddKind = "openai-apikey" | "openrouter-apikey";
+type AddKind = ClaudeUpstreamKind | ApiKeyAddKind | "codex" | "opencode";
 const ADD_KINDS: readonly AddKind[] = [
   "anthropic_api_key",
   "anthropic_oauth",
   "bedrock",
+  "openai-apikey",
+  "openrouter-apikey",
   "codex",
   "opencode",
 ];
@@ -66,12 +69,14 @@ type Translator = ReturnType<typeof useTranslations<"dashboard.coderouterAccount
 
 export function CoderouterAccountsSection({
   teamId,
+  viewerUserId,
   canManage,
   claude,
   native,
   shared,
 }: {
   readonly teamId: string;
+  readonly viewerUserId?: string;
   readonly canManage: boolean;
   readonly claude: ClaudeAccountsState;
   readonly native: NativeAccountsState;
@@ -82,6 +87,8 @@ export function CoderouterAccountsSection({
   const nativeAccounts = native.kind === "ok" ? native.accounts : [];
   const sharedAccounts = shared.kind === "ok" ? shared.accounts : [];
   const total = claudeAccounts.length + nativeAccounts.length + sharedAccounts.length;
+  // Field ids are per form, so switching the add tab never leaves two inputs
+  // with one id.
   const partialFailure = claude.kind === "error" || native.kind === "error" || shared.kind === "error";
 
   return (
@@ -126,6 +133,7 @@ export function CoderouterAccountsSection({
               <ClaudeAccountRow
                 key={`claude:${account.id}`}
                 teamId={teamId}
+                viewerUserId={viewerUserId}
                 account={account}
                 canManage={canManage}
               />
@@ -134,6 +142,7 @@ export function CoderouterAccountsSection({
               <NativeAccountRow
                 key={`native:${account.id}`}
                 teamId={teamId}
+                viewerUserId={viewerUserId}
                 account={account}
                 canManage={canManage}
               />
@@ -150,7 +159,7 @@ export function CoderouterAccountsSection({
         </div>
       )}
 
-      {canManage ? <AddAccountPanel teamId={teamId} /> : null}
+      {canManage ? <><p className="mt-2 text-xs text-muted">{t("privateImportHint")}</p><AddAccountPanel teamId={teamId} /></> : null}
     </section>
   );
 }
@@ -166,10 +175,12 @@ function Notice({ title, body }: { readonly title: string; readonly body: string
 
 function ClaudeAccountRow({
   teamId,
+  viewerUserId,
   account,
   canManage,
 }: {
   readonly teamId: string;
+  readonly viewerUserId?: string;
   readonly account: ClaudeAccountDescription;
   readonly canManage: boolean;
 }) {
@@ -200,7 +211,7 @@ function ClaudeAccountRow({
           : usage
       }
       dimmed={account.state === "disabled"}
-      actions={canManage ? <ClaudeAccountActions teamId={teamId} account={account} /> : null}
+      actions={canManage ? <div className="flex flex-wrap gap-2">{(!account.createdBy || account.createdBy === viewerUserId) ? <AccountSharing teamId={teamId} accountId={account.id} family="claude" visibility={account.visibility ?? "team"} /> : null}<ClaudeAccountActions teamId={teamId} account={account} /></div> : null}
       t={t}
     />
   );
@@ -208,10 +219,12 @@ function ClaudeAccountRow({
 
 function NativeAccountRow({
   teamId,
+  viewerUserId,
   account,
   canManage,
 }: {
   readonly teamId: string;
+  readonly viewerUserId?: string;
   readonly account: CodeRouterAccountSummary;
   readonly canManage: boolean;
 }) {
@@ -244,10 +257,41 @@ function NativeAccountRow({
           : sessions
       }
       dimmed={account.state === "broken" || account.state === "expired"}
-      actions={canManage ? <NativeAccountActions teamId={teamId} accountId={account.id} /> : null}
+      actions={canManage ? <div className="flex flex-wrap gap-2">{(!account.createdBy || account.createdBy === viewerUserId) ? <AccountSharing teamId={teamId} accountId={account.id} family="native" visibility={account.visibility ?? "team"} /> : null}<NativeAccountActions teamId={teamId} accountId={account.id} /></div> : null}
       t={t}
     />
   );
+}
+
+function AccountSharing({ teamId, accountId, family, visibility }: {
+  readonly teamId: string;
+  readonly accountId: string;
+  readonly family: "native" | "claude";
+  readonly visibility: "private" | "team";
+}) {
+  const t = useTranslations("dashboard.coderouterAccounts");
+  const router = useRouter();
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState(false);
+  async function updateSharing() {
+    if (pending) return;
+    setPending(true);
+    setError(false);
+    try {
+      const response = await fetch(`/api/coderouter/accounts/${encodeURIComponent(accountId)}/sharing`, {
+        method: "PATCH", headers: { "content-type": "application/json", "x-cmux-team-id": teamId },
+        body: JSON.stringify({ family, visibility: visibility === "private" ? "team" : "private" }),
+      });
+      if (!response.ok) { setError(true); return; }
+      router.refresh();
+    } catch { setError(true); } finally { setPending(false); }
+  }
+  return <div>
+    <button type="button" className={buttonClass} disabled={pending} onClick={updateSharing}>
+      {visibility === "private" ? t("shareWithTeam") : t("makePrivate")}
+    </button>
+    {error ? <p role="alert" className="text-xs text-red-500">{t("updateError")}</p> : null}
+  </div>;
 }
 
 function NativeAccountActions({
@@ -569,6 +613,8 @@ function AddAccountPanel({ teamId }: { readonly teamId: string }) {
               command="npx coderouter@latest add opencode"
               t={t}
             />
+          ) : kind === "openai-apikey" || kind === "openrouter-apikey" ? (
+            <ApiKeyForm key={kind} teamId={teamId} kind={kind} />
           ) : (
             <ClaudeUpstreamForm key={kind} teamId={teamId} kind={kind} />
           )}
@@ -595,6 +641,86 @@ function CliInstructions({
         <CopyButton value={command} label={t("copyCommand")} copiedLabel={t("copied")} />
       </div>
     </div>
+  );
+}
+
+/**
+ * Stores an OpenAI or OpenRouter key as a coderouter account. Codex on this
+ * team's machines then routes Responses calls through it, next to any Codex
+ * sign-ins, and moves off it on a rate limit or a rejected key.
+ */
+function ApiKeyForm({
+  teamId,
+  kind,
+}: {
+  readonly teamId: string;
+  readonly kind: ApiKeyAddKind;
+}) {
+  const t = useTranslations("dashboard.coderouterAccounts");
+  const router = useRouter();
+  const [status, setStatus] = useState<FormStatus>(idleStatus);
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (status.state === "submitting") return;
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const label = String(data.get("label") ?? "").trim();
+    setStatus({ state: "submitting" });
+    try {
+      const response = await fetch("/api/coderouter/accounts", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-cmux-team-id": teamId },
+        body: JSON.stringify({
+          provider: kind,
+          apiKey: String(data.get("apiKey") ?? "").trim(),
+          ...(label ? { label } : {}),
+        }),
+      });
+      if (!response.ok) {
+        setStatus({
+          state: "error",
+          message: errorMessageForStatus(response.status, t, t("saveError")),
+        });
+        return;
+      }
+      form.reset();
+      setStatus({ state: "success", message: t("saveSuccess") });
+      router.refresh();
+    } catch {
+      setStatus({ state: "error", message: t("saveError") });
+    }
+  };
+
+  return (
+    <form onSubmit={submit} className="space-y-3">
+      <p className="text-xs text-muted">
+        {kind === "openai-apikey" ? t("openAiKeyHint") : t("openRouterKeyHint")}
+      </p>
+      <Field
+        label={t("apiKeyField")}
+        name="apiKey"
+        placeholder={kind === "openai-apikey" ? "sk-proj-..." : "sk-or-v1-..."}
+      />
+      <Field
+        label={t("labelField")}
+        name="label"
+        placeholder={t("labelPlaceholder")}
+        required={false}
+        secret={false}
+        mono={false}
+      />
+      <div className="flex flex-wrap items-center gap-3">
+        <button type="submit" disabled={status.state === "submitting"} className={primaryButtonClass}>
+          {status.state === "submitting" ? t("savingAction") : t("saveAction")}
+        </button>
+        {status.message ? (
+          <span className={`text-xs ${status.state === "error" ? "text-foreground" : "text-muted"}`}>
+            {status.message}
+          </span>
+        ) : null}
+      </div>
+    </form>
   );
 }
 
@@ -759,6 +885,10 @@ function addKindLabel(kind: AddKind, t: Translator): string {
       return t("kindCodex");
     case "opencode":
       return t("kindOpencode");
+    case "openai-apikey":
+      return t("kindOpenAiApiKey");
+    case "openrouter-apikey":
+      return t("kindOpenRouterApiKey");
     default:
       return claudeKindLabel(kind, t);
   }
@@ -771,6 +901,10 @@ function nativeKindLabel(kind: CodeRouterAccountSummary["provider"], t: Translat
       return t("kindCodex");
     case "opencode-go":
       return t("kindOpencodeGo");
+    case "openai-apikey":
+      return t("kindOpenAiApiKey");
+    case "openrouter-apikey":
+      return t("kindOpenRouterApiKey");
   }
 }
 

@@ -51,6 +51,7 @@ import {
   parsePhoneReplyAck,
 } from "./replies";
 import { captureSentryException } from "./sentry";
+import { rateLimitedJson } from "./retryAfterResponse";
 
 export { TeamPresence, AccountControlPlane };
 
@@ -204,7 +205,7 @@ const worker = {
         const parsed = parsePhoneReply(body.value);
         if (!parsed.ok) return json({ error: parsed.error }, 400);
         const result = await stub.enqueuePhoneReply(user.id, parsed.reply);
-        if (!result.ok) return json({ error: result.error }, 429);
+        if (!result.ok) return rateLimitedJson({ error: result.error });
         return json(result);
       }
       if (request.method === "GET") {
@@ -240,7 +241,11 @@ const worker = {
       // The verified user id rides along so the DO can pin and enforce device
       // ownership (a co-member must not be able to spoof this device).
       const result = await team.stub.heartbeat(team.teamId, team.user.id, parsed.beat);
-      if ("error" in result) return json({ error: result.error }, result.status);
+      if ("error" in result) {
+        return result.status === 429
+          ? rateLimitedJson({ error: result.error })
+          : json({ error: result.error }, result.status);
+      }
       return json(result);
     }
 

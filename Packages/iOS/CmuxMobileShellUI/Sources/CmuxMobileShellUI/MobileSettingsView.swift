@@ -34,6 +34,11 @@ struct MobileSettingsView: View {
     @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     let connectedHostName: String
     let startPairingScanner: (() -> Void)?
+    /// Re-evaluates the scanner entrypoint after the replay picker changes the
+    /// connection method. Unlike ``startPairingScanner``, this callback is
+    /// intentionally not capability-gated at construction time, because the
+    /// selected method can make pairing available while the replay is open.
+    var startTailscalePairing: (() -> Void)? = nil
     /// Opens the Computers screen (the host dismisses or swaps this sheet
     /// first). `nil` hides the Connection section's All Computers row.
     var showComputers: (() -> Void)? = nil
@@ -70,6 +75,10 @@ struct MobileSettingsView: View {
 
     var body: some View {
         @Bindable var displaySettings = displaySettings
+        #if DEBUG
+        let whatsNewPages = whatsNewCenter?.archivePages ?? MobileWhatsNewCatalog.channelVisibleEntries()
+        let whatsNewHosts = whatsNewCenter?.allowedWebHosts ?? []
+        #endif
         return NavigationStack {
             Form {
                 MobileSettingsAccountSection(signOut: signOut)
@@ -268,6 +277,15 @@ struct MobileSettingsView: View {
 
                 #if DEBUG
                 Section(L10n.string("mobile.settings.developer", defaultValue: "Developer")) {
+                    NavigationLink {
+                        MobileWhatsNewDebugView(pages: whatsNewPages, allowedWebHosts: whatsNewHosts)
+                    } label: {
+                        Label(
+                            L10n.string("mobile.whatsNew.debug.title", defaultValue: "Replay What's New"),
+                            systemImage: "rectangle.stack"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsReplayWhatsNew")
                     Button {
                         showingToastGallery = true
                     } label: {
@@ -574,7 +592,7 @@ struct MobileSettingsView: View {
                     onRetryConnection: retryAutomaticConnection,
                     onStartTailscalePairing: {
                         showingOnboarding = false
-                        startPairingScanner?()
+                        (startTailscalePairing ?? startPairingScanner)?()
                     },
                     onSetKeepAwake: { [store] enabled in
                         await OnboardingKeepAwakeOfferSource.set(enabled, on: store)

@@ -1,10 +1,11 @@
 "use client";
 
 import { Menu } from "@base-ui-components/react/menu";
-import { UserAvatar, useUser } from "@stackframe/stack";
+import { UserAvatar, useStackApp } from "@stackframe/stack";
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
+import type { DashboardSessionUser } from "@/app/lib/dashboard-session";
 import { Link, useRouter } from "@/i18n/navigation";
 import { clearCoderouterOrganizationScope } from "@/services/coderouter/organizationScope";
 import { useThemeToggle } from "@/app/[locale]/theme";
@@ -13,11 +14,19 @@ import { useDashboardTeamScope, type DashboardCatalogTeam } from "./dashboard-te
 const menuItemClass =
   "flex min-h-9 w-full cursor-default select-none items-center gap-2 px-2.5 py-2 text-left text-sm text-foreground no-underline outline-none data-[highlighted]:bg-code-bg";
 
-export function DashboardAccountMenu() {
+export function DashboardAccountMenuFallback() {
+  return <div aria-hidden="true" className="min-w-0 flex-1" />;
+}
+
+/**
+ * The identity row. The user arrives from the server session so the row
+ * paints with the shell instead of after a second client fetch to Stack.
+ */
+export function DashboardAccountMenu({ user }: { user: DashboardSessionUser | null }) {
   const t = useTranslations("dashboard.accountMenu");
   const locale = useLocale();
   const router = useRouter();
-  const user = useUser({ or: "return-null" });
+  const stackApp = useStackApp();
   const teamScope = useDashboardTeamScope(user?.id ?? null);
   const theme = useThemeToggle();
   const [signOutPending, setSignOutPending] = useState(false);
@@ -104,7 +113,7 @@ export function DashboardAccountMenu() {
                   setSignOutPending(true);
                   setSignOutError(false);
                   try {
-                    await user.signOut();
+                    await stackApp.signOut();
                     clearCoderouterOrganizationScope();
                     router.replace("/");
                     router.refresh();
@@ -243,11 +252,29 @@ function ChevronsUpDown() {
   );
 }
 
+/*!
+ * Settings icon from lucide-react 0.378.0.
+ * ISC License
+ *
+ * Copyright (c) for portions of Lucide are held by Cole Bemis 2013-2022 as part of Feather (MIT). All other copyright (c) for Lucide are held by Lucide Contributors 2022.
+ *
+ * Permission to use, copy, modify, and/or distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
 function SettingsIcon() {
   return (
-    <svg aria-hidden="true" className="size-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25">
-      <circle cx="8" cy="8" r="2.25" />
-      <path d="M8 1.75v1.5M8 12.75v1.5M1.75 8h1.5M12.75 8h1.5M3.6 3.6l1.05 1.05M11.35 11.35l1.05 1.05M12.4 3.6l-1.05 1.05M4.65 11.35 3.6 12.4" />
+    <svg aria-hidden="true" className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.875" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+      <circle cx="12" cy="12" r="3" />
     </svg>
   );
 }

@@ -202,7 +202,7 @@ extension CMUXCLI {
         }
         if let errors = payload["errors"] as? [String] {
             for message in errors {
-                FileHandle.standardError.write(Data(("warning: " + message + "\n").utf8))
+                cliWriteStderr("warning: " + message + "\n")
             }
         }
         let sessions = payload["sessions"] as? [[String: Any]] ?? []

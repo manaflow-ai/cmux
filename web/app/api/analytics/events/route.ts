@@ -70,7 +70,11 @@ export function makeAnalyticsEventsHandler(dependencies: AnalyticsEventsDependen
       try {
         const { error, rateLimited } = await dependencies.checkRateLimit(rateLimitId, { request });
         if (rateLimited || error === "blocked") {
-          return jsonResponse({ error: "rate_limited" }, 429);
+          return jsonResponse(
+            { error: "rate_limited" },
+            429,
+            { "retry-after": "60" },
+          );
         }
         if (error === "not-found") {
           void reportMissingRateLimitRule({ route: "/api/analytics/events", reason: "not-found" });

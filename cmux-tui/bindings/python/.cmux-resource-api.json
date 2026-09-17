@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "051b96446a4622e99f979f49ff1a17db214feaff318e40a315e34ef3533c10df",
+  "catalog_sha256": "beef8293ded489648261ccddfd31b3f796f9d7d10506f13f6c5d1577a3f4fbac",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -86,6 +86,9 @@
       "class": "read"
     },
     "notification.ack": {
+      "class": "mutation"
+    },
+    "notification.clear": {
       "class": "mutation"
     },
     "notification.create": {

@@ -54,6 +54,7 @@ describe("parsePhoneReply", () => {
       expect(parsed.reply.replyId).toBe("reply-1");
       expect(parsed.reply.retargetsToLiveSurfaceOwner).toBe(true);
       expect(parsed.reply.text).toBe("looks good, merge it");
+      expect(parsed.reply.retargetsToLiveSurfaceOwner).toBe(true);
     }
   });
 
