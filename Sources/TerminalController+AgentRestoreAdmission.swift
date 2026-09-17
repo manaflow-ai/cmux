@@ -6,6 +6,8 @@ import Foundation
 private enum AgentRestoreAdmissionDecision: Sendable {
     case admitted(AgentResumeLaunchGuard.Claim)
     case liveOwner(LiveAgentSessionOwner)
+    /// Codex's own kernel writer lock is held for this thread (#12805).
+    case writerLockHeld(lockPath: String, holderPID: Int?)
     case concurrentLaunch
     case targetChanged
     case unverifiable(AgentRestoreAdmissionUnverifiableReason)
@@ -16,6 +18,8 @@ private enum AgentRestoreAdmissionDecision: Sendable {
             return "admitted"
         case .liveOwner(let owner):
             return "live-owner pid=\(owner.processID)"
+        case .writerLockHeld(let lockPath, let holderPID):
+            return "writer-lock-held pid=\(holderPID.map(String.init) ?? "unknown") lock=\(lockPath)"
         case .concurrentLaunch:
             return "concurrent-launch"
         case .targetChanged:
@@ -82,11 +86,13 @@ extension TerminalController {
         }
         let admissionStart = ContinuousClock.now
 
-        let targetMatchesBeforeScan = await v2MainAsync {
-            self.controlRemoteRelayDispatchError(method: request.method, params: request.params) == nil
-                && self.agentRestoreTargetMatches(inputs)
+        let targetRecordBeforeScan = await v2MainAsync { () -> ControlSurfaceRestoreRecord? in
+            guard self.controlRemoteRelayDispatchError(method: request.method, params: request.params) == nil else {
+                return nil
+            }
+            return self.agentRestoreTargetRecord(inputs)
         }
-        guard targetMatchesBeforeScan else {
+        guard let targetRecordBeforeScan else {
             return Self.agentRestoreAdmissionResponse(
                 request: request,
                 inputs: inputs,
@@ -138,10 +144,27 @@ extension TerminalController {
                 return PIDPresence.current(pid: pid_t(pid))
             }
         )
+        // cmux's PID scan and Codex's kernel lock are two truths about the same
+        // thread. The scan can miss a still-alive previous Codex (hook-store
+        // incompleteness, argv mismatch), so consult Codex's lock as well before
+        // admitting a second writer. Bounded file and process inspection, off-main.
+        let writerLock: (lockPath: String, holderPID: Int?)? = liveOwner == nil
+            ? Self.codexWriterLockHeld(record: targetRecordBeforeScan, inputs: inputs)
+            : nil
         let decision = await v2MainAsync { () -> AgentRestoreAdmissionDecision in
             guard self.controlRemoteRelayDispatchError(method: request.method, params: request.params) == nil,
                   self.agentRestoreTargetMatches(inputs) else {
                 return .targetChanged
+            }
+            if let writerLock {
+                AgentRestoreSuppressionJournal().record(
+                    kind: inputs.kind,
+                    sessionID: inputs.sessionID,
+                    workspaceID: inputs.workspaceID,
+                    surfaceID: inputs.surfaceID,
+                    processID: writerLock.holderPID ?? 0
+                )
+                return .writerLockHeld(lockPath: writerLock.lockPath, holderPID: writerLock.holderPID)
             }
             if let liveOwner {
                 AgentRestoreSuppressionJournal().record(
@@ -248,10 +271,55 @@ extension TerminalController {
         )
     }
 
+    /// Probes Codex's writer lock for the account the restore will actually use.
+    ///
+    /// Returns nil when the lock is free, the record is not a local Codex resume,
+    /// or the probe cannot run safely (Codex then remains the final authority).
+    private nonisolated static func codexWriterLockHeld(
+        record: ControlSurfaceRestoreRecord,
+        inputs: AgentRestoreAdmissionInputs,
+        ambientEnvironment: [String: String] = ProcessInfo.processInfo.environment,
+        fallbackHome: String = NSHomeDirectory()
+    ) -> (lockPath: String, holderPID: Int?)? {
+        guard inputs.kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex",
+              record.modeRawValue == AgentRestoreRequestMode.resumeAgent.rawValue else {
+            return nil
+        }
+        var launchEnvironment = record.launchCommand?.environment ?? [:]
+        launchEnvironment.merge(record.environment) { _, binding in binding }
+        let workingDirectory = record.launchCommand?.workingDirectory ?? record.workingDirectory
+        let home = CodexHomeResolver().resolve(
+            launchEnvironment: launchEnvironment,
+            launchWorkingDirectory: workingDirectory,
+            launchVerificationHome: record.launchCommand?.verificationHome,
+            ambientEnvironment: ambientEnvironment,
+            fallbackHomeDirectory: fallbackHome
+        )
+        let arguments = record.preparedArguments
+            ?? record.launchCommand?.arguments
+            ?? ["codex", "resume", inputs.sessionID]
+        let inspection = CodexWriterRestorePreflight().inspect(
+            sessionID: inputs.sessionID,
+            arguments: arguments,
+            environment: ["CODEX_HOME": home],
+            workingDirectory: workingDirectory ?? fallbackHome,
+            fallbackHome: fallbackHome
+        )
+        guard let lock = inspection.lock, lock.state == .active else { return nil }
+        return (lock.lockPath, inspection.uniqueOwner.map { Int($0.pid) })
+    }
+
     @MainActor
     private func agentRestoreTargetMatches(
         _ inputs: AgentRestoreAdmissionInputs
     ) -> Bool {
+        agentRestoreTargetRecord(inputs) != nil
+    }
+
+    @MainActor
+    private func agentRestoreTargetRecord(
+        _ inputs: AgentRestoreAdmissionInputs
+    ) -> ControlSurfaceRestoreRecord? {
         let routing = ControlRoutingSelectors(
             hasWindowIDParam: false,
             windowID: nil,
@@ -285,9 +353,9 @@ extension TerminalController {
             lhs: checkpointID,
             rhs: inputs.recordSessionID
         ) else {
-            return false
+            return nil
         }
-        return true
+        return record
     }
 
     private nonisolated static func agentRestoreAdmissionResponse(
@@ -321,6 +389,17 @@ extension TerminalController {
                     "live_owner_pid": .int(Int64(owner.processID)),
                 ]))
             )
+        case .writerLockHeld(let lockPath, let holderPID):
+            var payload: [String: JSONValue] = [
+                "admitted": .bool(false),
+                "writer_lock_held": .bool(true),
+                "lock_path": .string(lockPath),
+                "retryable": .bool(true),
+            ]
+            if let holderPID, holderPID > 0 {
+                payload["live_owner_pid"] = .int(Int64(holderPID))
+            }
+            return v2Encoder.response(id: request.id, .ok(.object(payload)))
         case .concurrentLaunch:
             return v2Encoder.response(
                 id: request.id,

@@ -141,6 +141,33 @@ import Testing
         #expect(invocation.arguments.contains("-lc") == false)
     }
 
+    @Test func codexResumeCarriesTrimmedCheckpointIDForTheWriterLockGuard() throws {
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "codex",
+            checkpointID: "  \(sessionID) \n",
+            source: "agent-hook",
+            workingDirectory: "/tmp/codex",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "codex",
+                arguments: ["codex"],
+                workingDirectory: "/tmp/codex"
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+
+        let invocation = try #require(
+            AgentRestorePlanner(isExecutableFile: { _ in false }).invocation(
+                for: request,
+                ambientEnvironment: ["PATH": "/usr/bin:/bin"]
+            )
+        )
+
+        #expect(invocation.codexResumeSessionID == sessionID)
+    }
+
     @Test func structuredCodexRestoreCanonicalizesRelativeHomeFromLaunchDirectory() throws {
         let launchDirectory = "/tmp/codex-launch-root/repository"
         let restoredDirectory = "/tmp/codex-launch-root/repository/worktree"

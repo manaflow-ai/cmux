@@ -131,6 +131,7 @@ extension CMUXCLI {
         if record.launchCommand == nil,
            record.preparedArguments == nil,
            let legacyCommand = record.legacyCommand {
+            try guardLegacyCodexWriter(command: legacyCommand, record: record, environment: environment)
             let admissionClaim = try requireRestoreLaunchAdmission(
                 record: record,
                 recordSessionID: surfaceRecordCheckpointID,
@@ -211,6 +212,7 @@ extension CMUXCLI {
             ambientEnvironment: processEnvironment
         ) else {
             if let legacyCommand = record.legacyCommand {
+                try guardLegacyCodexWriter(command: legacyCommand, record: record, environment: environment)
                 let admissionClaim = try requireRestoreLaunchAdmission(
                     record: record,
                     recordSessionID: surfaceRecordCheckpointID,
@@ -259,6 +261,14 @@ extension CMUXCLI {
             )
         }
 
+        // Full-detail probe (holder PID when discoverable) before the binding
+        // claim, so a held lock is reported instead of exec'ing read-only.
+        try guardCodexWriterBeforeRestore(
+            sessionID: invocation.codexResumeSessionID,
+            arguments: invocation.arguments,
+            environment: invocation.environment,
+            verificationHome: record.launchCommand?.verificationHome
+        )
         let admissionClaim = try requireRestoreLaunchAdmission(
             record: record,
             recordSessionID: surfaceRecordCheckpointID,

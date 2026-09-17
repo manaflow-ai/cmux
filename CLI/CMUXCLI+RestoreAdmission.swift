@@ -54,24 +54,49 @@ extension CMUXCLI {
                 )
             )
         }
-        let response = try RestoreAdmissionRetryPolicy.response(
-            onRetry: { attempt in
-                guard attempt == 0 else { return }
-                cliWriteStderr(String(
-                    localized: "cli.restore.admission.waiting",
-                    defaultValue: "restore: waiting for cmux to verify that this agent session is not already running…"
-                ) + "\n")
+        var lastWriterLockAnswer: [String: Any]?
+        let response: [String: Any]
+        do {
+            response = try RestoreAdmissionRetryPolicy.response(
+                onRetry: { attempt in
+                    guard attempt == 0 else { return }
+                    cliWriteStderr(String(
+                        localized: "cli.restore.admission.waiting",
+                        defaultValue: "restore: waiting for cmux to verify that this agent session is not already running…"
+                    ) + "\n")
+                }
+            ) {
+                let answer = try client.sendV2(
+                    method: "agent.restore.admit",
+                    params: [
+                        "workspace_id": workspaceID,
+                        "surface_id": surfaceID,
+                        "kind": record.kind,
+                        "session_id": sessionID,
+                        "record_session_id": recordSessionID ?? sessionID,
+                    ]
+                )
+                // A held Codex writer lock right after a relaunch is usually the
+                // previous cmux's Codex still shutting down. Wait a bounded
+                // window for it to release before reporting the holder.
+                if answer["writer_lock_held"] as? Bool == true,
+                   answer["retryable"] as? Bool == true {
+                    lastWriterLockAnswer = answer
+                    throw RestoreAdmissionRetryPolicy.WriterLockHeld()
+                }
+                return answer
             }
-        ) {
-            try client.sendV2(
-                method: "agent.restore.admit",
-                params: [
-                    "workspace_id": workspaceID,
-                    "surface_id": surfaceID,
-                    "kind": record.kind,
-                    "session_id": sessionID,
-                    "record_session_id": recordSessionID ?? sessionID,
-                ]
+        } catch is RestoreAdmissionRetryPolicy.WriterLockHeld {
+            let answer = lastWriterLockAnswer ?? [:]
+            let holderPID = (answer["live_owner_pid"] as? NSNumber)?.int64Value
+            throw loggedRestoreError(
+                stage: "admission.writer-lock",
+                detail: "kind=\(record.kind) session=\(sessionID) lock=\(answer["lock_path"] as? String ?? "none")",
+                message: Self.codexWriterRestoreMessage(
+                    lockPath: answer["lock_path"] as? String,
+                    lockHeld: true,
+                    holderPID: holderPID.flatMap { $0 > 0 ? $0 : nil }
+                )
             )
         }
         guard response["admitted"] as? Bool == true else {
@@ -130,8 +155,17 @@ extension CMUXCLI {
     /// seconds. Giving up immediately left a bare shell whose binding then
     /// retired, and the next relaunch had nothing to resume (#12084).
     enum RestoreAdmissionRetryPolicy {
+        /// The app saw Codex's writer lock held with no verified live owner.
+        struct WriterLockHeld: Error {}
+
+        /// Bounded wait for a lingering previous Codex to release its lock:
+        /// the first four busy delays (0.5 + 1 + 2 + 3 s), short enough that a
+        /// genuinely open session is reported within seconds.
+        static let writerLockMaximumRetries = 4
+
         /// A structured v2 `busy` answer that the app marked retryable.
         static func isRetryable(_ error: Error) -> Bool {
+            if error is WriterLockHeld { return true }
             guard let error = error as? CLIError else { return false }
             return error.isStructuredProtocolResponse
                 && error.v2Code == "busy"
@@ -139,13 +173,23 @@ extension CMUXCLI {
         }
 
         /// `AgentRestoreAdmissionRetry.response` with the CLI's error classifier.
+        ///
+        /// The busy budget (~45 s) covers hook-store churn; a held writer lock
+        /// gets its own shorter budget so the two never compound.
         static func response(
             onRetry: (Int) -> Void = { _ in },
             sending send: () throws -> [String: Any]
         ) throws -> [String: Any] {
-            try AgentRestoreAdmissionRetry.response(
+            var writerLockAttempts = 0
+            return try AgentRestoreAdmissionRetry.response(
                 onRetry: onRetry,
-                isRetryable: isRetryable,
+                isRetryable: { error in
+                    if error is WriterLockHeld {
+                        writerLockAttempts += 1
+                        return writerLockAttempts <= writerLockMaximumRetries
+                    }
+                    return isRetryable(error)
+                },
                 sending: send
             )
         }

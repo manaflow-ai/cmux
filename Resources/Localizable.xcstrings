@@ -528121,6 +528121,242 @@
           }
         }
       }
+    },
+    "cli.restore.error.codexLegacyWriterScope": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: cmux cannot safely check whether this older shell-only Codex session is already open. No writer was started. Continue in the original terminal, or start Codex again in this terminal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: この古いシェル専用の Codex セッションがすでに開いているかどうかを cmux は安全に確認できません。ライターは起動されませんでした。元のターミナルで続行するか、このターミナルで Codex を再起動してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: cmux kann nicht sicher prüfen, ob diese ältere, nur per Shell gestartete Codex-Sitzung bereits geöffnet ist. Es wurde kein Writer gestartet. Fahre im ursprünglichen Terminal fort oder starte Codex in diesem Terminal neu."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore : cmux ne peut pas vérifier en toute sécurité si cette ancienne session Codex lancée uniquement depuis le shell est déjà ouverte. Aucun writer n'a été démarré. Continuez dans le terminal d'origine, ou relancez Codex dans ce terminal."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: لا يمكن لـ cmux التحقق بأمان مما إذا كانت جلسة Codex القديمة هذه التي بدأت من الصدفة فقط مفتوحة بالفعل. لم يتم بدء أي كاتب. تابع في الطرفية الأصلية، أو ابدأ Codex مرة أخرى في هذه الطرفية."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: cmux no puede comprobar de forma segura si esta sesión antigua de Codex iniciada solo desde el shell ya está abierta. No se inició ningún writer. Continúa en la terminal original o vuelve a iniciar Codex en esta terminal."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore：cmux 無法安全地檢查這個舊的純 shell Codex 工作階段是否已開啟。未啟動任何 writer。請在原終端機中繼續，或在此終端機中重新啟動 Codex。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore：cmux 无法安全地检查这个旧的纯 shell Codex 会话是否已打开。未启动任何 writer。请在原终端中继续，或在此终端中重新启动 Codex。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: cmux는 이 오래된 셸 전용 Codex 세션이 이미 열려 있는지 안전하게 확인할 수 없습니다. writer는 시작되지 않았습니다. 원래 터미널에서 계속하거나 이 터미널에서 Codex를 다시 시작하세요."
+          }
+        }
+      }
+    },
+    "cli.restore.error.codexWriterCheckUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: cmux could not check whether this Codex session is already open, so it did not start another writer. Continue in the original terminal, or check the Codex account configuration and retry 'cmux restore --surface'."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: この Codex セッションがすでに開いているかどうかを cmux は確認できなかったため、別のライターを起動しませんでした。元のターミナルで続行するか、Codex のアカウント設定を確認してから「cmux restore --surface」を再実行してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: cmux konnte nicht prüfen, ob diese Codex-Sitzung bereits geöffnet ist, und hat deshalb keinen weiteren Writer gestartet. Fahre im ursprünglichen Terminal fort oder prüfe die Codex-Kontokonfiguration und wiederhole 'cmux restore --surface'."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore : cmux n'a pas pu vérifier si cette session Codex est déjà ouverte et n'a donc pas démarré d'autre writer. Continuez dans le terminal d'origine, ou vérifiez la configuration du compte Codex puis relancez « cmux restore --surface »."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: تعذر على cmux التحقق مما إذا كانت جلسة Codex هذه مفتوحة بالفعل، لذلك لم يبدأ كاتبًا آخر. تابع في الطرفية الأصلية، أو تحقق من إعدادات حساب Codex ثم أعد تشغيل 'cmux restore --surface'."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: cmux no pudo comprobar si esta sesión de Codex ya está abierta, así que no inició otro writer. Continúa en la terminal original o revisa la configuración de la cuenta de Codex y vuelve a ejecutar 'cmux restore --surface'."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore：cmux 無法檢查此 Codex 工作階段是否已開啟，因此沒有啟動另一個 writer。請在原終端機中繼續，或檢查 Codex 帳號設定後重新執行 'cmux restore --surface'。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore：cmux 无法检查此 Codex 会话是否已打开，因此没有启动另一个 writer。请在原终端中继续，或检查 Codex 账户配置后重新运行 'cmux restore --surface'。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: cmux가 이 Codex 세션이 이미 열려 있는지 확인할 수 없어 다른 writer를 시작하지 않았습니다. 원래 터미널에서 계속하거나 Codex 계정 설정을 확인한 뒤 'cmux restore --surface'를 다시 실행하세요."
+          }
+        }
+      }
+    },
+    "cli.restore.error.codexWriterHeldByProcess": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: this Codex session is already open in process %1$lld, which holds %2$@. cmux did not start another copy. To take it over here, quit that Codex normally, then run 'cmux restore --surface' again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: この Codex セッションはプロセス %1$lld ですでに開かれており、%2$@ を保持しています。cmux は別のコピーを起動しませんでした。このターミナルで引き継ぐには、その Codex を通常どおり終了してから「cmux restore --surface」を再実行してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: Diese Codex-Sitzung ist bereits im Prozess %1$lld geöffnet, der %2$@ hält. cmux hat keine weitere Kopie gestartet. Um sie hier zu übernehmen, beende dieses Codex normal und führe dann 'cmux restore --surface' erneut aus."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore : cette session Codex est déjà ouverte dans le processus %1$lld, qui détient %2$@. cmux n'a pas démarré d'autre copie. Pour la reprendre ici, quittez ce Codex normalement, puis relancez « cmux restore --surface »."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: جلسة Codex هذه مفتوحة بالفعل في العملية %1$lld التي تحتفظ بـ %2$@. لم يبدأ cmux نسخة أخرى. لتولّيها هنا، أغلق Codex هذا بشكل طبيعي ثم أعد تشغيل 'cmux restore --surface'."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: esta sesión de Codex ya está abierta en el proceso %1$lld, que mantiene %2$@. cmux no inició otra copia. Para retomarla aquí, cierra ese Codex normalmente y vuelve a ejecutar 'cmux restore --surface'."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore：此 Codex 工作階段已在程序 %1$lld 中開啟，該程序持有 %2$@。cmux 沒有啟動另一個副本。若要在此接手，請正常結束該 Codex，然後重新執行 'cmux restore --surface'。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore：此 Codex 会话已在进程 %1$lld 中打开，该进程持有 %2$@。cmux 没有启动另一个副本。若要在此接管，请正常退出该 Codex，然后重新运行 'cmux restore --surface'。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: 이 Codex 세션은 이미 프로세스 %1$lld에서 열려 있으며 %2$@를 보유하고 있습니다. cmux는 다른 복사본을 시작하지 않았습니다. 여기서 이어받으려면 해당 Codex를 정상적으로 종료한 뒤 'cmux restore --surface'를 다시 실행하세요."
+          }
+        }
+      }
+    },
+    "cli.restore.error.codexWriterHeld": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: this Codex session is already open in another process, which holds %1$@. cmux did not start another copy. Find the holder with 'lsof %1$@', quit it normally, then run 'cmux restore --surface' again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: この Codex セッションは別のプロセスですでに開かれており、そのプロセスが %1$@ を保持しています。cmux は別のコピーを起動しませんでした。「lsof %1$@」で保持しているプロセスを見つけ、通常どおり終了してから「cmux restore --surface」を再実行してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: Diese Codex-Sitzung ist bereits in einem anderen Prozess geöffnet, der %1$@ hält. cmux hat keine weitere Kopie gestartet. Finde den Inhaber mit 'lsof %1$@', beende ihn normal und führe dann 'cmux restore --surface' erneut aus."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore : cette session Codex est déjà ouverte dans un autre processus, qui détient %1$@. cmux n'a pas démarré d'autre copie. Identifiez le détenteur avec « lsof %1$@ », quittez-le normalement, puis relancez « cmux restore --surface »."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: جلسة Codex هذه مفتوحة بالفعل في عملية أخرى تحتفظ بـ %1$@. لم يبدأ cmux نسخة أخرى. اعثر على المالك باستخدام 'lsof %1$@' وأغلقه بشكل طبيعي ثم أعد تشغيل 'cmux restore --surface'."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: esta sesión de Codex ya está abierta en otro proceso, que mantiene %1$@. cmux no inició otra copia. Localiza el propietario con 'lsof %1$@', ciérralo normalmente y vuelve a ejecutar 'cmux restore --surface'."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore：此 Codex 工作階段已在另一個程序中開啟，該程序持有 %1$@。cmux 沒有啟動另一個副本。請用 'lsof %1$@' 找到持有者，正常結束它，然後重新執行 'cmux restore --surface'。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore：此 Codex 会话已在另一个进程中打开，该进程持有 %1$@。cmux 没有启动另一个副本。请用 'lsof %1$@' 找到持有者，正常退出它，然后重新运行 'cmux restore --surface'。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: 이 Codex 세션은 이미 다른 프로세스에서 열려 있으며 그 프로세스가 %1$@를 보유하고 있습니다. cmux는 다른 복사본을 시작하지 않았습니다. 'lsof %1$@'로 보유 프로세스를 찾아 정상적으로 종료한 뒤 'cmux restore --surface'를 다시 실행하세요."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

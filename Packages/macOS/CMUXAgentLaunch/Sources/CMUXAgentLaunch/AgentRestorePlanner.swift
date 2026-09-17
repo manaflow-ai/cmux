@@ -107,7 +107,10 @@ public struct AgentRestorePlanner: Sendable {
             arguments: routedArguments,
             workingDirectory: workingDirectory,
             environment: environment,
-            preflightInvocations: preflights
+            preflightInvocations: preflights,
+            codexResumeSessionID: kind == "codex" && request.mode == .resumeAgent
+                ? normalized(request.checkpointID)
+                : nil
         )
     }
 
