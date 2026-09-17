@@ -2332,6 +2332,7 @@
 		469200024692000146920001 /* PaneTransferDropRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 469200024692000146920002 /* PaneTransferDropRouter.swift */; };
 		469200034692000146920001 /* PaneTransferSourceResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 469200034692000146920002 /* PaneTransferSourceResolver.swift */; };
 		E30760090000000000000002 /* PassthroughWindowOverlayContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30760090000000000000001 /* PassthroughWindowOverlayContainerView.swift */; };
+		B864939F004D49CA990F581F /* PasteboardFileURLReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A2299E3E44F4D9FA3D6918D /* PasteboardFileURLReader.swift */; };
 		B88350000000000000000003 /* PasteboardThreadSignalingDataProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88350000000000000000004 /* PasteboardThreadSignalingDataProvider.swift */; };
 		B8835700000000000000000B /* PastePreparationFailureProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8835700000000000000000C /* PastePreparationFailureProbe.swift */; };
 		A5001425 /* PDFPreviewChromeDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001424 /* PDFPreviewChromeDebugWindowController.swift */; };
@@ -3321,6 +3322,7 @@
 		859110000000000000000007 /* TerminalLinkOpenCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 859110000000000000000008 /* TerminalLinkOpenCoordinator.swift */; };
 		859100000000000000000001 /* TerminalLinkOpenCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 859100000000000000000002 /* TerminalLinkOpenCoordinatorTests.swift */; };
 		859110000000000000000009 /* TerminalLinkOpenRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85911000000000000000000A /* TerminalLinkOpenRequest.swift */; };
+		C0DE1A6E0000000000000001 /* TerminalLocalImageTransferFileLifetimeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1A6E0000000000000002 /* TerminalLocalImageTransferFileLifetimeTests.swift */; };
 		A5C0B1E00000000000000001 /* TerminalNotification+Clipboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0B1E00000000000000002 /* TerminalNotification+Clipboard.swift */; };
 		D79020000000000000000001 /* TerminalNotification+NavigationSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D79020000000000000000002 /* TerminalNotification+NavigationSnapshot.swift */; };
 		A5F10000000000000000000B /* TerminalNotification.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F10000000000000000000C /* TerminalNotification.swift */; };
@@ -6134,6 +6136,7 @@
 		469200024692000146920002 /* PaneTransferDropRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneTransferDropRouter.swift; sourceTree = "<group>"; };
 		469200034692000146920002 /* PaneTransferSourceResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaneTransferSourceResolver.swift; sourceTree = "<group>"; };
 		E30760090000000000000001 /* PassthroughWindowOverlayContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PassthroughWindowOverlayContainerView.swift; sourceTree = "<group>"; };
+		4A2299E3E44F4D9FA3D6918D /* PasteboardFileURLReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteboardFileURLReader.swift; sourceTree = "<group>"; };
 		B88350000000000000000004 /* PasteboardThreadSignalingDataProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteboardThreadSignalingDataProvider.swift; sourceTree = "<group>"; };
 		B8835700000000000000000C /* PastePreparationFailureProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PastePreparationFailureProbe.swift; sourceTree = "<group>"; };
 		A5001424 /* PDFPreviewChromeDebugWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PDFPreviewChromeDebugWindowController.swift; sourceTree = "<group>"; };
@@ -7110,6 +7113,7 @@
 		859110000000000000000008 /* TerminalLinkOpenCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinkOpenCoordinator.swift; sourceTree = "<group>"; };
 		859100000000000000000002 /* TerminalLinkOpenCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinkOpenCoordinatorTests.swift; sourceTree = "<group>"; };
 		85911000000000000000000A /* TerminalLinkOpenRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinkOpenRequest.swift; sourceTree = "<group>"; };
+		C0DE1A6E0000000000000002 /* TerminalLocalImageTransferFileLifetimeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLocalImageTransferFileLifetimeTests.swift; sourceTree = "<group>"; };
 		A5C0B1E00000000000000002 /* TerminalNotification+Clipboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotification+Clipboard.swift"; sourceTree = "<group>"; };
 		D79020000000000000000002 /* TerminalNotification+NavigationSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotification+NavigationSnapshot.swift"; sourceTree = "<group>"; };
 		A5F10000000000000000000C /* TerminalNotification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotification.swift; sourceTree = "<group>"; };
@@ -9452,6 +9456,7 @@
 				12477000000000000000000B /* TextBoxInputContainer+CloudImagePaste.swift */,
 				124770000000000000000028 /* CloudImagePasteInputLease.swift */,
 				124770000000000000000029 /* TerminalImageTransferPlan.swift */,
+				4A2299E3E44F4D9FA3D6918D /* PasteboardFileURLReader.swift */,
 				A5001544 /* TerminalImageTransfer.swift */,
 				B88351000000000000000004 /* TerminalImageTransferPreparationService.swift */,
 				B88355000000000000000002 /* TerminalPastePreparationDestination.swift */,
@@ -10879,6 +10884,7 @@
 				02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */,
 				B88350000000000000000002 /* TerminalImageTransferConcurrencyTests.swift */,
 				B8835A000000000000000006 /* TerminalImageTransferConcurrencyTests+Timeouts.swift */,
+				C0DE1A6E0000000000000002 /* TerminalLocalImageTransferFileLifetimeTests.swift */,
 				B88350000000000000000004 /* PasteboardThreadSignalingDataProvider.swift */,
 				B88356000000000000000002 /* ControlledPastePreparationOperation.swift */,
 				B88356000000000000000004 /* ControlledPastePreparationDeadlines.swift */,
@@ -13578,6 +13584,7 @@
 				469200024692000146920001 /* PaneTransferDropRouter.swift in Sources */,
 				469200034692000146920001 /* PaneTransferSourceResolver.swift in Sources */,
 				E30760090000000000000002 /* PassthroughWindowOverlayContainerView.swift in Sources */,
+				B864939F004D49CA990F581F /* PasteboardFileURLReader.swift in Sources */,
 				A5001425 /* PDFPreviewChromeDebugWindowController.swift in Sources */,
 				9923B0049923B0049923B004 /* PendingTerminalStartupRestore.swift in Sources */,
 				9923B0039923B0039923B003 /* PendingTerminalStartupRestoreChatBinding.swift in Sources */,
@@ -15787,6 +15794,7 @@
 				B88350000000000000000001 /* TerminalImageTransferConcurrencyTests.swift in Sources */,
 				C85390030000000000000001 /* TerminalLinkLocationAndDockTests.swift in Sources */,
 				859100000000000000000001 /* TerminalLinkOpenCoordinatorTests.swift in Sources */,
+				C0DE1A6E0000000000000001 /* TerminalLocalImageTransferFileLifetimeTests.swift in Sources */,
 				A5C41103A1B2C3D4E5F60718 /* TerminalNotificationCallerTests.swift in Sources */,
 				A5A5A507A1B2C3D4E5F60718 /* TerminalNotificationClearAllTests.swift in Sources */,
 				A5C0B1E00000000000000003 /* TerminalNotificationClipboardTests.swift in Sources */,
