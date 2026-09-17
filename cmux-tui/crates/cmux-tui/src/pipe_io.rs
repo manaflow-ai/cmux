@@ -209,6 +209,11 @@ pub fn run(
             "{}",
             serde_json::json!({"diag": {"claim-terminal-geometry": {"error": error.to_string()}}})
         );
+        // Continuing without geometry authority would make later resize
+        // requests look accepted while the daemon keeps the wrong PTY size.
+        // Classify the startup failure so the embedder can either stop for a
+        // retired terminal or reconnect after a lost daemon transport.
+        return Ok(attach_failure_exit_reason(&error, surface));
     }
     spawn_stdin_pump(handle, lifecycle_sender);
     let reason = pump_events_to_stdout(
