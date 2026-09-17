@@ -146,13 +146,9 @@ async function registerDeviceToken(request: Request): Promise<Response> {
         };
       }
 
-      const provesInstallationOwnership = (row: typeof existingInstallation) =>
-        row?.pushKeyId === pushKeyId && row.pushPublicKey === pushPublicKey;
-      const provesTokenOwnership = (row: typeof existingToken) =>
-        row?.pushKeyId === pushKeyId && row.pushPublicKey === pushPublicKey;
       if (
-        (existingInstallation && existingInstallation.userId !== user.id && !provesInstallationOwnership(existingInstallation))
-        || (existingToken && existingToken.userId !== user.id && !provesTokenOwnership(existingToken))
+        (existingInstallation && existingInstallation.userId !== user.id)
+        || (existingToken && existingToken.userId !== user.id)
       ) {
         return { limitReached: false, conflict: true };
       }
