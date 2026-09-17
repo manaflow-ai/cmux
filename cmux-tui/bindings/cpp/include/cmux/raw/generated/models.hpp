@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "3abe68cfbb73abb8aab5265d34cdafd7207a111cbe9e1923c8637f5376abb929";
+inline constexpr std::string_view kProtocolIrSha256 = "d9db9b34a8e4f367ce1aae230fcd188796903d6adf169f9675872a48d9fd1f25";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -64,6 +64,7 @@ struct LayoutUndoUndone;
 struct ListAgentsResult;
 struct ListTerminalsResult;
 struct LivePane;
+struct MachineListeningTcpResult;
 struct MachineUsage;
 struct MachineUsageResult;
 struct MintTerminalRendererResult;
@@ -94,6 +95,15 @@ struct ResolveTerminalResult;
 struct ResourceSelectors;
 struct RunResult;
 struct Screen;
+struct ServerStatsConnections;
+struct ServerStatsHistogram;
+struct ServerStatsJournalWriter;
+struct ServerStatsLockHolder;
+struct ServerStatsLockSite;
+struct ServerStatsLockStall;
+struct ServerStatsRegistryLock;
+struct ServerStatsResult;
+enum class ServerStatsWriterPhase;
 struct SetCellPixelsResult;
 struct ShutdownDaemonResult;
 struct SidebarPluginResult;
@@ -101,6 +111,7 @@ struct Size;
 enum class SplitDirection;
 struct SurfaceResult;
 struct Tab;
+struct TerminalColorOverrides;
 struct TerminalColors;
 struct TerminalEventsResult;
 struct TerminalExit;
@@ -166,6 +177,7 @@ struct ListClientsRequest;
 struct ListClientsResult;
 struct ListTerminalsRequest;
 struct ListWorkspacesRequest;
+struct MachineListeningTcpRequest;
 struct MachineUsageRequest;
 struct MarkWorkspacesProviderManagedRequest;
 struct MintTerminalRendererRequest;
@@ -182,6 +194,8 @@ struct NewWorkspaceRequest;
 struct NotifyRequest;
 struct PairingResponseRequest;
 struct PaneNeighborRequest;
+struct PasteImageRequest;
+struct PasteImageResult;
 struct PingRequest;
 struct ProcessInfoRequest;
 struct PutFrontendProjectionRequest;
@@ -209,6 +223,7 @@ struct SelectTabRequest;
 struct SelectWorkspaceRequest;
 struct SendRequest;
 struct SendKeyRequest;
+struct ServerStatsRequest;
 struct SetCellPixelsRequest;
 struct SetClientInfoRequest;
 struct SetClientSizingRequest;
@@ -237,6 +252,7 @@ struct ClientDetachedEvent;
 struct ClientListInvalidatedEvent;
 struct ColorsChangedEvent;
 struct ConfigReloadRequestedEvent;
+struct DaemonShutdownEvent;
 struct DetachedEvent;
 struct EmptyEvent;
 struct FrameEvent;
@@ -916,12 +932,20 @@ enum class CursorStyle {
     bar,
 };
 
+struct TerminalColorOverrides {
+    std::optional<ColorHex> bg{};
+    std::optional<ColorHex> cursor{};
+    std::optional<ColorHex> fg{};
+    friend bool operator==(const TerminalColorOverrides&, const TerminalColorOverrides&) = default;
+};
+
 struct ColorsChangedEvent {
     std::optional<ColorHex> bg{};
     Field<ColorHex> cursor{};
     Field<bool> cursor_blink{};
     Field<CursorStyle> cursor_style{};
     std::optional<ColorHex> fg{};
+    std::optional<TerminalColorOverrides> overrides{};
     std::optional<std::map<std::string, ColorHex, std::less<>>> palette{};
     std::optional<ColorHex> selection_bg{};
     std::optional<ColorHex> selection_fg{};
@@ -1020,6 +1044,10 @@ struct CreateWorkspaceRequest {
     Field<std::string> name{};
     Field<std::string> origin{};
     friend bool operator==(const CreateWorkspaceRequest&, const CreateWorkspaceRequest&) = default;
+};
+
+struct DaemonShutdownEvent {
+    friend bool operator==(const DaemonShutdownEvent&, const DaemonShutdownEvent&) = default;
 };
 
 struct DeadPane {
@@ -1492,6 +1520,15 @@ struct LivePane {
     friend bool operator==(const LivePane&, const LivePane&) = default;
 };
 
+struct MachineListeningTcpRequest {
+    friend bool operator==(const MachineListeningTcpRequest&, const MachineListeningTcpRequest&) = default;
+};
+
+struct MachineListeningTcpResult {
+    std::string stdout{};
+    friend bool operator==(const MachineListeningTcpResult&, const MachineListeningTcpResult&) = default;
+};
+
 struct MachineUsage {
     double api_equivalent_usd{};
     std::optional<std::string> as_of{};
@@ -1662,6 +1699,7 @@ struct TerminalColors {
     Field<bool> cursor_blink{};
     Field<CursorStyle> cursor_style{};
     std::optional<ColorHex> fg{};
+    std::optional<TerminalColorOverrides> overrides{};
     std::optional<std::map<std::string, ColorHex, std::less<>>> palette{};
     std::optional<ColorHex> selection_bg{};
     std::optional<ColorHex> selection_fg{};
@@ -1734,6 +1772,24 @@ struct PaneNeighborRequest {
 struct PaneNeighborResult {
     std::optional<Id> pane{};
     friend bool operator==(const PaneNeighborResult&, const PaneNeighborResult&) = default;
+};
+
+struct PasteImageRequest {
+    Field<std::string> data{};
+    std::string lease{};
+    Field<std::string> mime{};
+    Field<std::uint64_t> offset{};
+    std::string op{};
+    Field<std::uint64_t> size{};
+    Id surface{};
+    std::string terminal_id{};
+    std::string upload_id{};
+    friend bool operator==(const PasteImageRequest&, const PasteImageRequest&) = default;
+};
+
+struct PasteImageResult {
+    bool accepted{};
+    friend bool operator==(const PasteImageResult&, const PasteImageResult&) = default;
 };
 
 struct PingRequest {
@@ -2171,6 +2227,93 @@ struct SendRequest {
     Id surface{};
     Field<std::string> text{};
     friend bool operator==(const SendRequest&, const SendRequest&) = default;
+};
+
+struct ServerStatsConnections {
+    std::uint64_t accepted{};
+    std::uint64_t active{};
+    std::uint64_t limit{};
+    std::uint64_t peak{};
+    std::uint64_t refused{};
+    friend bool operator==(const ServerStatsConnections&, const ServerStatsConnections&) = default;
+};
+
+struct ServerStatsHistogram {
+    std::uint64_t count{};
+    std::uint64_t max{};
+    std::uint64_t mean{};
+    std::uint64_t p50{};
+    std::uint64_t p90{};
+    std::uint64_t p99{};
+    friend bool operator==(const ServerStatsHistogram&, const ServerStatsHistogram&) = default;
+};
+
+enum class ServerStatsWriterPhase {
+    idle,
+    waiting_lock,
+    committing,
+};
+
+struct ServerStatsJournalWriter {
+    ServerStatsHistogram batch_size{};
+    std::uint64_t batches{};
+    std::uint64_t commit_failures{};
+    ServerStatsHistogram commit_lock_wait_us{};
+    ServerStatsHistogram commit_us{};
+    std::uint64_t deadline_expiries{};
+    std::uint64_t durable_events{};
+    std::uint64_t durable_queued{};
+    ServerStatsWriterPhase phase{};
+    std::uint64_t phase_for_us{};
+    ServerStatsHistogram receipt_wait_us{};
+    std::uint64_t terminal_events{};
+    std::uint64_t terminal_queued{};
+    friend bool operator==(const ServerStatsJournalWriter&, const ServerStatsJournalWriter&) = default;
+};
+
+struct ServerStatsLockHolder {
+    std::uint64_t held_for_us{};
+    std::string site{};
+    friend bool operator==(const ServerStatsLockHolder&, const ServerStatsLockHolder&) = default;
+};
+
+struct ServerStatsLockSite {
+    std::uint64_t acquisitions{};
+    std::uint64_t hold_max_us{};
+    std::uint64_t hold_total_us{};
+    std::string site{};
+    friend bool operator==(const ServerStatsLockSite&, const ServerStatsLockSite&) = default;
+};
+
+struct ServerStatsLockStall {
+    std::optional<std::string> blocker{};
+    std::uint64_t waited_us{};
+    std::string waiter{};
+    friend bool operator==(const ServerStatsLockStall&, const ServerStatsLockStall&) = default;
+};
+
+struct ServerStatsRegistryLock {
+    std::uint64_t contended_acquisitions{};
+    ServerStatsHistogram hold_us{};
+    std::optional<ServerStatsLockHolder> holder{};
+    std::optional<ServerStatsLockStall> last_stall{};
+    std::uint64_t stalls{};
+    std::vector<ServerStatsLockSite> top_sites{};
+    ServerStatsHistogram wait_us{};
+    friend bool operator==(const ServerStatsRegistryLock&, const ServerStatsRegistryLock&) = default;
+};
+
+struct ServerStatsRequest {
+    friend bool operator==(const ServerStatsRequest&, const ServerStatsRequest&) = default;
+};
+
+struct ServerStatsResult {
+    ServerStatsConnections connections{};
+    std::optional<ServerStatsJournalWriter> journal_writer{};
+    ServerStatsRegistryLock registry_lock{};
+    std::uint32_t schema{};
+    std::uint64_t uptime_ms{};
+    friend bool operator==(const ServerStatsResult&, const ServerStatsResult&) = default;
 };
 
 struct SetCellPixelsRequest {
@@ -2861,6 +3004,12 @@ struct Codec<LivePane> {
 };
 
 template <>
+struct Codec<MachineListeningTcpResult> {
+    static Result<Json> encode(const MachineListeningTcpResult& value);
+    static Result<MachineListeningTcpResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<MachineUsage> {
     static Result<Json> encode(const MachineUsage& value);
     static Result<MachineUsage> decode(const Json& value);
@@ -3041,6 +3190,60 @@ struct Codec<Screen> {
 };
 
 template <>
+struct Codec<ServerStatsConnections> {
+    static Result<Json> encode(const ServerStatsConnections& value);
+    static Result<ServerStatsConnections> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsHistogram> {
+    static Result<Json> encode(const ServerStatsHistogram& value);
+    static Result<ServerStatsHistogram> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsJournalWriter> {
+    static Result<Json> encode(const ServerStatsJournalWriter& value);
+    static Result<ServerStatsJournalWriter> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsLockHolder> {
+    static Result<Json> encode(const ServerStatsLockHolder& value);
+    static Result<ServerStatsLockHolder> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsLockSite> {
+    static Result<Json> encode(const ServerStatsLockSite& value);
+    static Result<ServerStatsLockSite> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsLockStall> {
+    static Result<Json> encode(const ServerStatsLockStall& value);
+    static Result<ServerStatsLockStall> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsRegistryLock> {
+    static Result<Json> encode(const ServerStatsRegistryLock& value);
+    static Result<ServerStatsRegistryLock> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsResult> {
+    static Result<Json> encode(const ServerStatsResult& value);
+    static Result<ServerStatsResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsWriterPhase> {
+    static Result<Json> encode(const ServerStatsWriterPhase& value);
+    static Result<ServerStatsWriterPhase> decode(const Json& value);
+};
+
+template <>
 struct Codec<SetCellPixelsResult> {
     static Result<Json> encode(const SetCellPixelsResult& value);
     static Result<SetCellPixelsResult> decode(const Json& value);
@@ -3080,6 +3283,12 @@ template <>
 struct Codec<Tab> {
     static Result<Json> encode(const Tab& value);
     static Result<Tab> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalColorOverrides> {
+    static Result<Json> encode(const TerminalColorOverrides& value);
+    static Result<TerminalColorOverrides> decode(const Json& value);
 };
 
 template <>
@@ -3473,6 +3682,12 @@ struct Codec<ListWorkspacesRequest> {
 };
 
 template <>
+struct Codec<MachineListeningTcpRequest> {
+    static Result<Json> encode(const MachineListeningTcpRequest& value);
+    static Result<MachineListeningTcpRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<MachineUsageRequest> {
     static Result<Json> encode(const MachineUsageRequest& value);
     static Result<MachineUsageRequest> decode(const Json& value);
@@ -3566,6 +3781,18 @@ template <>
 struct Codec<PaneNeighborRequest> {
     static Result<Json> encode(const PaneNeighborRequest& value);
     static Result<PaneNeighborRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<PasteImageRequest> {
+    static Result<Json> encode(const PasteImageRequest& value);
+    static Result<PasteImageRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<PasteImageResult> {
+    static Result<Json> encode(const PasteImageResult& value);
+    static Result<PasteImageResult> decode(const Json& value);
 };
 
 template <>
@@ -3728,6 +3955,12 @@ template <>
 struct Codec<SendKeyRequest> {
     static Result<Json> encode(const SendKeyRequest& value);
     static Result<SendKeyRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsRequest> {
+    static Result<Json> encode(const ServerStatsRequest& value);
+    static Result<ServerStatsRequest> decode(const Json& value);
 };
 
 template <>
@@ -3896,6 +4129,12 @@ template <>
 struct Codec<ConfigReloadRequestedEvent> {
     static Result<Json> encode(const ConfigReloadRequestedEvent& value);
     static Result<ConfigReloadRequestedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<DaemonShutdownEvent> {
+    static Result<Json> encode(const DaemonShutdownEvent& value);
+    static Result<DaemonShutdownEvent> decode(const Json& value);
 };
 
 template <>

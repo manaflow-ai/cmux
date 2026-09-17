@@ -4,10 +4,8 @@ import {
 } from "../../../../../services/vms/routeHelpers";
 import { invalidateNativeAuthCacheForTokens } from "../../../../../services/vms/auth";
 import { deleteIdentitySnapshot } from "../../../../../services/auth/identitySnapshot";
-import {
-  revokeUserVmAccess,
-  runVmWorkflow,
-} from "../../../../../services/vms/workflows";
+import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
+import { revokeUserVmAccess } from "../../../../../services/vms/workflows";
 
 /**
  * Ends endpoint access issued to the current native session's account.
@@ -39,11 +37,12 @@ export async function POST(request: Request): Promise<Response> {
       // signed-out account keeps team-scoped registry access on every instance
       // until the snapshot ages out.
       await deleteIdentitySnapshot(user.id);
-      const result = await runVmWorkflow(revokeUserVmAccess({ userId: user.id }));
+      const result = await runVmRoute(revokeUserVmAccess({ userId: user.id }), { request });
+      if (!result.ok) return result.response;
       return jsonResponse({
         ok: true,
-        revoked: result.revoked,
-        cleanupFailures: result.cleanupFailures,
+        revoked: result.value.revoked,
+        cleanupFailures: result.value.cleanupFailures,
       });
     },
   );

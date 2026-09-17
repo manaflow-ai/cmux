@@ -1,5 +1,6 @@
 import { checkRateLimit } from "@vercel/firewall";
 import { jsonResponse } from "./vms/routeHelpers";
+import { reportMissingRateLimitRule } from "./rateLimitObservability";
 
 /**
  * How long a throttled native client is told to wait. Long enough that an
@@ -10,7 +11,7 @@ const NATIVE_INGRESS_RETRY_AFTER_SECONDS = 60;
 
 export type NativeIngressRateLimitCheck = (
   id: string,
-  options: { request: Request },
+  options: { request: Request; rateLimitKey?: string },
 ) => Promise<{ rateLimited: boolean; error?: string | null }>;
 
 /**
@@ -23,17 +24,23 @@ export async function enforceNativeIngressRateLimit(input: {
   readonly request: Request;
   readonly route: string;
   readonly ruleId: string | undefined;
+  /** Bucket by something other than the caller's IP, e.g. the client behind a trusted proxy. */
+  readonly rateLimitKey?: string;
   readonly check?: NativeIngressRateLimitCheck;
   readonly isVercel?: boolean;
 }): Promise<Response | null> {
   if (!(input.isVercel ?? process.env.VERCEL === "1")) return null;
   const ruleId = input.ruleId?.trim();
-  if (!ruleId) return null;
+  if (!ruleId) {
+    void reportMissingRateLimitRule({ route: input.route, reason: "unset" });
+    return null;
+  }
 
   let result: { rateLimited: boolean; error?: string | null };
   try {
     result = await (input.check ?? checkRateLimit)(ruleId, {
       request: input.request,
+      ...(input.rateLimitKey ? { rateLimitKey: input.rateLimitKey } : {}),
     });
   } catch {
     console.error("native ingress rate-limit unavailable", {
@@ -55,9 +62,7 @@ export async function enforceNativeIngressRateLimit(input: {
     );
   }
   if (result.error === "not-found") {
-    console.warn("native ingress rate-limit rule not found; failing open", {
-      route: input.route,
-    });
+    void reportMissingRateLimitRule({ route: input.route, reason: "not-found" });
     return null;
   }
   if (result.error) {

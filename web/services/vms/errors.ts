@@ -1,4 +1,7 @@
+import * as Cause from "effect/Cause";
 import * as Data from "effect/Data";
+import * as Option from "effect/Option";
+import * as Runtime from "effect/Runtime";
 import type { ProviderId } from "./drivers";
 
 export class VmDatabaseError extends Data.TaggedError("VmDatabaseError")<{
@@ -40,10 +43,40 @@ export class VmNotFoundError extends Data.TaggedError("VmNotFoundError")<{
   readonly operation?: string;
 }> {}
 
+export class VmMemoryPlanError extends Data.TaggedError("VmMemoryPlanError")<{
+  readonly planId: string;
+  readonly memoryMb: number | null;
+  readonly maxMemoryMb: number;
+}> {}
+
+export class VmResizeInvalidError extends Data.TaggedError("VmResizeInvalidError")<{
+  readonly vmId: string;
+  readonly requestedMb: number;
+  readonly currentMb: number;
+  readonly maxMb: number;
+  readonly reason: "below_current" | "above_max";
+  readonly resource?: "cpu" | "memory" | "storage";
+}> {}
+
+/** A resize exceeds the caller's plan-specific resource ceiling. */
+export class VmResizePlanLimitError extends Data.TaggedError("VmResizePlanLimitError")<{
+  readonly vmId: string;
+  readonly resource: "cpu" | "memory" | "storage";
+  readonly requested: number;
+  readonly max: number;
+  readonly planId: string;
+  readonly upgradePlanId?: string;
+}> {}
+
+/** Another resize owns or has superseded this machine's resource reservation. */
+export class VmResizeInProgressError extends Data.TaggedError("VmResizeInProgressError")<{
+  readonly vmId: string;
+}> {}
+
 /**
  * A private-network or tunnel operation on a deployment that does not serve
- * one — the provider has no `privateNetworking`, or
- * `CMUX_VM_PRIVATE_NETWORK_ENABLED=0` has rolled the feature back.
+ * one. The provider has no `privateNetworking`, or the fail-closed private
+ * network switch has disabled the operation.
  *
  * Distinct from {@link VmOperationUnsupportedError} because the caller's next
  * move is different: this is a deployment that will not give *any* caller a
@@ -57,6 +90,26 @@ export class VmPrivateNetworkUnavailableError extends Data.TaggedError("VmPrivat
 /** The caller asked about a tunnel this account has never enrolled, or revoked. */
 export class VmTunnelNotFoundError extends Data.TaggedError("VmTunnelNotFoundError")<{
   readonly deviceFingerprint: string;
+}> {}
+
+/** Another request currently owns this device's provider enrollment lease. */
+export class VmTunnelEnrollmentBusyError extends Data.TaggedError("VmTunnelEnrollmentBusyError")<{
+  readonly retryAfterSeconds: number;
+}> {}
+
+/** The deployed control plane is missing the enrollment lease table/API. */
+export class VmTunnelEnrollmentUnavailableError extends Data.TaggedError("VmTunnelEnrollmentUnavailableError")<{
+  readonly reason: string;
+}> {}
+
+/** A remote revoke blocked this Stack login, or any older login on the same Mac. */
+export class VmAccessGrantRevokedError extends Data.TaggedError("VmAccessGrantRevokedError")<{
+  readonly stackSessionId: string;
+}> {}
+
+/** Another enrollment or revoke owns this physical Mac's provider mutation. */
+export class VmAccessGrantMutationBusyError extends Data.TaggedError("VmAccessGrantMutationBusyError")<{
+  readonly accessGrantId: string;
 }> {}
 
 export class VmSnapshotNotFoundError extends Data.TaggedError("VmSnapshotNotFoundError")<{
@@ -113,6 +166,17 @@ export class VmLimitExceededError extends Data.TaggedError("VmLimitExceededError
   readonly billingTeamId: string;
   readonly limit: number;
 }> {}
+
+export class VmUsageLimitExceededError extends Data.TaggedError("VmUsageLimitExceededError")<{
+  readonly includedHours: number;
+  readonly usedHours: number;
+}> {}
+
+export class VmSavedLimitExceededError extends Data.TaggedError("VmSavedLimitExceededError")<{
+  readonly limit: number;
+  readonly current: number;
+}> {}
+export class VmGoShapeError extends Data.TaggedError("VmGoShapeError")<{}> {}
 
 export class VmCreateCreditsInsufficientError extends Data.TaggedError("VmCreateCreditsInsufficientError")<{
   readonly itemId: string;
@@ -171,10 +235,14 @@ export class VmModelPlaneError extends Data.TaggedError("VmModelPlaneError")<{
 }> {}
 
 export type VmWorkflowError =
+  | VmMemoryPlanError
+  | VmResizePlanLimitError
   | VmDatabaseError
   | VmProviderOperationError
   | VmOperationUnsupportedError
   | VmNotFoundError
+  | VmResizeInvalidError
+  | VmResizeInProgressError
   | VmSnapshotNotFoundError
   | VmFreeAccessExpiredError
   | VmCreateInProgressError
@@ -183,11 +251,18 @@ export type VmWorkflowError =
   | VmAccountDeletionInProgressError
   | VmImageConfigError
   | VmLimitExceededError
+  | VmUsageLimitExceededError
+  | VmSavedLimitExceededError
+  | VmGoShapeError
   | VmCreateCreditsInsufficientError
   | VmBillingError
   | VmAttachTransportUnsupportedError
   | VmPrivateNetworkUnavailableError
   | VmTunnelNotFoundError
+  | VmTunnelEnrollmentBusyError
+  | VmTunnelEnrollmentUnavailableError
+  | VmAccessGrantRevokedError
+  | VmAccessGrantMutationBusyError
   | VmAccountDeletionIdentityRevocationError
   | VmModelPlaneError;
 
@@ -201,8 +276,34 @@ export function isVmTunnelNotFoundError(err: unknown): err is VmTunnelNotFoundEr
   return (err as { _tag?: string } | null)?._tag === "VmTunnelNotFoundError";
 }
 
+export function isVmTunnelEnrollmentBusyError(err: unknown): err is VmTunnelEnrollmentBusyError {
+  return (err as { _tag?: string } | null)?._tag === "VmTunnelEnrollmentBusyError";
+}
+
+export function isVmTunnelEnrollmentUnavailableError(
+  err: unknown,
+): err is VmTunnelEnrollmentUnavailableError {
+  return (err as { _tag?: string } | null)?._tag === "VmTunnelEnrollmentUnavailableError";
+}
+
+export function isVmAccessGrantRevokedError(err: unknown): err is VmAccessGrantRevokedError {
+  return (err as { _tag?: string } | null)?._tag === "VmAccessGrantRevokedError";
+}
+
+export function isVmAccessGrantMutationBusyError(err: unknown): err is VmAccessGrantMutationBusyError {
+  return (err as { _tag?: string } | null)?._tag === "VmAccessGrantMutationBusyError";
+}
+
 export function isVmNotFoundError(err: unknown): err is VmNotFoundError {
   return (err as { _tag?: string } | null)?._tag === "VmNotFoundError";
+}
+
+export function isVmResizeInvalidError(err: unknown): err is VmResizeInvalidError {
+  return (err as { _tag?: string } | null)?._tag === "VmResizeInvalidError";
+}
+
+export function isVmResizeInProgressError(err: unknown): err is VmResizeInProgressError {
+  return (err as { _tag?: string } | null)?._tag === "VmResizeInProgressError";
 }
 
 export function isVmSnapshotNotFoundError(err: unknown): err is VmSnapshotNotFoundError {
@@ -237,6 +338,10 @@ export function isVmImageConfigError(err: unknown): err is VmImageConfigError {
 
 export function isVmLimitExceededError(err: unknown): err is VmLimitExceededError {
   return (err as { _tag?: string } | null)?._tag === "VmLimitExceededError";
+}
+
+export function isVmUsageLimitExceededError(err: unknown): err is VmUsageLimitExceededError {
+  return (err as { _tag?: string } | null)?._tag === "VmUsageLimitExceededError";
 }
 
 export function isVmCreateCreditsInsufficientError(err: unknown): err is VmCreateCreditsInsufficientError {
@@ -279,10 +384,14 @@ export function isVmOperationUnsupportedError(err: unknown): err is VmOperationU
 // snapshot into a generic 500 instead of 404), and the `const` object rejects
 // tags that are not in the union.
 const vmWorkflowErrorTagRecord = {
+  VmMemoryPlanError: true,
+  VmResizePlanLimitError: true,
   VmDatabaseError: true,
   VmProviderOperationError: true,
   VmOperationUnsupportedError: true,
   VmNotFoundError: true,
+  VmResizeInvalidError: true,
+  VmResizeInProgressError: true,
   VmSnapshotNotFoundError: true,
   VmFreeAccessExpiredError: true,
   VmCreateInProgressError: true,
@@ -291,49 +400,54 @@ const vmWorkflowErrorTagRecord = {
   VmAccountDeletionInProgressError: true,
   VmImageConfigError: true,
   VmLimitExceededError: true,
+  VmUsageLimitExceededError: true,
+  VmSavedLimitExceededError: true,
+  VmGoShapeError: true,
   VmCreateCreditsInsufficientError: true,
   VmBillingError: true,
   VmAttachTransportUnsupportedError: true,
   VmPrivateNetworkUnavailableError: true,
   VmTunnelNotFoundError: true,
+  VmTunnelEnrollmentBusyError: true,
+  VmTunnelEnrollmentUnavailableError: true,
+  VmAccessGrantRevokedError: true,
+  VmAccessGrantMutationBusyError: true,
   VmAccountDeletionIdentityRevocationError: true,
   VmModelPlaneError: true,
 } as const satisfies Record<VmWorkflowError["_tag"], true>;
 
 const vmWorkflowErrorTags: ReadonlySet<string> = new Set(Object.keys(vmWorkflowErrorTagRecord));
 
+export function isVmWorkflowError(err: unknown): err is VmWorkflowError {
+  if (!err || typeof err !== "object") return false;
+  const tag = (err as { _tag?: unknown })._tag;
+  return typeof tag === "string" && vmWorkflowErrorTags.has(tag);
+}
+
+/**
+ * The typed workflow failure inside an Effect cause, if the program failed
+ * with one. Defects and interruptions are not workflow errors: the caller
+ * squashes those and lets them surface as the bugs they are.
+ */
+export function vmWorkflowErrorFromCause(cause: Cause.Cause<unknown>): VmWorkflowError | null {
+  const failure = Cause.failureOption(cause);
+  if (Option.isNone(failure)) return null;
+  return vmWorkflowErrorCause(failure.value);
+}
+
+/**
+ * Normalize a thrown value to its workflow error. `runVmWorkflow` already
+ * throws the typed error itself, so this mostly serves plain code paths that
+ * wrap one in an `Error` `cause`, and the rare caller that still runs a
+ * program with `Effect.runPromise` and receives a FiberFailure.
+ */
 export function vmWorkflowErrorCause(err: unknown): VmWorkflowError | null {
   if (!err || typeof err !== "object") return null;
-  const tag = (err as { _tag?: unknown })._tag;
-  if (typeof tag === "string" && vmWorkflowErrorTags.has(tag)) {
-    return err as VmWorkflowError;
+  if (isVmWorkflowError(err)) return err;
+  if (Runtime.isFiberFailure(err)) {
+    return vmWorkflowErrorFromCause(err[Runtime.FiberFailureCauseId]);
   }
-  const fiberCause = effectFiberFailureCause(err);
-  const fiberFailure = vmWorkflowErrorFromEffectCause(fiberCause);
-  if (fiberFailure) return fiberFailure;
   const cause = (err as { cause?: unknown }).cause;
   if (cause && cause !== err) return vmWorkflowErrorCause(cause);
   return null;
-}
-
-function effectFiberFailureCause(err: object): unknown {
-  const symbol = Object.getOwnPropertySymbols(err).find((candidate) =>
-    candidate.description === "effect/Runtime/FiberFailure/Cause"
-  );
-  return symbol ? (err as Record<symbol, unknown>)[symbol] : null;
-}
-
-function vmWorkflowErrorFromEffectCause(cause: unknown): VmWorkflowError | null {
-  if (!cause || typeof cause !== "object") return null;
-  const tag = (cause as { _tag?: unknown })._tag;
-  if (tag === "Fail") {
-    const failure = (cause as { failure?: unknown; error?: unknown }).failure ??
-      (cause as { error?: unknown }).error;
-    return vmWorkflowErrorCause(failure);
-  }
-  if (tag === "Sequential" || tag === "Parallel") {
-    return vmWorkflowErrorFromEffectCause((cause as { left?: unknown }).left) ??
-      vmWorkflowErrorFromEffectCause((cause as { right?: unknown }).right);
-  }
-  return vmWorkflowErrorFromEffectCause((cause as { cause?: unknown }).cause);
 }

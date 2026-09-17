@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   FREE_PLAN_ID,
+  isDevelopmentProAccessEnabled,
   isTestflightEligible,
   PRO_PLAN_ID,
   reconcileProPlanMetadata,
@@ -166,6 +167,54 @@ describe("reconcileProPlanMetadata", () => {
 });
 
 describe("resolveProPlanStatus", () => {
+  test("local development Stack accounts receive Pro without a billing grant", async () => {
+    expect(isDevelopmentProAccessEnabled({
+      NODE_ENV: "development",
+      CMUX_LOCAL_DEV_PRO: "1",
+      NEXT_PUBLIC_STACK_PROJECT_ID: "454ecd03-1db2-4050-845e-4ce5b0cd9895",
+    })).toBe(true);
+    expect(isDevelopmentProAccessEnabled({
+      NODE_ENV: "development",
+      NEXT_PUBLIC_STACK_PROJECT_ID: "454ecd03-1db2-4050-845e-4ce5b0cd9895",
+    })).toBe(false);
+    expect(isDevelopmentProAccessEnabled({
+      NODE_ENV: "production",
+      NEXT_PUBLIC_STACK_PROJECT_ID: "454ecd03-1db2-4050-845e-4ce5b0cd9895",
+    })).toBe(false);
+    expect(isDevelopmentProAccessEnabled({
+      NODE_ENV: "development",
+      NEXT_PUBLIC_STACK_PROJECT_ID: "9790718f-14cd-4f7e-824d-eaf527a82b82",
+    })).toBe(false);
+
+    const user = metadataUser({}, "user-local-dev");
+    await expect(resolveProPlanStatus(user, {
+      environment: {
+        NODE_ENV: "development",
+        CMUX_LOCAL_DEV_PRO: "1",
+        NEXT_PUBLIC_STACK_PROJECT_ID: "454ecd03-1db2-4050-845e-4ce5b0cd9895",
+      },
+    })).resolves.toEqual({
+      planId: PRO_PLAN_ID,
+      isPro: true,
+      billingManagement: "none",
+      metadataPlanId: null,
+      hasManualVmPlanOverride: false,
+      metadataChanged: false,
+    });
+
+    await expect(resolveProPlanStatus({ ...user, isAnonymous: true }, {
+      environment: {
+        NODE_ENV: "development",
+        CMUX_LOCAL_DEV_PRO: "1",
+        NEXT_PUBLIC_STACK_PROJECT_ID: "454ecd03-1db2-4050-845e-4ce5b0cd9895",
+      },
+      hasActiveStripeSubscription: async () => false,
+    })).resolves.toMatchObject({
+      planId: FREE_PLAN_ID,
+      isPro: false,
+    });
+  });
+
   test("reloads metadata inside the account mutation lease before reconciling Pro", async () => {
     const staleUser = metadataUser({}, "user-racing-testflight");
     const freshUser = metadataUser({

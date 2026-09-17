@@ -183,6 +183,7 @@ pub struct TabNotificationView {
 }
 
 impl TreeView {
+    #[cfg(test)]
     pub(crate) fn from_parts(
         workspaces: Vec<WorkspaceView>,
         workspace_revision: u64,
@@ -349,11 +350,7 @@ impl TreeView {
         true
     }
 
-    pub fn active_workspace_mut(&mut self) -> Option<&mut WorkspaceView> {
-        self.invalidate_location_index();
-        self.workspaces.get_mut(self.active_workspace)
-    }
-
+    #[cfg(test)]
     pub fn active_workspace_mut_screen(&mut self) -> Option<&mut ScreenView> {
         self.invalidate_location_index();
         let workspace = self.workspaces.get_mut(self.active_workspace)?;
@@ -376,6 +373,7 @@ impl TreeView {
             .filter(|pane| pane.id == id)
     }
 
+    #[cfg(test)]
     pub fn pane_mut(&mut self, id: PaneId) -> Option<&mut PaneView> {
         self.invalidate_location_index();
         self.workspaces
@@ -398,6 +396,7 @@ impl TreeView {
             .filter(|tab| tab.surface == id)
     }
 
+    #[cfg(test)]
     pub(crate) fn update_surface_title(&mut self, id: SurfaceId, title: &str) -> bool {
         let (workspace_index, screen_index, pane_index, tab_index) = match self.surface_location(id)
         {
@@ -418,15 +417,12 @@ impl TreeView {
         [workspace_index, screen_index, pane_index, tab_index]: [usize; 4],
         title: &str,
     ) -> Option<bool> {
-        let Some(tab) = self
+        let tab = self
             .workspaces
             .get_mut(workspace_index)
             .and_then(|workspace| workspace.screens.get_mut(screen_index))
             .and_then(|screen| screen.panes.get_mut(pane_index))
-            .and_then(|pane| pane.tabs.get_mut(tab_index))
-        else {
-            return None;
-        };
+            .and_then(|pane| pane.tabs.get_mut(tab_index))?;
         if tab.surface != id {
             return None;
         }
@@ -833,8 +829,7 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
                     .collect()
             })
             .unwrap_or_default(),
-        active_tab: active_tab
-            .unwrap_or_else(|| if active_tab_is_declared { usize::MAX } else { 0 }),
+        active_tab: active_tab.unwrap_or(if active_tab_is_declared { usize::MAX } else { 0 }),
     })
 }
 
@@ -967,8 +962,8 @@ pub(super) fn parse_tree_with_capabilities(
                     }
                 }
             }
-            view.active_screen = active_screen
-                .unwrap_or_else(|| if active_screen_is_invalid { usize::MAX } else { 0 });
+            view.active_screen =
+                active_screen.unwrap_or(if active_screen_is_invalid { usize::MAX } else { 0 });
         }
         tree.workspaces.push(view);
     }

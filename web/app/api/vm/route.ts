@@ -174,6 +174,12 @@ export async function GET(request: Request): Promise<Response> {
   );
 }
 
+export function createOptionPolicy(capabilities: { readonly sizing?: boolean; readonly persistentHome?: boolean }, candidate: Record<string, unknown>): { kind: "accept"; ignoredFields: string[] } | { kind: "reject"; operation: string; field: string } {
+  if (candidate.memoryMb !== undefined && capabilities.sizing === false) return { kind: "reject", operation: "sizing", field: "memoryMb" };
+  const ignoredFields = capabilities.persistentHome === false ? ["persistentHome", "perMachineHome"].filter((field) => candidate[field] !== undefined) : [];
+  return { kind: "accept", ignoredFields };
+}
+
 export async function POST(request: Request): Promise<Response> {
   // Warm the Freestyle connection while the caller is being verified.
   preconnectFreestyle();

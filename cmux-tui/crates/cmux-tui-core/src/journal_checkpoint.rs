@@ -883,7 +883,7 @@ mod tests {
             terminal_output: None,
         };
         assert!(restore_preview(&checkpoint, &[record.clone(), record.clone()], 4).is_err());
-        assert!(restore_preview(&checkpoint, &[record.clone()], 5).is_err());
+        assert!(restore_preview(&checkpoint, std::slice::from_ref(&record), 5).is_err());
         let mut gapped = record;
         gapped.sequence = 5;
         assert!(restore_preview(&checkpoint, &[gapped], 5).is_err());
@@ -976,7 +976,8 @@ mod tests {
         };
 
         for cursor in [None, Some(Value::Null)] {
-            let preview = restore_preview(&checkpoint(cursor), &[record.clone()], 4).unwrap();
+            let preview =
+                restore_preview(&checkpoint(cursor), std::slice::from_ref(&record), 4).unwrap();
             assert_eq!(preview["fully_reducible"], false);
         }
     }

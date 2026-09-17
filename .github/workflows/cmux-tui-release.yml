@@ -10,6 +10,11 @@ on:
         description: "TUI package version to build, for example 0.1.0"
         required: true
         type: string
+      include_windows:
+        description: "Include experimental Windows packages (requires registry publisher setup)"
+        required: true
+        default: false
+        type: boolean
       publish_npm:
         description: "Publish the verified npm artifacts after the build"
         required: true
@@ -85,8 +90,11 @@ jobs:
       version: ${{ needs.version.outputs.version }}
       package_npm: true
       package_pypi: true
-      include_windows: true
+      include_windows: ${{ inputs.include_windows == true }}
       attest_packages: true
+      # The Cloudflare Worker is deployed separately and is not shipped in
+      # these native packages. Keep its tests in its own verification lane.
+      build_cloudflare_relay: false
 
   dispatch-publishers:
     name: dispatch verified artifacts to registries

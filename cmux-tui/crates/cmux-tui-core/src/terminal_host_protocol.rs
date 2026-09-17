@@ -144,6 +144,18 @@ impl TerminalExit {
     }
 }
 
+/// Wait for the native child hidden behind cmux-pty without collapsing Unix
+/// signal/core information into its display-only fallback status.
+///
+/// cmux-pty's Unix backend returns `std::process::Child`, so failure to downcast
+/// is an alternate backend and becomes an explicit unknown outcome.
+#[cfg(test)]
+pub(crate) fn wait_for_native_child_status(
+    child: &mut (dyn cmux_pty::Child + Send + Sync),
+) -> TerminalExit {
+    wait_for_native_child_status_with_reap_result(child).0
+}
+
 /// Wait for a PTY child and report whether the wait reaped it successfully.
 ///
 /// Callers that retain an owning guard can use the boolean to avoid issuing a
@@ -394,6 +406,8 @@ pub enum MessageKind {
     /// host. Every live frame admitted before this receipt is queued before it,
     /// and this client is removed from live publication before the receipt.
     DetachAck = 22,
+    /// Targeted confirmation that `Input` reached the authoritative PTY writer.
+    InputAck = 23,
     Input = 100,
     Paste = 101,
     ViewerSize = 102,
@@ -450,6 +464,7 @@ impl TryFrom<u16> for MessageKind {
             20 => Ok(Self::LaunchFailed),
             21 => Ok(Self::TerminateAck),
             22 => Ok(Self::DetachAck),
+            23 => Ok(Self::InputAck),
             100 => Ok(Self::Input),
             101 => Ok(Self::Paste),
             102 => Ok(Self::ViewerSize),
@@ -795,7 +810,7 @@ impl FrameDecoder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{mpsc, Arc, Mutex};
+    use std::sync::{Arc, Mutex, mpsc};
 
     /// Test-only stand-in for a direct pipe reader. The bounded queue models
     /// the byte pump, while the mutex is the single parser owner.
@@ -933,6 +948,8 @@ mod tests {
         assert_eq!(MessageKind::try_from(21).unwrap(), MessageKind::TerminateAck);
         assert_eq!(MessageKind::DetachAck as u16, 22);
         assert_eq!(MessageKind::try_from(22).unwrap(), MessageKind::DetachAck);
+        assert_eq!(MessageKind::InputAck as u16, 23);
+        assert_eq!(MessageKind::try_from(23).unwrap(), MessageKind::InputAck);
         assert_eq!(MessageKind::Terminate as u16, 104);
         assert_eq!(MessageKind::try_from(104).unwrap(), MessageKind::Terminate);
     }
@@ -1104,7 +1121,7 @@ mod tests {
             let mut command = cmux_pty::PtyCommand::new("/bin/sh");
             command.args(["-c", script]);
             let mut spawned = pty.spawn(command).unwrap();
-            wait_for_native_child_status_with_reap_result(spawned.child.as_mut()).0.outcome
+            wait_for_native_child_status(spawned.child.as_mut()).outcome
         }
 
         assert_eq!(run("exit 17"), TerminalExitOutcome::Exit { code: 17 });

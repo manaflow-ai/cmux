@@ -928,7 +928,7 @@ final class FileExplorerContainerView: NSView {
     }
     private let searchDebounceDelayMilliseconds = 200
     private var searchBarVisibleHeight: CGFloat { max(48, GlobalFontMagnification.scaled(48)) }
-    private var searchFieldVisibleHeight: CGFloat { max(24, GlobalFontMagnification.scaled(24)) }
+    private var searchFieldVisibleHeight: CGFloat { SidebarSearchField.visibleHeight }
 
 #if DEBUG
     private var debugLastSearchTextChangeUptime: TimeInterval = 0
@@ -977,12 +977,6 @@ final class FileExplorerContainerView: NSView {
         searchField.translatesAutoresizingMaskIntoConstraints = false
         searchField.setAccessibilityIdentifier("FileExplorerSearchField")
         searchField.placeholderString = String(localized: "fileExplorer.search.placeholder", defaultValue: "Search files")
-        searchField.focusRingType = .none
-        searchField.cell?.usesSingleLineMode = true
-        searchField.cell?.isScrollable = true
-        searchField.cell?.lineBreakMode = .byClipping
-        searchField.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        searchField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         searchField.delegate = self
         searchField.onCancel = { [weak self] in
             self?.closeSearchAndFocusOutline()
@@ -1147,9 +1141,9 @@ final class FileExplorerContainerView: NSView {
             searchBarView.trailingAnchor.constraint(equalTo: trailingAnchor),
             searchBarHeightConstraint,
 
-            searchField.leadingAnchor.constraint(equalTo: searchBarView.leadingAnchor, constant: 8),
+            searchField.leadingAnchor.constraint(equalTo: searchBarView.leadingAnchor, constant: SidebarSearchField.leadingPadding),
             searchField.trailingAnchor.constraint(equalTo: searchBarView.trailingAnchor, constant: -8),
-            searchField.topAnchor.constraint(equalTo: searchBarView.topAnchor, constant: 4),
+            searchField.topAnchor.constraint(equalTo: searchBarView.topAnchor, constant: SidebarSearchField.topPadding),
             searchFieldHeightConstraint,
             searchField.widthAnchor.constraint(greaterThanOrEqualToConstant: 120),
 
@@ -1176,7 +1170,7 @@ final class FileExplorerContainerView: NSView {
     }
 
     private func applyChromeFonts() {
-        searchField.font = GlobalFontMagnification.systemFont(ofSize: 12, weight: .regular)
+        searchField.applyFontScale()
         searchStatusLabel.font = GlobalFontMagnification.systemFont(ofSize: 11, weight: .medium)
         emptyLabel.font = GlobalFontMagnification.systemFont(ofSize: 13)
         searchFieldHeightConstraint?.constant = searchFieldVisibleHeight
@@ -1465,20 +1459,22 @@ final class FileExplorerContainerView: NSView {
 
     private func updateSearchLayout(hasContent: Bool? = nil, isLoading: Bool? = nil) {
         let effectiveHasContent = hasContent ?? !currentRootPath.isEmpty
-        let effectiveIsLoading = isLoading ?? false
-        let showSearch = isSearchVisible && effectiveHasContent && !effectiveIsLoading
-        let nextSearchBarHeight = showSearch ? searchBarVisibleHeight : 0
+        let effectiveIsLoading = isLoading ?? coordinator.store.isRootLoading
+        let showSearchResults = isSearchVisible && effectiveHasContent && !effectiveIsLoading
+        let nextSearchBarHeight = isSearchVisible ? searchBarVisibleHeight : 0
 
         // Assigning isHidden/constraints unconditionally fires KVO even when unchanged,
         // which re-enters updateNSView and spins the main thread on macOS 26 (#4931).
         var changed = false
-        if applyHidden(searchBarView, !showSearch) { changed = true }
+        // Loading changes the results, not the editor's lifetime. Hiding the
+        // active search bar makes AppKit end editing and drops shortcut focus.
+        if applyHidden(searchBarView, !isSearchVisible) { changed = true }
         if searchBarHeightConstraint.constant != nextSearchBarHeight {
             searchBarHeightConstraint.constant = nextSearchBarHeight
             changed = true
         }
-        if applyHidden(searchScrollView, !showSearch) { changed = true }
-        if applyHidden(scrollView, showSearch || !effectiveHasContent || effectiveIsLoading) { changed = true }
+        if applyHidden(searchScrollView, !showSearchResults) { changed = true }
+        if applyHidden(scrollView, isSearchVisible || !effectiveHasContent || effectiveIsLoading) { changed = true }
         if changed {
             needsLayout = true
         }

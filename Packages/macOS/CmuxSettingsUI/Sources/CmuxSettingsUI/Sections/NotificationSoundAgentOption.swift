@@ -1,7 +1,7 @@
 import Foundation
 
 /// One host-provided agent-registry row in the notification sound matrix.
-nonisolated public struct NotificationSoundAgentOption: Equatable, Identifiable, Sendable {
+public struct NotificationSoundAgentOption: Equatable, Identifiable, Sendable {
     /// The stable agent-registry identifier persisted as a matrix key.
     public let id: String
     /// The user-facing agent name shown in Settings.

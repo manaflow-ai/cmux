@@ -1,4 +1,5 @@
 import Foundation
+import CmuxAgentSessionStore
 
 // MARK: - Global (cross-agent) session search for the recency "All" view and
 // the `cmux vault search` socket surface.
@@ -18,7 +19,8 @@ extension SessionIndexStore {
         await Self.searchAllSessions(
             rawQuery: rawQuery,
             entries: entries,
-            scopedDirectory: scopeToCurrentDirectory ? currentDirectory : nil
+            scopedDirectory: scopeToCurrentDirectory ? currentDirectory : nil,
+            ampSessionRepository: ampSessionRepository
         )
     }
 
@@ -34,7 +36,8 @@ extension SessionIndexStore {
     nonisolated static func searchAllSessions(
         rawQuery: String,
         entries: [SessionEntry],
-        scopedDirectory: String?
+        scopedDirectory: String?,
+        ampSessionRepository: any AmpHookSessionReading
     ) async -> SearchOutcome {
         let query = VaultSessionSearchQuery.parse(rawQuery)
         guard !query.isEmpty else {
@@ -86,7 +89,8 @@ extension SessionIndexStore {
                                 offset: 0,
                                 limit: Self.globalSearchPerAgentLimit,
                                 errorBag: bag,
-                                registry: registry
+                                registry: registry,
+                                ampSessionRepository: ampSessionRepository
                             )
                         }
                     }

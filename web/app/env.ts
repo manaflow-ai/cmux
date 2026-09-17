@@ -126,6 +126,30 @@ const irohMinterUrl = z.string().url().superRefine((value, context) => {
     });
   }
 });
+const publicationAuthOrigin = z.string().url().superRefine((value, context) => {
+  let parsed: URL | null = null;
+  try {
+    parsed = new URL(value);
+  } catch {
+    parsed = null;
+  }
+  if (
+    !parsed ||
+    parsed.protocol !== "https:" ||
+    !parsed.hostname ||
+    parsed.username ||
+    parsed.password ||
+    parsed.pathname !== "/" ||
+    parsed.search ||
+    parsed.hash
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        "CMUX_VM_PUBLICATION_AUTH_ORIGIN must be a bare https:// origin with no path, query, or credentials",
+    });
+  }
+});
 const irohBindingLimit = z.string().regex(/^[1-9][0-9]{0,3}$/).superRefine((value, context) => {
   if (Number(value) > 4_096) {
     context.addIssue({
@@ -142,6 +166,21 @@ const stackEnv = (
   if (trimmed) return trimmed;
   return allowPreviewStackPlaceholders ? fallback : undefined;
 };
+const positiveSafeIntegerEnv = (name: string) =>
+  z.string()
+    .regex(/^\d+$/)
+    .refine((value) => {
+      const parsed = Number(value);
+      return Number.isSafeInteger(parsed) && parsed > 0;
+    }, { message: `${name} must be a positive safe integer` });
+const coderouterHeadersTimeoutEnv = z.string()
+  .regex(/^\d+$/)
+  .refine((value) => {
+    const parsed = Number(value);
+    return Number.isSafeInteger(parsed) && parsed >= 1_000 && parsed <= 30 * 60_000;
+  }, {
+    message: "CODEROUTER_UPSTREAM_HEADERS_TIMEOUT_MS must be between 1000 and 1800000",
+  });
 
 export const env = createEnv({
   server: {
@@ -200,6 +239,11 @@ export const env = createEnv({
       "STRIPE_PRO_YEARLY_480_PRICE_ID",
     ),
     STRIPE_PRO_YEARLY_480_PRICE_ID: z.string().min(1).optional(),
+    STRIPE_MAX_MONTHLY_200_PRICE_ID: z.string().min(1).optional(),
+    STRIPE_GO_MONTHLY_10_PRICE_ID: z.string().min(1).optional(),
+    // Optional pin for the Pro <-> Max portal configuration; otherwise the
+    // configuration is found by its metadata (see services/billing/stripe.ts).
+    STRIPE_PERSONAL_PLAN_SWITCH_PORTAL_CONFIGURATION_ID: z.string().min(1).optional(),
     STRIPE_TEAM_MONTHLY_PRICE_ID: retiredEnvValue(
       "STRIPE_TEAM_MONTHLY_PRICE_ID",
       "STRIPE_TEAM_MONTHLY_60_PRICE_ID",
@@ -229,12 +273,46 @@ export const env = createEnv({
     CMUX_VM_ALLOW_FREE_PROVISIONING: z.string().optional(),
     CMUX_VM_REQUIRE_PRO: z.string().optional(),
     CMUX_VM_DEFAULT_PLAN: z.string().optional(),
+    // Freestyle authenticates every protected-domain subrequest with this
+    // write-only token. Publication routes fail closed while it is absent.
+    CMUX_VM_PUBLICATION_FORWARD_AUTH_SECRET:
+      z.string().min(32).max(512).optional(),
+    // Canonical CMUX web origin used for the cross-domain sign-in handoff and
+    // pushed to Freestyle as the account-wide forward-auth target. It is never
+    // derived from a request; protected publications fail closed without it.
+    CMUX_VM_PUBLICATION_AUTH_ORIGIN: publicationAuthOrigin.optional(),
+    // Zone generated Cloud VM publication hostnames are minted under
+    // (<random>.<zone>). The CMUX Freestyle account must own it: verify the
+    // zone, CNAME `*` to the Freestyle edge, delegate `_acme-challenge`, and
+    // request its wildcard certificate. Defaults to cmux.sh.
+    CMUX_VM_PUBLICATION_GENERATED_DOMAIN: z
+      .string()
+      .regex(
+        /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/u,
+        "CMUX_VM_PUBLICATION_GENERATED_DOMAIN must be a lowercase DNS zone with at least two labels",
+      )
+      // A hostname is at most 253 characters; leave room for the generated label.
+      .max(200, "CMUX_VM_PUBLICATION_GENERATED_DOMAIN must leave room for a generated label")
+      .optional(),
+    // Vercel Firewall rule id that throttles sign-in transaction creation per
+    // client and hostname on the Freestyle forward-auth route. Unset (or off
+    // Vercel) applies no limit.
+    CMUX_VM_PUBLICATION_SIGN_IN_RATE_LIMIT_ID: z.string().min(1).optional(),
     // Hosted coderouter and Subrouter have no plan, permission, or team
     // allow-list gate: team membership is the only access requirement.
     CRON_SECRET: z.string().min(1).optional(),
     CMUX_ALERTS_SLACK_WEBHOOK_URL: z.string().url().optional(),
+    // Preserve the legacy VM alert range. The VM consumers already apply
+    // their compatibility fallback for zero and unsafe values.
     CMUX_VM_ALERT_CREATE_FAILURES_15M: z.string().regex(/^\d+$/).optional(),
     CMUX_VM_ALERT_EXPIRED_LEASES: z.string().regex(/^\d+$/).optional(),
+    // Coderouter alert thresholds (per five-minute window) and the bound on
+    // time-to-headers for upstream model calls. Defaults live next to the code.
+    CMUX_CODEROUTER_ALERT_OPERATOR_FAILURES_5M: positiveSafeIntegerEnv("CMUX_CODEROUTER_ALERT_OPERATOR_FAILURES_5M").optional(),
+    CMUX_CODEROUTER_ALERT_UPSTREAM_FAILURES_5M: positiveSafeIntegerEnv("CMUX_CODEROUTER_ALERT_UPSTREAM_FAILURES_5M").optional(),
+    CMUX_CODEROUTER_ALERT_NO_ACCOUNT_5M: positiveSafeIntegerEnv("CMUX_CODEROUTER_ALERT_NO_ACCOUNT_5M").optional(),
+    CMUX_CODEROUTER_ALERT_AUTH_REJECTED_5M: positiveSafeIntegerEnv("CMUX_CODEROUTER_ALERT_AUTH_REJECTED_5M").optional(),
+    CODEROUTER_UPSTREAM_HEADERS_TIMEOUT_MS: coderouterHeadersTimeoutEnv.optional(),
     // Slack Incoming Webhook for the #website-waitlist channel. Optional: the
     // /api/waitlist route silently skips the Slack ping when it is unset.
     SLACK_WAITLIST_WEBHOOK_URL: z.string().url().optional(),
@@ -373,6 +451,11 @@ export const env = createEnv({
       process.env.STRIPE_PRO_YEARLY_288_PRICE_ID,
     ),
     STRIPE_PRO_YEARLY_480_PRICE_ID: trimEnv(process.env.STRIPE_PRO_YEARLY_480_PRICE_ID),
+    STRIPE_MAX_MONTHLY_200_PRICE_ID: trimEnv(process.env.STRIPE_MAX_MONTHLY_200_PRICE_ID),
+    STRIPE_GO_MONTHLY_10_PRICE_ID: trimEnv(process.env.STRIPE_GO_MONTHLY_10_PRICE_ID),
+    STRIPE_PERSONAL_PLAN_SWITCH_PORTAL_CONFIGURATION_ID: trimEnv(
+      process.env.STRIPE_PERSONAL_PLAN_SWITCH_PORTAL_CONFIGURATION_ID,
+    ),
     STRIPE_TEAM_MONTHLY_PRICE_ID: trimEnv(process.env.STRIPE_TEAM_MONTHLY_PRICE_ID),
     STRIPE_TEAM_MONTHLY_60_PRICE_ID: trimEnv(process.env.STRIPE_TEAM_MONTHLY_60_PRICE_ID),
     STRIPE_TEAM_YEARLY_PRICE_ID: trimEnv(process.env.STRIPE_TEAM_YEARLY_PRICE_ID),
@@ -393,10 +476,27 @@ export const env = createEnv({
     CMUX_VM_ALLOW_FREE_PROVISIONING: trimEnv(process.env.CMUX_VM_ALLOW_FREE_PROVISIONING),
     CMUX_VM_REQUIRE_PRO: trimEnv(process.env.CMUX_VM_REQUIRE_PRO),
     CMUX_VM_DEFAULT_PLAN: trimEnv(process.env.CMUX_VM_DEFAULT_PLAN),
+    CMUX_VM_PUBLICATION_FORWARD_AUTH_SECRET: trimEnv(
+      process.env.CMUX_VM_PUBLICATION_FORWARD_AUTH_SECRET,
+    ),
+    CMUX_VM_PUBLICATION_AUTH_ORIGIN: trimEnv(
+      process.env.CMUX_VM_PUBLICATION_AUTH_ORIGIN,
+    ),
+    CMUX_VM_PUBLICATION_GENERATED_DOMAIN: trimEnv(
+      process.env.CMUX_VM_PUBLICATION_GENERATED_DOMAIN,
+    ),
+    CMUX_VM_PUBLICATION_SIGN_IN_RATE_LIMIT_ID: trimEnv(
+      process.env.CMUX_VM_PUBLICATION_SIGN_IN_RATE_LIMIT_ID,
+    ),
     CRON_SECRET: trimEnv(process.env.CRON_SECRET),
     CMUX_ALERTS_SLACK_WEBHOOK_URL: trimEnv(process.env.CMUX_ALERTS_SLACK_WEBHOOK_URL),
     CMUX_VM_ALERT_CREATE_FAILURES_15M: trimEnv(process.env.CMUX_VM_ALERT_CREATE_FAILURES_15M),
     CMUX_VM_ALERT_EXPIRED_LEASES: trimEnv(process.env.CMUX_VM_ALERT_EXPIRED_LEASES),
+    CMUX_CODEROUTER_ALERT_OPERATOR_FAILURES_5M: trimEnv(process.env.CMUX_CODEROUTER_ALERT_OPERATOR_FAILURES_5M),
+    CMUX_CODEROUTER_ALERT_UPSTREAM_FAILURES_5M: trimEnv(process.env.CMUX_CODEROUTER_ALERT_UPSTREAM_FAILURES_5M),
+    CMUX_CODEROUTER_ALERT_NO_ACCOUNT_5M: trimEnv(process.env.CMUX_CODEROUTER_ALERT_NO_ACCOUNT_5M),
+    CMUX_CODEROUTER_ALERT_AUTH_REJECTED_5M: trimEnv(process.env.CMUX_CODEROUTER_ALERT_AUTH_REJECTED_5M),
+    CODEROUTER_UPSTREAM_HEADERS_TIMEOUT_MS: trimEnv(process.env.CODEROUTER_UPSTREAM_HEADERS_TIMEOUT_MS),
     SLACK_WAITLIST_WEBHOOK_URL: trimEnv(process.env.SLACK_WAITLIST_WEBHOOK_URL),
     SLACK_ENTERPRISE_WEBHOOK_URL: trimEnv(process.env.SLACK_ENTERPRISE_WEBHOOK_URL),
     SLACK_SUPPORT_WEBHOOK_URL: trimEnv(process.env.SLACK_SUPPORT_WEBHOOK_URL),

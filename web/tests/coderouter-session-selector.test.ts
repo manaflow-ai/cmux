@@ -5,8 +5,8 @@ import { createSessionAccountSelector } from "../services/coderouter/repository"
 type Call = { fn: string; args: unknown[] };
 
 function makeDependencies(options: {
-  bound?: { id: string; vaultRevision: number; credentialExpiresAt: Date | null } | null;
-  placed?: { id: string; vaultRevision: number; credentialExpiresAt: Date | null } | null;
+  bound?: { id: string; provider: "codex"; vaultRevision: number; credentialExpiresAt: Date | null } | null;
+  placed?: { id: string; provider: "codex"; vaultRevision: number; credentialExpiresAt: Date | null } | null;
 }) {
   const calls: Call[] = [];
   return {
@@ -32,6 +32,7 @@ function makeDependencies(options: {
 
 const account = (id: string) => ({
   id,
+  provider: "codex" as const,
   vaultRevision: 3,
   credentialExpiresAt: null,
 });
