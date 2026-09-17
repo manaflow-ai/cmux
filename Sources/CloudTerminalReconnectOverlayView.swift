@@ -68,14 +68,14 @@ final class CloudTerminalReconnectOverlayView: NSView {
         let onReconnect: () -> Void
         let onDismiss: () -> Void
         #if DEBUG
-        @AppStorage("cloudPaneFailurePrototypeStyle") private var prototypeStyle = "compact"
+        @AppStorage("cloudPaneFailurePrototypeStyle") private var prototypeStyle = "compact-bordered"
         #endif
 
         private var style: CloudFailureCard.Style {
             #if DEBUG
-            CloudFailureCard.Style(rawValue: prototypeStyle) ?? .compact
+            CloudFailureCard.Style(rawValue: prototypeStyle) ?? .compactBordered
             #else
-            .compact
+            .compactBordered
             #endif
         }
 

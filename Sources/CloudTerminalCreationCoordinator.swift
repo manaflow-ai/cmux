@@ -108,11 +108,13 @@ final class CloudTerminalCreationCoordinator {
                     }
                     self.onSuccess()
                 }
-            } catch is CancellationError {
-                if self.generation == operationGeneration { self.onCancel() }
-                return
             } catch {
-                // perform already delivered the failure inside its diagnostic context.
+                guard self.generation == operationGeneration else { return }
+                if CloudDiagnosticFailure.classify(error) == .cancelled {
+                    self.onCancel()
+                }
+                // perform already delivered non-cancellation failures inside its
+                // diagnostic context.
             }
         }
     }

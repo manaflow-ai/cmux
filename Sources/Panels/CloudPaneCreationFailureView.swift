@@ -8,14 +8,14 @@ struct CloudPaneCreationFailurePresentation: ViewModifier {
     var isWorkspaceVisible = true
     var sourceView: NSView?
     #if DEBUG
-    @AppStorage("cloudPaneFailurePrototypeStyle") private var prototypeStyle = "compact"
+    @AppStorage("cloudPaneFailurePrototypeStyle") private var prototypeStyle = "compact-bordered"
     #endif
 
     private var style: CloudPaneCreationFailureView.Style {
         #if DEBUG
-        CloudPaneCreationFailureView.Style(rawValue: prototypeStyle) ?? .compact
+        CloudPaneCreationFailureView.Style(rawValue: prototypeStyle) ?? .compactBordered
         #else
-        .compact
+        .compactBordered
         #endif
     }
 
@@ -119,7 +119,7 @@ struct CloudPaneCreationFailurePresentation: ViewModifier {
             private var card: NSHostingView<AnyView>?
             private var rendered: RenderState?
             private weak var sourceView: NSView?
-            private var style: CloudPaneCreationFailureView.Style = .compact
+            private var style: CloudPaneCreationFailureView.Style = .compactBordered
             private var geometryObservers: [NSObjectProtocol] = []
             private var observedViews: [ObjectIdentifier] = []
             private var isSynchronizing = false
@@ -251,7 +251,7 @@ struct CloudPaneCreationFailurePresentation: ViewModifier {
 struct CloudPaneCreationFailureView: View {
     typealias Style = CloudFailureCard.Style
     let failure: CloudPaneCreationFailure
-    var style: Style = .compact
+    var style: Style = .compactBordered
     var onRetry: (() -> Void)? = nil
     let onDismiss: () -> Void
 
@@ -271,7 +271,7 @@ struct CloudFailureCard: View {
     let title: String
     let detail: String
     let copyableText: String
-    var style: Style = .compact
+    var style: Style = .compactBordered
     var onRetry: (() -> Void)? = nil
     let onDismiss: () -> Void
 
