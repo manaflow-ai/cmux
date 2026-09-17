@@ -15,13 +15,25 @@ import urllib.error
 import urllib.request
 
 
-IMMUTABLE_ASSET_PATTERNS = [
-    re.compile(r"^cmux-nightly-macos-(?P<build>\d+)\.dmg$"),
-    re.compile(r"^cmux-nightly-macos-(?:arm64|x86_64|universal)-(?P<build>\d+)\.dmg$"),
-    # Sparkle delta from an older build to <build>; pruned together with <build>.
-    re.compile(r"^cmux-nightly-macos-(?:arm64|x86_64|universal)-(?P<build>\d+)-\d+\.delta$"),
-    re.compile(r"^cmux-nightly-universal-macos-(?P<build>\d+)\.dmg$"),
-]
+DEFAULT_NAME_PREFIX = "cmux-nightly-macos-"
+
+
+def immutable_asset_patterns(name_prefix: str) -> list[re.Pattern[str]]:
+    """Immutable asset names of one channel, e.g. cmux-nightly-macos- or cmux-rc-macos-."""
+    prefix = re.escape(name_prefix)
+    patterns = [
+        re.compile(rf"^{prefix}(?P<build>\d+)\.dmg$"),
+        re.compile(rf"^{prefix}(?:arm64|x86_64|universal)-(?P<build>\d+)\.dmg$"),
+        # Sparkle delta from an older build to <build>; pruned together with <build>.
+        re.compile(rf"^{prefix}(?:arm64|x86_64|universal)-(?P<build>\d+)-\d+\.delta$"),
+    ]
+    if name_prefix == DEFAULT_NAME_PREFIX:
+        # Pre-variant nightly naming that still exists on the nightly release.
+        patterns.append(re.compile(r"^cmux-nightly-universal-macos-(?P<build>\d+)\.dmg$"))
+    return patterns
+
+
+IMMUTABLE_ASSET_PATTERNS = immutable_asset_patterns(DEFAULT_NAME_PREFIX)
 
 
 @dataclass(frozen=True)
@@ -41,6 +53,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--repo", required=True, help="owner/repo, for example manaflow-ai/cmux")
     parser.add_argument("--release-tag", default="nightly", help="GitHub release tag to prune")
+    parser.add_argument(
+        "--name-prefix",
+        default=DEFAULT_NAME_PREFIX,
+        help="Immutable asset name prefix of the channel (cmux-nightly-macos- or cmux-rc-macos-)",
+    )
     parser.add_argument(
         "--keep-builds",
         type=int,
@@ -138,19 +155,21 @@ def load_release(repo: str, release_tag: str) -> dict | None:
         raise
 
 
-def extract_build(name: str) -> int | None:
-    for pattern in IMMUTABLE_ASSET_PATTERNS:
+def extract_build(name: str, patterns: list[re.Pattern[str]] = IMMUTABLE_ASSET_PATTERNS) -> int | None:
+    for pattern in patterns:
         match = pattern.match(name)
         if match:
             return int(match.group("build"))
     return None
 
 
-def collect_immutable_assets(release: dict) -> tuple[list[ReleaseAsset], int]:
+def collect_immutable_assets(
+    release: dict, patterns: list[re.Pattern[str]] = IMMUTABLE_ASSET_PATTERNS
+) -> tuple[list[ReleaseAsset], int]:
     immutable_assets: list[ReleaseAsset] = []
     ignored_assets = 0
     for asset in release.get("assets", []):
-        build = extract_build(asset["name"])
+        build = extract_build(asset["name"], patterns)
         if build is None:
             ignored_assets += 1
             continue
@@ -214,7 +233,9 @@ def main() -> int:
         log(f"Release {args.release_tag!r} does not exist yet, nothing to prune.")
         return 0
 
-    immutable_assets, ignored_assets = collect_immutable_assets(release)
+    immutable_assets, ignored_assets = collect_immutable_assets(
+        release, immutable_asset_patterns(args.name_prefix)
+    )
     total_assets = len(release.get("assets", []))
     to_delete, ordered_builds = partition_assets(
         immutable_assets, args.keep_builds, total_assets, args.max_assets
