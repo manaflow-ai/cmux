@@ -428,6 +428,12 @@ actor CloudMachineLink {
 
     /// Runs one cmux-tui command against the link's socket and returns its stdout.
     func run(arguments: [String], input: Data? = nil, timeout: Duration = .seconds(30)) async throws -> Data {
+        try await CloudOperationContext.phase(.process) {
+            try await self.runMeasured(arguments: arguments, input: input, timeout: timeout)
+        }
+    }
+
+    private func runMeasured(arguments: [String], input: Data?, timeout: Duration) async throws -> Data {
         let process = Process()
         process.executableURL = clientURL
         process.arguments = arguments

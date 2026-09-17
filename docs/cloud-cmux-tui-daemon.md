@@ -698,11 +698,31 @@ nothing else), and `/integrations` (what the machine can use, each with a `help`
 command). The shim resolves `cmux vm exec <peer>` through `/peers` when no route file
 exists. See docs/vm-identity-edge-auth.md.
 
+## Coding-agent hooks on a machine
+
+Every machine ships the cmux-tui hooks for Claude Code and Codex, installed
+for the daemon user (`/home/cmux`): the bake and the create-time install both
+run `cmux-tui agent hook install claude codex` right after the binary
+(`cmuxTuiInstallCommand`), with the `cmux-tui-hook` helper downloaded from the
+same manifest commit as the daemon and placed beside it. A machine whose daemon
+is healthy but predates this gets the hooks on attach (`ensureAgentHooks` in
+`freestyle.ts`), using the helper of the commit in `/etc/cmux/cmux-tui-pin`;
+the daemon keeps running because it already exports `CMUX_TUI_HOOK` into
+every pane. The readiness probe (`cmuxTuiHooksReadyCommand`) requires the
+installed helper to be byte-equal to the pinned one and the cmux marker in
+`~/.claude/settings.json`, `~/.codex/hooks.json`, and the `[hooks]` trust
+table in `~/.codex/config.toml`. `agent-config.sh` adds the codex model
+provider around that trust table at the first login that sees a boot env, so
+the two writers of `config.toml` compose in either order. The bake's
+`agent-hooks` step proves all of it on the snapshot.
+
 ## Notifications from a machine
 
 `cmux notify` inside a machine is the guest shim (`web/services/vms/guestCli.ts`)
-translating to `notification create --title … --body … [--level …] --terminal
-$CMUX_TUI_TERMINAL_ID` on the machine's own session. The daemon appends it to
+running `cmux-tui --session cloud --quiet notify …` with the arguments untouched
+(`--quiet` is dropped when the caller passes `--json` or `--jsonl`); the
+daemon's `notify` verb owns the macOS signature (subtitle, scoped `--clear`,
+`--reply` refused, `CMUX_TUI_TERMINAL_ID` as the caller terminal). The daemon appends it to
 its durable notification ledger and the v2 `session.events` stream carries it
 as a delta:
 

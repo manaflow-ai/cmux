@@ -1044,6 +1044,14 @@ class Tab:
 
 
 @dataclass(frozen=True)
+class TerminalColorOverrides:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalColorOverrides'
+    bg: Union[ColorHex, None]
+    cursor: Union[ColorHex, None]
+    fg: Union[ColorHex, None]
+
+
+@dataclass(frozen=True)
 class TerminalColors:
     __cmux_schema_path__: ClassVar[str] = 'types/TerminalColors'
     bg: Union[ColorHex, None]
@@ -1053,6 +1061,7 @@ class TerminalColors:
     cursor: Union[ColorHex, None, MissingType] = field(default=MISSING)
     cursor_blink: Union[bool, None, MissingType] = field(default=MISSING)
     cursor_style: Union[CursorStyle, None, MissingType] = field(default=MISSING)
+    overrides: Union[TerminalColorOverrides, MissingType] = field(default=MISSING)
     palette: Union[Dict[str, ColorHex], MissingType] = field(default=MISSING)
 
 
@@ -1723,6 +1732,26 @@ class PaneNeighborRequest:
 
 
 @dataclass(frozen=True)
+class PasteImageRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/paste-image/request'
+    surface: Id
+    terminal_id: str
+    lease: str
+    op: str
+    upload_id: str
+    data: Union[str, None, MissingType] = field(default=MISSING)
+    mime: Union[str, None, MissingType] = field(default=MISSING)
+    offset: Union[int, None, MissingType] = field(default=MISSING)
+    size: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class PasteImageResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/paste-image/result'
+    accepted: bool
+
+
+@dataclass(frozen=True)
 class PingRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/ping/request'
     pass
@@ -2179,6 +2208,7 @@ class ColorsChangedEvent(EventBase):
     cursor: Union[ColorHex, None, MissingType] = field(default=MISSING)
     cursor_blink: Union[bool, None, MissingType] = field(default=MISSING)
     cursor_style: Union[CursorStyle, None, MissingType] = field(default=MISSING)
+    overrides: Union[TerminalColorOverrides, MissingType] = field(default=MISSING)
     palette: Union[Dict[str, ColorHex], MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
@@ -2748,6 +2778,7 @@ __all__ = [
     'Size',
     'SurfaceResult',
     'Tab',
+    'TerminalColorOverrides',
     'TerminalColors',
     'TerminalEventsResult',
     'TerminalExit',
@@ -2827,6 +2858,8 @@ __all__ = [
     'NotifyRequest',
     'PairingResponseRequest',
     'PaneNeighborRequest',
+    'PasteImageRequest',
+    'PasteImageResult',
     'PingRequest',
     'ProcessInfoRequest',
     'PutFrontendProjectionRequest',

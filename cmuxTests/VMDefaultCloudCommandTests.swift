@@ -130,7 +130,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             case "workspace.create":
                 let params = payload["params"] as? [String: Any] ?? [:]
                 XCTAssertEqual(params["initial_command"] as? String, "sleep 60")
-                XCTAssertEqual(params["title"] as? String, "vm:\(vmID)")
+                XCTAssertEqual(params["title"] as? String, "Cloud VM")
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -144,7 +144,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 let params = payload["params"] as? [String: Any] ?? [:]
                 XCTAssertEqual(params["workspace_id"] as? String, workspaceID)
                 XCTAssertEqual(params["vm_id"] as? String, vmID)
-                XCTAssertEqual(params["base"] as? Bool, false)
+                XCTAssertEqual(params["base"] as? Bool, false); XCTAssertEqual(params["generated_title"] as? String, "Cloud VM")
                 return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceID])
             case "surface.catalog":
                 let params = payload["params"] as? [String: Any] ?? [:]
@@ -1086,23 +1086,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
     }
 
     private func decodedSingleEmbeddedStartupScript(_ command: String) -> String {
-        guard let marker = command.range(of: "printf %s ") else {
-            return command
-        }
-        let suffix = command[marker.upperBound...]
-        guard let end = suffix.firstIndex(where: { $0 == " " || $0 == "\n" || $0 == "'" }),
-              end > suffix.startIndex else {
-            return command
-        }
-        let encoded = String(suffix[..<end])
-        guard let data = Data(base64Encoded: encoded),
-              let decoded = String(data: data, encoding: .utf8) else {
-            return command
-        }
-        return decoded
+        SSHStartupCommandTestSupport.decodedScript(in: command) ?? command
     }
 
     private func decodedFirstEmbeddedStartupScript(_ command: String) -> String? {
+        if let script = SSHStartupCommandTestSupport.decodedScript(in: command) {
+            return script
+        }
         for markerText in ["printf %s ", "printf %%s "] {
             guard let marker = command.range(of: markerText) else {
                 continue

@@ -61,6 +61,7 @@ Environment:
 | Command | Contract |
 | --- | --- |
 | `welcome` | Print the welcome screen. |
+| `guide`, `--skill` | Print the same short Markdown guide to workspace, terminal, browser, computer-use, and Cloud methods. Works without the app, a socket, network access, or sign-in. `--json` returns `{topic: "cmux", format: "markdown", content: "..."}`. |
 | `docs` | Print canonical docs URLs, raw GitHub resources, and useful commands for a topic. |
 | `settings` | Open Settings, print cmux.json paths, or print settings docs. |
 | `config` | Validate cmux.json syntax, print config references, or reload config. |
@@ -91,6 +92,7 @@ Environment:
 | `auth` | Manage auth status, login, and logout through the app. |
 | `coderouter`, `cr` | `cmux coderouter <status|machines|claude>` manages the team's coderouter model plane through the app (sign-in state, per-machine usage, the team's Claude upstream accounts). Every other `cmux coderouter ...` verb and all of `cmux cr ...` exec the CodeRouter CLI unchanged with the `CMUX_*`/`CMUXD_*` environment stripped: `coderouter` or `cr` on PATH first, then the official installer's `~/.coderouter/bin/coderouter` (`$CODEROUTER_INSTALL/bin` when set), never with a network call. When neither exists and stdin and stderr are terminals, cmux shows the documented installer `curl -fsSL https://cmux.com/coderouter/install.sh | sh`, says what it does (checksum-verified binary into `~/.coderouter/bin`, PATH line in the shell profile), asks once (`Install CodeRouter now? [y/N]`), and after `y` fetches the script, runs it with `sh`, and execs the new install with the original arguments. Any other outcome (non-interactive, declined, download or installer failure) prints that install command on stderr and exits 127. |
 | `vm`, `cloud` | Manage cloud VMs and their HTTPS publications. `cloud` is an alias for `vm`. |
+| `cloud guide`, `cloud --skill` (also `vm guide`, `vm --skill`) | Print the same short Cloud guide without connecting to the app. `--json` returns `{topic: "cloud", format: "markdown", content: "..."}`. This does not install a skill or start an agent; `vm prompt` and its existing `vm skill` alias keep that behavior. |
 | `remotes`, `remote` | Manage remote Macs in the team device registry so they appear in the iOS app's device list. `remote` is an alias for `remotes`. |
 | `rpc` | Call a raw v2 socket method with optional JSON params. |
 | `identify` | Print server identity and caller context. |
@@ -312,8 +314,8 @@ VM subcommands:
 | `vm base open`, `vm base reset` | Open (creating on first use) or reset the persistent Base machine, the same devbox with a screen; `--base` / `--desktop` are accepted for older scripts and change nothing, and an existing Base keeps its image. The app's Cloud VM button shows the Set Up Base sheet only when no Base exists yet. |
 | `vm shell`, `vm attach` | Open an interactive shell for an existing VM. Every cloud open (`vm shell` / `vm new` / `vm fork` / `vm restore` / `vm base open` / `vm base reset`, the Machines panel, the sidebar cloud button) uses the machine's private cmux-tui route through the app's user-space WireGuard hub. The first open gets one enrollment invitation from `vm.cmux_remote_info`; a known device reconnects with its pinned daemon fingerprint and cached private route, without a connection-time control-plane request. The app then uses `workspace.create` or `workspace.cloud_vm_terminal_ready`, `workspace.cloud_vm_bind`, and `surface.new_terminal {machine, open: true, workspace_id, focus: true, name: "shell"}`. There is no public WebSocket or automatic SSH fallback. `cmux vm ssh` remains an explicit diagnostic command. |
 | `vm stats <id>`, `vm top <id>` | Print CPU, memory, and disk for the machine right now; a sleeping machine reports `asleep` and is not woken. |
-| `vm resize <id> --disk <GiB>` | Increase a machine's disk in 4 GiB steps, from 4 GiB through the Freestyle 256 GiB limit. The operation is grow-only and returns the provider-confirmed size. |
-| `vm desktop <id>`, `vm vnc <id>` | Open the VM's noVNC desktop as a browser pane in the machine's open workspace, else the workspace you are in (or `--workspace <id\|ref\|index>`); desktop-kind machines only (`--base` machines have no screen). The pane loads a loopback forward (`http://127.0.0.1:<local port>/vnc.html…`) to the machine's private address on port 6901, carried over the user-space WireGuard hub, so it needs neither `cmux vpn up` nor the Network Extension. A running machine needs no `open-port` call. A sleeping machine uses `open-port` only to wake or repair it, then still loads the forward. |
+| `vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]` | Grow an existing machine in place. CPU is 1–32 vCPUs, memory is 4–64 GiB in whole GiB, and disk is 4–256 GiB in 4 GiB steps. The server enforces account plan ceilings and returns provider-confirmed resources. |
+| `vm desktop <id>`, `vm vnc <id>` | Open the private VM desktop through the authenticated userspace hub in a browser pane. noVNC and websockify use one loopback forward; no system VPN setup is required. |
 | `vm rename <id> <label>`, `vm rename <id> --clear` | Set or clear a display label; the machine id stays its address. |
 | `vm rm`, `vm destroy`, `vm delete` | Destroy a VM. |
 | `vm ssh` | Open a cmux-managed SSH workspace for an existing VM. |
@@ -322,10 +324,10 @@ VM subcommands:
 | `vm exec` | Run a shell command inside a VM. |
 | `vm tui <id>` | Open the FULL cmux-tui client (its own workspaces/panes/tabs) in a pane — every other open gives a plain terminal instead; dials the machine's trusted-carrier listener over the private network, so no device enrollment or approval happens (hidden helper, used only by this command: `vm-tui-connect --config <file>` execs the local cmux-tui client in the pane). |
 | `vm run -- <command...>` | Run a command without naming a machine: reuses an idle machine the router provisioned earlier (persisted in `~/.cmuxterm/vm-run-pool.json`, labeled `agent-pool`), wakes a sleeper, or provisions a fresh one; `--sync` pushes the cwd first, `--pull <remote>` fetches results, and the remote exit code passes through. |
-| `vm push <id> <local> [remote]`, `vm upload` | Copy a local file or directory onto a VM over the exec channel (base64-chunked, SHA-256 verified; directories travel as tarballs). |
+| `vm push <id> <local> [remote]`, `vm upload` | Copy a local file or directory onto a VM with SCP over the userspace WireGuard connection. The client pins the guest host key, verifies SHA-256, and packs directories as tarballs. |
 | `vm pull <id> <remote> [local]`, `vm download` | Copy a file or directory from a VM to local disk over the exec channel. |
 | `vm wait <id>` | Block until the VM reports a ready status; `--wake` also runs a trivial exec so a sleeping machine is awake, `--timeout <seconds>` bounds the wait. |
-| `vm open <id> <port> [--print]` | The port form: open the canonical `<id>/browser/port:<port>` resource through `vm.port_open` in the local workspace already showing that machine (or the caller's workspace when none is attached). The pane loads a loopback forward (`http://127.0.0.1:<local port>`) carried over the user-space WireGuard hub, and that URL is what the command prints, so it works from any app on the Mac without `cmux vpn up`; a machine without a private address gets the control plane's preview URL instead (the same link the pane loads and Copy Link copies), and a machine with neither route is an error, never an empty `url`. `private_url` in the JSON carries the machine's private address. `--print` only mints and prints the control plane's URL (`vm.open_port`). Same as `vm open <id>:port/<port>`. A provider without a preview capability answers non-retryable `vm_operation_unsupported`. |
+| `vm open <id> <port> [--print]` | Open the canonical machine-port browser resource. HTTP uses an authenticated loopback forward; HTTPS keeps its private host and certificate identity. `url` and `private_url` identify the private URL. Copying does not create a forward. `--print` remains the explicit control-plane URL request. |
 | `vm open <target> [--workspace <id\|ref\|index>] [--focus <true\|false>]` | Open a tree address. `<machine>` is the machine's shell (exactly `vm shell <machine>`). `<machine>/<ws>` (a `ws_…` id or workspace name) opens that cmux-tui workspace's focused/first live terminal, or starts one there when it is empty (`surface.new_terminal {machine, remote_workspace_id, open: true}`). `<machine>/<ws>/<term_…>` opens one terminal (`surface.project {resource: "<machine>/terminal/<term_…>", workspace_id?, focus?}`), reusing the pane that already shows it (`reused: true`). `<machine>/<ws>/<term_…>/<tab_…>` opens that terminal's exact tab placement (`surface.project {…, remote_tab_id}`); it is the address `vm tree` prints for each tab when one terminal occupies several tabs of a pane, and the tab must belong to that workspace. `<machine>:desktop` is `vm desktop`. `<machine>:port/<n>` is the port form. Prints `OK surface=… workspace=… terminal=…`; `--json` prints the socket payload. Anything else is a usage error. |
 | `vm route [--cwd <dir>] [--new] [--provision] [--size <s>] [--json]` | Print the machine `vm run` / `vm agent` would use for a directory and why (the router's own policy: the machine bound to the directory, then an awake idle pool machine, then a sleeper), without running anything. When routing would provision a fresh machine it prints that and stops unless `--provision` is passed. |
 | `vm agent --agent <claude\|codex\|opencode\|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--new] [--size <s>] [--json] -- <prompt or args...>` | Start a coding agent on a cloud machine chosen like `vm run` (or pinned with `--machine`), as a detached terminal in the machine's cmux-tui session (`surface.new_terminal {machine, command, cwd, name, open}`; the command is a login shell that puts `/root/.npm-global/bin` first). A bare prompt uses the agent's one-shot form (`claude -p`, `codex exec`, `opencode run`, `pi -p`); flag- or subcommand-led args pass through. `--sync` pushes the directory to `work/<basename>` first and starts the agent there. Prints the terminal, the workspace, and the `vm open <machine>/<ws>/<term>` reattach address; exits as soon as the terminal starts. |
@@ -506,7 +508,8 @@ Browser subcommands:
 | `browser find` | Find by role, text, label, placeholder, alt, title, testid, first, last, or nth. |
 | `browser frame` | Select frame context. |
 | `browser dialog` | Accept or dismiss dialogs. |
-| `browser download` | Wait for or save downloads. |
+| `browser download list` | List newest-first downloads for one browser surface; supports `--limit <1...25>` and JSON output. The response includes stable IDs, filenames, actual paths when known, status, bytes when known, and path existence. Listing is repeatable and does not consume `browser.download.wait`. |
+| `browser download [wait]` | Wait for or save a download, preserving the existing path and timeout options. |
 | `browser profiles` | List, add, rename, clear, or delete cmux browser profiles. `clear` refuses to wipe active profiles unless `--force` is passed. |
 | `browser import` | Open the browser import wizard. In detected coding-agent environments, defaults to non-interactive cookie import; pass `--interactive` to force the wizard. Non-interactive import supports `--from`, `--profile`, `--all-profiles`, `--to-profile`, `--create-profile`, and `--domain`. |
 | `browser cookies` | Get, set, or clear cookies; `set` accepts `--http-only` to keep the cookie hidden from page JavaScript. `clear` requires an explicit scope such as `--url`, `--domain`, `--name`, or `--all`, and returns the removed count as `cleared` in JSON output. |
@@ -719,14 +722,26 @@ the expected text without connecting to a cmux socket.
 - `cmux --help` -> `open <path-or-url>...`
 - `cmux --help` -> `sessions [list] [options]`
 - `cmux help` -> `cmux - control cmux via Unix socket`
+- `cmux --help` -> `cmux guide | cmux --skill`
+- `cmux cloud --help` -> `guide | --skill`
+- `cmux guide` -> `# cmux guide`
+- `cmux --skill` -> `# cmux guide`
+- `cmux cloud guide` -> `# cmux cloud guide`
+- `cmux cloud --skill` -> `# cmux cloud guide`
+- `cmux vm guide` -> `# cmux cloud guide`
+- `cmux vm --skill` -> `# cmux cloud guide`
+- `cmux guide --help` -> `Usage: cmux guide | cmux --skill [--json]`
+- `cmux --skill -h` -> `Usage: cmux guide | cmux --skill [--json]`
+- `cmux cloud guide --help` -> `Usage: cmux cloud guide | cmux cloud --skill [--json]`
+- `cmux cloud --skill -h` -> `Usage: cmux cloud guide | cmux cloud --skill [--json]`
 - `cmux sessions --help` -> `Usage: cmux sessions list [options]`
 - `cmux ping --help` -> `Usage: cmux ping`
 - `cmux capabilities --help` -> `Usage: cmux capabilities`
 - `cmux events --help` -> `Usage: cmux events [options]`
 - `cmux auth --help` -> `Usage: cmux auth <status|login|logout>`
-- `cmux vm --help` -> `Usage: cmux vm <base|new|ls|domains|tree|self|status|stats|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
-- `cmux cloud --help` -> `Usage: cmux cloud <base|new|ls|domains|tree|self|status|stats|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
-- `cmux vm ls --help` -> `Usage: cmux vm <base|new|ls|domains|tree|self|status|stats|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
+- `cmux vm --help` -> `Usage: cmux vm <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
+- `cmux cloud --help` -> `Usage: cmux cloud <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
+- `cmux vm ls --help` -> `Usage: cmux vm <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
 - `cmux vm domains --help` -> `cmux cloud domains [list]`
 - `cmux vm run --help` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <20g>] [--timeout <seconds>] -- <command...>`
 - `cmux vm run -h` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <20g>] [--timeout <seconds>] -- <command...>`
@@ -885,6 +900,7 @@ the expected text without connecting to a cmux socket.
 - `cmux simulate-app-active --help` -> `Usage: cmux simulate-app-active`
 - `cmux claude-hook --help` -> `Usage: cmux claude-hook`
 - `cmux browser --help` -> `Usage: cmux browser`
+- `cmux browser --help` -> `download list [--limit <1...25>]`
 - `cmux open-browser --help` -> `Legacy alias for 'cmux browser open'`
 - `cmux navigate --help` -> `Legacy alias for 'cmux browser navigate'`
 - `cmux browser-back --help` -> `Legacy alias for 'cmux browser back'`

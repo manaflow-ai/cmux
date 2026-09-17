@@ -217,12 +217,28 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         #expect(try #require(node("machine:brave-otter", in: unread)).hasUnreadNotification, "the machine derives it too")
         let sideTerminal = try #require(sideRow.children.first { if case .terminal(let row) = $0.kind { return row.resource.id.key == "term_b" }; return false })
         #expect(sideTerminal.hasUnreadNotification)
+        #expect(sideRow.hasUnreadAttention)
+        #expect(!mainRow.hasUnreadAttention)
+
+        let localWorkspace = CloudTreeNode(
+            id: "local-workspace",
+            kind: .localWorkspace(.init(workspaceID: UUID(), title: "Local", terminalCount: 1, isSelected: false)),
+            children: [sideTerminal]
+        )
+        #expect(localWorkspace.hasUnreadAttention, "local workspaces use the same leading attention slot")
+        let localUnreadSnapshot = localWorkspace.contentSnapshot
 
         // Reading it on this Mac clears the terminal flag; the workspace follows
         // with no second write, because it has no state of its own.
         let read = tree(unread: [])
         #expect(!(try #require(node("machine:brave-otter/ws/ws_side", in: read))).hasUnreadNotification)
         #expect(!(try #require(node("machine:brave-otter", in: read))).hasUnreadNotification)
+        let readSide = try #require(node("machine:brave-otter/ws/ws_side", in: read))
+        #expect(!readSide.hasUnreadAttention)
+        sideRow.adopt(from: readSide)
+        #expect(!localWorkspace.hasUnreadAttention)
+        #expect(localWorkspace.contentSnapshot != localUnreadSnapshot,
+                "the local workspace must refresh when its descendant's unread state changes")
 
         // Adopting a refreshed tree in place carries the derived value with it.
         let stale = tree(unread: ["term_b"])
@@ -420,7 +436,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         let tree = rows(snapshot)
         let byID = Dictionary(tree.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let workspaceRow = try #require(byID["machine:brave-otter/ws/ws_main"])
-        #expect(workspaceRow.children.compactMap(terminalKey) == ["term_b", "term_a", "term_c"], "all tabs are sibling rows in layout order")
+        #expect(workspaceRow.children.compactMap(terminalKey) == ["term_a", "term_b", "term_c"], "all tabs are sibling rows in layout order")
         #expect(workspaceRow.children.allSatisfy { $0.children.isEmpty }, "terminal rows are leaves")
         guard case .workspace(_, _, let count, _, _) = workspaceRow.kind else {
             Issue.record("expected the workspace row"); return
@@ -450,7 +466,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         }
         let shownB = try tabRows(focused: "term_b")
         let shownC = try tabRows(focused: "term_c")
-        #expect(Set(shownB.map(\.id)) == Set(shownC.map(\.id)), "tab rows retain exact identities across selection changes")
+        #expect(shownB.map(\.id) == shownC.map(\.id), "tab rows retain exact identities across selection changes")
         #expect(shownB.allSatisfy { $0.children.isEmpty } && shownC.allSatisfy { $0.children.isEmpty })
     }
 
@@ -891,7 +907,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             "the machine lists it, so it exists — with nothing in it"
         )
         #expect(CloudTreeNodeBuilder.lookupRemoteWorkspace("scratch", on: machine, snapshot: snapshot) == .ambiguous([scratchA, scratchB]))
-        // The rows agree: both scratch workspaces show under the one machine, each empty.
-        #expect(rows(snapshot).filter { $0.structureTag == "workspace" }.map(\.children.count) == [0, 0])
+        // Empty daemon workspaces remain resolvable, but the Cloud sidebar omits them.
+        #expect(rows(snapshot).filter { $0.structureTag == "workspace" }.isEmpty)
     }
 }

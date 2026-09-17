@@ -1,15 +1,10 @@
 import CmuxFoundation
 import SwiftUI
 
-/// One horizontal grid for every Cloud row, so glyphs sit in a column and text
-/// starts at the same offset whatever the row type. The outline reserves the
-/// 16pt disclosure slot (`indentationPerLevel`) and the cell adds the 6pt gap
-/// after it; per-variant metrics and layout families live in ``CloudTreeStyle``
-/// — only the fixed grid pieces stay here.
 enum CloudTreeRowGrid {
     /// Width of the outline's disclosure slot; content starts `disclosureGap` after it.
     static let disclosureSlot: CGFloat = 16
-    static let disclosureGap: CGFloat = 10
+    static let disclosureGap: CGFloat = 4
     /// Machine rows: the status dot has its own slot, never adjacent to the chevron.
     static let dotSlot: CGFloat = 10
     static let dotGap: CGFloat = 8
@@ -18,13 +13,10 @@ enum CloudTreeRowGrid {
     /// Trailing accessories (open marker): gap after the text, a fixed slot, then padding.
     static let trailingGap: CGFloat = 10
     static let trailingSlot: CGFloat = 16
-    static let trailingPadding: CGFloat = 8
-    static let machineStatsLineHeight: CGFloat = 13
+    static let trailingPadding: CGFloat = CloudTreeLayoutMetrics().referenceInset
     static let machineLineSpacing: CGFloat = 1
 }
 
-/// The semantic colors the tinted and chip icon treatments use. One palette so
-/// every preset colors a kind the same way.
 enum CloudTreeIconPalette {
     static let workspace = Color.blue
     static let terminal = Color.indigo
@@ -33,21 +25,9 @@ enum CloudTreeIconPalette {
     static let machine = Color.accentColor
 }
 
-/// Display-only SwiftUI content for one Cloud outline row, rendered in the
-/// given ``CloudTreeStyle``. The hosting cell passes every pointer event
-/// through to the outline (selection, drag, clicks, context menu), so
-/// nothing here is interactive.
 struct CloudTreeRowContentView: View {
     let kind: CloudTreeNode.Kind
-    /// A terminal beneath this row has a notification this Mac has not read
-    /// (`CloudTreeNode.hasUnreadNotification`, derived from the terminal rows).
-    /// Workspace rows show it so a collapsed workspace still surfaces the dot.
-    var hasUnreadDescendant: Bool = false
     var style: CloudTreeStyle = CloudTreeStyleStore.current
-
-    static var workspaceUnreadHelp: String {
-        String(localized: "cloudTree.workspace.unread.help", defaultValue: "A terminal in this workspace has a notification you have not read on this Mac")
-    }
 
     private static func nonEmptyTrimmed(_ value: String?) -> String? {
         guard let value else { return nil }
@@ -67,8 +47,6 @@ struct CloudTreeRowContentView: View {
             }
     }
 
-    /// Machine rows carry their own chrome (band, dot); everything else may
-    /// draw the ledger hairline.
     private var showsSeparator: Bool {
         switch kind {
         case .machine, .pendingMachine, .localMachine, .placeholder: return false
@@ -76,7 +54,7 @@ struct CloudTreeRowContentView: View {
         }
     }
 
-    @ViewBuilder
+    @MainActor @ViewBuilder
     private var row: some View {
         switch kind {
         case .machine(let machine, _):
@@ -86,12 +64,12 @@ struct CloudTreeRowContentView: View {
         case .localMachine(let row):
             CloudTreeLocalMachineRowContent(row: row, style: style)
         case .terminalsPool(_, let count):
-            groupRow(title: String(localized: "cloudTree.group.terminals", defaultValue: "Terminals"), count: count)
+            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.terminals", defaultValue: "Terminals"), count: count, style: style)
         case .displaysPool(_, let count):
-            groupRow(title: String(localized: "cloudTree.group.displays", defaultValue: "Displays"), count: count)
+            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.displays", defaultValue: "Displays"), count: count, style: style)
         case .workspacesGroup:
-            groupRow(title: String(localized: "cloudTree.group.workspaces", defaultValue: "Workspaces"))
-        case .workspace(_, let workspace, let terminalCount, _, _):
+            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.workspaces", defaultValue: "Workspaces"), count: nil, style: style)
+        case .workspace(_, let workspace, _, _, _):
             // No open marker here (none on any row since #11069); the row's open
             // verb reads "Go to Workspace" when it is already showing locally.
             CloudTreeLeafRow(
@@ -99,24 +77,16 @@ struct CloudTreeRowContentView: View {
                 icon: "folder.fill",
                 tint: CloudTreeIconPalette.workspace,
                 title: workspace.name,
-                titleWeight: workspace.focused ? .medium : .regular,
-                detail: style.showsGroupCounts
-                    ? CloudTreeRowContentView.count(terminalCount)
-                    : nil
-            ) {
-                CloudTreeUnreadDot(style: style, visible: hasUnreadDescendant, help: Self.workspaceUnreadHelp)
-            }
+                titleWeight: workspace.focused ? .medium : .regular
+            )
         case .localWorkspace(let row):
             CloudTreeLeafRow(
                 style: style,
                 icon: "folder.fill",
                 tint: CloudTreeIconPalette.workspace,
                 title: row.title,
-                titleWeight: row.isSelected ? .medium : .regular,
-                detail: style.showsGroupCounts ? CloudTreeRowContentView.count(row.terminalCount) : nil
-            ) {
-                CloudTreeUnreadDot(style: style, visible: hasUnreadDescendant, help: Self.workspaceUnreadHelp)
-            }
+                titleWeight: row.isSelected ? .medium : .regular
+            )
         case .terminal(let row):
             CloudTreeTerminalRowContent(row: row, style: style)
         case .display(let resource, _, let remoteView):
@@ -129,7 +99,7 @@ struct CloudTreeRowContentView: View {
                 detail: CloudTreeRowContentView.text(for: resource)
             )
         case .browsersGroup:
-            groupRow(title: String(localized: "cloudTree.group.browsers", defaultValue: "Browsers"))
+            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.browsers", defaultValue: "Browsers"), count: nil, style: style)
         case .browser(let row):
             CloudTreeLeafRow(
                 style: style,
@@ -139,7 +109,7 @@ struct CloudTreeRowContentView: View {
                 detail: CloudTreeBrowserDetail.text(for: row)
             )
         case .portsGroup:
-            groupRow(title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"))
+            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"), count: nil, style: style)
         case .port(let resource, let url, _):
             CloudTreeLeafRow(
                 style: style,
@@ -152,63 +122,17 @@ struct CloudTreeRowContentView: View {
                 detail: url == nil ? (resource.detail?.isEmpty == false ? resource.detail : nil) : nil
             )
         case .placeholder(_, let placeholder):
-            HStack(alignment: .center, spacing: style.iconGap) {
-                Group {
-                    switch placeholder.style {
-                    case .connecting:
-                        ProgressView().controlSize(.mini)
-                    case .error:
-                        Image(systemName: "exclamationmark.triangle")
-                            .font(.system(size: max(style.iconSize, 9), weight: .regular))
-                            .foregroundStyle(.secondary)
-                    case .dimmed:
-                        Image(systemName: "moon.zzz")
-                            .font(.system(size: max(style.iconSize, 9), weight: .regular))
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-                .frame(width: max(style.iconSlot, 12))
-                Text(placeholder.text)
-                    .cmuxFont(size: style.detailSize + 1, design: style.fontDesign)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer(minLength: 0)
-            }
-            .padding(.trailing, CloudTreeRowGrid.trailingPadding)
+            CloudTreePlaceholderContent(placeholder: placeholder, style: style)
         }
     }
 
-    /// A section label ("Terminals", "Workspaces"): dim text, no icon and no
-    /// reserved icon slot — the label starts at its level's edge so the gutter
-    /// stays narrow; child titles indent past it naturally. `.uppercased`
-    /// styles speak in tracked mini-caps.
-    private func groupRow(title: String, count: Int? = nil) -> some View {
-        HStack(alignment: .center, spacing: style.iconGap) {
-            HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.detailGap) {
-                Text(style.groupLabelStyle == .uppercased ? title.uppercased() : title)
-                    .tracking(style.groupLabelStyle == .uppercased ? 0.8 : 0)
-                    .cmuxFont(size: style.groupLabelSize, weight: .medium, design: style.fontDesign)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                if style.showsGroupCounts, let count {
-                    Text(String(count))
-                        .cmuxFont(size: style.detailSize, design: style.fontDesign, monospacedDigit: true)
-                        .foregroundStyle(.tertiary)
-                }
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.trailing, CloudTreeRowGrid.trailingPadding)
-    }
-
+    /// Formats terminal totals for group and machine summaries.
     static func count(_ terminals: Int) -> String {
         terminals == 1
             ? String(localized: "cloudTree.workspace.terminalCount.one", defaultValue: "1 terminal")
             : String(format: String(localized: "cloudTree.workspace.terminalCount.other", defaultValue: "%d terminals"), terminals)
     }
 
-    /// A workspace row's detail: the total terminal rows shown beneath it.
     /// Formats the transport and screen label shown beneath a VNC display row.
     /// A key such as `display:1` becomes `noVNC · :1`; unknown key shapes retain
     /// the transport-only detail.
@@ -229,42 +153,6 @@ struct CloudTreeRowContentView: View {
         guard key.hasPrefix(prefix) else { return nil }
         let number = key.dropFirst(prefix.count)
         return number.isEmpty ? nil : ":\(number)"
-    }
-}
-
-/// A row glyph in the shared icon slot, drawn per the style's icon treatment:
-/// monochrome label color, semantic tint, or a Settings-style filled squircle
-/// with a white glyph.
-struct CloudTreeRowIcon: View {
-    let style: CloudTreeStyle
-    let systemName: String
-    let tint: Color
-    var dimmed: Bool = false
-
-    var body: some View {
-        switch style.iconTreatment {
-        case .monochrome:
-            Image(systemName: systemName)
-                .font(.system(size: style.iconSize, weight: .regular))
-                .foregroundStyle(dimmed ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.secondary))
-                .frame(width: style.iconSlot, alignment: .center)
-        case .tinted:
-            Image(systemName: systemName)
-                .font(.system(size: style.iconSize, weight: .regular))
-                .foregroundStyle(tint.opacity(dimmed ? 0.45 : 0.85))
-                .frame(width: style.iconSlot, alignment: .center)
-        case .chips:
-            let side = style.iconSlot - 4
-            RoundedRectangle(cornerRadius: side * 0.28, style: .continuous)
-                .fill(tint.opacity(dimmed ? 0.4 : 0.9))
-                .frame(width: side, height: side)
-                .overlay {
-                    Image(systemName: systemName)
-                        .font(.system(size: style.iconSize, weight: .medium))
-                        .foregroundStyle(.white)
-                }
-                .frame(width: style.iconSlot, alignment: .center)
-        }
     }
 }
 
@@ -337,7 +225,6 @@ struct CloudTreeLeafRow<Accessories: View>: View {
                         titleText
                         if let detail, !detail.isEmpty {
                             detailText(detail)
-                                .fixedSize(horizontal: true, vertical: false)
                         }
                     }
                     Spacer(minLength: CloudTreeRowGrid.trailingGap)
@@ -361,6 +248,7 @@ struct CloudTreeLeafRow<Accessories: View>: View {
             .underline(titleIsLink)
             .lineLimit(1)
             .truncationMode(.tail)
+            .layoutPriority(1)
     }
 
     private var titleColor: AnyShapeStyle {
@@ -405,26 +293,6 @@ extension CloudTreeLeafRow where Accessories == EmptyView {
     }
 }
 
-/// The per-client attention dot shared by terminal rows and the workspace rows
-/// above them. The dot is always in the layout and only its opacity changes: an
-/// in-place row refresh (reloadData(forRowIndexes:)) re-hosts the same SwiftUI
-/// tree, and a structural insert there is not repainted.
-struct CloudTreeUnreadDot: View {
-    let style: CloudTreeStyle
-    let visible: Bool
-    let help: String
-
-    var body: some View {
-        Circle()
-            .fill(Color.accentColor)
-            .frame(width: max(style.iconSize * 0.5, 6), height: max(style.iconSize * 0.5, 6))
-            .opacity(visible ? 1 : 0)
-            .accessibilityHidden(!visible)
-            .help(visible ? help : "")
-            .accessibilityLabel(visible ? help : "")
-    }
-}
-
 /// A cmux-tui terminal row: lifecycle glyph, title (a dim sparkle prefix when an
 /// agent is running in it), dimmed cwd, an optional daemon-tab badge on pool
 /// rows, and a dim "open" mark when a local pane is already showing it.
@@ -456,17 +324,6 @@ struct CloudTreeTerminalRowContent: View {
             titleDimmed: terminal.lifecycle == .exited || showsDetachedState,
             detail: terminal.detail.flatMap { $0.isEmpty ? nil : Self.abbreviated($0) }
         ) {
-            // Per-client attention from the machine: this Mac has not read a
-            // notification for the terminal. Reading it here or on any pane
-            // showing the terminal acknowledges it on the machine. The dot is
-            // always in the layout and only its opacity changes: an in-place
-            // row refresh (reloadData(forRowIndexes:)) re-hosts the same
-            // SwiftUI tree, and a structural insert there is not repainted.
-            CloudTreeUnreadDot(
-                style: style,
-                visible: row.hasUnreadNotification,
-                help: String(localized: "cloudTree.terminal.unread.help", defaultValue: "This terminal has a notification you have not read on this Mac")
-            )
             if showsDetachedState {
                 // Zero views: still running on the machine, no daemon tab shows it.
                 // Greyed with a "detached" mark (austin, 2026-09-02 — reversing the
@@ -637,221 +494,6 @@ struct CloudTreeMachineBand<Content: View>: View {
     }
 }
 
-/// The machine row's display content: activity dot, name, and — in the two-line
-/// layout — subtitle plus optional stats. Hover buttons and menus live in the
-/// outline cell, and click handling in the outline.
-struct CloudTreeMachineRowContent: View {
-    let machine: MachineSnapshot
-    var style: CloudTreeStyle = CloudTreeStyleStore.current
-
-    var body: some View {
-        switch style.machineRowLayout {
-        case .singleLine:
-            // Finder-like: dot, name, one dim inline fact. Everything else is
-            // in the tooltip and the context menu.
-            CloudTreeMachineBand(style: style) {
-                // No status dot (lawrence, 2026-08-27): the name starts right after
-                // the chevron. A locked (free-window-expired) machine keeps a lock
-                // glyph — that one changes what a click does.
-                HStack(alignment: .center, spacing: CloudTreeRowGrid.dotGap) {
-                    if machine.freeAccess == .expired {
-                        Image(systemName: "lock.fill")
-                            .font(.system(size: 8, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                            .frame(width: CloudTreeRowGrid.dotSlot, alignment: .center)
-                    } else {
-                        // This row is another computer: the same outline cloud as the
-                        // titlebar Cloud button, dimmed so it doesn't compete with the name.
-                        Image(systemName: "cloud")
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(.secondary)
-                            .frame(width: CloudTreeRowGrid.dotSlot, alignment: .center)
-                    }
-                    // Name and fact differ in point size, so they share a
-                    // baseline (like the group and session rows above); the
-                    // glyph stays centered against the row in the outer stack.
-                    HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.dotGap) {
-                        Text(machine.displayName)
-                            .cmuxFont(size: style.machineNameSize, weight: style.machineBand ? .semibold : .medium, design: style.fontDesign)
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        if let fact = Self.inlineFact(machine, style: style) {
-                            Text(fact)
-                                .cmuxFont(size: style.detailSize, design: style.fontDesign)
-                                .foregroundStyle(.tertiary)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                        }
-                    }
-                    Spacer(minLength: CloudTreeRowGrid.trailingGap)
-                }
-            }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("\(machine.displayName), \(machine.activityLabel)")
-        case .twoLine:
-            // Top-aligned: the chevron sits on the name line (see
-            // `CloudTreeNSOutlineView.frameOfOutlineCell`), not on the row's middle.
-            // No status dot; only the expired lock earns the leading slot.
-            HStack(alignment: .top, spacing: CloudTreeRowGrid.dotGap) {
-                if machine.freeAccess == .expired {
-                    Image(systemName: "lock.fill")
-                        .font(.system(size: 8, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: CloudTreeRowGrid.dotSlot, height: style.machineNameLineHeight, alignment: .center)
-                } else {
-                    Image(systemName: "cloud")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .frame(width: CloudTreeRowGrid.dotSlot, height: style.machineNameLineHeight, alignment: .center)
-                }
-                VStack(alignment: .leading, spacing: CloudTreeRowGrid.machineLineSpacing) {
-                    Text(machine.displayName)
-                        .cmuxFont(size: style.machineNameSize, weight: .medium, design: style.fontDesign)
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(height: style.machineNameLineHeight)
-                    Text(Self.subtitle(machine))
-                        .cmuxFont(size: style.detailSize + 0.5, design: style.fontDesign)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(height: style.machineSubtitleLineHeight)
-                    if style.showsMachineStats, let stats = machine.stats, let line = Self.statsLine(stats) {
-                        // One dim line instead of colored gauges: the numbers carry the
-                        // information; color would only compete with the status dot.
-                        Text(line)
-                            .cmuxFont(size: style.detailSize, design: style.fontDesign, monospacedDigit: true)
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .frame(height: CloudTreeRowGrid.machineStatsLineHeight)
-                    }
-                    if let usage = machine.usage, let line = Self.usageLine(usage) {
-                        // Coderouter spend over the window, same dim treatment as stats.
-                        Text(line)
-                            .cmuxFont(size: style.detailSize, design: style.fontDesign, monospacedDigit: true)
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .frame(height: CloudTreeRowGrid.machineStatsLineHeight)
-                    }
-                }
-                Spacer(minLength: CloudTreeRowGrid.trailingGap)
-            }
-            .padding(.vertical, style.machineVerticalPadding)
-            .padding(.trailing, CloudTreeRowGrid.trailingPadding)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("\(machine.displayName), \(machine.activityLabel)")
-        }
-    }
-
-    /// "CPU 9% · Mem 3.4/3.8 GB · Disk 2.8/3.1 GB" for an awake machine, the
-    /// asleep line otherwise; nil when there is nothing to say yet.
-    static func statsLine(_ stats: VMStats) -> String? {
-        switch stats.state {
-        case .awake:
-            var parts: [String] = []
-            if let cpu = stats.cpuPercent {
-                parts.append(String(format: String(localized: "cloudTree.stats.cpu", defaultValue: "CPU %d%%"), Int(cpu.rounded())))
-            }
-            if let used = stats.memoryUsedMb, let total = stats.memoryTotalMb, total > 0 {
-                parts.append(String(format: String(localized: "cloudTree.stats.memory", defaultValue: "Mem %@/%@ GB"), gb(used), gb(total)))
-            }
-            if let used = stats.diskUsedMb, let total = stats.diskTotalMb, total > 0 {
-                parts.append(String(format: String(localized: "cloudTree.stats.disk", defaultValue: "Disk %@/%@ GB"), gb(used), gb(total)))
-            }
-            return parts.isEmpty ? nil : parts.joined(separator: " · ")
-        case .asleep:
-            return String(localized: "machines.stats.asleep", defaultValue: "Asleep \u{00B7} free while it sleeps")
-        case .unknown:
-            return nil
-        }
-    }
-
-    private static func gb(_ mb: Int) -> String {
-        let value = Double(mb) / 1024
-        return value >= 10 ? String(format: "%.0f", value) : String(format: "%.1f", value)
-    }
-
-    /// "$1.23 · 41K tokens · 30d": coderouter spend over the usage window. Nil
-    /// when the machine routed nothing, so an idle machine shows no spend row.
-    static func usageLine(_ usage: MachineUsageSnapshot) -> String? {
-        guard !usage.totals.isEmpty else { return nil }
-        let cost = usdFormatter.string(from: NSNumber(value: usage.totals.apiEquivalentUsd))
-            ?? String(format: "$%.2f", usage.totals.apiEquivalentUsd)
-        let tokens = usage.totals.totalTokens.formatted(.number.notation(.compactName).precision(.fractionLength(0...1)))
-        let period = String(
-            format: String(localized: "machines.usage.period.days", defaultValue: "%dd"),
-            usage.periodDays
-        )
-        return String(
-            format: String(localized: "machines.usage.line", defaultValue: "%1$@ \u{00B7} %2$@ tokens \u{00B7} %3$@"),
-            cost, tokens, period
-        )
-    }
-
-    /// API-equivalent spend is always in US dollars, whatever the user's locale.
-    private static let usdFormatter: NumberFormatter = {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .currency
-        formatter.currencyCode = "USD"
-        formatter.currencySymbol = "$"
-        formatter.minimumFractionDigits = 2
-        formatter.maximumFractionDigits = 2
-        return formatter
-    }()
-
-    /// The two-line layout's second line. Deliberately excludes the free-access
-    /// countdown: expiry is plan chrome (the panel header owns it), not a fact
-    /// about the machine. "Locked" stays — it explains a dead machine row.
-    static func subtitle(_ machine: MachineSnapshot) -> String {
-        var parts: [String] = []
-        if machine.showsName {
-            // Named machines keep their address visible: the id is what CLI
-            // verbs and URLs use.
-            parts.append(machine.id)
-        }
-        parts.append(machine.kindLabel)
-        if let createdAt = machine.createdAt {
-            parts.append(Self.relativeFormatter.localizedString(for: createdAt, relativeTo: Date()))
-        }
-        if machine.freeAccess == .expired {
-            parts.append(String(localized: "machines.row.locked", defaultValue: "Locked"))
-        }
-        return parts.joined(separator: " · ")
-    }
-
-    /// The single-line layout's one dim fact: "Locked" when expired, else nothing.
-    static func inlineFact(_ machine: MachineSnapshot, style: CloudTreeStyle) -> String? {
-        if machine.freeAccess == .expired {
-            return String(localized: "machines.row.locked", defaultValue: "Locked")
-        }
-        // Single-line rows carry the live reading inline: the same CPU/Mem/Disk
-        // line the two-line card shows, dimmed after the name, then the
-        // coderouter spend when the backend reports any.
-        var parts: [String] = []
-        if style.showsMachineStats, let stats = machine.stats, let line = statsLine(stats) {
-            parts.append(line)
-        }
-        if let usage = machine.usage, let line = usageLine(usage) {
-            parts.append(line)
-        }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
-    }
-
-    static let relativeFormatter: RelativeDateTimeFormatter = {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .abbreviated
-        return formatter
-    }()
-}
-
-/// The one hover verb of a row — interactive, so it lives in its own
-/// hit-testable host beside the pass-through display content. Machines get
-/// delete only (desktop lives on the Displays pool and in the context menu);
-/// pools and workspace rows get their "+" creation verb.
 struct CloudTreeRowHoverButtons: View {
     let kind: CloudTreeNode.Kind
     let machineActions: MachineRowActions
@@ -923,8 +565,7 @@ struct CloudTreeRowHoverButtons: View {
             EmptyView()
         }
     }
-
-    /// True when this row kind renders any hover button at all.
+    /// Returns whether the row kind has a hover action to lay out.
     static func hasButtons(for kind: CloudTreeNode.Kind) -> Bool {
         switch kind {
         case .machine, .localMachine, .terminalsPool, .workspacesGroup, .workspace:
