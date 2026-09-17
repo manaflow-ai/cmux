@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "8745cc1783d716c6a03f4494dd8644d086456251d7c143880e77c7d2abf03f0f",
+  "catalog_sha256": "beef8293ded489648261ccddfd31b3f796f9d7d10506f13f6c5d1577a3f4fbac",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -84,6 +84,12 @@
     },
     "machine.list": {
       "class": "read"
+    },
+    "notification.ack": {
+      "class": "mutation"
+    },
+    "notification.clear": {
+      "class": "mutation"
     },
     "notification.create": {
       "class": "mutation"
@@ -315,6 +321,9 @@
     },
     "terminal.move": {
       "class": "mutation"
+    },
+    "terminal.output_read": {
+      "class": "read"
     },
     "terminal.process.get": {
       "class": "read"

@@ -248,6 +248,8 @@ pub(crate) struct ShortcutMessages {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct BrowserMessages {
     failed_prefix: &'static str,
+    control_failed: &'static str,
+    control_unavailable: &'static str,
     not_responding: &'static str,
     resize_recovery: &'static str,
     new_page_verification_prefix: &'static str,
@@ -264,6 +266,14 @@ pub(crate) struct BrowserMessages {
 }
 
 impl BrowserMessages {
+    pub(crate) fn control_failed(&self, error: &str) -> String {
+        self.control_failed.replace("{error}", error)
+    }
+
+    pub(crate) fn control_unavailable(&self) -> String {
+        self.control_failed.replace("{error}", self.control_unavailable)
+    }
+
     pub(crate) fn loading(&self, url: &str) -> String {
         self.loading.replace("{url}", url)
     }
@@ -388,6 +398,7 @@ pub(crate) struct RuntimeMessages {
     pub terminal_capacity_exhausted: &'static str,
     renderer_panicked: &'static str,
     host_input_failed: &'static str,
+    session_transport_lost: &'static str,
     signal_handlers_failed: &'static str,
     terminal_restore_also_failed: &'static str,
 }
@@ -399,6 +410,10 @@ impl RuntimeMessages {
 
     pub(crate) fn host_input_failed(&self, error: &str) -> String {
         self.host_input_failed.replace("{error}", error)
+    }
+
+    pub(crate) fn session_transport_lost(&self) -> String {
+        self.session_transport_lost.to_owned()
     }
 
     pub(crate) fn signal_handlers_failed(&self, error: &str) -> String {
@@ -479,6 +494,14 @@ pub(crate) struct RemoteClientMessages {
     pub rpc_stdin_invalid_utf8: &'static str,
     pub known_forget_arity: &'static str,
     pub known_state_dir_unavailable: &'static str,
+    wireguard_config_unreadable: &'static str,
+    wireguard_config_invalid: &'static str,
+    wireguard_start_failed: &'static str,
+    pub wireguard_hub_conflict: &'static str,
+    wireguard_hub_serve_failed: &'static str,
+    wireguard_hub_signal_failed: &'static str,
+    wg_hub_option_required: &'static str,
+    pub wg_hub_help: &'static str,
     known_daemon_not_known: &'static str,
     known_daemon_forgotten: &'static str,
     pub known_daemons_empty: &'static str,
@@ -489,6 +512,30 @@ pub(crate) struct RemoteClientMessages {
 impl RemoteClientMessages {
     pub(crate) fn option_needs_value(&self, option: &str) -> String {
         self.option_needs_value.replace("{option}", option)
+    }
+
+    pub(crate) fn wireguard_config_unreadable(&self, path: &str, error: &str) -> String {
+        self.wireguard_config_unreadable.replace("{path}", path).replace("{error}", error)
+    }
+
+    pub(crate) fn wireguard_config_invalid(&self, error: &str) -> String {
+        self.wireguard_config_invalid.replace("{error}", error)
+    }
+
+    pub(crate) fn wireguard_start_failed(&self, error: &str) -> String {
+        self.wireguard_start_failed.replace("{error}", error)
+    }
+
+    pub(crate) fn wireguard_hub_serve_failed(&self, error: &str) -> String {
+        self.wireguard_hub_serve_failed.replace("{error}", error)
+    }
+
+    pub(crate) fn wireguard_hub_signal_failed(&self, error: &str) -> String {
+        self.wireguard_hub_signal_failed.replace("{error}", error)
+    }
+
+    pub(crate) fn wg_hub_option_required(&self, option: &str) -> String {
+        self.wg_hub_option_required.replace("{option}", option)
     }
 
     pub(crate) fn invalid_option_value(&self, option: &str, expected: &str) -> String {
@@ -690,6 +737,7 @@ pub(crate) struct ConfigMessages {
     invalid_section: &'static str,
     unknown_field: &'static str,
     invalid_root: &'static str,
+    write_durability_warning: &'static str,
 }
 
 impl ConfigMessages {
@@ -704,6 +752,9 @@ impl ConfigMessages {
     }
     pub(crate) fn invalid_root(&self) -> &'static str {
         self.invalid_root
+    }
+    pub(crate) fn write_durability_warning(&self, error: &str) -> String {
+        self.write_durability_warning.replace("{error}", error)
     }
 }
 
@@ -872,7 +923,6 @@ pub(crate) struct SidebarMessages {
     pub machine_provider_lifecycle_update_failed: &'static str,
     pub machine_provider_workspace_update_failed: &'static str,
     pub machine_reconnect_failed: &'static str,
-    pub machine_terminal_colors_failed: &'static str,
     pub machine_provider_external_connect_unsupported: &'static str,
     pub machine_provider_external_connect_ambiguous: &'static str,
     pub machine_not_ready_to_connect: &'static str,
@@ -892,9 +942,23 @@ pub(crate) struct SidebarMessages {
     pub machine_replacement_not_pending: &'static str,
     pub machine_replacement_target_missing: &'static str,
     pub managed_ssh_requires_unix: &'static str,
+    /// Compact machine spend readout template: `{usd}` is the formatted
+    /// dollar amount and `{days}` the trailing window length.
+    pub machine_usage_readout: &'static str,
 }
 
 impl SidebarMessages {
+    /// Render the machine spend readout, e.g. `$1.23 / 30d`.
+    pub(crate) fn machine_usage_readout(
+        &self,
+        api_equivalent_usd: f64,
+        period_days: u32,
+    ) -> String {
+        self.machine_usage_readout
+            .replace("{usd}", &format_usd(api_equivalent_usd))
+            .replace("{days}", &period_days.to_string())
+    }
+
     pub(crate) fn connecting_to_message(&self, target: &str) -> String {
         self.connecting_to.replace("{target}", target)
     }
@@ -939,6 +1003,25 @@ impl SidebarMessages {
         )
         .then_some(self.action_workspace_port)
     }
+}
+
+/// Format a dollar amount with two decimals and thousands separators.
+/// Non-finite or negative inputs render as zero so a bad upstream number
+/// can never produce a misleading readout.
+pub(crate) fn format_usd(amount: f64) -> String {
+    let amount = if amount.is_finite() && amount > 0.0 { amount } else { 0.0 };
+    let cents = (amount * 100.0).round() as u64;
+    let whole = cents / 100;
+    let fraction = cents % 100;
+    let digits = whole.to_string();
+    let mut grouped = String::with_capacity(digits.len() + digits.len() / 3);
+    for (index, digit) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
+            grouped.push(',');
+        }
+        grouped.push(digit);
+    }
+    format!("${grouped}.{fraction:02}")
 }
 
 impl ForeignViewportMessages {
@@ -1005,12 +1088,18 @@ pub(crate) struct LocalServerMessages {
     pub session_stop_help: &'static str,
     pub help: &'static str,
     pub start_help: &'static str,
+    pub ensure_help: &'static str,
     pub status_help: &'static str,
+    pub stats_help: &'static str,
+    pub stats_unsupported: &'static str,
     pub stop_help: &'static str,
     pub reload_config_help: &'static str,
     pub running: &'static str,
+    pub started: &'static str,
     pub stopped: &'static str,
     pub not_running: &'static str,
+    pub owner_spawn_failed: &'static str,
+    pub owner_not_ready: &'static str,
     pub reloaded: &'static str,
     pub connect_failed: &'static str,
     pub starting: &'static str,
@@ -1023,6 +1112,7 @@ pub(crate) struct LocalServerMessages {
     pub wrong_owner: &'static str,
     pub different_session: &'static str,
     pub invalid_identity: &'static str,
+    pub unsupported_protocol: &'static str,
     pub force_unsupported: &'static str,
     pub session_conflict: &'static str,
     pub machine_not_supported: &'static str,
@@ -1040,6 +1130,10 @@ pub(crate) struct LocalServerMessages {
 }
 
 impl LocalServerMessages {
+    pub(crate) fn owner_spawn_failed(&self) -> String {
+        self.owner_spawn_failed.to_string()
+    }
+
     pub(crate) fn unknown_scope(&self, scope: &str, suggestion: Option<&str>) -> String {
         self.with_suggestion(self.unknown_scope.replace("{scope}", scope), suggestion)
     }
@@ -1065,10 +1159,19 @@ impl StartupMessages {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub(crate) struct TerminalInputMessages {
+    pub too_large: &'static str,
+    pub unavailable: &'static str,
+    pub confirmation_unsupported: &'static str,
+    pub delivery_failed: &'static str,
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Catalog {
     japanese: bool,
     pub startup: StartupMessages,
     pub local_server: LocalServerMessages,
+    pub terminal_input: TerminalInputMessages,
     pub pairing: PairingMessages,
     pub foreign_viewport: ForeignViewportMessages,
     pub graphics: GraphicsMessages,
@@ -1112,20 +1215,32 @@ static ENGLISH: Catalog = Catalog {
         saved_state_requires_newer: "the saved state still requires a newer cmux; upgrade cmux to reopen this session",
         start_separate_session: "or start this build in a separate session:",
     },
+    terminal_input: TerminalInputMessages {
+        too_large: "Terminal input is too large. Send less input at once.",
+        unavailable: "Terminal input is temporarily unavailable. Try again shortly.",
+        confirmation_unsupported: "Input delivery confirmation is unavailable for this terminal. Update cmux, start a new terminal session, and retry.",
+        delivery_failed: "Terminal input could not be delivered. Check that the terminal is available.",
+    },
     local_server: LocalServerMessages {
         startup_lifecycle_usage: "  cmux server <ACTION>     Start, inspect, stop, or reload one local session\n  cmux remote connect <ROUTE>  Attach through an authenticated remote route\n  cmux remote ssh <HOST>       Bootstrap and attach over direct SSH\n  cmux remote forward <ROUTE>  Forward a workspace TCP service locally\n  cmux remote rpc <ROUTE>     Run workspace coding-agent RPC requests\n  cmux remote enroll <ACTION> Enroll, approve, list, or revoke devices\n  cmux remote known-daemons   List client-pinned daemon identities and routes\n  cmux remote stop            Stop a replaceable SSH sidecar explicitly",
         root_remote_usage: "  cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|stop> [OPTIONS]",
-        root_server_usage: "  cmux server <start|status|stop|reload-config> [OPTIONS]",
+        root_server_usage: "  cmux server <start|ensure|status|stats|stop|reload-config> [OPTIONS]",
         root_server_scope: "  server        Manage one named local durable session owner",
         session_stop_help: "  cmux session <name>|current stop",
-        help: "USAGE\n  cmux server start [START OPTIONS]\n  cmux server status [--session <name>] [--socket <path>]\n  cmux server stop [--session <name>] [--socket <path>] [--force]\n  cmux server reload-config [--session <name>] [--socket <path>]\n\n`server` always targets the local durable mux owner for one named session.\nUse `cmux remote --help` for authenticated remote-daemon lifecycle.\n",
+        help: "USAGE\n  cmux server start [START OPTIONS]\n  cmux server ensure [--session <name>] [--socket <path>]\n  cmux server status [--session <name>] [--socket <path>]\n  cmux server stats [--session <name>] [--socket <path>]\n  cmux server stop [--session <name>] [--socket <path>] [--force]\n  cmux server reload-config [--session <name>] [--socket <path>]\n\n`server` always targets the local durable mux owner for one named session.\nUse `cmux remote --help` for authenticated remote-daemon lifecycle.\n",
         start_help: "USAGE\n  cmux server start [START OPTIONS]\n\nStart the local durable mux owner for one named session in the foreground.\n",
+        ensure_help: "USAGE\n  cmux server ensure [--session <name>] [--socket <path>]\n\nStart a detached local session owner when none is running, wait until it\naccepts clients, and report it. Ensuring a running session succeeds.\n",
         status_help: "USAGE\n  cmux server status [--session <name>] [--socket <path>]\n",
+        stats_help: "USAGE\n  cmux server stats [--session <name>] [--socket <path>]\n\nReport where the daemon spends its time: registry lock waits and holders,\njournal writer batch sizes and commit latency, and connection admission.\nUse --json for the exact `server-stats` object.\n",
+        stats_unsupported: "this server does not support server-stats; upgrade cmux-tui",
         stop_help: "USAGE\n  cmux server stop [--session <name>] [--socket <path>] [--force]\n\nStopping an absent server succeeds. Durable session topology is preserved.\n",
         reload_config_help: "USAGE\n  cmux server reload-config [--session <name>] [--socket <path>]\n",
         running: "local server is running",
+        started: "local server started",
         stopped: "local server stopped; durable session topology was preserved",
         not_running: "local server is not running; nothing needed to be stopped",
+        owner_spawn_failed: "cannot start the detached session owner; check the session state and retry",
+        owner_not_ready: "the detached session owner did not become ready; inspect the client log under the session state directory and retry",
         reloaded: "local server configuration reloaded",
         connect_failed: "cannot connect to the local server; check that the named session is running and retry",
         starting: "the local server is still starting; retry the lifecycle command",
@@ -1138,6 +1253,7 @@ static ENGLISH: Catalog = Catalog {
         wrong_owner: "the selected socket is not owned by a cmux local server",
         different_session: "the selected socket belongs to a different session",
         invalid_identity: "the local server returned an incomplete lifecycle identity",
+        unsupported_protocol: "the selected session uses an incompatible cmux-tui protocol; restart it with this cmux build",
         force_unsupported: "this local server cannot accept a safely fenced forced stop; use the cmux build that started it",
         session_conflict: "the session name conflicts with --session",
         machine_not_supported: "--machine cannot target a local server; use the machine resource commands",
@@ -1309,6 +1425,8 @@ edits shell files. Authenticate with the configured host before retrying.
     },
     browser: BrowserMessages {
         failed_prefix: "browser failed: ",
+        control_failed: "browser command failed: {error}",
+        control_unavailable: "browser connection unavailable; retry the command",
         not_responding: "browser failed: browser is not responding",
         resize_recovery: "browser failed: browser resize recovery failed; reload to retry",
         new_page_verification_prefix: "browser failed: could not verify new page pixels: ",
@@ -1368,6 +1486,7 @@ edits shell files. Authenticate with the configured host before retrying.
         terminal_capacity_exhausted: "No pseudo-terminals are available. Close an unused terminal session, then retry.",
         renderer_panicked: "terminal renderer panicked: {message}",
         host_input_failed: "host terminal input failed: {error}",
+        session_transport_lost: "session connection lost. Reconnect and retry.",
         signal_handlers_failed: "failed to install signal handlers: {error}",
         terminal_restore_also_failed: "{error}; host terminal restoration also failed: {restore_error}",
     },
@@ -1379,12 +1498,15 @@ ROUTES:
   relay+ws:// | relay+wss:// | relay+https:// | relay+do://
 
 IDENTITY AND SESSION:
-  --invite-file PATH|-  --daemon FINGERPRINT
+  --invite-file PATH|-  --daemon FINGERPRINT  --carrier
   --device-name NAME  --session NAME
   --state-dir PATH  --local-socket PATH  --headless [--json]
 
   --invite-file avoids exposing the single-use invitation in process arguments.
   Regular files must be owner-only; - reads one line from stdin.
+  --carrier dials ws routes with carrier authentication (no enrollment, no
+    invitation); only a daemon whose listener is trusted accepts it, such as a
+    cmux Cloud machine reached over the owner's private network.
 
 TRANSPORT:
   --lanes auto|single|isolated  --connect-timeout-seconds N
@@ -1394,6 +1516,10 @@ TRANSPORT:
     and credential-source groups in occurrence order.
   --relay-ticket-command-arg ARG  --iroh-relay URL  --iroh-address ADDR
   --iroh-path auto|direct-only|relay-only
+  --wireguard-config PATH  dial ws routes inside that tunnel's AllowedIPs
+    through an in-process WireGuard peer (owner-only wg-quick file; no root)
+  --wireguard-hub PATH  dial ws routes through a running `cmux wg hub` socket
+    instead; exclusive with --wireguard-config
   --ssh-binary PATH  --remote-binary PATH  --ssh-arg ARG  --no-install
   --remote-state-dir PATH for a non-default daemon state directory
   --upgrade explicitly replaces an SSH-managed remote sidecar after installing
@@ -1515,6 +1641,28 @@ OPTIONS:
         rpc_stdin_invalid_utf8: "RPC stdin line is not valid UTF-8",
         known_forget_arity: "known-daemons forget expects exactly one fingerprint",
         known_state_dir_unavailable: "cannot determine remote state directory; use --state-dir",
+        wireguard_config_unreadable: "cannot read WireGuard config {path}: {error} (the file must be a regular file with owner-only permissions)",
+        wireguard_config_invalid: "WireGuard config is not a valid wg-quick file: {error}",
+        wireguard_start_failed: "could not start the in-process WireGuard tunnel: {error}",
+        wireguard_hub_conflict: "--wireguard-config and --wireguard-hub cannot be combined; one link owns a tunnel or dials through a hub, not both",
+        wireguard_hub_serve_failed: "could not serve the WireGuard hub socket: {error}",
+        wireguard_hub_signal_failed: "could not wait for the hub shutdown signal: {error}",
+        wg_hub_option_required: "wg hub requires {option}",
+        wg_hub_help: r#"USAGE: cmux wg hub --config PATH --socket PATH
+
+Own one in-process WireGuard tunnel and serve SOCKS5 CONNECT for other cmux
+processes on an owner-only Unix socket. A WireGuard key supports one live
+session, so every `remote connect --wireguard-hub PATH` sidecar on this machine
+shares this hub instead of handshaking on its own.
+
+  --config PATH  owner-only wg-quick file (PrivateKey, Address, AllowedIPs, Endpoint)
+  --socket PATH  Unix socket to serve; parent directory is created 0700, socket 0600
+
+Prints one JSON line `{"event":"hub-ready","socket":...,"routes":[...]}` when
+listening. Only literal IP targets inside AllowedIPs are dialed; other targets
+get SOCKS reply 0x02, names 0x08. Exits on SIGTERM or SIGINT and removes the
+socket.
+"#,
         known_daemon_not_known: "daemon {fingerprint} is not known",
         known_daemon_forgotten: "Forgot daemon {fingerprint}.",
         known_daemons_empty: "No known daemons.",
@@ -1590,6 +1738,7 @@ OPTIONS:
         invalid_section: "cmux-tui: ignoring invalid config section {section}",
         unknown_field: "cmux-tui: ignoring unknown config field {field}",
         invalid_root: "cmux-tui: ignoring config because the root value is not an object",
+        write_durability_warning: "cmux-tui: config write committed, but parent directory durability is unconfirmed: {error}",
     },
     attach: AttachMessages {
         filtered_subscription_unavailable: "single-terminal attach requires a newer cmux-tui server; restart the session",
@@ -1711,7 +1860,6 @@ OPTIONS:
         machine_provider_lifecycle_update_failed: "Machine provider lifecycle update failed",
         machine_provider_workspace_update_failed: "Machine provider workspace update failed",
         machine_reconnect_failed: "Could not reconnect machine",
-        machine_terminal_colors_failed: "Could not apply terminal colors",
         machine_provider_external_connect_unsupported: "This machine provider cannot connect external machines",
         machine_provider_external_connect_ambiguous: "The previous connection attempt may have succeeded; reconnect the provider and retry with the same pairing code",
         machine_not_ready_to_connect: "Selected machine is not ready to connect",
@@ -1731,6 +1879,7 @@ OPTIONS:
         machine_replacement_not_pending: "Machine replacement is no longer pending",
         machine_replacement_target_missing: "Machine replacement target is missing",
         managed_ssh_requires_unix: "Managed SSH machine connections require Unix",
+        machine_usage_readout: "{usd} / {days}d",
     },
 };
 
@@ -1751,20 +1900,32 @@ static JAPANESE: Catalog = Catalog {
         saved_state_requires_newer: "保存状態には新しい cmux が必要です。このセッションを再度開くには cmux をアップグレードしてください",
         start_separate_session: "または、このビルドを別のセッションで開始:",
     },
+    terminal_input: TerminalInputMessages {
+        too_large: "端末への入力が大きすぎます。一度に送る入力を減らしてください。",
+        unavailable: "現在、端末への入力を受け付けられません。しばらくしてから再試行してください。",
+        confirmation_unsupported: "この端末では入力の送信完了を確認できません。cmux を更新し、新しい端末セッションを開始してから、もう一度お試しください。",
+        delivery_failed: "端末に入力を送信できませんでした。端末が利用可能か確認してください。",
+    },
     local_server: LocalServerMessages {
         startup_lifecycle_usage: "  cmux server <操作>       一つのローカルセッションを起動、確認、停止、再読み込み\n  cmux remote connect <ルート>  認証済みリモートルート経由で接続\n  cmux remote ssh <ホスト>       直接 SSH で導入して接続\n  cmux remote forward <ルート>  ワークスペースの TCP サービスをローカル転送\n  cmux remote rpc <ルート>       ワークスペースのコーディングエージェント RPC を実行\n  cmux remote enroll <操作>      デバイスを登録、承認、一覧、失効\n  cmux remote known-daemons      クライアントに固定したデーモン ID とルートを一覧表示\n  cmux remote stop               置換可能な SSH サイドカーを明示的に停止",
         root_remote_usage: "  cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|stop> [オプション]",
-        root_server_usage: "  cmux server <start|status|stop|reload-config> [オプション]",
+        root_server_usage: "  cmux server <start|ensure|status|stats|stop|reload-config> [オプション]",
         root_server_scope: "  server        一つの名前付きローカル永続セッション所有者を管理",
         session_stop_help: "  cmux session <名前>|current stop",
-        help: "使用方法\n  cmux server start [起動オプション]\n  cmux server status [--session <名前>] [--socket <パス>]\n  cmux server stop [--session <名前>] [--socket <パス>] [--force]\n  cmux server reload-config [--session <名前>] [--socket <パス>]\n\n`server` は常に一つの名前付きセッションのローカル永続 mux 所有者を対象にします。\n認証済みリモートデーモンの操作は `cmux remote --help` を参照してください。\n",
+        help: "使用方法\n  cmux server start [起動オプション]\n  cmux server ensure [--session <名前>] [--socket <パス>]\n  cmux server status [--session <名前>] [--socket <パス>]\n  cmux server stats [--session <名前>] [--socket <パス>]\n  cmux server stop [--session <名前>] [--socket <パス>] [--force]\n  cmux server reload-config [--session <名前>] [--socket <パス>]\n\n`server` は常に一つの名前付きセッションのローカル永続 mux 所有者を対象にします。\n認証済みリモートデーモンの操作は `cmux remote --help` を参照してください。\n",
         start_help: "使用方法\n  cmux server start [起動オプション]\n\n一つの名前付きセッションのローカル永続 mux 所有者をフォアグラウンドで起動します。\n",
+        ensure_help: "使用方法\n  cmux server ensure [--session <名前>] [--socket <パス>]\n\nローカルセッション所有者が実行されていない場合はデタッチ状態で起動し、\nクライアントを受け付けるまで待って結果を報告します。実行中の場合も成功します。\n",
         status_help: "使用方法\n  cmux server status [--session <名前>] [--socket <パス>]\n",
+        stats_help: "使用方法\n  cmux server stats [--session <名前>] [--socket <パス>]\n\nデーモンの時間の使われ方を報告します: レジストリロックの待機と保持元、\nジャーナルライターのバッチサイズとコミット遅延、接続の受け入れ状況。\n正確な `server-stats` オブジェクトは --json で取得できます。\n",
+        stats_unsupported: "このサーバーは server-stats に対応していません。cmux-tui を更新してください",
         stop_help: "使用方法\n  cmux server stop [--session <名前>] [--socket <パス>] [--force]\n\nサーバーが存在しない場合も成功します。永続セッションの構成は保持されます。\n",
         reload_config_help: "使用方法\n  cmux server reload-config [--session <名前>] [--socket <パス>]\n",
         running: "ローカルサーバーは実行中です",
+        started: "ローカルサーバーを起動しました",
         stopped: "ローカルサーバーを停止しました。永続セッションの構成は保持されています",
         not_running: "ローカルサーバーは実行されていません。停止は不要でした",
+        owner_spawn_failed: "デタッチされたセッション所有者を起動できません。セッション状態を確認して再試行してください",
+        owner_not_ready: "デタッチされたセッション所有者が準備完了になりませんでした。セッション状態ディレクトリのクライアントログを確認して再試行してください",
         reloaded: "ローカルサーバーの設定を再読み込みしました",
         connect_failed: "ローカルサーバーに接続できません。名前付きセッションが実行中であることを確認して再試行してください",
         starting: "ローカルサーバーは起動中です。ライフサイクルコマンドを再試行してください",
@@ -1777,6 +1938,7 @@ static JAPANESE: Catalog = Catalog {
         wrong_owner: "選択したソケットは cmux ローカルサーバーに所有されていません",
         different_session: "選択したソケットは別のセッションに属しています",
         invalid_identity: "ローカルサーバーが完全なライフサイクル識別情報を返しませんでした",
+        unsupported_protocol: "選択したセッションは互換性のない cmux-tui プロトコルを使用しています。この cmux ビルドで再起動してください",
         force_unsupported: "このローカルサーバーは安全にフェンスされた強制停止に対応していません。起動に使用した cmux ビルドで停止してください",
         session_conflict: "セッション名が --session と競合しています",
         machine_not_supported: "--machine でローカルサーバーを対象にすることはできません。machine リソースコマンドを使用してください",
@@ -1948,6 +2110,8 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
     },
     browser: BrowserMessages {
         failed_prefix: "ブラウザでエラーが発生しました: ",
+        control_failed: "ブラウザ操作に失敗しました: {error}",
+        control_unavailable: "ブラウザ接続を利用できません。コマンドを再試行してください",
         not_responding: "ブラウザが応答していません",
         resize_recovery: "ブラウザのサイズ変更を復旧できませんでした。再読み込みして再試行してください",
         new_page_verification_prefix: "新しいページの表示を確認できませんでした: ",
@@ -2007,6 +2171,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         terminal_capacity_exhausted: "疑似ターミナルの空きがありません。不要なターミナルセッションを閉じてから再試行してください。",
         renderer_panicked: "ターミナル描画処理でパニックが発生しました: {message}",
         host_input_failed: "ホストターミナルの入力に失敗しました: {error}",
+        session_transport_lost: "セッションへの接続が失われました。再接続して再試行してください。",
         signal_handlers_failed: "シグナルハンドラーの設定に失敗しました: {error}",
         terminal_restore_also_failed: "{error}; ホストターミナルの復元にも失敗しました: {restore_error}",
     },
@@ -2018,12 +2183,15 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
   relay+ws:// | relay+wss:// | relay+https:// | relay+do://
 
 ID とセッション:
-  --invite-file パス|-  --daemon フィンガープリント
+  --invite-file パス|-  --daemon フィンガープリント  --carrier
   --device-name 名前  --session 名前
   --state-dir パス  --local-socket パス  --headless [--json]
 
   --invite-file は一回限りの招待をプロセス引数に公開しません。
   通常ファイルは所有者だけが読める必要があります。- は標準入力から 1 行読みます。
+  --carrier は ws ルートをキャリア認証で接続します（登録や招待は不要）。
+    信頼済みリスナーを持つデーモンだけが受け入れます（例: 所有者のプライベート
+    ネットワーク経由で到達する cmux Cloud マシン）。
 
 トランスポート:
   --lanes auto|single|isolated  --connect-timeout-seconds 秒数
@@ -2032,6 +2200,10 @@ ID とセッション:
   代替ルートでは --relay-route、--relay-slot、認証情報の組を出現順に最大 4 回指定します。
   --relay-ticket-command-arg 引数  --iroh-relay URL  --iroh-address アドレス
   --iroh-path auto|direct-only|relay-only
+  --wireguard-config パス  そのトンネルの AllowedIPs 内の ws ルートを
+    プロセス内 WireGuard ピア経由で接続します（所有者のみ読める wg-quick ファイル、root 不要）
+  --wireguard-hub パス  実行中の `cmux wg hub` ソケット経由で ws ルートに接続します。
+    --wireguard-config とは併用できません
   --ssh-binary パス  --remote-binary パス  --ssh-arg 引数  --no-install
   --remote-state-dir パス  既定以外のデーモン状態ディレクトリ
   --upgrade は固定済みバイナリのインストール後に SSH 管理のサイドカーを置換します。
@@ -2151,6 +2323,27 @@ ID とセッション:
         rpc_stdin_invalid_utf8: "RPC 標準入力の行は有効な UTF-8 ではありません",
         known_forget_arity: "known-daemons forget にはフィンガープリントを 1 つ指定してください",
         known_state_dir_unavailable: "リモート状態ディレクトリを特定できません。--state-dir を指定してください",
+        wireguard_config_unreadable: "WireGuard 設定 {path} を読めません: {error}（所有者のみ読める通常ファイルが必要です）",
+        wireguard_config_invalid: "WireGuard 設定は有効な wg-quick ファイルではありません: {error}",
+        wireguard_start_failed: "プロセス内 WireGuard トンネルを開始できませんでした: {error}",
+        wireguard_hub_conflict: "--wireguard-config と --wireguard-hub は併用できません。1 つのリンクはトンネルを所有するかハブ経由で接続するかのどちらかです",
+        wireguard_hub_serve_failed: "WireGuard ハブソケットを提供できませんでした: {error}",
+        wireguard_hub_signal_failed: "ハブの終了シグナルを待機できませんでした: {error}",
+        wg_hub_option_required: "wg hub には {option} が必要です",
+        wg_hub_help: r#"使用方法: cmux wg hub --config パス --socket パス
+
+プロセス内 WireGuard トンネルを 1 つ所有し、所有者のみ読める Unix ソケットで
+他の cmux プロセスに SOCKS5 CONNECT を提供します。WireGuard 鍵は 1 つの
+セッションしか維持できないため、このマシンの `remote connect --wireguard-hub パス`
+サイドカーはそれぞれハンドシェイクせず、このハブを共有します。
+
+  --config パス  所有者のみ読める wg-quick ファイル（PrivateKey、Address、AllowedIPs、Endpoint）
+  --socket パス  提供する Unix ソケット。親ディレクトリは 0700、ソケットは 0600 で作成します
+
+待ち受け開始時に JSON 1 行 `{"event":"hub-ready","socket":...,"routes":[...]}` を出力します。
+AllowedIPs 内のリテラル IP のみ接続します。それ以外は SOCKS 応答 0x02、名前は 0x08 です。
+SIGTERM または SIGINT で終了し、ソケットを削除します。
+"#,
         known_daemon_not_known: "デーモン {fingerprint} は登録されていません",
         known_daemon_forgotten: "デーモン {fingerprint} を削除しました。",
         known_daemons_empty: "登録済みのデーモンはありません。",
@@ -2226,6 +2419,7 @@ ID とセッション:
         invalid_section: "cmux-tui: 無効な設定セクション {section} を無視します",
         unknown_field: "cmux-tui: 不明な設定フィールド {field} を無視します",
         invalid_root: "cmux-tui: ルート値がオブジェクトではないため設定を無視します",
+        write_durability_warning: "cmux-tui: 設定の書き込みは完了しましたが、親ディレクトリの永続性を確認できません: {error}",
     },
     attach: AttachMessages {
         filtered_subscription_unavailable: "単一ターミナルへの接続には新しい cmux-tui サーバーが必要です。セッションを再起動してください",
@@ -2347,7 +2541,6 @@ ID とセッション:
         machine_provider_lifecycle_update_failed: "マシンプロバイダーのライフサイクル更新に失敗しました",
         machine_provider_workspace_update_failed: "マシンプロバイダーのワークスペース更新に失敗しました",
         machine_reconnect_failed: "マシンに再接続できませんでした",
-        machine_terminal_colors_failed: "ターミナルの色を適用できませんでした",
         machine_provider_external_connect_unsupported: "このマシンプロバイダーは外部マシンに接続できません",
         machine_provider_external_connect_ambiguous: "前回の接続処理が完了している可能性があります。プロバイダーを再接続し、同じペアリングコードで再試行してください",
         machine_not_ready_to_connect: "選択したマシンは接続準備ができていません",
@@ -2367,6 +2560,7 @@ ID とセッション:
         machine_replacement_not_pending: "保留中のマシン切り替えがありません",
         machine_replacement_target_missing: "マシン切り替え先が見つかりません",
         managed_ssh_requires_unix: "管理 SSH マシン接続には Unix が必要です",
+        machine_usage_readout: "{usd} / {days}日",
     },
 };
 
@@ -2842,6 +3036,22 @@ mod tests {
     }
 
     #[test]
+    fn browser_control_failures_are_localized_at_the_ui_boundary() {
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8")
+                .browser
+                .control_failed("browser panes are not supported over attach yet"),
+            "browser command failed: browser panes are not supported over attach yet"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8")
+                .browser
+                .control_failed("browser panes are not supported over attach yet"),
+            "ブラウザ操作に失敗しました: browser panes are not supported over attach yet"
+        );
+    }
+
+    #[test]
     fn workspace_port_provider_actions_use_localized_labels() {
         assert_eq!(
             catalog().sidebar.provider_action_label(provider_action_id::LIST_WORKSPACE_PORTS),
@@ -2868,5 +3078,29 @@ mod tests {
         assert_eq!(japanese.as_str(), "端末グリッド (12x5)");
         assert_eq!(japanese.bytes.len(), 64);
         assert_eq!(JAPANESE.foreign_viewport.hint_width(12, 5), 19);
+    }
+
+    #[test]
+    fn usd_formatting_is_two_decimal_and_grouped() {
+        assert_eq!(format_usd(0.0), "$0.00");
+        assert_eq!(format_usd(1.234), "$1.23");
+        assert_eq!(format_usd(1.235), "$1.24");
+        assert_eq!(format_usd(999.999), "$1,000.00");
+        assert_eq!(format_usd(1234567.5), "$1,234,567.50");
+        assert_eq!(format_usd(-3.0), "$0.00");
+        assert_eq!(format_usd(f64::NAN), "$0.00");
+        assert_eq!(format_usd(f64::INFINITY), "$0.00");
+    }
+
+    #[test]
+    fn machine_usage_readout_is_localized() {
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8").sidebar.machine_usage_readout(1.23, 30),
+            "$1.23 / 30d"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").sidebar.machine_usage_readout(1.23, 30),
+            "$1.23 / 30日"
+        );
     }
 }

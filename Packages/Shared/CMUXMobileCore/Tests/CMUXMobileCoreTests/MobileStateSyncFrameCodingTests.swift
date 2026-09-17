@@ -20,6 +20,7 @@ struct MobileStateSyncFrameCodingTests {
             previewAt: 1_700_000_000,
             lastActivityAt: 1_700_000_001,
             hasUnread: true,
+            unreadCount: 4,
             sortIndex: 3,
             terminals: [
                 WorkspaceSyncRecord.Terminal(
@@ -74,6 +75,7 @@ struct MobileStateSyncFrameCodingTests {
         #expect(object["preview_at"] as? Double == 1_700_000_000)
         #expect(object["last_activity_at"] as? Double == 1_700_000_001)
         #expect(object["has_unread"] as? Bool == true)
+        #expect(object["unread_count"] as? Int == 4)
         #expect(object["sort_index"] as? Int == 3)
         let terminals = object["terminals"] as? [[String: Any]]
         #expect(terminals?.first?["is_ready"] as? Bool == true)
@@ -106,8 +108,12 @@ struct MobileStateSyncFrameCodingTests {
             fromJSONString: json
         )
         #expect(decoded.surfaces == nil)
+        // A Mac old enough not to emit unread_count decodes to an unknown
+        // count (dot fallback) and re-encodes without inventing the field.
+        #expect(decoded.unreadCount == nil)
         let object = try MobileSyncFrameCoder().jsonObject(from: decoded)
         #expect(object["surfaces"] == nil)
+        #expect(object["unread_count"] == nil)
     }
 
     @Test func workspaceRecordRoundTripsSurfaceInventory() throws {

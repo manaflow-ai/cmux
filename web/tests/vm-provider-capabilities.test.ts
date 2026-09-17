@@ -1,95 +1,58 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import * as Effect from "effect/Effect";
-import { getProvider, NotImplementedError } from "../services/vms/drivers";
-import type { ProviderId, VmProviderCapabilities } from "../services/vms/drivers";
+import { getProvider, vmCapabilitiesFor } from "../services/vms/drivers";
+import type { VmProviderCapabilities, VmProviderDriver } from "../services/vms/drivers";
 import {
   VmProviderGateway,
   VmProviderGatewayLive,
   type VmProviderGatewayShape,
 } from "../services/vms/providerGateway";
-import { VmProviderOperationError } from "../services/vms/errors";
+import { VmOperationUnsupportedError, VmProviderOperationError } from "../services/vms/errors";
 
-// The declared capability matrix IS the provider contract: workflows and routes branch on it
-// instead of calling a method and catching NotImplementedError. These assertions pin the
-// current truth per provider; flipping a flag is a deliberate feature change, not drift.
-const expected: Record<ProviderId, VmProviderCapabilities> = {
-  e2b: {
-    ssh: false,
-    snapshot: true,
-    fork: false,
-    pause: true,
-    getStatus: false,
-    getStats: false,
-    openPort: false,
-    revokeEndpointLeases: false,
-  },
-  daytona: {
-    ssh: false,
-    snapshot: true,
-    fork: false,
-    pause: true,
-    getStatus: true,
-    getStats: false,
-    openPort: false,
-    revokeEndpointLeases: false,
-  },
-  freestyle: {
-    ssh: true,
-    snapshot: true,
-    fork: true,
-    pause: true,
-    getStatus: true,
-    getStats: false,
-    openPort: false,
-    revokeEndpointLeases: false,
-  },
-  blaxel: {
-    ssh: false,
-    snapshot: false,
-    fork: false,
-    pause: false,
-    getStatus: true,
-    getStats: true,
-    openPort: true,
-    revokeEndpointLeases: true,
-  },
+const expected: VmProviderCapabilities = {
+  snapshot: true,
+  restore: true,
+  fork: false,
+  exec: true,
+  stats: true,
+  ports: true,
+  desktop: true,
+  sizing: true,
+  persistentHome: false,
+  attachTransports: ["cmux-remote"],
+  ssh: false,
+  pause: true,
+  getStatus: true,
+  revokeEndpointLeases: true,
 };
 
-describe("declared provider capabilities", () => {
-  for (const [provider, caps] of Object.entries(expected) as Array<[ProviderId, VmProviderCapabilities]>) {
-    test(`${provider} declares its capability matrix`, () => {
-      expect(getProvider(provider).capabilities).toEqual(caps);
-    });
-  }
-
-  test("a declared capability is backed by an implementation, and vice versa for optional methods", () => {
-    for (const provider of Object.keys(expected) as ProviderId[]) {
-      const driver = getProvider(provider);
-      // Optional interface methods must exist exactly when the flag is true.
-      expect(!!driver.snapshot).toBe(driver.capabilities.snapshot);
-      expect(!!driver.restore).toBe(driver.capabilities.snapshot);
-      expect(!!driver.fork).toBe(driver.capabilities.fork);
-      expect(!!driver.getStats).toBe(driver.capabilities.getStats);
-      expect(!!driver.openPort).toBe(driver.capabilities.openPort);
-      expect(!!driver.getStatus).toBe(driver.capabilities.getStatus);
-      expect(!!driver.revokeEndpointLeases).toBe(driver.capabilities.revokeEndpointLeases);
-    }
-  });
+const restoreProperties: Array<() => void> = [];
+afterEach(() => {
+  for (const restore of restoreProperties.splice(0).reverse()) restore();
 });
+
+function replaceDriverProperty(key: keyof VmProviderDriver, value: unknown) {
+  const driver = getProvider("freestyle");
+  const original = Object.getOwnPropertyDescriptor(driver, key);
+  Object.defineProperty(driver, key, { configurable: true, writable: true, value });
+  restoreProperties.push(() => {
+    if (original) Object.defineProperty(driver, key, original);
+    else Reflect.deleteProperty(driver, key);
+  });
+}
+
+function disable(capability: keyof VmProviderCapabilities) {
+  replaceDriverProperty("capabilities", { ...expected, [capability]: false });
+}
 
 function runGateway<A>(
   use: (gateway: VmProviderGatewayShape) => Effect.Effect<A, VmProviderOperationError>,
 ): Promise<A> {
   return Effect.runPromise(
-    Effect.flatMap(VmProviderGateway, use).pipe(Effect.provide(VmProviderGatewayLive)) as Effect.Effect<
-      A,
-      VmProviderOperationError,
-      never
-    >,
+    Effect.flatMap(VmProviderGateway, use).pipe(Effect.provide(VmProviderGatewayLive)),
   );
 }
 
-/** Runs a gateway effect expected to fail and resolves with its typed VmProviderOperationError. */
 function runGatewayError<A>(
   use: (gateway: VmProviderGatewayShape) => Effect.Effect<A, VmProviderOperationError>,
 ): Promise<VmProviderOperationError> {
@@ -97,48 +60,78 @@ function runGatewayError<A>(
     Effect.flatMap(VmProviderGateway, use).pipe(
       Effect.provide(VmProviderGatewayLive),
       Effect.flip,
-    ) as Effect.Effect<VmProviderOperationError, never, never>,
+    ),
   );
 }
 
-// Gateway gating happens BEFORE any provider round-trip, so all of these run offline against
-// the real drivers: an unsupported operation must fail from the declared flag alone.
-describe("gateway branches on declared capabilities", () => {
-  test("exposes the capability matrix per provider", async () => {
-    const caps = await runGateway((gateway) => Effect.sync(() => gateway.capabilities!("blaxel")));
-    expect(caps).toEqual(expected.blaxel);
+describe("declared provider capabilities", () => {
+  test("Freestyle declares its current capability matrix", () => {
+    expect(getProvider("freestyle").capabilities).toEqual(expected);
   });
 
-  test("snapshot on a provider without snapshots is NotImplementedError, without a provider call", async () => {
-    const err = await runGatewayError((gateway) => gateway.snapshot!("blaxel", "machine-a"));
-    expect(err).toBeInstanceOf(VmProviderOperationError);
-    expect(err.cause).toBeInstanceOf(NotImplementedError);
-    expect((err.cause as Error).message).toBe("[blaxel] snapshot: not implemented yet");
+  test("optional capabilities match the registered driver's implementations", () => {
+    const driver = getProvider("freestyle");
+    for (const [flag, method] of [
+      ["snapshot", "snapshot"], ["restore", "restore"], ["fork", "fork"],
+      ["stats", "getStats"], ["ports", "openPort"], ["ssh", "openSSH"],
+      ["getStatus", "getStatus"], ["revokeEndpointLeases", "revokeEndpointLeases"],
+    ] as const) {
+      expect(typeof driver[method] === "function").toBe(expected[flag]);
+    }
   });
 
-  test("restore mirrors the snapshot gate", async () => {
-    const err = await runGatewayError((gateway) => gateway.restore!("blaxel", "snap-1"));
-    expect(err.cause).toBeInstanceOf(NotImplementedError);
-    expect((err.cause as Error).message).toBe("[blaxel] restore: not implemented yet");
+  test("gateway exposes the current client capability contract", async () => {
+    const caps = await runGateway((gateway) => Effect.sync(() => gateway.capabilities!("freestyle")));
+    expect(caps).toEqual(vmCapabilitiesFor("freestyle"));
+    expect(caps.attachTransports).toEqual(["cmux-remote"]);
+  });
+});
+
+describe("gateway branches on declared capabilities before provider calls", () => {
+  for (const [flag, method, invoke] of [
+    ["snapshot", "snapshot", (g: VmProviderGatewayShape) => g.snapshot!("freestyle", "vm-1")],
+    ["restore", "restore", (g: VmProviderGatewayShape) => g.restore!("freestyle", "snap-1")],
+    ["fork", "fork", (g: VmProviderGatewayShape) => g.fork!("freestyle", "vm-1")],
+    ["stats", "getStats", (g: VmProviderGatewayShape) => g.getStats!("freestyle", "vm-1")],
+    ["ports", "openPort", (g: VmProviderGatewayShape) => g.openPort!("freestyle", "vm-1", 3000)],
+    ["ssh", "openSSH", (g: VmProviderGatewayShape) => g.openSSH("freestyle", "vm-1")],
+  ] as const) {
+    test(`${method} refuses a disabled flag even with an implementation`, async () => {
+      disable(flag);
+      const implementation = mock(async () => { throw new Error("unexpected provider call"); });
+      replaceDriverProperty(method, implementation);
+      const error = await runGatewayError<unknown>(invoke);
+      expect(error).toBeInstanceOf(VmProviderOperationError);
+      expect(error.cause).toBeInstanceOf(VmOperationUnsupportedError);
+      expect((error.cause as VmOperationUnsupportedError).operation).toBe(method);
+      expect(implementation).not.toHaveBeenCalled();
+    });
+  }
+
+  test("disabled status is assumed running without querying the provider", async () => {
+    disable("getStatus");
+    const implementation = mock(async () => "paused");
+    replaceDriverProperty("getStatus", implementation);
+    expect(await runGateway((g) => g.getStatus!("freestyle", "vm-1"))).toBe("running");
+    expect(implementation).not.toHaveBeenCalled();
   });
 
-  test("fork on a provider without forks keeps the historical error message", async () => {
-    const err = await runGatewayError((gateway) => gateway.fork!("e2b", "sbx-1"));
-    expect((err.cause as Error).message).toBe("Cloud VM forks are not supported by this provider");
-  });
+  for (const operation of ["pause", "revokeEndpointLeases"] as const) {
+    test(`disabled ${operation} is a no-op`, async () => {
+      disable(operation);
+      const implementation = mock(async () => undefined);
+      replaceDriverProperty(operation, implementation);
+      await runGateway((g) => g[operation]!("freestyle", "vm-1"));
+      expect(implementation).not.toHaveBeenCalled();
+    });
+  }
 
-  test("getStats and openPort gates keep their historical messages", async () => {
-    const statsErr = await runGatewayError((gateway) => gateway.getStats!("e2b", "sbx-1"));
-    expect((statsErr.cause as Error).message).toBe("provider e2b does not report machine stats");
-    const portErr = await runGatewayError((gateway) => gateway.openPort!("freestyle", "vm-1", 3000));
-    expect((portErr.cause as Error).message).toBe("provider freestyle does not support opening ports");
-  });
-
-  test("a provider without getStatus is assumed running", async () => {
-    expect(await runGateway((gateway) => gateway.getStatus!("e2b", "sbx-1"))).toBe("running");
-  });
-
-  test("revokeEndpointLeases is a no-op for providers without revocable ingress", async () => {
-    await expect(runGateway((gateway) => gateway.revokeEndpointLeases!("e2b", "sbx-1"))).resolves.toBeUndefined();
+  test("enabled restore preserves the owner's network options", async () => {
+    const restored = { provider: "freestyle", providerVmId: "vm-1", status: "running", image: "snap-1", createdAt: 1 } as const;
+    const implementation = mock(async () => restored);
+    replaceDriverProperty("restore", implementation);
+    const options = { network: { id: "owner-network" }, providerMetadata: { source: "restore" } };
+    expect(await runGateway((g) => g.restore!("freestyle", "snap-1", options))).toEqual(restored);
+    expect(implementation).toHaveBeenCalledWith("snap-1", options);
   });
 });

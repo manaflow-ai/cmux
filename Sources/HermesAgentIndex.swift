@@ -18,7 +18,7 @@ extension SessionIndexStore {
             stateDBPath: stateDBPath
         )
         for error in result.errors {
-            errorBag.add(error)
+            errorBag.addSafe(diagnostic: "Hermes index failure: \(error)")
         }
         return result.sessions.map { session in
             SessionEntry(
