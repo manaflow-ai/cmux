@@ -114,18 +114,22 @@ struct TerminalWindowPortalCommittedGeometryTests {
         try await fixture.requireCommit()
         let outerFrame = fixture.hosted.frame
         fixture.hosted.setSessionContentWidthPresentation(SessionContentWidthPresentation(
-            storedMaximumWidth: 280, storedAlignment: "center"
+            // Use a supported maximum below the fixture pane's width;
+            // values below the policy minimum of 320 are clamped.
+            storedMaximumWidth: 400, storedAlignment: "center"
         ))
         let scrollView = try #require(fixture.hosted.subviews.compactMap { $0 as? NSScrollView }.first)
-        #expect(scrollView.frame.width == 280)
-        try await fixture.requireCommit(width: scrollView.contentView.bounds.width)
+        #expect(scrollView.frame.width == 400)
+        try await fixture.requireCommit()
+        #expect(fixture.surface.committedPaneGeometry?.size == scrollView.contentView.bounds.size)
         #expect(fixture.hosted.frame == outerFrame)
         let runtime = try #require(fixture.surface.surface)
         let geometry = try #require(fixture.surface.committedPaneGeometry)
         #expect(abs(CGFloat(ghostty_surface_size(runtime).width_px) - geometry.backingSize.width) <= 1)
         fixture.hosted.setSessionContentWidthPresentation(.disabled)
         #expect(scrollView.frame.width == outerFrame.width)
-        try await fixture.requireCommit(width: scrollView.contentView.bounds.width)
+        try await fixture.requireCommit()
+        #expect(fixture.surface.committedPaneGeometry?.size == scrollView.contentView.bounds.size)
     }
 
     @Test func legacyScrollerCommitsClipWidthWithoutPaneResize() async throws {

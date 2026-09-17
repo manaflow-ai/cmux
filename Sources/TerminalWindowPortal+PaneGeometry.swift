@@ -33,6 +33,22 @@ extension WindowTerminalPortal {
         }
     }
 
+    /// Completes either a bind pass or an external geometry pass using the
+    /// same stability rule. Exhausting retries bounds work, not correctness:
+    /// pending entries wait for the next layout event instead of committing
+    /// a frame that the current pass still changed.
+    func finishGeometrySynchronization(hierarchySettled: Bool) {
+        guard !isInteractiveGeometryActive else { return }
+        if hierarchySettled {
+            commitSettledPaneGeometries()
+            return
+        }
+        guard geometrySettlementPassesRemaining > 0,
+              entriesByHostedId.values.contains(where: { $0.visibleInUI && $0.needsSettledCommit }) else { return }
+        geometrySettlementPassesRemaining -= 1
+        scheduleExternalGeometrySynchronize(forceImmediate: false)
+    }
+
     /// Publishes the resting size of every visible entry whose frame changed
     /// since its last commit. This and the drag-tick commit in
     /// `synchronizeHostedView` are the only two paths that give a terminal a

@@ -1045,8 +1045,11 @@ final class WindowTerminalPortal: NSObject {
         hostView.superview?.layoutSubtreeIfNeeded()
         hostView.layoutSubtreeIfNeeded()
         _ = synchronizeHostFrameToReference()
-        lastHierarchySyncSignature = externalGeometrySignature()
-        return false
+        let settled = externalGeometrySignature()
+        lastHierarchySyncSignature = settled
+        // Layout that leaves the measured hierarchy unchanged is already at
+        // rest. A pass that moved it must wait for another stable observation.
+        return settled == signature
     }
 
     private var lastHierarchySyncSignature: ExternalGeometrySignature?
@@ -1119,16 +1122,7 @@ final class WindowTerminalPortal: NSObject {
         let hierarchyWasAlreadySettled = synchronizeLayoutHierarchy()
         synchronizeAllHostedViews(excluding: nil, syncLayout: false, portalIsPrepared: true)
         reconcileVisibleHostedViewsAfterGeometrySync(reason: "portal.externalGeometrySync")
-        if hierarchyWasAlreadySettled {
-            commitSettledPaneGeometries()
-        } else if entriesByHostedId.values.contains(where: { $0.visibleInUI && $0.needsSettledCommit }) {
-            if geometrySettlementPassesRemaining > 0 {
-                geometrySettlementPassesRemaining -= 1
-                scheduleExternalGeometrySynchronize(forceImmediate: false)
-            } else {
-                commitSettledPaneGeometries()
-            }
-        }
+        finishGeometrySynchronization(hierarchySettled: hierarchyWasAlreadySettled)
     }
 
 #if DEBUG
@@ -1786,14 +1780,13 @@ final class WindowTerminalPortal: NSObject {
     }
 
     private func reconcileVisibleHostedViewsAfterGeometrySync(reason: String, syncLayout: Bool = true) {
-        // During a live window resize this pass would re-reconcile every
+        // During an interactive resize this pass would re-reconcile every
         // visible surface once per resize tick, right after
         // synchronizeHostedView already reconciled the ones whose geometry
         // changed — and then force a redraw per surface per frame. Skip it
-        // mid-resize; the end-of-resize sync (windowDidEndLiveResize →
-        // scheduleExternalGeometrySynchronize) runs it unconditionally once
-        // live resize is over.
-        guard !isWindowLiveResizeActive else { return }
+        // mid-resize; both divider and window resize endings schedule the
+        // final reconciliation once the interaction is over.
+        guard !isInteractiveGeometryActive else { return }
         for (hostedId, entry) in entriesByHostedId {
             guard entry.visibleInUI, let hostedView = entry.hostedView, !hostedView.isHidden else { continue }
             if hostedView.reconcileGeometryNow() {
@@ -1835,16 +1828,7 @@ final class WindowTerminalPortal: NSObject {
                     reason: "portal.deferredFullSync", syncLayout: false
                 )
             }
-            if hierarchyWasAlreadySettled {
-                self.commitSettledPaneGeometries()
-            } else if self.entriesByHostedId.values.contains(where: { $0.visibleInUI && $0.needsSettledCommit }) {
-                if self.geometrySettlementPassesRemaining > 0 {
-                    self.geometrySettlementPassesRemaining -= 1
-                    self.scheduleExternalGeometrySynchronize(forceImmediate: false)
-                } else {
-                    self.commitSettledPaneGeometries()
-                }
-            }
+            self.finishGeometrySynchronization(hierarchySettled: hierarchyWasAlreadySettled)
         }
     }
 
