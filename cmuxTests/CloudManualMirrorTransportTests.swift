@@ -574,6 +574,65 @@ struct CloudManualMirrorTransportTests {
         #expect(parser.resolvedSurfaceID(from: data) == 23)
     }
 
+    @Test @MainActor
+    func creationIdentityAttachesWithoutLookupAndPreservesEarlyInput() async throws {
+        let fixture = try CloudManualMirrorSocketFixture()
+        defer { fixture.close() }
+        let terminal = "term_0123456789abcdef0123456789abcdef"
+        let session = CloudTuiManualMirrorSession(
+            machineID: "machine", terminalID: terminal, remoteSurfaceID: 0,
+            creationAttachment: CloudCreationAttachment(generation: "g1", terminalID: terminal),
+            onNeedsReconnect: {}
+        )
+        defer { session.stop() }
+        session.inputRouter.send(.bytes(Data("first".utf8)))
+        session.reconnect(socketPath: fixture.socketPath)
+        let identify = try #require(await fixture.nextCommand(timeout: .seconds(5)))
+        fixture.send(["id": identify.id, "ok": true, "data": ["capabilities": ["attach-identity-v1", "view-attachment-lease-v1"]]])
+        let registration = try #require(await fixture.nextCommand(timeout: .seconds(5)))
+        #expect(registration.cmd == "set-client-info")
+        fixture.send(["id": registration.id, "ok": true, "data": [:]])
+        let attach = try #require(await fixture.nextCommand(timeout: .seconds(5)))
+        #expect(attach.cmd == "attach-surface")
+        #expect(attach.surface == nil)
+        #expect(attach.expectedGeneration == "g1")
+        #expect(attach.expectedTerminalID == terminal)
+        fixture.send(["event": "vt-state", "surface": 17, "cols": 80, "rows": 24, "data": ""])
+        #expect(await Self.waitUntil { session.remoteSurfaceID == 17 })
+        session.inputRouter.send(.bytes(Data("second".utf8)))
+        #expect(await fixture.nextCommand(timeout: .milliseconds(100)) == nil)
+        fixture.send(["id": attach.id, "ok": true, "data": ["lease": "lease-1"]])
+        let first = try #require(await fixture.nextCommand(timeout: .seconds(5)))
+        let second = try #require(await fixture.nextCommand(timeout: .seconds(5)))
+        #expect(first.inputBytes == Data("first".utf8))
+        #expect(second.inputBytes == Data("second".utf8))
+        #expect(first.surface == 17 && second.surface == 17)
+    }
+
+    @Test @MainActor
+    func creationIdentityFallsBackForAnOlderDaemon() async throws {
+        let fixture = try CloudManualMirrorSocketFixture()
+        defer { fixture.close() }
+        var resolutions = 0
+        let session = CloudTuiManualMirrorSession(
+            machineID: "machine", terminalID: "term_test", remoteSurfaceID: 0,
+            creationAttachment: CloudCreationAttachment(generation: "g1", terminalID: "term_test"),
+            resolveLegacySurfaceID: { resolutions += 1; return 17 },
+            onNeedsReconnect: {}
+        )
+        defer { session.stop() }
+        session.reconnect(socketPath: fixture.socketPath)
+        let identify = try #require(await fixture.nextCommand(timeout: .seconds(5)))
+        fixture.send(["id": identify.id, "ok": true, "data": ["capabilities": []]])
+        let registration = try #require(await fixture.nextCommand(timeout: .seconds(5)))
+        fixture.send(["id": registration.id, "ok": true, "data": [:]])
+        let attach = try #require(await fixture.nextCommand(timeout: .seconds(5)))
+        #expect(resolutions == 1)
+        #expect(attach.cmd == "attach-surface")
+        #expect(attach.surface == 17)
+        #expect(attach.expectedGeneration == nil && attach.expectedTerminalID == nil)
+    }
+
     /// Over a cloud link the control commands and the byte attachment ride
     /// different lanes, and the daemon side applies them in arrival order. The
     /// session therefore must not send `attach-surface` until the daemon has

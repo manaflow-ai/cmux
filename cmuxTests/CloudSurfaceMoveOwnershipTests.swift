@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxCore
 import CmuxRemoteSession
 import Testing
 

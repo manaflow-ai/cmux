@@ -6,6 +6,8 @@ import Foundation
 struct CloudManualMirrorFixtureCommand: Sendable {
     let cmd: String
     let inputBytes: Data?
+    let expectedGeneration: String?
+    let expectedTerminalID: String?
     let id: UInt64
     let surface: UInt64?
     let capabilities: [String]
@@ -21,6 +23,8 @@ struct CloudManualMirrorFixtureCommand: Sendable {
     init?(_ object: [String: Any]) {
         guard let cmd = object["cmd"] as? String else { return nil }
         self.cmd = cmd
+        expectedGeneration = object["expected_generation"] as? String
+        expectedTerminalID = object["expected_terminal_id"] as? String
         inputBytes = (object["bytes"] as? String).flatMap { Data(base64Encoded: $0) }
         id = (object["id"] as? NSNumber)?.uint64Value ?? 0
         surface = (object["surface"] as? NSNumber)?.uint64Value
