@@ -144,6 +144,19 @@ def main():
     build_tag=f'relay:{sha}'
     if not ARGS.built_sha:
         run('az','acr','build','--subscription',ARGS.subscription,'-r',ARGS.registry,'-t',build_tag,'-f','Dockerfile',str(ROOT),capture=False)
+    else:
+        # ACR tags are commonly shortened for operator readability. Resolve the
+        # full immutable commit tag first, then its exact 12-character prefix.
+        candidates = [build_tag, f'relay:{sha[:12]}']
+        for candidate in candidates:
+            try:
+                digest = az('acr','repository','show','-n',ARGS.registry,'--image',candidate)['digest']
+                build_tag = candidate
+                break
+            except subprocess.CalledProcessError:
+                continue
+        else:
+            raise RuntimeError(f'no immutable relay image tag found for {sha}')
     digest=az('acr','repository','show','-n',ARGS.registry,'--image',build_tag)['digest']
     image=f'{registry["loginServer"]}/relay@{digest}'
     tags=az('acr','repository','list','-n',ARGS.registry)
