@@ -217,12 +217,10 @@ extension TerminalWindowPortalLifecycleTests {
         withExtendedLifetime(surface) {}
     }
 
-    /// The outer pane must follow a live window-resize tick, but the inner
-    /// Ghostty layer stays on its last committed drawable until resize end.
-    /// This is the ordering invariant that makes an asynchronous old present
-    /// harmless: the pane's view-level clip contains it for the whole drag.
+    /// Both the pane and its clip viewport publish interactive geometry;
+    /// resize end must replace it with the final settled geometry.
     @MainActor
-    func testLiveResizeKeepsRendererFrameAtCommittedSizeUntilEnd() throws {
+    func testLiveResizePublishesInteractiveViewportThenSettlesAtEnd() async throws {
         let window = makeTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 340),
             styleMask: [.titled, .closable, .resizable]
@@ -243,7 +241,8 @@ extension TerminalWindowPortalLifecycleTests {
         let surface = makeTrackedTerminalSurface()
         portal.bind(hostedView: surface.hostedView, to: anchor, visibleInUI: true)
         portal.synchronizeHostedViewForAnchor(anchor)
-        XCTAssertTrue(waitForResizeTestGeometry(surface, anchor: anchor))
+        let initiallySettled = await waitForSettledPortalGeometry(surface, anchor: anchor)
+        XCTAssertTrue(initiallySettled)
 
         let committedRendererSize = surface.hostedView.surfaceView.frame.size
         XCTAssertGreaterThan(committedRendererSize.width, 1)
@@ -262,11 +261,10 @@ extension TerminalWindowPortalLifecycleTests {
             liveTarget,
             "The pane boundary must track the live resize immediately"
         )
-        XCTAssertEqual(
-            surface.hostedView.surfaceView.frame.size,
-            committedRendererSize,
-            "The renderer frame must not advance to an uncommitted live-resize drawable"
-        )
+        let interactive = try XCTUnwrap(surface.committedPaneGeometry)
+        XCTAssertEqual(interactive.phase, .interactive)
+        XCTAssertEqual(interactive.size, surface.hostedView.surfaceView.frame.size)
+        XCTAssertLessThan(interactive.size.width, committedRendererSize.width)
 
         portal.isWindowLiveResizeActiveOverrideForTesting = false
         let finalTarget = NSSize(
@@ -275,10 +273,10 @@ extension TerminalWindowPortalLifecycleTests {
         )
         anchor.setFrameSize(finalTarget)
         NotificationCenter.default.post(name: NSWindow.didEndLiveResizeNotification, object: window)
-        XCTAssertTrue(waitUntil(timeout: 2) {
-            surface.hostedView.frame.size == finalTarget &&
-                surface.hostedView.surfaceView.frame.size != committedRendererSize
-        }, "Resize end must commit the final pane and renderer geometry")
+        let finallySettled = await waitForSettledPortalGeometry(surface, anchor: anchor)
+        XCTAssertTrue(finallySettled, "Resize end must commit the final pane and renderer geometry")
+        XCTAssertEqual(surface.committedPaneGeometry?.phase, .settled)
+        XCTAssertEqual(surface.committedPaneGeometry?.size, surface.hostedView.surfaceView.frame.size)
 
         XCTAssertEqual(surface.hostedView.frame.size, finalTarget)
         XCTAssertNotEqual(

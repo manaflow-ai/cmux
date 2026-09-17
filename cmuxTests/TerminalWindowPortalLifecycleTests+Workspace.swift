@@ -9,6 +9,28 @@ import GhosttyKit
 #endif
 
 extension TerminalWindowPortalLifecycleTests {
+    /// Wait for the queued portal commit and runtime creation without holding
+    /// the main actor in a nested run loop.
+    func waitForSettledPortalGeometry(_ surface: TerminalSurface, anchor: NSView) async -> Bool {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while !Task.isCancelled {
+            let hosted = surface.hostedView
+            let view = hosted.surfaceView
+            let pixels = surface.debugCurrentPixelSize()
+            let expected = view.expectedPixelSize(for: view.bounds.size)
+            if surface.surface != nil, surface.committedPaneGeometry?.phase == .settled,
+               surface.committedPaneGeometry?.size == view.bounds.size,
+               hosted.frame.size == anchor.bounds.size, view.bounds.width > 1,
+               pixels.width == UInt32(expected.width.rounded(.down)),
+               pixels.height == UInt32(expected.height.rounded(.down)) { return true }
+            guard ContinuousClock.now < deadline else { return false }
+            await withCheckedContinuation { continuation in
+                DispatchQueue.main.async { continuation.resume() }
+            }
+        }
+        return false
+    }
+
     func layoutResizeTestWindow(_ window: NSWindow) {
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
