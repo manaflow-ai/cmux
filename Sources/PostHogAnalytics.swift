@@ -15,9 +15,11 @@ final class PostHogAnalytics: @unchecked Sendable {
 
     private let dailyActiveEvent = "cmux_daily_active"
     private let hourlyActiveEvent = "cmux_hourly_active"
+    private let crashExceptionEvent = "$exception"
 
     private let lastActiveDayUTCKey = "posthog.lastActiveDayUTC"
     private let lastActiveHourUTCKey = "posthog.lastActiveHourUTC"
+    private let lastReportedCrashAtKey = "posthog.lastReportedCrashAt"
 
     private let workQueue: DispatchQueue
     private let workQueueSpecificKey = DispatchSpecificKey<Void>()
@@ -27,11 +29,15 @@ final class PostHogAnalytics: @unchecked Sendable {
     private let now: @Sendable () -> Date
     private let capturePostHog: @Sendable (String, [String: Any]) -> Void
     private let flushPostHog: @Sendable () -> Void
+    private let environment: [String: String]
+    private let telemetryEnabled: @Sendable () -> Bool
+    private let previousLaunchIdentity: [String: Any]
+    private let launchStartedAt: Date
 
     private var didStart: Bool
     private var activeCheckTimer: Timer?
 
-    private init(
+    init(
         workQueue: DispatchQueue = DispatchQueue(label: "com.cmux.posthog.analytics", qos: .utility),
         didStart: Bool = false,
         userDefaults: UserDefaults = .standard,
@@ -39,7 +45,9 @@ final class PostHogAnalytics: @unchecked Sendable {
         capturePostHog: @escaping @Sendable (String, [String: Any]) -> Void = { event, properties in
             PostHogSDK.shared.capture(event, properties: properties)
         },
-        flushPostHog: @escaping @Sendable () -> Void = { PostHogSDK.shared.flush() }
+        flushPostHog: @escaping @Sendable () -> Void = { PostHogSDK.shared.flush() },
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        telemetryEnabled: @escaping @Sendable () -> Bool = { TelemetrySettings.enabledForCurrentLaunch }
     ) {
         self.workQueue = workQueue
         self.didStart = didStart
@@ -47,39 +55,47 @@ final class PostHogAnalytics: @unchecked Sendable {
         self.now = now
         self.capturePostHog = capturePostHog
         self.flushPostHog = flushPostHog
+        self.environment = environment
+        self.telemetryEnabled = telemetryEnabled
+        self.previousLaunchIdentity = userDefaults.dictionary(forKey: "posthog.previousLaunchIdentity") ?? [:]
+        self.launchStartedAt = now()
         utcHourFormatter = Self.makeUTCFormatter("yyyy-MM-dd'T'HH")
         utcDayFormatter = Self.makeUTCFormatter("yyyy-MM-dd")
         workQueue.setSpecific(key: workQueueSpecificKey, value: ())
     }
 
-#if DEBUG
-    static func makeForTesting(
-        workQueue: DispatchQueue,
-        didStart: Bool,
-        userDefaults: UserDefaults,
-        now: @escaping @Sendable () -> Date,
-        capturePostHog: @escaping @Sendable (String, [String: Any]) -> Void,
-        flushPostHog: @escaping @Sendable () -> Void
-    ) -> PostHogAnalytics {
-        PostHogAnalytics(
-            workQueue: workQueue,
-            didStart: didStart,
-            userDefaults: userDefaults,
-            now: now,
-            capturePostHog: capturePostHog,
-            flushPostHog: flushPostHog
-        )
-    }
-#endif
-
     private var isEnabled: Bool {
-        guard TelemetrySettings.enabledForCurrentLaunch else { return false }
+        // XCTest hosts can inherit the production PostHog configuration. Keep
+        // test launches from initializing the SDK or sending crash telemetry.
+        guard !MacSentryStartupPolicy.isRunningUnderXCTest(environment: environment) else {
+            return false
+        }
+        guard telemetryEnabled() else { return false }
 #if DEBUG
         // Avoid polluting production analytics while iterating locally.
-        return ProcessInfo.processInfo.environment["CMUX_POSTHOG_ENABLE"] == "1"
+        return environment["CMUX_POSTHOG_ENABLE"] == "1"
 #else
         return !apiKey.isEmpty && apiKey != "REPLACE_WITH_POSTHOG_PUBLIC_KEY"
 #endif
+    }
+
+    /// Retains the prior launch's identity before replacing it with this build.
+    /// Native Ghostty envelopes do not contain the host app's version.
+    func recordLaunchIdentity() {
+        dispatchAsyncOnWorkQueue { [weak self] in
+            guard let self else { return }
+            guard !MacSentryStartupPolicy.isRunningUnderXCTest(environment: self.environment) else { return }
+            guard self.telemetryEnabled() else {
+                self.userDefaults.removeObject(forKey: "posthog.previousLaunchIdentity")
+                return
+            }
+            let info = Bundle.main.infoDictionary ?? [:]
+            var identity: [String: Any] = ["started_at": self.launchStartedAt]
+            identity["app_version"] = info["CFBundleShortVersionString"] as? String
+            identity["app_build"] = info["CFBundleVersion"] as? String
+            identity["app_namespace"] = info["CFBundleIdentifier"] as? String
+            self.userDefaults.set(identity, forKey: "posthog.previousLaunchIdentity")
+        }
     }
 
     func startIfNeeded() {
@@ -101,6 +117,57 @@ final class PostHogAnalytics: @unchecked Sendable {
         }
     }
 
+    /// Capture one product event with the app version properties attached.
+    /// No-op when telemetry is disabled or the SDK never started. Used by the
+    /// Cloud VM request telemetry (`VMClientTelemetry`).
+    func capture(_ event: String, properties: [String: Any]) {
+        dispatchAsyncOnWorkQueue { [weak self] in
+            guard let self else { return }
+            self.startIfNeededOnWorkQueue()
+            guard self.didStart else { return }
+            var merged = properties
+            merged.merge(Self.versionProperties(infoDictionary: Bundle.main.infoDictionary ?? [:])) { current, _ in current }
+            self.capturePostHog(event, merged)
+        }
+    }
+
+    /// Mirror a previous-run crash into PostHog Error Tracking as one
+    /// `$exception` event per crash. The crash is detected from the
+    /// `.ghosttycrash` artifact on the next launch, so the event is sent by
+    /// the reporting launch; the `crash_app_*` properties identify the build
+    /// that actually crashed, which differs after an upgrade. No-op when
+    /// telemetry is disabled, the SDK never started, or this crash artifact
+    /// was already reported.
+    func captureCrashException(pendingCrash: GhosttyCrashBreadcrumb.PendingCrash) {
+        dispatchAsyncOnWorkQueue { [weak self] in
+            guard let self else { return }
+            self.startIfNeededOnWorkQueue()
+            guard self.didStart else { return }
+            // One event per crash artifact, even across relaunches that never
+            // surface the crash breadcrumb notification.
+            let lastReported = self.userDefaults.object(forKey: self.lastReportedCrashAtKey) as? Date ?? .distantPast
+            guard pendingCrash.modifiedAt > lastReported else { return }
+            self.userDefaults.set(pendingCrash.modifiedAt, forKey: self.lastReportedCrashAtKey)
+            let reported = GhosttyCrashReportMetadata.reportedException(in: pendingCrash.fileURL)
+            var properties = Self.crashExceptionProperties(
+                reported: reported,
+                infoDictionary: Bundle.main.infoDictionary ?? [:]
+            )
+            // Prefer the artifact's identity. A launch record only describes
+            // crashes newer than that launch, never older historical files.
+            if properties["crash_app_version"] == nil,
+               let startedAt = self.previousLaunchIdentity["started_at"] as? Date,
+               pendingCrash.modifiedAt >= startedAt {
+                for key in ["app_version", "app_build", "app_namespace"] {
+                    if let value = self.previousLaunchIdentity[key] as? String, !value.isEmpty {
+                        properties["crash_\(key)"] = value
+                    }
+                }
+            }
+            self.capturePostHog(self.crashExceptionEvent, properties)
+        }
+    }
+
     func trackDailyActive(reason: String) {
         dispatchAsyncOnWorkQueue { [weak self] in
             self?.trackDailyActiveOnWorkQueue(reason: reason, flush: true)
@@ -117,7 +184,22 @@ final class PostHogAnalytics: @unchecked Sendable {
         guard !didStart else { return }
         guard isEnabled else { return }
 
-        let config = PostHogConfig(apiKey: apiKey, host: host)
+        let config: PostHogConfig
+#if DEBUG
+        // A loopback collector exercises the real SDK without sending fixture
+        // events to production. Release builds never accept this override.
+        if let rawHost = environment["CMUX_POSTHOG_TEST_HOST"],
+           let url = URL(string: rawHost),
+           url.scheme == "http", url.host == "127.0.0.1", url.port != nil,
+           url.user == nil, url.password == nil {
+            config = PostHogConfig(apiKey: "phc_cmux_e2e", host: rawHost)
+            config.flushAt = 1
+        } else {
+            config = PostHogConfig(apiKey: apiKey, host: host)
+        }
+#else
+        config = PostHogConfig(apiKey: apiKey, host: host)
+#endif
         config.captureApplicationLifecycleEvents = false
         config.captureScreenViews = false
 #if DEBUG
@@ -270,6 +352,60 @@ final class PostHogAnalytics: @unchecked Sendable {
         return properties
     }
 
+    /// PostHog Error Tracking payload for a previous-run crash. The crashed
+    /// build's version/namespace come from the crash envelope (`crash_app_*`),
+    /// while `versionProperties` describe the reporting launch, matching every
+    /// other cmux event. The posthog-ios SDK additionally attaches its
+    /// automatic `$app_version`/`$app_build`/`$app_namespace` at capture time.
+    nonisolated static func crashExceptionProperties(
+        reported: GhosttyCrashReportMetadata.ReportedException?,
+        infoDictionary: [String: Any]
+    ) -> [String: Any] {
+        let type = sanitizedExceptionToken(reported?.type) ?? "UnknownCrash"
+        let mechanism: [String: Any] = [
+            "handled": false,
+            "type": sanitizedExceptionToken(reported?.mechanismType) ?? "ghostty_crash_report",
+        ]
+        let exception: [String: Any] = [
+            "type": type,
+            // Envelope reasons are arbitrary app text. Do not mirror paths,
+            // commands, secrets, or customer content into analytics.
+            "value": "Previous launch crashed",
+            "mechanism": mechanism,
+        ]
+        var properties: [String: Any] = [
+            "$exception_level": "error",
+            // Group by crash type only; the version breakdown comes from the
+            // crash_app_* and version properties, not the fingerprint.
+            "$exception_fingerprint": String("cmux-mac-crash:\(type)".prefix(200)),
+            "$exception_list": [exception],
+        ]
+        if let appVersion = reported?.appVersion, !appVersion.isEmpty {
+            properties["crash_app_version"] = appVersion
+        }
+        if let appBuild = reported?.appBuild, !appBuild.isEmpty {
+            properties["crash_app_build"] = appBuild
+        }
+        if let appNamespace = reported?.appNamespace, !appNamespace.isEmpty {
+            properties["crash_app_namespace"] = appNamespace
+        }
+        properties.merge(versionProperties(infoDictionary: infoDictionary)) { _, new in new }
+        return properties
+    }
+
+    /// Exception and mechanism types are identifier-like tokens; anything else
+    /// collapses to nil so unexpected payloads never reach PostHog.
+    nonisolated static func sanitizedExceptionToken(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
+        guard !trimmed.isEmpty,
+              trimmed.count <= 120,
+              trimmed.unicodeScalars.allSatisfy(allowed.contains)
+        else { return nil }
+        return trimmed
+    }
+
     nonisolated static func shouldFlushAfterCapture(event: String) -> Bool {
         switch event {
         case "cmux_daily_active", "cmux_hourly_active":
@@ -279,8 +415,13 @@ final class PostHogAnalytics: @unchecked Sendable {
         }
     }
 
-    nonisolated private static func versionProperties(infoDictionary: [String: Any]) -> [String: Any] {
-        var properties: [String: Any] = [:]
+    nonisolated private static func versionProperties(
+        infoDictionary: [String: Any],
+        flavor: BuildFlavor = BuildFlavor.current
+    ) -> [String: Any] {
+        // `channel` answers "stable, RC, NIGHTLY or DEV?" for every Mac event; the
+        // web side carries the same value on checkout as `checkout_channel`.
+        var properties: [String: Any] = ["channel": flavor.rawValue]
         if let value = infoDictionary["CFBundleShortVersionString"] as? String, !value.isEmpty {
             properties["app_version"] = value
         }

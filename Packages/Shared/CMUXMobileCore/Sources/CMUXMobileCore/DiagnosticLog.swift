@@ -13,10 +13,9 @@ internal import os
 /// non-droppable clear commands into the ring (the only diagnostic state,
 /// held by an inner `actor`), evicting the oldest events past ``capacity``.
 ///
-/// ``export()`` drains the ring into a compact blob: a one-line header carrying
-/// a wall-clock anchor and the build stamp, then one short row per event
-/// (`tNanos,code,surface,ms,a,b,c`, omitting absent fields). The blob is small
-/// by construction (bounded by ``capacity`` rows of integers).
+/// ``export()`` snapshots the ring into a plain-language timeline with UTC
+/// timestamps, readable event titles, and labeled values. The report is small
+/// by construction because it remains bounded by ``capacity`` events.
 ///
 /// Inject one instance from the app composition root; do not add a `.shared`
 /// singleton.
@@ -30,7 +29,7 @@ public final class DiagnosticLog: Sendable {
     /// The maximum number of retained events. Oldest are dropped past this.
     public let capacity: Int
 
-    /// The build-identity stamp written into the export header. Exposed so a
+    /// The build-identity stamp written into the report header. Exposed so a
     /// caller can also carry it as a top-level field when submitting a bundle.
     public let buildStamp: String
 
@@ -47,6 +46,10 @@ public final class DiagnosticLog: Sendable {
 
     /// The optional live observer, delivered retained events on the drain task.
     private let tap: TapBox
+
+    /// Stateless hashing seam used to reduce opaque model identifiers before
+    /// they enter the event ring. Swift supplies its process-randomized seed.
+    private let correlation = DiagnosticCorrelation()
 
     /// The drain task. Its closure captures only local stream/store values, so
     /// deinitialization can finish ingress and let accepted clear commands drain
@@ -168,16 +171,106 @@ public final class DiagnosticLog: Sendable {
         ingress.record(event)
     }
 
-    /// Snapshot the currently-drained ring and format a compact export blob.
+    /// Records one privacy-safe iOS product event into the same ordered ring
+    /// and durable app-log tap as transport diagnostics.
+    ///
+    /// Callers select only fixed enum values and bounded integers. Never add a
+    /// free-text overload: the absence of strings is what makes this API safe
+    /// to leave enabled in Release builds for every user.
+    ///
+    /// - Parameters:
+    ///   - kind: Stable feature action or outcome.
+    ///   - surface: Optional process-local correlation handle.
+    ///   - elapsedMilliseconds: Optional elapsed time for the operation.
+    ///   - failure: Optional privacy-safe failure category.
+    ///   - count: Optional bounded item/byte/attempt count documented by `kind`.
+    public nonisolated func recordAppEvent(
+        _ kind: DiagnosticAppEventKind,
+        surface: UInt32? = nil,
+        elapsedMilliseconds: UInt32? = nil,
+        failure: DiagnosticFailureKind? = nil,
+        count: Int? = nil
+    ) {
+        let boundedCount = count.map { min(max(0, $0), Int(UInt32.max)) }
+        record(DiagnosticEvent(
+            .appFeatureAction,
+            surface: surface,
+            ms: elapsedMilliseconds,
+            a: kind.rawValue,
+            b: failure?.rawValue,
+            c: boundedCount
+        ))
+    }
+
+    /// Records one app event correlated to an opaque model identifier.
+    ///
+    /// The identifier is immediately reduced to a process-local handle by
+    /// ``DiagnosticCorrelation`` and is never retained or written to disk.
+    public nonisolated func recordAppEvent(
+        _ kind: DiagnosticAppEventKind,
+        correlationID: String?,
+        elapsedMilliseconds: UInt32? = nil,
+        failure: DiagnosticFailureKind? = nil,
+        count: Int? = nil
+    ) {
+        recordAppEvent(
+            kind,
+            surface: correlation.handle(for: correlationID),
+            elapsedMilliseconds: elapsedMilliseconds,
+            failure: failure,
+            count: count
+        )
+    }
+
+    /// Records a categorical app-event value through a typed payload instead
+    /// of conflating its raw discriminator with an item or byte count.
+    public nonisolated func recordAppEvent(
+        _ kind: DiagnosticAppEventKind,
+        surface: UInt32? = nil,
+        elapsedMilliseconds: UInt32? = nil,
+        failure: DiagnosticFailureKind? = nil,
+        detail: DiagnosticAppEventDetail
+    ) {
+        guard detail.supports(kind) else {
+            assertionFailure("Unsupported diagnostic detail for \(kind)")
+            return
+        }
+        recordAppEvent(
+            kind,
+            surface: surface,
+            elapsedMilliseconds: elapsedMilliseconds,
+            failure: failure,
+            count: detail.rawValue
+        )
+    }
+
+    /// Records a typed categorical value correlated to an opaque model ID.
+    public nonisolated func recordAppEvent(
+        _ kind: DiagnosticAppEventKind,
+        correlationID: String?,
+        elapsedMilliseconds: UInt32? = nil,
+        failure: DiagnosticFailureKind? = nil,
+        detail: DiagnosticAppEventDetail
+    ) {
+        recordAppEvent(
+            kind,
+            surface: correlation.handle(for: correlationID),
+            elapsedMilliseconds: elapsedMilliseconds,
+            failure: failure,
+            detail: detail
+        )
+    }
+
+    /// Snapshot the currently-drained ring and format a plain-language report.
     ///
     /// Reads whatever the drain task has already moved into the ring; it does not
     /// force a flush of events still in flight on the stream (the AsyncStream +
     /// drain design is eventually consistent, which is fine for a human-timed
     /// submit). The result is small by construction (bounded by ``capacity``
-    /// integer rows). Tests that need an exact post-record snapshot await
+    /// event lines). Tests that need an exact post-record snapshot await
     /// ``processedCount()`` first.
     ///
-    /// - Returns: The UTF-8 encoded compact blob.
+    /// - Returns: The UTF-8 encoded human-readable report.
     public func export() async -> Data {
         await store.export()
     }
@@ -502,7 +595,7 @@ public final class DiagnosticLog: Sendable {
         }
 
         func export() -> Data {
-            snapshot(generatedAt: Date()).compactExport()
+            snapshot(generatedAt: Date()).humanReadableExport()
         }
     }
 }

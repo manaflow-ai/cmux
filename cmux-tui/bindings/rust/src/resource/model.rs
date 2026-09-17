@@ -479,7 +479,7 @@ pub enum TerminalLifecycle {
 #[derive(Clone, Debug, PartialEq)]
 pub struct TerminalSnapshot {
     pub id: TerminalId,
-    pub tab_id: TabId,
+    pub tab_ids: Vec<TabId>,
     pub title: String,
     pub cwd: Option<String>,
     pub cols: u16,
@@ -499,7 +499,10 @@ impl<'de> Deserialize<'de> for TerminalSnapshot {
         #[serde(deny_unknown_fields)]
         struct Wire {
             id: TerminalId,
-            tab_id: TabId,
+            #[serde(default, deserialize_with = "deserialize_present_nullable")]
+            tab_id: Option<Option<TabId>>,
+            #[serde(default, deserialize_with = "deserialize_present_nullable")]
+            tab_ids: Option<Option<Vec<TabId>>>,
             title: String,
             #[serde(default, deserialize_with = "deserialize_optional_non_null")]
             cwd: Option<String>,
@@ -526,9 +529,30 @@ impl<'de> Deserialize<'de> for TerminalSnapshot {
                 "terminal exit must be present exactly when lifecycle is exited",
             ));
         }
+        let tab_ids = match (wire.tab_id, wire.tab_ids) {
+            (_, Some(None)) => {
+                return Err(serde::de::Error::custom("terminal tab_ids must be an array"));
+            }
+            (legacy, Some(Some(tab_ids))) => {
+                if let Some(legacy) = legacy
+                    && legacy.as_ref() != tab_ids.first()
+                {
+                    return Err(serde::de::Error::custom(
+                        "terminal tab_id must be the first tab_ids item",
+                    ));
+                }
+                tab_ids
+            }
+            (Some(legacy), None) => legacy.into_iter().collect(),
+            (None, None) => {
+                return Err(serde::de::Error::custom(
+                    "terminal snapshot requires tab_ids or tab_id",
+                ));
+            }
+        };
         Ok(Self {
             id: wire.id,
-            tab_id: wire.tab_id,
+            tab_ids,
             title: wire.title,
             cwd: wire.cwd,
             cols: wire.cols,
@@ -755,7 +779,12 @@ pub struct PairingRequestSnapshot {
 pub struct FrontendProjectionSnapshot {
     pub id: FrontendProjectionId,
     pub session_id: SessionId,
+    pub frontend_id: String,
+    pub window_id: String,
+    pub generation: String,
     pub projection: Document,
+    #[serde(deserialize_with = "deserialize_decimal")]
+    pub projection_revision: u64,
     #[serde(default)]
     pub extra: BTreeMap<String, Value>,
 }
@@ -1204,6 +1233,11 @@ pub struct ProcessInfoResult {
     pub argv: Vec<String>,
     #[serde(default, deserialize_with = "deserialize_optional_non_null")]
     pub cwd: Option<String>,
+    /// Working directory of the process group that owns the PTY, read at
+    /// request time. `None` when the lookup fails or when an older server
+    /// omits the field.
+    #[serde(default)]
+    pub foreground_cwd: Option<String>,
     pub children: Vec<u32>,
 }
 
@@ -1214,6 +1248,7 @@ pub struct ViewerResizeResult {
     pub accepted: bool,
     #[serde(deserialize_with = "deserialize_size")]
     pub size: Size,
+    pub outcome: ViewAttachmentOutcome,
 }
 
 /// Result of assigning browser viewer dimensions.
@@ -1223,6 +1258,21 @@ pub struct BrowserViewerResizeResult {
     pub accepted: bool,
     #[serde(deserialize_with = "deserialize_pixel_size")]
     pub size: PixelSize,
+    pub outcome: ViewAttachmentOutcome,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ViewAttachmentOutcome {
+    Applied,
+    Passive,
+    Superseded,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ViewerReleaseResult {
+    pub outcome: ViewAttachmentOutcome,
 }
 
 /// Result of publishing client cell pixel dimensions.
@@ -1378,6 +1428,14 @@ where
     T: Deserialize<'de>,
 {
     Option::<T>::deserialize(deserializer)
+}
+
+fn deserialize_present_nullable<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
 }
 
 fn deserialize_generation<'de, D>(deserializer: D) -> Result<String, D::Error>

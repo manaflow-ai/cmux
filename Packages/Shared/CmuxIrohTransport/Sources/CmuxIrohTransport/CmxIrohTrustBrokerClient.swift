@@ -1,6 +1,23 @@
 public import CMUXMobileCore
 public import Foundation
 
+private func cmxIsSafeClientNamespace(_ value: String) -> Bool {
+    (1 ... 255).contains(value.utf8.count)
+        && value.utf8.allSatisfy {
+            (48 ... 57).contains($0)
+                || (65 ... 90).contains($0)
+                || (97 ... 122).contains($0)
+                || [45, 46, 58, 95].contains($0)
+        }
+}
+
+private func cmxIsSafeBrokerHeaderValue(_ value: String) -> Bool {
+    (1 ... 16 * 1_024).contains(value.utf8.count)
+        && !value.unicodeScalars.contains(
+            where: { $0.value < 0x20 || $0.value == 0x7f }
+        )
+}
+
 /// One access + refresh credential pair captured from a single session snapshot.
 ///
 /// Assembling a request from one snapshot prevents pairing a stale access token
@@ -23,6 +40,20 @@ public struct CmxIrohBrokerCredentials: Sendable, CustomStringConvertible,
     }
 
     public var debugDescription: String { description }
+}
+
+private func isUnsupportedRegistrationScope(
+    _ error: CmxIrohTrustBrokerClientError
+) -> Bool {
+    guard case let .rejected(statusCode, code) = error else { return false }
+    return statusCode == 400 && code == "unknown_field"
+}
+
+private func isMissingScopedDiscoveryRoute(
+    _ error: CmxIrohTrustBrokerClientError
+) -> Bool {
+    guard case let .rejected(statusCode, _) = error else { return false }
+    return statusCode == 404
 }
 
 /// One authenticated account and credential pair captured atomically.
@@ -174,10 +205,12 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     private struct ConnectivitySyncRequest: Encodable {
         let protocolVersion: Int
         let knownRevision: UInt64?
+        let discoveryScope: CmxConnectivityDiscoveryScope?
 
         private enum CodingKeys: String, CodingKey {
             case protocolVersion = "protocol_version"
             case knownRevision = "known_revision"
+            case discoveryScope = "discovery_scope"
         }
 
         func encode(to encoder: any Encoder) throws {
@@ -186,12 +219,13 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             if let knownRevision {
                 try container.encode(knownRevision, forKey: .knownRevision)
             } else {
-                // The v2 wire contract distinguishes an initial sync (`null`)
+                // The wire contract distinguishes an initial sync (`null`)
                 // from an absent field. Swift's synthesized Optional encoding
                 // omits nil values, which the bounded server parser correctly
                 // rejects as an incomplete request.
                 try container.encodeNil(forKey: .knownRevision)
             }
+            try container.encodeIfPresent(discoveryScope, forKey: .discoveryScope)
         }
     }
 
@@ -245,24 +279,31 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             case lanRendezvousRotated = "lan_rendezvous_rotated"
         }
     }
-    private struct BrokerError: Decodable { let error: String }
-
     private let baseURL: URL
     private let tokenSource: CmxIrohBrokerTokenSource
     private let transport: any CmxIrohHTTPTransport
     private let requestTimeout: TimeInterval
     private let backpressureGate: CmxIrohBrokerBackpressureGate?
+    private let clientNamespace: String
+    private var bindingAuthorization: CmxIrohBindingRequestAuthorization?
+    private let discoveryScope: CmxConnectivityDiscoveryScope?
 
     /// Creates a client that rejects cleartext non-loopback API origins.
     public init(
         baseURL: URL,
         tokenSource: CmxIrohBrokerTokenSource,
+        clientNamespace: String,
+        bindingAuthorization: CmxIrohBindingRequestAuthorization? = nil,
+        discoveryScope: CmxConnectivityDiscoveryScope? = nil,
         requestTimeout: TimeInterval = 10,
         backpressureMode: CmxIrohBrokerBackpressureMode = .automatic
     ) throws {
         try self.init(
             baseURL: baseURL,
             tokenSource: tokenSource,
+            clientNamespace: clientNamespace,
+            bindingAuthorization: bindingAuthorization,
+            discoveryScope: discoveryScope,
             transport: CmxIrohURLSessionTransport(),
             requestTimeout: requestTimeout,
             backpressureMode: backpressureMode
@@ -273,17 +314,27 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     init(
         baseURL: URL,
         tokenSource: CmxIrohBrokerTokenSource,
+        clientNamespace: String,
+        bindingAuthorization: CmxIrohBindingRequestAuthorization? = nil,
+        discoveryScope: CmxConnectivityDiscoveryScope? = nil,
         transport: any CmxIrohHTTPTransport,
         requestTimeout: TimeInterval = 10,
         backpressureMode: CmxIrohBrokerBackpressureMode = .automatic
     ) throws {
-        guard Self.isAllowedBaseURL(baseURL), requestTimeout > 0 else {
+        guard Self.isAllowedBaseURL(baseURL),
+              cmxIsSafeClientNamespace(clientNamespace),
+              bindingAuthorization?.clientNamespace == nil
+                || bindingAuthorization?.clientNamespace == clientNamespace,
+              requestTimeout > 0 else {
             throw CmxIrohTrustBrokerClientError.invalidBaseURL
         }
         self.baseURL = baseURL
         self.tokenSource = tokenSource
         self.transport = transport
         self.requestTimeout = requestTimeout
+        self.clientNamespace = clientNamespace
+        self.bindingAuthorization = bindingAuthorization
+        self.discoveryScope = discoveryScope
         switch backpressureMode {
         case .automatic:
             backpressureGate = CmxIrohBrokerBackpressureGate()
@@ -300,6 +351,16 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         )
     }
 
+    /// Reports whether this client retains a signed binding request proof.
+    public func hasBindingAuthorization() async -> Bool {
+        bindingAuthorization != nil
+    }
+
+    /// Returns the binding ID represented by the retained request proof.
+    public func bindingAuthorizationID() async -> String? {
+        bindingAuthorization?.bindingID
+    }
+
     public func issueChallenge(
         _ request: CmxIrohChallengeRequest
     ) async throws -> CmxIrohChallengeResponse {
@@ -314,12 +375,9 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     public func register(
         _ request: CmxIrohRegisterRequest
     ) async throws -> CmxIrohRegistrationResponse {
-        try await send(
-            path: "api/devices/iroh/register",
-            method: "POST",
-            body: request,
-            operation: .registration
-        )
+        try await withBackpressure(operation: .registration) {
+            try await self.registerUngated(request)
+        }
     }
 
     /// Runs the challenge and signed registration legs without regenerating payload bytes.
@@ -327,40 +385,58 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         prepared: CmxIrohPreparedRegistration,
         signer: CmxIrohRegistrationSigner
     ) async throws -> CmxIrohRegistrationResponse {
-        try await withBackpressure(operation: .registration) {
+        let response: CmxIrohRegistrationResponse = try await withBackpressure(
+            operation: .registration
+        ) {
             let challenge: CmxIrohChallengeResponse = try await self.sendUngated(
                 path: "api/devices/iroh/challenge",
                 method: "POST",
                 body: prepared.challengeRequest
             )
             let request = try signer.sign(prepared: prepared, challenge: challenge)
-            return try await self.sendUngated(
-                path: "api/devices/iroh/register",
-                method: "POST",
-                body: request
-            )
+            return try await self.registerUngated(request)
         }
+        bindingAuthorization = CmxIrohBindingRequestAuthorization(
+            bindingID: response.binding.bindingID,
+            clientNamespace: clientNamespace,
+            signer: signer
+        )
+        return response
     }
 
+    /// Discovers account bindings visible to this client's exact build namespace.
     public func discover() async throws -> CmxIrohDiscoveryResponse {
         try await withBackpressure(operation: .discovery) {
-            try await self.discoverAllPages()
+            if self.discoveryScope != nil {
+                do {
+                    let response = try await self.syncConnectivityUngated(
+                        knownRevision: nil
+                    )
+                    if let snapshot = response.snapshot,
+                       response.snapshotIsComplete {
+                        return snapshot
+                    }
+                    if response.protocolVersion
+                        == CmxConnectivitySyncResponse.scopedProtocolVersion {
+                        throw CmxIrohTrustBrokerClientError.invalidResponse
+                    }
+                } catch let error as CmxIrohTrustBrokerClientError
+                    where isMissingScopedDiscoveryRoute(error) {
+                    // Older servers have only paginated global discovery.
+                }
+            }
+            return try await self.discoverAllPages()
         }
     }
 
-    /// Reconciles one completely installed route revision with connectivity v2.
+    /// Reconciles one completely installed route revision with connectivity v3,
+    /// falling back to global connectivity v2 on older servers.
     public func syncConnectivity(
         knownRevision: UInt64?
     ) async throws -> CmxConnectivitySyncResponse {
-        try await send(
-            path: "api/connectivity/v2/sync",
-            method: "POST",
-            body: ConnectivitySyncRequest(
-                protocolVersion: CmxConnectivitySyncResponse.protocolVersion,
-                knownRevision: knownRevision
-            ),
-            operation: .discovery
-        )
+        try await withBackpressure(operation: .discovery) {
+            try await self.syncConnectivityUngated(knownRevision: knownRevision)
+        }
     }
 
     public func issuePairGrant(
@@ -460,6 +536,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         )
     }
 
+    /// Revokes the caller's own binding.
     public func revoke(bindingID: String) async throws {
         let response: RevokeResponse = try await send(
             path: "api/devices/iroh",
@@ -470,6 +547,106 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         guard response.revoked, response.lanRendezvousRotated else {
             throw CmxIrohTrustBrokerClientError.invalidResponse
         }
+    }
+
+    /// Revokes an older binding owned by this app namespace and physical device.
+    public func revokeStale(bindingID: String) async throws {
+        let response: RevokeResponse = try await send(
+            path: "api/devices/iroh",
+            method: "DELETE",
+            body: CmxIrohStaleBindingRevocationRequest(bindingId: bindingID),
+            operation: .revocation
+        )
+        guard response.revoked, response.lanRendezvousRotated else {
+            throw CmxIrohTrustBrokerClientError.invalidResponse
+        }
+    }
+
+    /// Revokes one same-build Mac through the explicit account-management path.
+    public func forgetMac(bindingID: String) async throws {
+        let response: RevokeResponse = try await send(
+            path: "api/devices/iroh",
+            method: "DELETE",
+            body: CmxIrohMacForgetRequest(bindingId: bindingID),
+            operation: .revocation
+        )
+        guard response.revoked, response.lanRendezvousRotated else {
+            throw CmxIrohTrustBrokerClientError.invalidResponse
+        }
+    }
+
+    private func registerUngated(
+        _ request: CmxIrohRegisterRequest
+    ) async throws -> CmxIrohRegistrationResponse {
+        guard let discoveryScope else {
+            return try await sendUngated(
+                path: "api/devices/iroh/register",
+                method: "POST",
+                body: request.including(discoveryScope: nil)
+            )
+        }
+        do {
+            let response: CmxIrohRegistrationResponse = try await sendUngated(
+                path: "api/devices/iroh/register",
+                method: "POST",
+                body: request.including(discoveryScope: discoveryScope)
+            )
+            guard response.discovery != nil,
+                  response.discoveryScope == discoveryScope,
+                  response.discoveryScopeComplete == true,
+                  response.discoveryComplete != true else {
+                throw CmxIrohTrustBrokerClientError.invalidResponse
+            }
+            return response
+        } catch let error as CmxIrohTrustBrokerClientError
+            where isUnsupportedRegistrationScope(error) {
+            // Registration parsing happens before challenge consumption, so
+            // retrying the identical signature without the optional field is
+            // safe against older strict servers.
+            return try await sendUngated(
+                path: "api/devices/iroh/register",
+                method: "POST",
+                body: request.including(discoveryScope: nil)
+            )
+        }
+    }
+
+    private func syncConnectivityUngated(
+        knownRevision: UInt64?
+    ) async throws -> CmxConnectivitySyncResponse {
+        if let discoveryScope {
+            do {
+                let response: CmxConnectivitySyncResponse = try await sendUngated(
+                    path: "api/connectivity/v3/sync",
+                    method: "POST",
+                    body: ConnectivitySyncRequest(
+                        protocolVersion: CmxConnectivitySyncResponse.scopedProtocolVersion,
+                        knownRevision: knownRevision,
+                        discoveryScope: discoveryScope
+                    )
+                )
+                guard response.protocolVersion
+                        == CmxConnectivitySyncResponse.scopedProtocolVersion,
+                      response.discoveryScope == discoveryScope,
+                      !response.changed
+                        || response.snapshotScopeComplete == true else {
+                    throw CmxIrohTrustBrokerClientError.invalidResponse
+                }
+                return response
+            } catch let error as CmxIrohTrustBrokerClientError
+                where isMissingScopedDiscoveryRoute(error) {
+                // Continue with connectivity v2 below.
+            }
+        }
+        return try await sendUngated(
+            path: "api/connectivity/v2/sync",
+            method: "POST",
+            body: ConnectivitySyncRequest(
+                protocolVersion: CmxConnectivitySyncResponse.protocolVersion,
+                knownRevision: knownRevision,
+                discoveryScope: nil
+            )
+        )
     }
 
     private func send<Response: Decodable & Sendable, Body: Encodable>(
@@ -635,8 +812,11 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             // and indistinguishable from an unreachable broker for every
             // caller policy (retry, cached-policy fallback, verified-policy
             // preservation), so classify it as connectivity, not as a
-            // definitive authentication failure.
-            throw CmxIrohTrustBrokerClientError.connectivity
+            // definitive authentication failure. A URL-loading failure from
+            // the source's own refresh call keeps its code for attribution.
+            throw CmxIrohTrustBrokerClientError.connectivity(
+                (error as? URLError).map(CmxIrohBrokerConnectivityCause.init)
+            )
         }
         guard let pair = capturedPair else {
             throw CmxIrohTrustBrokerClientError.missingAuthentication
@@ -661,7 +841,9 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
-                throw CmxIrohTrustBrokerClientError.connectivity
+                throw CmxIrohTrustBrokerClientError.connectivity(
+                    (error as? URLError).map(CmxIrohBrokerConnectivityCause.init)
+                )
             }
             guard let recovered else { throw error }
             return try await performAuthenticatedRequest(
@@ -690,7 +872,8 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     ) async throws -> Response {
         let accessToken = credentials.accessToken
         let refreshToken = credentials.refreshToken
-        guard Self.isSafeHeaderValue(accessToken), Self.isSafeHeaderValue(refreshToken) else {
+        guard cmxIsSafeBrokerHeaderValue(accessToken),
+              cmxIsSafeBrokerHeaderValue(refreshToken) else {
             throw CmxIrohTrustBrokerClientError.invalidAuthentication
         }
         let pathURL = baseURL.appendingPathComponent(path)
@@ -709,6 +892,31 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         request.timeoutInterval = requestTimeout
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue(refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
+        request.setValue(clientNamespace, forHTTPHeaderField: "X-Cmux-App-Namespace")
+        if let bindingAuthorization,
+           path != "api/devices/iroh/challenge",
+           path != "api/devices/iroh/register" {
+            let timestamp = Int64(Date().timeIntervalSince1970)
+            let signature = try bindingAuthorization.signer.signBrokerRequest(
+                bindingID: bindingAuthorization.bindingID,
+                method: method,
+                path: path,
+                timestamp: timestamp,
+                body: body ?? Data()
+            )
+            request.setValue(
+                bindingAuthorization.bindingID,
+                forHTTPHeaderField: "X-Cmux-Iroh-Binding-ID"
+            )
+            request.setValue(
+                String(timestamp),
+                forHTTPHeaderField: "X-Cmux-Iroh-Request-Time"
+            )
+            request.setValue(
+                signature,
+                forHTTPHeaderField: "X-Cmux-Iroh-Request-Signature"
+            )
+        }
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let body {
             request.httpBody = body
@@ -720,7 +928,9 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         do {
             (data, response) = try await transport.data(for: request)
         } catch let error as URLError where Self.isConnectivityFailure(error.code) {
-            throw CmxIrohTrustBrokerClientError.connectivity
+            throw CmxIrohTrustBrokerClientError.connectivity(
+                CmxIrohBrokerConnectivityCause(error)
+            )
         }
         guard let http = response as? HTTPURLResponse else {
             throw CmxIrohTrustBrokerClientError.nonHTTPResponse
@@ -729,12 +939,25 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             throw CmxIrohTrustBrokerClientError.invalidResponse
         }
         guard (200 ... 299).contains(http.statusCode) else {
-            let code = try? JSONDecoder().decode(BrokerError.self, from: data).error
-            if http.statusCode == 429,
+            let body = try? JSONDecoder().decode(CmxIrohTrustBrokerError.self, from: data)
+            let code = body.map { payload in
+                payload.source.map { "\(payload.error):\($0.rawValue)" } ?? payload.error
+            }
+            if http.statusCode == 429 {
+                let retryAfterSeconds = Self.retryAfterSeconds(
+                    http.value(forHTTPHeaderField: "Retry-After")
+                ) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+                throw CmxIrohTrustBrokerClientError.rateLimited(
+                    code: code,
+                    retryAfterSeconds: retryAfterSeconds
+                )
+            }
+            if (500 ... 599).contains(http.statusCode),
                let retryAfterSeconds = Self.retryAfterSeconds(
                    http.value(forHTTPHeaderField: "Retry-After")
                ) {
-                throw CmxIrohTrustBrokerClientError.rateLimited(
+                throw CmxIrohTrustBrokerClientError.rejectedWithRetryAfter(
+                    statusCode: http.statusCode,
                     code: code,
                     retryAfterSeconds: retryAfterSeconds
                 )
@@ -767,21 +990,8 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         return scheme == "http" && ["127.0.0.1", "::1", "localhost"].contains(host)
     }
 
-    private static func isSafeHeaderValue(_ value: String) -> Bool {
-        (1 ... 16 * 1_024).contains(value.utf8.count)
-            && !value.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7f })
-    }
-
     private static func retryAfterSeconds(_ value: String?) -> Int? {
-        guard let value,
-              !value.isEmpty,
-              value.utf8.allSatisfy({ (48 ... 57).contains($0) }),
-              let seconds = Int(value),
-              (1 ... CmxIrohBrokerCooldown.maximumRetryAfterSeconds).contains(seconds),
-              String(seconds) == value else {
-            return nil
-        }
-        return seconds
+        CmxRetryAfterPolicy.seconds(from: value)
     }
 
     private static func relayTokenResponse(

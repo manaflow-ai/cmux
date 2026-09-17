@@ -6,27 +6,37 @@ actor ChatArtifactTemporaryFileWriter {
     let fileURL: URL
 
     private var fileHandle: FileHandle?
-    private var nextOffset: Int64 = 0
+    private var validator: ChatArtifactChunkValidator
 
     init(
         directory: URL,
         fileExtension: String,
-        preferredFilename: String? = nil
+        preferredFilename: String? = nil,
+        expectedSize: Int64
     ) throws {
-        try FileManager.default.createDirectory(
-            at: directory,
-            withIntermediateDirectories: true
-        )
+        validator = ChatArtifactChunkValidator(expectedSize: expectedSize)
+        do {
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true
+            )
+        } catch {
+            throw Self.classifyLocalFailure(error)
+        }
         let fileURL: URL
         if let preferredFilename {
             let itemDirectory = directory.appendingPathComponent(
                 UUID().uuidString,
                 isDirectory: true
             )
-            try FileManager.default.createDirectory(
-                at: itemDirectory,
-                withIntermediateDirectories: true
-            )
+            do {
+                try FileManager.default.createDirectory(
+                    at: itemDirectory,
+                    withIntermediateDirectories: true
+                )
+            } catch {
+                throw Self.classifyLocalFailure(error)
+            }
             fileURL = itemDirectory.appendingPathComponent(preferredFilename)
         } else {
             var generatedURL = directory.appendingPathComponent(UUID().uuidString)
@@ -36,33 +46,41 @@ actor ChatArtifactTemporaryFileWriter {
             fileURL = generatedURL
         }
         guard FileManager.default.createFile(atPath: fileURL.path, contents: nil) else {
-            throw CocoaError(.fileWriteUnknown)
+            throw ChatArtifactError.localStorageUnavailable
         }
         self.fileURL = fileURL
         do {
             fileHandle = try FileHandle(forWritingTo: fileURL)
         } catch {
             try? FileManager.default.removeItem(at: fileURL)
-            throw error
+            throw Self.classifyLocalFailure(error)
         }
     }
 
     func append(_ chunk: ChatArtifactChunk, limit: Int64) throws {
-        guard chunk.offset == nextOffset,
-              chunk.totalSize <= limit,
-              nextOffset <= limit - Int64(chunk.data.count),
+        try validator.receive(chunk)
+        guard chunk.totalSize <= limit,
+              chunk.offset <= limit - Int64(chunk.data.count),
               let fileHandle else {
-            throw ChatArtifactError.macUnreachable
+            throw ChatArtifactError.invalidResponse
         }
-        try fileHandle.write(contentsOf: chunk.data)
-        nextOffset += Int64(chunk.data.count)
+        do {
+            try fileHandle.write(contentsOf: chunk.data)
+        } catch {
+            throw Self.classifyLocalFailure(error)
+        }
     }
 
     func finish() throws -> URL {
+        try validator.finish()
         guard let fileHandle else {
-            throw ChatArtifactError.macUnreachable
+            throw ChatArtifactError.localStorageUnavailable
         }
-        try fileHandle.close()
+        do {
+            try fileHandle.close()
+        } catch {
+            throw Self.classifyLocalFailure(error)
+        }
         self.fileHandle = nil
         return fileURL
     }

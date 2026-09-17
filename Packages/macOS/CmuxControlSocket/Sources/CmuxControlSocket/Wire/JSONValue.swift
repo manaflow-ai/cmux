@@ -4,10 +4,9 @@ internal import Foundation
 ///
 /// Replaces the `Any`-shaped payloads (`JSONSerialization` output) that the v2
 /// protocol historically carried, so requests and results can cross isolation
-/// boundaries as plain values. Bridging to and from Foundation objects is
-/// lossless for everything `JSONSerialization` produces, with one documented
-/// exception: integers that do not fit `Int64` (and decimal literals beyond
-/// `Double` precision) are bridged as `Double` and may lose precision.
+/// boundaries as plain values. Bridging to and from Foundation objects retains
+/// the decimal spelling Foundation uses for high-precision numbers, including
+/// integers that do not fit `Int64`.
 public enum JSONValue: Sendable, Equatable {
     /// JSON `null`.
     case null
@@ -17,6 +16,13 @@ public enum JSONValue: Sendable, Equatable {
     case int(Int64)
     /// Any other JSON number.
     case double(Double)
+    /// A high-precision JSON number represented by its canonical decimal text.
+    ///
+    /// Foundation uses ``NSDecimalNumber`` for numbers that cannot be represented
+    /// exactly by `Int64` or `Double`. Keeping the decimal text avoids changing
+    /// the bytes of authenticated control-socket envelopes while they cross the
+    /// typed request boundary.
+    case decimal(String)
     /// A JSON string.
     case string(String)
     /// A JSON array.
@@ -38,11 +44,15 @@ public enum JSONValue: Sendable, Equatable {
         switch foundationObject {
         case is NSNull:
             self = .null
+        case let number as NSDecimalNumber:
+            self = .decimal(number.description)
         case let number as NSNumber:
             if CFGetTypeID(number) == CFBooleanGetTypeID() {
                 self = .bool(number.boolValue)
             } else if let exact = JSONValue.exactInt64(from: number) {
                 self = .int(exact)
+            } else if String(cString: number.objCType) == "Q" {
+                self = .decimal(number.description)
             } else {
                 self = .double(number.doubleValue)
             }
@@ -82,6 +92,8 @@ public enum JSONValue: Sendable, Equatable {
             return NSNumber(value: value)
         case .double(let value):
             return NSNumber(value: value)
+        case .decimal(let value):
+            return NSDecimalNumber(string: value, locale: Locale(identifier: "en_US_POSIX"))
         case .string(let value):
             return value
         case .array(let values):
