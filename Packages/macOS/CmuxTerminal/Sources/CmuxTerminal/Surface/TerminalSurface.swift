@@ -306,7 +306,13 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// the pinned grid and clips or letterboxes the difference — the same
     /// answer tmux gives a client whose size disagrees with the window.
     var assignedGrid: (columns: Int, rows: Int)?
-    @MainActor weak var surfaceResizeAuthority: (any TerminalSurfaceResizeAuthority)?
+    /// The last pane size a host committed through ``commitPaneGeometry(_:)``.
+    /// The renderer grid and PTY size derive from this value and from nothing
+    /// else, so a frame the user cannot see never reaches the terminal.
+    @MainActor public internal(set) var committedPaneGeometry: TerminalPaneGeometry?
+    /// A runtime creation that waits for the first committed pane geometry so
+    /// the PTY's initial window size is the pane's real size.
+    var pendingRuntimeSurfaceCreationSource: RuntimeSurfaceCreationSource?
     /// Temporary runtime font-size ownership while a mobile viewport is fitted.
     var mobileViewportFontFitState: MobileViewportFontFitState?
     // Debug metadata is read from debug/CLI paths off the main thread; the
@@ -839,6 +845,7 @@ extension TerminalSurface: TerminalSurfacing {}
 /// exclusively owned by the request from creation until `close()` runs.
 private struct TerminalSurfaceHeadlessWindowCloseRequest: @unchecked Sendable {
     let window: NSWindow
+
     @MainActor
     func close() {
         window.contentView = nil

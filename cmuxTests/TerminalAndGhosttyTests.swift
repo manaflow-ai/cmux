@@ -5476,6 +5476,9 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         // in minutes with a report instead. XCTest rounds the allowance up
         // to the nearest minute.
         executionTimeAllowance = 60
+        // Test surfaces belong to no workspace; make the portal treat them as
+        // visible so lifecycle behavior, not workspace lookup, is under test.
+        Workspace.portalRenderingAuthorityOverrideForTesting = { _ in true }
         if Self.suiteBaselineWindowNumbers == nil {
             Self.suiteBaselineWindowNumbers = Set(NSApp.windows.map(\.windowNumber))
             Self.suiteBaselinePortalCount = TerminalWindowPortalRegistry.debugPortalCount()
@@ -5491,9 +5494,9 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     var trackedWindows: [NSWindow] = []
     var trackedPortals: [WindowTerminalPortal] = []
     var trackedSurfaces: [TerminalSurface] = []
-    var testWorkspace: TerminalPortalTestWorkspace?
 
     override func tearDown() {
+        Workspace.portalRenderingAuthorityOverrideForTesting = nil
         // Global flags first: a failed assertion can skip a test's own reset,
         // and latched interactive state changes every later test's sync path.
         // (Window-live-resize is now instance-scoped on each portal, so it
@@ -5521,8 +5524,6 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             window.close()
         }
         trackedWindows.removeAll()
-        testWorkspace?.tearDown()
-        testWorkspace = nil
 
         // Let queued coalesced portal passes fire as no-ops now rather than
         // inside a later test's layout pass.
@@ -5568,6 +5569,17 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         let portal = WindowTerminalPortal(window: window)
         trackedPortals.append(portal)
         return portal
+    }
+
+    func makeTrackedTerminalSurface() -> TerminalSurface {
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        trackedSurfaces.append(surface)
+        return surface
     }
 
     func realizeWindowLayout(_ window: NSWindow) {
@@ -6424,10 +6436,12 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
 
         TerminalWindowPortalRegistry.endInteractiveGeometryResize(in: window)
         interactionIsActive = false
-        XCTAssertTrue(
-            waitUntil(timeout: 2) {
-                surface.debugCurrentPixelSize().width < initialPixelSize.width
-            },
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertLessThan(
+            surface.debugCurrentPixelSize().width,
+            initialPixelSize.width,
             "Ending the resize interaction should flush the final exact terminal width"
         )
     }

@@ -57,8 +57,8 @@ extension TerminalSurface {
             return
         }
         guard paneHost.window == nil else { return }
-        let width = max(surfaceView.bounds.width, CGFloat(800))
-        let height = max(surfaceView.bounds.height, CGFloat(600))
+        let width = max(surfaceView.bounds.width, Self.hiddenPaneDefaultSize.width)
+        let height = max(surfaceView.bounds.height, Self.hiddenPaneDefaultSize.height)
         let frame = NSRect(x: 0, y: 0, width: width, height: height)
         let window = NSWindow(
             contentRect: frame,
@@ -743,6 +743,7 @@ extension TerminalSurface {
             enqueueRestoredRuntimeSurfaceCreation(for: view)
             return
         }
+        if parkRuntimeSurfaceCreationIfAwaitingPaneGeometry(view: view, source: source) { return }
         let agentCommandShims = agentShimState.shims
 #if DEBUG
         runtimeSurfaceCreateAttemptCountForTesting += 1
@@ -851,7 +852,7 @@ extension TerminalSurface {
         }
 
         ghostty_surface_set_content_scale(createdSurface, scaleFactors.x, scaleFactors.y)
-        let backingSize = view.convertToBacking(NSRect(origin: .zero, size: view.bounds.size)).size
+        let backingSize = initialRuntimeBackingSize(for: view)
         let wpx = pixelDimension(from: backingSize.width)
         let hpx = pixelDimension(from: backingSize.height)
         if wpx > 0, hpx > 0 {

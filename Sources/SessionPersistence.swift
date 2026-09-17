@@ -2033,7 +2033,21 @@ enum SessionScrollbackReplayStore {
         // white-on-white output (issue #5165). Strip them before replay.
         let themePortable = strippingTerminalColorOSCSequences(scrollback)
         guard let truncated = SessionPersistencePolicy.truncatedScrollback(themePortable) else { return nil }
-        return ansiSafeReplayText(truncated)
+        return ansiSafeReplayText(rowTerminated(truncated))
+    }
+
+    /// Ends the replay at a row boundary.
+    ///
+    /// Ghostty's VT export stops after the cursor row with no terminator, and
+    /// at capture time that row is the shell's idle prompt. Replaying it as is
+    /// makes the restored shell print its new prompt on the same row as the
+    /// old one; every later resize then has zsh redraw a prompt row that does
+    /// not match what it printed, which shreds the row (#12657). Replayed
+    /// history is history: it ends with a line break and the live prompt
+    /// starts on its own row.
+    nonisolated private static func rowTerminated(_ text: String) -> String {
+        if text.hasSuffix("\n") { return text }
+        return text + "\r\n"
     }
     /// Preserve ANSI color state safely across replay boundaries.
     nonisolated private static func ansiSafeReplayText(_ text: String) -> String {
