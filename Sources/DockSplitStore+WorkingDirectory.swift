@@ -39,4 +39,21 @@ extension DockSplitStore {
         return reportedDirectory.flatMap { $0.isEmpty ? nil : $0 }
             ?? TerminalWorkingDirectoryResolver.firstAvailable(existingCandidates)
     }
+
+    /// Selects project lookup only when its directory provenance is local or
+    /// trusted. A denied remote directory must not fall back to the app's PWD.
+    func agentLifecycleRegistryScope(
+        for sourcePanelId: UUID
+    ) -> ControlSidebarAgentLifecycleRegistryScope {
+        let transfer = detachedSurfaceTransfersByPanelId[sourcePanelId]
+        if transfer?.isRemoteTerminal == true {
+            return .globalOnly
+        }
+        guard let directory = TerminalWorkingDirectoryResolver.normalized(
+            terminalWorkingDirectory(for: sourcePanelId)
+        ) else {
+            return .globalOnly
+        }
+        return .project(directory)
+    }
 }

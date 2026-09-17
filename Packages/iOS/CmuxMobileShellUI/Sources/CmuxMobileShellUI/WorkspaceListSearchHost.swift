@@ -35,36 +35,13 @@ struct WorkspaceListSearchHost<Content: View>: View {
     private var iOSContent: some View {
         if #available(iOS 26.0, *) {
             content(searchText)
-                .toolbar {
-                    if let taskComposerAction {
-                        ToolbarSpacer(.flexible, placement: .bottomBar)
-                        ToolbarItem(placement: .bottomBar) {
-                            Button(action: taskComposerAction) {
-                                Image(systemName: "sparkles")
-                            }
-                            .accessibilityLabel(
-                                L10n.string(
-                                    "mobile.taskComposer.button.accessibilityLabel",
-                                    defaultValue: "New Task"
-                                )
-                            )
-                            .accessibilityHint(
-                                L10n.string(
-                                    "mobile.taskComposer.button.accessibilityHint",
-                                    defaultValue: "Opens the task composer."
-                                )
-                            )
-                            .accessibilityIdentifier("MobileTaskComposerButton")
-                        }
-                    }
-                }
         } else {
             content(searchText)
-                .searchable(
-                    text: $searchText,
-                    placement: .navigationBarDrawer(displayMode: .always)
-                )
-                .searchFocused($searchIsFocused)
+                // The explicit navigationBarDrawer placement and focus bridge
+                // used by newer shells can wedge iOS 18's first layout pass.
+                // The default placement keeps native search available without
+                // that UIKit feedback path.
+                .searchable(text: $searchText)
         }
     }
     #endif

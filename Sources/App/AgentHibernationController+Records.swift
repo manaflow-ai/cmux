@@ -1,4 +1,55 @@
 import Foundation
+import CmuxWorkspaces
+
+extension AgentHibernationRecord {
+    /// Whether the indexed process set is complete enough to terminate safely.
+    var hasPressureSafeProcessEvidence: Bool {
+        processLiveness == .running &&
+            hasLiveProcess &&
+            !containsUnrelatedProcess &&
+            !processIDs.isEmpty &&
+            processIDs.count <= AgentHibernationController.maximumScopedProcessTerminationCount &&
+            Set(processIdentities.keys) == processIDs
+    }
+
+    /// Reclaim may terminate a live process only with complete scope evidence.
+    var processSafetyAllowsHibernation: Bool {
+        switch processLiveness {
+        case .exited:
+            return !containsUnrelatedProcess &&
+                !hasLiveProcess &&
+                panelProcessIDs.isEmpty &&
+                processIDs.isEmpty &&
+                processIdentities.isEmpty
+        case .running:
+            return hasPressureSafeProcessEvidence
+        case .unknown:
+            return false
+        }
+    }
+}
+
+extension RestorableAgentSessionIndex.Entry {
+    /// Whether a fresh index still proves a safe scheduled process scope.
+    var processSafetyAllowsScheduledHibernation: Bool {
+        switch processLiveness {
+        case .exited:
+            return !containsUnrelatedProcess &&
+                processIDs.isEmpty &&
+                hibernationPanelProcessIDs.isEmpty &&
+                terminationProcessIDs.isEmpty &&
+                terminationProcessIdentities.isEmpty
+        case .running:
+            return !processIDs.isEmpty &&
+                !containsUnrelatedProcess &&
+                !terminationProcessIDs.isEmpty &&
+                terminationProcessIDs.count <= AgentHibernationController.maximumScopedProcessTerminationCount &&
+                Set(terminationProcessIdentities.keys) == terminationProcessIDs
+        case .unknown:
+            return false
+        }
+    }
+}
 
 extension AppDelegate {
     @MainActor
@@ -49,6 +100,11 @@ extension AppDelegate {
                         panelId: panelId,
                         fallback: index.lifecycle(workspaceId: workspace.id, panelId: panelId)
                     )
+                    let processEntry = index.exactEntry(
+                        workspaceId: workspace.id,
+                        panelId: panelId
+                    )
+                    let panelProcessIDs = processEntry?.processIDs ?? []
                     records.append(
                         AgentHibernationRecord(
                             key: key,
@@ -59,8 +115,12 @@ extension AppDelegate {
                             hasUnconfirmedTerminalInput: terminalInputAt > lifecycleChangeAt,
                             lastActivityAt: max(indexActivity, localActivity, createdAt),
                             isProtected: workspaceIsVisible && visiblePanelIds.contains(panelId),
-                            hasLiveProcess: index.hasLiveProcess(workspaceId: workspace.id, panelId: panelId),
-                            processIDs: index.processIDs(workspaceId: workspace.id, panelId: panelId)
+                            hasLiveProcess: !panelProcessIDs.isEmpty,
+                            containsUnrelatedProcess: processEntry?.containsUnrelatedProcess ?? false,
+                            panelProcessIDs: processEntry?.hibernationPanelProcessIDs ?? [],
+                            processIDs: processEntry?.terminationProcessIDs ?? [],
+                            processIdentities: processEntry?.terminationProcessIdentities ?? [:],
+                            processLiveness: processEntry?.processLiveness ?? .unknown
                         )
                     )
                 }

@@ -257,13 +257,58 @@ import Testing
 
         #expect(projection.sourceItemCount == cap)
         #expect(projection.sourceUnreadCount == cap)
-        #expect(projection.sections.flatMap(\.items).count == cap)
+        #expect(
+            projection.sections.flatMap(\.items).count
+                == min(cap, notificationFeedProjectionInitialRowWindow)
+        )
+        #expect(projection.hasMoreRows == (cap > notificationFeedProjectionInitialRowWindow))
 
         projection.searchText = "Dropped search target"
         await projection.waitForPendingRebuild()
 
         #expect(projection.sections.isEmpty)
         #expect(!projection.isSourceRebuilding)
+    }
+
+    @Test @MainActor func rowWindowMountsIncrementallyAndSurvivesSourceUpdates() async throws {
+        let referenceDate = try #require(isoDate("2026-07-15T18:00:00Z"))
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(secondsFromGMT: 0))
+        let projection = NotificationFeedProjection(referenceDate: referenceDate, calendar: calendar)
+        let window = notificationFeedProjectionInitialRowWindow
+        let total = window + 40
+        func makeItems(firstIsRead: Bool) -> [MobileNotificationFeedItem] {
+            (0..<total).map { offset in
+                item(
+                    id: "row-\(offset)",
+                    createdAt: referenceDate.addingTimeInterval(Double(-offset)),
+                    isRead: offset == 0 ? firstIsRead : false
+                )
+            }
+        }
+
+        projection.update(items: makeItems(firstIsRead: false), referenceDate: referenceDate)
+        await projection.waitForPendingRebuild()
+        #expect(projection.sections.flatMap(\.items).count == window)
+        #expect(projection.hasMoreRows)
+
+        projection.extendRowWindow()
+        await projection.waitForPendingRebuild()
+        #expect(projection.sections.flatMap(\.items).count == total)
+        #expect(!projection.hasMoreRows)
+
+        // A source refresh (same shape, one row's read state flipped) must not
+        // collapse how far the user has already scrolled.
+        projection.update(items: makeItems(firstIsRead: true), referenceDate: referenceDate)
+        await projection.waitForPendingRebuild()
+        #expect(projection.sections.flatMap(\.items).count == total)
+        #expect(!projection.hasMoreRows)
+
+        // Filter changes reset the window to the initial mount.
+        projection.filter = .unread
+        await projection.waitForPendingRebuild()
+        #expect(projection.sections.flatMap(\.items).count == window)
+        #expect(projection.hasMoreRows)
     }
 
     @Test @MainActor func sourceUpdateRetainsButMarksPriorRowsStaleUntilAsyncRebuildPublishes() async throws {

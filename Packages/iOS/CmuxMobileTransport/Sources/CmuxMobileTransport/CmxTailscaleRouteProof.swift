@@ -22,6 +22,24 @@ enum CmxTailscaleRouteProofError: Error, Equatable, Sendable {
     case remotePortMismatch
 }
 
+extension CmxTailscaleRouteProofError {
+    /// Failures caused by the tunnel becoming visible while a pairing attempt
+    /// is already in flight. These are safe to retry with the same QR grant.
+    var isTransientReadinessFailure: Bool {
+        switch self {
+        case .pathUnavailable, .tailscaleInterfaceUnavailable,
+             .ambiguousTailscaleInterfaces, .routeGenerationChanged,
+             .interfaceChanged, .connectionPathUnavailable:
+            return true
+        case .unsupportedRouteKind, .unsupportedAuthorizationMode,
+             .authorizationEvidenceMismatch, .unsupportedEndpoint,
+             .nonNumericPeer, .peerOutsideTailscaleRange, .peerIsLocalDevice,
+             .localEndpointMismatch, .remoteEndpointMismatch, .remotePortMismatch:
+            return false
+        }
+    }
+}
+
 struct CmxTailscaleIPAddress: Hashable, Sendable {
     enum Family: Sendable {
         case ipv4
@@ -104,7 +122,7 @@ struct CmxNetworkInterfaceIdentity: Hashable, Sendable {
     let index: Int
 }
 
-struct CmxTailscaleInterfaceSnapshot: Equatable, Sendable {
+struct CmxTailscaleInterfaceSnapshot: Hashable, Sendable {
     let identity: CmxNetworkInterfaceIdentity
     let isUp: Bool
     let isRunning: Bool
@@ -139,6 +157,20 @@ struct CmxTailscaleRouteProof: Equatable, Sendable {
     let generation: UInt64
 }
 
+/// Which facts a connection-path validation may assert. A connection's path
+/// update can arrive before the socket has bound its local endpoint, so
+/// endpoint-level facts (local/remote address, remote port) only exist once
+/// the connection is established; validating them earlier misreads a
+/// still-connecting dial as an endpoint substitution and kills pairing.
+enum CmxTailscaleRouteValidationPhase: Sendable {
+    /// A path update on a connection that may not be established yet:
+    /// validate route-level facts only.
+    case pathUpdate
+    /// The connection reported ready, or a write is about to begin: the
+    /// path must carry the proven endpoints.
+    case established
+}
+
 struct CmxTailscaleRouteProofValidator {
     func prepare(
         request: CmxByteTransportRequest,
@@ -147,18 +179,26 @@ struct CmxTailscaleRouteProofValidator {
         guard request.route.kind == .tailscale else {
             throw CmxTailscaleRouteProofError.unsupportedRouteKind
         }
-        guard case let .legacyTailscaleBearer(evidence) = request.authorizationMode else {
-            throw CmxTailscaleRouteProofError.unsupportedAuthorizationMode
-        }
         guard case let .hostPort(host, port) = request.route.endpoint else {
             throw CmxTailscaleRouteProofError.unsupportedEndpoint
         }
-        guard evidence.authorizes(
-            macDeviceID: request.expectedPeerDeviceID,
-            host: host,
-            port: port
-        ) else {
-            throw CmxTailscaleRouteProofError.authorizationEvidenceMismatch
+        switch request.authorizationMode {
+        case let .legacyTailscaleBearer(evidence):
+            guard evidence.authorizes(
+                macDeviceID: request.expectedPeerDeviceID,
+                host: host,
+                port: port
+            ) else {
+                throw CmxTailscaleRouteProofError.authorizationEvidenceMismatch
+            }
+        case let .userAuthorizedTailscalePairing(authorization):
+            // A user-entered code authorizes only its exact destination; any
+            // device identity it claims is self-reported and grants nothing.
+            guard authorization.authorizes(host: host, port: port) else {
+                throw CmxTailscaleRouteProofError.authorizationEvidenceMismatch
+            }
+        case .stackBearer, .transportAdmission:
+            throw CmxTailscaleRouteProofError.unsupportedAuthorizationMode
         }
         guard let peerAddress = CmxTailscaleIPAddress(host) else {
             throw CmxTailscaleRouteProofError.nonNumericPeer
@@ -194,7 +234,8 @@ struct CmxTailscaleRouteProofValidator {
     func validate(
         proof: CmxTailscaleRouteProof,
         authoritySnapshot: CmxTailscaleAuthoritySnapshot,
-        connectionPath: CmxTailscaleConnectionPathSnapshot
+        connectionPath: CmxTailscaleConnectionPathSnapshot,
+        phase: CmxTailscaleRouteValidationPhase
     ) throws {
         guard authoritySnapshot.generation == proof.generation else {
             throw CmxTailscaleRouteProofError.routeGenerationChanged
@@ -213,6 +254,9 @@ struct CmxTailscaleRouteProofValidator {
               connectionPath.availableInterfaces.contains(proof.interface) else {
             throw CmxTailscaleRouteProofError.connectionPathUnavailable
         }
+        // A still-connecting dial has no bound endpoints yet; those facts are
+        // asserted at ready and at every write boundary instead.
+        guard phase == .established else { return }
         guard let localAddress = connectionPath.localAddress,
               proof.selfAddresses.contains(localAddress) else {
             throw CmxTailscaleRouteProofError.localEndpointMismatch

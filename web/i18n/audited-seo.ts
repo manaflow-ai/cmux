@@ -20,6 +20,7 @@ export type AuditedBlogPostKey =
   | "cmuxHome"
   | "introducingCmux"
   | "claudeCodeBestWorktreeManager"
+  | "tokenMultitasking"
   | "zenOfCmux"
   | "cmdShiftU"
   | "unreadShortcuts"
@@ -36,6 +37,13 @@ const blogDescriptionCandidateKeys: Record<
   cmuxHome: ["summary", "p2", "p3", "p4"],
   introducingCmux: ["summary", "p1", "whyP"],
   claudeCodeBestWorktreeManager: ["summary", "p1"],
+  tokenMultitasking: [
+    "summary",
+    "p1",
+    "workflowIntro",
+    "workflowClose",
+    "closing",
+  ],
   zenOfCmux: ["summary", "p1", "p2", "p3", "p4"],
   cmdShiftU: ["summary", "p1"],
   unreadShortcuts: ["summary", "p1", "p2", "p3", "p4", "p5"],
@@ -59,7 +67,8 @@ export type AuditedDocsPageKey =
   | "dock"
   | "keyboardShortcuts"
   | "gettingStarted"
-  | "remoteTmux";
+  | "remoteTmux"
+  | "managedPolicies";
 
 const conciseTitleLocales = new Set(["ja", "zh-CN", "zh-TW", "ko"]);
 

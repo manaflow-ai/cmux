@@ -14,7 +14,7 @@ import Testing
 @Suite(.serialized)
 struct WorkspaceRecoveryReviewRegressionTests {
     @Test
-    func generatedProWorkspaceDoesNotOverwriteStickyProjectIdentity() throws {
+    func generatedProWorkspaceKeepsGeneratedIdentity() throws {
         _ = NSApplication.shared
         let browserDefaults = UserDefaults.standard
         let previousBrowserDisabled = browserDefaults.object(
@@ -36,21 +36,14 @@ struct WorkspaceRecoveryReviewRegressionTests {
             }
         }
 
-        let fixture = try makeCustomizationStore()
-        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
-        let directory = "/tmp/pro-workspace-customization"
-        fixture.store.setCustomTitle("Project Label", for: directory)
-        fixture.store.setCustomColor("#123456", for: directory)
-
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         AppDelegate.shared = appDelegate
         defer { AppDelegate.shared = previousAppDelegate }
 
         let manager = TabManager(
-            initialWorkingDirectory: directory,
-            autoWelcomeIfNeeded: false,
-            workspaceDirectoryCustomizationStore: fixture.store
+            initialWorkingDirectory: "/tmp/pro-workspace-customization",
+            autoWelcomeIfNeeded: false
         )
         let windowId = UUID()
         let window = makeMainWindow(id: windowId)
@@ -75,111 +68,73 @@ struct WorkspaceRecoveryReviewRegressionTests {
         ))
 
         #expect(proWorkspace.title == "cmux Pro")
-        #expect(proWorkspace.customizationDirectory == nil)
         #expect(proWorkspace.customColor == nil)
-        #expect(
-            fixture.store.customization(for: directory) ==
-                WorkspaceDirectoryCustomization(
-                    customTitle: "Project Label",
-                    customColor: "#123456"
-                )
-        )
     }
 
     @Test
-    func legacyLocalSnapshotInfersItsStickyCustomizationRoot() throws {
+    func sessionRestoreKeepsDistinctCustomizationForWorkspacesSharingADirectory() throws {
         let fixture = try makeCustomizationStore()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
-        let directory = "/tmp/legacy-sticky-project"
-        fixture.store.setCustomTitle("Current Label", for: directory)
-        fixture.store.setCustomColor("#778899", for: directory)
-
-        let sourceManager = TabManager(
-            initialWorkingDirectory: directory,
-            autoWelcomeIfNeeded: false
-        )
-        let sourceWorkspace = try #require(sourceManager.selectedWorkspace)
-        sourceWorkspace.setCustomTitle("Legacy Snapshot Label")
-        sourceWorkspace.setCustomColor("#111111")
-        var snapshot = sourceManager.sessionSnapshot(includeScrollback: false)
-        snapshot.workspaces[0].customizationDirectory = nil
-        snapshot.workspaces[0].usesWorkspaceDirectoryCustomization = nil
+        let directory = "/tmp/shared-workspace-customization"
+        let snapshots = try distinctWorkspaceSnapshots(in: directory)
+        fixture.legacyStore.setCustomTitle("Directory Label", for: directory)
+        fixture.legacyStore.setCustomColor("#ABCDEF", for: directory)
 
         let restoredManager = TabManager(
             autoWelcomeIfNeeded: false,
-            workspaceDirectoryCustomizationStore: fixture.store
+            workspaceCustomizationStore: fixture.store
         )
-        restoredManager.restoreSessionSnapshot(snapshot)
-
-        let restoredWorkspace = try #require(restoredManager.selectedWorkspace)
-        #expect(restoredWorkspace.customTitle == "Current Label")
-        #expect(restoredWorkspace.customColor == "#778899")
-        #expect(
-            restoredWorkspace.customizationDirectory ==
-                fixture.store.directoryKey(for: directory)
-        )
-    }
-
-    @Test
-    func explicitlyIneligibleSnapshotDoesNotAdoptStickyProjectIdentity() throws {
-        let fixture = try makeCustomizationStore()
-        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
-        let directory = "/tmp/ineligible-sticky-project"
-        fixture.store.setCustomTitle("Project Label", for: directory)
-
-        let sourceManager = TabManager(
-            initialWorkingDirectory: directory,
-            autoWelcomeIfNeeded: false
-        )
-        let sourceWorkspace = try #require(sourceManager.selectedWorkspace)
-        sourceWorkspace.setCustomTitle("Generated Workspace")
-        var snapshot = sourceManager.sessionSnapshot(includeScrollback: false)
-        snapshot.workspaces[0].customizationDirectory = nil
-        snapshot.workspaces[0].usesWorkspaceDirectoryCustomization = false
-
-        let restoredManager = TabManager(
-            autoWelcomeIfNeeded: false,
-            workspaceDirectoryCustomizationStore: fixture.store
-        )
-        restoredManager.restoreSessionSnapshot(snapshot)
-
-        let restoredWorkspace = try #require(restoredManager.selectedWorkspace)
-        #expect(restoredWorkspace.customTitle == "Generated Workspace")
-        #expect(restoredWorkspace.customizationDirectory == nil)
-        #expect(restoredManager.setCustomTitle(
-            tabId: restoredWorkspace.id,
-            title: "Later Generated Rename"
+        restoredManager.restoreSessionSnapshot(SessionTabManagerSnapshot(
+            selectedWorkspaceIndex: 0,
+            workspaces: snapshots
         ))
-        #expect(fixture.store.customization(for: directory)?.customTitle == "Project Label")
+
+        let restoredByStableId = Dictionary(
+            uniqueKeysWithValues: restoredManager.tabs.map { ($0.stableId, $0) }
+        )
+        let firstStableId = try #require(snapshots[0].stableId)
+        let secondStableId = try #require(snapshots[1].stableId)
+        let first = try #require(restoredByStableId[firstStableId])
+        let second = try #require(restoredByStableId[secondStableId])
+        #expect(first.customTitle == "First Workspace")
+        #expect(first.customColor == "#112233")
+        #expect(second.customTitle == "Second Workspace")
+        #expect(second.customColor == "#445566")
     }
 
     @Test
-    func legacyGeneratedSnapshotCannotSeedStickyProjectIdentity() throws {
+    func closedWorkspaceRestoreKeepsDistinctCustomizationForWorkspacesSharingADirectory() throws {
         let fixture = try makeCustomizationStore()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
-        let directory = "/tmp/legacy-generated-workspace"
-
-        let sourceManager = TabManager(
-            initialWorkingDirectory: directory,
-            autoWelcomeIfNeeded: false
-        )
-        let sourceWorkspace = try #require(sourceManager.selectedWorkspace)
-        sourceWorkspace.setCustomTitle("cmux Pro")
-        sourceWorkspace.setCustomColor("#111111")
-        var snapshot = sourceManager.sessionSnapshot(includeScrollback: false)
-        snapshot.workspaces[0].customizationDirectory = nil
-        snapshot.workspaces[0].usesWorkspaceDirectoryCustomization = nil
-
+        let directory = "/tmp/shared-closed-workspace-customization"
+        let snapshots = try distinctWorkspaceSnapshots(in: directory)
+        fixture.legacyStore.setCustomTitle("Directory Label", for: directory)
+        fixture.legacyStore.setCustomColor("#ABCDEF", for: directory)
         let restoredManager = TabManager(
             autoWelcomeIfNeeded: false,
-            workspaceDirectoryCustomizationStore: fixture.store
+            workspaceCustomizationStore: fixture.store
         )
-        restoredManager.restoreSessionSnapshot(snapshot)
 
-        let restoredWorkspace = try #require(restoredManager.selectedWorkspace)
-        #expect(restoredWorkspace.customTitle == "cmux Pro")
-        #expect(restoredWorkspace.customizationDirectory == nil)
-        #expect(fixture.store.customization(for: directory) == nil)
+        for (index, snapshot) in snapshots.enumerated() {
+            #expect(restoredManager.restoreClosedWorkspace(ClosedWorkspaceHistoryEntry(
+                workspaceId: try #require(snapshot.workspaceId),
+                windowId: nil,
+                workspaceIndex: index,
+                snapshot: snapshot
+            )))
+        }
+
+        let restoredByStableId = Dictionary(
+            uniqueKeysWithValues: restoredManager.tabs.map { ($0.stableId, $0) }
+        )
+        let firstStableId = try #require(snapshots[0].stableId)
+        let secondStableId = try #require(snapshots[1].stableId)
+        let first = try #require(restoredByStableId[firstStableId])
+        let second = try #require(restoredByStableId[secondStableId])
+        #expect(first.customTitle == "First Workspace")
+        #expect(first.customColor == "#112233")
+        #expect(second.customTitle == "Second Workspace")
+        #expect(second.customColor == "#445566")
     }
 
     @Test
@@ -226,21 +181,53 @@ struct WorkspaceRecoveryReviewRegressionTests {
     }
 
     private func makeCustomizationStore() throws -> (
-        store: WorkspaceDirectoryCustomizationStore,
+        store: WorkspaceCustomizationStore,
+        legacyStore: WorkspaceDirectoryCustomizationStore,
         defaults: UserDefaults,
         suiteName: String
     ) {
-        let suiteName = "WorkspaceDirectoryCustomizationStore.\(UUID().uuidString)"
+        let suiteName = "WorkspaceCustomizationStore.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
+        let legacyStorageKey = "test.legacy-customizations"
         return (
+            WorkspaceCustomizationStore(
+                defaults: defaults,
+                storageKey: "test.customizations",
+                legacyStorageKey: legacyStorageKey
+            ),
             WorkspaceDirectoryCustomizationStore(
                 defaults: defaults,
-                storageKey: "test.customizations"
+                storageKey: legacyStorageKey
             ),
             defaults,
             suiteName
         )
+    }
+
+    private func distinctWorkspaceSnapshots(
+        in directory: String
+    ) throws -> [SessionWorkspaceSnapshot] {
+        let manager = TabManager(
+            initialWorkingDirectory: directory,
+            autoWelcomeIfNeeded: false
+        )
+        let first = try #require(manager.selectedWorkspace)
+        let second = manager.addWorkspace(
+            workingDirectory: directory,
+            inheritWorkingDirectory: false,
+            select: false,
+            placementOverride: .end
+        )
+        #expect(manager.setCustomTitle(tabId: first.id, title: "First Workspace"))
+        #expect(manager.setCustomTitle(tabId: second.id, title: "Second Workspace"))
+        manager.setTabColor(tabId: first.id, color: "#112233")
+        manager.setTabColor(tabId: second.id, color: "#445566")
+
+        let snapshots = manager.sessionSnapshot(includeScrollback: false).workspaces
+        #expect(snapshots.map(\.customTitle) == ["First Workspace", "Second Workspace"])
+        #expect(snapshots.map(\.customColor) == ["#112233", "#445566"])
+        return snapshots
     }
 
     private func makeMainWindow(id: UUID) -> NSWindow {

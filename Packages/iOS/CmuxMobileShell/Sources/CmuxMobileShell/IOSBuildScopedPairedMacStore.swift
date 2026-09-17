@@ -2,24 +2,20 @@ public import CMUXMobileCore
 public import CmuxMobilePairedMac
 public import Foundation
 
-/// Scopes the iOS saved-Mac list to one tagged iOS app build.
+/// Scopes the iOS saved-Mac list to one tagged iOS app build's data partition.
 ///
-/// The scoped store also enforces exact Mac app-instance compatibility, so a
-/// tagged iOS build cannot display, restore, or reconnect another tag that was
-/// saved into its partition by an older build.
+/// Mac app-instance compatibility is a separate authority boundary owned by
+/// ``MobileMacBuildCompatibilityPolicy``. The composition root wraps this store
+/// with that policy so one resolved policy governs discovery and persistence.
 public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
     private static let separator = "\u{1F}"
 
-    private let rawInner: any MobilePairedMacStoring
     private let inner: any MobilePairedMacStoring
     private let scope: MobileIOSBuildScope
     private let mutationGate: PairedMacMutationGate
 
     public init(inner: any MobilePairedMacStoring, scope: MobileIOSBuildScope) {
-        self.rawInner = inner
-        self.inner = MobileMacBuildCompatibilityPolicy
-            .development(expectedInstanceTag: scope.value)
-            .scoping(inner)
+        self.inner = inner
         self.scope = scope
         self.mutationGate = PairedMacMutationGate()
     }
@@ -218,6 +214,38 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         }
     }
 
+    @discardableResult
+    public func removeRouteIfAuthorized(
+        macDeviceID: String,
+        route: CmxAttachRoute,
+        condition: MobilePairedMacRouteWriteCondition,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws -> Bool {
+        try await mutationGate.withLock {
+            let selectedTeam = normalizedTeamID(teamID)
+            let instanceTag = condition.instanceTag
+            let selected = try await scopedRows(stackUserID: stackUserID, teamID: teamID)
+                .first { matches($0, macDeviceID: macDeviceID, instanceTag: instanceTag) }
+            let fallback = selectedTeam == nil
+                ? nil
+                : try await scopedRows(stackUserID: stackUserID, teamID: nil)
+                    .first { matches($0, macDeviceID: macDeviceID, instanceTag: instanceTag) }
+            let targetsFallback = fallback.map {
+                selected == nil || (selected?.lastSeenAt ?? .distantPast) < $0.lastSeenAt
+            } ?? false
+            return try await inner.removeRouteIfAuthorized(
+                macDeviceID: macDeviceID,
+                route: route,
+                condition: condition,
+                stackUserID: stackUserID,
+                teamID: scopedTeamID(targetsFallback ? nil : teamID),
+                now: now
+            )
+        }
+    }
+
     public func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
         var byID: [String: MobilePairedMac] = [:]
         for mac in try await scopedRows(stackUserID: stackUserID, teamID: teamID) {
@@ -253,11 +281,13 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
     }
 
     public func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
-        let target = try await loadAll(stackUserID: stackUserID, teamID: teamID)
-            .first { $0.macDeviceID == macDeviceID }
+        let canonicalMacDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        let matches = try await loadAll(stackUserID: stackUserID, teamID: teamID)
+            .filter { cmxCanonicalDeviceID($0.macDeviceID) == canonicalMacDeviceID }
+        guard matches.count == 1, let target = matches.first else { return }
         try await setActive(
-            macDeviceID: macDeviceID,
-            instanceTag: target?.instanceTag,
+            macDeviceID: target.macDeviceID,
+            instanceTag: target.instanceTag,
             stackUserID: stackUserID,
             teamID: teamID
         )
@@ -330,11 +360,13 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         teamID: String?,
         now: Date
     ) async throws {
-        let target = try await loadAll(stackUserID: stackUserID, teamID: teamID)
-            .first { $0.macDeviceID == macDeviceID }
+        let canonicalMacDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        let matches = try await loadAll(stackUserID: stackUserID, teamID: teamID)
+            .filter { cmxCanonicalDeviceID($0.macDeviceID) == canonicalMacDeviceID }
+        guard matches.count == 1, let target = matches.first else { return }
         try await setCustomization(
-            macDeviceID: macDeviceID,
-            instanceTag: target?.instanceTag,
+            macDeviceID: target.macDeviceID,
+            instanceTag: target.instanceTag,
             customName: customName,
             customColor: customColor,
             customIcon: customIcon,
@@ -342,6 +374,76 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
             teamID: teamID,
             now: now
         )
+    }
+
+    /// Device-local per-Computer Direct addresses; same build-scoped owner
+    /// key rule as `setConnectionMethod`.
+    public func setDirectAddresses(
+        macDeviceID: String,
+        instanceTag: String?,
+        rawJSON: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
+        try await mutationGate.withLock {
+            if normalizedTeamID(teamID) != nil {
+                let selectedRows = try await scopedRows(stackUserID: stackUserID, teamID: teamID)
+                let targetTeamID = selectedRows.contains {
+                    matches($0, macDeviceID: macDeviceID, instanceTag: instanceTag)
+                } ? teamID : nil
+                try await inner.setDirectAddresses(
+                    macDeviceID: macDeviceID,
+                    instanceTag: instanceTag,
+                    rawJSON: rawJSON,
+                    stackUserID: stackUserID,
+                    teamID: scopedTeamID(targetTeamID)
+                )
+                return
+            }
+            try await inner.setDirectAddresses(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag,
+                rawJSON: rawJSON,
+                stackUserID: stackUserID,
+                teamID: scopedTeamID(teamID)
+            )
+        }
+    }
+
+    /// Device-local per-Computer connection method. The stored row's owner
+    /// key embeds this store's BUILD-SCOPED team id, so the team must go
+    /// through `scopedTeamID` exactly like `setCustomizationUnlocked` — a
+    /// verbatim team id updates zero rows.
+    public func setConnectionMethod(
+        macDeviceID: String,
+        instanceTag: String?,
+        rawValue: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
+        try await mutationGate.withLock {
+            if normalizedTeamID(teamID) != nil {
+                let selectedRows = try await scopedRows(stackUserID: stackUserID, teamID: teamID)
+                let targetTeamID = selectedRows.contains {
+                    matches($0, macDeviceID: macDeviceID, instanceTag: instanceTag)
+                } ? teamID : nil
+                try await inner.setConnectionMethod(
+                    macDeviceID: macDeviceID,
+                    instanceTag: instanceTag,
+                    rawValue: rawValue,
+                    stackUserID: stackUserID,
+                    teamID: scopedTeamID(targetTeamID)
+                )
+                return
+            }
+            try await inner.setConnectionMethod(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag,
+                rawValue: rawValue,
+                stackUserID: stackUserID,
+                teamID: scopedTeamID(teamID)
+            )
+        }
     }
 
     public func setCustomization(
@@ -403,11 +505,13 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
     }
 
     public func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
-        let target = try await loadAll(stackUserID: stackUserID, teamID: teamID)
-            .first { $0.macDeviceID == macDeviceID }
+        let canonicalMacDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        let matches = try await loadAll(stackUserID: stackUserID, teamID: teamID)
+            .filter { cmxCanonicalDeviceID($0.macDeviceID) == canonicalMacDeviceID }
+        guard matches.count == 1, let target = matches.first else { return }
         try await remove(
-            macDeviceID: macDeviceID,
-            instanceTag: target?.instanceTag,
+            macDeviceID: target.macDeviceID,
+            instanceTag: target.instanceTag,
             stackUserID: stackUserID,
             teamID: teamID
         )
@@ -472,25 +576,19 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         }
     }
 
-    /// Preserve the independently captured backup team while scoping only the
-    /// local row's team to this iOS build. The backup layer below owns routing
-    /// that tombstone and must see the original display team.
-    public func removeExactScope(
+    /// Cross-team enumeration bounded to THIS build scope: rows from other
+    /// build scopes are invisible, exactly like every other read here. The
+    /// inner enumeration is cross-team over scoped team ids; keep only rows
+    /// carrying this scope's suffix and unwrap them to client team ids.
+    public func loadAllInstances(
         macDeviceID: String,
-        instanceTag: String?,
-        stackUserID: String?,
-        teamID: String?,
-        backupTeamID: String?
-    ) async throws {
-        try await mutationGate.withLock {
-            try await inner.removeExactScope(
-                macDeviceID: macDeviceID,
-                instanceTag: instanceTag,
-                stackUserID: stackUserID,
-                teamID: scopedTeamID(teamID),
-                backupTeamID: backupTeamID
-            )
-        }
+        stackUserID: String?
+    ) async throws -> [MobilePairedMac] {
+        try await inner.loadAllInstances(
+            macDeviceID: macDeviceID,
+            stackUserID: stackUserID
+        )
+        .compactMap(unscoped)
     }
 
     public func removeAll() async throws {
@@ -499,9 +597,43 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         }
     }
 
+    public func authorizeUserTailscaleRoutes(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?,
+        routes: [CmxAttachRoute]
+    ) async throws {
+        // Mirror setCustomizationUnlocked: write to the scope that actually
+        // holds the row, falling back to the team-less scope when the selected
+        // team has no matching row, so the base store's exact-row requirement
+        // cannot silently drop a user-entered grant.
+        if normalizedTeamID(teamID) != nil {
+            let selectedRows = try await scopedRows(stackUserID: stackUserID, teamID: teamID)
+            let targetTeamID = selectedRows.contains {
+                matches($0, macDeviceID: macDeviceID, instanceTag: instanceTag)
+            } ? teamID : nil
+            try await inner.authorizeUserTailscaleRoutes(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag,
+                stackUserID: stackUserID,
+                teamID: scopedTeamID(targetTeamID),
+                routes: routes
+            )
+            return
+        }
+        try await inner.authorizeUserTailscaleRoutes(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            teamID: scopedTeamID(teamID),
+            routes: routes
+        )
+    }
+
     private func removeAllUnlocked() async throws {
-        for mac in try await rawInner.loadAll(stackUserID: nil, teamID: nil) where isScoped(mac) {
-            try await rawInner.remove(
+        for mac in try await inner.loadAll(stackUserID: nil, teamID: nil) where isScoped(mac) {
+            try await inner.remove(
                 macDeviceID: mac.macDeviceID,
                 instanceTag: mac.instanceTag,
                 stackUserID: mac.stackUserID,
@@ -547,7 +679,10 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         macDeviceID: String,
         instanceTag: String?
     ) -> Bool {
-        mac.macDeviceID == macDeviceID && mac.instanceTag == instanceTag
+        MacPairingKey(mac) == MacPairingKey(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
     }
 
     /// A legacy nil-tag row and a tagged row are the same app instance only
@@ -558,12 +693,12 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
     ) -> [MobilePairedMac] {
         var taggedPeersByMacDeviceID: [String: Set<String>] = [:]
         for mac in rows where mac.instanceTag?.isEmpty == false {
-            taggedPeersByMacDeviceID[mac.macDeviceID, default: []]
+            taggedPeersByMacDeviceID[cmxCanonicalDeviceID(mac.macDeviceID), default: []]
                 .formUnion(irohPeerEndpointIDs(in: mac.routes))
         }
         return rows.filter { mac in
             guard mac.instanceTag == nil,
-                  let taggedPeers = taggedPeersByMacDeviceID[mac.macDeviceID] else {
+                  let taggedPeers = taggedPeersByMacDeviceID[cmxCanonicalDeviceID(mac.macDeviceID)] else {
                 return true
             }
             return taggedPeers.isDisjoint(with: irohPeerEndpointIDs(in: mac.routes))

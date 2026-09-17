@@ -8,6 +8,8 @@ import Foundation
 /// content, or raw error descriptions.
 public struct DiagnosticReport: Sendable, Codable, Equatable {
     public static let currentSchemaVersion = 1
+    /// Version of the plain-language text report format.
+    public static let currentHumanReadableFormatVersion = 2
     public static let maximumEventCount = 4_096
 
     /// A deterministic report suitable as a controller's unavailable default.
@@ -128,10 +130,15 @@ public struct DiagnosticReport: Sendable, Codable, Equatable {
     }
 
     /// The latest event that marks a failed connection/lifecycle milestone.
+    /// A `cancelled` outcome is an abandoned attempt, not a failure: callers
+    /// cancel dials on supersession and teardown, so surfacing one here would
+    /// report routine churn as the connection's latest problem.
     public var lastFailureEvent: DiagnosticEvent? {
         events.last(where: { event in
-            event.code.isDiagnosticFailure
-                || event.diagnosticFailureKind.map { $0 != .none } == true
+            if let kind = event.diagnosticFailureKind {
+                return kind != .none && kind != .cancelled
+            }
+            return event.code.isDiagnosticFailure
         })
     }
 
@@ -175,29 +182,98 @@ public struct DiagnosticReport: Sendable, Codable, Equatable {
         return event.code.defaultDiagnosticFailureKind
     }
 
-    /// Encodes this exact snapshot in the compact, human-shareable v1 format.
-    /// Building the share payload from the snapshot prevents live events from
-    /// making the displayed summary and exported timeline disagree.
-    public func compactExport() -> Data {
-        var out = "cmuxdiag v1"
-        out += " anchorWallNs=\(anchorWallNanos)"
-        out += " anchorMonoNs=\(anchorMonotonicNanos)"
-        out += " count=\(events.count)"
-        out += " role=\(role.rawValue)"
+    /// Encodes this exact snapshot as a self-contained plain-language report.
+    ///
+    /// Absolute UTC timestamps are used when the snapshot has a wall-clock
+    /// anchor. Archived or synthetic reports without an anchor use elapsed
+    /// seconds from their first event. Both forms require no external decoder.
+    /// - Parameter locale: Locale used for report headings and event text.
+    /// - Returns: UTF-8 data containing the complete report.
+    public func humanReadableExport(locale: Locale = .current) -> Data {
+        let localization = DiagnosticLocalization(locale: locale)
+        let presentation = DiagnosticEventPresentation(locale: locale)
+        let formatter = Self.makeUTCDateFormatter()
+        var out = ""
+        out.reserveCapacity(320 + events.count * 160)
+        out += localization.string(
+            "diagnostics.report.title",
+            defaultValue: "cmux Iroh and transport report"
+        ) + "\n"
+        out += localization.string(
+            "diagnostics.report.format",
+            defaultValue: "Report format: \(Self.currentHumanReadableFormatVersion)"
+        ) + "\n"
+        let generated = formatter.string(from: generatedAt)
+        out += localization.string(
+            "diagnostics.report.generated",
+            defaultValue: "Generated: \(generated)"
+        ) + "\n"
+        let source = presentation.displayName(role)
+        out += localization.string(
+            "diagnostics.report.source",
+            defaultValue: "Source: \(source)"
+        ) + "\n"
         if !buildStamp.isEmpty {
-            out += " build=\(buildStamp)"
+            out += localization.string(
+                "diagnostics.report.build",
+                defaultValue: "Build: \(buildStamp)"
+            ) + "\n"
         }
-        out += "\n"
+        out += localization.string(
+            "diagnostics.report.eventCount",
+            defaultValue: "Event count: \(events.count)"
+        ) + "\n\n"
+        out += localization.string(
+            "diagnostics.report.timeline",
+            defaultValue: "Timeline (oldest first)"
+        ) + "\n"
+
+        guard let firstEvent = events.first else {
+            out += localization.string(
+                "diagnostics.report.empty",
+                defaultValue: "No events recorded."
+            ) + "\n"
+            return Data(out.utf8)
+        }
+
+        let relativeSecondsUnit = localization.string(
+            "diagnostics.report.relativeSecondsUnit",
+            defaultValue: "seconds"
+        )
         for event in events {
-            out += "\(event.tNanos),\(event.code.rawValue)"
-            out += ",\(Self.field(event.surface))"
-            out += ",\(Self.field(event.ms))"
-            out += ",\(Self.field(event.a))"
-            out += ",\(Self.field(event.b))"
-            out += ",\(Self.field(event.c))"
-            out += "\n"
+            let timestamp: String
+            if let date = wallDate(for: event) {
+                timestamp = formatter.string(from: date)
+            } else {
+                timestamp = Self.relativeTimestamp(
+                    from: firstEvent.tNanos,
+                    to: event.tNanos,
+                    secondsUnit: relativeSecondsUnit
+                )
+            }
+            out += "\(timestamp) | \(presentation.summary(event))\n"
         }
         return Data(out.utf8)
+    }
+
+    /// Formats this report away from a caller's actor executor.
+    ///
+    /// - Parameter locale: Locale used for report headings and event text.
+    /// - Returns: The complete UTF-8 report decoded as a string.
+#if compiler(>=6.2)
+    @concurrent
+#else
+    @Sendable
+#endif
+    public nonisolated func humanReadableText(locale: Locale = .current) async -> String {
+        String(decoding: humanReadableExport(locale: locale), as: UTF8.self)
+    }
+
+    /// Source-compatible spelling retained for existing report consumers.
+    /// The returned data is the same plain-language report as
+    /// ``humanReadableExport()`` and contains no compact integer rows.
+    public func compactExport() -> Data {
+        humanReadableExport()
     }
 
     /// Removes control characters, path separators, and unbounded caller data
@@ -224,9 +300,35 @@ public struct DiagnosticReport: Sendable, Codable, Equatable {
         return result
     }
 
-    private static func field(_ value: (some BinaryInteger)?) -> String {
-        guard let value else { return "" }
-        return String(value)
+    private static func makeUTCDateFormatter() -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS 'UTC'"
+        return formatter
+    }
+
+    private static func relativeTimestamp(
+        from firstNanos: UInt64,
+        to eventNanos: UInt64,
+        secondsUnit: String
+    ) -> String {
+        let elapsedNanos = eventNanos >= firstNanos ? eventNanos - firstNanos : 0
+        let wholeMilliseconds = elapsedNanos / 1_000_000
+        let roundedMilliseconds = wholeMilliseconds
+            + (elapsedNanos % 1_000_000 >= 500_000 ? 1 : 0)
+        let seconds = roundedMilliseconds / 1_000
+        let milliseconds = roundedMilliseconds % 1_000
+        let fraction: String
+        if milliseconds < 10 {
+            fraction = "00\(milliseconds)"
+        } else if milliseconds < 100 {
+            fraction = "0\(milliseconds)"
+        } else {
+            fraction = String(milliseconds)
+        }
+        return "+\(seconds).\(fraction) \(secondsUnit)"
     }
 }
 
@@ -252,7 +354,19 @@ public extension DiagnosticEvent {
     /// Positive process-local correlation ID shared by a dial attempt and its
     /// outcome. It is intentionally not stable across launches or devices.
     var diagnosticAttemptID: Int? {
-        guard code.isTransportDialEvent, let c, c > 0 else { return nil }
+        guard code.isTransportDialEvent || code == .transportDialSessionLinked
+                || code == .transportDialCancelled,
+              let c,
+              c > 0 else { return nil }
+        return c
+    }
+
+    /// Positive process-local session correlation ID carried by a dial/session
+    /// link or close-reason event.
+    var diagnosticLinkedSessionID: Int? {
+        guard code == .transportDialSessionLinked || code == .transportCloseReason,
+              let c,
+              c > 0 else { return nil }
         return c
     }
 
@@ -286,6 +400,7 @@ public extension DiagnosticEvent {
         guard code == .transportSessionLifecycle
                 || code == .sessionClosed
                 || code == .transportCloseAttribution
+                || code == .transportCloseReason
                 || code == .transportPathEvent,
               let c,
               c > 0 else { return nil }
@@ -327,6 +442,7 @@ public extension DiagnosticEventCode {
              .streamEnded,
              .error,
              .transportDialFailed,
+             .transportDialLegFailed,
              .recoveryFailed,
              .endpointFailed,
              .relayPolicyRefreshFailed,
@@ -344,6 +460,7 @@ public extension DiagnosticEventCode {
     var carriesDiagnosticFailureKind: Bool {
         switch self {
         case .transportDialFailed,
+             .transportDialLegFailed,
              .recoveryFailed,
              .endpointFailed,
              .relayPolicyRefreshFailed,
@@ -371,6 +488,7 @@ public extension DiagnosticEventCode {
         case .pairFail,
              .error,
              .transportDialFailed,
+             .transportDialLegFailed,
              .recoveryFailed,
              .endpointFailed,
              .relayPolicyRefreshFailed,

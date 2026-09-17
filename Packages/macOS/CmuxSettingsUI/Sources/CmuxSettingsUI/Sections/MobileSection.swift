@@ -13,6 +13,7 @@ public struct MobileSection: View {
     @State private var displayName: DefaultsValueModel<String>
     @State private var artifactFolderAccess: DefaultsValueModel<MobileArtifactFolderAccess>
     @State private var status: MobilePairingStatusModel
+    @State private var phonePush: MobilePhonePushSettingsModel
 
     /// The user's in-progress port edit, or `nil` when the field should track
     /// the persisted value. Local so editing does not rebind the listener; only
@@ -24,6 +25,13 @@ public struct MobileSection: View {
     @State private var applyResult: MobilePairingPortApplyResult?
     /// Guards against overlapping Apply taps while a probe is in flight.
     @State private var isApplying = false
+
+    /// Whether an MDM configuration profile disables iOS remote control.
+    /// Refreshed from ``ManagedDevicePolicy/changeSignals(notificationCenter:)``
+    /// so a profile pushed while the Settings window stays open re-renders
+    /// the section.
+    @State private var remoteControlManagedByPolicy =
+        ManagedDevicePolicy().isEnforced(.disableRemoteControl)
 
     /// Host bridge: opens the pairing window, applies the port (availability
     /// checked), and supplies the live pairing status and default display name.
@@ -51,6 +59,7 @@ public struct MobileSection: View {
             key: catalog.mobile.artifactFolderAccess
         ))
         _status = State(initialValue: MobilePairingStatusModel(hostActions: hostActions))
+        _phonePush = State(initialValue: MobilePhonePushSettingsModel(hostActions: hostActions))
         self.hostActions = hostActions
     }
 
@@ -60,11 +69,8 @@ public struct MobileSection: View {
         editedPort ?? port.current
     }
 
-    /// The port currently in effect: the bound port when running, otherwise the
-    /// persisted preference. Apply is offered only when the draft differs from it.
-    private var effectivePort: Int {
-        status.current?.boundPort ?? port.current
-    }
+    /// Apply saves the preference; the live port is shown independently.
+    private var effectivePort: Int { port.current }
 
     private var isDraftValid: Bool {
         (1...65535).contains(draftPort)
@@ -75,27 +81,53 @@ public struct MobileSection: View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.mobile", defaultValue: "Mobile"), section: .mobile)
             SettingsCard {
-                pairDeviceRow
-                SettingsCardDivider()
                 iOSPairingHostRow
                 SettingsCardDivider()
-                portRow
-                boundPortStatusRow
-                SettingsCardDivider()
-                displayNameRow
-                SettingsCardDivider()
-                artifactFolderAccessRow
-                if iOSPairingHost.current {
+                if remoteControlManagedByPolicy {
+                    SettingsCardNote(String(
+                        localized: "settings.mobile.managedByOrganization",
+                        defaultValue: "Remote control from the iOS app is disabled by your organization."
+                    ))
                     SettingsCardDivider()
-                    diagnostics
                 }
-                SettingsCardNote(String(
-                    localized: "settings.mobile.port.note",
-                    defaultValue: "Click Apply to change the port. cmux checks the port is free first: if it's in use, the current listener keeps running untouched; if it's free, it rebinds and connected devices reconnect on the new port."
-                ))
+                // Phone-push forwarding is outbound-only and explicitly out of
+                // the DisableRemoteControl policy's scope, so its rows stay
+                // editable even while the remote-control rows are managed.
+                phonePushForwardingRow
+                SettingsCardDivider()
+                phonePushModeRow
+                SettingsCardDivider()
+                phonePushHideContentRow
+                SettingsCardDivider()
+                Group {
+                    pairDeviceRow
+                    SettingsCardDivider()
+                    portRow
+                    boundPortStatusRow
+                    SettingsCardDivider()
+                    displayNameRow
+                    SettingsCardDivider()
+                    artifactFolderAccessRow
+                    // Keep diagnostics visible while a live endpoint is draining
+                    // after the user turns pairing off.
+                    if iOSPairingHost.current || status.current?.isRunning == true {
+                        SettingsCardDivider()
+                        diagnostics
+                    }
+                    SettingsCardNote(String(
+                        localized: "settings.mobile.port.note",
+                        defaultValue: "Apply saves the port for the next pairing start. Current connections continue. To use the new port, turn iOS Pairing off and on. If the port is unavailable, cmux chooses an available port."
+                    ))
+                }
+                .disabled(remoteControlManagedByPolicy)
             }
         }
         .task { startObservingSettings() }
+        .task {
+            for await _ in ManagedDevicePolicy.changeSignals() {
+                remoteControlManagedByPolicy = ManagedDevicePolicy().isEnforced(.disableRemoteControl)
+            }
+        }
     }
 
     private func startObservingSettings() {
@@ -105,8 +137,109 @@ public struct MobileSection: View {
             displayName,
             artifactFolderAccess,
             status,
+            phonePush,
         ]
         models.forEach { $0.startObserving() }
+    }
+
+    @ViewBuilder
+    private var phonePushForwardingRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:mobile:phone-push-forwarding",
+            String(
+                localized: "settings.mobile.phonePush.forwarding",
+                defaultValue: "Forward Notifications to iPhone"
+            ),
+            subtitle: phonePush.current.forwardingEnabled
+                ? String(
+                    localized: "settings.mobile.phonePush.forwarding.subtitleOn",
+                    defaultValue: "Sends local agent alerts from this Mac to cmux on your iPhone and iPad."
+                )
+                : String(
+                    localized: "settings.mobile.phonePush.forwarding.subtitleOff",
+                    defaultValue: "Stops this Mac from sending local agent alerts to mobile devices."
+                )
+        ) {
+            Toggle(
+                "",
+                isOn: Binding(
+                    get: { phonePush.current.forwardingEnabled },
+                    set: { phonePush.update(.forwardingEnabled($0)) }
+                )
+            )
+            .labelsHidden()
+            .controlSize(.small)
+            .accessibilityIdentifier("SettingsMobilePhonePushForwardingToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var phonePushModeRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:mobile:phone-push-mode",
+            String(
+                localized: "settings.mobile.phonePush.mode",
+                defaultValue: "When to Send"
+            ),
+            subtitle: String(
+                localized: "settings.mobile.phonePush.mode.subtitle",
+                defaultValue: "Always sends every local agent alert. Away mode waits until this Mac is locked, asleep, or idle."
+            )
+        ) {
+            Picker(
+                "",
+                selection: Binding(
+                    get: { phonePush.current.mode },
+                    set: { phonePush.update(.mode($0)) }
+                )
+            ) {
+                Text(String(
+                    localized: "settings.mobile.phonePush.mode.always",
+                    defaultValue: "Always"
+                ))
+                .tag(MobilePhonePushSettingsSnapshot.Mode.always)
+                Text(String(
+                    localized: "settings.mobile.phonePush.mode.onlyWhenAway",
+                    defaultValue: "Only When Away"
+                ))
+                .tag(MobilePhonePushSettingsSnapshot.Mode.onlyWhenAway)
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .controlSize(.small)
+            .disabled(!phonePush.current.forwardingEnabled)
+            .accessibilityIdentifier("SettingsMobilePhonePushModePicker")
+        }
+    }
+
+    @ViewBuilder
+    private var phonePushHideContentRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:mobile:phone-push-hide-content",
+            String(
+                localized: "settings.mobile.phonePush.hideContent",
+                defaultValue: "Hide Notification Content"
+            ),
+            subtitle: String(
+                localized: "settings.mobile.phonePush.hideContent.subtitle",
+                defaultValue: "Sends a generic message instead of agent and terminal text."
+            )
+        ) {
+            Toggle(
+                "",
+                isOn: Binding(
+                    get: { phonePush.current.hideContent },
+                    set: { phonePush.update(.hideContent($0)) }
+                )
+            )
+            .labelsHidden()
+            .controlSize(.small)
+            .disabled(!phonePush.current.forwardingEnabled)
+            .accessibilityIdentifier("SettingsMobilePhonePushHideContentToggle")
+        }
     }
 
     @ViewBuilder
@@ -114,13 +247,16 @@ public struct MobileSection: View {
         SettingsCardRow(
             configurationReview: .action,
             searchAnchorID: "setting:mobile:pairDevice",
-            String(localized: "settings.mobile.pairDevice", defaultValue: "Pair a Device"),
+            String(localized: "settings.mobile.pairDevice", defaultValue: "Mobile Pairing"),
             subtitle: String(
                 localized: "settings.mobile.pairDevice.subtitle",
-                defaultValue: "Devices signed in to the same account connect automatically. Show a QR code to pair manually."
+                defaultValue: """
+                Devices signed in to the same account connect automatically. \
+                Use this QR only to pair through Tailscale.
+                """
             )
         ) {
-            Button(String(localized: "settings.mobile.pairDevice.button", defaultValue: "Pair…")) {
+            Button(String(localized: "settings.mobile.pairDevice.button", defaultValue: "Show Tailscale QR…")) {
                 hostActions.openMobilePairingWindow()
             }
             .buttonStyle(.bordered)
@@ -134,10 +270,10 @@ public struct MobileSection: View {
         SettingsCardRow(
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:mobile:iOSPairingHost",
-            String(localized: "settings.mobile.iOSPairingHost", defaultValue: "iOS Pairing"),
+            String(localized: "settings.mobile.iOSPairingHost", defaultValue: "Enable iOS pairing"),
             subtitle: iOSPairingHost.current
-                ? String(localized: "settings.mobile.iOSPairingHost.subtitleOn", defaultValue: "Allows the iOS app to discover and sync with this Mac on your local network.")
-                : String(localized: "settings.mobile.iOSPairingHost.subtitleOff", defaultValue: "Keeps the Mac-side iOS pairing listener off until you enable it here.")
+                ? String(localized: "settings.mobile.iOSPairingHost.subtitleOn", defaultValue: "Allows iOS pairing and Iroh networking for this Mac.")
+                : String(localized: "settings.mobile.iOSPairingHost.subtitleOff", defaultValue: "Keeps iOS pairing and Iroh networking off until you enable it here.")
         ) {
             Toggle("", isOn: Binding(get: { iOSPairingHost.current }, set: { iOSPairingHost.set($0) }))
                 .labelsHidden()
@@ -152,7 +288,7 @@ public struct MobileSection: View {
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:mobile:iOSPairingPort",
             String(localized: "settings.mobile.port", defaultValue: "Pairing Port"),
-            subtitle: String(localized: "settings.mobile.port.subtitle", defaultValue: "Preferred TCP port for the iOS pairing listener (1–65535).")
+            subtitle: String(localized: "settings.mobile.port.subtitle", defaultValue: "Preferred port for IROH connections, 1–65535.")
         ) {
             HStack(spacing: 8) {
                 TextField(
@@ -205,6 +341,16 @@ public struct MobileSection: View {
                 )
                 .foregroundStyle(.orange)
             }
+        } else if iOSPairingHost.current, let current = status.current,
+                  current.pendingPortChange, let bound = current.boundPort {
+            statusCaption {
+                Label(
+                    String(localized: "settings.mobile.port.pending",
+                        defaultValue: "Port \(current.configuredPort) is saved for the next pairing start. Currently using port \(bound)."),
+                    systemImage: "info.circle"
+                )
+                .foregroundStyle(.secondary)
+            }
         } else if case let .portInUse(requested) = applyResult, iOSPairingHost.current {
             // Only while pairing is on — toggling off stops the listener, which
             // would make "still listening on …" wrong.
@@ -212,18 +358,16 @@ public struct MobileSection: View {
                 Label(
                     String(
                         localized: "settings.mobile.port.apply.inUse",
-                        defaultValue: "Port \(requested) is in use. Still listening on \(status.current?.boundPort ?? requested)."
+                        defaultValue: "Port \(requested) is in use. The pairing listener is still on \(status.current?.boundPort ?? requested)."
                     ),
                     systemImage: "exclamationmark.triangle.fill"
                 )
                 .foregroundStyle(.orange)
             }
-        } else if case let .savedForLater(saved) = applyResult, !iOSPairingHost.current {
-            // Only while pairing is off — once it's on, the live indicator shows
-            // the actual listening port instead of this saved-for-later note.
+        } else if case let .savedForLater(saved) = applyResult, status.current?.isRunning != true {
             statusCaption {
                 Label(
-                    String(localized: "settings.mobile.port.apply.saved", defaultValue: "Saved. Will use port \(saved) when iOS Pairing is on."),
+                    String(localized: "settings.mobile.port.apply.saved", defaultValue: "Saved port \(saved). It takes effect the next time iOS Pairing starts."),
                     systemImage: "checkmark.circle.fill"
                 )
                 .foregroundStyle(.secondary)
@@ -251,14 +395,14 @@ public struct MobileSection: View {
             Label(
                 String(
                     localized: "settings.mobile.port.status.fallback",
-                    defaultValue: "Port \(snapshot.configuredPort) is in use. Listening on \(bound) instead."
+                    defaultValue: "Port \(snapshot.configuredPort) is in use. The pairing listener is on \(bound) instead."
                 ),
                 systemImage: "exclamationmark.triangle.fill"
             )
             .foregroundStyle(.orange)
         } else if let bound = snapshot.boundPort {
             Label(
-                String(localized: "settings.mobile.port.status.ok", defaultValue: "Listening on port \(bound)."),
+                String(localized: "settings.mobile.port.status.ok", defaultValue: "Pairing listener on port \(bound)."),
                 systemImage: "checkmark.circle.fill"
             )
             .foregroundStyle(.secondary)
@@ -359,7 +503,7 @@ public struct MobileSection: View {
             if snapshot.routes.isEmpty {
                 SettingsCardNote(String(
                     localized: "settings.mobile.routes.empty",
-                    defaultValue: "No reachable addresses yet. Pairing over the network needs Tailscale running on this Mac."
+                    defaultValue: "No reachable addresses yet. Iroh routes need this Mac signed in to your cmux account; Tailscale routes need Tailscale running on this Mac."
                 ))
             } else {
                 VStack(alignment: .leading, spacing: 4) {

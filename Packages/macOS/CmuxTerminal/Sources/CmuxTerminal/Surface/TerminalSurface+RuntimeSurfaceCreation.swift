@@ -1,6 +1,7 @@
 internal import AppKit
 internal import Foundation
 internal import GhosttyKit
+internal import CmuxFoundation
 internal import CmuxTerminalCore
 internal import CMUXAgentLaunch
 internal import Darwin
@@ -16,7 +17,7 @@ extension TerminalSurface {
         app: ghostty_app_t,
         for view: any TerminalSurfaceNativeViewing,
         scaleFactors: (x: CGFloat, y: CGFloat, layer: CGFloat),
-        claudeShim: ClaudeCommandShim?
+        agentCommandShims: AgentCommandShimSet?
     ) -> (createdSurface: ghostty_surface_t?, runtimeInitialInput: String?) {
         let baseConfig = runtimeCreationConfigTemplate()
         var surfaceConfig = ghostty_surface_config_new()
@@ -31,22 +32,37 @@ extension TerminalSurface {
             nsview: Unmanaged.passUnretained(view as NSView).toOpaque()
         ))
         let rendererRealization = rendererRealization
+        let callbackTarget = TerminalSurfaceCallbackTarget(surface: self)
         let callbackContext = Unmanaged.passRetained(GhosttySurfaceCallbackContext(
             surfaceHost: view,
             surfaceController: self,
+            terminalLifecycleID: terminalLifecycleId,
+            titleOverride: agentPanelTitle,
             rendererMailboxDidDrain: { surfaceID in
                 Task { @MainActor in
                     rendererRealization.scheduleRendererPresentationRepair(surfaceID: surfaceID)
                 }
-            }
+            },
+            rendererFramePresented: { _, token in
+                Task { @MainActor in
+                    callbackTarget.surface?.rendererFrameDidPresent(token: token)
+                }
+            },
+            rendererFrameFailed: { _, token, status in
+                Task { @MainActor in
+                    callbackTarget.surface?.rendererFrameDidFail(token: token, status: status)
+                }
+            },
         ))
         surfaceConfig.userdata = callbackContext.toOpaque()
         surfaceConfig.renderer_event_cb = terminalRendererEventCallback
+        invalidateRuntimeClipboardRequests(in: surfaceCallbackContext, completingNativeRequests: surface != nil)
         surfaceCallbackContext?.release()
         surfaceCallbackContext = callbackContext
         surfaceConfig.scale_factor = scaleFactors.layer
         surfaceConfig.context = surfaceContext
-        if manualIO {
+        surfaceConfig.io_mode = ioMode.ghosttyMode
+        if ioMode.usesManualIO {
             // MANUAL I/O: ghostty spawns no process; typed input is delivered
             // to our callback and output is injected through
             // ghostty_surface_process_output.
@@ -55,7 +71,6 @@ extension TerminalSurface {
                 TerminalManualIOWriteBox(onWrite: manualInputHandler ?? { _ in })
             )
             manualIOContext = box
-            surfaceConfig.io_mode = GHOSTTY_SURFACE_IO_MANUAL
             surfaceConfig.io_write_cb = terminalManualIOWriteCallback
             surfaceConfig.io_write_userdata = box.toOpaque()
         }
@@ -88,6 +103,18 @@ extension TerminalSurface {
             protectedStartupEnvironmentKeys.insert(key)
         }
 
+        func currentManagedPath() -> String {
+            let inheritedPath = env["PATH"]
+                ?? ProcessInfo.processInfo.environment["PATH"]
+                ?? ""
+            return CmuxPathEnvironment.components(from: inheritedPath).joined(separator: ":")
+        }
+
+        let sanitizedPath = currentManagedPath()
+        if env["PATH"] != nil || !sanitizedPath.isEmpty {
+            setManagedEnvironmentValue("PATH", sanitizedPath)
+        }
+
         if let resolvedUserShell = engine.resolvedUserShell {
             setManagedEnvironmentValue("SHELL", resolvedUserShell)
         }
@@ -97,6 +124,7 @@ extension TerminalSurface {
             Self.cmuxContextEnvironment(
                 workspaceId: tabId,
                 surfaceId: id,
+                terminalLifecycleId: terminalLifecycleId,
                 socketPath: socketPath
             ),
             to: &env,
@@ -159,6 +187,10 @@ extension TerminalSurface {
         if !spawnPolicy.ampHooksEnabled {
             setManagedEnvironmentValue("CMUX_AMP_HOOKS_DISABLED", "1")
         }
+        setManagedEnvironmentValue(
+            Self.computerUseAppEnabledEnvironmentKey,
+            spawnPolicy.computerUseEnabled ? "1" : "0"
+        )
 
         if let cliBinURL = Bundle.main.resourceURL?.appendingPathComponent("bin") {
             let cliBinPath = cliBinURL.path
@@ -166,10 +198,7 @@ extension TerminalSurface {
             if FileManager.default.isExecutableFile(atPath: ghosttyCLIPath) {
                 setManagedEnvironmentValue("GHOSTTY_BIN", ghosttyCLIPath)
             }
-            let currentPath = env["PATH"]
-                ?? getenv("PATH").map { String(cString: $0) }
-                ?? ProcessInfo.processInfo.environment["PATH"]
-                ?? ""
+            let currentPath = currentManagedPath()
             if !currentPath.split(separator: ":").contains(Substring(cliBinPath)) {
                 setManagedEnvironmentValue(
                     "PATH",
@@ -178,27 +207,16 @@ extension TerminalSurface {
             }
         }
 
-        if let claudeShim {
-            setManagedEnvironmentValue("CMUX_CLAUDE_WRAPPER_SHIM", claudeShim.executablePath)
-            setManagedEnvironmentValue("CMUX_CLAUDE_WRAPPER_SHIM_ROOT", claudeShim.directoryPath)
-            // Carry the sibling codex wrapper-shim path into the managed env too,
-            // mirroring the claude shim. The auto-resume command for a codex
-            // session resolves the codex executable through CMUX_CODEX_WRAPPER_SHIM
-            // (see AgentResumeArgv.codexWrapperShellExecutableToken), so without
-            // this the resumed codex bypasses cmux-codex-wrapper and loses its
-            // hooks (iOS GUI stays read-only). The shim lives in the same
-            // per-surface directory already prepended to PATH below.
-            if let codexShim = claudeShim.codexCommandShim {
-                setManagedEnvironmentValue("CMUX_CODEX_WRAPPER_SHIM", codexShim.executablePath)
-                setManagedEnvironmentValue("CMUX_CODEX_WRAPPER_SHIM_ROOT", codexShim.directoryPath)
+        if let agentCommandShims {
+            setManagedEnvironmentValue("CMUX_AGENT_COMMAND_SHIM_ROOT", agentCommandShims.directoryPath)
+            for shim in agentCommandShims.shims {
+                setManagedEnvironmentValue(shim.wrapperShimEnvironmentKey, shim.executablePath)
+                setManagedEnvironmentValue(shim.wrapperShimRootEnvironmentKey, shim.directoryPath)
             }
-            let currentPath = env["PATH"]
-                ?? getenv("PATH").map { String(cString: $0) }
-                ?? ProcessInfo.processInfo.environment["PATH"]
-                ?? ""
+            let currentPath = currentManagedPath()
             setManagedEnvironmentValue(
                 "PATH",
-                Self.pathByPrependingUniqueDirectory(claudeShim.directoryPath, to: currentPath)
+                Self.pathByPrependingUniqueDirectory(agentCommandShims.directoryPath, to: currentPath)
             )
         }
 
@@ -253,8 +271,11 @@ extension TerminalSurface {
             }
             return baseConfig.workingDirectory
         }()
+        let configuredInitialCommand = hasStartupRestoreAdmissionCommandOverride
+            ? startupRestoreAdmissionCommandOverride
+            : initialCommand
         let resolvedCommand = TerminalLaunchCommandPolicy().resolve(
-            initialCommand: initialCommand,
+            initialCommand: configuredInitialCommand,
             surfaceCommand: baseConfig.command,
             hasUserGhosttyCommand: engine.hasUserGhosttyCommand,
             managedShellCommand: managedShellCommand,
@@ -265,12 +286,14 @@ extension TerminalSurface {
             if let runtimeInitialInput, !runtimeInitialInput.isEmpty {
                 return runtimeInitialInput
             }
+            if suppressConfiguredInitialInput {
+                return nil
+            }
             if let initialInput, !initialInput.isEmpty {
                 return initialInput
             }
             return baseConfig.initialInput
         }()
-
         let createdSurface = withOptionalCString(resolvedCommand) { cCommand in
             surfaceConfig.command = cCommand
             return withOptionalCString(resolvedWorkingDirectory) { cWorkingDir in
@@ -281,7 +304,20 @@ extension TerminalSurface {
                 }
             }
         }
-
+        if let createdSurface {
+            guard ghostty_surface_set_render_presented_callback(
+                createdSurface,
+                terminalRendererPresentedCallback,
+                callbackContext.toOpaque()
+            ), ghostty_surface_set_render_failed_callback(
+                createdSurface,
+                terminalRendererFailedCallback,
+                callbackContext.toOpaque()
+            ) else {
+                ghostty_surface_free(createdSurface)
+                return (createdSurface: nil, runtimeInitialInput: runtimeInitialInput)
+            }
+        }
         return (createdSurface, runtimeInitialInput)
     }
 

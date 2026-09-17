@@ -20,8 +20,8 @@ final class MobileTerminalRenderObserver {
     private var isEmitFlushScheduled = false
     private var renderGridStatesBySurfaceID:
         [UUID: [MobileTerminalRenderGridFrame.Anchor: MobileTerminalRenderGridEmissionState]] = [:]
-    private var terminalThemesBySurfaceID: [UUID: TerminalTheme] = [:]
-    private var terminalConfigThemesBySurfaceID: [UUID: TerminalTheme] = [:]
+    var terminalThemesBySurfaceID: [UUID: TerminalTheme] = [:]
+    var terminalConfigThemesBySurfaceID: [UUID: TerminalTheme] = [:]
     private var runtimeSurfaceGenerationsBySurfaceID: [UUID: UInt64] = [:]
     private var reconciledSurfaceTopologyGeneration: UInt64?
     private var cachedTerminalTheme: TerminalTheme = .monokai
@@ -209,6 +209,9 @@ final class MobileTerminalRenderObserver {
     }
 
     private func flushTerminalUpdates() {
+        #if DEBUG
+        HostLatencyTrace.stamp("host.flush", "pending=\(pendingSurfaceIDs.count)")
+        #endif
         isEmitFlushScheduled = false
         guard hasAnyRenderEventSubscribers else {
             refreshNotificationDemand()
@@ -301,6 +304,9 @@ final class MobileTerminalRenderObserver {
         var surfaceIDString: String?
 
         for anchor in anchors {
+            #if DEBUG
+            let latencyExportStart = HostLatencyTrace.captureTime()
+            #endif
             guard let emitted = emitRenderGridFrame(
                 surface: surface,
                 surfaceID: surfaceID,
@@ -312,6 +318,16 @@ final class MobileTerminalRenderObserver {
                 sharedTheme: &sharedTheme
             ) else { continue }
             guard let payloadJSON = try? JSONEncoder().encode(emitted) else { continue }
+            #if DEBUG
+            HostLatencyTrace.stampElapsed(
+                "host.grid",
+                since: latencyExportStart
+            ) {
+                "s=\(surfaceID.uuidString.prefix(8).lowercased()) seq=\(emitted.stateSeq) " +
+                    "exp_us=\($0) bytes=\(payloadJSON.count) " +
+                    "kind=\(emitted.full ? "full" : "delta")"
+            }
+            #endif
             framesByAnchor[anchor] = (payloadJSON, emitted.full)
             emittedByAnchor[anchor] = emitted
             surfaceIDString = emitted.surfaceID
@@ -319,7 +335,8 @@ final class MobileTerminalRenderObserver {
         guard !framesByAnchor.isEmpty, let surfaceIDString else { return }
         MobileHostService.emitRenderGridEvent(
             framesByAnchor: framesByAnchor,
-            surfaceID: surfaceIDString
+            surfaceID: surfaceIDString,
+            stateSeq: stateSeq
         )
         #if DEBUG
         for (anchor, frame) in emittedByAnchor {
@@ -407,8 +424,9 @@ final class MobileTerminalRenderObserver {
             themedFrame.terminalTheme = resolvedTheme.theme
             themedFrame.terminalThemeRevision = resolvedTheme.revision
 
+            let previousEmissionState = renderGridStatesBySurfaceID[surfaceID]?[anchor]
             guard let emission = try? themedFrame.renderGridEmission(
-                comparedTo: renderGridStatesBySurfaceID[surfaceID]?[anchor],
+                comparedTo: previousEmissionState,
                 fullScrollbackTarget: fullScrollbackTarget,
                 allowScrollbackRequest: allowScrollbackRequest
             ) else { return nil }
@@ -447,6 +465,12 @@ final class MobileTerminalRenderObserver {
     func adoptReplayBaseline(_ frame: MobileTerminalRenderGridFrame, surfaceID: UUID) {
         guard frame.anchor == .screen else { return }
         renderGridStatesBySurfaceID[surfaceID, default: [:]][.screen] = frame.emissionState
+        // Replay uses the same decorated theme/config state as the phone. Keep
+        // the resolver caches in that state as well, otherwise the next live
+        // capture resolves missing theme fields from a different source and
+        // promotes the delta to a full frame.
+        terminalThemesBySurfaceID[surfaceID] = frame.terminalTheme
+        terminalConfigThemesBySurfaceID[surfaceID] = frame.terminalConfigTheme
     }
 
     func decorateReplayFrame(_ frame: MobileTerminalRenderGridFrame) -> MobileTerminalRenderGridFrame {

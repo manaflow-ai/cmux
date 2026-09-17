@@ -993,7 +993,9 @@ html { scroll-behavior: smooth; }
   // calls these methods with the *legacy* positional signature
   // (text, level, raw / code, lang, escaped / href, title, text)
   // — NOT a single token object. Inline children are already
-  // rendered to HTML and passed in as `text`.
+  // rendered to HTML and passed in as `text`. Codespan text is the
+  // exception below: processAllTokens replaces marked's pre-escaped
+  // text with normalized raw source before the renderer escapes it once.
   var headingSlugCounts = Object.create(null);
   function uniqueHeadingSlug(raw) {
     var base = String(raw || '').toLowerCase()
@@ -1006,14 +1008,90 @@ html { scroll-behavior: smooth; }
     return count === 0 ? base : base + '-' + count;
   }
 
+  function normalizedCodespanText(token) {
+    // Invalid boundaries mean marked's token contract changed. Never fall back
+    // to token.text here: a future version may supply either raw or pre-escaped
+    // text. A diagnostic sentinel keeps the failure visible and span-local; the
+    // renderer still escapes it before inserting it into HTML.
+    if (!token || typeof token.raw !== 'string') {
+      return '\uFFFD';
+    }
+    var openingDelimiter = token.raw.match(/^`+/);
+    if (!openingDelimiter) {
+      return '\uFFFD';
+    }
+    var delimiter = openingDelimiter[0];
+    if (
+      token.raw.length < delimiter.length * 2 ||
+      token.raw.slice(-delimiter.length) !== delimiter
+    ) {
+      return '\uFFFD';
+    }
+
+    // Own codespan normalization here instead of relying on marked's token.text,
+    // which marked 13.0.3 has already HTML-escaped. This mirrors CommonMark's
+    // newline and single outer-space normalization before our renderer performs
+    // the one and only HTML escape.
+    var text = token.raw.slice(delimiter.length, -delimiter.length)
+      .replace(/\n/g, ' ');
+    if (/[^ ]/.test(text) && /^ /.test(text) && / $/.test(text)) {
+      text = text.slice(1, -1);
+    }
+    return text;
+  }
+
+  function normalizeCodespanTokens(tokens) {
+    // marked's public walkTokens helper accumulates callback results with
+    // repeated Array.concat calls, making a registered walkTokens hook
+    // quadratic in the number of tokens. Traverse the token tree directly so
+    // normalization remains linear for large, untrusted markdown documents.
+    var pendingArrays = [tokens];
+    var visitedArrays = new WeakSet();
+    while (pendingArrays.length > 0) {
+      var siblings = pendingArrays.pop();
+      if (!Array.isArray(siblings) || visitedArrays.has(siblings)) {
+        continue;
+      }
+      visitedArrays.add(siblings);
+
+      for (var i = siblings.length - 1; i >= 0; i--) {
+        var token = siblings[i];
+        if (Array.isArray(token)) {
+          pendingArrays.push(token);
+          continue;
+        }
+        if (!token || typeof token !== 'object') {
+          continue;
+        }
+        if (token.type === 'codespan') {
+          token.text = normalizedCodespanText(token);
+        }
+
+        var keys = Object.keys(token);
+        for (var keyIndex = 0; keyIndex < keys.length; keyIndex++) {
+          var child = token[keys[keyIndex]];
+          if (Array.isArray(child)) {
+            pendingArrays.push(child);
+          }
+        }
+      }
+    }
+    return tokens;
+  }
+
   marked.use({
     gfm: true,
     breaks: false,
     pedantic: false,
+    hooks: {
+      processAllTokens: function(tokens) {
+        return normalizeCodespanTokens(tokens);
+      }
+    },
     renderer: {
       codespan(code) {
-        var raw = code || '';
-        return '<code>' + escapeHtml(raw) + '</code>';
+        var text = code || '';
+        return '<code>' + escapeHtml(text) + '</code>';
       },
       code(code, infostring, escaped) {
         var raw = code || '';

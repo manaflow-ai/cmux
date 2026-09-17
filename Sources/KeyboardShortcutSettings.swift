@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import Bonsplit
 import Carbon
@@ -16,6 +17,24 @@ enum KeyboardShortcutSettings {
     #if DEBUG
     static var shortcutLookupObserver: ((Action) -> Void)?
     #endif
+
+    /// Default binding for one right-sidebar mode-switch action: `ctrl+N`
+    /// where N is the mode's 1-based position among the *visible* tabs
+    /// (`RightSidebarMode.visibleModes`), so the digits always match the mode
+    /// bar the user sees, whatever they hid or reordered. A hidden or
+    /// unavailable tab (and any position past 9) defaults to unbound; an
+    /// explicit user binding still wins over this default.
+    /// `RightSidebarTabPreferences` posts `didChangeNotification` on every
+    /// mutation so matcher and hint caches pick up the new positions.
+    nonisolated static func rightSidebarPositionalDefaultShortcut(
+        for mode: RightSidebarMode,
+        defaults: UserDefaults = .standard
+    ) -> StoredShortcut {
+        guard let digit = RightSidebarMode.positionalDigit(for: mode, defaults: defaults) else {
+            return .unbound
+        }
+        return StoredShortcut(key: String(digit), command: false, shift: false, option: false, control: true)
+    }
 
     static var publicShortcutActions: [Action] {
         Action.allCases.filter(\.isPublicShortcutAction)
@@ -76,6 +95,8 @@ enum KeyboardShortcutSettings {
         case toggleSidebar
         case newTab
         case newBrowserWorkspace
+        case newCloudWorkspace
+        case newCloudMachine
         case saveLayoutTemplate
         case openFolder
         case reopenPreviousSession
@@ -88,12 +109,15 @@ enum KeyboardShortcutSettings {
         case jumpToUnread
         case toggleUnread
         case markOldestUnreadAndJumpNext
+        case markAllNotificationsRead
+        case clearAllNotifications
         case focusRightSidebar
         case switchRightSidebarToFiles
         case switchRightSidebarToFind
         case switchRightSidebarToSessions
         case switchRightSidebarToFeed
         case switchRightSidebarToDock
+        case switchRightSidebarToMachines
         case triggerFlash
 
         // Navigation
@@ -106,6 +130,8 @@ enum KeyboardShortcutSettings {
         case selectSurfaceByNumber
         case nextSidebarTab
         case prevSidebarTab
+        case nextSidebarTabInGroup
+        case prevSidebarTabInGroup
         case moveWorkspaceUp, moveWorkspaceDown
         case focusHistoryBack
         case focusHistoryForward
@@ -135,9 +161,18 @@ enum KeyboardShortcutSettings {
         case focusRight
         case focusUp
         case focusDown
+        case focusPreviousPane
+        case focusNextPane
         case splitRight
         case splitDown, toggleSplitZoom
+        case increaseWorkspaceTerminalFontSize
+        case decreaseWorkspaceTerminalFontSize
+        case resetWorkspaceTerminalFontSize
         case equalizeSplits
+        case resizePaneLeft = "resize-pane-left"
+        case resizePaneRight = "resize-pane-right"
+        case resizePaneUp = "resize-pane-up"
+        case resizePaneDown = "resize-pane-down"
         case splitBrowserRight
         case splitBrowserDown
 
@@ -215,6 +250,8 @@ enum KeyboardShortcutSettings {
             case .toggleSidebar: return String(localized: "shortcut.toggleLeftSidebar.label", defaultValue: "Toggle Left Sidebar")
             case .newTab: return String(localized: "shortcut.newWorkspace.label", defaultValue: "New Workspace")
             case .newBrowserWorkspace: return String(localized: "shortcut.newBrowserWorkspace.label", defaultValue: "New Browser Workspace")
+            case .newCloudWorkspace: return String(localized: "shortcut.newCloudWorkspace.label", defaultValue: "New Cloud Workspace")
+            case .newCloudMachine: return String(localized: "shortcut.newCloudMachine.label", defaultValue: "New Cloud Machine")
             case .saveLayoutTemplate: return String(localized: "shortcut.saveLayoutTemplate.label", defaultValue: "Save Layout as Template…")
             case .openFolder: return String(localized: "shortcut.openFolder.label", defaultValue: "Open Folder")
             case .reopenPreviousSession: return String(localized: "shortcut.reopenPreviousSession.label", defaultValue: "Restore Previous App Launch")
@@ -228,12 +265,17 @@ enum KeyboardShortcutSettings {
             case .toggleUnread: return String(localized: "shortcut.toggleUnread.label", defaultValue: "Toggle Unread")
             case .markOldestUnreadAndJumpNext:
                 return String(localized: "shortcut.markOldestUnreadAndJumpNext.label", defaultValue: "Mark as Oldest Unread and Jump to Next Latest Unread")
+            case .markAllNotificationsRead:
+                return String(localized: "shortcut.markAllNotificationsRead.label", defaultValue: "Mark All Notifications Read")
+            case .clearAllNotifications:
+                return String(localized: "shortcut.clearAllNotifications.label", defaultValue: "Clear All Notifications")
             case .focusRightSidebar: return String(localized: "shortcut.focusRightSidebar.label", defaultValue: "Toggle Right Sidebar Focus")
             case .switchRightSidebarToFiles: return String(localized: "shortcut.switchRightSidebarToFiles.label", defaultValue: "Show Sidebar Files")
             case .switchRightSidebarToFind: return String(localized: "shortcut.switchRightSidebarToFind.label", defaultValue: "Show Sidebar Find")
             case .switchRightSidebarToSessions: return String(localized: "shortcut.switchRightSidebarToSessions.label", defaultValue: "Show Sidebar Vault")
             case .switchRightSidebarToFeed: return String(localized: "shortcut.switchRightSidebarToFeed.label", defaultValue: "Show Sidebar Feed")
             case .switchRightSidebarToDock: return String(localized: "shortcut.switchRightSidebarToDock.label", defaultValue: "Show Sidebar Dock")
+            case .switchRightSidebarToMachines: return String(localized: "shortcut.switchRightSidebarToMachines.label", defaultValue: "Show Sidebar Cloud")
             case .triggerFlash: return String(localized: "shortcut.flashFocusedPanel.label", defaultValue: "Flash Focused Panel")
             case .nextSurface: return String(localized: "shortcut.nextSurface.label", defaultValue: "Next Surface")
             case .prevSurface: return String(localized: "shortcut.previousSurface.label", defaultValue: "Previous Surface")
@@ -248,6 +290,8 @@ enum KeyboardShortcutSettings {
             case .selectSurfaceByNumber: return String(localized: "shortcut.selectSurfaceByNumber.label", defaultValue: "Select Surface 1…9")
             case .nextSidebarTab: return String(localized: "shortcut.nextWorkspace.label", defaultValue: "Next Workspace")
             case .prevSidebarTab: return String(localized: "shortcut.previousWorkspace.label", defaultValue: "Previous Workspace")
+            case .nextSidebarTabInGroup: return String(localized: "shortcut.nextWorkspaceInGroup.label", defaultValue: "Next Workspace in Group")
+            case .prevSidebarTabInGroup: return String(localized: "shortcut.previousWorkspaceInGroup.label", defaultValue: "Previous Workspace in Group")
             case .moveWorkspaceUp: return String(localized: "shortcut.moveWorkspaceUp.label", defaultValue: "Move Workspace Up")
             case .moveWorkspaceDown: return String(localized: "shortcut.moveWorkspaceDown.label", defaultValue: "Move Workspace Down")
             case .focusHistoryBack: return String(localized: "shortcut.focusHistoryBack.label", defaultValue: "Focus Back")
@@ -278,10 +322,31 @@ enum KeyboardShortcutSettings {
             case .focusRight: return String(localized: "shortcut.focusPaneRight.label", defaultValue: "Focus Pane Right")
             case .focusUp: return String(localized: "shortcut.focusPaneUp.label", defaultValue: "Focus Pane Up")
             case .focusDown: return String(localized: "shortcut.focusPaneDown.label", defaultValue: "Focus Pane Down")
+            case .focusPreviousPane: return String(localized: "shortcut.focusPreviousPane.label", defaultValue: "Focus Previous Pane")
+            case .focusNextPane: return String(localized: "shortcut.focusNextPane.label", defaultValue: "Focus Next Pane")
             case .splitRight: return String(localized: "shortcut.splitRight.label", defaultValue: "Split Right")
             case .splitDown: return String(localized: "shortcut.splitDown.label", defaultValue: "Split Down")
             case .toggleSplitZoom: return String(localized: "shortcut.togglePaneZoom.label", defaultValue: "Toggle Pane Zoom")
+            case .increaseWorkspaceTerminalFontSize:
+                return String(
+                    localized: "shortcut.increaseWorkspaceTerminalFontSize.label",
+                    defaultValue: "Increase Font Size for Workspace Terminals"
+                )
+            case .decreaseWorkspaceTerminalFontSize:
+                return String(
+                    localized: "shortcut.decreaseWorkspaceTerminalFontSize.label",
+                    defaultValue: "Decrease Font Size for Workspace Terminals"
+                )
+            case .resetWorkspaceTerminalFontSize:
+                return String(
+                    localized: "shortcut.resetWorkspaceTerminalFontSize.label",
+                    defaultValue: "Reset Font Size for Workspace Terminals"
+                )
             case .equalizeSplits: return String(localized: "shortcut.equalizeSplits.label", defaultValue: "Equalize Splits")
+            case .resizePaneLeft: return String(localized: "shortcut.resizePaneLeft.label", defaultValue: "Resize Pane Left")
+            case .resizePaneRight: return String(localized: "shortcut.resizePaneRight.label", defaultValue: "Resize Pane Right")
+            case .resizePaneUp: return String(localized: "shortcut.resizePaneUp.label", defaultValue: "Resize Pane Up")
+            case .resizePaneDown: return String(localized: "shortcut.resizePaneDown.label", defaultValue: "Resize Pane Down")
             case .splitBrowserRight: return String(localized: "shortcut.splitBrowserRight.label", defaultValue: "Split Browser Right")
             case .splitBrowserDown: return String(localized: "shortcut.splitBrowserDown.label", defaultValue: "Split Browser Down")
             case .toggleCanvasLayout: return String(localized: "shortcut.toggleCanvasLayout.label", defaultValue: "Toggle Canvas Layout")
@@ -375,6 +440,12 @@ enum KeyboardShortcutSettings {
                 // Option+Cmd+N: sits next to New Workspace (Cmd+N) and New Window (Cmd+Shift+N)
                 // without colliding with any cmux default or an AppKit-reserved keystroke.
                 return StoredShortcut(key: "n", command: true, shift: false, option: true, control: false)
+            case .newCloudWorkspace:
+                // Cmd+Y: free in cmux and in AppKit's standard menus, so the
+                // plus menu, File menu, and palette can all advertise it.
+                return StoredShortcut(key: "y", command: true, shift: false, option: false, control: false)
+            case .newCloudMachine:
+                return StoredShortcut(key: "y", command: true, shift: true, option: false, control: false)
             case .saveLayoutTemplate:
                 return StoredShortcut(key: "s", command: true, shift: false, option: false, control: true)
             case .openFolder:
@@ -399,24 +470,32 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "u", command: true, shift: false, option: true, control: false)
             case .markOldestUnreadAndJumpNext:
                 return StoredShortcut(key: "u", command: true, shift: false, option: false, control: true)
+            case .markAllNotificationsRead, .clearAllNotifications:
+                // Bulk notification mutations are intentionally opt-in because both actions
+                // affect every notification at once (and Clear All is destructive).
+                return .unbound
             case .focusRightSidebar:
                 return StoredShortcut(key: "e", command: true, shift: true, option: false, control: false)
             case .switchRightSidebarToFiles:
-                return StoredShortcut(key: "1", command: false, shift: false, option: false, control: true)
+                return KeyboardShortcutSettings.rightSidebarPositionalDefaultShortcut(for: .files)
             case .switchRightSidebarToFind:
-                return StoredShortcut(key: "2", command: false, shift: false, option: false, control: true)
+                return KeyboardShortcutSettings.rightSidebarPositionalDefaultShortcut(for: .find)
             case .switchRightSidebarToSessions:
-                return StoredShortcut(key: "3", command: false, shift: false, option: false, control: true)
+                return KeyboardShortcutSettings.rightSidebarPositionalDefaultShortcut(for: .sessions)
             case .switchRightSidebarToFeed:
-                return StoredShortcut(key: "4", command: false, shift: false, option: false, control: true)
+                return KeyboardShortcutSettings.rightSidebarPositionalDefaultShortcut(for: .feed)
             case .switchRightSidebarToDock:
-                return StoredShortcut(key: "5", command: false, shift: false, option: false, control: true)
+                return KeyboardShortcutSettings.rightSidebarPositionalDefaultShortcut(for: .dock)
+            case .switchRightSidebarToMachines:
+                return KeyboardShortcutSettings.rightSidebarPositionalDefaultShortcut(for: .machines)
             case .triggerFlash:
                 return StoredShortcut(key: "h", command: true, shift: true, option: false, control: false)
             case .nextSidebarTab:
                 return StoredShortcut(key: "]", command: true, shift: false, option: false, control: true)
             case .prevSidebarTab:
                 return StoredShortcut(key: "[", command: true, shift: false, option: false, control: true)
+            case .nextSidebarTabInGroup, .prevSidebarTabInGroup:
+                return .unbound
             case .focusHistoryBack:
                 return StoredShortcut(key: "[", command: true, shift: false, option: false, control: false)
             case .focusHistoryForward:
@@ -456,9 +535,9 @@ enum KeyboardShortcutSettings {
                 // with "." as the collapse mnemonic. No-ops gracefully when the focused workspace isn't in a group.
                 return StoredShortcut(key: ".", command: true, shift: false, option: false, control: true)
             case .reopenClosedWorkspace:
-                return StoredShortcut(key: "t", command: true, shift: true, option: false, control: false)
-            case .reopenClosedBrowserPanel:
                 return .unbound
+            case .reopenClosedBrowserPanel:
+                return StoredShortcut(key: "t", command: true, shift: true, option: false, control: false)
             case .focusLeft:
                 return StoredShortcut(key: "←", command: true, shift: false, option: true, control: false)
             case .focusRight:
@@ -467,11 +546,29 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "↑", command: true, shift: false, option: true, control: false)
             case .focusDown:
                 return StoredShortcut(key: "↓", command: true, shift: false, option: true, control: false)
+            // Unbound by default: Ghostty's goto_split:previous/next mirror still
+            // cycles panes on the terminal-config keys when Focus Back/Forward do
+            // not claim them; these entries exist so pane cycling stays rebindable
+            // now that ⌘[ / ⌘] reach global focus history.
+            case .focusPreviousPane:
+                return .unbound
+            case .focusNextPane:
+                return .unbound
             case .splitRight:
                 return StoredShortcut(key: "d", command: true, shift: false, option: false, control: false)
             case .splitDown: return StoredShortcut(key: "d", command: true, shift: true, option: false, control: false)
             case .toggleSplitZoom: return StoredShortcut(key: "\r", command: true, shift: true, option: false, control: false)
-            case .equalizeSplits: return StoredShortcut(key: "=", command: true, shift: false, option: false, control: true)
+            case .increaseWorkspaceTerminalFontSize:
+                return StoredShortcut(key: "=", command: true, shift: false, option: false, control: true)
+            case .decreaseWorkspaceTerminalFontSize:
+                return StoredShortcut(key: "-", command: true, shift: false, option: false, control: true)
+            case .resetWorkspaceTerminalFontSize:
+                return StoredShortcut(key: "0", command: true, shift: false, option: false, control: true)
+            case .equalizeSplits: return StoredShortcut(key: "=", command: true, shift: true, option: false, control: true)
+            case .resizePaneLeft: return StoredShortcut(key: "h", command: false, shift: true, option: false, control: true)
+            case .resizePaneRight: return StoredShortcut(key: "l", command: false, shift: true, option: false, control: true)
+            case .resizePaneUp: return StoredShortcut(key: "k", command: false, shift: true, option: false, control: true)
+            case .resizePaneDown: return StoredShortcut(key: "j", command: false, shift: true, option: false, control: true)
             case .splitBrowserRight:
                 return StoredShortcut(key: "d", command: true, shift: false, option: true, control: false)
             case .splitBrowserDown:
@@ -985,7 +1082,12 @@ enum KeyboardShortcutSettings {
         return true
     }
 
-    static func notifySettingsFileDidChange(center: NotificationCenter = .default) { postDidChangeNotification(center: center) }
+    static func notifySettingsFileDidChange(
+        center: NotificationCenter = .default,
+        sourceURL: URL? = nil
+    ) {
+        center.post(name: didChangeNotification, object: sourceURL)
+    }
 
     static func resetShortcut(for action: Action) {
         UserDefaults.standard.removeObject(forKey: action.defaultsKey)
@@ -1016,51 +1118,6 @@ enum KeyboardShortcutSettings {
         )
     }
 
-    // MARK: - Backwards-Compatible API (call-sites can migrate gradually)
-
-    // Keys (used by debug socket command + UI tests)
-    static let focusLeftKey = Action.focusLeft.defaultsKey
-    static let focusRightKey = Action.focusRight.defaultsKey
-    static let focusUpKey = Action.focusUp.defaultsKey
-    static let focusDownKey = Action.focusDown.defaultsKey
-
-    // Defaults (used by settings reset + recorder button initial title)
-    static let showNotificationsDefault = Action.showNotifications.defaultShortcut
-    static let jumpToUnreadDefault = Action.jumpToUnread.defaultShortcut
-
-    static func showNotificationsShortcut() -> StoredShortcut { shortcut(for: .showNotifications) }
-    static func setShowNotificationsShortcut(_ shortcut: StoredShortcut) { setShortcut(shortcut, for: .showNotifications) }
-
-    static func jumpToUnreadShortcut() -> StoredShortcut { shortcut(for: .jumpToUnread) }
-    static func setJumpToUnreadShortcut(_ shortcut: StoredShortcut) { setShortcut(shortcut, for: .jumpToUnread) }
-
-    static func nextSidebarTabShortcut() -> StoredShortcut { shortcut(for: .nextSidebarTab) }
-    static func prevSidebarTabShortcut() -> StoredShortcut { shortcut(for: .prevSidebarTab) }
-    static func renameWorkspaceShortcut() -> StoredShortcut { shortcut(for: .renameWorkspace) }
-    static func closeWorkspaceShortcut() -> StoredShortcut { shortcut(for: .closeWorkspace) }
-
-    static func focusLeftShortcut() -> StoredShortcut { shortcut(for: .focusLeft) }
-    static func focusRightShortcut() -> StoredShortcut { shortcut(for: .focusRight) }
-    static func focusUpShortcut() -> StoredShortcut { shortcut(for: .focusUp) }
-    static func focusDownShortcut() -> StoredShortcut { shortcut(for: .focusDown) }
-
-    static func splitRightShortcut() -> StoredShortcut { shortcut(for: .splitRight) }
-    static func splitDownShortcut() -> StoredShortcut { shortcut(for: .splitDown) }
-    static func toggleSplitZoomShortcut() -> StoredShortcut { shortcut(for: .toggleSplitZoom) }
-    static func splitBrowserRightShortcut() -> StoredShortcut { shortcut(for: .splitBrowserRight) }
-    static func splitBrowserDownShortcut() -> StoredShortcut { shortcut(for: .splitBrowserDown) }
-
-    static func nextSurfaceShortcut() -> StoredShortcut { shortcut(for: .nextSurface) }
-    static func prevSurfaceShortcut() -> StoredShortcut { shortcut(for: .prevSurface) }
-    static func selectSurfaceByNumberShortcut() -> StoredShortcut { shortcut(for: .selectSurfaceByNumber) }
-    static func newSurfaceShortcut() -> StoredShortcut { shortcut(for: .newSurface) }
-    static func selectWorkspaceByNumberShortcut() -> StoredShortcut { shortcut(for: .selectWorkspaceByNumber) }
-    static func focusTextBoxInputShortcut() -> StoredShortcut { shortcut(for: .focusTextBoxInput) }
-    static func attachTextBoxFileShortcut() -> StoredShortcut { shortcut(for: .attachTextBoxFile) }
-
-    static func openBrowserShortcut() -> StoredShortcut { shortcut(for: .openBrowser) }
-    static func toggleBrowserDeveloperToolsShortcut() -> StoredShortcut { shortcut(for: .toggleBrowserDeveloperTools) }
-    static func showBrowserJavaScriptConsoleShortcut() -> StoredShortcut { shortcut(for: .showBrowserJavaScriptConsole) }
 }
 
 enum SystemWideHotkeySettings {
@@ -1162,11 +1219,7 @@ final class SystemWideHotkeyController {
 
         installHotKeyHandlerIfNeeded()
 
-        defaultsObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
+        defaultsObserver = NotificationCenter.default.addUserDefaultsObserver(object: nil) { [weak self] in
             self?.refreshRegistration()
         }
         shortcutObserver = NotificationCenter.default.addObserver(
@@ -1612,7 +1665,7 @@ struct ShortcutStroke: Equatable, Hashable {
         }
 
         let shortcutKey = key.lowercased()
-        if Self.usesDirectKeyCodeMatching(shortcutKey) {
+        if Self.usesPhysicalKeyCodeMatching(shortcutKey) {
             guard let expectedKeyCode = self.keyCode ?? Self.keyCodeForShortcutKey(shortcutKey) else {
                 return false
             }
@@ -1931,6 +1984,18 @@ struct ShortcutStroke: Equatable, Hashable {
 
     private static func usesDirectKeyCodeMatching(_ key: String) -> Bool {
         key == "\t" || key == "space" || functionKeyDisplayString(for: key) != nil || key.hasPrefix("media.")
+    }
+
+    /// Arrow glyphs are persisted by name in hand-written config, but AppKit
+    /// reports them as private-use function-key characters. Match their stable
+    /// physical key codes without changing the bare-key recording policy.
+    private static func usesPhysicalKeyCodeMatching(_ key: String) -> Bool {
+        switch key {
+        case "←", "→", "↓", "↑":
+            return true
+        default:
+            return usesDirectKeyCodeMatching(key)
+        }
     }
 
     private static func functionKeyDisplayString(for key: String) -> String? {

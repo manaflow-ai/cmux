@@ -107,6 +107,57 @@ struct TerminalArtifactChipCountStateTests {
         ).outcome == .reported(.init(count: 2, surfaceGeneration: 7)))
     }
 
+    @Test("gallery row total is authoritative over the legacy session total")
+    func galleryRowTotalWins() throws {
+        var state = TerminalArtifactChipCountState()
+        let request = try request(from: state.trigger(
+            localCount: 3,
+            surfaceGeneration: 7,
+            supportsSessionCount: true
+        ))
+
+        #expect(state.complete(
+            request,
+            galleryRowTotal: 5,
+            sessionTotal: 12,
+            currentSurfaceGeneration: 7,
+            freshestLocalCount: 3
+        ).outcome == .reported(.init(count: 5, surfaceGeneration: 7)))
+    }
+
+    @Test("failed scans hold the last authoritative gallery row total")
+    func failedScanHoldsLastGalleryRowTotal() throws {
+        var state = TerminalArtifactChipCountState()
+        let first = try request(from: state.trigger(
+            localCount: 3,
+            surfaceGeneration: 7,
+            supportsSessionCount: true
+        ))
+        #expect(state.complete(
+            first,
+            galleryRowTotal: 5,
+            sessionTotal: 12,
+            currentSurfaceGeneration: 7,
+            freshestLocalCount: 3
+        ).outcome == .reported(.init(count: 5, surfaceGeneration: 7)))
+
+        // A positive gallery total holds across a failed refresh; a held
+        // ZERO yielding to local evidence is covered by
+        // failedScanDropsHeldZero.
+        let second = try request(from: state.trigger(
+            localCount: 9,
+            surfaceGeneration: 8,
+            supportsSessionCount: true
+        ))
+        #expect(state.complete(
+            second,
+            galleryRowTotal: nil,
+            sessionTotal: nil,
+            currentSurfaceGeneration: 8,
+            freshestLocalCount: 9
+        ).outcome == .reported(.init(count: 5, surfaceGeneration: 8)))
+    }
+
     @Test("session-count triggers report the local count immediately and refine async")
     func sessionTriggersReportProvisionally() throws {
         var state = TerminalArtifactChipCountState()
@@ -139,6 +190,256 @@ struct TerminalArtifactChipCountStateTests {
         #expect(upgraded == .init(count: 12, surfaceGeneration: 5))
     }
 
+    @Test("unchanged visible counts do not reissue the session scan")
+    func unchangedVisibleCountDoesNotRearmScan() throws {
+        var state = TerminalArtifactChipCountState()
+        let first = try request(from: state.trigger(
+            localCount: 0,
+            surfaceGeneration: 1,
+            supportsSessionCount: true
+        ))
+        #expect(state.trigger(
+            localCount: 0,
+            surfaceGeneration: 2,
+            supportsSessionCount: true
+        ) == .provisionalReport(.init(count: 0, surfaceGeneration: 2)))
+        let completion = state.complete(
+            first,
+            galleryRowTotal: 0,
+            sessionTotal: 0,
+            currentSurfaceGeneration: 1,
+            freshestLocalCount: 0
+        )
+        #expect(completion.outcome == .reported(.init(count: 0, surfaceGeneration: 1)))
+        #expect(completion.nextRequest == nil)
+
+        // Render-grid snapshots can advance their surface generation without
+        // changing the visible artifact count. That observation only updates
+        // the chip and must not open another RPC.
+        #expect(state.trigger(
+            localCount: 0,
+            surfaceGeneration: 2,
+            supportsSessionCount: true
+        ) == .provisionalReport(.init(count: 0, surfaceGeneration: 2)))
+    }
+
+    @Test("an unchanged visible count refreshes after the dedupe window")
+    func unchangedVisibleCountRefreshesAfterDedupeWindow() throws {
+        var state = TerminalArtifactChipCountState()
+        let first = try request(from: state.trigger(
+            localCount: 0,
+            surfaceGeneration: 1,
+            supportsSessionCount: true
+        ))
+        _ = state.complete(
+            first,
+            sessionTotal: 0,
+            currentSurfaceGeneration: 1,
+            freshestLocalCount: 0
+        )
+
+        let refreshGeneration = TerminalArtifactChipCountState.maxDedupeSurfaceGenerationGap + 1
+        guard case .reportAndRequest(_, let refresh) = state.trigger(
+            localCount: 0,
+            surfaceGeneration: refreshGeneration,
+            supportsSessionCount: true
+        ) else {
+            Issue.record("Expected the unchanged count to refresh after the dedupe window")
+            throw UnexpectedAction()
+        }
+        #expect(refresh.localCount == 0)
+        #expect(refresh.surfaceGeneration == refreshGeneration)
+    }
+
+    @Test("a repeated queued count keeps its follow-up scan")
+    func repeatedQueuedCountKeepsTrailingScan() throws {
+        var state = TerminalArtifactChipCountState()
+        let first = try request(from: state.trigger(
+            localCount: 1,
+            surfaceGeneration: 1,
+            supportsSessionCount: true
+        ))
+        #expect(state.trigger(
+            localCount: 2,
+            surfaceGeneration: 1,
+            supportsSessionCount: true
+        ) == .provisionalReport(.init(count: 2, surfaceGeneration: 1)))
+
+        // Render-grid can report the same changed count repeatedly while the
+        // first session scan is in flight. The queued follow-up must survive
+        // those observations so the post-change count is eventually scanned.
+        #expect(state.trigger(
+            localCount: 2,
+            surfaceGeneration: 2,
+            supportsSessionCount: true
+        ) == .provisionalReport(.init(count: 2, surfaceGeneration: 2)))
+
+        let completion = state.complete(
+            first,
+            sessionTotal: 1,
+            currentSurfaceGeneration: 1,
+            freshestLocalCount: 2
+        )
+        guard let nextRequest = completion.nextRequest else {
+            Issue.record("Expected the changed count to remain queued")
+            throw UnexpectedAction()
+        }
+        #expect(nextRequest.localCount == 2)
+        #expect(nextRequest.surfaceGeneration == 2)
+    }
+
+    @Test("a promoted trailing scan owns the dedupe generation")
+    func promotedTrailingScanUpdatesDedupeMarkers() throws {
+        var state = TerminalArtifactChipCountState()
+        let first = try request(from: state.trigger(
+            localCount: 1,
+            surfaceGeneration: 1,
+            supportsSessionCount: true
+        ))
+        #expect(state.trigger(
+            localCount: 2,
+            surfaceGeneration: 2,
+            supportsSessionCount: true
+        ) == .provisionalReport(.init(count: 2, surfaceGeneration: 2)))
+        #expect(state.trigger(
+            localCount: 2,
+            surfaceGeneration: 3,
+            supportsSessionCount: true
+        ) == .provisionalReport(.init(count: 2, surfaceGeneration: 3)))
+
+        let completion = state.complete(
+            first,
+            sessionTotal: 1,
+            currentSurfaceGeneration: 1,
+            freshestLocalCount: 2
+        )
+        let promoted = try #require(completion.nextRequest)
+        #expect(promoted.localCount == 2)
+        #expect(promoted.surfaceGeneration == 3)
+
+        // Generation 122 is just outside the old trigger marker (2), but it
+        // remains inside the dedupe window of the promoted request (3).
+        guard case .provisionalReport(let dedupedReport) = state.trigger(
+            localCount: 2,
+            surfaceGeneration: 122,
+            supportsSessionCount: true
+        ) else {
+            Issue.record("Expected the promoted request to own the dedupe window")
+            throw UnexpectedAction()
+        }
+        #expect(dedupedReport.surfaceGeneration == 122)
+    }
+
+    @Test("a failed scan can retry at the same visible count")
+    func failedScanAllowsSameCountRetry() throws {
+        var state = TerminalArtifactChipCountState()
+        let first = try request(from: state.trigger(
+            localCount: 2,
+            surfaceGeneration: 1,
+            supportsSessionCount: true
+        ))
+        #expect(state.complete(
+            first,
+            sessionTotal: nil,
+            scanSucceeded: false,
+            currentSurfaceGeneration: 1,
+            freshestLocalCount: 2
+        ).outcome == .reported(.init(count: 2, surfaceGeneration: 1)))
+
+        guard case .reportAndRequest(_, let retry) = state.trigger(
+            localCount: 2,
+            surfaceGeneration: 1,
+            supportsSessionCount: true
+        ) else {
+            Issue.record("Expected the failed scan to be retried")
+            throw UnexpectedAction()
+        }
+        #expect(retry.localCount == 2)
+    }
+
+    @Test("a failed scan retries after a queued count returns to the original")
+    func failedScanRetriesAfterQueuedCountRoundTrip() throws {
+        var state = TerminalArtifactChipCountState()
+        let first = try request(from: state.trigger(
+            localCount: 1,
+            surfaceGeneration: 1,
+            supportsSessionCount: true
+        ))
+        #expect(state.trigger(
+            localCount: 2,
+            surfaceGeneration: 1,
+            supportsSessionCount: true
+        ) == .provisionalReport(.init(count: 2, surfaceGeneration: 1)))
+        #expect(state.trigger(
+            localCount: 1,
+            surfaceGeneration: 1,
+            supportsSessionCount: true
+        ) == .provisionalReport(.init(count: 1, surfaceGeneration: 1)))
+
+        _ = state.complete(
+            first,
+            sessionTotal: nil,
+            scanSucceeded: false,
+            currentSurfaceGeneration: 1,
+            freshestLocalCount: 1
+        )
+
+        guard case .reportAndRequest(_, let retry) = state.trigger(
+            localCount: 1,
+            surfaceGeneration: 1,
+            supportsSessionCount: true
+        ) else {
+            Issue.record("Expected the failed round-trip scan to be retried")
+            throw UnexpectedAction()
+        }
+        #expect(retry.localCount == 1)
+    }
+
+    @Test("a failed scan with fresh local evidence drops a held authoritative zero")
+    func failedScanDropsHeldZero() throws {
+        var state = TerminalArtifactChipCountState()
+        let empty = try request(from: state.trigger(
+            localCount: 0,
+            surfaceGeneration: 5,
+            supportsSessionCount: true
+        ))
+        #expect(state.complete(
+            empty,
+            galleryRowTotal: 0,
+            sessionTotal: 0,
+            currentSurfaceGeneration: 5,
+            freshestLocalCount: 0
+        ).outcome == .reported(.init(count: 0, surfaceGeneration: 5)))
+
+        // Files appear on screen, but the refresh scan fails: the held zero
+        // must yield to the local evidence instead of hiding the chip until
+        // the transport recovers.
+        let failed = try request(from: state.trigger(
+            localCount: 3,
+            surfaceGeneration: 5,
+            supportsSessionCount: true
+        ))
+        #expect(state.complete(
+            failed,
+            galleryRowTotal: nil,
+            sessionTotal: nil,
+            currentSurfaceGeneration: 5,
+            freshestLocalCount: 3
+        ).outcome == .reported(.init(count: 3, surfaceGeneration: 5)))
+
+        // The dropped zero stays dropped: later provisional reports show the
+        // local count while the transport is down.
+        guard case .reportAndRequest(let provisional, _) = state.trigger(
+            localCount: 3,
+            surfaceGeneration: 5,
+            supportsSessionCount: true
+        ) else {
+            Issue.record("Expected a provisional report plus a session request")
+            throw UnexpectedAction()
+        }
+        #expect(provisional == .init(count: 3, surfaceGeneration: 5))
+    }
+
     @Test("reset forgets the remembered session total")
     func resetForgetsSessionTotal() throws {
         var state = TerminalArtifactChipCountState()
@@ -166,6 +467,35 @@ struct TerminalArtifactChipCountStateTests {
             currentSurfaceGeneration: 8,
             freshestLocalCount: 2
         ).outcome == .reported(.init(count: 2, surfaceGeneration: 8)))
+    }
+
+    @Test("reset for a show-missing mode change forgets the authoritative total")
+    func showMissingModeResetForgetsAuthoritativeTotal() throws {
+        var state = TerminalArtifactChipCountState()
+        let seeded = try request(from: state.trigger(
+            localCount: 1,
+            surfaceGeneration: 10,
+            supportsSessionCount: true
+        ))
+        _ = state.complete(
+            seeded,
+            galleryRowTotal: 8,
+            sessionTotal: 12,
+            currentSurfaceGeneration: 10,
+            freshestLocalCount: 1
+        )
+
+        state.reset()
+
+        guard case .reportAndRequest(let provisional, _) = state.trigger(
+            localCount: 2,
+            surfaceGeneration: 11,
+            supportsSessionCount: true
+        ) else {
+            Issue.record("Expected reset state to use the local fallback")
+            throw UnexpectedAction()
+        }
+        #expect(provisional == .init(count: 2, surfaceGeneration: 11))
     }
 
     @Test("responses from an old state or surface generation are dropped")

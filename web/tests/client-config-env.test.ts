@@ -31,6 +31,11 @@ const requiredRelayProductionEnv = {
   CMUX_RELAY_TOKEN_RATE_LIMIT_ID: "relay-token-rule",
 };
 
+const requiredSubrouterDeploymentEnv = {
+  SUBROUTER_ADMIN_TOKEN: "test-legacy-subrouter-admin",
+  SUBROUTER_STACK_TENANT_DELETE_TOKEN: "0123456789abcdef0123456789abcdef",
+};
+
 describe("client config env validation", () => {
   test("allows local builds with VERCEL set but no deployment environment", () => {
     const result = importEnv({
@@ -43,6 +48,69 @@ describe("client config env validation", () => {
     expect(result.stderr).not.toContain("CMUX_CLIENT_CONFIG_RATE_LIMIT_ID is required");
   });
 
+  test("production needs no subrouter or coderouter access-gate variables", () => {
+    // Access is team membership only. A deploy that still carries the retired
+    // gate keys must also start, since the runtime ignores them.
+    const without = importEnv({
+      ...requiredEnv,
+      VERCEL: "1",
+      VERCEL_ENV: "production",
+      ...requiredSubrouterDeploymentEnv,
+      ...requiredIrohProductionEnv,
+      ...requiredRelayProductionEnv,
+    });
+    expect(without.exitCode).toBe(0);
+    expect(without.stderr).not.toContain("CODEROUTER_HOSTED_PRO_REQUIRED");
+    expect(without.stderr).not.toContain("SUBROUTER_ENFORCE_STACK_PERMISSIONS");
+    expect(without.stderr).not.toContain("SUBROUTER_ALLOWED_TEAM_IDS");
+
+    const withStale = importEnv({
+      ...requiredEnv,
+      VERCEL: "1",
+      VERCEL_ENV: "production",
+      ...requiredSubrouterDeploymentEnv,
+      ...requiredIrohProductionEnv,
+      ...requiredRelayProductionEnv,
+      CODEROUTER_HOSTED_PRO_REQUIRED: "1",
+      SUBROUTER_ENFORCE_STACK_PERMISSIONS: "1",
+      SUBROUTER_ALLOWED_TEAM_IDS: "team-a",
+    });
+    expect(withStale.exitCode).toBe(0);
+  });
+
+  test("rejects every retired Stripe price override at startup", () => {
+    // A retired override would pin checkout to a grandfathered Price, so the
+    // deployment must fail loudly rather than sell at the old amount.
+    const retired = [
+      ["STRIPE_PRO_MONTHLY_PRICE_ID", "STRIPE_PRO_MONTHLY_50_PRICE_ID"],
+      ["STRIPE_PRO_YEARLY_PRICE_ID", "STRIPE_PRO_YEARLY_480_PRICE_ID"],
+      ["STRIPE_PRO_YEARLY_288_PRICE_ID", "STRIPE_PRO_YEARLY_480_PRICE_ID"],
+      ["STRIPE_TEAM_MONTHLY_PRICE_ID", "STRIPE_TEAM_MONTHLY_60_PRICE_ID"],
+      ["STRIPE_TEAM_YEARLY_PRICE_ID", "STRIPE_TEAM_YEARLY_576_PRICE_ID"],
+    ] as const;
+    for (const [name, replacement] of retired) {
+      const result = importEnv({
+        ...requiredEnv,
+        [name]: "price_grandfathered",
+      });
+
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toContain(`${name} is retired; use ${replacement}`);
+    }
+  });
+
+  test("accepts the current Stripe price overrides", () => {
+    const result = importEnv({
+      ...requiredEnv,
+      STRIPE_PRO_MONTHLY_50_PRICE_ID: "price_pro_50",
+      STRIPE_PRO_YEARLY_480_PRICE_ID: "price_pro_480",
+      STRIPE_TEAM_MONTHLY_60_PRICE_ID: "price_team_60",
+      STRIPE_TEAM_YEARLY_576_PRICE_ID: "price_team_576",
+    });
+
+    expect(result.exitCode).toBe(0);
+  });
+
   test("allows explicit Vercel production deployments with all rate-limit ids unset", () => {
     // Rate limiting is opt-in: production deploys must survive every
     // rate-limit id being deleted from the environment.
@@ -52,6 +120,7 @@ describe("client config env validation", () => {
       ...baseEnv,
       VERCEL: "1",
       VERCEL_ENV: "production",
+      ...requiredSubrouterDeploymentEnv,
       ...requiredIrohProductionEnv,
       ...relayEnv,
     });
@@ -67,11 +136,28 @@ describe("client config env validation", () => {
       VERCEL_ENV: "production",
       CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: "client-config-rule",
       CMUX_ANALYTICS_RATE_LIMIT_ID: "analytics-rule",
+      ...requiredSubrouterDeploymentEnv,
       ...requiredIrohProductionEnv,
       ...requiredRelayProductionEnv,
     });
 
     expect(result.exitCode).toBe(0);
+  });
+
+  test("allows hosted-only production after the temporary legacy admin token is retired", () => {
+    const { SUBROUTER_ADMIN_TOKEN: _legacyToken, ...hostedSubrouterEnv } =
+      requiredSubrouterDeploymentEnv;
+    const result = importEnv({
+      ...requiredEnv,
+      VERCEL: "1",
+      VERCEL_ENV: "production",
+      ...hostedSubrouterEnv,
+      ...requiredIrohProductionEnv,
+      ...requiredRelayProductionEnv,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).not.toContain("SUBROUTER_ADMIN_TOKEN");
   });
 
   test("allows credential-free docs channel deployments", () => {
@@ -92,6 +178,7 @@ describe("client config env validation", () => {
       VERCEL: "1",
       VERCEL_ENV: "production",
       CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: "client-config-rule",
+      ...requiredSubrouterDeploymentEnv,
       ...requiredIrohProductionEnv,
       ...requiredRelayProductionEnv,
     });
@@ -106,6 +193,7 @@ describe("client config env validation", () => {
       VERCEL: "1",
       VERCEL_ENV: "development",
       CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: "client-config-rule",
+      ...requiredSubrouterDeploymentEnv,
       ...requiredIrohProductionEnv,
       ...requiredRelayProductionEnv,
     });
@@ -125,6 +213,7 @@ describe("client config env validation", () => {
       CMUX_IROH_GRANT_SIGNING_KID: requiredIrohProductionEnv.CMUX_IROH_GRANT_SIGNING_KID,
       CMUX_IROH_GRANT_VERIFICATION_KEYS_JSON:
         requiredIrohProductionEnv.CMUX_IROH_GRANT_VERIFICATION_KEYS_JSON,
+      ...requiredSubrouterDeploymentEnv,
       ...requiredRelayProductionEnv,
     });
 
@@ -140,6 +229,7 @@ describe("client config env validation", () => {
       VERCEL_ENV: "production",
       CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: "client-config-rule",
       CMUX_ANALYTICS_RATE_LIMIT_ID: "analytics-rule",
+      ...requiredSubrouterDeploymentEnv,
     });
 
     expect(result.exitCode).toBe(0);
@@ -154,6 +244,7 @@ describe("client config env validation", () => {
       CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: "client-config-rule",
       CMUX_ANALYTICS_RATE_LIMIT_ID: "analytics-rule",
       CMUX_IROH_RATE_LIMIT_ID: "iroh-rule",
+      ...requiredSubrouterDeploymentEnv,
     });
 
     expect(result.exitCode).not.toBe(0);
@@ -169,6 +260,7 @@ describe("client config env validation", () => {
       VERCEL_ENV: "production",
       CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: "client-config-rule",
       CMUX_ANALYTICS_RATE_LIMIT_ID: "analytics-rule",
+      ...requiredSubrouterDeploymentEnv,
     });
 
     expect(result.exitCode).not.toBe(0);
@@ -231,6 +323,7 @@ describe("client config env validation", () => {
       VERCEL_ENV: "production",
       CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: "client-config-rule",
       CMUX_ANALYTICS_RATE_LIMIT_ID: "analytics-rule",
+      ...requiredSubrouterDeploymentEnv,
       ...requiredRelayProductionEnv,
       CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER: "1",
       CMUX_IROH_MINT_URL: "http://localhost:49152/api/relay-token",

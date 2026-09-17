@@ -64,6 +64,20 @@ public protocol MobilePairedMacStoring: Sendable {
         now: Date
     ) async throws -> Bool
 
+    /// Remove one advertised route while retaining a local tombstone for its
+    /// endpoint. Reconnect and presence updates may continue to advertise a
+    /// route that the user removed on this device; the tombstone keeps that
+    /// route hidden until the paired Mac itself is forgotten and re-paired.
+    @discardableResult
+    func removeRouteIfAuthorized(
+        macDeviceID: String,
+        route: CmxAttachRoute,
+        condition: MobilePairedMacRouteWriteCondition,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws -> Bool
+
     /// Load all paired Macs, optionally scoped to a Stack user and team.
     /// - Parameters:
     ///   - stackUserID: When set, returns only Macs owned by that user.
@@ -164,39 +178,148 @@ public protocol MobilePairedMacStoring: Sendable {
         teamID: String?
     ) async throws
 
-    /// Remove one exact tagged Mac app instance whose LOCAL row lives in
-    /// `teamID` but whose server backup lives in `backupTeamID`.
+    /// Every stored instance of one physical device owned by one account,
+    /// across ALL team scopes and instance tags.
     ///
-    /// A team-less local row (`teamID == nil`) can be shown under, and forgotten
-    /// from, a selected team (legacy visibility). Its backup, however, is stored
-    /// in a per-team Durable Object, so the tombstone must be routed to the team
-    /// the row was DISPLAYED under (`backupTeamID`, captured up front) rather than
-    /// re-using the nil local team, which the server would resolve to whatever
-    /// team is selected when the delete flushes and could wipe a same-device
-    /// record from the wrong team's backup. The local delete still honors `teamID`
-    /// verbatim so the exact captured row is the one removed. Only the
-    /// backup-mirroring decorator distinguishes the two scopes; every other store
-    /// ignores `backupTeamID` and deletes the local `teamID` row.
-    func removeExactScope(
+    /// The forget flow's wildcard revoke kills the device's bindings for the
+    /// whole account, so its local cleanup must be able to see the device's
+    /// rows in OTHER teams than the one currently displayed — the ordinary
+    /// `loadAll(stackUserID:teamID:)` is deliberately team-scoped and cannot.
+    /// Team-substituting decorators override this to bypass their live-team
+    /// resolution and forward verbatim.
+    func loadAllInstances(
+        macDeviceID: String,
+        stackUserID: String?
+    ) async throws -> [MobilePairedMac]
+
+    /// Remove several exact row scopes as one batch, so stores with per-delete
+    /// side effects (the backup-mirroring decorator's tombstone flush) can
+    /// coalesce them instead of paying one network round-trip per row.
+    func removeExactScopes(_ scopes: [MobilePairedMacExactScope]) async throws
+
+    /// Remove all paired Macs.
+    func removeAll() async throws
+
+    /// Persist THIS device's connection-method choice for one tagged Mac
+    /// (an opaque raw value owned by the shell; `nil` clears the choice back
+    /// to the app default). Device-local: the value never syncs, never backs
+    /// up, and must not bump LWW freshness.
+    func setConnectionMethod(
+        macDeviceID: String,
+        instanceTag: String?,
+        rawValue: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws
+
+    /// Persist THIS device's Direct-method dial candidates for one tagged Mac
+    /// (a JSON payload owned by the shell; `nil` clears the list). Device-local
+    /// like the connection method.
+    func setDirectAddresses(
+        macDeviceID: String,
+        instanceTag: String?,
+        rawJSON: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws
+
+    /// Record device-local authorization for Tailscale routes the user entered
+    /// as a pairing code from their Mac.
+    ///
+    /// The authorization event is the user reading the compatibility code off
+    /// the Mac's pairing window; only the exact scanned destinations become
+    /// dialable, only on this device (grants never sync or back up). Rows for
+    /// non-Tailscale or non-host/port routes are ignored. The scoped paired-Mac
+    /// row must already exist.
+    func authorizeUserTailscaleRoutes(
         macDeviceID: String,
         instanceTag: String?,
         stackUserID: String?,
         teamID: String?,
-        backupTeamID: String?
+        routes: [CmxAttachRoute]
     ) async throws
-
-    /// Remove all paired Macs.
-    func removeAll() async throws
 }
 
 extension MobilePairedMacStoring {
+    /// In-memory/test fallback for stores that do not persist route tombstones.
+    /// Production SQLite and scope decorators override this requirement.
+    @discardableResult
+    public func removeRouteIfAuthorized(
+        macDeviceID: String,
+        route: CmxAttachRoute,
+        condition: MobilePairedMacRouteWriteCondition,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws -> Bool {
+        let instanceTag: String?
+        switch condition {
+        case .matchingInstanceTag(let tag): instanceTag = tag
+        case .unclaimed: instanceTag = nil
+        }
+        let current = try await loadAll(stackUserID: stackUserID, teamID: teamID)
+            .first {
+                cmxCanonicalDeviceID($0.macDeviceID) == cmxCanonicalDeviceID(macDeviceID)
+                    && CmxMacAppInstanceIdentity(
+                        macDeviceID: $0.macDeviceID,
+                        instanceTag: $0.instanceTag
+                    ).id == CmxMacAppInstanceIdentity(
+                        macDeviceID: macDeviceID,
+                        instanceTag: instanceTag
+                    ).id
+            }
+        guard let current else { return false }
+        guard let removedIndex = current.routes.firstIndex(where: {
+            $0.kind == route.kind && $0.endpoint == route.endpoint
+        }) else { return false }
+        var remaining = current.routes
+        remaining.remove(at: removedIndex)
+        guard remaining.count < current.routes.count, !remaining.isEmpty else { return false }
+        return try await upsertRoutesIfAuthorized(
+            macDeviceID: macDeviceID,
+            displayName: current.displayName,
+            routes: remaining,
+            condition: condition,
+            markActive: nil,
+            stackUserID: stackUserID,
+            teamID: teamID,
+            now: now
+        )
+    }
+
+    /// Compatibility no-op for stores that predate per-Computer Direct
+    /// addresses (test fixtures); the SQLite store and decorators override.
+    public func setDirectAddresses(
+        macDeviceID: String,
+        instanceTag: String?,
+        rawJSON: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {}
+
+    /// Compatibility no-op for stores that predate per-Computer connection
+    /// methods (test fixtures); the SQLite store and decorators override.
+    public func setConnectionMethod(
+        macDeviceID: String,
+        instanceTag: String?,
+        rawValue: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {}
+
     /// Compatibility fallback for stores that predate tagged row identity.
+    /// Tagged mutations fail closed because a device-only implementation
+    /// cannot prove which sibling build it would change.
     public func setActive(
         macDeviceID: String,
         instanceTag: String?,
         stackUserID: String?,
         teamID: String?
     ) async throws {
+        guard CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ).instanceTag == nil else { return }
         try await setActive(
             macDeviceID: macDeviceID,
             stackUserID: stackUserID,
@@ -205,6 +328,8 @@ extension MobilePairedMacStoring {
     }
 
     /// Compatibility fallback for stores that predate tagged row identity.
+    /// Tagged mutations fail closed because a device-only implementation
+    /// cannot prove which sibling build it would change.
     public func setCustomization(
         macDeviceID: String,
         instanceTag: String?,
@@ -215,6 +340,10 @@ extension MobilePairedMacStoring {
         teamID: String?,
         now: Date
     ) async throws {
+        guard CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ).instanceTag == nil else { return }
         try await setCustomization(
             macDeviceID: macDeviceID,
             customName: customName,
@@ -227,12 +356,18 @@ extension MobilePairedMacStoring {
     }
 
     /// Compatibility fallback for stores that predate tagged row identity.
+    /// Tagged mutations fail closed because a device-only implementation
+    /// cannot prove which sibling build it would change.
     public func remove(
         macDeviceID: String,
         instanceTag: String?,
         stackUserID: String?,
         teamID: String?
     ) async throws {
+        guard CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ).instanceTag == nil else { return }
         try await remove(
             macDeviceID: macDeviceID,
             stackUserID: stackUserID,
@@ -261,23 +396,35 @@ extension MobilePairedMacStoring {
         )
     }
 
-    /// Default: a store with no separate server backup deletes only the local
-    /// `teamID` row and ignores `backupTeamID`. The backup-mirroring decorator
-    /// (``BackingUpPairedMacStore``) overrides this to route its tombstone to
-    /// `backupTeamID` while still deleting the exact `teamID` local row.
-    public func removeExactScope(
+    /// Default cross-team instance enumeration: a nil `teamID` on the BASE
+    /// store's `loadAll` returns every team's rows, so filtering by the
+    /// canonical device id yields all of the device's instances. Correct for
+    /// the base SQLite store and simple in-memory stores ONLY — any decorator
+    /// that substitutes a nil team with the live selection, or that re-scopes
+    /// team ids, must override this to keep the enumeration genuinely
+    /// cross-team.
+    public func loadAllInstances(
         macDeviceID: String,
-        instanceTag: String?,
-        stackUserID: String?,
-        teamID: String?,
-        backupTeamID _: String?
-    ) async throws {
-        try await removeExactScope(
-            macDeviceID: macDeviceID,
-            instanceTag: instanceTag,
-            stackUserID: stackUserID,
-            teamID: teamID
-        )
+        stackUserID: String?
+    ) async throws -> [MobilePairedMac] {
+        let canonical = cmxCanonicalDeviceID(macDeviceID)
+        return try await loadAll(stackUserID: stackUserID, teamID: nil)
+            .filter { cmxCanonicalDeviceID($0.macDeviceID) == canonical }
+    }
+
+    /// Default batch removal: each scope through this store's own
+    /// `removeExactScope`, in order. Stores whose per-delete side effects are
+    /// expensive (the backup-mirroring decorator's tombstone flush) override
+    /// this to coalesce.
+    public func removeExactScopes(_ scopes: [MobilePairedMacExactScope]) async throws {
+        for scope in scopes {
+            try await removeExactScope(
+                macDeviceID: scope.macDeviceID,
+                instanceTag: scope.instanceTag,
+                stackUserID: scope.stackUserID,
+                teamID: scope.teamID
+            )
+        }
     }
 
     /// In-memory/test fallback. Production SQLite and scope decorators override
@@ -293,13 +440,27 @@ extension MobilePairedMacStoring {
         teamID: String?,
         now: Date
     ) async throws -> Bool {
-        let existing = try await loadAll(stackUserID: stackUserID, teamID: teamID)
-            .first { $0.macDeviceID == macDeviceID }
+        let matches = try await loadAll(stackUserID: stackUserID, teamID: teamID)
+            .filter {
+                cmxCanonicalDeviceID($0.macDeviceID) == cmxCanonicalDeviceID(macDeviceID)
+            }
+        let existing: MobilePairedMac?
         switch condition {
-        case .matchingInstanceTag(let expectedInstanceTag):
-            guard let existing, existing.instanceTag == expectedInstanceTag else { return false }
+        case .matchingInstanceTag(let tag):
+            let expectedID = CmxMacAppInstanceIdentity(
+                macDeviceID: macDeviceID,
+                instanceTag: tag
+            ).id
+            existing = matches.first {
+                CmxMacAppInstanceIdentity(
+                    macDeviceID: $0.macDeviceID,
+                    instanceTag: $0.instanceTag
+                ).id == expectedID
+            }
+            guard existing != nil else { return false }
         case .unclaimed:
-            guard existing?.instanceTag == nil else { return false }
+            guard !matches.contains(where: { $0.instanceTag != nil }) else { return false }
+            existing = matches.first { $0.instanceTag == nil }
         }
         try await upsert(
             macDeviceID: macDeviceID,
@@ -330,14 +491,30 @@ extension MobilePairedMacStoring {
         teamID: String?,
         now: Date
     ) async throws -> Bool {
-        let existing = try await loadAll(stackUserID: stackUserID, teamID: teamID)
-            .first { $0.macDeviceID == macDeviceID }
+        let expectedIdentity = CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        let matches = try await loadAll(stackUserID: stackUserID, teamID: teamID)
+            .filter {
+                cmxCanonicalDeviceID($0.macDeviceID) == expectedIdentity.macDeviceID
+            }
+        if expectedIdentity.instanceTag == nil,
+           matches.contains(where: { $0.instanceTag != nil }) {
+            return false
+        }
+        let existing = matches.first {
+                CmxMacAppInstanceIdentity(
+                    macDeviceID: $0.macDeviceID,
+                    instanceTag: $0.instanceTag
+                ).id == expectedIdentity.id
+            }
         if let existing, existing.lastSeenAt >= now { return false }
         try await upsert(
             macDeviceID: macDeviceID,
             displayName: displayName,
             routes: routes,
-            instanceTag: instanceTag,
+            instanceTag: expectedIdentity.instanceTag,
             markActive: markActive,
             stackUserID: stackUserID,
             teamID: teamID,
@@ -345,7 +522,7 @@ extension MobilePairedMacStoring {
         )
         try await setCustomization(
             macDeviceID: macDeviceID,
-            instanceTag: existing?.instanceTag,
+            instanceTag: expectedIdentity.instanceTag,
             customName: customName,
             customColor: customColor,
             customIcon: customIcon,

@@ -41,9 +41,12 @@ extension AppDelegate {
         return true
     }
 
+    /// Pops the menu below `anchorView`, or at `location` (in `anchorView`
+    /// coordinates) when the caller only knows where the click landed.
     @discardableResult
     func showNewWorkspaceContextMenu(
         anchorView: NSView,
+        at location: NSPoint? = nil,
         debugSource: String = "titlebar.newWorkspace.contextMenu"
     ) -> Bool {
         let context = contextForMainWindow(anchorView.window)
@@ -62,7 +65,7 @@ extension AppDelegate {
 
         menu.popUp(
             positioning: nil,
-            at: NSPoint(x: 0, y: anchorView.bounds.maxY + 2),
+            at: location ?? NSPoint(x: 0, y: anchorView.bounds.maxY + 2),
             in: anchorView
         )
         return true
@@ -73,23 +76,44 @@ extension AppDelegate {
         cmuxConfigStore: CmuxConfigStore
     ) -> NSMenu? {
         let model = NewWorkspaceMenuModel.build(
-            newWorkspaceContextMenuItems: cmuxConfigStore.newWorkspaceContextMenuItems,
+            newWorkspaceContextMenuItems: cmuxConfigStore.newWorkspaceContextMenuItems.filter { item in
+                guard case .action(let menuAction) = item,
+                      case .builtIn(let builtIn) = menuAction.action.action else { return true }
+                return Self.isBuiltInActionAvailableInNewWorkspaceMenu(builtIn)
+            },
             agentChatAction: resolvedBuiltInNewAgentChatAction(cmuxConfigStore: cmuxConfigStore),
-            cloudSectionEnabled: CmuxFeatureFlags.shared.isCloudVMUIEnabled,
             templateNames: savedLayoutNames(),
             loadedActions: cmuxConfigStore.loadedActions,
             newWorkspaceActionID: cmuxConfigStore.newWorkspaceActionID,
             deletable: { [weak self, weak cmuxConfigStore] action in
                 guard let self, let cmuxConfigStore else { return false }
                 return isDeletableGlobalAction(action, cmuxConfigStore: cmuxConfigStore)
-            },
-            sectionOrder: cmuxConfigStore.newWorkspaceMenuSectionOrder
+            }
         )
         return renderNewWorkspaceContextMenu(
             model: model,
             context: context,
             cmuxConfigStore: cmuxConfigStore
         )
+    }
+
+    /// Feature gates for built-in plus-menu rows, evaluated when the menu
+    /// opens (not at config load) so flag and setting flips apply at once.
+    /// Mirrors the command palette's gates for the same actions.
+    static func isBuiltInActionAvailableInNewWorkspaceMenu(_ action: CmuxSurfaceTabBarBuiltInAction) -> Bool {
+        switch action {
+        case .newCloudWorkspace, .newCloudMachine, .cloudVM:
+            return CloudMachinesFeature.isEnabled
+                && AppDelegate.shared?.auth?.accountFlow.isAuthenticated == true
+        case .newBrowser, .newAgentChat:
+            return BrowserAvailabilitySettings.isEnabled()
+        case .newSimulator:
+            return CmuxFeatureFlags.shared.isSimulatorEnabled
+        case .mobileConnect:
+            return !MobileRemoteControlPolicy.isDisabled
+        case .newWorkspace, .newTerminal, .splitRight, .splitDown:
+            return true
+        }
     }
 
     private func savedLayoutNames() -> [String] {

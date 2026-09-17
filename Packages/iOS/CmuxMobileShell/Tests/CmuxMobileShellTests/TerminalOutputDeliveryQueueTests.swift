@@ -647,6 +647,15 @@ import Testing
         surfaceID: surfaceID
     )
     #expect(postResponseDropAccepted == false)
+    // The replay response has been yielded but its render application has not
+    // acknowledged the stream token yet. Do not launch a second replay while
+    // that queue entry is still in flight; terminalOutputDidProcess owns the
+    // follow-up decision once the exact chunk is visible.
+    let replayCountWhileChunkIsInFlight = await router.count(of: "mobile.terminal.replay")
+    let replayStartedBeforeAcknowledgement = await router.waitForReplayRequestStart(
+        after: replayCountWhileChunkIsInFlight
+    )
+    #expect(!replayStartedBeforeAcknowledgement)
 
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: retryReplayChunk.streamToken)
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: replayCountAfterMount + 3)
@@ -771,6 +780,86 @@ private func waitForReplayRequestCount(
     #expect(!vt.contains("old"))
 }
 
+@Test func terminalOutputQueuePreservesRevisionedRenderGridDeltaBases() throws {
+    var queue = TerminalOutputDeliveryQueue()
+    let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)
+    var first = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal",
+        stateSeq: 1,
+        renderEpoch: "epoch",
+        renderRevision: 2,
+        columns: 12,
+        rows: 2,
+        text: "first\nviewport",
+        full: false,
+        changedRows: [0, 1]
+    )
+    var second = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal",
+        stateSeq: 2,
+        renderEpoch: "epoch",
+        renderRevision: 3,
+        columns: 12,
+        rows: 2,
+        text: "second\nviewport",
+        full: false,
+        changedRows: [0, 1]
+    )
+    first.deltaBaseRenderRevision = 1
+    second.deltaBaseRenderRevision = 2
+
+    #expect(queue.enqueue(inFlight) == inFlight)
+    #expect(queue.enqueue(TerminalOutputDelivery(renderGrid: first, replaceable: true)) == nil)
+    #expect(queue.enqueue(TerminalOutputDelivery(renderGrid: second, replaceable: true)) == nil)
+
+    #expect(queue.pendingCount == 2)
+    #expect(queue.completeInFlight()?.sourceRenderGridFrame?.renderRevision == 2)
+    #expect(queue.completeInFlight()?.sourceRenderGridFrame?.renderRevision == 3)
+}
+
+@Test func terminalOutputQueueRequestsReplayBeforeRevisionedBacklogGrowsUnbounded() throws {
+    var queue = TerminalOutputDeliveryQueue()
+    let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)
+    #expect(queue.enqueue(inFlight) == inFlight)
+
+    for revision in 0...TerminalOutputDeliveryQueue.maxPendingDeliveries {
+        var frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+            surfaceID: "terminal",
+            stateSeq: UInt64(revision),
+            renderEpoch: "epoch",
+            renderRevision: UInt64(revision + 1),
+            columns: 12,
+            rows: 1,
+            text: "revision-\(revision)",
+            full: false,
+            changedRows: [0]
+        )
+        frame.deltaBaseRenderRevision = UInt64(revision)
+        #expect(queue.enqueue(TerminalOutputDelivery(renderGrid: frame, replaceable: true)) == nil)
+    }
+
+    #expect(queue.pendingCount == 0)
+    let overflowed = queue.takeOverflowed()
+    #expect(overflowed)
+    let consumed = queue.takeOverflowed()
+    #expect(!consumed)
+}
+
+@Test func terminalOutputQueueBoundsNonreplaceableBacklog() {
+    var queue = TerminalOutputDeliveryQueue()
+    #expect(queue.enqueue(TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)) != nil)
+
+    for index in 0...TerminalOutputDeliveryQueue.maxPendingDeliveries {
+        #expect(queue.enqueue(
+            TerminalOutputDelivery(bytes: Data("raw-\(index)".utf8), replaceable: false)
+        ) == nil)
+    }
+
+    #expect(queue.pendingCount == 0)
+    let overflowed = queue.takeOverflowed()
+    #expect(overflowed)
+}
+
 @Test func terminalOutputQueueDoesNotReplaceRenderGridSnapshotWithPolicyOnlyDelivery() throws {
     var queue = TerminalOutputDeliveryQueue()
     let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)
@@ -823,6 +912,7 @@ private func waitForReplayRequestCount(
     let latestTheme = TerminalOutputDelivery(theme: latestFrame)
     let latestViewport = TerminalOutputDelivery(renderGrid: latestFrame, replaceable: true)
 
+    #expect(latestTheme.endSequence == nil)
     #expect(queue.enqueue(inFlight) == inFlight)
     #expect(queue.enqueue(TerminalOutputDelivery(theme: oldFrame)) == nil)
     #expect(queue.enqueue(TerminalOutputDelivery(renderGrid: oldFrame, replaceable: true)) == nil)

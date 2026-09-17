@@ -36,6 +36,13 @@ extension TerminalController: ControlSurfaceContext {
         routing: ControlRoutingSelectors,
         tabManager: TabManager
     ) -> Workspace? {
+        if let owner = routing.remoteRelayOwnerWorkspaceID {
+            guard let workspace = tabManager.tabs.first(where: { $0.id == owner }),
+                  remoteRelayTargetIsCurrent(routing: routing, workspace: workspace) else {
+                return nil
+            }
+            return workspace
+        }
         if let wsId = routing.workspaceID {
             guard !AppDelegate.isWindowDockRoutingId(wsId) else { return nil }
             return tabManager.tabs.first(where: { $0.id == wsId })
@@ -95,6 +102,13 @@ extension TerminalController: ControlSurfaceContext {
             checkpointID: effective.checkpointId,
             source: effective.source,
             environment: effective.environment,
+            launchCommand: effective.launchCommand.map {
+                controlAgentLaunchCommand(
+                    $0,
+                    replaySafeEnvironmentFor: effective.kind
+                )
+            },
+            permissionMode: effective.permissionMode,
             autoResume: effective.allowsAutomaticResume,
             approvalPolicyRawValue: effective.approvalPolicy?.rawValue,
             approvalRecordID: effective.approvalRecordId,
@@ -102,7 +116,8 @@ extension TerminalController: ControlSurfaceContext {
             remoteWorkspaceID: remoteContext?.workspaceID,
             remoteSurfaceID: remoteContext?.surfaceID,
             remotePTYSessionID: remoteContext?.persistentPTYSessionID,
-            updatedAt: effective.updatedAt
+            updatedAt: effective.updatedAt,
+            resumeEvidenceProvenance: effective.resumeEvidenceProvenance
         )
     }
 
@@ -117,12 +132,16 @@ extension TerminalController: ControlSurfaceContext {
         }
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else { return nil }
 
+        let summaries = controlSurfaceSummaries(workspace: ws).filter { summary in
+            routing.remoteRelayOwnerWorkspaceID == nil || ws.isRemoteTerminalContext(summary.surfaceID)
+        }
         return ControlSurfaceListSnapshot(
             workspaceID: ws.id,
             windowID: v2ResolveWindowId(tabManager: tabManager),
-            surfaces: controlSurfaceSummaries(workspace: ws) +
-                controlTopologyDocks(workspace: ws, tabManager: tabManager)
-                .flatMap { controlSimulatorAwareDockSurfaceSummaries(dock: $0) }
+            surfaces: summaries + (routing.remoteRelayOwnerWorkspaceID == nil
+                ? controlTopologyDocks(workspace: ws, tabManager: tabManager)
+                    .flatMap { controlSimulatorAwareDockSurfaceSummaries(dock: $0) }
+                : [])
         )
     }
 
@@ -156,6 +175,7 @@ extension TerminalController: ControlSurfaceContext {
                 tmuxStartCommand: summary.tmuxStartCommand,
                 isTerminal: summary.isTerminal,
                 resumeBinding: summary.resumeBinding,
+                renderHealthRawValue: summary.renderHealthRawValue,
                 simulatorDeviceID: simulatorPanel?.selectedDeviceID,
                 simulatorRuntimeIdentifier: simulatorPanel?.selectedRuntimeIdentifier,
                 simulatorDeviceTypeIdentifier: simulatorPanel?.selectedDeviceTypeIdentifier,
@@ -184,7 +204,13 @@ extension TerminalController: ControlSurfaceContext {
             )
         }
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else { return nil }
-        let containerPanelID = ws.focusedPanelId ?? orderedPanels(in: ws).first?.id
+        let containerPanelID: UUID?
+        if routing.remoteRelayOwnerWorkspaceID != nil {
+            containerPanelID = ws.activeRemoteTerminalSurfaceIds.sorted { $0.uuidString < $1.uuidString }.first
+                ?? ws.remoteTmuxSessionMirror?.controlPaneLocations().first?.pane.panel.id
+        } else {
+            containerPanelID = ws.focusedPanelId ?? orderedPanels(in: ws).first?.id
+        }
         let projection = containerPanelID.flatMap {
             ws.controlSurfaceProjection(forContainerPanelID: $0)
         }
@@ -205,16 +231,9 @@ extension TerminalController: ControlSurfaceContext {
         }
         if let dock = windowDockForRouting(routing, tabManager: tabManager) {
             let items: [ControlSurfaceHealthEntry] = orderedPanels(in: dock).map { panel in
-                var inWindow: Bool?
-                if let tp = panel as? TerminalPanel {
-                    inWindow = tp.surface.isViewInWindow
-                } else if let bp = panel as? BrowserPanel {
-                    inWindow = bp.webView.window != nil
-                }
-                return ControlSurfaceHealthEntry(
-                    surfaceID: panel.id,
-                    typeRawValue: panel.panelType.rawValue,
-                    inWindow: inWindow
+                controlSurfaceHealthEntry(
+                    for: panel,
+                    terminalTarget: dock.controlSocketTerminalTarget(for: panel.id)
                 )
             }
             return ControlSurfaceHealthSnapshot(
@@ -225,16 +244,9 @@ extension TerminalController: ControlSurfaceContext {
         }
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else { return nil }
         let items: [ControlSurfaceHealthEntry] = controlSurfacePanels(workspace: ws).map { panel in
-            var inWindow: Bool?
-            if let tp = panel as? TerminalPanel {
-                inWindow = tp.surface.isViewInWindow
-            } else if let bp = panel as? BrowserPanel {
-                inWindow = bp.webView.window != nil
-            }
-            return ControlSurfaceHealthEntry(
-                surfaceID: panel.id,
-                typeRawValue: panel.panelType.rawValue,
-                inWindow: inWindow
+            controlSurfaceHealthEntry(
+                for: panel,
+                terminalTarget: ws.controlSocketTerminalTarget(for: panel.id)
             )
         }
         return ControlSurfaceHealthSnapshot(
@@ -259,8 +271,10 @@ extension TerminalController: ControlSurfaceContext {
             if windowDockMismatchesExplicitSelectors(routing, dock: windowDock, aliasTabManager: tabManager) {
                 return .surfaceNotFound(surfaceID)
             }
-            focusAndRevealWindowDock(for: windowDock, fallback: tabManager)
-            windowDock.focusPanel(surfaceID)
+            guard focusAndRevealWindowDock(for: windowDock, fallback: tabManager) else {
+                return .dockUnavailable(message: dockFocusUnavailableMessage())
+            }
+            windowDock.focusPanelFromDockInteraction(surfaceID, window: nil)
             return .focused(
                 windowID: windowDock.workspaceId,
                 workspaceID: windowDock.workspaceId,
@@ -289,6 +303,16 @@ extension TerminalController: ControlSurfaceContext {
         case .notRemote:
             break
         }
+        let isWorkspaceSurface = ws.panels[surfaceID] != nil
+        if ws.containsDockPanel(surfaceID) {
+            // Workspace-scoped Docks are retained only for compatibility and
+            // have no renderable owner. Revealing the window Dock would expose
+            // a different store, so explicit focus must fail closed.
+            return .dockUnavailable(message: dockUnavailableMessage())
+        }
+        guard isWorkspaceSurface else {
+            return .surfaceNotFound(surfaceID)
+        }
         if let windowId = v2ResolveWindowId(tabManager: tabManager) {
             _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
             setActiveTabManager(tabManager)
@@ -296,14 +320,7 @@ extension TerminalController: ControlSurfaceContext {
         if tabManager.selectedTabId != ws.id {
             tabManager.selectWorkspace(ws)
         }
-        if ws.panels[surfaceID] != nil {
-            ws.focusPanel(surfaceID)
-        } else if ws.containsDockPanel(surfaceID) {
-            revealDockForFocus(tabManager: tabManager)
-            ws.dockSplit.focusPanel(surfaceID)
-        } else {
-            return .surfaceNotFound(surfaceID)
-        }
+        ws.focusPanel(surfaceID)
         return .focused(
             windowID: v2ResolveWindowId(tabManager: tabManager),
             workspaceID: ws.id,

@@ -2,7 +2,9 @@ import CmuxMobileShellModel
 import Foundation
 import Observation
 
-/// A stable day bucket prepared outside the list body.
+/// A stable day bucket prepared outside the list body. Rows arrive as
+/// ``NotificationFeedRowModel`` so every derived string is already built on
+/// the projection's background rebuild, not in row bodies during scroll.
 struct NotificationFeedDaySection: Identifiable, Equatable, Sendable {
     enum Kind: Equatable, Sendable {
         case today
@@ -12,10 +14,44 @@ struct NotificationFeedDaySection: Identifiable, Equatable, Sendable {
 
     let id: Date
     let kind: Kind
-    let items: [MobileNotificationFeedItem]
+    let items: [NotificationFeedRowModel]
+    private(set) var groups: [NotificationFeedActivityGroup]
+    private(set) var rows: [NotificationFeedListRow]
+
+    init(id: Date, kind: Kind, items: [NotificationFeedRowModel]) {
+        self.id = id
+        self.kind = kind
+        self.items = items
+        groups = NotificationFeedActivityGroup.build(from: items)
+        rows = groups.flatMap { $0.rows(isExpanded: false) }
+    }
+
+    func expanding(_ groupIDs: Set<MobileNotificationFeedItemID>) -> Self {
+        var section = self
+        section.rows = groups.flatMap { $0.rows(isExpanded: groupIDs.contains($0.id)) }
+        return section
+    }
+
+    func reconcilingGroupIdentity(
+        previousIDs: Set<MobileNotificationFeedItemID>,
+        expandedIDs: Set<MobileNotificationFeedItemID>
+    ) -> Self {
+        var section = self
+        section.groups = groups.map {
+            $0.retainingIdentity(from: previousIDs, expandedIDs: expandedIDs)
+        }
+        return section
+    }
 }
 
 nonisolated let notificationFeedProjectionMaxSourceItemCount = MobileNotificationFeedAggregation.maxItemCount
+/// Rows mounted before the list shows its load-more sentinel. Bounding the
+/// mounted span keeps the initial publish, whole-list diffs, and far-jump
+/// layout resolution proportional to what the user can reach, not to the
+/// full retained history.
+nonisolated let notificationFeedProjectionInitialRowWindow = 300
+/// Rows added each time the load-more sentinel becomes visible.
+nonisolated let notificationFeedProjectionRowWindowIncrement = 300
 nonisolated let notificationFeedProjectionMaxSearchQueryUnicodeScalars = MobileSearchQueryBounds().maxUnicodeScalars
 nonisolated let notificationFeedProjectionMaxSearchQueryUTF8Bytes = MobileSearchQueryBounds().maxUTF8Bytes
 nonisolated private let notificationFeedProjectionMaxMetadataSearchableCharactersPerField = 512
@@ -33,6 +69,7 @@ final class NotificationFeedProjection {
     var filter: MobileNotificationFeedFilter = .all {
         didSet {
             guard filter != oldValue else { return }
+            rowWindow = notificationFeedProjectionInitialRowWindow
             scheduleRebuild()
         }
     }
@@ -43,6 +80,7 @@ final class NotificationFeedProjection {
                 searchText = normalized.value
             }
             guard normalized.value != oldValue else { return }
+            rowWindow = notificationFeedProjectionInitialRowWindow
             scheduleRebuild(
                 debounce: notificationFeedProjectionNormalizedSearchQuery(normalized.value).isEmpty
                     ? nil
@@ -56,6 +94,9 @@ final class NotificationFeedProjection {
     private(set) var sourceUnreadCount = 0
     private(set) var isSourceRebuilding = false
     private(set) var hasStaleSourceSections = false
+    /// Whether filtered rows exist beyond the mounted window, so the list
+    /// shows the load-more sentinel.
+    private(set) var hasMoreRows = false
 
     @ObservationIgnored private var sourceItems: [MobileNotificationFeedItem] = []
     @ObservationIgnored private var referenceDate: Date
@@ -64,6 +105,13 @@ final class NotificationFeedProjection {
     @ObservationIgnored private var rebuildRevision = 0
     @ObservationIgnored private var rebuildTask: Task<Void, Never>?
     @ObservationIgnored private let searchQueryBounds = MobileSearchQueryBounds()
+    /// The mounted-row cap. Feed updates preserve it so background refreshes
+    /// never collapse how deep the user has scrolled; filter and search
+    /// changes reset it.
+    @ObservationIgnored private var rowWindow = notificationFeedProjectionInitialRowWindow
+    /// True from an accepted `extendRowWindow()` until the next publish.
+    @ObservationIgnored private var isRowWindowExtensionPending = false
+    @ObservationIgnored private var expandedGroupIDs: Set<MobileNotificationFeedItemID> = []
 
     init(referenceDate: Date = .now, calendar: Calendar = .autoupdatingCurrent) {
         self.referenceDate = referenceDate
@@ -90,6 +138,30 @@ final class NotificationFeedProjection {
         await rebuildTask?.value
     }
 
+    /// Expansion changes the mounted rows, never their notification identities
+    /// or the shared open/read actions. The caller supplies the animation.
+    func toggleGroup(_ id: MobileNotificationFeedItemID) {
+        guard !hasStaleSourceSections,
+              sections.contains(where: { $0.groups.contains(where: { $0.id == id && $0.items.count > 1 }) })
+        else { return }
+        if !expandedGroupIDs.insert(id).inserted {
+            expandedGroupIDs.remove(id)
+        }
+        sections = sections.map { $0.expanding(expandedGroupIDs) }
+    }
+
+    /// Mounts the next chunk of rows when the load-more sentinel appears.
+    /// Appending below the viewport never moves the user's scroll anchor.
+    /// One extension per publish: `hasMoreRows` only flips after the rebuild
+    /// lands, so repeated sentinel appearances during an in-flight extension
+    /// must not stack additional increments.
+    func extendRowWindow() {
+        guard hasMoreRows, !isRowWindowExtensionPending else { return }
+        isRowWindowExtensionPending = true
+        rowWindow += notificationFeedProjectionRowWindowIncrement
+        scheduleRebuild()
+    }
+
     /// Debounces query changes and cancels superseded work. The last completed
     /// sections stay visible during rebuilds, and results publish atomically
     /// only while both captured revisions still match the current projection.
@@ -102,6 +174,7 @@ final class NotificationFeedProjection {
         let requestedReferenceDate = referenceDate
         let requestedCalendar = calendar
         let requestedSourceItems = sourceItems
+        let requestedRowWindow = rowWindow
 
         isSourceRebuilding = true
 
@@ -122,7 +195,8 @@ final class NotificationFeedProjection {
                     filter: requestedFilter,
                     query: query,
                     referenceDate: requestedReferenceDate,
-                    calendar: requestedCalendar
+                    calendar: requestedCalendar,
+                    rowWindow: requestedRowWindow
                 )
             }
             let output = await withTaskCancellationHandler(
@@ -139,7 +213,34 @@ final class NotificationFeedProjection {
                 return
             }
 
-            self.sections = output.sections
+            // Publishing identical sections would still notify observers and
+            // make the List re-diff every row, so no-op rebuilds (for example
+            // a source recompute that produced the same items) publish nothing.
+            let previousGroups = self.sections.flatMap(\.groups)
+            let previousGroupIDs = Set(previousGroups.map(\.id))
+            // Retention can remove an event anchor while other members remain.
+            // Carry expansion through those surviving notifications, then bind
+            // it to each rebuilt group's current, nonoverlapping anchor.
+            let expandedItemIDs = Set(previousGroups.lazy
+                .filter { self.expandedGroupIDs.contains($0.id) }
+                .flatMap { $0.items.map(\.id) })
+            var sections = output.sections.map {
+                $0.reconcilingGroupIdentity(
+                    previousIDs: previousGroupIDs,
+                    expandedIDs: self.expandedGroupIDs
+                )
+            }
+            self.expandedGroupIDs = Set(sections.flatMap(\.groups).compactMap { group in
+                group.items.contains { expandedItemIDs.contains($0.id) } ? group.id : nil
+            })
+            sections = sections.map { $0.expanding(self.expandedGroupIDs) }
+            if self.sections != sections {
+                self.sections = sections
+            }
+            if self.hasMoreRows != output.hasMoreRows {
+                self.hasMoreRows = output.hasMoreRows
+            }
+            self.isRowWindowExtensionPending = false
             self.hasStaleSourceSections = false
             self.isSourceRebuilding = false
         }
@@ -163,14 +264,17 @@ nonisolated private func notificationFeedProjectionBuild(
     filter: MobileNotificationFeedFilter,
     query: String,
     referenceDate: Date,
-    calendar: Calendar
+    calendar: Calendar,
+    rowWindow: Int
 ) -> NotificationFeedProjectionOutput? {
     let today = calendar.startOfDay(for: referenceDate)
     let yesterday = calendar.date(byAdding: .day, value: -1, to: today)
     var sections: [NotificationFeedDaySection] = []
     sections.reserveCapacity(min(items.count, 8))
     var currentDay: Date?
-    var currentItems: [MobileNotificationFeedItem] = []
+    var currentItems: [NotificationFeedRowModel] = []
+    var mountedRowCount = 0
+    var hasMoreRows = false
 
     func flushCurrentSection() {
         guard let day = currentDay, !currentItems.isEmpty else { return }
@@ -198,17 +302,25 @@ nonisolated private func notificationFeedProjectionBuild(
         if !query.isEmpty, !notificationFeedProjectionMatchesSearchQuery(item: item, query: query) {
             continue
         }
+        if mountedRowCount == rowWindow {
+            // A filtered row exists past the window, so the list shows the
+            // load-more sentinel instead of mounting the rest now.
+            hasMoreRows = true
+            break
+        }
         let day = calendar.startOfDay(for: item.createdAt)
         if let currentDay, currentDay != day {
             flushCurrentSection()
         }
         currentDay = day
-        currentItems.append(item)
+        currentItems.append(NotificationFeedRowModel(item: item))
+        mountedRowCount += 1
     }
     guard !Task.isCancelled else { return nil }
     flushCurrentSection()
     return NotificationFeedProjectionOutput(
-        sections: sections
+        sections: sections,
+        hasMoreRows: hasMoreRows
     )
 }
 

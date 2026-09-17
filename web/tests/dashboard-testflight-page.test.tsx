@@ -1,7 +1,21 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import enMessages from "../messages/en.json";
+import {
+  TEST_STACK_PROJECT_ID,
+  nextHeadersMock,
+} from "./helpers/dashboard-session-mock";
+
+const previousStackProjectId = process.env.NEXT_PUBLIC_STACK_PROJECT_ID;
+process.env.NEXT_PUBLIC_STACK_PROJECT_ID = TEST_STACK_PROJECT_ID;
+afterAll(() => {
+  if (previousStackProjectId === undefined) {
+    delete process.env.NEXT_PUBLIC_STACK_PROJECT_ID;
+  } else {
+    process.env.NEXT_PUBLIC_STACK_PROJECT_ID = previousStackProjectId;
+  }
+});
 import {
   createTestflightUser,
   testflightUserEligibility,
@@ -9,12 +23,18 @@ import {
 
 let stackConfigured = true;
 let currentUser: ReturnType<typeof createTestflightUser> | null = null;
+let userPending = false;
 let ascConfigured = true;
 let status = { enrolled: false } as { enrolled: boolean; state?: string };
 
-const getUser = mock(async () => currentUser);
+const pendingUser = new Promise<never>(() => {});
+const getUser = mock(async () => userPending ? pendingUser : currentUser);
+// The section receives the narrow session user, so eligibility is looked up
+// on the Stack user the test configured rather than on the argument.
 const isTestflightEligible = mock(async (user: unknown) =>
-  testflightUserEligibility(user) ?? false,
+  (user as { id?: string }).id === currentUser?.id
+    ? (testflightUserEligibility(currentUser) ?? false)
+    : false,
 );
 const billingProModule = await import("../services/billing/pro");
 const ascFetch = mock(async (path: unknown) => {
@@ -35,7 +55,7 @@ const ascFetch = mock(async (path: unknown) => {
         ? [
             {
               type: "betaGroups",
-              id: "3ee84bfa-10ad-4f23-a45c-f9a3b037373e",
+              id: PRO_TESTFLIGHT_GROUP_ID,
             },
           ]
         : [],
@@ -49,6 +69,14 @@ mock.module("next-intl/server", () => ({
   getTranslations: async (input?: string | { namespace?: string }) =>
     translator(typeof input === "string" ? input : input?.namespace),
   setRequestLocale: () => undefined,
+}));
+
+mock.module("next/headers", () =>
+  nextHeadersMock({ refreshToken: () => "refresh-1" }),
+);
+
+mock.module("next/cache", () => ({
+  cacheLife: () => undefined,
 }));
 
 mock.module("@/i18n/navigation", () => ({
@@ -69,6 +97,15 @@ mock.module("../app/lib/stack", () => ({
   stackServerApp: stackConfigured ? { getUser } : null,
 }));
 
+mock.module(
+  "../app/[locale]/dashboard/components/dashboard-page-headers",
+  () => ({
+    TestflightPageHeader: () => (
+      <h1 data-testid="testflight-page-header">iOS TestFlight</h1>
+    ),
+  }),
+);
+
 mock.module("../services/asc/client", () => ({
   AscApiError: class AscApiError extends Error {},
   AscConfigurationError: class AscConfigurationError extends Error {},
@@ -87,12 +124,16 @@ mock.module("@/services/billing/pro", () => ({
   isTestflightEligible,
 }));
 
-const { default: DashboardTestflightPage } = await import("../app/[locale]/dashboard/testflight/page");
+const { PRO_TESTFLIGHT_GROUP_ID } = await import("../services/asc/testflight");
+const { default: DashboardTestflightPage, DashboardTestflightContent } = await import(
+  "../app/[locale]/dashboard/testflight/page"
+);
 
 describe("dashboard TestFlight page", () => {
   beforeEach(() => {
     stackConfigured = true;
     currentUser = createTestflightUser();
+    userPending = false;
     ascConfigured = true;
     status = { enrolled: false };
     getUser.mockClear();
@@ -101,13 +142,28 @@ describe("dashboard TestFlight page", () => {
     captureAscError.mockClear();
   });
 
+  test("paints the page header and a section skeleton before the private content", () => {
+    userPending = true;
+
+    const html = renderToStaticMarkup(
+      <DashboardTestflightPage
+        params={Promise.resolve({ locale: "en" })}
+        searchParams={Promise.resolve({})}
+      />,
+    );
+
+    expect(html).toContain('data-testid="testflight-page-header"');
+    expect(html).toContain('data-testid="dashboard-section-skeleton"');
+    expect(html).not.toContain("/api/testflight");
+  });
+
   test("renders not eligible state with pricing link", async () => {
     currentUser = createTestflightUser({ eligible: false });
 
     const html = await renderTestflightPage();
 
     expect(html).toContain("Subscription required");
-    expect(html).toContain("active Pro users and members of a Team subscription");
+    expect(html).toContain("active personal Pro subscribers");
     expect(html).toContain('href="/pricing"');
     expect(html).not.toContain("/api/testflight");
     expect(ascFetch).not.toHaveBeenCalled();
@@ -136,11 +192,21 @@ describe("dashboard TestFlight page", () => {
     expect(html).toContain('name="action" value="leave"');
   });
 
+  test("rechecks eligibility before every rendered page", async () => {
+    const eligibleHtml = await renderTestflightPage();
+    currentUser = createTestflightUser({ eligible: false });
+    const ineligibleHtml = await renderTestflightPage();
+
+    expect(eligibleHtml).toContain("Join the iOS beta");
+    expect(ineligibleHtml).toContain("Subscription required");
+    expect(isTestflightEligible).toHaveBeenCalledTimes(2);
+  });
+
   for (const [testflight, message] of [
     ["joined", "Apple will email your TestFlight invite shortly."],
     ["left", "You have left the iOS TestFlight group."],
     ["error", "TestFlight could not be updated. Try again shortly."],
-    ["ineligible", "An active Pro or Team subscription is required for iOS TestFlight."],
+    ["ineligible", "An active personal Pro subscription is required for iOS TestFlight."],
     ["needs_email", "Add a verified primary email before joining iOS TestFlight."],
     ["unavailable", "TestFlight enrollment is not available right now."],
   ] as const) {
@@ -153,9 +219,9 @@ describe("dashboard TestFlight page", () => {
 });
 
 async function renderTestflightPage(searchParams: Record<string, string> = {}) {
-  const element = await DashboardTestflightPage({
-    params: Promise.resolve({ locale: "en" }),
-    searchParams: Promise.resolve(searchParams),
+  const element = await DashboardTestflightContent({
+    locale: "en",
+    testflight: searchParams.testflight,
   });
   return renderToStaticMarkup(element);
 }

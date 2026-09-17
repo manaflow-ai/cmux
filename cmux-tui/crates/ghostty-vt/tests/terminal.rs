@@ -325,12 +325,12 @@ fn vt_replay_restores_cursor_position_after_tabstops() {
     // replay wrapper re-asserts the true cursor last so a byte-mode frontend
     // does not end parked on the final tabstop column.
     let mut source = Terminal::new(104, 39, 0, Callbacks::default()).unwrap();
-    source.vt_write(b"lawrence in ~ \xce\xbb ");
+    source.vt_write(b"operator in ~ \xce\xbb ");
     let expected = source.cursor_position().unwrap();
     assert_eq!(expected, (16, 0));
 
-    let full = source.vt_replay().unwrap();
-    let bounded = source.vt_replay_bounded(8 * 1024 * 1024).unwrap();
+    let full = source.vt_replay_bytes().unwrap();
+    let bounded = source.vt_replay_bounded_bytes(8 * 1024 * 1024).unwrap();
     for replay in [&full, &bounded] {
         let mut mirror = Terminal::new(104, 39, 0, Callbacks::default()).unwrap();
         mirror.vt_write(replay);
@@ -340,6 +340,247 @@ fn vt_replay_restores_cursor_position_after_tabstops() {
             "mirror cursor diverged after replay"
         );
     }
+}
+
+fn assert_theme_portable_replay_boundaries(
+    label: &str,
+    transcript: &[u8],
+    cols: u16,
+    rows: u16,
+) -> Vec<usize> {
+    let mut failures = Vec::new();
+    let mut delayed_boundaries = Vec::new();
+
+    for split in 0..=transcript.len() {
+        let mut source = Terminal::new(cols, rows, 100, Callbacks::default()).unwrap();
+        source.vt_write(&transcript[..split]);
+        let mut admitted = split;
+        while !source.vt_stream_is_ground() && admitted < transcript.len() {
+            source.vt_write(&transcript[admitted..=admitted]);
+            admitted += 1;
+        }
+        if admitted != split {
+            delayed_boundaries.push(split);
+        }
+        assert!(
+            source.vt_stream_is_ground(),
+            "complete transcript never reached a snapshot boundary after split {split}"
+        );
+        let replay = source.vt_replay_bounded_theme_portable(8 * 1024 * 1024).unwrap();
+
+        let mut mirror = Terminal::new(cols, rows, 100, Callbacks::default()).unwrap();
+        mirror.vt_write(&replay);
+        source.vt_write(&transcript[admitted..]);
+        mirror.vt_write(&transcript[admitted..]);
+
+        let source_text = source.viewport_text().unwrap();
+        let mirror_text = mirror.viewport_text().unwrap();
+        let source_cells = snapshot_cells(&mut source);
+        let mirror_cells = snapshot_cells(&mut mirror);
+        let has_replacement = mirror_text.contains('\u{fffd}');
+        let text_equal = source_text == mirror_text;
+        let cells_equal = source_cells == mirror_cells;
+        let cursor_equal = source.cursor_position() == mirror.cursor_position();
+        if has_replacement || !text_equal || !cells_equal || !cursor_equal {
+            failures.push(format!(
+                "{label} split {split}, admitted {admitted}: source={source_text:?} mirror={mirror_text:?} \
+                 source_cursor={:?} mirror_cursor={:?} replacement={has_replacement} \
+                 text_equal={text_equal} cells_equal={cells_equal} cursor_equal={cursor_equal}",
+                source.cursor_position(),
+                mirror.cursor_position()
+            ));
+        }
+    }
+
+    assert!(
+        failures.is_empty(),
+        "snapshot replay lost incremental parser state:\n{}",
+        failures.join("\n")
+    );
+    delayed_boundaries
+}
+
+// Exact bytes captured from a fresh interactive zsh startup, with the
+// username and hostname replaced by synthetic strings of identical length.
+// This includes zsh's right-prompt erasure, OSC title/cwd updates, styled
+// prompt, UTF-8 lambda, bracketed-paste mode, and end-of-line cleanup.
+const ZSH_STARTUP_CAPTURE: &[u8] = &[
+    0x5e, 0x44, 0x08, 0x08, 0x65, 0x78, 0x69, 0x74, 0x0d, 0x0a, 0x1b, 0x5b, 0x31, 0x6d, 0x1b, 0x5b,
+    0x33, 0x38, 0x3b, 0x35, 0x3b, 0x31, 0x31, 0x38, 0x6d, 0x1b, 0x5b, 0x37, 0x6d, 0x25, 0x1b, 0x5b,
+    0x32, 0x37, 0x6d, 0x1b, 0x5b, 0x31, 0x6d, 0x1b, 0x5b, 0x33, 0x38, 0x3b, 0x35, 0x3b, 0x31, 0x31,
+    0x38, 0x6d, 0x1b, 0x5b, 0x30, 0x6d, 0x1b, 0x5b, 0x33, 0x38, 0x3b, 0x35, 0x3b, 0x31, 0x31, 0x38,
+    0x6d, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
+    0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
+    0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
+    0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
+    0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
+    0x0d, 0x20, 0x0d, 0x1b, 0x5d, 0x32, 0x3b, 0x74, 0x65, 0x72, 0x6d, 0x69, 0x6e, 0x61, 0x6c, 0x40,
+    0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, 0x2d, 0x68, 0x6f, 0x73, 0x74, 0x2d, 0x6d, 0x61, 0x63,
+    0x68, 0x69, 0x6e, 0x65, 0x2d, 0x30, 0x31, 0x3a, 0x7e, 0x2f, 0x66, 0x75, 0x6e, 0x2f, 0x63, 0x6d,
+    0x75, 0x78, 0x74, 0x65, 0x72, 0x6d, 0x2d, 0x68, 0x71, 0x2f, 0x77, 0x6f, 0x72, 0x6b, 0x74, 0x72,
+    0x65, 0x65, 0x73, 0x2f, 0x66, 0x65, 0x61, 0x74, 0x2d, 0x63, 0x6d, 0x75, 0x78, 0x2d, 0x74, 0x75,
+    0x69, 0x2d, 0x74, 0x65, 0x72, 0x6d, 0x69, 0x6e, 0x61, 0x6c, 0x2d, 0x73, 0x74, 0x72, 0x65, 0x61,
+    0x6d, 0x07, 0x1b, 0x5d, 0x31, 0x3b, 0x2e, 0x2e, 0x72, 0x6d, 0x69, 0x6e, 0x61, 0x6c, 0x2d, 0x73,
+    0x74, 0x72, 0x65, 0x61, 0x6d, 0x07, 0x1b, 0x5d, 0x37, 0x3b, 0x66, 0x69, 0x6c, 0x65, 0x3a, 0x2f,
+    0x2f, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, 0x2d, 0x68, 0x6f, 0x73, 0x74, 0x2d, 0x6d, 0x61,
+    0x63, 0x68, 0x69, 0x6e, 0x65, 0x2d, 0x30, 0x31, 0x2e, 0x6c, 0x6f, 0x63, 0x61, 0x6c, 0x2f, 0x55,
+    0x73, 0x65, 0x72, 0x73, 0x2f, 0x74, 0x65, 0x72, 0x6d, 0x69, 0x6e, 0x61, 0x6c, 0x2f, 0x66, 0x75,
+    0x6e, 0x2f, 0x63, 0x6d, 0x75, 0x78, 0x74, 0x65, 0x72, 0x6d, 0x2d, 0x68, 0x71, 0x2f, 0x77, 0x6f,
+    0x72, 0x6b, 0x74, 0x72, 0x65, 0x65, 0x73, 0x2f, 0x66, 0x65, 0x61, 0x74, 0x2d, 0x63, 0x6d, 0x75,
+    0x78, 0x2d, 0x74, 0x75, 0x69, 0x2d, 0x74, 0x65, 0x72, 0x6d, 0x69, 0x6e, 0x61, 0x6c, 0x2d, 0x73,
+    0x74, 0x72, 0x65, 0x61, 0x6d, 0x1b, 0x5c, 0x0d, 0x1b, 0x5b, 0x30, 0x6d, 0x1b, 0x5b, 0x32, 0x37,
+    0x6d, 0x1b, 0x5b, 0x32, 0x34, 0x6d, 0x1b, 0x5b, 0x4a, 0x1b, 0x5b, 0x33, 0x38, 0x3b, 0x35, 0x3b,
+    0x31, 0x33, 0x35, 0x6d, 0x74, 0x65, 0x72, 0x6d, 0x69, 0x6e, 0x61, 0x6c, 0x1b, 0x5b, 0x30, 0x30,
+    0x6d, 0x20, 0x69, 0x6e, 0x20, 0x1b, 0x5b, 0x33, 0x38, 0x3b, 0x35, 0x3b, 0x31, 0x31, 0x38, 0x6d,
+    0x7e, 0x2f, 0x66, 0x75, 0x6e, 0x2f, 0x63, 0x6d, 0x75, 0x78, 0x74, 0x65, 0x72, 0x6d, 0x2d, 0x68,
+    0x71, 0x2f, 0x77, 0x6f, 0x72, 0x6b, 0x74, 0x72, 0x65, 0x65, 0x73, 0x2f, 0x66, 0x65, 0x61, 0x74,
+    0x2d, 0x63, 0x6d, 0x75, 0x78, 0x2d, 0x74, 0x75, 0x69, 0x2d, 0x74, 0x65, 0x72, 0x6d, 0x69, 0x6e,
+    0x61, 0x6c, 0x2d, 0x73, 0x74, 0x72, 0x65, 0x61, 0x6d, 0x1b, 0x5b, 0x30, 0x30, 0x6d, 0x20, 0x6f,
+    0x6e, 0x20, 0x1b, 0x5b, 0x33, 0x38, 0x3b, 0x35, 0x3b, 0x38, 0x31, 0x6d, 0x66, 0x65, 0x61, 0x74,
+    0x2d, 0x63, 0x6d, 0x75, 0x78, 0x2d, 0x74, 0x75, 0x69, 0x2d, 0x74, 0x65, 0x72, 0x6d, 0x69, 0x6e,
+    0x61, 0x6c, 0x2d, 0x73, 0x74, 0x72, 0x65, 0x61, 0x6d, 0x1b, 0x5b, 0x30, 0x30, 0x6d, 0x1b, 0x5b,
+    0x33, 0x38, 0x3b, 0x35, 0x3b, 0x31, 0x36, 0x36, 0x6d, 0x20, 0xce, 0xbb, 0x1b, 0x5b, 0x30, 0x30,
+    0x6d, 0x20, 0x1b, 0x5b, 0x4b, 0x1b, 0x5b, 0x3f, 0x31, 0x68, 0x1b, 0x3d, 0x1b, 0x5b, 0x3f, 0x32,
+    0x30, 0x30, 0x34, 0x68, 0x1b, 0x5b, 0x3f, 0x32, 0x30, 0x30, 0x34, 0x6c, 0x0d, 0x0d, 0x0a,
+];
+
+#[test]
+fn theme_portable_replay_preserves_zsh_startup_at_every_byte_boundary() {
+    let delayed_boundaries =
+        assert_theme_portable_replay_boundaries("zsh-startup", ZSH_STARTUP_CAPTURE, 97, 69);
+    let osc7 = b"\x1b]7;file://";
+    let osc7_start =
+        ZSH_STARTUP_CAPTURE.windows(osc7.len()).position(|window| window == osc7).unwrap();
+    let unsafe_boundary = osc7_start + 1;
+    assert!(
+        delayed_boundaries.contains(&unsafe_boundary),
+        "unsafe OSC 7 split {unsafe_boundary} was admitted without waiting"
+    );
+}
+
+#[test]
+fn theme_portable_replay_preserves_stream_state_at_every_byte_boundary() {
+    let transcript = concat!(
+        "before λ 🙂 e\u{301} ",
+        "\u{1b}[1;31mstyled 赤\u{1b}[0m ",
+        "\u{1b}]0;title λ🙂\u{1b}\\",
+        "\u{1b}P$qm\u{1b}\\",
+        "\u{1b}_ignored\u{1b}\\",
+        "\r\u{1b}[K",
+        " after"
+    )
+    .as_bytes();
+    let delayed_boundaries = assert_theme_portable_replay_boundaries("mixed", transcript, 80, 4);
+    for (label, sequence, unsafe_prefix) in [
+        ("lambda", "λ".as_bytes(), 1),
+        ("emoji", "🙂".as_bytes(), 1),
+        ("SGR", b"\x1b[1;31m".as_slice(), 1),
+        ("OSC title", b"\x1b]0;title".as_slice(), 1),
+    ] {
+        let start =
+            transcript.windows(sequence.len()).position(|window| window == sequence).unwrap();
+        let boundary = start + unsafe_prefix;
+        assert!(
+            delayed_boundaries.contains(&boundary),
+            "unsafe {label} split {boundary} was admitted without waiting"
+        );
+    }
+    for (sequence, unsafe_prefix) in
+        [(b"\x1bP".as_slice(), 1), (b"\x1b_".as_slice(), 1), (b"\r\x1b[".as_slice(), 2)]
+    {
+        let start =
+            transcript.windows(sequence.len()).position(|window| window == sequence).unwrap();
+        let boundary = start + unsafe_prefix;
+        assert!(
+            delayed_boundaries.contains(&boundary),
+            "unsafe {sequence:?} split {boundary} was admitted without waiting"
+        );
+    }
+}
+
+#[test]
+fn theme_portable_replay_preserves_pending_wrap() {
+    for (label, prefix) in [
+        ("narrow", &b"abcde"[..]),
+        ("space", &b"abcd "[..]),
+        ("wide", "abc界".as_bytes()),
+        ("styled", &b"abc\x1b[31mde\x1b[32m"[..]),
+        ("alternate-screen", &b"\x1b[?1049habcde"[..]),
+        ("right-margin", &b"\x1b[?69h\x1b[1;4sabcd"[..]),
+    ] {
+        let mut source = Terminal::new(5, 3, 0, Callbacks::default()).unwrap();
+        source.vt_write(prefix);
+        assert!(source.vt_stream_is_ground(), "{label}");
+
+        let replay = source.vt_replay_bounded_theme_portable(8 * 1024 * 1024).unwrap();
+        let mut mirror = Terminal::new(5, 3, 0, Callbacks::default()).unwrap();
+        mirror.vt_write(&replay);
+
+        source.vt_write(b"X");
+        mirror.vt_write(b"X");
+        assert_eq!(snapshot_cells(&mut source), snapshot_cells(&mut mirror), "{label}");
+        assert_eq!(source.cursor_position(), mirror.cursor_position(), "{label}");
+        assert_eq!(source.viewport_text().unwrap(), mirror.viewport_text().unwrap(), "{label}");
+    }
+}
+
+#[test]
+fn pending_wrap_replay_preserves_cursor_with_origin_mode() {
+    let mut source = Terminal::new(5, 5, 0, Callbacks::default()).unwrap();
+    source.vt_write(b"\x1b[2;4r\x1b[?6h\x1b[2;1Habcde");
+    assert!(source.mode(6, false));
+
+    let replay = source.vt_replay_bounded_theme_portable(8 * 1024 * 1024).unwrap();
+    let mut mirror = Terminal::new(5, 5, 0, Callbacks::default()).unwrap();
+    mirror.vt_write(&replay);
+
+    source.vt_write(b"X");
+    mirror.vt_write(b"X");
+    assert_eq!(snapshot_cells(&mut source), snapshot_cells(&mut mirror));
+    assert_eq!(source.cursor_position(), mirror.cursor_position());
+    assert_eq!(source.viewport_text().unwrap(), mirror.viewport_text().unwrap());
+}
+
+#[test]
+fn pending_wrap_replay_uses_the_active_area_while_viewport_is_scrolled() {
+    let mut source = Terminal::new(5, 3, 100, Callbacks::default()).unwrap();
+    for line in [b"old-a\r\n", b"old-b\r\n", b"old-c\r\n", b"old-d\r\n"] {
+        source.vt_write(line);
+    }
+    source.vt_write(b"abcde");
+    source.scroll_delta(-2);
+    assert!(source.scrollbar().unwrap().scrolled_back());
+
+    let replay = source.vt_replay_bounded_theme_portable(8 * 1024 * 1024).unwrap();
+    let mut mirror = Terminal::new(5, 3, 100, Callbacks::default()).unwrap();
+    mirror.vt_write(&replay);
+
+    source.vt_write(b"X");
+    mirror.vt_write(b"X");
+    source.scroll_to_bottom();
+    assert_eq!(snapshot_cells(&mut source), snapshot_cells(&mut mirror));
+    assert_eq!(source.cursor_position(), mirror.cursor_position());
+}
+
+#[test]
+fn snapshot_boundary_tracks_raw_c1_normalizer_across_writes() {
+    let mut term = Terminal::new(20, 2, 0, Callbacks::default()).unwrap();
+    assert_eq!(term.vt_write_with_normalized(&[0xc2]).as_ref(), &[0xc2]);
+    assert!(!term.vt_stream_is_ground());
+
+    // 0x9d completes UTF-8 U+009D, so the wrapper must not rewrite it as a
+    // standalone C1 OSC opener.
+    assert_eq!(term.vt_write_with_normalized(&[0x9d]).as_ref(), &[0x9d]);
+    assert!(term.vt_stream_is_ground());
+
+    assert_eq!(term.vt_write_with_normalized(&[0x9d]).as_ref(), b"\x1b]");
+    assert!(!term.vt_stream_is_ground());
+    term.vt_write(b"0;raw-c1");
+
+    // A standalone raw C1 ST is normalized to its 7-bit ESC form and closes
+    // the control string, returning both parsers to a snapshot boundary.
+    assert_eq!(term.vt_write_with_normalized(&[0x9c]).as_ref(), b"\x1b\\");
+    assert!(term.vt_stream_is_ground());
 }
 
 #[test]
@@ -644,14 +885,21 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
 #[test]
 fn vt_write_returns_the_exact_normalized_stream_across_split_utf8_and_c1_controls() {
     let mut term = Terminal::new(80, 2, 0, Callbacks::default()).unwrap();
-    let chunks: &[&[u8]] =
-        &[b"\xc2", b"\x9dUTF8-continued ", b"\x9d4;9;#090909", b"\x9c", b"VISIBLE"];
+    let chunks: &[&[u8]] = &[
+        b"\xc2",
+        b"\x9fUTF8-continued ",
+        b"\x9fignored",
+        b"\x9c",
+        b"\x9d4;9;#090909",
+        b"\x9c",
+        b"VISIBLE",
+    ];
     let mut emitted = Vec::new();
     for chunk in chunks {
         emitted.extend_from_slice(term.vt_write_with_normalized(chunk).as_ref());
     }
 
-    assert_eq!(emitted, b"\xc2\x9dUTF8-continued \x1b]4;9;#090909\x1b\\VISIBLE");
+    assert_eq!(emitted, b"\xc2\x9fUTF8-continued \x1b_ignored\x1b\\\x1b]4;9;#090909\x1b\\VISIBLE");
     assert!(term.palette_overridden(9));
     assert!(term.viewport_text().unwrap().contains("VISIBLE"));
 }
