@@ -1083,6 +1083,8 @@ pub struct NotificationEvent {
 pub struct ResourceNotification {
     pub id: NotificationPublicId,
     pub title: String,
+    /// Second line under the title, as `cmux notify --subtitle`.
+    pub subtitle: Option<String>,
     pub body: String,
     pub level: NotificationLevel,
     pub terminal_id: Option<TerminalPublicId>,
@@ -2356,6 +2358,8 @@ pub struct Mux {
     server_lifecycle_ready: AtomicBool,
     shutting_down: AtomicBool,
     pub(crate) control_clients: crate::server::ClientRegistry,
+    #[cfg(unix)]
+    pub(crate) image_pastes: crate::image_paste::ImagePasteStore,
     pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,
     pairing: PairingBroker,
     #[cfg(test)]
@@ -2385,7 +2389,22 @@ struct RestoredTerminalBinding {
 
 impl Mux {
     fn default_workspace_name(state: &State) -> String {
-        state.workspaces.len().to_string()
+        // Provider-created workspaces use a stable, human-readable sequence.
+        // Existing names (including user-renamed workspaces) are left untouched;
+        // only the next automatically generated name is derived here. The
+        // sequence never restarts below the number of workspaces that exist:
+        // renaming `workspace-1` to `shell` and creating another one yields
+        // `workspace-2` (the second workspace), not a second `workspace-1`.
+        let highest = state
+            .workspaces
+            .iter()
+            .filter_map(|workspace| {
+                workspace.name.strip_prefix("workspace-")?.parse::<usize>().ok()
+            })
+            .max()
+            .unwrap_or(0);
+        let next = highest.max(state.workspaces.len()).saturating_add(1);
+        format!("workspace-{next}")
     }
 
     /// Resolve one public resource path from a single live-state snapshot.
@@ -2737,6 +2756,8 @@ impl Mux {
             server_lifecycle_ready: AtomicBool::new(false),
             shutting_down: AtomicBool::new(false),
             control_clients: crate::server::ClientRegistry::new(),
+            #[cfg(unix)]
+            image_pastes: crate::image_paste::ImagePasteStore::default(),
             surface_operation_admission: Arc::new(
                 crate::server::ServerSurfaceOperationAdmission::default(),
             ),
@@ -5816,6 +5837,7 @@ impl Mux {
             self.create_durable_notification(
                 &format!("agent-hook-notification-{sequence}"),
                 title,
+                None,
                 body,
                 level,
                 Some(surface),
@@ -5951,7 +5973,7 @@ impl Mux {
     /// Sends a diagnostic to the frontend-owned sink without writing to a
     /// frontend terminal. One message is retained when startup races sink
     /// installation.
-    fn report_internal_diagnostic(&self, message: impl Into<String>) {
+    pub(crate) fn report_internal_diagnostic(&self, message: impl Into<String>) {
         let message = message.into();
         if let Some(reporter) = self.diagnostic_reporter.get().cloned() {
             reporter(&message);
@@ -8387,6 +8409,30 @@ impl Mux {
     }
 
     #[cfg(all(test, unix))]
+    pub(crate) fn seed_launching_terminal_for_test(
+        &self,
+        terminal_id: &str,
+        workspace_key: &str,
+    ) -> anyhow::Result<()> {
+        let mut registry = self.workspace_registry.lock().unwrap();
+        commit_terminal_transition(
+            &mut registry,
+            "terminal-reserved",
+            "seed-launching-terminal",
+            &RegistryTerminal {
+                terminal_id: terminal_id.to_string(),
+                workspace_key: workspace_key.to_string(),
+                incarnation: None,
+                lifecycle: TerminalLifecycle::Launching,
+                launch_spec: serde_json::json!({}),
+                exit: None,
+                on_exit: TerminalOnExit::Close,
+            },
+        )?;
+        Ok(())
+    }
+
+    #[cfg(all(test, unix))]
     pub(crate) fn seed_running_terminal_for_test(
         self: &Arc<Self>,
         terminal_id: &str,
@@ -8757,27 +8803,59 @@ impl Mux {
         Some(removed)
     }
 
-    /// Resolve a process-stable terminal UUID and one live view placement.
-    /// A catalog-owned terminal with zero views resolves successfully with a
-    /// null surface. This is lookup-only and never creates a replacement shell.
+    /// Resolve a terminal identity to its durable record and one live view
+    /// placement. A catalog-owned terminal with zero views resolves
+    /// successfully with a null surface. This is lookup-only and never creates
+    /// a replacement shell.
+    ///
+    /// Either identity a client can hold is accepted: the process-stable
+    /// terminal host UUID, or the public `term_…` resource id every resource
+    /// command reports (with or without its prefix). A public id maps through
+    /// the registry, including after close, so a tombstone still answers.
+    /// Clients such as the Mac app only ever hold public ids; validating them
+    /// as host ids answered `invalid_terminal_id` and left a detached
+    /// terminal unresolvable by construction (#12362).
     pub fn resolve_terminal(
         &self,
         terminal_id: &str,
     ) -> anyhow::Result<Option<TerminalResolution>> {
-        validate_terminal_hex(terminal_id, "invalid_terminal_id")?;
         let (terminal, terminal_revision) = {
             let registry = self.workspace_registry.lock().unwrap();
-            let snapshot = registry.terminal_snapshot()?;
-            (registry.terminal_record(terminal_id)?, snapshot.revision)
+            let Some(host_id) = Self::resolve_terminal_host_id(&registry, terminal_id)? else {
+                return Ok(None);
+            };
+            (registry.terminal_record(&host_id)?, registry.terminal_revision()?)
         };
         let Some(terminal) = terminal else {
             return Ok(None);
         };
         let state = self.state.lock().unwrap();
         let surface = self
-            .catalog_terminal_by_host(&state, terminal_id)?
+            .catalog_terminal_by_host(&state, &terminal.terminal_id)?
             .and_then(|runtime| terminal_placement_for_runtime(&state, &runtime));
         Ok(Some(TerminalResolution { surface, terminal, terminal_revision }))
+    }
+
+    /// The host id behind a resolver input, or `None` when no registered
+    /// terminal carries that identity. A UUIDv4-shaped value is tried as a host
+    /// id first; about one public id in 64 has that shape by chance, so on a
+    /// miss it is retried as a public id before being reported unknown.
+    fn resolve_terminal_host_id(
+        registry: &WorkspaceRegistry,
+        terminal_id: &str,
+    ) -> anyhow::Result<Option<String>> {
+        let payload = terminal_id.strip_prefix("term_").unwrap_or(terminal_id);
+        let is_hex = payload.len() == crate::terminal_host::TERMINAL_ID_LEN * 2
+            && payload.bytes().all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'));
+        anyhow::ensure!(is_hex, "invalid_terminal_id");
+        if !terminal_id.starts_with("term_")
+            && TerminalId::from_hex(payload).is_some()
+            && registry.terminal_record(payload)?.is_some()
+        {
+            return Ok(Some(payload.to_string()));
+        }
+        let public_id = TerminalPublicId::parse(format!("term_{payload}"))?;
+        registry.terminal_host_id(&public_id)
     }
 
     /// Atomically resolve, incarnation-check, and remove a hosted terminal by
@@ -9142,7 +9220,7 @@ impl Mux {
         surface: Option<SurfaceId>,
     ) -> anyhow::Result<u64> {
         let key = format!("notify-{}", crate::workspace_registry::new_uuid_v4());
-        self.create_durable_notification(&key, title, body, level, surface)?
+        self.create_durable_notification(&key, title, None, body, level, surface)?
             .context("fresh notify key unexpectedly replayed")
     }
 
@@ -9151,6 +9229,7 @@ impl Mux {
         &self,
         public_id: NotificationPublicId,
         title: String,
+        subtitle: Option<String>,
         body: String,
         level: NotificationLevel,
         surface: Option<SurfaceId>,
@@ -9164,6 +9243,7 @@ impl Mux {
             ledger.push_back(ResourceNotification {
                 id: public_id,
                 title: title.clone(),
+                subtitle,
                 body: body.clone(),
                 level,
                 terminal_id: terminal_id.clone(),
@@ -9280,6 +9360,9 @@ impl Mux {
         if let Some(terminal_id) = &notification.terminal_id {
             value["terminal_id"] = serde_json::json!(terminal_id);
         }
+        if let Some(subtitle) = &notification.subtitle {
+            value["subtitle"] = serde_json::json!(subtitle);
+        }
         value
     }
 
@@ -9293,6 +9376,7 @@ impl Mux {
         &self,
         idempotency_key: &str,
         title: String,
+        subtitle: Option<String>,
         body: String,
         level: NotificationLevel,
         surface: Option<SurfaceId>,
@@ -9306,7 +9390,10 @@ impl Mux {
                 .or_else(|| state.terminal_runtime_by_id(surface))
                 .and_then(|surface| surface.terminal_public_id().cloned())
         });
-        let fingerprint = serde_json::json!({
+        // The fingerprint names the subtitle only when one was given, so a key
+        // minted before subtitles existed (an agent-hook retry across an
+        // upgrade) still matches its stored receipt.
+        let mut fingerprint = serde_json::json!({
             "operation": OPERATION,
             "origin": "durable-notification",
             "title": title,
@@ -9314,6 +9401,9 @@ impl Mux {
             "level": level.as_str(),
             "terminal_id": terminal_id,
         });
+        if let Some(subtitle) = &subtitle {
+            fingerprint["subtitle"] = serde_json::json!(subtitle);
+        }
         let committed = |outcome: ResourceEffectOutcome| match outcome {
             ResourceEffectOutcome::Success(_) => Ok(None),
             ResourceEffectOutcome::Failure(error) => Err(anyhow::Error::new(error)),
@@ -9328,6 +9418,7 @@ impl Mux {
                 let intent = serde_json::json!({
                     "notification_id": NotificationPublicId::random().map_err(anyhow::Error::new)?,
                     "title": title,
+                    "subtitle": subtitle,
                     "body": body,
                     "level": level.as_str(),
                     "terminal_id": terminal_id,
@@ -9369,6 +9460,7 @@ impl Mux {
         let numeric_id = self.post_resource_notification(
             notification_id.clone(),
             title.clone(),
+            subtitle.clone(),
             body.clone(),
             level,
             surface,
@@ -9380,6 +9472,7 @@ impl Mux {
             &ResourceNotification {
                 id: notification_id.clone(),
                 title,
+                subtitle,
                 body,
                 level,
                 terminal_id,
@@ -9511,6 +9604,90 @@ impl Mux {
         }
         drop(registry);
         if !commit.replayed {
+            self.publish_resource_event();
+        }
+        Ok(commit)
+    }
+
+    /// Remove retained notifications, for one terminal or the whole session.
+    /// This is the source-of-truth form of a local `cmux notify --clear`: the
+    /// rows leave the ledger, their durable receipts are masked by a clear
+    /// record, every client receives a delete delta, and the console marker
+    /// for the terminal is dropped.
+    pub(crate) fn clear_notifications(
+        &self,
+        mutation: &WorkspaceMutation,
+        expected_revision: Option<u64>,
+        terminal_id: Option<&TerminalPublicId>,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        const OPERATION: &str = "notification.clear";
+        let fingerprint = serde_json::json!({
+            "operation": OPERATION,
+            "terminal_id": terminal_id,
+        });
+        let mut registry = self.workspace_registry.lock().unwrap();
+        if let Some(replay) = registry.replay_resource_patch(mutation, OPERATION, &fingerprint)? {
+            return Ok(replay);
+        }
+        let candidates: Vec<NotificationPublicId> = {
+            let ledger = self.notification_ledger.lock().unwrap();
+            ledger
+                .iter()
+                .filter(|entry| {
+                    terminal_id.is_none_or(|wanted| entry.terminal_id.as_ref() == Some(wanted))
+                })
+                .map(|entry| entry.id.clone())
+                .collect()
+        };
+        // Only durably committed rows are cleared. A row whose create receipt
+        // is still in flight stays, so the clear cannot mask a receipt that
+        // commits after it (the registry lock held here serializes the two).
+        let cleared = registry.committed_notification_ids(&candidates)?;
+        let deltas = cleared
+            .iter()
+            .map(|id| {
+                serde_json::json!({
+                    "kind":"delete",
+                    "sequence":0,
+                    "resource":"notification",
+                    "id":id,
+                })
+            })
+            .collect::<Vec<_>>();
+        let result = serde_json::json!({ "cleared": cleared });
+        let commit = registry.commit_notification_clear(
+            mutation,
+            &fingerprint,
+            expected_revision,
+            &cleared,
+            &result,
+            &Value::Array(deltas),
+        )?;
+        if !commit.replayed {
+            {
+                let mut ledger = self.notification_ledger.lock().unwrap();
+                ledger.retain(|entry| !cleared.contains(&entry.id));
+            }
+            {
+                let mut reads = self.notification_reads.lock().unwrap();
+                for id in &cleared {
+                    reads.remove(id);
+                }
+            }
+            match terminal_id {
+                Some(terminal_id) => {
+                    self.terminal_notifications.lock().unwrap().remove(terminal_id);
+                }
+                None => {
+                    self.terminal_notifications.lock().unwrap().clear();
+                    self.placement_notifications.lock().unwrap().clear();
+                }
+            }
+            self.state.lock().unwrap().resource_revision = commit.revision;
+        }
+        drop(registry);
+        if !commit.replayed {
+            self.emit(MuxEvent::TreeChanged);
             self.publish_resource_event();
         }
         Ok(commit)
@@ -9863,6 +10040,8 @@ impl Mux {
             }
         }
         if let Some(terminal_id) = runtime.terminal_public_id() {
+            #[cfg(unix)]
+            self.image_pastes.close_terminal(terminal_id.as_str());
             self.purge_terminal_side_tables(terminal_id);
         }
     }
@@ -14361,6 +14540,12 @@ impl Mux {
         }
         drop(state);
         drop(registry);
+        #[cfg(unix)]
+        if let Some(terminal_id) = &public_terminal_id {
+            // Replay is a recovery path: the durable exit may have committed
+            // before the previous cleanup attempt completed.
+            self.image_pastes.close_terminal(terminal_id.as_str());
+        }
         if !replayed {
             if let Some((snapshot_terminal_id, generation, blob)) = exit_replay {
                 // Best-effort: a snapshot store failure must not disturb the
@@ -18468,6 +18653,8 @@ mod tests {
             .map(|(index, tab)| {
                 let pane_index = index.min(4);
                 RegistryTab {
+                    name_source: Default::default(),
+                    name_revision: 0,
                     public_id: tab.clone(),
                     pane_id: panes[pane_index].clone(),
                     position: usize::from(index == 5),
@@ -22314,6 +22501,41 @@ mod tests {
     }
 
     #[cfg(unix)]
+    /// The Mac holds only public `term_…` ids. A running terminal whose views
+    /// were all closed stays attachable only if `resolve-terminal` answers for
+    /// that id: the compatibility tree lists tabs, not terminals, so a
+    /// detached terminal was unresolvable by construction (#12362).
+    #[test]
+    fn resolve_terminal_accepts_the_public_id_of_a_detached_terminal() {
+        let mux = test_mux();
+        let source = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let public_id = source
+            .terminal_public_id()
+            .cloned()
+            .expect("hosted terminal has a public content identity");
+        let host = mux
+            .resource_terminal_host_identity(&source)
+            .expect("hosted terminal has a durable process identity");
+        let workspace =
+            mux.surface_workspace(source.id).expect("the new workspace hosts the terminal");
+        mux.create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000012362".into()), None)
+            .unwrap();
+        assert!(mux.close_workspace_at_revision(workspace, None).unwrap().is_some());
+        assert_eq!(mux.resolve_terminal(&host.terminal_id).unwrap().unwrap().surface, None);
+        assert!(
+            mux.surface(source.id).is_some(),
+            "closing a workspace detaches its terminals; it never kills them"
+        );
+
+        let resolved = mux
+            .resolve_terminal(public_id.as_str())
+            .expect("a public terminal id is a valid resolver input")
+            .expect("the detached terminal is still registered");
+        assert_eq!(resolved.terminal.terminal_id, host.terminal_id);
+        assert_eq!(resolved.terminal.lifecycle, TerminalLifecycle::Running);
+        assert_eq!(resolved.surface, None);
+    }
+
     #[test]
     fn hosted_terminal_exit_atomically_detaches_every_projected_view() {
         let mux = test_mux();
@@ -23126,6 +23348,117 @@ mod tests {
 
         let bad = WorkspaceMutation::new("ack-bad", "test").unwrap();
         assert!(mux.ack_notifications(&bad, None, "has space", &[oldest]).is_err());
+    }
+
+    #[test]
+    fn notification_clear_removes_rows_everywhere_and_survives_restart() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-notification-clear-{}", WorkspacePublicId::random().unwrap()));
+        let session = "notification-clear";
+        let open = || {
+            let registry = WorkspaceRegistry::open(&root, session).unwrap();
+            Mux::from_workspace_registry(
+                session.into(),
+                SurfaceOptions::default(),
+                registry,
+                ProviderWorkspaceState::default(),
+                true,
+            )
+            .unwrap()
+        };
+        let mux = open();
+        let first = mux.new_workspace(None, None).unwrap();
+        let second = mux.new_workspace(None, None).unwrap();
+        let first_terminal = first.terminal_public_id().cloned().unwrap();
+        mux.create_durable_notification(
+            "n-a",
+            "a".into(),
+            Some("sub".into()),
+            "".into(),
+            NotificationLevel::Info,
+            Some(first.id),
+        )
+        .unwrap();
+        mux.create_durable_notification(
+            "n-b",
+            "b".into(),
+            None,
+            "".into(),
+            NotificationLevel::Info,
+            Some(second.id),
+        )
+        .unwrap();
+        mux.create_durable_notification(
+            "n-c",
+            "c".into(),
+            None,
+            "".into(),
+            NotificationLevel::Info,
+            Some(first.id),
+        )
+        .unwrap();
+        let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
+        let row_a = snapshot["notifications"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["title"] == "a")
+            .cloned()
+            .unwrap();
+        assert_eq!(row_a["subtitle"], "sub", "subtitle rides the row");
+        let mutation = WorkspaceMutation::new("ack-a", "test").unwrap();
+        let ledger = mux.resource_notifications(8);
+        let id_b = ledger.iter().find(|entry| entry.title == "b").unwrap().id.clone();
+        mux.ack_notifications(&mutation, None, "mac-a", std::slice::from_ref(&id_b)).unwrap();
+        let revision_before = mux.with_state(|state| state.resource_revision);
+
+        // Clear one terminal: its two rows go, the other terminal's row stays.
+        let clear = WorkspaceMutation::new("clear-first", "test").unwrap();
+        let commit = mux.clear_notifications(&clear, None, Some(&first_terminal)).unwrap();
+        assert!(!commit.replayed);
+        assert_eq!(commit.result["cleared"].as_array().unwrap().len(), 2);
+        let remaining = mux.resource_notifications(8);
+        assert_eq!(
+            remaining.iter().map(|entry| entry.title.as_str()).collect::<Vec<_>>(),
+            vec!["b"]
+        );
+        assert!(
+            mux.surface_notification(first.id).is_none(),
+            "console marker dropped with the rows"
+        );
+        let page = mux.resource_events_after(revision_before).unwrap();
+        let batch =
+            page.batches.iter().find(|batch| batch.revision == revision_before + 1).unwrap();
+        assert!(
+            batch
+                .changes
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|change| change["kind"] == "delete" && change["resource"] == "notification")
+        );
+        // Replay is a no-op.
+        let replay = mux.clear_notifications(&clear, None, Some(&first_terminal)).unwrap();
+        assert!(replay.replayed);
+        drop(mux);
+
+        let mux = open();
+        let titles = mux
+            .resource_notifications(8)
+            .iter()
+            .map(|entry| entry.title.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(titles, vec!["b"], "cleared rows must not come back from the receipts");
+        assert_eq!(mux.notification_read_by(&id_b), vec!["mac-a".to_string()]);
+        // Clear everything.
+        let all = WorkspaceMutation::new("clear-all", "test").unwrap();
+        mux.clear_notifications(&all, None, None).unwrap();
+        assert!(mux.resource_notifications(8).is_empty());
+        assert!(mux.notification_read_by(&id_b).is_empty());
+        drop(mux);
+        let mux = open();
+        assert!(mux.resource_notifications(8).is_empty());
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
@@ -24736,7 +25069,7 @@ mod tests {
         );
         let first = mux.apply_layout(None, Some("round-trip".into()), &spec, None).unwrap();
         let exported_shape = node_shape(&screen_root(&mux, first.screen));
-        mux.with_state(|state| assert_eq!(state.workspaces[0].name, "0"));
+        mux.with_state(|state| assert_eq!(state.workspaces[0].name, "workspace-1"));
 
         let round_trip_spec = mux.with_state(|s| {
             fn from_node(node: &Node) -> LayoutSpec {
@@ -27327,7 +27660,7 @@ mod tests {
 
         let (ws0, ws1, pane1, surface1) = mux.with_state(|s| {
             assert_eq!(s.workspaces.len(), 2);
-            assert_eq!(s.workspaces[0].name, "0");
+            assert_eq!(s.workspaces[0].name, "workspace-1");
             assert_eq!(s.workspaces[1].name, "dev");
             assert_eq!(s.active_workspace, 1);
             let pane = s.workspaces[1].screens[0].active_pane;
@@ -27358,6 +27691,44 @@ mod tests {
             assert_eq!(s.active_workspace, 0);
         });
         assert!(events.try_iter().count() > 0);
+    }
+
+    #[test]
+    fn automatically_created_workspaces_use_one_based_sequence() {
+        let mux = test_mux();
+        let _first = mux.new_workspace(None, None).unwrap();
+        let second = mux.new_workspace(None, None).unwrap();
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces[0].name, "workspace-1");
+            assert_eq!(state.workspaces[1].name, "workspace-2");
+        });
+
+        // A user name is authoritative and does not get rewritten by later
+        // automatic creation. The sequence continues past existing defaults.
+        let first_workspace = mux.with_state(|state| state.workspaces[0].id);
+        assert!(mux.rename_workspace(first_workspace, "shell".into()));
+        let third = mux.new_workspace(None, None).unwrap();
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces[0].name, "shell");
+            assert_eq!(state.workspaces[1].name, "workspace-2");
+            assert_eq!(state.workspaces[2].name, "workspace-3");
+        });
+        assert_ne!(second.id, third.id);
+    }
+
+    #[test]
+    fn automatic_workspace_sequence_survives_renaming_the_first_workspace() {
+        let mux = test_mux();
+        let _first = mux.new_workspace(None, None).unwrap();
+        let first_workspace = mux.with_state(|state| state.workspaces[0].id);
+        assert!(mux.rename_workspace(first_workspace, "shell".into()));
+
+        mux.new_workspace(None, None).unwrap();
+
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces[0].name, "shell");
+            assert_eq!(state.workspaces[1].name, "workspace-2");
+        });
     }
 
     #[test]
@@ -27946,6 +28317,8 @@ mod tests {
                                 terminal,
                             },
                             ResourceChange::UpsertTab(RegistryTab {
+                                name_source: Default::default(),
+                                name_revision: 0,
                                 public_id: tab.clone(),
                                 pane_id: pane.clone(),
                                 position: 0,
@@ -28157,6 +28530,8 @@ mod tests {
                                 terminal,
                             },
                             ResourceChange::UpsertTab(RegistryTab {
+                                name_source: Default::default(),
+                                name_revision: 0,
                                 public_id: tab.clone(),
                                 pane_id: pane.clone(),
                                 position: 0,

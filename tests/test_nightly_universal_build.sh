@@ -6,6 +6,17 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 WORKFLOW_FILE="$ROOT_DIR/.github/workflows/nightly.yml"
 
 if ! awk '
+  /^      - name: Build nightly app \(Release\)/ { in_build=1; next }
+  in_build && /^      - name:/ { in_build=0 }
+  in_build && /run-xcodebuild-with-diagnostics\.sh --/ { saw_wrapper=1 }
+  in_build && /xcodebuild -jobs / { saw_jobs_cap=1 }
+  END { exit !(saw_wrapper && !saw_jobs_cap) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly Release builds must retain failure diagnostics and must not cap xcodebuild concurrency (a -jobs cap serializes the per-arch whole-module compiles)"
+  exit 1
+fi
+
+if ! awk '
   /^      - name: Build (universal nightly app|nightly app) \(Release\)/ { in_universal=1; next }
   in_universal && /^      - name:/ { in_universal=0 }
   in_universal && /-destination '\''generic\/platform=macOS'\''/ { saw_universal_destination=1 }
@@ -27,7 +38,7 @@ if ! awk '
   /^  refresh-compilation-cache:/ { job="refresh"; next }
   /^  build-nightly-app:/ { job="build"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
-  job && /^      - name: Cache Xcode compilation results/ { in_cache=1; next }
+  job && /^      - name: Restore Xcode compilation cache/ { in_cache=1; next }
   in_cache && /^      - name:/ { in_cache=0 }
   in_cache && /path: build-universal\/CompilationCache\.noindex/ { saw_path[job]=1 }
   in_cache && /key: xcode-compilation-release-/ { saw_key[job]=1 }
@@ -77,22 +88,22 @@ fi
 if ! awk '
   /^  refresh-compilation-cache:/ { in_refresh=1; next }
   in_refresh && /^  [a-zA-Z0-9_-]+:/ { in_refresh=0 }
-  in_refresh && /timeout-minutes: 45/ { saw_cold_build_timeout=1 }
+  in_refresh && /timeout-minutes: 90/ { saw_cold_build_timeout=1 }
   in_refresh && /if: github\.event_name == '\''schedule'\'' && github\.event\.schedule == '\''17 \*\/6 \* \* \*'\''/ { saw_schedule_gate=1 }
   in_refresh && /runs-on: \$\{\{ vars\.MACOS_RUNNER_26_RELEASE/ { saw_release_runner=1 }
   in_refresh && /CMUX_CI_XCODE_APP_MACOS_26/ { saw_release_xcode=1 }
   in_refresh && /select-ci-xcode\.sh/ { saw_xcode_selection=1 }
-  in_refresh && /^      - name: Look up Xcode compilation cache/ { saw_lookup=1 }
+  in_refresh && /^      - name: Restore Xcode compilation cache/ { saw_lookup=1 }
   in_refresh && /uses: actions\/cache\/restore@/ { saw_restore_action=1 }
-  in_refresh && /lookup-only: true/ { saw_lookup_only=1 }
-  in_refresh && /^      - name: Cache Xcode compilation results/ { saw_cache=1 }
+  in_refresh && /id: compilation-cache-restore/ { saw_restore_id=1 }
+  in_refresh && /^      - name: Save Xcode compilation cache/ { saw_cache=1 }
   in_refresh && /^      - name: Refresh universal nightly compilation cache/ { saw_refresh=1 }
-  in_refresh && /if: steps\.compilation-cache-lookup\.outputs\.cache-hit != '\''true'\''/ { saw_change_gate=1 }
+  in_refresh && /if: steps\.compilation-cache-restore\.outputs\.cache-hit != '\''true'\''/ { saw_change_gate=1 }
   in_refresh && /-showBuildTimingSummary/ { saw_timing_summary=1 }
   in_refresh && /-quiet/ { saw_quiet=1 }
-  END { exit !(saw_cold_build_timeout && saw_schedule_gate && saw_release_runner && saw_release_xcode && saw_xcode_selection && saw_lookup && saw_restore_action && saw_lookup_only && saw_cache && saw_refresh && saw_change_gate && saw_timing_summary && !saw_quiet) }
+  END { exit !(saw_cold_build_timeout && saw_schedule_gate && saw_release_runner && saw_release_xcode && saw_xcode_selection && saw_lookup && saw_restore_action && saw_restore_id && saw_cache && saw_refresh && saw_change_gate && saw_timing_summary && !saw_quiet) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: the six-hour schedule must allow 45 minutes for a cold cache build and use the matching runner, Xcode, and visible timing output"
+  echo "FAIL: the six-hour schedule must allow 90 minutes for a cold cache build and use the matching runner, Xcode, and visible timing output"
   exit 1
 fi
 
@@ -117,7 +128,7 @@ if grep -Eq 'current_head_(prebuild|postbuild)|still_current' "$WORKFLOW_FILE"; 
 fi
 
 R2_UPLOAD_LINE="$(grep -nF -- '- name: Upload nightly appcasts to R2' "$WORKFLOW_FILE" | cut -d: -f1)"
-TAG_MOVE_LINE="$(grep -nF -- '- name: Move nightly tag to built commit' "$WORKFLOW_FILE" | cut -d: -f1)"
+TAG_MOVE_LINE="$(grep -nF -- '- name: Move channel release tag to built commit' "$WORKFLOW_FILE" | cut -d: -f1)"
 if [ -z "$R2_UPLOAD_LINE" ] || [ -z "$TAG_MOVE_LINE" ] || [ "$TAG_MOVE_LINE" -le "$R2_UPLOAD_LINE" ]; then
   echo "FAIL: the nightly tag completion marker must move only after GitHub and R2 publication succeed"
   exit 1
@@ -148,10 +159,13 @@ if ! awk '
   in_release && /COMPILATION_CACHE_ENABLE_CACHING=YES/ { saw_cache_flag=1 }
   in_release && /COMPILATION_CACHE_LIMIT_SIZE=3221225472/ { saw_runtime_limit=1 }
   in_release && /max_cache_kib=\$\(\(5 \* 1024 \* 1024\)\)/ { saw_save_limit=1 }
+  in_release && /python3 scripts\/ci\/prune-xcode-compilation-cache\.py "\$cache_path" \\$/ { saw_prune=NR }
+  in_release && saw_prune && NR == saw_prune + 1 && /^ +\|\| echo "::warning::Xcode compilation cache pruning failed/ { saw_prune_nonfatal=1 }
+  in_release && /cache_kib=\$\(du -sk "\$cache_path"/ { saw_measure=NR }
   in_release && /rm -rf "\$cache_path"/ { saw_skip_save=1 }
-  END { exit !(saw_path && saw_parent_exclusion && saw_key && saw_restore && saw_cache_flag && saw_runtime_limit && saw_save_limit && saw_skip_save) }
+  END { exit !(saw_path && saw_parent_exclusion && saw_key && saw_restore && saw_cache_flag && saw_runtime_limit && saw_save_limit && saw_prune && saw_prune_nonfatal && saw_measure && saw_prune < saw_measure && saw_skip_save) }
 ' "$CI_WORKFLOW_FILE"; then
-  echo "FAIL: PR release builds must restore and update the bounded cache warmed from main without archiving it twice"
+  echo "FAIL: PR release builds must restore and update the bounded cache warmed from main, pruned of dead CAS generations, without archiving it twice"
   exit 1
 fi
 
@@ -242,8 +256,8 @@ if ! awk '
   exit 1
 fi
 
-if ! grep -Fq 'bundle ID `com.cmuxterm.app.nightly`' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly workflow must publish the unified nightly bundle ID"
+if ! grep -Fq "bundleId: 'com.cmuxterm.app.nightly'," "$WORKFLOW_FILE" || ! grep -Fq "bundleId: 'com.cmuxterm.app.rc'," "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly workflow must publish the unified nightly bundle ID and the rc channel bundle ID"
   exit 1
 fi
 
@@ -252,7 +266,7 @@ if ! grep -Fq 'cp appcast.xml appcast-universal.xml' "$WORKFLOW_FILE"; then
   exit 1
 fi
 
-if ! grep -Fq './scripts/sparkle_generate_appcast.sh "$NIGHTLY_DMG_IMMUTABLE" nightly "$NIGHTLY_APPCAST"' "$WORKFLOW_FILE"; then
+if ! grep -Fq './scripts/sparkle_generate_appcast.sh "$NIGHTLY_DMG_IMMUTABLE" "$CHANNEL_RELEASE_TAG" "$NIGHTLY_APPCAST"' "$WORKFLOW_FILE"; then
   echo "FAIL: nightly workflow must generate one appcast per variant"
   exit 1
 fi
@@ -260,9 +274,11 @@ fi
 if ! awk '
   /NIGHTLY_APPCAST="appcast-\$\{NIGHTLY_VARIANT\}\.xml"/ { saw_thin_feed=1 }
   /NIGHTLY_APPCAST="appcast\.xml"/ { saw_legacy_feed=1 }
-  /"https:\/\/files\.cmux\.com\/nightly\/\$\{NIGHTLY_APPCAST\}"/ { saw_feed_injection=1 }
-  /NIGHTLY_DMG_IMMUTABLE="cmux-nightly-macos-\$\{NIGHTLY_VARIANT\}-\$\{NIGHTLY_BUILD\}\.dmg"/ { saw_immutable_name=1 }
-  END { exit !(saw_thin_feed && saw_legacy_feed && saw_feed_injection && saw_immutable_name) }
+  /"\$\{CHANNEL_FEED_BASE\}\/\$\{NIGHTLY_APPCAST\}"/ { saw_feed_injection=1 }
+  /feedBase: .https:\/\/files\.cmux\.com\/nightly.,/ { saw_nightly_feed_base=1 }
+  /feedBase: .https:\/\/files\.cmux\.com\/rc.,/ { saw_rc_feed_base=1 }
+  /NIGHTLY_DMG_IMMUTABLE="\$\{CHANNEL_DMG_PREFIX\}-\$\{NIGHTLY_VARIANT\}-\$\{NIGHTLY_BUILD\}\.dmg"/ { saw_immutable_name=1 }
+  END { exit !(saw_thin_feed && saw_legacy_feed && saw_feed_injection && saw_nightly_feed_base && saw_rc_feed_base && saw_immutable_name) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: each variant must bake its own feed URL and immutable DMG name"
   exit 1
@@ -271,8 +287,8 @@ fi
 if ! awk '
   /^      - name: Assemble legacy nightly names/ { in_legacy=1; next }
   in_legacy && /^      - name:/ { in_legacy=0 }
-  in_legacy && /cp cmux-nightly-macos-universal\.dmg cmux-nightly-macos\.dmg/ { saw_universal_legacy=1 }
-  in_legacy && /cmux-nightly-macos-x86_64\.dmg cmux-nightly-macos\.dmg/ { saw_intel_legacy=1 }
+  in_legacy && /cp "\$\{CHANNEL_DMG_PREFIX\}-universal\.dmg" "\$\{CHANNEL_DMG_PREFIX\}\.dmg"/ { saw_universal_legacy=1 }
+  in_legacy && /\$\{CHANNEL_DMG_PREFIX\}-x86_64\.dmg" "\$\{CHANNEL_DMG_PREFIX\}\.dmg/ { saw_intel_legacy=1 }
   END { exit !(saw_universal_legacy && !saw_intel_legacy) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: the legacy nightly DMG and feed must stay universal: browsers cannot pick an architecture, the app can"
@@ -369,6 +385,50 @@ if ! awk '
   exit 1
 fi
 
+# PR release builds restore the cache nightly warms from main by this prefix.
+# Renaming it on either side, or on a key but not its restore-keys, silently
+# turns every PR release build or every nightly restore cold.
+XCODE_CACHE_PREFIX='xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-'
+for cache_workflow in "$WORKFLOW_FILE" "$CI_WORKFLOW_FILE"; do
+  if ! grep -qF -- "$XCODE_CACHE_PREFIX" "$cache_workflow" \
+    || grep -F 'xcode-compilation-release-' "$cache_workflow" | grep -vqF -- "$XCODE_CACHE_PREFIX"; then
+    echo "FAIL: nightly and PR release builds must share one Xcode compilation cache key prefix"
+    exit 1
+  fi
+done
+
+# A warm build leaves a dead CAS generation behind, so the cache directory
+# measures two full builds and used to exceed the bound on every warm run.
+# Prune it before measuring, then save explicitly on a miss using the bound
+# step's verdict instead of rescanning the directory with hashFiles.
+if ! awk '
+  /^  refresh-compilation-cache:/ { job="refresh"; next }
+  /^  build-nightly-app:/ { job="app"; next }
+  /^  [a-zA-Z0-9_-]+:/ { job=""; step="" }
+  job && /^      - name: Bound Xcode compilation cache size/ { step="bound"; bound[job]=NR; next }
+  job && /^      - name: Save Xcode compilation cache/ { step="save"; save[job]=NR; next }
+  job && /^      - name:/ { step="" }
+  step == "bound" && /^        id: compilation-cache-bound$/ { bound_id[job]=1 }
+  step == "bound" && /python3 scripts\/ci\/prune-xcode-compilation-cache\.py "\$cache_path" \\$/ { prune[job]=NR }
+  step == "bound" && prune[job] && NR == prune[job] + 1 && /^ +\|\| echo "::warning::Xcode compilation cache pruning failed/ { prune_nonfatal[job]=1 }
+  step == "bound" && /cache_kib=\$\(du -sk "\$cache_path"/ { measure[job]=NR }
+  step == "bound" && /echo "save=/ && /GITHUB_OUTPUT/ { verdict[job]=1 }
+  step == "save" && /uses: actions\/cache\/save@/ { save_action[job]=1 }
+  step == "save" && /^        if: steps\.compilation-cache-restore\.outputs\.cache-hit != '\''true'\'' && steps\.compilation-cache-bound\.outputs\.save == '\''true'\''$/ { save_gate[job]=1 }
+  step == "save" && /hashFiles/ { rescan[job]=1 }
+  END {
+    n = split("refresh app", jobs, " ")
+    for (i = 1; i <= n; i++) {
+      j = jobs[i]
+      if (!(bound[j] && bound_id[j] && prune[j] && prune_nonfatal[j] && measure[j] && prune[j] < measure[j] && verdict[j] && save[j] && save[j] > bound[j] && save_action[j] && save_gate[j] && !rescan[j])) exit 1
+    }
+    exit 0
+  }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly cache saves must prune dead CAS generations (non-fatally) before measuring the bound, then save explicitly on a miss from the bound step verdict"
+  exit 1
+fi
+
 if ! grep -Fq 'github.event.inputs.fast == '\''true'\'' && '\''fast'\'' || '\''full'\''' "$WORKFLOW_FILE"; then
   echo "FAIL: fast branch builds must not queue behind a full build on the same branch"
   exit 1
@@ -390,7 +450,7 @@ if ! awk '
   /^  [a-zA-Z0-9_-]+:/ { job="" }
   job == "report" && /contains\(needs\.\*\.result, .failure.\)/ { saw_report_gate=1 }
   job == "report" && /issues: write/ { saw_report_perm=1 }
-  job == "report" && /nightly-failure/ { saw_report_label=1 }
+  job == "report" && /\$\{channel\}-failure/ { saw_report_label=1 }
   job == "close" && /needs\.publish-nightly\.result == .success./ { saw_close_gate=1 }
   job == "close" && /state: .closed./ { saw_close=1 }
   END { exit !(saw_report_gate && saw_report_perm && saw_report_label && saw_close_gate && saw_close) }
@@ -399,8 +459,9 @@ if ! awk '
   exit 1
 fi
 
-if ! grep -Fq "core.setOutput('should_publish', isMainRef ? 'true' : 'false');" "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly decide step must expose should_publish based on whether the ref is main"
+if ! grep -Fq "const shouldPublish = (isMainRef || isRcRef) && !buildOnly && !fastBuild;" "$WORKFLOW_FILE" \
+  || ! grep -Fq "core.setOutput('should_publish', shouldPublish ? 'true' : 'false');" "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly decide step must expose should_publish only for main and rc/ refs that are not measurement or fast runs"
   exit 1
 fi
 
@@ -409,7 +470,7 @@ if ! awk '
   in_upload && /^      - name:/ { in_upload=0 }
   in_upload && /if: needs\.decide\.outputs\.should_publish != '\''true'\''/ { saw_if=1 }
   in_upload && /uses: actions\/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7/ { saw_upload=1 }
-  in_upload && /cmux-nightly-macos\*\.dmg/ { saw_arm_artifacts=1 }
+  in_upload && /\$\{\{ needs\.decide\.outputs\.dmg_prefix \}\}\*\.dmg/ { saw_arm_artifacts=1 }
   in_upload && /appcast\*\.xml/ { saw_appcasts=1 }
   END { exit !(saw_if && saw_upload && saw_arm_artifacts && saw_appcasts) }
 ' "$WORKFLOW_FILE"; then
@@ -418,12 +479,12 @@ if ! awk '
 fi
 
 if ! awk '
-  /^      - name: Move nightly tag to built commit/ { in_move=1; next }
+  /^      - name: Move channel release tag to built commit/ { in_move=1; next }
   in_move && /^      - name:/ { in_move=0 }
   in_move && /if: needs\.decide\.outputs\.should_publish == '\''true'\''/ { saw_move_if=1 }
   END { exit !saw_move_if }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: moving the nightly tag must be gated to main nightly publishes"
+  echo "FAIL: moving the channel release tag must be gated to publishing runs"
   exit 1
 fi
 
@@ -431,10 +492,10 @@ if ! awk '
   /^      - name: Publish nightly release assets/ { in_publish=1; next }
   in_publish && /^      - name:/ { in_publish=0 }
   in_publish && /if: needs\.decide\.outputs\.should_publish == '\''true'\''/ { saw_publish_if=1 }
-  in_publish && /cmux-nightly-macos-\*-\$\{\{ github\.run_id \}\}\*\.dmg/ { saw_immutable=1 }
-  in_publish && /cmux-nightly-macos\.dmg/ { saw_stable=1 }
-  in_publish && /cmux-nightly-macos-arm64\.dmg/ { saw_arm=1 }
-  in_publish && /cmux-nightly-macos-x86_64\.dmg/ { saw_intel=1 }
+  in_publish && /\$\{\{ needs\.decide\.outputs\.dmg_prefix \}\}-\*-\$\{\{ github\.run_id \}\}\*\.dmg/ { saw_immutable=1 }
+  in_publish && /\$\{\{ needs\.decide\.outputs\.dmg_prefix \}\}\.dmg/ { saw_stable=1 }
+  in_publish && /\$\{\{ needs\.decide\.outputs\.dmg_prefix \}\}-arm64\.dmg/ { saw_arm=1 }
+  in_publish && /\$\{\{ needs\.decide\.outputs\.dmg_prefix \}\}-x86_64\.dmg/ { saw_intel=1 }
   in_publish && /appcast-arm64\.xml/ { saw_arm_appcast=1 }
   in_publish && /appcast-x86_64\.xml/ { saw_intel_appcast=1 }
   in_publish && /appcast-universal\.xml/ { saw_universal_appcast=1 }
@@ -443,5 +504,86 @@ if ! awk '
   echo "FAIL: main nightly publish must include per-architecture immutable and stable DMGs, their appcasts, and the legacy names"
   exit 1
 fi
+
+# A build-only measurement run is the only safe way to time the nightly build
+# job from a branch: a full branch dispatch still signs and notarizes under the
+# release identity. build_only must stop at the unsigned universal build, so it
+# never reaches the helper, signing, notarization, dSYM upload, or publication,
+# and cold_cache (skip the compilation cache restore) is only honoured there.
+for expected in \
+  'description: Measure the unsigned universal build only. Never builds the helper, signs, notarizes, uploads dSYMs, or publishes.' \
+  'description: Skip the Xcode compilation cache restore so the measurement run is a cache miss. Only honoured with build_only.' \
+  "const buildOnly = process.env.BUILD_ONLY === 'true';" \
+  "const coldCache = buildOnly && process.env.COLD_CACHE === 'true';" \
+  "core.setOutput('build_only', buildOnly ? 'true' : 'false');" \
+  "core.setOutput('cold_cache', coldCache ? 'true' : 'false');" \
+  'build_only: ${{ steps.decide.outputs.build_only }}' \
+  'cold_cache: ${{ steps.decide.outputs.cold_cache }}'; do
+  if ! grep -Fq "$expected" "$WORKFLOW_FILE"; then
+    echo "FAIL: build-only measurement lane is missing: $expected"
+    exit 1
+  fi
+done
+
+# Each job's complete job-level `if:` is matched verbatim, so the build_only
+# exclusion can only ever be a conjunctive clause: an `||` around it would run
+# helper, signing, or publish work during a measurement dispatch.
+job_if() {
+  awk -v job="$1" '
+    $0 == "  " job ":" { in_job=1; next }
+    in_job && /^  [a-zA-Z0-9_-]+:$/ { in_job=0 }
+    in_job && /^    if: / { print; exit }
+  ' "$WORKFLOW_FILE"
+}
+PUBLISH_SCHEDULE="(github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')"
+if [ "$(job_if build-nightly-app)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE" ] \
+  || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true'" ] \
+  || [ "$(job_if build-sign-notarize-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true'" ] \
+  || [ "$(job_if publish-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && $PUBLISH_SCHEDULE" ]; then
+  echo "FAIL: build_only must be a conjunctive exclusion on the helper, signing, and publication jobs, and must not gate the unsigned app build"
+  exit 1
+fi
+
+# A measurement run always builds the production universal workload: it must
+# not depend on the nightly tag (a build-only dispatch on main would otherwise
+# skip when the tag already matches HEAD) and must ignore the fast arm64 path.
+for expected in \
+  "const shouldBuild = buildOnly || !isMainRef || forceBuild || nightlySha !== headSha;" \
+  "const fastBuild = !buildOnly && process.env.FAST_BUILD === 'true';"; do
+  if ! grep -Fq "$expected" "$WORKFLOW_FILE"; then
+    echo "FAIL: build_only must always build the universal app: $expected"
+    exit 1
+  fi
+done
+
+if ! awk '
+  /^  build-nightly-app:/ { job="app"; next }
+  /^  [a-zA-Z0-9_-]+:/ { job=""; step="" }
+  job == "app" && /^      - name: Restore Xcode compilation cache/ { step="restore"; next }
+  job == "app" && /^      - name: Upload dSYMs to Sentry/ { step="dsym"; next }
+  job == "app" && /^      - name:/ { step="" }
+  step == "restore" && /^        if: needs\.decide\.outputs\.cold_cache != '\''true'\''$/ { saw_cold_gate=1 }
+  step == "dsym" && /^        if: needs\.decide\.outputs\.build_only != '\''true'\''$/ { saw_dsym_gate=1 }
+  END { exit !(saw_cold_gate && saw_dsym_gate) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: a build-only run must be able to skip the compilation cache restore and must never upload dSYMs to Sentry"
+  exit 1
+fi
+
+if ! grep -Fq "github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id)" "$WORKFLOW_FILE"; then
+  echo "FAIL: build-only measurement runs must not share a concurrency group with publishing nightly runs (a newer queued run cancels the pending one)"
+  exit 1
+fi
+
+# An oversize cache silently freezes the nightly cache at the last saved entry:
+# every later build restores that entry, exceeds the bound again, and never
+# saves. Surface the skip as a workflow warning so the freeze is visible.
+for cache_workflow in "$WORKFLOW_FILE" "$CI_WORKFLOW_FILE"; do
+  if grep -Fq 'echo "Xcode compilation cache exceeds 5 GiB; skipping cache save"' "$cache_workflow" \
+    || ! grep -Fq 'echo "::warning::Xcode compilation cache exceeds 5 GiB; skipping cache save"' "$cache_workflow"; then
+    echo "FAIL: $(basename "$cache_workflow") must report an oversize compilation cache as a workflow warning"
+    exit 1
+  fi
+done
 
 echo "PASS: nightly workflow builds once, thins per architecture, and keeps the legacy track migrating"

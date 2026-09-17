@@ -56,6 +56,7 @@ pub(super) fn restore_public_projections(
         notification_ledger.push_back(ResourceNotification {
             id: notification.id,
             title: notification.title,
+            subtitle: notification.subtitle,
             body: notification.body,
             level,
             terminal_id: notification.terminal_id,
@@ -221,6 +222,7 @@ mod tests {
                 id: NotificationPublicId::parse("notification_00000000000000000000000000000001")
                     .unwrap(),
                 title: "build".into(),
+                subtitle: None,
                 body: String::new(),
                 level: "info".into(),
                 terminal_id: Some(terminal.clone()),
@@ -259,6 +261,7 @@ mod tests {
                 id: NotificationPublicId::parse("notification_00000000000000000000000000000002")
                     .unwrap(),
                 title: "orphan".into(),
+                subtitle: None,
                 body: String::new(),
                 level: "warning".into(),
                 terminal_id: None,
@@ -284,6 +287,7 @@ mod tests {
                 id: NotificationPublicId::parse("notification_00000000000000000000000000000003")
                     .unwrap(),
                 title: "finished".into(),
+                subtitle: None,
                 body: String::new(),
                 level: "info".into(),
                 terminal_id: Some(terminal.clone()),

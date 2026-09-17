@@ -313,8 +313,11 @@ browser <selector> show|navigate|back|forward|reload|activate
 browser <selector> key|text|attach|close
 browser <selector> mouse|wheel --pointer-frame-seq <decimal>
 
-notification list|create
+notification list
+notification create --title <text> --body <text> [--subtitle <text>] [--level <level>] [--terminal <term_id>]
+notification clear [--terminal <term_id>]
 notification ack --client <id> <notification-id>...
+notify [--title <text>] [--subtitle <text>] [--body <text>] [--clear] [--surface <term_id|current>] [--workspace <ws_id|current>]
 agent list|report
 pairing request list
 pairing request <selector> respond <accept|reject>
@@ -326,6 +329,20 @@ sidebar plugin list|install|use|update|remove
 provider authority install
 
 ```
+
+`notify` takes the flags of the macOS `cmux notify` so scripts and agent hooks
+work unchanged inside a machine: `--title` (default `Notification`, at most
+512 characters), `--subtitle` (at most 512), `--body` (at most 4096),
+`--clear`, `--surface`, `--workspace`, `--json`; `--window` and `--id-format`
+are accepted and ignored. The target defaults to the caller's own terminal
+(`CMUX_TUI_TERMINAL_ID`, which the daemon injects into every PTY); `--surface
+current` says the same, `--surface <term_id>` names another terminal of this
+session, and `--workspace` alone posts a session-level row with no terminal.
+A machine can only address its own session. `--clear` removes the retained
+rows for that target on the machine (`notification.clear`), so every attached
+client drops them. `--reply` is refused: a reply would type into a terminal,
+and that channel does not cross the link. Every row is bounded because each
+one is pushed to every attached client.
 
 `notification ack --client <id> <notification-id>...` records that one client
 install has read the listed notifications. `--client` is the durable client

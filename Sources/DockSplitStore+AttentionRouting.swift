@@ -64,6 +64,9 @@ extension DockSplitStore {
                   mountedTerminal === terminal else {
                 return
             }
+            // The user (or a socket client) took over the pane: never replay a
+            // lost restore selector into a line they are typing.
+            self.restoredAgentLifecycle.clearStartupInput(panelId: terminal.id)
             ownerTabManager?.dismissNotificationOnTerminalInteraction(
                 tabId: self.workspaceId,
                 surfaceId: terminal.id

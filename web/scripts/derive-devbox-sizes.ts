@@ -10,13 +10,7 @@
  *
  * Usage:
  *   FREESTYLE_API_KEY=... bun scripts/derive-devbox-sizes.ts <master-snapshot-id> <slug-prefix>
- *       [--sizes sm,md,lg,lgx,xl,2xl] [--out <json>] [--replace-slug]
- *       [--concurrency <n>]
- *
- * Sizes are independent (each is "boot the master, resize, snapshot, boot the
- * result"), and every one spends most of its time waiting for a guest to
- * settle, so they run concurrently. `--concurrency` caps how many are in
- * flight; 1 restores the old serial behaviour.
+ *       [--sizes sm,md,lg,lgx,xl,2xl] [--out <json>] [--replace-slug] [--concurrency <n>]
  *
  * Prints one line per size and a final JSON `{ sizes: { <name>: { imageId, slug, size } } }`
  * (also written to --out). Every derived VM is booted once more from its own
@@ -37,8 +31,9 @@ import {
   type VmImageSize,
   type VmImageSizeName,
 } from "../services/vms/images/sizes";
+import { CMUX_TUI_SESSION, cmuxTuiRunCommand } from "../services/vms/drivers/cmuxTuiDaemon";
 import { DEVBOX_HOSTNAME } from "../services/vms/images/identity";
-import { argValue, cmuxTuiWebsocketSmokeCommand, devboxParkDaemonCommand, hasFlag } from "./devbox-image-common";
+import { argValue, cmuxTuiWebsocketSmokeCommand, devboxParkDaemonCommand, devboxWaitForDaemonCommand, hasFlag } from "./devbox-image-common";
 
 const apiKey = process.env.FREESTYLE_API_KEY;
 const stackToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN;
@@ -53,7 +48,7 @@ const fs = (() => {
 const master = process.argv[2];
 const slugPrefix = process.argv[3];
 if (!master || master.startsWith("--") || !slugPrefix || slugPrefix.startsWith("--")) {
-  throw new Error("usage: bun scripts/derive-devbox-sizes.ts <master-snapshot-id> <slug-prefix> [--sizes sm,md,lg,lgx,xl,2xl] [--out <json>] [--replace-slug]");
+  throw new Error("usage: bun scripts/derive-devbox-sizes.ts <master-snapshot-id> <slug-prefix> [--sizes sm,md,lg,lgx,xl,2xl] [--out <json>] [--replace-slug] [--concurrency <n>]");
 }
 const requested = (argValue("--sizes") ?? VM_IMAGE_SIZE_NAMES.join(",")).split(",").map((s) => s.trim()).filter(Boolean);
 for (const name of requested) {
@@ -68,10 +63,10 @@ if (!/^[a-z0-9](?:[a-z0-9-]{0,57}[a-z0-9])?$/.test(slugPrefix) || slugPrefix.inc
 const sizes = requested as VmImageSizeName[];
 const replaceSlug = hasFlag("--replace-slug");
 
-const concurrencyRaw = argValue("--concurrency");
-const concurrency = concurrencyRaw === undefined ? 6 : Number.parseInt(concurrencyRaw, 10);
+const concurrencyRaw = argValue("--concurrency") ?? process.env.CMUX_DEVBOX_DERIVE_CONCURRENCY;
+const concurrency = concurrencyRaw === undefined ? sizes.length : Number(concurrencyRaw);
 if (!Number.isInteger(concurrency) || concurrency < 1) {
-  throw new Error(`--concurrency: expected a positive integer, got ${concurrencyRaw}`);
+  throw new Error(`--concurrency / CMUX_DEVBOX_DERIVE_CONCURRENCY: expected a positive integer, got ${concurrencyRaw}`);
 }
 
 const FIREWALL: FirewallSpec = { rules: [{ action: "allow", source: {}, destination: { public: true } }] };
@@ -91,11 +86,6 @@ async function retry<T>(operation: () => Promise<T>, done: (value: T) => boolean
   }
   return last;
 }
-
-/** What "the daemon is back on this machine" means, in one shell command. */
-const DAEMON_UP_PROBE =
-  "env HOME=/root /root/.cmux/bin/cmux-tui server status --session cloud >/dev/null 2>&1" +
-  " && grep -qi ':0539 ' /proc/net/tcp6 && test -s /etc/cmux/daemon-instance-id && echo daemon-up";
 
 type Exec = { exec: (options: { command: string; timeoutMs?: number; linuxUser?: string }) => Promise<{ stdout?: string | null; stderr?: string | null; statusCode?: number | null }> };
 async function sh(vm: Exec, command: string, timeoutMs = 120_000): Promise<{ code: number; out: string }> {
@@ -166,99 +156,128 @@ console.log(`master ${master}: ${masterShape.cpu} vCPU, ${masterShape.memoryMb} 
 // would otherwise try to take it).
 const masterSlug = (await fs.vms.snapshots.list()).snapshots.find((candidate) => candidate.id === master)?.slug ?? null;
 
-/** Derive one size: boot the master, resize, snapshot, then boot the result. */
+/**
+ * The row that carries the full WebSocket smoke after its snapshot boots: the
+ * largest, because a bigger shape is the one a resize could plausibly break.
+ * Every other row still proves its daemon came back and its shape survived.
+ */
+const smokeSize = sizes[sizes.length - 1];
+
+/**
+ * One ladder row: boot the master, grow it, prove the daemon, snapshot, then
+ * boot the derived snapshot and prove the shape and the daemon survived.
+ * Every row is independent (its own VMs, its own snapshot), so they run
+ * concurrently; the master and the manifest are read-only here.
+ */
 async function deriveSize(name: VmImageSizeName): Promise<void> {
-  const size = vmImageSize(name);
-  const slug = name === "md" && slugPrefix !== masterSlug ? slugPrefix : `${slugPrefix}-${name}`;
-  const t0 = Date.now();
-  let imageId: string;
+    const size = vmImageSize(name);
+    const slug = name === "md" && slugPrefix !== masterSlug ? slugPrefix : `${slugPrefix}-${name}`;
+    const t0 = Date.now();
+    let imageId: string;
 
-  if (masterShape.cpu === size.cpu && Math.abs(masterShape.memoryMb - size.memoryMb) < size.memoryMb * 0.1 && masterShape.rootMb >= size.storageMb * 0.85) {
-    imageId = master;
-    console.log(`${name}: master already has this shape; reusing ${master}`);
-  } else {
-    if (masterShape.cpu > size.cpu || masterShape.memoryMb > size.memoryMb) {
-      throw new Error(`${name}: master (${masterShape.cpu} vCPU, ${masterShape.memoryMb} MiB) is larger than the target; resize is grow-only, bake on a smaller base`);
+    if (masterShape.cpu === size.cpu && Math.abs(masterShape.memoryMb - size.memoryMb) < size.memoryMb * 0.1 && masterShape.rootMb >= size.storageMb * 0.85) {
+      imageId = master;
+      console.log(`${name}: master already has this shape; reusing ${master}`);
+    } else {
+      if (masterShape.cpu > size.cpu || masterShape.memoryMb > size.memoryMb) {
+        throw new Error(`${name}: master (${masterShape.cpu} vCPU, ${masterShape.memoryMb} MiB) is larger than the target; resize is grow-only, bake on a smaller base`);
+      }
+      const { vm } = await fs.vms.create({ snapshotId: master, displayName: `${slugPrefix} derive ${name}`, firewall: FIREWALL });
+      try {
+        await vm.resize({ cpu: size.cpu, memory: size.memoryMb, storage: size.storageMb });
+        // The disk grows in place while the guest runs; wait for the root fs to
+        // reflect it, then let the daemon units settle before the snapshot.
+        let grown: Awaited<ReturnType<typeof measure>> | null = null;
+        for (let i = 0; i < 30; i += 1) {
+          const m = await measure(vm);
+          if (!fits(m, size)) { grown = m; break; }
+          await sleep(2000);
+        }
+        if (!grown) {
+          const m = await measure(vm);
+          throw new Error(`${name}: resize did not take: ${fits(m, size)} (${JSON.stringify(m)})`);
+        }
+        const ready = await sh(vm, devboxWaitForDaemonCommand(), 180_000);
+        if (ready.code !== 0) throw new Error(`${name}: cmux-tui daemon never came back after the resize: ${ready.out.slice(-500)}`);
+        const websocket = await retry(
+          () => sh(vm, cmuxTuiWebsocketSmokeCommand(), 300_000),
+          (r) => r.code === 0,
+          90_000,
+        );
+        if (websocket.code !== 0) throw new Error(`${name}: WebSocket smoke failed before snapshot: ${websocket.out.slice(-1000)}`);
+        // A resized clone runs a live daemon bound to its own instance id; park
+        // it so the derived snapshot, like the master, carries no identity.
+        const parked = await sh(vm, devboxParkDaemonCommand(), 120_000);
+        if (parked.code !== 0) throw new Error(`${name}: could not park the cmux-tui daemon before the snapshot: ${parked.out.slice(-500)}`);
+        await sh(vm, "sync");
+        const snap = await vm.snapshot({ displayName: `cmux devbox ${slug} (${size.cpu} vCPU · ${size.memoryMb} MiB · ${size.storageMb} MiB)` });
+        if (!snap.snapshotId) throw new Error(`${name}: snapshot response carried no id`);
+        imageId = snap.snapshotId;
+      } finally {
+        await vm.delete().catch(() => {});
+      }
     }
-    const { vm } = await fs.vms.create({ snapshotId: master, displayName: `${slugPrefix} derive ${name}`, firewall: FIREWALL });
+
+    // Boot the derived snapshot itself: the shape must survive the round trip.
+    const check = await fs.vms.create({ snapshotId: imageId, displayName: `${slugPrefix} verify ${name}`, firewall: FIREWALL });
+    let measured: Awaited<ReturnType<typeof measure>>;
     try {
-      await vm.resize({ cpu: size.cpu, memory: size.memoryMb, storage: size.storageMb });
-      // The disk grows in place while the guest runs; wait for the root fs to
-      // reflect it, then let the daemon units settle before the snapshot.
-      let grown: Awaited<ReturnType<typeof measure>> | null = null;
-      for (let i = 0; i < 30; i += 1) {
-        const m = await measure(vm);
-        if (!fits(m, size)) { grown = m; break; }
-        await sleep(2000);
+      // The daemon is the last thing to come up on a resumed snapshot, so
+      // waiting for it also proves systemd finished; `measure` reads its units.
+      const booted = await sh(check.vm, devboxWaitForDaemonCommand(), 180_000);
+      if (booted.code !== 0) throw new Error(`${name}: cmux-tui daemon did not come up on the derived snapshot ${imageId}: ${booted.out.slice(-500)}`);
+      measured = await measure(check.vm);
+      const problem = fits(measured, size);
+      if (problem) throw new Error(`${name}: derived snapshot ${imageId} boots wrong: ${problem}`);
+      assertIdentity(`${name}: derived snapshot ${imageId}`, measured);
+      if (!measured.units.includes("active")) throw new Error(`${name}: units not active after boot: ${measured.units}`);
+      // The parked daemon came back by itself, bound to this machine and
+      // listening dual-stack (devboxWaitForDaemonCommand above). The full
+      // Noise/RPC/PTY round trip is proved once per ladder rather than on all
+      // six rows: a derived snapshot differs from the master only in vCPU,
+      // memory and disk, and the master already passed it in the bake.
+      if (name === smokeSize) {
+        const websocket = await sh(check.vm, cmuxTuiWebsocketSmokeCommand(), 300_000);
+        if (websocket.code !== 0) throw new Error(`${name}: WebSocket smoke failed after snapshot boot: ${websocket.out.slice(-1000)}`);
       }
-      if (!grown) {
-        const m = await measure(vm);
-        throw new Error(`${name}: resize did not take: ${fits(m, size)} (${JSON.stringify(m)})`);
-      }
-      // The smoke IS the readiness signal: retry it until the resized guest
-      // answers instead of sleeping for a fixed guess first.
-      const websocket = await retry(
-        () => sh(vm, cmuxTuiWebsocketSmokeCommand(), 300_000),
-        (r) => r.code === 0,
-        90_000,
-      );
-      if (websocket.code !== 0) throw new Error(`${name}: WebSocket smoke failed before snapshot: ${websocket.out.slice(-1000)}`);
-      // A resized clone runs a live daemon bound to its own instance id; park
-      // it so the derived snapshot, like the master, carries no identity.
-      const parked = await sh(vm, devboxParkDaemonCommand(), 120_000);
-      if (parked.code !== 0) throw new Error(`${name}: could not park the cmux-tui daemon before the snapshot: ${parked.out.slice(-500)}`);
-      await sh(vm, "sync");
-      const snap = await vm.snapshot({ displayName: `cmux devbox ${slug} (${size.cpu} vCPU · ${size.memoryMb} MiB · ${size.storageMb} MiB)` });
-      if (!snap.snapshotId) throw new Error(`${name}: snapshot response carried no id`);
-      imageId = snap.snapshotId;
     } finally {
-      await vm.delete().catch(() => {});
+      await check.vm.delete().catch(() => {});
     }
-  }
 
-  // Boot the derived snapshot itself: the shape must survive the round trip.
-  const check = await fs.vms.create({ snapshotId: imageId, displayName: `${slugPrefix} verify ${name}`, firewall: FIREWALL });
-  let measured: Awaited<ReturnType<typeof measure>>;
-  try {
-    // The daemon coming back is what the old fixed sleep was waiting for, and
-    // the check below already polled for it. Poll first, then measure.
-    const booted = await retry(
-      () => sh(check.vm, DAEMON_UP_PROBE, 30_000),
-      (r) => r.code === 0,
-      120_000,
-    );
-    if (booted.code !== 0) {
-      throw new Error(`${name}: cmux-tui daemon did not come up on the derived snapshot ${imageId}: ${booted.out.slice(-300)}`);
-    }
-    measured = await measure(check.vm);
-    const problem = fits(measured, size);
-    if (problem) throw new Error(`${name}: derived snapshot ${imageId} boots wrong: ${problem}`);
-    assertIdentity(`${name}: derived snapshot ${imageId}`, measured);
-    if (!measured.units.includes("active")) throw new Error(`${name}: units not active after boot: ${measured.units}`);
-    // The parked daemon must come back by itself on the derived shape, bound
-    // to this machine and listening dual-stack.
-    const websocket = await sh(check.vm, cmuxTuiWebsocketSmokeCommand(), 300_000);
-    if (websocket.code !== 0) throw new Error(`${name}: WebSocket smoke failed after snapshot boot: ${websocket.out.slice(-1000)}`);
-  } finally {
-    await check.vm.delete().catch(() => {});
-  }
-
-  const assigned = imageId === master ? null : await assignSlug(imageId, slug);
-  result[name] = { imageId, slug: assigned, size, measured };
-  console.log(`${name}: ${imageId} (${measured.cpu} vCPU, ${measured.memoryMb} MiB, root ${measured.rootMb} MiB, units ${measured.units}, host ${measured.host}) ${((Date.now() - t0) / 1000).toFixed(0)}s`);
+    const assigned = imageId === master ? null : await assignSlug(imageId, slug);
+    result[name] = { imageId, slug: assigned, size, measured };
+    console.log(`${name}: ${imageId} (${measured.cpu} vCPU, ${measured.memoryMb} MiB, root ${measured.rootMb} MiB, units ${measured.units}, host ${measured.host}) ${((Date.now() - t0) / 1000).toFixed(0)}s`);
 }
 
-// One failed size must not leave the others' VMs running, so every size is
-// awaited before the first rejection is rethrown.
+// Concurrency: each row holds at most two VMs at a time, so a six-row ladder
+// peaks at twelve. CMUX_DEVBOX_DERIVE_CONCURRENCY caps it when the account
+// has less headroom; --concurrency overrides it and 1 restores sequential behaviour.
 const queue = [...sizes];
-const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
-  for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
-    await deriveSize(next);
-  }
-});
-const outcomes = await Promise.allSettled(workers);
-const failed = outcomes.find((outcome) => outcome.status === "rejected");
-if (failed && failed.status === "rejected") throw failed.reason;
+const t0All = Date.now();
+// allSettled, not all: a rejecting `Promise.all` would let the script exit
+// while the other workers still hold VMs, leaking them. Every worker runs to
+// completion (each cleans up in its own finally), then the first failure is
+// rethrown. A failed worker also drains the queue so the rest stop early.
+let failure: unknown;
+const outcomes = await Promise.allSettled(
+  Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
+    for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
+      try {
+        await deriveSize(next);
+      } catch (error) {
+        failure ??= error;
+        queue.length = 0;
+        throw error;
+      }
+    }
+  }),
+);
+if (failure !== undefined) {
+  const failed = outcomes.filter((o) => o.status === "rejected").length;
+  console.error(`${failed} of ${outcomes.length} derive workers failed; all VMs have been cleaned up`);
+  throw failure;
+}
+console.log(`derived ${sizes.length} sizes in ${((Date.now() - t0All) / 1000).toFixed(0)}s (concurrency ${concurrency})`);
 
 // Completion order is not ladder order once sizes run concurrently.
 const ordered: typeof result = {};

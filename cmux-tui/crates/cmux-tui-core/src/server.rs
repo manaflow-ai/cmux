@@ -81,6 +81,8 @@ use crate::{
 };
 
 pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
+#[path = "server/image_paste.rs"]
+mod image_paste;
 /// Maximum JSON payload accepted on the Unix JSON-lines control socket.
 const MAX_JSON_LINE_BYTES: usize = crate::REMOTE_CLIENT_MESSAGE_MAX_BYTES;
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
@@ -100,6 +102,7 @@ pub const FRONTEND_JOURNAL_CAPABILITY: &str = "frontend-journal-v1";
 const LOCAL_JOURNAL_PRINCIPAL: &str = "cmux.local-owner";
 pub const VIEW_ATTACHMENT_LEASE_CAPABILITY: &str = "view-attachment-lease-v1";
 pub const VIEW_ATTACHMENT_DETACH_CAPABILITY: &str = "view-attachment-detach-v1";
+pub const TERMINAL_COLOR_OVERRIDES_CAPABILITY: &str = "terminal-color-overrides-v1";
 pub const CREATION_RECEIPTS_CAPABILITY: &str = "creation-receipts-v1";
 pub const CREATION_ATTEMPT_KEYS_CAPABILITY: &str = "creation-attempt-keys-v1";
 pub const CREATION_SELECTOR_FALLBACKS_CAPABILITY: &str = "creation-selector-fallbacks-v1";
@@ -206,6 +209,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         FRONTEND_JOURNAL_CAPABILITY,
         VIEW_ATTACHMENT_LEASE_CAPABILITY,
         VIEW_ATTACHMENT_DETACH_CAPABILITY,
+        TERMINAL_COLOR_OVERRIDES_CAPABILITY,
         CREATION_RECEIPTS_CAPABILITY,
         CREATION_ATTEMPT_KEYS_CAPABILITY,
         CREATION_SELECTOR_FALLBACKS_CAPABILITY,
@@ -219,6 +223,8 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
     }
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+    capabilities.push(crate::image_paste::CAPABILITY);
     capabilities
 }
 
@@ -676,6 +682,17 @@ struct BrowserProviderTargetRequest {
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
     Identify,
+    PasteImage {
+        surface: SurfaceId,
+        terminal_id: String,
+        lease: String,
+        upload_id: String,
+        op: String,
+        mime: Option<String>,
+        size: Option<usize>,
+        offset: Option<usize>,
+        data: Option<String>,
+    },
     /// Report where this daemon spends its time: registry lock contention
     /// with holder sites, journal writer batch metrics, and connection
     /// admission. Owner-only diagnostics, never journaled.
@@ -1362,6 +1379,7 @@ enum Command {
 impl Command {
     fn ordering_surface(&self) -> Option<SurfaceId> {
         match self {
+            Self::PasteImage { surface, .. } => Some(*surface),
             Self::SetClientSizing { surface, .. }
             | Self::Send { surface, .. }
             | Self::ReadScreen { surface }
@@ -2103,6 +2121,7 @@ impl RenderService {
         &self,
         surface: SurfaceId,
         frame: &AttachFrame,
+        include_color_overrides: bool,
     ) -> std::io::Result<Arc<BudgetedText>> {
         let mut writer = BudgetedJsonWriter::new(self.outbound_budget.clone());
         match frame {
@@ -2115,8 +2134,11 @@ impl RenderService {
                 write!(writer, "{{\"event\":\"output\",\"surface\":{surface},\"data\":\"")?;
                 write_base64_json_string(&mut writer, output)?;
                 writer.write_all(b"\",\"colors\":")?;
-                serde_json::to_writer(&mut writer, &terminal_colors_json(**colors))
-                    .map_err(json_error_to_io)?;
+                serde_json::to_writer(
+                    &mut writer,
+                    &terminal_colors_json(**colors, include_color_overrides),
+                )
+                .map_err(json_error_to_io)?;
                 writer.write_all(b"}")?;
             }
             AttachFrame::Resized { cols, rows, replay, kitty_image_aliases, kitty_state } => {
@@ -2149,12 +2171,15 @@ impl RenderService {
                 writer.write_all(b",\"kitty_graphics_state\":")?;
                 write_kitty_replay_state_json(&mut writer, *kitty_state)?;
                 writer.write_all(b",\"colors\":")?;
-                serde_json::to_writer(&mut writer, &terminal_colors_json(**colors))
-                    .map_err(json_error_to_io)?;
+                serde_json::to_writer(
+                    &mut writer,
+                    &terminal_colors_json(**colors, include_color_overrides),
+                )
+                .map_err(json_error_to_io)?;
                 writer.write_all(b"}")?;
             }
             AttachFrame::ColorsChanged(colors) => {
-                let mut value = terminal_colors_json(**colors);
+                let mut value = terminal_colors_json(**colors, include_color_overrides);
                 value["event"] = json!("colors-changed");
                 value["surface"] = json!(surface);
                 serde_json::to_writer(&mut writer, &value).map_err(json_error_to_io)?;
@@ -2418,6 +2443,7 @@ impl MessageWriter {
         &self,
         surface: SurfaceId,
         frame: &AttachFrame,
+        include_color_overrides: bool,
         stream: &OutboundStream,
     ) -> std::io::Result<()> {
         if !self.is_open() {
@@ -2425,7 +2451,7 @@ impl MessageWriter {
         }
         let result = self
             .render_service
-            .serialize_attach_frame(surface, frame)
+            .serialize_attach_frame(surface, frame, include_color_overrides)
             .and_then(|text| self.sink.send_stream_backpressured(text, stream));
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
             stream.close();
@@ -4056,6 +4082,7 @@ impl ClientRegistry {
                 capability == GUARDED_BROWSER_POINTER_CAPABILITY
                     || capability == VIEW_ATTACHMENT_LEASE_CAPABILITY
                     || capability == VIEW_ATTACHMENT_DETACH_CAPABILITY
+                    || capability == TERMINAL_COLOR_OVERRIDES_CAPABILITY
                     || capability == CREATION_RECEIPTS_CAPABILITY
                     || capability == CREATION_ATTEMPT_KEYS_CAPABILITY
                     || capability == CREATION_SELECTOR_FALLBACKS_CAPABILITY
@@ -5518,6 +5545,8 @@ fn disconnect_client_with_notice(
     // published them. Release before announcing detachment so waiters can
     // never observe a stale target after the owning client is gone.
     mux.unregister_browser_provider(client);
+    #[cfg(unix)]
+    mux.image_pastes.disconnect(client);
     if let Some(owner @ BrowserPointerOwner::Client(_)) = record.browser_pointer_owner {
         // Pointer commands do not require a frame-stream attachment, so any
         // browser worker may own this negotiated client. Disconnects are rare;
@@ -10279,7 +10308,7 @@ fn color_hex(color: Option<Rgb>) -> Option<String> {
     color.map(|color| format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b))
 }
 
-fn terminal_colors_json(colors: TerminalColors) -> Value {
+fn terminal_colors_json(colors: TerminalColors, include_overrides: bool) -> Value {
     let cursor_style = colors.cursor_style.map(|style| match style {
         ghostty_vt::CursorShape::Bar => "bar",
         ghostty_vt::CursorShape::Underline => "underline",
@@ -10293,7 +10322,7 @@ fn terminal_colors_json(colors: TerminalColors) -> Value {
             color_hex(color).map(|color| (index.to_string(), Value::String(color)))
         })
         .collect::<serde_json::Map<String, Value>>();
-    json!({
+    let mut value = json!({
         "fg": color_hex(colors.fg),
         "bg": color_hex(colors.bg),
         "cursor": color_hex(colors.cursor),
@@ -10302,7 +10331,17 @@ fn terminal_colors_json(colors: TerminalColors) -> Value {
         "palette": palette,
         "cursor_style": cursor_style,
         "cursor_blink": colors.cursor_blink,
-    })
+    });
+    // Older generated SDKs reject unknown fields. Only viewers that opted in
+    // before attaching receive the additional provenance object.
+    if include_overrides {
+        value["overrides"] = json!({
+            "fg": color_hex(colors.fg_override),
+            "bg": color_hex(colors.bg_override),
+            "cursor": color_hex(colors.cursor_override),
+        });
+    }
+    value
 }
 
 struct VtStateMessage {
@@ -11216,6 +11255,28 @@ fn handle_command_with_cancellation(
     cancellation: Option<&AtomicBool>,
 ) -> anyhow::Result<Value> {
     match cmd {
+        Command::PasteImage {
+            surface,
+            terminal_id,
+            lease,
+            upload_id,
+            op,
+            mime,
+            size,
+            offset,
+            data,
+        } => image_paste::ImagePasteRequest {
+            surface,
+            terminal_id,
+            lease,
+            upload_id,
+            op,
+            mime,
+            size,
+            offset,
+            data,
+        }
+        .handle(mux, client),
         Command::ServerStats => {
             if !mux.control_clients.is_unix(client) {
                 anyhow::bail!("server stats requires a trusted local connection");
@@ -13057,6 +13118,9 @@ fn handle_command_with_cancellation(
                     return Err(error.into());
                 }
             };
+            let include_color_overrides = mux
+                .control_clients
+                .supports_capability(client, TERMINAL_COLOR_OVERRIDES_CAPABILITY);
             let initial = VtStateMessage {
                 surface: surface_id,
                 cols: attach.cols,
@@ -13064,7 +13128,7 @@ fn handle_command_with_cancellation(
                 replay: attach.replay.clone(),
                 kitty_image_aliases: attach.kitty_image_aliases.clone(),
                 kitty_state: attach.kitty_state,
-                colors: terminal_colors_json(attach.colors),
+                colors: terminal_colors_json(attach.colors, include_color_overrides),
             };
             if let Err(error) = writer.send_initial_vt_state(&initial, &outbound_stream) {
                 handle_attach_send_error(&lifecycle, &error);
@@ -13115,6 +13179,7 @@ fn handle_command_with_cancellation(
                         if let Err(error) = writer.send_attach_frame_backpressured(
                             surface_id,
                             &frame,
+                            include_color_overrides,
                             &outbound_stream,
                         ) {
                             handle_attach_send_error(&attach.lifecycle, &error);
@@ -13327,6 +13392,10 @@ fn attach_overflow_json(surface: SurfaceId) -> Value {
 pub fn cleanup(path: &Path) {
     let _ = std::fs::remove_file(path);
 }
+
+#[cfg(all(test, unix))]
+#[path = "server/image_paste_tests.rs"]
+mod image_paste_tests;
 
 #[cfg(test)]
 mod tests {
@@ -18157,7 +18226,7 @@ mod tests {
             kitty_state: KittyReplayState::disabled(),
         };
 
-        let error = writer.send_attach_frame_backpressured(7, &frame, &stream).unwrap_err();
+        let error = writer.send_attach_frame_backpressured(7, &frame, false, &stream).unwrap_err();
 
         assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
         assert!(outbound.try_pop().is_none());

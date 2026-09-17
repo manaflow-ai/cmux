@@ -15,35 +15,6 @@ import Bonsplit
 import UniformTypeIdentifiers
 import CmuxTerminal
 
-/// The process entry point. When the binary is launched with a worker flag
-/// (the app re-executes its own binary so a crash or hang in paste preparation,
-/// the Simulator, interpreter, or renderer kills only the worker process), run
-/// that worker instead of the app:
-/// - the paste worker resolves providers and prepares images before any app or
-///   SwiftUI startup;
-/// - the Simulator worker owns private frameworks and remote display state;
-/// - the render worker hosts its own faceless AppKit session and shares the
-///   rendered layer tree with the host;
-/// - the interpreter worker (stage-1 fallback path) runs before any
-///   AppKit/SwiftUI setup.
-@main
-enum CmuxMain {
-    static func main() {
-        AppHostProcessReceipt.writeIfRequired()
-#if DEBUG
-        // Bonsplit's `dlog` and the app's `cmuxDebugLog` resolve the same
-        // debug log file. Route bonsplit through the shared writer so the
-        // file has exactly one serialized append path (single O_APPEND
-        // handle, monotonic #<seq> line prefixes); with two independent
-        // appenders, concurrent lines interleaved and landed out of order.
-        Bonsplit.DebugEventLog.setExternalSink { cmuxDebugLog($0) }
-#endif
-        CmuxWorkerEntrypoint(arguments: CommandLine.arguments).runIfRequested()
-        SurfaceResumeApprovalStore.preloadSigningSecret()
-        cmuxApp.main()
-    }
-}
-
 struct cmuxApp: App {
     /// Dependency container for the new settings packages. Constructed
     /// once at app launch and injected into the SwiftUI environment via
@@ -319,12 +290,19 @@ struct cmuxApp: App {
         // UI tests depend on AppDelegate wiring happening even if SwiftUI view appearance
         // callbacks (e.g. `.onAppear`) are delayed or skipped.
         StartupBreadcrumbLog.append("app.init.delegate.configure.begin")
+        let cloudWorkspaceCoordinator = Self.makeCloudWorkspaceCoordinator(auth: authComposition)
+        let cloudWorkspaceOperationController = CloudWorkspaceOperationController(
+            isAvailable: { cloudWorkspaceCoordinator.isAvailable }
+        )
         appDelegate.configure(
             tabManager: tabManager,
             notificationStore: notificationStore,
             sidebarState: sidebarState,
             settingsRuntime: settingsRuntime,
             auth: authComposition,
+            cloudWorkspaceCoordinator: cloudWorkspaceCoordinator,
+            cloudWorkspaceOperationController: cloudWorkspaceOperationController,
+            newMachineSheetPresenter: NewMachineSheetPresenter.shared,
             automationEngine: automationEngine,
             computerUseRuntimeService: computerUseRuntimeService
         )
@@ -869,6 +847,15 @@ struct cmuxApp: App {
                     }
                 }
 
+                if CloudMachinesFeature.isEnabled && AppDelegate.shared?.auth?.accountFlow.isAuthenticated == true {
+                    splitCommandButton(title: String(localized: "menu.file.newCloudWorkspace", defaultValue: "New Cloud Workspace"), shortcut: menuShortcut(for: .newCloudWorkspace)) {
+                        _ = AppDelegate.shared?.performNewCloudWorkspaceOnDefaultMachineAction(debugSource: "menu.newCloudWorkspace")
+                    }
+                    splitCommandButton(title: String(localized: "menu.file.newCloudMachine", defaultValue: "New Cloud Machine"), shortcut: menuShortcut(for: .newCloudMachine)) {
+                        _ = AppDelegate.shared?.performNewCloudWorkspaceAction(tabManager: activeTabManager, debugSource: "menu.newCloudMachine")
+                    }
+                }
+
                 if CmuxFeatureFlags.shared.isSimulatorEnabled {
                     Button(String(localized: "menu.file.newSimulatorPane", defaultValue: "New Simulator Pane")) {
                         performNewSimulatorPaneFromMenu()
@@ -1186,7 +1173,7 @@ struct cmuxApp: App {
                 performBrowserSplitFromMenu(direction: .down)
             }
 
-            equalizeSplitsCommandButton()
+            paneSizingCommandButtons()
             Divider()
 
             splitCommandButton(title: String(localized: "menu.view.toggleCanvasLayout", defaultValue: "Toggle Canvas Layout"), shortcut: menuShortcut(for: .toggleCanvasLayout)) {
@@ -1651,6 +1638,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.devWindowDisplay",
     "cmux.mobilePairingWindow",
     "cmux.sidebarFooterIconBalanceDebug",
+    "cmux.sudo.approval",
 ]
 
 /// Returns whether the given window should handle the standard close shortcut
@@ -3207,8 +3195,7 @@ private struct SidebarFooterHoverIntensityPreview: View {
             .accessibilityLabel(accessibilityLabel)
 
             Button(action: {}) {
-                CmuxSystemSymbolImage(systemName: "iphone", pointSize: CGFloat(mobileSize), weight: .medium)
-                    .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                CmuxSystemSymbolImage(systemName: "iphone", pointSize: CGFloat(mobileSize), weight: .medium, tint: Color(nsColor: .secondaryLabelColor))
                     .frame(width: 22, height: 22)
             }
             .buttonStyle(SidebarFooterIconButtonStyle())
@@ -3358,8 +3345,7 @@ private struct SidebarFooterMobileIconReference: View {
     let size: Double
 
     var body: some View {
-        CmuxSystemSymbolImage(systemName: "iphone", pointSize: CGFloat(size), weight: .medium)
-            .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+        CmuxSystemSymbolImage(systemName: "iphone", pointSize: CGFloat(size), weight: .medium, tint: Color(nsColor: .secondaryLabelColor))
             .frame(width: 22, height: 22)
     }
 }
@@ -5285,6 +5271,7 @@ final class AppIconAppearanceObserver: NSObject {
 enum BuildFlavor: String, Sendable {
     case dev
     case nightly
+    case rc
     case stable
 
     static var current: BuildFlavor {
@@ -5315,12 +5302,8 @@ enum BuildFlavor: String, Sendable {
         if SocketControlSettings.isDebugLikeBundleIdentifier(normalizedBundleIdentifier) {
             return .dev
         }
-        if normalizedBundleIdentifier == "com.cmuxterm.app.nightly"
-            || normalizedBundleIdentifier?.hasPrefix("com.cmuxterm.app.nightly.") == true {
-            return .nightly
-        }
-        if bundleNames.contains(where: containsNightlyToken) {
-            return .nightly
+        if let channel = releaseChannel(normalizedBundleIdentifier: normalizedBundleIdentifier, bundleNames: bundleNames) {
+            return channel
         }
         return .stable
     }
@@ -5329,11 +5312,7 @@ enum BuildFlavor: String, Sendable {
         containsToken("DEV", in: name)
     }
 
-    private static func containsNightlyToken(_ name: String) -> Bool {
-        containsToken("NIGHTLY", in: name)
-    }
-
-    private static func containsToken(_ token: String, in name: String) -> Bool {
+    static func containsToken(_ token: String, in name: String) -> Bool {
         name
             .uppercased()
             .split { !$0.isLetter && !$0.isNumber }
@@ -5347,7 +5326,17 @@ enum TelemetrySettings {
     // live in `CmuxSettings` (`AppCatalogSection().sendAnonymousTelemetry`) as the
     // single source of truth; this anchor only freezes that read for the lifetime
     // of the launch.
-    static let enabledForCurrentLaunch = AppCatalogSection().sendAnonymousTelemetry.value(in: .standard)
+    static let enabledForCurrentLaunch = resolveEnabled(
+        userOptIn: AppCatalogSection().sendAnonymousTelemetry.value(in: .standard),
+        policy: ManagedDevicePolicy()
+    )
+
+    /// `DisableTelemetry` (MDM) wins over the user opt-in. Frozen for the
+    /// launch like the opt-in itself, so a profile pushed mid-session applies
+    /// at the next launch; Settings shows the managed state immediately.
+    static func resolveEnabled(userOptIn: Bool, policy: ManagedDevicePolicy) -> Bool {
+        userOptIn && !policy.isEnforced(.disableTelemetry)
+    }
 }
 
 @MainActor
