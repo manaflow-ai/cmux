@@ -164,7 +164,7 @@ doneFlags:
 		socketPath = defaultCloudCLIBridgeSocketIfExists()
 	}
 	if socketPath == "" {
-		fmt.Fprintln(os.Stderr, "cmux: CMUX_SOCKET_PATH not set and --socket not provided")
+		fmt.Fprintln(os.Stderr, "cmux: no relay connection is configured; reconnect this SSH workspace or provide --socket")
 		return 1
 	}
 

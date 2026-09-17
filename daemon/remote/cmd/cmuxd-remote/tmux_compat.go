@@ -197,6 +197,21 @@ func tmuxFormatContext(rc *rpcContext, workspaceId string, paneId string, surfac
 		return nil, err
 	}
 
+	var item map[string]any
+	if workspaces, err := tmuxWorkspaceItems(rc); err == nil {
+		for _, ws := range workspaces {
+			if ws["id"] == canonicalWsId || ws["ref"] == workspaceId {
+				item = ws
+				break
+			}
+		}
+	}
+	return tmuxFormatContextForWorkspace(rc, canonicalWsId, paneId, surfaceId, item, tmuxActiveWorkspaceId(rc))
+}
+
+// The batch window listing passes its workspace row directly, so each window
+// does not fetch and rescan the entire workspace collection.
+func tmuxFormatContextForWorkspace(rc *rpcContext, canonicalWsId string, paneId string, surfaceId string, ws map[string]any, activeWorkspaceId string) (map[string]string, error) {
 	ctx := map[string]string{
 		"session_name":      "cmux",
 		"session_id":        "$" + tmuxStableNumericId(canonicalWsId),
@@ -212,40 +227,31 @@ func tmuxFormatContext(rc *rpcContext, workspaceId string, paneId string, surfac
 		"pane_height":       "24",
 		"pane_current_path": tmuxFallbackCurrentPath(),
 	}
-	activeWorkspaceId := tmuxActiveWorkspaceId(rc)
 	activeByCaller := activeWorkspaceId == canonicalWsId
 	if activeByCaller {
 		tmuxSetWindowActive(ctx, true)
 	}
 
-	// Get workspace list for index/title
-	workspaces, err := tmuxWorkspaceItems(rc)
-	if err == nil {
-		for _, ws := range workspaces {
-			wsId, _ := ws["id"].(string)
-			wsRef, _ := ws["ref"].(string)
-			if wsId == canonicalWsId || wsRef == workspaceId {
-				if active, ok := boolFromAnyGo(ws["active"]); ok && !activeByCaller {
-					tmuxSetWindowActive(ctx, active)
-				} else if focused, ok := boolFromAnyGo(ws["focused"]); ok && !activeByCaller {
-					tmuxSetWindowActive(ctx, focused)
-				} else if selected, ok := boolFromAnyGo(ws["selected"]); ok && !activeByCaller {
-					tmuxSetWindowActive(ctx, selected)
-				}
-				if idx := intFromAnyGo(ws["index"]); idx >= 0 {
-					ctx["window_index"] = fmt.Sprintf("%d", idx)
-				}
-				if title, _ := ws["title"].(string); strings.TrimSpace(title) != "" {
-					ctx["window_name"] = strings.TrimSpace(title)
-				}
-				if path := tmuxPathFromObject(ws); path != "" {
-					ctx["pane_current_path"] = path
-				}
-				if paneCount := intFromAnyGo(ws["pane_count"]); paneCount >= 0 {
-					ctx["window_panes"] = fmt.Sprintf("%d", paneCount)
-				}
-				break
-			}
+	// Workspace metadata is resolved once by the caller.
+	if ws != nil {
+		if active, ok := boolFromAnyGo(ws["active"]); ok && !activeByCaller {
+			tmuxSetWindowActive(ctx, active)
+		} else if focused, ok := boolFromAnyGo(ws["focused"]); ok && !activeByCaller {
+			tmuxSetWindowActive(ctx, focused)
+		} else if selected, ok := boolFromAnyGo(ws["selected"]); ok && !activeByCaller {
+			tmuxSetWindowActive(ctx, selected)
+		}
+		if idx := intFromAnyGo(ws["index"]); idx >= 0 {
+			ctx["window_index"] = fmt.Sprintf("%d", idx)
+		}
+		if title, _ := ws["title"].(string); strings.TrimSpace(title) != "" {
+			ctx["window_name"] = strings.TrimSpace(title)
+		}
+		if path := tmuxPathFromObject(ws); path != "" {
+			ctx["pane_current_path"] = path
+		}
+		if paneCount := intFromAnyGo(ws["pane_count"]); paneCount >= 0 {
+			ctx["window_panes"] = fmt.Sprintf("%d", paneCount)
 		}
 	}
 
@@ -2092,12 +2098,13 @@ func tmuxListWindows(rc *rpcContext, args []string) error {
 	if err != nil {
 		return err
 	}
+	activeWorkspaceId := tmuxActiveWorkspaceId(rc)
 	for _, item := range items {
 		wsId, _ := item["id"].(string)
 		if wsId == "" {
 			continue
 		}
-		ctx, err := tmuxFormatContext(rc, wsId, "", "")
+		ctx, err := tmuxFormatContextForWorkspace(rc, wsId, "", "", item, activeWorkspaceId)
 		if err != nil {
 			continue
 		}
