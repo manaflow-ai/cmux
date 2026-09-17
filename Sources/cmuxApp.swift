@@ -682,6 +682,9 @@ struct cmuxApp: App {
                         Button("Compact") {
                             UserDefaults.standard.set("compact", forKey: "cloudPaneFailurePrototypeStyle")
                         }
+                        Button("Compact + 1px Border") {
+                            UserDefaults.standard.set("compact-bordered", forKey: "cloudPaneFailurePrototypeStyle")
+                        }
                         Button("Dialog") {
                             UserDefaults.standard.set("dialog", forKey: "cloudPaneFailurePrototypeStyle")
                         }

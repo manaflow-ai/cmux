@@ -267,7 +267,7 @@ struct CloudPaneCreationFailureView: View {
 /// Text takes the entire card width. The close control cannot compress the body
 /// into a narrow column, and copying remains a contextual troubleshooting action.
 struct CloudFailureCard: View {
-    enum Style: String, Equatable { case compact, dialog, inline }
+    enum Style: String, Equatable { case compact, compactBordered = "compact-bordered", dialog, inline }
     let title: String
     let detail: String
     let copyableText: String
@@ -296,8 +296,12 @@ struct CloudFailureCard: View {
         .frame(maxWidth: .infinity, alignment: style == .dialog ? .center : .leading)
         .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: style == .inline ? 3 : 9))
         .overlay {
-            if style != .inline {
-                RoundedRectangle(cornerRadius: 9).strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
+            if style == .compactBordered {
+                RoundedRectangle(cornerRadius: 9)
+                    .strokeBorder(Color.primary.opacity(0.22), lineWidth: 1)
+            } else if style != .inline {
+                RoundedRectangle(cornerRadius: 9)
+                    .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
             }
         }
         .overlay(alignment: .leading) {
