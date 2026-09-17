@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "d9db9b34a8e4f367ce1aae230fcd188796903d6adf169f9675872a48d9fd1f25";
+pub const ir_sha256 = "0672a3504dc1dbed95437e590805e972a9f12f42171c8c8bac8c87994277ca8c";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -1896,9 +1896,11 @@ pub const AttachSurfaceRequestMode = enum {
 
 pub const AttachSurfaceRequest = struct {
     cols: wire.Field(u16) = .absent,
+    expected_generation: wire.Field([]const u8) = .absent,
+    expected_terminal_id: wire.Field([]const u8) = .absent,
     mode: wire.Field(AttachSurfaceRequestMode) = .absent,
     rows: wire.Field(u16) = .absent,
-    surface: Id,
+    surface: wire.Field(Id) = .absent,
 };
 
 pub const AttachSurfaceResult = EmptyResult;
@@ -1912,6 +1914,8 @@ pub fn attachSurface(client: anytype, request: AttachSurfaceRequest) !client_run
             .capability = null,
             .fields = &.{
                 .{ .name = "cols", .since = null, .capability = "attach-initial-size" },
+                .{ .name = "expected_generation", .since = null, .capability = "attach-identity-v1" },
+                .{ .name = "expected_terminal_id", .since = null, .capability = "attach-identity-v1" },
                 .{ .name = "mode", .since = 7, .capability = null },
                 .{ .name = "rows", .since = null, .capability = "attach-initial-size" },
             },
