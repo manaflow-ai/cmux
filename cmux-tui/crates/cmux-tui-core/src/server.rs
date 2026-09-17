@@ -4866,7 +4866,46 @@ impl SocketStartLock {
         let mut name = socket.file_name().unwrap_or_default().to_os_string();
         name.push(".spawn-lock");
         let path = socket.with_file_name(name);
-        let file = std::fs::OpenOptions::new().create(true).append(true).open(&path)?;
+        let mut options = std::fs::OpenOptions::new();
+        options.create(true).append(true).read(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            // The lock is part of the local daemon authority boundary. Do
+            // not follow a final-component symlink, and keep newly-created
+            // locks private from other users and processes.
+            options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC).mode(0o600);
+        }
+        let file = options.open(&path)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+            let metadata = file.metadata()?;
+            if !metadata.is_file() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "session-server start lock is not a regular file",
+                ));
+            }
+            if metadata.uid() != unsafe { libc::geteuid() } {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "session-server start lock owner changed",
+                ));
+            }
+            // Migrate locks created by older builds to the owner-only mode on
+            // the already-open descriptor. This avoids a pathname chmod race.
+            let mut permissions = metadata.permissions();
+            permissions.set_mode(0o600);
+            file.set_permissions(permissions)?;
+            let mode = file.metadata()?.permissions().mode();
+            if mode & 0o077 != 0 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "session-server start lock is not private",
+                ));
+            }
+        }
         loop {
             match fs4::FileExt::try_lock(&file) {
                 Ok(()) => return Ok(Self { _file: file }),
