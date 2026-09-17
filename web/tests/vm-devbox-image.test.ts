@@ -77,9 +77,9 @@ const listen = (
     });
   });
 
-const sourceAgentConfig = (home: string, coderouterOrigin: string, fetchOpenCodeConfig = false): Promise<void> =>
+const sourceAgentConfig = (home: string, coderouterOrigin: string, fetchOpenCodeConfig = false, onFetchStarted?: () => void): Promise<void> =>
   new Promise((resolve, reject) => {
-    const child = spawn("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}; ${fetchOpenCodeConfig ? "cmux_ensure_opencode_config" : ":"}`], {
+    const child = spawn("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}; ${fetchOpenCodeConfig ? "printf 'cmux-fetch-started\\n'; cmux_ensure_opencode_config" : ":"}`], {
       env: {
         ...process.env,
         HOME: home,
@@ -87,7 +87,16 @@ const sourceAgentConfig = (home: string, coderouterOrigin: string, fetchOpenCode
         OPENAI_API_KEY: "cmux-vm-edge-placeholder",
         CMUX_CODEROUTER_URL: coderouterOrigin,
       },
-      stdio: "ignore",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    let output = "";
+    let reportedStart = false;
+    child.stdout.on("data", (data: Buffer) => {
+      output += data.toString();
+      if (!reportedStart && output.includes("cmux-fetch-started\n")) {
+        reportedStart = true;
+        onFetchStarted?.();
+      }
     });
     child.on("error", reject);
     child.on("exit", (code) =>
@@ -945,14 +954,19 @@ describe("devbox image template", () => {
   test("concurrent OpenCode starts wait for one authenticated config and preserve a user file", async () => {
     const home = mkdtempSync(path.join(tmpdir(), "cmux-opencode-concurrent-"));
     let requests = 0;
+    let started = 0;
+    let releaseResponse!: () => void;
+    const allStarted = new Promise<void>((resolve) => { releaseResponse = resolve; });
     const server = await listen((_request, response) => {
       requests += 1;
-      setTimeout(() => {
+      void allStarted.then(() => {
         response.end(JSON.stringify({ provider: { go: { options: { apiKey: "crt_test" } } } }));
-      }, 100);
+      });
     });
     try {
-      await Promise.all(Array.from({ length: 4 }, () => sourceAgentConfig(home, server.origin, true)));
+      await Promise.all(Array.from({ length: 4 }, () => sourceAgentConfig(home, server.origin, true, () => {
+        if (++started === 4) releaseResponse();
+      })));
       expect(requests).toBe(1);
       const config = path.join(home, ".config/opencode/opencode.json");
       expect(JSON.parse(readFileSync(config, "utf8")).provider.go.options.apiKey).toBe("{env:OPENAI_API_KEY}");
@@ -961,6 +975,7 @@ describe("devbox image template", () => {
       expect(readFileSync(config, "utf8")).toBe('{"provider":{"mine":{}}}');
       expect(requests).toBe(1);
     } finally {
+      releaseResponse();
       await server.close();
       rmSync(home, { recursive: true, force: true });
     }

@@ -259935,6 +259935,18 @@
             "value": "تعذّر إكمال الاقتران. تحقق من الاتصال وحاول مرة أخرى."
           }
         },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uparivanje nije dovršeno. Provjerite vezu i pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parringen kunne ikke fuldføres. Kontrollér din forbindelse, og prøv igen."
+          }
+        },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -259959,6 +259971,12 @@
             "value": "Le jumelage n’a pas pu être terminé. Vérifiez votre connexion et réessayez."
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile completare l’abbinamento. Controlla la connessione e riprova."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
@@ -259969,6 +259987,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "페어링을 완료하지 못했습니다. 연결을 확인하고 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke fullføre sammenkoblingen. Kontroller tilkoblingen, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się ukończyć parowania. Sprawdź połączenie i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível concluir o emparelhamento. Verifique sua conexão e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось завершить сопряжение. Проверьте подключение и попробуйте ещё раз."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถจับคู่ให้เสร็จสมบูรณ์ได้ ตรวจสอบการเชื่อมต่อแล้วลองอีกครั้ง"
           }
         },
         "zh-Hans": {
