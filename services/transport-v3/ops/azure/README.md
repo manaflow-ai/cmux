@@ -1,7 +1,8 @@
 # Azure relay operations
 
-Status: first staging deployment in progress. This runbook describes intended
-checks, not completed evidence. `IMPLEMENTATION.md` tracks missing integration.
+Status: East US and West US 2 staging relays pass authenticated TCP, QUIC and WSS
+probes. App integration and session handover are incomplete. `IMPLEMENTATION.md`
+tracks evidence and remaining work; this is not production readiness.
 
 ## Provisioning and identities
 
@@ -52,11 +53,36 @@ transport connections, readiness and seconds spent draining. Counters: accepted
 and denied permission requests, denied reservations, denied circuits. Metrics
 must not contain bearer grants, private keys, terminal content or user labels.
 
-Remaining before production: continuous central scraping/log collection,
-transport bytes and latency histograms, per-team quotas, alert routing and an
-end-to-end synthetic probe. Alert on missing heartbeat, no healthy generation,
-permission-denial spikes, certificate expiry, sustained memory pressure and a
-stalled drain. Readiness must never be inferred from VM provisioning alone.
+`observe.py` associates each VM with one Azure Monitor data collection rule in
+the destination workspace's region, installs the managed agent using its assigned
+identity, and installs an unprivileged minute timer. The collector only reads
+loopback health/metrics and host memory/disk counters. Its exact allowlist excludes
+arbitrary response data, device identifiers, grants and error text. Failed scrapes
+still produce a failure record. No relay process is restarted by installation.
+
+`alerts.py status --receipt <observation-receipt>` queries the latest records for
+every expected VM, including VMs which have never reported. `alerts.py install`
+validates and installs three scheduled queries: missing heartbeat after five
+minutes or unhealthy relay; drain longer than thirty minutes; less than ten percent
+available host memory or disk. Evaluation runs every five minutes, so detection
+is not immediate. Alerts have no notification destinations unless explicitly
+provided with `--action-group`; portal visibility alone is not on-call paging.
+After retiring nodes, regenerate observation receipts and alert queries with the
+active inventory so planned retirements do not become missing-heartbeat alerts.
+
+Staging uses a shared thirty-day Log Analytics workspace with a 1 GiB daily
+ingestion cap. Exhausting that cap stops collection until reset; the missing-data
+alert remains essential. Verify actual recent records from every region, not just
+the extension's installation status. First deployment can take several minutes
+before records appear. Sources: [agent installation](https://learn.microsoft.com/en-us/azure/azure-monitor/agents/azure-monitor-agent-manage),
+[Syslog collection](https://learn.microsoft.com/en-us/azure/azure-monitor/vm/data-collection-syslog),
+[scheduled query alerts](https://learn.microsoft.com/en-us/rest/api/monitor/scheduled-query-rules/create-or-update?view=rest-monitor-2021-08-01).
+
+Remaining before production: transport bytes and latency histograms, per-team
+quotas, notification routing, fault-drill evidence and a continuous authenticated
+synthetic probe. Additional alerts must cover no healthy serving generation,
+permission-denial spikes and certificate expiry. Readiness must never be inferred
+from VM provisioning alone.
 
 ## Evidence
 

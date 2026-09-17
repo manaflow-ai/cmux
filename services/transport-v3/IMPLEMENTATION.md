@@ -154,3 +154,43 @@ seamless upgrades, observability, security audit, and real end-to-end proof.
   default Ubuntu repository. Installation now reconciles runtime packages and
   installs CLI from Microsoft's signed repository, then checks actual relay
   readiness. It does not equate VM provisioning or boot history with readiness.
+
+## Two-region relay and monitoring checkpoint
+
+- West US 2 is running on Standard_D2als_v7 at
+  v3-staging-westus2-g0916a.westus2.cloudapp.azure.com (20.98.68.177), PeerId
+  12D3KooWG61m7sFQi1Q59TmwaGYQCpRR8V1GVm7EjaE787V4wNgP. Same immutable relay
+  and proxy digests as East US. TCP, QUIC and WSS each pass the authenticated
+  160-message, 327680-byte-each-direction probe, with forged grants denied.
+- West US 2 public scans confirm SSH, management and internal WebSocket ports
+  are unreachable; relay TCP/TLS are reachable. Unused failed Europe resource
+  groups were verified to contain no VMs/data and submitted for cleanup.
+- Both regions send allowlisted minute snapshots through Azure Monitor Agent
+  into one managed thirty-day Log Analytics workspace. Collection is independent
+  of the relay process and needs no relay secrets or Docker socket access.
+  Actual central records from both regions show scrape_ok=true and readiness=1.
+- Three scheduled queries cover missing/unhealthy reports, stalled drains and
+  host memory/disk pressure. Queries were executed successfully before enabling
+  the rules; a never-reporting inventory entry returns missing_heartbeat.
+  Notification routing is not configured. A monitoring outage drill is underway;
+  it has an independent twelve-minute automatic recovery timer.
+- The live relay continues exchanging authenticated QUIC messages while its
+  telemetry timer is stopped. This is monitoring isolation evidence, not session
+  handover or relay-upgrade proof. Receipts remain in HQ artifacts/transport-v3/
+  azure-staging. Seven Python operation tests pass.
+
+## App integration entrypoints inspected
+
+- Current app wiring is IRX over iroh, not just the older CmxIrohClientRuntime:
+  ios/cmux/AppCompositionRoot.swift owns MobileIrxRuntimeComposition and
+  Sources/Mobile/MobileHostService.swift selects MobileHostIrxRuntime.shared.
+- Phone lane methods are in ios/cmuxPackage/Sources/cmuxFeature/
+  MobileIrxRuntimeComposition+Streams.swift. They expose control, events,
+  terminal output/input, artifacts and simulator streams. All must move to v3;
+  replacing only the generic byte factory would leave active iroh dependencies.
+- The libp2p fork already contains protocols/stream (libp2p-stream 0.4.0-alpha).
+  Pinning it to the same fork revision can supply generic streams without a
+  hand-written swarm connection handler. This has only been inspected, not wired.
+- No Swift entrypoint has changed. Native session ownership, renewal, replay,
+  acknowledged input and revocation must be implemented/tested before the app
+  switch and removal of IRX/iroh. Existing probe tests do not cover these contracts.
