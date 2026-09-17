@@ -5259,13 +5259,110 @@
     "Counters accumulate since daemon start; reading them never touches SQLite or the journal."
    ]
   },
-  "GuestUrlOpenResult": {
+  "PresenceAnchor": {
+   "kind": "tagged_union",
+   "tag": "kind",
+   "variants": {
+    "cell": {
+     "kind": "object",
+     "fields": {
+      "kind": {
+       "type": {
+        "kind": "literal",
+        "value": "cell"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "row": {
+       "type": {
+        "kind": "scalar",
+        "name": "uint32"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "col": {
+       "type": {
+        "kind": "scalar",
+        "name": "uint32"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "scroll_offset": {
+       "type": {
+        "kind": "scalar",
+        "name": "uint64"
+       },
+       "presence": "optional",
+       "nullable": false
+      }
+     },
+     "additional_properties": false
+    },
+    "point": {
+     "kind": "object",
+     "fields": {
+      "kind": {
+       "type": {
+        "kind": "literal",
+        "value": "point"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "x": {
+       "type": {
+        "kind": "scalar",
+        "name": "float64"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "y": {
+       "type": {
+        "kind": "scalar",
+        "name": "float64"
+       },
+       "presence": "required",
+       "nullable": false
+      }
+     },
+     "additional_properties": false
+    }
+   }
+  },
+  "PresenceHighlightMode": {
+   "kind": "enum",
+   "values": [
+    "laser",
+    "pin"
+   ]
+  },
+  "PresenceHighlight": {
    "kind": "object",
    "fields": {
-    "opened": {
+    "start": {
      "type": {
-      "kind": "scalar",
-      "name": "boolean"
+      "kind": "ref",
+      "name": "PresenceAnchor"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "end": {
+     "type": {
+      "kind": "ref",
+      "name": "PresenceAnchor"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "mode": {
+     "type": {
+      "kind": "ref",
+      "name": "PresenceHighlightMode"
      },
      "presence": "required",
      "nullable": false
@@ -5273,41 +5370,98 @@
    },
    "additional_properties": false
   },
-  "GuestUrlSubscribeResult": {
+  "PresenceEntry": {
    "kind": "object",
    "fields": {
-    "url_open_ready": {
+    "client": {
      "type": {
       "kind": "scalar",
-      "name": "boolean"
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "kind": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "color": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "surface": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "pointer": {
+     "type": {
+      "kind": "ref",
+      "name": "PresenceAnchor"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "highlight": {
+     "type": {
+      "kind": "ref",
+      "name": "PresenceHighlight"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "updated_at_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "generation": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
      },
      "presence": "required",
      "nullable": false
     }
    },
-   "additional_properties": false
+   "additional_properties": false,
+   "constraints": [
+    "surface is null only in presence-changed after a clear, disconnect, or surface exit; presence-list never returns such entries.",
+    "color is a palette slot in 0..8, stable for the connection."
+   ]
   },
-  "GuestUrlClaimResult": {
+  "PresenceListResult": {
    "kind": "object",
    "fields": {
-    "claimed": {
+    "entries": {
      "type": {
-      "kind": "scalar",
-      "name": "boolean"
-     },
-     "presence": "required",
-     "nullable": false
-    }
-   },
-   "additional_properties": false
-  },
-  "GuestUrlAcknowledgeResult": {
-   "kind": "object",
-   "fields": {
-    "accepted": {
-     "type": {
-      "kind": "scalar",
-      "name": "boolean"
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "PresenceEntry"
+      }
      },
      "presence": "required",
      "nullable": false
@@ -10551,144 +10705,10 @@
     "Requires terminal-image-paste-v1 and a current connection-owned attachment lease for the exact public terminal. Begin(mime,size), chunk(offset,data), commit, cancel. No caller-supplied paths. 20 MiB per image; 48 KiB chunks; generated temporary files expire after 600 seconds."
    ]
   },
-  "url-open": {
-   "authority": "local-admin",
-   "since": 12,
-   "capability": null,
-   "request": {
-    "kind": "object",
-    "fields": {
-     "terminal_id": {
-      "type": {
-       "kind": "scalar",
-       "name": "string"
-      },
-      "presence": "required",
-      "nullable": false
-     },
-     "url": {
-      "type": {
-       "kind": "scalar",
-       "name": "string"
-      },
-      "presence": "required",
-      "nullable": false
-     }
-    },
-    "additional_properties": false
-   },
-   "result": {
-    "kind": "ref",
-    "name": "GuestUrlOpenResult"
-   },
-   "stream": null,
-   "constraints": [
-    "Private frontend URL delivery; no resource or journal mutation. HTTP(S) only, exact projected terminal identity, 16 pending requests maximum, five-second expiry. A request ID is an ephemeral acknowledgement capability."
-   ]
-  },
-  "url-open-subscribe": {
-   "authority": "frontend",
-   "since": 12,
-   "capability": null,
-   "request": {
-    "kind": "object",
-    "fields": {
-     "terminal_ids": {
-      "type": {
-       "kind": "array",
-       "items": {
-        "kind": "scalar",
-        "name": "string"
-       }
-      },
-      "presence": "required",
-      "nullable": false
-     }
-    },
-    "additional_properties": false
-   },
-   "result": {
-    "kind": "ref",
-    "name": "GuestUrlSubscribeResult"
-   },
-   "stream": {
-    "kind": "subscribe",
-    "event_names": [
-     "url-open"
-    ],
-    "ordering": "Registration response followed by targeted requests; no replay. Closing the connection rejects its pending requests.",
-    "terminal_event": null
-   },
-   "constraints": [
-    "Private frontend URL delivery; no resource or journal mutation. HTTP(S) only, exact projected terminal identity, 16 pending requests maximum, five-second expiry. A request ID is an ephemeral acknowledgement capability."
-   ]
-  },
-  "url-open-claim": {
-   "authority": "frontend",
-   "since": 12,
-   "capability": null,
-   "request": {
-    "kind": "object",
-    "fields": {
-     "request_id": {
-      "type": {
-       "kind": "scalar",
-       "name": "string"
-      },
-      "presence": "required",
-      "nullable": false
-     }
-    },
-    "additional_properties": false
-   },
-   "result": {
-    "kind": "ref",
-    "name": "GuestUrlClaimResult"
-   },
-   "stream": null,
-   "constraints": [
-    "Private frontend URL delivery; no resource or journal mutation. HTTP(S) only, exact projected terminal identity, 16 pending requests maximum, five-second expiry. A request ID is an ephemeral acknowledgement capability."
-   ]
-  },
-  "url-open-result": {
-   "authority": "frontend",
-   "since": 12,
-   "capability": null,
-   "request": {
-    "kind": "object",
-    "fields": {
-     "request_id": {
-      "type": {
-       "kind": "scalar",
-       "name": "string"
-      },
-      "presence": "required",
-      "nullable": false
-     },
-     "opened": {
-      "type": {
-       "kind": "scalar",
-       "name": "boolean"
-      },
-      "presence": "required",
-      "nullable": false
-     }
-    },
-    "additional_properties": false
-   },
-   "result": {
-    "kind": "ref",
-    "name": "GuestUrlAcknowledgeResult"
-   },
-   "stream": null,
-   "constraints": [
-    "Private frontend URL delivery; no resource or journal mutation. HTTP(S) only, exact projected terminal identity, 16 pending requests maximum, five-second expiry. A request ID is an ephemeral acknowledgement capability."
-   ]
-  },
-  "move-tab-to-workspace": {
+  "presence-update": {
    "authority": "control",
    "since": 12,
-   "capability": "tab-workspace-move-v1",
+   "capability": "presence-v1",
    "request": {
     "kind": "object",
     "fields": {
@@ -10700,14 +10720,21 @@
       "presence": "required",
       "nullable": false
      },
-     "workspace": {
+     "pointer": {
       "type": {
        "kind": "ref",
-       "name": "Id"
+       "name": "PresenceAnchor"
       },
       "presence": "optional",
-      "nullable": true,
-      "default": null
+      "nullable": true
+     },
+     "highlight": {
+      "type": {
+       "kind": "ref",
+       "name": "PresenceHighlight"
+      },
+      "presence": "optional",
+      "nullable": true
      }
     },
     "additional_properties": false
@@ -10718,7 +10745,43 @@
    },
    "stream": null,
    "constraints": [
-    "Moves the existing tab to the selected workspace or atomically creates a workspace when workspace is omitted."
+    "Replaces this connection's whole presence state; omitted pointer or highlight means none.",
+    "At most 240 updates per second per connection; more fail with a bad request error.",
+    "Never journaled; a server restart forgets all presence."
+   ]
+  },
+  "presence-clear": {
+   "authority": "control",
+   "since": 12,
+   "capability": "presence-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "EmptyResult"
+   },
+   "stream": null,
+   "constraints": []
+  },
+  "presence-list": {
+   "authority": "control",
+   "since": 12,
+   "capability": "presence-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "PresenceListResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Pointers idle for 60 seconds are dropped unless their highlight mode is pin."
    ]
   }
  },
@@ -13434,11 +13497,11 @@
     "additional_properties": false
    }
   },
-  "url-open": {
+  "presence-changed": {
    "since": 12,
-   "capability": null,
+   "capability": "presence-v1",
    "streams": [
-    "control"
+    "subscribe"
    ],
    "emission": "emitted",
    "payload": {
@@ -13447,31 +13510,79 @@
      "event": {
       "type": {
        "kind": "literal",
-       "value": "url-open"
+       "value": "presence-changed"
       },
       "presence": "required",
       "nullable": false
      },
-     "request_id": {
+     "client": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "name": {
       "type": {
        "kind": "scalar",
        "name": "string"
       },
       "presence": "required",
-      "nullable": false
+      "nullable": true
      },
-     "terminal_id": {
+     "kind": {
       "type": {
        "kind": "scalar",
        "name": "string"
       },
       "presence": "required",
-      "nullable": false
+      "nullable": true
      },
-     "url": {
+     "color": {
       "type": {
        "kind": "scalar",
-       "name": "string"
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": true
+     },
+     "pointer": {
+      "type": {
+       "kind": "ref",
+       "name": "PresenceAnchor"
+      },
+      "presence": "required",
+      "nullable": true
+     },
+     "highlight": {
+      "type": {
+       "kind": "ref",
+       "name": "PresenceHighlight"
+      },
+      "presence": "required",
+      "nullable": true
+     },
+     "updated_at_ms": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "generation": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
       },
       "presence": "required",
       "nullable": false
