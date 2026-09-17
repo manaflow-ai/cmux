@@ -133,6 +133,13 @@ impl Hub {
                     None
                 }
             }
+            PermissionPolicy::ApproveEdits => {
+                if matches!(tool_kind, "read" | "search" | "fetch" | "think" | "edit") {
+                    pick(&["allow_once", "allow_always"])
+                } else {
+                    None
+                }
+            }
             PermissionPolicy::Ask => None,
         };
         let permission_id = uuid::Uuid::now_v7().to_string();

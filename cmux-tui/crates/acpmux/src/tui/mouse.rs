@@ -23,6 +23,8 @@ pub enum ButtonAction {
     AddHost,
     /// Copy the status-bar message (cmux's `[Copy message]`).
     CopyStatus,
+    Help,
+    Web,
     CloseOverlay,
     ConfirmYes,
     ConfirmNo,
@@ -47,6 +49,8 @@ impl App {
                 self.set_host_filter(next);
             }
             ButtonAction::AddHost => self.overlay = Overlay::AddHost { text: Editor::default() },
+            ButtonAction::Help => self.run_action(Action::Help, &[]),
+            ButtonAction::Web => self.run_action(Action::Web, &[]),
             ButtonAction::CopyStatus => {
                 let text = self.status.trim_start_matches("error: ").to_owned();
                 self.copy_to_clipboard(&text);
@@ -122,19 +126,26 @@ impl App {
     }
 
     /// Transcript row index and column under a screen position.
-    pub(super) fn transcript_cell(&self, x: u16, y: u16) -> Option<(usize, usize)> {
+    /// Forgiving cell lookup: any point in the transcript
+    /// pane snaps to the nearest row and column, so a press on the gutter,
+    /// past the end of a line, or below the last line still starts a
+    /// selection there.
+    pub(super) fn transcript_cell_lenient(&self, x: u16, y: u16) -> Option<(usize, usize)> {
         let a = self.areas.transcript;
-        let inner = Rect { x: a.x + 1, y: a.y + 1, width: a.width.saturating_sub(3), height: a.height.saturating_sub(1) };
-        if x < inner.x || x >= inner.x + inner.width || y < inner.y || y >= inner.y + inner.height {
+        if a.width < 4 || a.height < 2 || x < a.x || x >= a.x + a.width || y < a.y || y >= a.y + a.height {
             return None;
         }
+        if self.rows_cache.is_empty() {
+            return None;
+        }
+        let inner = Rect { x: a.x + 1, y: a.y + 1, width: a.width.saturating_sub(3), height: a.height.saturating_sub(1) };
         let id = self.selected_id()?;
         let vp = self.viewport.get(&id)?;
-        let row = vp.offset + (y - inner.y) as usize;
-        if row >= self.rows_cache.len() {
-            return None;
-        }
-        Some((row, (x - inner.x) as usize))
+        let yy = y.clamp(inner.y, inner.y + inner.height.saturating_sub(1));
+        let row = (vp.offset + (yy - inner.y) as usize).min(self.rows_cache.len() - 1);
+        let xx = x.clamp(inner.x, inner.x + inner.width.saturating_sub(1));
+        let col = ((xx - inner.x) as usize).min(self.rows_cache[row].chars().count());
+        Some((row, col))
     }
 
     pub(super) fn on_mouse(&mut self, m: MouseEvent) {
@@ -159,6 +170,14 @@ impl App {
             MouseEventKind::Down(MouseButton::Left) => self.press(x, y, m.modifiers),
             MouseEventKind::Drag(MouseButton::Left) => self.drag(x, y),
             MouseEventKind::Up(MouseButton::Left) => self.release(),
+            MouseEventKind::Down(MouseButton::Right) => {
+                if let Overlay::Menu(_) = self.overlay {
+                    self.overlay = Overlay::None;
+                }
+                if matches!(self.overlay, Overlay::None) {
+                    self.context_menu(x, y);
+                }
+            }
             _ => {}
         }
     }
@@ -183,6 +202,15 @@ impl App {
         // Dialog buttons drawn last frame.
         if let Some((_, action)) = self.buttons.iter().find(|(r, _)| hit(*r)).cloned() {
             self.on_button(&action);
+            return;
+        }
+        // Context menu: a row runs, anywhere else closes.
+        if let Overlay::Menu(m) = &self.overlay {
+            let picked = m.item_at(x, y).map(|i| m.items[i].action.clone());
+            self.overlay = Overlay::None;
+            if let Some(a) = picked {
+                self.run_menu_action(a);
+            }
             return;
         }
         // Any open dialog: scrollbar first, then rows, then click-outside closes.
@@ -250,15 +278,43 @@ impl App {
         let comp = self.areas.composer;
         if x >= comp.x && x < comp.x + comp.width && y >= comp.y && y < comp.y + comp.height {
             self.focus = Focus::Input;
-            if y > comp.y {
-                let width = comp.width.saturating_sub(2) as usize;
+            if y > comp.y && y < comp.y + comp.height - 2 {
+                let width = comp.width.saturating_sub(render::COMPOSER_INDENT + 1) as usize;
                 let row = self.editor().scroll + (y - comp.y - 1) as usize;
-                self.editor_mut().click(width, row, x.saturating_sub(comp.x + 1) as usize);
+                self.editor_mut().click(width, row, x.saturating_sub(comp.x + render::COMPOSER_INDENT) as usize);
+                let cur = self.editor().cursor();
+                self.composer_sel = Some((cur, cur));
             }
             return;
         }
-        // Transcript: start a selection, with double and triple click.
-        let Some((row, col)) = self.transcript_cell(x, y) else {
+        // Ctrl-click or Alt-click opens the link under the pointer (Cmd-click
+        // is handled by the terminal through OSC 8 and never reaches us).
+        if mods.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) {
+            if let Some((row, col)) = self.transcript_cell_lenient(x, y) {
+                let text = self.rows_cache.get(row).cloned().unwrap_or_default();
+                if let Some(link) = crate::tui::links::find(&text).into_iter().find(|l| col >= l.start && col < l.end) {
+                    let cwd = self.selected_session().and_then(|s| s.get("cwd").and_then(Value::as_str)).unwrap_or("").to_owned();
+                    self.status = crate::tui::links::open(&link.target, &cwd);
+                    self.selection = None;
+                    return;
+                }
+            }
+        }
+        // Transcript: a click on a collapsible header opens or closes it.
+        if let Some((row, _)) = self.transcript_cell_lenient(x, y) {
+            if let (Some(&(_, Some(t))), Some(id)) = (self.row_meta.get(row), self.selected_id()) {
+                let a = self.areas.transcript;
+                let exact_row = y >= a.y + 1 && (self.viewport.get(&id).map(|v| v.offset).unwrap_or(0) + (y - a.y - 1) as usize) == row;
+                if exact_row {
+                    self.toggle(t);
+                    self.selection = None;
+                    return;
+                }
+            }
+        }
+        // Transcript: start a selection, with double and triple click. Any
+        // point in the pane counts, not only a cell with text under it.
+        let Some((row, col)) = self.transcript_cell_lenient(x, y) else {
             self.selection = None;
             return;
         };
@@ -300,20 +356,37 @@ impl App {
                 }
             }
         }
+        // Composer selection follows the pointer.
+        if let Some((anchor, _)) = self.composer_sel {
+            let comp = self.areas.composer;
+            let width = comp.width.saturating_sub(render::COMPOSER_INDENT + 1) as usize;
+            let yy = y.clamp(comp.y + 1, (comp.y + comp.height).saturating_sub(3));
+            let row = self.editor().scroll + (yy - comp.y - 1) as usize;
+            self.editor_mut().click(width, row, x.saturating_sub(comp.x + render::COMPOSER_INDENT) as usize);
+            let head = self.editor().cursor();
+            self.composer_sel = Some((anchor, head));
+            return;
+        }
         if self.selection.is_none() {
             return;
         }
-        // Dragging past the edges auto-scrolls and extends.
+        // Dragging past the edges auto-scrolls and extends; the tick keeps
+        // scrolling while the pointer stays outside.
         let a = self.areas.transcript;
         let inner_top = a.y + 1;
         let inner_bottom = a.y + a.height;
-        if y < inner_top {
-            self.with_viewport(|v| v.scroll_by(-1));
+        self.drag_autoscroll = if y < inner_top {
+            Some(-1)
         } else if y >= inner_bottom {
-            self.with_viewport(|v| v.scroll_by(1));
+            Some(1)
+        } else {
+            None
+        };
+        if let Some(d) = self.drag_autoscroll {
+            self.with_viewport(|v| v.scroll_by(d));
         }
         let yy = y.clamp(inner_top, inner_bottom.saturating_sub(1));
-        let Some((row, col)) = self.transcript_cell(x.max(a.x + 1), yy) else { return };
+        let Some((row, col)) = self.transcript_cell_lenient(x.max(a.x), yy) else { return };
         let line = self.rows_cache.get(row).cloned().unwrap_or_default();
         let Some(sel) = self.selection.as_mut() else { return };
         match sel.mode {
@@ -328,7 +401,38 @@ impl App {
         }
     }
 
+    /// Called every tick: keeps scrolling while a selection drag sits past
+    /// the transcript's top or bottom edge, extending the selection.
+    pub(super) fn autoscroll_step(&mut self) {
+        let Some(d) = self.drag_autoscroll else { return };
+        if self.selection.is_none() {
+            self.drag_autoscroll = None;
+            return;
+        }
+        self.with_viewport(|v| v.scroll_by(d * 2));
+        let a = self.areas.transcript;
+        let y = if d < 0 { a.y + 1 } else { a.y + a.height - 1 };
+        let Some((row, col)) = self.transcript_cell_lenient(a.x + 1, y) else { return };
+        let line = self.rows_cache.get(row).cloned().unwrap_or_default();
+        if let Some(sel) = self.selection.as_mut() {
+            sel.head = match sel.mode {
+                SelectMode::Cell => (row, if d < 0 { 0 } else { line.chars().count() }),
+                SelectMode::Word | SelectMode::Line => (row, if d < 0 { 0 } else { line.chars().count() }),
+            };
+        }
+        let _ = col;
+    }
+
     pub(super) fn release(&mut self) {
+        self.drag_autoscroll = None;
+        if let Some((a, b)) = self.composer_sel.take() {
+            let (a, b) = (a.min(b), a.max(b));
+            if a < b {
+                let text: String = self.editor().text().chars().skip(a).take(b - a).collect();
+                self.copy_to_clipboard(&text);
+            }
+            return;
+        }
         if !matches!(self.overlay, Overlay::None) {
             self.dialog.release();
             return;

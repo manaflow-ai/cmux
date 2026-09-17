@@ -102,6 +102,9 @@ pub enum PermissionPolicy {
     Ask,
     ApproveAll,
     ApproveReads,
+    /// Reads plus edits auto-approved; shell, delete and move still ask.
+    /// Claude Code's "accept edits" without needing Claude's own mode.
+    ApproveEdits,
     DenyAll,
 }
 
@@ -112,6 +115,7 @@ impl std::str::FromStr for PermissionPolicy {
             "ask" => Ok(Self::Ask),
             "approve-all" | "yolo" => Ok(Self::ApproveAll),
             "approve-reads" => Ok(Self::ApproveReads),
+            "approve-edits" | "accept-edits" => Ok(Self::ApproveEdits),
             "deny-all" => Ok(Self::DenyAll),
             other => Err(format!("unknown permission policy: {other}")),
         }
@@ -124,6 +128,7 @@ impl std::fmt::Display for PermissionPolicy {
             Self::Ask => "ask",
             Self::ApproveAll => "approve-all",
             Self::ApproveReads => "approve-reads",
+            Self::ApproveEdits => "approve-edits",
             Self::DenyAll => "deny-all",
         };
         f.write_str(s)
@@ -161,6 +166,10 @@ pub struct Config {
     pub store: StoreConfig,
     #[serde(default)]
     pub permission_policy: PermissionPolicy,
+    /// Most rows the TUI composer grows to before it scrolls. Env
+    /// `ACPMUX_COMPOSER_ROWS` overrides. Default 12.
+    #[serde(default)]
+    pub composer_max_rows: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub websocket: Option<WebSocketConfig>,
     /// Where this config was loaded from. A config built in code (tests,
@@ -186,8 +195,10 @@ impl Config {
         } else {
             Config::default()
         };
-        if cfg.agents.is_empty() {
-            cfg.agents = discover_agents();
+        // Harnesses found on PATH join the configured ones, so installing an
+        // adapter such as pi-acp is enough; configured entries always win.
+        for (name, profile) in discover_agents() {
+            cfg.agents.entry(name).or_insert(profile);
         }
         if cfg.default_agent.is_none() {
             cfg.default_agent = cfg.agents.keys().next().cloned();
@@ -249,6 +260,9 @@ pub fn discover_agents() -> BTreeMap<String, AgentProfile> {
         ("claude", "claude"),
         ("gemini", "gemini"),
         ("opencode", "opencode"),
+        // pi (earendil-works/pi) speaks ACP through the pi-acp adapter,
+        // which spawns `pi --mode rpc`: `bun add -g pi-acp`.
+        ("pi", "pi-acp"),
     ] {
         if agents.contains_key(name) {
             continue;
@@ -296,4 +310,35 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     std::fs::write(&tmp, bytes).with_context(|| format!("write {}", tmp.display()))?;
     std::fs::rename(&tmp, path).with_context(|| format!("rename to {}", path.display()))?;
     Ok(())
+}
+
+/// Variables a Claude Code session plants for its own children: a
+/// per-session API proxy and auth, hooks, and wrapper shims. A daemon or
+/// agent launched from inside such a session must not inherit them, or its
+/// Claude processes dial a proxy that dies with that session ("API Error:
+/// Connection refused"). Applied only when `CLAUDECODE` is set, so a user's
+/// own `ANTHROPIC_*` settings in a plain shell still pass through.
+pub fn scrub_nested_claude_env(cmd: &mut std::process::Command) {
+    if std::env::var_os("CLAUDECODE").is_none() {
+        return;
+    }
+    for (k, _) in std::env::vars_os() {
+        let key = k.to_string_lossy();
+        if key.starts_with("CLAUDE") || key.starts_with("ANTHROPIC_") || key.starts_with("CMUX_CLAUDE_") || key.starts_with("SUBROUTER_CLAUDE_") || key == "NODE_OPTIONS" {
+            cmd.env_remove(&k);
+        }
+    }
+}
+
+/// Same, for tokio's process builder.
+pub fn scrub_nested_claude_env_tokio(cmd: &mut tokio::process::Command) {
+    if std::env::var_os("CLAUDECODE").is_none() {
+        return;
+    }
+    for (k, _) in std::env::vars_os() {
+        let key = k.to_string_lossy();
+        if key.starts_with("CLAUDE") || key.starts_with("ANTHROPIC_") || key.starts_with("CMUX_CLAUDE_") || key.starts_with("SUBROUTER_CLAUDE_") || key == "NODE_OPTIONS" {
+            cmd.env_remove(&k);
+        }
+    }
 }

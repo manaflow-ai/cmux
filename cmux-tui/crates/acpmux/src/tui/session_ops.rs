@@ -33,11 +33,11 @@ impl App {
             .to_owned();
         let id = self.next_draft_id;
         self.next_draft_id += 1;
-        self.drafts.insert(0, Draft { id, peer, agent, cwd, policy, model: None, creating: false, text: Editor::default(), errors: Vec::new() });
+        self.drafts.insert(0, Draft { id, peer, agent, cwd, policy, model: None, creating: false, text: Editor::default(), errors: Vec::new(), effort: None });
         self.selected = 0;
         self.selection = None;
         self.focus = Focus::Input;
-        self.status = "new session · type a message and press Enter · :agent NAME · :cwd PATH · Esc discards".into();
+        self.status = "new session · Enter starts it · Esc discards".into();
     }
 
     pub(super) fn discard_draft(&mut self) {
@@ -73,6 +73,7 @@ impl App {
         let client = self.client.clone();
         let tx = self.tx.clone();
         let model = d.model.clone();
+        let effort = d.effort.clone();
         self.status = format!("starting {}…", d.agent);
         tokio::spawn(async move {
             match client.request(method::SESSION_NEW, params).await {
@@ -84,6 +85,9 @@ impl App {
                         tokio::spawn(async move {
                             if let Some(m) = model {
                                 let _ = c.request(method::SESSION_SET_MODEL, json!({"sessionId": id, "modelId": m})).await;
+                            }
+                            if let Some(e) = effort {
+                                let _ = c.request(method::SESSION_SET_CONFIG_OPTION, json!({"sessionId": id, "configId": "effort", "value": e})).await;
                             }
                             let _ = c.request(method::SESSION_PROMPT, json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]})).await;
                         });
@@ -111,10 +115,10 @@ impl App {
         self.overlay = Overlay::NewSession(NewForm {
             agents: self.agents.clone(),
             agent,
-            name: String::new(),
-            cwd,
+            name: Editor::default(),
+            cwd: { let mut e = Editor::default(); e.set_text(&cwd); e },
             policy: 0,
-            prompt: String::new(),
+            prompt: Editor::default(),
             field: 1,
         });
     }
@@ -124,18 +128,19 @@ impl App {
             self.report_error("no agents configured; edit ~/.acpmux/config.json".into());
             return;
         };
-        if !form.name.is_empty() {
-            if let Err(e) = crate::session_name::validate(&form.name) {
+        let form_name = form.name.text();
+        if !form_name.is_empty() {
+            if let Err(e) = crate::session_name::validate(&form_name) {
                 self.status = e;
                 return;
             }
         }
         let mut meta = json!({"agent": agent, "policy": POLICIES[form.policy]});
-        if !form.name.is_empty() {
-            meta["name"] = json!(form.name);
+        if !form_name.is_empty() {
+            meta["name"] = json!(form_name);
         }
-        let params = json!({"cwd": form.cwd, "mcpServers": [], "_meta": {"acpmux": meta}});
-        let first = form.prompt.trim().to_owned();
+        let params = json!({"cwd": form.cwd.text(), "mcpServers": [], "_meta": {"acpmux": meta}});
+        let first = form.prompt.text().trim().to_owned();
         let client = self.client.clone();
         let tx = self.tx.clone();
         self.status = "starting agent…".into();
@@ -283,6 +288,7 @@ impl App {
                 let note = match *p {
                     "ask" => "you approve each tool call",
                     "approve-reads" => "reads auto, writes ask",
+                    "approve-edits" => "reads and edits auto, shell asks",
                     "approve-all" => "nothing asks",
                     _ => "everything denied",
                 };
@@ -294,8 +300,13 @@ impl App {
 
     /// "Thinking": whichever effort-like option the harness exposes.
     pub(super) fn open_thinking_picker(&mut self) {
-        if self.on_draft() {
-            self.status = "thinking level is set once the session runs; send the first message first".into();
+        if let Some(d) = self.draft() {
+            let current = d.effort.clone().unwrap_or_else(|| "default".into());
+            let rows = super::actions::draft_effort_levels(&d.agent)
+                .into_iter()
+                .map(|(v, l)| PickRow { value: v.into(), label: l.into(), header: false, group: String::new(), note: String::new() })
+                .collect();
+            self.overlay = Overlay::Picker(Picker::new("Thinking effort", rows, Some(&current), PickTarget::DraftEffort, "applied when the session starts · Enter or click picks · Esc"));
             return;
         }
         let Some(id) = self.selected_id() else { return };
@@ -305,13 +316,13 @@ impl App {
             .and_then(Value::as_array)
             .map(|a| a.iter().filter_map(|o| o.get("id").and_then(Value::as_str).map(str::to_owned)).collect())
             .unwrap_or_default();
-        for cand in ["reasoning_effort", "effort", "thinking", "reasoning"] {
+        for cand in ["reasoning_effort", "effort", "thought_level", "thinking", "reasoning"] {
             if ids.iter().any(|i| i == cand) {
                 self.open_config_picker(cand);
                 return;
             }
         }
-        self.report_error("this harness has no thinking setting; Claude's thinking follows the model".into());
+        self.report_error("this harness has no thinking or effort setting".into());
     }
 
     pub(super) fn open_directory_dialog(&mut self) {
@@ -456,6 +467,18 @@ impl App {
                 };
                 self.request_bg(method::SESSION_SET_CONFIG_OPTION, json!({"sessionId": id.clone(), "configId": cid.clone(), "value": v}), Some(format!("{cid} = {value}")));
                 self.refresh_detail_later(&id);
+            }
+            PickTarget::DraftEffort => self.set_effort(value),
+            PickTarget::Action => {
+                if let Some(d) = super::actions::find(&value) {
+                    // Optional arguments (shown in brackets) mean the action
+                    // has its own picker: /model opens the model list.
+                    if d.args.is_empty() || d.args.starts_with('[') {
+                        self.run_action(d.action, &[]);
+                    } else {
+                        self.prompt_command(d.name);
+                    }
+                }
             }
             PickTarget::Agent => {
                 if let Some(Overlay::NewSession(f)) = self.parked_form.as_mut() {

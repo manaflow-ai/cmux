@@ -10,6 +10,23 @@ impl App {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         match std::mem::replace(&mut self.overlay, Overlay::None) {
             Overlay::None => false,
+            Overlay::Menu(mut m) => {
+                match key.code {
+                    KeyCode::Esc | KeyCode::Char('q') => {}
+                    KeyCode::Up | KeyCode::Char('k') => { m.cursor = m.cursor.saturating_sub(1); self.overlay = Overlay::Menu(m); }
+                    KeyCode::Down | KeyCode::Char('j') => { m.cursor = (m.cursor + 1).min(m.items.len().saturating_sub(1)); self.overlay = Overlay::Menu(m); }
+                    KeyCode::Char('n') if ctrl => { m.cursor = (m.cursor + 1).min(m.items.len().saturating_sub(1)); self.overlay = Overlay::Menu(m); }
+                    KeyCode::Char('p') if ctrl => { m.cursor = m.cursor.saturating_sub(1); self.overlay = Overlay::Menu(m); }
+                    KeyCode::Enter => {
+                        if let Some(it) = m.items.get(m.cursor) {
+                            let a = it.action.clone();
+                            self.run_menu_action(a);
+                        }
+                    }
+                    _ => self.overlay = Overlay::Menu(m),
+                }
+                true
+            }
             Overlay::AddHost { mut text } => {
                 match key.code {
                     KeyCode::Esc => {}
@@ -29,14 +46,10 @@ impl App {
                             });
                         }
                     }
-                    KeyCode::Backspace => { text.backspace(); self.overlay = Overlay::AddHost { text }; }
-                    KeyCode::Left => { text.left(); self.overlay = Overlay::AddHost { text }; }
-                    KeyCode::Right => { text.right(); self.overlay = Overlay::AddHost { text }; }
-                    KeyCode::Home => { text.home(); self.overlay = Overlay::AddHost { text }; }
-                    KeyCode::End => { text.end(); self.overlay = Overlay::AddHost { text }; }
-                    KeyCode::Char('u') if ctrl => { text.clear(); self.overlay = Overlay::AddHost { text }; }
-                    KeyCode::Char(ch) if !ctrl => { text.insert(ch); self.overlay = Overlay::AddHost { text }; }
-                    _ => self.overlay = Overlay::AddHost { text },
+                    _ => {
+                        editor::handle_key(&mut text, key);
+                        self.overlay = Overlay::AddHost { text };
+                    }
                 }
                 true
             }
@@ -49,15 +62,10 @@ impl App {
                             self.apply_directory(path);
                         }
                     }
-                    KeyCode::Backspace => { text.backspace(); self.overlay = Overlay::Directory { text }; }
-                    KeyCode::Left => { text.left(); self.overlay = Overlay::Directory { text }; }
-                    KeyCode::Right => { text.right(); self.overlay = Overlay::Directory { text }; }
-                    KeyCode::Home => { text.home(); self.overlay = Overlay::Directory { text }; }
-                    KeyCode::End => { text.end(); self.overlay = Overlay::Directory { text }; }
-                    KeyCode::Char('u') if ctrl => { text.clear(); self.overlay = Overlay::Directory { text }; }
-                    KeyCode::Char('w') if ctrl => { text.delete_word_back(); self.overlay = Overlay::Directory { text }; }
-                    KeyCode::Char(ch) if !ctrl => { text.insert(ch); self.overlay = Overlay::Directory { text }; }
-                    _ => self.overlay = Overlay::Directory { text },
+                    _ => {
+                        editor::handle_key(&mut text, key);
+                        self.overlay = Overlay::Directory { text };
+                    }
                 }
                 true
             }
@@ -98,16 +106,22 @@ impl App {
                     KeyCode::Char('n') if ctrl => { p.move_by(1); self.overlay = Overlay::Picker(p); }
                     KeyCode::Char('p') if ctrl => { p.move_by(-1); self.overlay = Overlay::Picker(p); }
                     KeyCode::Enter => {
-                        if let Some(row) = p.selected().cloned() {
+                        let filter = p.filter.text();
+                        if matches!(p.on_pick, PickTarget::Action) && (filter.contains(' ') || filter.starts_with('/')) {
+                            // "rename foo" typed into the palette runs as a command line.
+                            self.run_command(&filter);
+                        } else if let Some(row) = p.selected().cloned() {
                             self.apply_pick(p.on_pick.clone(), row.value, row.group);
                         }
                     }
                     KeyCode::PageUp => { for _ in 0..8 { p.move_by(-1); } self.overlay = Overlay::Picker(p); }
                     KeyCode::PageDown => { for _ in 0..8 { p.move_by(1); } self.overlay = Overlay::Picker(p); }
-                    KeyCode::Backspace => { p.filter.pop(); p.refilter(); self.overlay = Overlay::Picker(p); }
-                    KeyCode::Char('u') if ctrl => { p.filter.clear(); p.refilter(); self.overlay = Overlay::Picker(p); }
-                    KeyCode::Char(ch) if !ctrl => { p.filter.push(ch); p.refilter(); self.overlay = Overlay::Picker(p); }
-                    _ => self.overlay = Overlay::Picker(p),
+                    _ => {
+                        if editor::handle_key(&mut p.filter, key) {
+                            p.refilter();
+                        }
+                        self.overlay = Overlay::Picker(p);
+                    }
                 }
                 if is_agent && matches!(self.overlay, Overlay::None) {
                     if let Some(form) = self.parked_form.take() {
@@ -147,54 +161,31 @@ impl App {
                         f.policy = if key.code == KeyCode::Right { (f.policy + 1) % POLICIES.len() } else { (f.policy + POLICIES.len() - 1) % POLICIES.len() };
                         self.overlay = Overlay::NewSession(f);
                     }
-                    KeyCode::Backspace => {
+                    KeyCode::Char(c) if f.field == 0 && !ctrl => {
+                        if let Some(i) = f.agents.iter().position(|a| a.starts_with(c)) {
+                            f.agent = i;
+                        }
+                        self.overlay = Overlay::NewSession(f);
+                    }
+                    KeyCode::Char(c) if f.field == 3 && !ctrl => {
+                        if let Some(i) = POLICIES.iter().position(|p| p.starts_with(c)) {
+                            f.policy = i;
+                        }
+                        self.overlay = Overlay::NewSession(f);
+                    }
+                    // Session names take only name characters; other fields take anything.
+                    KeyCode::Char(c) if f.field == 1 && !ctrl && !key.modifiers.contains(KeyModifiers::ALT) && !(c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')) => {
+                        self.overlay = Overlay::NewSession(f);
+                    }
+                    _ => {
                         match f.field {
-                            1 => {
-                                f.name.pop();
-                            }
-                            2 => {
-                                f.cwd.pop();
-                            }
-                            4 => {
-                                f.prompt.pop();
-                            }
+                            1 => { editor::handle_key(&mut f.name, key); }
+                            2 => { editor::handle_key(&mut f.cwd, key); }
+                            4 => { editor::handle_key(&mut f.prompt, key); }
                             _ => {}
                         }
                         self.overlay = Overlay::NewSession(f);
                     }
-                    KeyCode::Char('u') if ctrl => {
-                        match f.field {
-                            1 => f.name.clear(),
-                            2 => f.cwd.clear(),
-                            4 => f.prompt.clear(),
-                            _ => {}
-                        }
-                        self.overlay = Overlay::NewSession(f);
-                    }
-                    KeyCode::Char(c) if !ctrl => {
-                        match f.field {
-                            1 => {
-                                if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
-                                    f.name.push(c)
-                                }
-                            }
-                            2 => f.cwd.push(c),
-                            4 => f.prompt.push(c),
-                            0 => {
-                                if let Some(i) = f.agents.iter().position(|a| a.starts_with(c)) {
-                                    f.agent = i
-                                }
-                            }
-                            3 => {
-                                if let Some(i) = POLICIES.iter().position(|p| p.starts_with(c)) {
-                                    f.policy = i
-                                }
-                            }
-                            _ => {}
-                        }
-                        self.overlay = Overlay::NewSession(f);
-                    }
-                    _ => self.overlay = Overlay::NewSession(f),
                 }
                 true
             }
@@ -238,21 +229,28 @@ impl App {
             self.focus_nav(c);
             return;
         }
-        if let (KeyCode::Char('s'), true) = (key.code, key.modifiers.contains(KeyModifiers::ALT) && !ctrl) {
-            self.toggle_sidebar();
-            return;
+        let alt_only = key.modifiers.contains(KeyModifiers::ALT) && !ctrl;
+        let sup = key.modifiers.contains(KeyModifiers::SUPER);
+        let shift = key.modifiers.contains(KeyModifiers::SHIFT);
+        match key.code {
+            KeyCode::Char('s') if alt_only => return self.run_action(Action::ToggleSidebar, &[]),
+            KeyCode::Char('e') if alt_only => return self.run_action(Action::Effort, &[]),
+            // Command palette: Ctrl-Shift-p, Cmd-Shift-p, Cmd-k.
+            KeyCode::Char('p') | KeyCode::Char('P') if shift && (ctrl || sup) => return self.run_action(Action::Palette, &[]),
+            KeyCode::Char('k') if sup && !ctrl => return self.run_action(Action::Palette, &[]),
+            _ => {}
         }
         match (key.code, ctrl) {
             (KeyCode::Char('q'), true) => {
-                self.quit = true;
+                self.run_action(Action::Quit, &[]);
                 return;
             }
             (KeyCode::Char('t'), true) => {
-                self.open_draft();
+                self.run_action(Action::NewDraft, &[]);
                 return;
             }
             (KeyCode::Char('z'), true) => {
-                self.editor_mut().undo();
+                self.run_action(Action::Undo, &[]);
                 return;
             }
             // Emacs next/previous line in the composer; next/previous
@@ -274,27 +272,24 @@ impl App {
                 return;
             }
             (KeyCode::Char('x'), true) => {
-                self.cancel();
+                self.run_action(Action::Cancel, &[]);
                 return;
             }
             // Ctrl-m is Enter on most terminals, so model lives on Ctrl-l.
             (KeyCode::Char('l'), true) => {
-                self.open_model_picker();
+                self.run_action(Action::Model, &[]);
                 return;
             }
             (KeyCode::Char('o'), true) => {
-                self.open_mode_picker();
+                self.run_action(Action::Mode, &[]);
                 return;
             }
-            (KeyCode::Left, _) if key.modifiers.contains(KeyModifiers::ALT) && (self.focus == Focus::Sidebar || self.editor().is_empty()) => {
-                let cur = self.sidebar_width.unwrap_or(render::SIDEBAR_WIDTH);
-                self.sidebar_width = Some(cur.saturating_sub(2).max(16));
+            (KeyCode::Left, _) if alt_only && (self.focus == Focus::Sidebar || self.editor().is_empty()) => {
+                self.run_action(Action::SidebarNarrow, &[]);
                 return;
             }
-            (KeyCode::Right, _) if key.modifiers.contains(KeyModifiers::ALT) && (self.focus == Focus::Sidebar || self.editor().is_empty()) => {
-                let cur = self.sidebar_width.unwrap_or(render::SIDEBAR_WIDTH);
-                let total = self.areas.sidebar.width + self.areas.transcript.width;
-                self.sidebar_width = Some((cur + 2).min(total.saturating_sub(render::MIN_MAIN_WIDTH)));
+            (KeyCode::Right, _) if alt_only && (self.focus == Focus::Sidebar || self.editor().is_empty()) => {
+                self.run_action(Action::SidebarWiden, &[]);
                 return;
             }
             (KeyCode::PageUp, _) => {
@@ -326,34 +321,21 @@ impl App {
                     self.focus = Focus::Input;
                 }
                 KeyCode::Enter => {
-                    let line = std::mem::take(&mut self.command);
+                    let line = self.command.take();
                     self.focus = Focus::Input;
                     if !line.trim().is_empty() {
                         self.run_command(&line);
                     }
                 }
-                // Backspace past the ':' returns to the message editor.
+                // Backspace past the '/' returns to the message editor.
                 KeyCode::Backspace if self.command.is_empty() => self.focus = Focus::Input,
-                KeyCode::Backspace if key.modifiers.contains(KeyModifiers::ALT) => {
-                    let trimmed = self.command.trim_end().to_owned();
-                    let cut = trimmed.rfind(' ').map(|i| i + 1).unwrap_or(0);
-                    self.command.truncate(cut);
-                }
-                KeyCode::Backspace => {
-                    self.command.pop();
-                }
-                KeyCode::Char('u') if ctrl => self.command.clear(),
-                KeyCode::Char('w') if ctrl => {
-                    let trimmed = self.command.trim_end().to_owned();
-                    let cut = trimmed.rfind(' ').map(|i| i + 1).unwrap_or(0);
-                    self.command.truncate(cut);
-                }
                 KeyCode::Char('c') if ctrl => {
                     self.command.clear();
                     self.focus = Focus::Input;
                 }
-                KeyCode::Char(c) if !ctrl => self.command.push(c),
-                _ => {}
+                _ => {
+                    editor::handle_key(&mut self.command, key);
+                }
             },
             Focus::Transcript => match key.code {
                 KeyCode::Esc | KeyCode::Enter | KeyCode::Tab | KeyCode::Char('i') => self.focus = Focus::Input,
@@ -363,11 +345,11 @@ impl App {
                 KeyCode::Char('u') => self.with_viewport(|v| v.page_up()),
                 KeyCode::Char('g') | KeyCode::Home => self.with_viewport(|v| v.to_top()),
                 KeyCode::Char('G') | KeyCode::End => self.with_viewport(|v| v.to_bottom()),
-                KeyCode::Char(':') => self.focus = Focus::Command,
-                KeyCode::Char('?') => self.overlay = Overlay::Help,
-                KeyCode::Char('y') => self.answer_permission(PermChoice::Allow),
-                KeyCode::Char('n') => self.answer_permission(PermChoice::Deny),
-                KeyCode::Char('x') => self.cancel(),
+                KeyCode::Char('/') => self.run_action(Action::Palette, &[]),
+                KeyCode::Char('?') => self.run_action(Action::Help, &[]),
+                KeyCode::Char('y') => self.run_action(Action::Allow, &[]),
+                KeyCode::Char('n') => self.run_action(Action::Deny, &[]),
+                KeyCode::Char('x') => self.run_action(Action::Cancel, &[]),
                 _ => {}
             },
             Focus::Sidebar => match key.code {
@@ -375,20 +357,18 @@ impl App {
                 KeyCode::Char('j') | KeyCode::Down => self.select(self.selected + 1),
                 KeyCode::Char('k') | KeyCode::Up => self.select(self.selected.saturating_sub(1)),
                 KeyCode::Enter => self.focus = Focus::Input,
-                KeyCode::Char(':') => self.focus = Focus::Command,
-                KeyCode::Char('?') => self.overlay = Overlay::Help,
-                KeyCode::Char('n') => self.open_draft(),
-                KeyCode::Char('x') => self.run_command("kill"),
-                KeyCode::Char('X') => self.run_command("kill --purge"),
-                KeyCode::Char('r') => {
-                    self.command = "rename ".into();
-                    self.focus = Focus::Command;
-                }
-                KeyCode::Char('f') => self.run_command("fork"),
-                KeyCode::Char('m') => self.open_model_picker(),
-                KeyCode::Char('o') => self.open_mode_picker(),
-                KeyCode::Char('y') => self.answer_permission(PermChoice::Allow),
-                KeyCode::Char('d') => self.answer_permission(PermChoice::Deny),
+                KeyCode::Char('/') => self.run_action(Action::Palette, &[]),
+                KeyCode::Char('?') => self.run_action(Action::Help, &[]),
+                KeyCode::Char('n') => self.run_action(Action::NewDraft, &[]),
+                KeyCode::Char('x') => self.run_action(Action::Stop, &[]),
+                KeyCode::Char('X') => self.run_action(Action::Delete, &[]),
+                KeyCode::Char('r') => self.run_action(Action::Rename, &[]),
+                KeyCode::Char('f') => self.run_action(Action::Fork, &[]),
+                KeyCode::Char('m') => self.run_action(Action::Model, &[]),
+                KeyCode::Char('o') => self.run_action(Action::Mode, &[]),
+                KeyCode::Char('e') => self.run_action(Action::Effort, &[]),
+                KeyCode::Char('y') => self.run_action(Action::Allow, &[]),
+                KeyCode::Char('d') => self.run_action(Action::Deny, &[]),
                 _ => {}
             },
             Focus::Input => {
@@ -411,17 +391,20 @@ impl App {
                 let shift = key.modifiers.contains(KeyModifiers::SHIFT);
                 match key.code {
                     KeyCode::Tab => self.focus = Focus::Sidebar,
+                    // Esc interrupts a running agent first, like Claude Code.
                     KeyCode::Esc => {
-                        if !self.editor().is_empty() {
+                        let list_running = self.selected_session().and_then(|s| s.get("status")).and_then(Value::as_str) == Some("running");
+                        let transcript_running = self.selected_id().and_then(|id| self.transcripts.get(&id)).map(|t| t.status == "running").unwrap_or(false);
+                        if list_running || transcript_running {
+                            self.run_action(Action::Cancel, &[]);
+                        } else if !self.editor().is_empty() {
                             self.editor_mut().clear();
                         } else if self.on_draft() {
                             self.discard_draft();
-                        } else {
-                            self.focus = Focus::Sidebar;
                         }
                     }
-                    KeyCode::Char(':') if self.editor().is_empty() => self.focus = Focus::Command,
-                    KeyCode::Char('?') if self.editor().is_empty() => self.overlay = Overlay::Help,
+                    KeyCode::Char('/') if self.editor().is_empty() => self.run_action(Action::Palette, &[]),
+                    KeyCode::Char('?') if self.editor().is_empty() => self.run_action(Action::Help, &[]),
                     KeyCode::Char('s') if ctrl => self.send_prompt(true),
                     KeyCode::Enter if alt || shift => self.editor_mut().insert('\n'),
                     KeyCode::Char('j') if ctrl => self.editor_mut().insert('\n'),
@@ -432,31 +415,9 @@ impl App {
                             self.send_prompt(false);
                         }
                     }
-                    KeyCode::Backspace if alt => self.editor_mut().delete_word_back(),
-                    KeyCode::Backspace => self.editor_mut().backspace(),
-                    KeyCode::Delete => self.editor_mut().delete(),
-                    KeyCode::Left if alt => self.editor_mut().word_left(),
-                    KeyCode::Right if alt => self.editor_mut().word_right(),
-                    KeyCode::Left => self.editor_mut().left(),
-                    KeyCode::Right => self.editor_mut().right(),
-                    KeyCode::Up => self.editor_mut().up(),
-                    KeyCode::Down => self.editor_mut().down(),
-                    KeyCode::Home => self.editor_mut().home(),
-                    KeyCode::End => self.editor_mut().end(),
-                    KeyCode::Char('a') if ctrl => self.editor_mut().home(),
-                    KeyCode::Char('e') if ctrl => self.editor_mut().end(),
-                    KeyCode::Char('b') if ctrl => self.editor_mut().left(),
-                    KeyCode::Char('f') if ctrl => self.editor_mut().right(),
-                    KeyCode::Char('b') if alt => self.editor_mut().word_left(),
-                    KeyCode::Char('f') if alt => self.editor_mut().word_right(),
-                    KeyCode::Char('d') if alt => self.editor_mut().delete_word_forward(),
-                    KeyCode::Char('d') if ctrl => self.editor_mut().delete(),
-                    KeyCode::Char('w') if ctrl => self.editor_mut().delete_word_back(),
-                    KeyCode::Char('k') if ctrl => self.editor_mut().kill_to_line_end(),
-                    KeyCode::Char('u') if ctrl => self.editor_mut().kill_to_line_start(),
-                    KeyCode::Char('h') if ctrl => self.editor_mut().backspace(),
-                    KeyCode::Char(c) if !ctrl && !alt => self.editor_mut().insert(c),
-                    _ => {}
+                    _ => {
+                        editor::handle_key(self.editor_mut(), key);
+                    }
                 }
             }
         }

@@ -97,6 +97,7 @@ impl ChildAgent {
         };
         let (program, args) = (&owned.0, &owned.1);
         let mut cmd = Command::new(program);
+        crate::config::scrub_nested_claude_env_tokio(&mut cmd);
         cmd.args(args)
             .envs(profile.env.iter())
             // Claude refuses to nest inside another Claude session.

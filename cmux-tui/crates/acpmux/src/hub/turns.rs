@@ -204,6 +204,11 @@ impl Hub {
     }
 
     pub async fn set_config(self: &Arc<Self>, session: &Arc<Session>, config_id: &str, value: Value) -> Result<Value, RpcError> {
+        // Make sure the child is up so its option list is known, then map
+        // portable names (effort) onto the harness's own id.
+        let _ = self.child_for(session).await?;
+        let config_id = resolve_config_id(&session.meta(), config_id);
+        let config_id = config_id.as_str();
         let r = self
             .forward(session, method::SESSION_SET_CONFIG_OPTION, json!({"configId": config_id, "value": value}))
             .await?;

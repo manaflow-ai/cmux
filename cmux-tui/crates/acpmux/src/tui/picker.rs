@@ -10,7 +10,7 @@ pub struct Picker {
     pub visible: Vec<usize>,
     /// Position in `visible`.
     pub cursor: usize,
-    pub filter: String,
+    pub filter: Editor,
     pub on_pick: PickTarget,
     /// Screen rects of drawn rows: (rect, index into `visible`).
     pub row_rects: Vec<(Rect, usize)>,
@@ -34,7 +34,7 @@ pub struct PickRow {
 
 impl Picker {
     pub fn new(title: &str, rows: Vec<PickRow>, current: Option<&str>, on_pick: PickTarget, hint: &str) -> Self {
-        let mut p = Self { title: title.into(), rows, visible: Vec::new(), cursor: 0, filter: String::new(), on_pick, row_rects: Vec::new(), hint: hint.into(), reveal: true };
+        let mut p = Self { title: title.into(), rows, visible: Vec::new(), cursor: 0, filter: Editor::default(), on_pick, row_rects: Vec::new(), hint: hint.into(), reveal: true };
         p.refilter();
         if let Some(cur) = current {
             if let Some(i) = p.visible.iter().position(|&r| !p.rows[r].header && p.rows[r].value == cur) {
@@ -44,7 +44,7 @@ impl Picker {
         p
     }
     pub fn refilter(&mut self) {
-        let f = self.filter.to_lowercase();
+        let f = self.filter.text().to_lowercase();
         let mut vis = Vec::new();
         for (i, r) in self.rows.iter().enumerate() {
             if f.is_empty() {

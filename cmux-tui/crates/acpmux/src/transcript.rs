@@ -37,6 +37,8 @@ pub struct Transcript {
     pub model: Option<String>,
     pub usage: Option<(u64, u64)>,
     pub available_commands: Vec<String>,
+    /// Transient note for the working row, e.g. an API retry in progress.
+    pub note: Option<String>,
     pending_user_chunk: bool,
 }
 
@@ -254,7 +256,13 @@ impl Transcript {
             "status" => {
                 self.status = msg.get("status").and_then(Value::as_str).unwrap_or("").to_owned();
             }
-            "turn_end" => self.items.push(Item::TurnEnd {
+            "claude.system.api_retry" => {
+                let attempt = msg.get("attempt").and_then(Value::as_u64).unwrap_or(0);
+                let max = msg.get("max_retries").and_then(Value::as_u64).unwrap_or(0);
+                let err = msg.get("error").and_then(Value::as_str).filter(|e| *e != "unknown").map(|e| format!(" ({e})")).unwrap_or_default();
+                self.note = Some(format!("API retry {attempt}/{max}{err}"));
+            }
+            "turn_end" if { self.note = None; true } => self.items.push(Item::TurnEnd {
                 stop: msg.get("stopReason").and_then(Value::as_str).unwrap_or("end_turn").to_owned(),
             }),
             "turn_error" => self.items.push(Item::Error {
@@ -399,5 +407,22 @@ mod tests {
         assert!(matches!(t.items.last(), Some(Item::User { queued: false, .. })));
         assert_eq!(t.items.iter().filter(|i| matches!(i, Item::User { .. })).count(), 2);
         assert_eq!(t.last_seq, 5);
+    }
+}
+
+/// Plain text of one item, for copying.
+pub fn item_text(item: &Item) -> String {
+    match item {
+        Item::User { text, .. } | Item::Assistant { text } | Item::Thought { text } | Item::Error { text } | Item::Stderr { text } | Item::Status { text } => text.clone(),
+        Item::Tool { title, detail, .. } => {
+            if detail.is_empty() {
+                title.clone()
+            } else {
+                format!("{title}\n{detail}")
+            }
+        }
+        Item::Plan { entries } => entries.iter().map(|(s, c)| format!("[{s}] {c}")).collect::<Vec<_>>().join("\n"),
+        Item::Permission { title, .. } => title.clone(),
+        Item::TurnEnd { stop } => stop.clone(),
     }
 }

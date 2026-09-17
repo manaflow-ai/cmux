@@ -139,6 +139,7 @@ fn spawn_detached() -> Result<()> {
         .open(home().join("daemon.log"))?;
     let log_err = log.try_clone()?;
     let mut cmd = std::process::Command::new(exe);
+    crate::config::scrub_nested_claude_env(&mut cmd);
     cmd.args(["daemon", "run"])
         .stdin(std::process::Stdio::null())
         .stdout(log)

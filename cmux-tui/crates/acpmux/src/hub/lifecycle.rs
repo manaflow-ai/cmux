@@ -165,10 +165,11 @@ impl Hub {
                 (None, None) => (None, false),
             };
             let fresh_id = if resume.is_none() { Some(uuid::Uuid::now_v7().to_string()) } else { None };
-            let plan = crate::claude_stdio::spawn_plan(profile, resume, fork, fresh_id.as_deref());
+            let effort = current_option(&meta, "effort").unwrap_or_else(|| "default".into());
             let mode = meta.modes.as_ref().and_then(|m| m.get("currentModeId")).and_then(Value::as_str).unwrap_or("default").to_owned();
+            let plan = crate::claude_stdio::spawn_plan(profile, resume, fork, fresh_id.as_deref(), Some(&effort), &mode);
             let model = current_model(&meta).unwrap_or_else(|| "default".into());
-            let tr = crate::claude_stdio::Translator::new(session.id.clone(), &mode, &model);
+            let tr = crate::claude_stdio::Translator::new(session.id.clone(), &mode, &model, &effort);
             if !fork {
                 // A fresh process was given its id; a resumed one already has it.
                 let known = fresh_id.clone().or_else(|| existing_sid.clone());

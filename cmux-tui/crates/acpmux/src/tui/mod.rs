@@ -10,18 +10,30 @@
 //!   :            command mode       ?        help
 //!   y / n / 1-9  answer permission  Ctrl-q   quit (agents keep running)
 
-mod commands;
+pub mod actions;
+mod events;
+mod run;
+mod state;
+pub use run::run;
+pub use state::*;
 pub mod dialog;
 pub mod editor;
 mod keys;
 mod mouse;
 mod picker;
 pub mod render;
+mod collapse;
+pub mod links;
+pub mod menu;
+pub use menu::{Menu, MenuAction};
+pub mod markdown;
 pub mod scroll;
+pub mod shimmer;
 mod session_ops;
 pub mod theme;
 
 pub use mouse::{ButtonAction, PermChoice};
+pub use actions::Action;
 pub use picker::{PickRow, Picker};
 
 use crate::client::Client;
@@ -42,101 +54,6 @@ use theme::Chrome;
 use tokio::sync::mpsc;
 
 /// Screen rects from the last frame, for mouse hit testing.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct Areas {
-    pub sidebar: Rect,
-    /// The sidebar's right rule; dragging it resizes the sidebar.
-    pub sidebar_rule: Rect,
-    pub transcript: Rect,
-    pub composer: Rect,
-    pub status: Rect,
-}
-
-pub(super) const WHEEL_ROWS: isize = 3;
-pub(super) const MULTI_CLICK_MS: u128 = 500;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Focus {
-    Input,
-    Sidebar,
-    Command,
-    /// The transcript pane: j/k scroll, Enter or Esc returns to the composer.
-    Transcript,
-}
-
-/// A modal layer drawn over the main screen. Only one at a time.
-pub enum Overlay {
-    None,
-    Help,
-    /// Add a remote daemon over ssh: one text field.
-    AddHost { text: Editor },
-    /// Change the working directory: one text field. On a live session this
-    /// forks into a new draft, since a running agent cannot move.
-    Directory { text: Editor },
-    NewSession(NewForm),
-    Picker(Picker),
-    Confirm { title: String, action: ConfirmAction },
-}
-
-#[derive(Debug, Clone)]
-pub enum ConfirmAction {
-    Kill { id: String, purge: bool },
-}
-
-pub struct NewForm {
-    pub agents: Vec<String>,
-    pub agent: usize,
-    pub name: String,
-    pub cwd: String,
-    pub policy: usize,
-    pub prompt: String,
-    /// 0 agent, 1 name, 2 directory, 3 permissions, 4 first message
-    pub field: usize,
-}
-
-/// A pending session: shown in the sidebar, created on first send.
-#[derive(Debug, Clone)]
-pub struct Draft {
-    pub id: u64,
-    /// Create on this peer daemon instead of the local one.
-    pub peer: Option<String>,
-    pub agent: String,
-    pub cwd: String,
-    pub policy: String,
-    pub model: Option<String>,
-    pub creating: bool,
-    /// The message typed so far, kept when switching between drafts.
-    pub text: Editor,
-    /// Failures while creating this draft, shown in red under the summary.
-    pub errors: Vec<String>,
-}
-
-pub const POLICIES: [&str; 4] = ["ask", "approve-reads", "approve-all", "deny-all"];
-
-#[derive(Debug, Clone)]
-pub enum PickTarget {
-    /// Session id. A model row from another harness forks into a draft.
-    Model(Option<String>),
-    Mode(String),
-    /// Permission policy for a live session (Some) or the current draft (None).
-    Policy(Option<String>),
-    /// session id, config id
-    Config(String, String),
-    Agent,
-}
-
-pub(super) enum AppMsg {
-    DraftFailed,
-    Models(Value),
-    Sessions(Vec<Value>),
-    Attached { id: String, detail: Value, events: Vec<Value> },
-    Agents(Vec<String>, Option<String>),
-    Status(Value),
-    Info(String),
-    Error(String),
-    Created(String),
-}
-
 pub struct App {
     pub(super) client: Arc<Client>,
     pub(super) tx: mpsc::UnboundedSender<AppMsg>,
@@ -146,7 +63,7 @@ pub struct App {
     pub(super) details: HashMap<String, Value>,
     pub(super) attached: HashSet<String>,
     pub input: Editor,
-    pub command: String,
+    pub command: Editor,
     /// Not-yet-created sessions shown as the top sidebar rows, newest first.
     /// Each is created on its first Enter, with that message.
     pub drafts: Vec<Draft>,
@@ -166,6 +83,8 @@ pub struct App {
     pub(super) agents: Vec<String>,
     pub(super) default_agent: Option<String>,
     pub show_thoughts: bool,
+    /// Show lifecycle events (stopped, resumed, renamed, model set…).
+    pub show_system: bool,
     pub(super) quit: bool,
     pub(super) pending_select: Option<String>,
     pub(super) initial_empty_checked: bool,
@@ -191,6 +110,20 @@ pub struct App {
     pub selection: Option<Selection>,
     /// Plain text of the rows drawn last frame, for copy.
     pub rows_cache: Vec<String>,
+    /// Per row: (item index, is a collapsible header). Parallel to `rows_cache`.
+    pub row_meta: Vec<(usize, Option<Toggle>)>,
+    /// Collapsibles flipped from their default, per session id.
+    pub toggled: HashMap<String, std::collections::HashSet<Toggle>>,
+    /// Composer mouse selection as (anchor, head) char offsets.
+    pub composer_sel: Option<(usize, usize)>,
+    /// Direction (-1/1) while a transcript drag sits past an edge; the tick scrolls.
+    pub drag_autoscroll: Option<isize>,
+    /// Most composer rows before it scrolls.
+    pub composer_max_rows: u16,
+    /// Link runs drawn this frame, re-printed with OSC 8 after the frame.
+    pub link_cells: Vec<links::LinkCell>,
+    /// Where the frame put the terminal cursor, restored after the link pass.
+    pub cursor_pos: Option<(u16, u16)>,
     /// Sidebar rows drawn last frame: (rect, session index).
     pub sidebar_rows: Vec<(Rect, usize)>,
     pub sidebar_offset: usize,
@@ -205,7 +138,7 @@ pub struct App {
     pub dialog_rect: Rect,
 }
 
-pub(super) const DEFAULT_STATUS: &str = "Enter send · Ctrl-t new · Ctrl-x cancel · Ctrl-l model · Ctrl-o mode · : cmd · ? help · Ctrl-q quit";
+pub(super) const DEFAULT_STATUS: &str = "";
 
 impl App {
     /// True when the sidebar selection is a draft row.
@@ -448,311 +381,3 @@ impl App {
 
 }
 
-impl App {
-    // --------------------------------------------------------- inbound
-
-    pub(super) fn on_notification(&mut self, m: &str, p: Value) {
-        let sid = p.get("sessionId").and_then(Value::as_str).map(str::to_owned);
-        match m {
-            method::SESSION_UPDATE => {
-                if let Some(id) = sid {
-                    self.transcripts.entry(id).or_default().apply_update(&p);
-                }
-            }
-            method::MUX_EVENT => {
-                if let Some(id) = sid {
-                    let kind = p.get("kind").and_then(Value::as_str).unwrap_or("");
-                    let level = match kind { "turn_error" => 3, "turn_end" => 1, _ => 0 };
-                    if level > 0 && self.selected_id().as_deref() != Some(&id) {
-                        let e = self.attention.entry(id.clone()).or_insert(0);
-                        *e = (*e).max(level);
-                    }
-                    self.transcripts.entry(id).or_default().apply_event(&p);
-                }
-            }
-            method::MUX_SESSION_CHANGED => {
-                if let Some(s) = p.get("session") {
-                    let id = s.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
-                    if let Some(slot) = self.sessions.iter_mut().find(|x| x.get("sessionId").and_then(Value::as_str) == Some(&id)) {
-                        *slot = s.clone();
-                    } else {
-                        self.sessions.push(s.clone());
-                    }
-                    self.sort_sessions();
-                }
-            }
-            method::MUX_PERMISSION_PENDING => {
-                let title = p.pointer("/request/toolCall/title").and_then(Value::as_str).unwrap_or("permission");
-                let who = sid
-                    .as_deref()
-                    .and_then(|id| self.sessions.iter().find(|s| s.get("sessionId").and_then(Value::as_str) == Some(id)))
-                    .and_then(|s| s.get("name").and_then(Value::as_str))
-                    .unwrap_or("?");
-                self.status = format!("permission needed in {who}: {title}  (y / n / 1-9)");
-                if let Some(id) = sid.clone() {
-                    if self.selected_id().as_deref() != Some(&id) {
-                        let e = self.attention.entry(id).or_insert(0);
-                        *e = (*e).max(2);
-                    }
-                }
-            }
-            "_acpmux/lagged" => self.status = "event stream lagged; reattach with Enter on the session".into(),
-            _ => {}
-        }
-    }
-
-    pub(super) fn sort_sessions(&mut self) {
-        let selected_id = self.selected_id();
-        self.sessions.sort_by(|a, b| {
-            let ua = a.get("updatedAt").and_then(Value::as_u64).unwrap_or(0);
-            let ub = b.get("updatedAt").and_then(Value::as_u64).unwrap_or(0);
-            ub.cmp(&ua)
-        });
-        if let Some(id) = selected_id {
-            if let Some(i) = self.sessions.iter().position(|s| s.get("sessionId").and_then(Value::as_str) == Some(&id)) {
-                self.selected = i + self.drafts.len();
-            }
-        }
-    }
-
-    pub(super) fn on_msg(&mut self, msg: AppMsg) {
-        match msg {
-            AppMsg::Sessions(list) => {
-                let had = !self.sessions.is_empty();
-                self.sessions = list;
-                self.sort_sessions();
-                if !had && !self.sessions.is_empty() && self.drafts.is_empty() {
-                    self.select(0);
-                }
-            }
-            AppMsg::Attached { id, detail, events } => {
-                if events.is_empty() && self.transcripts.contains_key(&id) {
-                    if let Some(t) = self.transcripts.get_mut(&id) {
-                        t.mode = detail.get("currentModeId").and_then(Value::as_str).map(str::to_owned).or(t.mode.clone());
-                        t.model = detail.get("model").and_then(Value::as_str).map(str::to_owned).or(t.model.clone());
-                    }
-                    self.details.insert(id, detail);
-                    return;
-                }
-                let mut t = Transcript::default();
-                for e in &events {
-                    t.apply_event(e);
-                }
-                t.status = detail.get("status").and_then(Value::as_str).unwrap_or("").to_owned();
-                t.mode = detail.get("currentModeId").and_then(Value::as_str).map(str::to_owned);
-                t.model = detail.get("model").and_then(Value::as_str).map(str::to_owned);
-                self.details.insert(id.clone(), detail);
-                self.transcripts.insert(id, t);
-            }
-            AppMsg::Agents(list, default) => {
-                self.agents = list;
-                self.default_agent = default;
-            }
-            AppMsg::Status(v) => {
-                self.web_url = v.get("webUrl").and_then(Value::as_str).map(str::to_owned);
-                self.hosts = v
-                    .get("peers")
-                    .and_then(Value::as_array)
-                    .map(|a| {
-                        a.iter()
-                            .map(|p| (
-                                p.get("name").and_then(Value::as_str).unwrap_or("").to_owned(),
-                                p.get("connected").and_then(Value::as_bool).unwrap_or(false),
-                                p.get("sessions").and_then(Value::as_u64).unwrap_or(0),
-                            ))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-            }
-            AppMsg::Models(v) => self.show_model_picker(v),
-            AppMsg::DraftFailed => {
-                for d in self.drafts.iter_mut() {
-                    d.creating = false;
-                }
-            }
-            AppMsg::Info(s) => self.status = s,
-            AppMsg::Error(e) => self.report_error(e),
-            AppMsg::Created(id) => {
-                self.refresh_sessions();
-                self.attach(&id);
-                self.pending_select = Some(id);
-                self.status = DEFAULT_STATUS.into();
-            }
-        }
-    }
-}
-
-pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
-    let mut notes = client
-        .notifications()
-        .await
-        .ok_or_else(|| anyhow::anyhow!("notifications already taken"))?;
-    let (tx, mut rx) = mpsc::unbounded_channel::<AppMsg>();
-    let watch = client.request(method::MUX_WATCH, json!({"enabled": true})).await?;
-    let mut app = App {
-        client: client.clone(),
-        tx: tx.clone(),
-        sessions: watch.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default(),
-        selected: 0,
-        transcripts: HashMap::new(),
-        details: HashMap::new(),
-        attached: HashSet::new(),
-        input: Editor::default(),
-        command: String::new(),
-        drafts: Vec::new(),
-        next_draft_id: 1,
-        focus: Focus::Input,
-        overlay: Overlay::None,
-        parked_form: None,
-        status: DEFAULT_STATUS.into(),
-        web_url: None,
-        hosts: Vec::new(),
-        host_filter: None,
-        host_chips: Vec::new(),
-        agents: Vec::new(),
-        default_agent: None,
-        show_thoughts: false,
-        quit: false,
-        pending_select: None,
-        initial_empty_checked: false,
-        tick: 0,
-        chrome: Chrome::detect(),
-        areas: Areas::default(),
-        viewport: HashMap::new(),
-        dialog: dialog::DialogState::default(),
-        sidebar_width: None,
-        sidebar_hidden: false,
-        attention: HashMap::new(),
-        sidebar_drag: None,
-        last_overlay: 0,
-        hover: None,
-        selection: None,
-        rows_cache: Vec::new(),
-        sidebar_rows: Vec::new(),
-        sidebar_offset: 0,
-        toast: None,
-        last_click: None,
-        pointer_shape: false,
-        buttons: Vec::new(),
-        perm_rows: Vec::new(),
-        dialog_rect: Rect::default(),
-    };
-    app.sort_sessions();
-    {
-        let c = client.clone();
-        let tx = tx.clone();
-        tokio::spawn(async move {
-            if let Ok(v) = c.request(method::MUX_AGENTS, json!({})).await {
-                let names: Vec<String> = v.get("agents").and_then(Value::as_object).map(|o| o.keys().cloned().collect()).unwrap_or_default();
-                let _ = tx.send(AppMsg::Agents(names, v.get("defaultAgent").and_then(Value::as_str).map(str::to_owned)));
-            }
-            if let Ok(v) = c.request(method::MUX_STATUS, json!({})).await {
-                let _ = tx.send(AppMsg::Status(v));
-            }
-        });
-    }
-    if let Some(id) = initial {
-        if let Some(i) = app.sessions.iter().position(|s| s.get("sessionId").and_then(Value::as_str) == Some(&id)) {
-            app.select(i);
-        }
-    } else if !app.sessions.is_empty() {
-        app.select(0);
-    }
-
-    let mut terminal = ratatui::init();
-    let _ = crossterm::execute!(
-        std::io::stdout(),
-        crossterm::event::EnableMouseCapture,
-        crossterm::event::EnableBracketedPaste,
-        crossterm::event::EnableFocusChange,
-        crossterm::event::PushKeyboardEnhancementFlags(crossterm::event::KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
-    );
-    let mut events = EventStream::new();
-    let mut tick = tokio::time::interval(std::time::Duration::from_millis(250));
-    let result: Result<()> = loop {
-        // First paint with no sessions: open the form so the empty screen is not a dead end.
-        if !app.initial_empty_checked && !app.agents.is_empty() {
-            app.initial_empty_checked = true;
-            if app.sessions.is_empty() && matches!(app.overlay, Overlay::None) {
-                app.open_new_session();
-            }
-        }
-        if let Err(e) = terminal.draw(|f| draw(f, &mut app)) {
-            break Err(e.into());
-        }
-        tokio::select! {
-            ev = events.next() => {
-                match ev {
-                    Some(Ok(Event::Key(k))) if k.kind != crossterm::event::KeyEventKind::Release => app.on_key(k),
-                    Some(Ok(Event::Mouse(m))) => app.on_mouse(m),
-                    Some(Ok(Event::Paste(s))) => {
-                        match &mut app.overlay {
-                            Overlay::NewSession(f) => match f.field {
-                                2 => f.cwd.push_str(s.trim()),
-                                4 => f.prompt.push_str(&s),
-                                1 => f.name.push_str(s.trim()),
-                                _ => {}
-                            },
-                            _ => app.editor_mut().insert_str(&s),
-                        }
-                    }
-                    Some(Err(e)) => break Err(e.into()),
-                    None => break Ok(()),
-                    _ => {}
-                }
-            }
-            n = notes.recv() => {
-                match n {
-                    Some(Message::Notification { method: m, params }) => app.on_notification(&m, params.unwrap_or(Value::Null)),
-                    Some(_) => {}
-                    None => { app.status = "daemon connection closed".into(); break Ok(()); }
-                }
-            }
-            m = rx.recv() => {
-                if let Some(m) = m { app.on_msg(m); }
-            }
-            _ = tick.tick() => {
-                app.tick = app.tick.wrapping_add(1);
-                if app.tick % 16 == 0 {
-                    let c = client.clone();
-                    let tx = tx.clone();
-                    tokio::spawn(async move {
-                        if let Ok(v) = c.request(method::MUX_STATUS, json!({})).await {
-                            let _ = tx.send(AppMsg::Status(v));
-                        }
-                    });
-                }
-                if let Some((_, at)) = &app.toast {
-                    if at.elapsed().as_millis() > 1800 {
-                        app.toast = None;
-                    }
-                }
-            }
-        }
-        if let Some(id) = app.pending_select.take() {
-            if let Some(i) = app.sessions.iter().position(|s| s.get("sessionId").and_then(Value::as_str) == Some(&id)) {
-                app.drafts.retain(|d| !d.creating);
-                app.select(i + app.drafts.len());
-                app.focus = Focus::Input;
-            } else {
-                app.pending_select = Some(id);
-            }
-        }
-        if app.quit {
-            break Ok(());
-        }
-    };
-    app.set_pointer(false);
-    let _ = crossterm::execute!(
-        std::io::stdout(),
-        crossterm::event::PopKeyboardEnhancementFlags,
-        crossterm::event::DisableFocusChange,
-        crossterm::event::DisableBracketedPaste,
-        crossterm::event::DisableMouseCapture
-    );
-    ratatui::restore();
-    if let Some(u) = &app.web_url {
-        println!("acpmux: agents keep running. Web dashboard: {u}");
-    }
-    result
-}

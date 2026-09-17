@@ -324,6 +324,37 @@ pub fn web_url(w: &crate::config::WebSocketConfig) -> String {
     }
 }
 
+/// Current value of a select config option, by id.
+pub fn current_option(m: &SessionMeta, id: &str) -> Option<String> {
+    let opts = m.config_options.as_ref().and_then(Value::as_array)?;
+    opts.iter()
+        .find(|o| o.get("id").and_then(Value::as_str) == Some(id))
+        .and_then(|o| o.get("currentValue").and_then(Value::as_str).map(str::to_owned))
+}
+
+/// The option id a harness uses for thinking effort, given the name a
+/// client asked for. `effort` is the portable name; Codex calls it
+/// `reasoning_effort`.
+pub fn resolve_config_id(m: &SessionMeta, id: &str) -> String {
+    let ids: Vec<String> = m
+        .config_options
+        .as_ref()
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(|o| o.get("id").and_then(Value::as_str).map(str::to_owned)).collect())
+        .unwrap_or_default();
+    if ids.iter().any(|x| x == id) {
+        return id.to_owned();
+    }
+    if matches!(id, "effort" | "thinking" | "reasoning" | "reasoning_effort") {
+        for cand in ["effort", "reasoning_effort", "thinking", "reasoning", "thought_level"] {
+            if ids.iter().any(|x| x == cand) {
+                return cand.to_owned();
+            }
+        }
+    }
+    id.to_owned()
+}
+
 pub fn current_model(m: &SessionMeta) -> Option<String> {
     if let Some(opts) = m.config_options.as_ref().and_then(Value::as_array) {
         for o in opts {

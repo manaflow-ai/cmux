@@ -1,0 +1,529 @@
+//! Dispatch of every parsed CLI command against the daemon.
+
+
+use crate::*;
+use crate::cli::output::*;
+use acpmux::client::Client;
+use acpmux::config::{Config, home};
+use acpmux::daemon::connect;
+use acpmux::rpc::{Message, method};
+use anyhow::{Result, anyhow};
+use serde_json::{Value, json};
+use std::io::Write;
+
+pub(crate) async fn run_client(cmd: Command, json_out: bool) -> Result<()> {
+    match cmd {
+        Command::Wait { sessions, timeout, any, print } => {
+            let client = connect(true).await?;
+            let mut targets: Vec<(String, String)> = Vec::new();
+            if sessions.is_empty() {
+                let v = client.request(method::MUX_SESSIONS, json!({})).await?;
+                for s in v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default() {
+                    if s.get("peer").is_none() && s.get("status").and_then(Value::as_str) == Some("running") {
+                        targets.push((s.get("name").and_then(Value::as_str).unwrap_or("").to_owned(), s.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned()));
+                    }
+                }
+            } else {
+                for name in &sessions {
+                    targets.push((name.clone(), resolve_id(&client, name).await?));
+                }
+            }
+            let outcome = wait_sessions(client.clone(), &targets, timeout, any).await?;
+            let mut code = 0;
+            let mut rows = Vec::new();
+            for (name, id, status, pending) in &outcome {
+                let reply = if print || json_out { last_replies(&client, id, 1).await?.pop().unwrap_or_default() } else { String::new() };
+                if *pending > 0 {
+                    code = code.max(2);
+                }
+                if status == "running" {
+                    code = 3;
+                }
+                rows.push(json!({"name": name, "sessionId": id, "status": status, "pendingPermissions": pending, "reply": reply}));
+            }
+            if json_out {
+                print_json(&json!({"sessions": rows}));
+            } else {
+                for r in &rows {
+                    let g = |k: &str| r.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
+                    let pend = r.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0);
+                    let state = if pend > 0 { format!("waiting for permission ({pend})") } else { g("status") };
+                    println!("{:<24} {}", g("name"), state);
+                    if print && !g("reply").is_empty() {
+                        println!("{}", g("reply"));
+                        println!();
+                    }
+                }
+            }
+            if code != 0 {
+                std::process::exit(code);
+            }
+            Ok(())
+        }
+        Command::Last { session, count } => {
+            let client = connect(true).await?;
+            let id = resolve_id(&client, &session).await?;
+            let replies = last_replies(&client, &id, count).await?;
+            if json_out {
+                print_json(&json!({"sessionId": id, "replies": replies}));
+            } else {
+                for (i, r) in replies.iter().enumerate() {
+                    if i > 0 {
+                        println!("\n---\n");
+                    }
+                    println!("{r}");
+                }
+            }
+            Ok(())
+        }
+        Command::Pending => {
+            let client = connect(true).await?;
+            let v = client.request(method::MUX_SESSIONS, json!({})).await?;
+            let mut out = Vec::new();
+            for s in v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default() {
+                if s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) == 0 {
+                    continue;
+                }
+                let id = s.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
+                let name = s.get("name").and_then(Value::as_str).unwrap_or("").to_owned();
+                let d = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
+                for p in d.get("pending").and_then(Value::as_array).cloned().unwrap_or_default() {
+                    let req = p.get("request").cloned().unwrap_or(Value::Null);
+                    let title = req.pointer("/toolCall/title").and_then(Value::as_str).unwrap_or("permission").to_owned();
+                    let kind = req.pointer("/toolCall/kind").and_then(Value::as_str).unwrap_or("").to_owned();
+                    let options: Vec<Value> = req.get("options").and_then(Value::as_array).cloned().unwrap_or_default();
+                    out.push(json!({"session": name, "sessionId": id, "permissionId": p.get("permissionId"), "title": title, "kind": kind, "options": options}));
+                }
+            }
+            if json_out {
+                print_json(&json!({"pending": out}));
+            } else if out.is_empty() {
+                println!("no pending permissions");
+            } else {
+                for p in &out {
+                    let g = |k: &str| p.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
+                    let opts: Vec<String> = p.get("options").and_then(Value::as_array).map(|a| a.iter().filter_map(|o| o.get("optionId").and_then(Value::as_str).map(str::to_owned)).collect()).unwrap_or_default();
+                    println!("{:<24} {} [{}]  answer: acpmux session allow {} [{}] | acpmux session deny {}", g("session"), g("title"), g("kind"), g("session"), opts.join("|"), g("session"));
+                }
+            }
+            Ok(())
+        }
+        Command::Ls { status, pending } => {
+            let client = connect(true).await?;
+            let mut v = client.request(method::MUX_SESSIONS, json!({})).await?;
+            if status.is_some() || pending {
+                let keep: Vec<Value> = v
+                    .get("sessions")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|s| {
+                        let pend = s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0;
+                        let st = s.get("status").and_then(Value::as_str).unwrap_or("");
+                        let status_ok = match status.as_deref() {
+                            None => true,
+                            Some("waiting") => pend,
+                            Some(want) => st == want,
+                        };
+                        status_ok && (!pending || pend)
+                    })
+                    .collect();
+                v["sessions"] = Value::Array(keep);
+            }
+            if json_out {
+                print_json(&v);
+                return Ok(());
+            }
+            let sessions = v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
+            if sessions.is_empty() {
+                println!("no sessions (create one: acpmux new -a codex -n my-task)");
+                return Ok(());
+            }
+            println!("{:<24} {:<8} {:<13} {:>5} {:<6} {}", "NAME", "AGENT", "STATUS", "TURNS", "AGE", "LAST");
+            for s in sessions {
+                let g = |k: &str| s.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
+                let mut status = g("status");
+                if s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0 {
+                    status = "waiting!".into();
+                }
+                println!(
+                    "{:<24} {:<8} {:<13} {:>5} {:<6} {}",
+                    short(&g("name"), 24),
+                    short(&g("agent"), 8),
+                    status,
+                    s.get("turnCount").and_then(Value::as_u64).unwrap_or(0),
+                    age(s.get("updatedAt").and_then(Value::as_u64).unwrap_or(0)),
+                    short(&s.get("lastPrompt").and_then(Value::as_str).unwrap_or(""), 50)
+                );
+            }
+            Ok(())
+        }
+        Command::New(args) => {
+            let client = connect(true).await?;
+            if let Some(n) = &args.name {
+                acpmux::session_name::validate(n).map_err(|e| anyhow!(e))?;
+            }
+            let cwd = args.cwd.unwrap_or(std::env::current_dir()?);
+            let mut meta = json!({});
+            if let Some(a) = &args.agent {
+                meta["agent"] = json!(a);
+            }
+            if let Some(n) = &args.name {
+                meta["name"] = json!(n);
+            }
+            if let Some(p) = &args.policy {
+                meta["policy"] = json!(p);
+            }
+            let v = client
+                .request(method::SESSION_NEW, json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": meta}}))
+                .await?;
+            let id = v.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
+            let name = v.pointer("/_meta/acpmux/name").and_then(Value::as_str).unwrap_or(&id).to_owned();
+            if let Some(m) = &args.model {
+                client.request(method::SESSION_SET_MODEL, json!({"sessionId": id, "modelId": m})).await?;
+            }
+            if let Some(e) = &args.effort {
+                client.request(method::SESSION_SET_CONFIG_OPTION, json!({"sessionId": id, "configId": "effort", "value": e})).await?;
+            }
+            let one_shot = !args.prompt.is_empty() && (args.quiet || json_out);
+            if json_out && !one_shot {
+                print_json(&v);
+            } else if !one_shot {
+                println!("created {name} ({})", &id[..8.min(id.len())]);
+            }
+            if !args.prompt.is_empty() {
+                let text = args.prompt.join(" ");
+                if one_shot {
+                    let (reply, stop) = collect_reply(client.clone(), &id, &text).await?;
+                    if json_out {
+                        print_json(&json!({"sessionId": id, "name": name, "reply": reply, "stopReason": stop}));
+                    } else {
+                        println!("{reply}");
+                    }
+                    return Ok(());
+                }
+                if args.detach {
+                    let c = client.clone();
+                    let id2 = id.clone();
+                    tokio::spawn(async move {
+                        let _ = c.request(method::SESSION_PROMPT, json!({"sessionId": id2, "prompt": [{"type": "text", "text": text}]})).await;
+                    });
+                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                    return Ok(());
+                }
+                return stream_prompt(client, &id, &text, false, false, json_out).await;
+            }
+            if args.detach || json_out {
+                return Ok(());
+            }
+            acpmux::tui::run(client, Some(id)).await
+        }
+        Command::Send { session, prompt, steer, no_wait, quiet } => {
+            let client = connect(true).await?;
+            let text = arg_or_stdin(&prompt)?;
+            let id = resolve_id(&client, &session).await?;
+            if no_wait {
+                let c = client.clone();
+                let id2 = id.clone();
+                tokio::spawn(async move {
+                    let _ = c.request(method::SESSION_PROMPT, json!({"sessionId": id2, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": {"steer": steer}}})).await;
+                });
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                println!("queued");
+                return Ok(());
+            }
+            stream_prompt(client, &id, &text, steer, quiet, json_out).await
+        }
+        Command::Attach { session, plain } => {
+            let client = connect(true).await?;
+            let id = match &session {
+                Some(s) => Some(resolve_id(&client, s).await?),
+                None => None,
+            };
+            if plain {
+                let id = id.ok_or_else(|| anyhow!("--plain needs a session"))?;
+                return plain_attach(client, &id).await;
+            }
+            acpmux::tui::run(client, id).await
+        }
+        Command::Tail { session, last, follow } => {
+            let client = connect(true).await?;
+            let id = resolve_id(&client, &session).await?;
+            let mut notes = client.notifications().await.unwrap();
+            let v = client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": last})).await?;
+            for e in v.get("events").and_then(Value::as_array).cloned().unwrap_or_default() {
+                println!("{e}");
+            }
+            if !follow {
+                return Ok(());
+            }
+            let stdout = std::io::stdout();
+            while let Some(m) = notes.recv().await {
+                if let Message::Notification { method: m, params } = m {
+                    let p = params.unwrap_or(Value::Null);
+                    let sid = p.get("sessionId").and_then(Value::as_str).unwrap_or("");
+                    if sid != id {
+                        continue;
+                    }
+                    let mut lock = stdout.lock();
+                    let _ = writeln!(lock, "{}", json!({"method": m, "params": p}));
+                }
+            }
+            Ok(())
+        }
+        Command::Info { session } => {
+            let client = connect(true).await?;
+            let id = resolve_id(&client, &session).await?;
+            let v = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
+            if json_out {
+                print_json(&v);
+                return Ok(());
+            }
+            let g = |k: &str| v.get(k).map(|x| match x { Value::String(s) => s.clone(), Value::Null => "-".into(), o => o.to_string() }).unwrap_or_default();
+            println!("name:      {}", g("name"));
+            println!("id:        {}", g("sessionId"));
+            println!("agent:     {}  (agent session {})", g("agent"), g("agentSessionId"));
+            println!("cwd:       {}", g("cwd"));
+            println!("status:    {}", g("status"));
+            println!("mode:      {}", g("currentModeId"));
+            println!("model:     {}", g("model"));
+            println!("policy:    {}", g("policy"));
+            println!("turns:     {}   events: {}   last seq: {}", g("turnCount"), g("eventCount"), g("lastSeq"));
+            if let Some(modes) = v.pointer("/modes/availableModes").and_then(Value::as_array) {
+                let names: Vec<String> = modes.iter().filter_map(|m| m.get("id").and_then(Value::as_str).map(str::to_owned)).collect();
+                println!("modes:     {}", names.join(", "));
+            }
+            if let Some(opts) = v.get("configOptions").and_then(Value::as_array) {
+                for o in opts {
+                    let id = o.get("id").and_then(Value::as_str).unwrap_or("?");
+                    let cur = o.get("currentValue").map(|x| x.to_string()).unwrap_or_default();
+                    let choices: Vec<String> = o
+                        .get("options")
+                        .and_then(Value::as_array)
+                        .map(|a| a.iter().filter_map(|c| c.get("value").and_then(Value::as_str).map(str::to_owned)).collect())
+                        .unwrap_or_default();
+                    println!("config:    {id} = {cur}   [{}]", choices.join(", "));
+                }
+            }
+            if let Some(p) = v.get("pending").and_then(Value::as_array) {
+                for perm in p {
+                    println!("PENDING:   {} ({})", perm.pointer("/request/toolCall/title").and_then(Value::as_str).unwrap_or("permission"), perm.get("permissionId").and_then(Value::as_str).unwrap_or(""));
+                }
+            }
+            Ok(())
+        }
+        Command::Cancel { session } => {
+            let client = connect(true).await?;
+            let id = resolve_id(&client, &session).await?;
+            client.notify(method::SESSION_CANCEL, json!({"sessionId": id})).await?;
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+            println!("cancel sent");
+            Ok(())
+        }
+        Command::Kill { session, purge } => {
+            let client = connect(true).await?;
+            let id = resolve_id(&client, &session).await?;
+            let v = client.request(method::MUX_KILL, json!({"sessionId": id, "purge": purge})).await?;
+            if json_out { print_json(&v) } else { println!("{}", if purge { "purged" } else { "closed" }) }
+            Ok(())
+        }
+        Command::Rename { session, new_name } => {
+            let client = connect(true).await?;
+            let id = resolve_id(&client, &session).await?;
+            let v = client.request(method::MUX_RENAME, json!({"sessionId": id, "newName": new_name})).await?;
+            if json_out { print_json(&v) } else { println!("renamed") }
+            Ok(())
+        }
+        Command::Fork { session, name, cwd } => {
+            let client = connect(true).await?;
+            let id = resolve_id(&client, &session).await?;
+            let mut p = json!({"sessionId": id, "mcpServers": [], "_meta": {"acpmux": {}}});
+            if let Some(c) = cwd { p["cwd"] = json!(c); }
+            if let Some(n) = name { p["_meta"]["acpmux"]["name"] = json!(n); }
+            let v = client.request(method::SESSION_FORK, p).await?;
+            if json_out { print_json(&v) } else {
+                println!("forked into {}", v.pointer("/_meta/acpmux/name").and_then(Value::as_str).unwrap_or("?"));
+            }
+            Ok(())
+        }
+        Command::Set { session, assignment } => {
+            let client = connect(true).await?;
+            let id = resolve_id(&client, &session).await?;
+            let (k, val) = assignment.split_once('=').ok_or_else(|| anyhow!("use key=value"))?;
+            let v = match k {
+                "mode" => client.request(method::SESSION_SET_MODE, json!({"sessionId": id, "modeId": val})).await?,
+                "model" => client.request(method::SESSION_SET_MODEL, json!({"sessionId": id, "modelId": val})).await?,
+                "policy" => client.request(method::MUX_SET_POLICY, json!({"sessionId": id, "policy": val})).await?,
+                other => {
+                    let value = match val { "true" => json!(true), "false" => json!(false), s => json!(s) };
+                    client.request(method::SESSION_SET_CONFIG_OPTION, json!({"sessionId": id, "configId": other, "value": value})).await?
+                }
+            };
+            if json_out { print_json(&v) } else { println!("ok") }
+            Ok(())
+        }
+        Command::Allow { session, option } => answer_permission(&session, option, true).await,
+        Command::Deny { session } => answer_permission(&session, None, false).await,
+        Command::Export { session, dest } => {
+            let client = connect(true).await?;
+            let id = resolve_id(&client, &session).await?;
+            let mut p = json!({"sessionId": id});
+            if let Some(d) = dest { p["dest"] = json!(std::path::absolute(d)?); }
+            let v = client.request(method::MUX_EXPORT, p).await?;
+            if json_out { print_json(&v) } else { println!("{}", v.get("path").and_then(Value::as_str).unwrap_or("")) }
+            Ok(())
+        }
+        Command::Import { path, name } => {
+            let client = connect(true).await?;
+            let mut p = json!({"path": std::path::absolute(path)?});
+            if let Some(n) = name { p["name"] = json!(n); }
+            let v = client.request(method::MUX_IMPORT, p).await?;
+            if json_out { print_json(&v) } else { println!("imported as {}", v.get("name").and_then(Value::as_str).unwrap_or("?")) }
+            Ok(())
+        }
+        Command::Agents => {
+            let client = connect(true).await?;
+            let v = client.request(method::MUX_AGENTS, json!({})).await?;
+            if json_out { print_json(&v); return Ok(()); }
+            let default = v.get("defaultAgent").and_then(Value::as_str).unwrap_or("");
+            if let Some(agents) = v.get("agents").and_then(Value::as_object) {
+                if agents.is_empty() {
+                    println!("no agents configured. Edit {}", Config::path().display());
+                }
+                for (name, prof) in agents {
+                    let argv: Vec<String> = prof.get("argv").and_then(Value::as_array).map(|a| a.iter().filter_map(|s| s.as_str().map(str::to_owned)).collect()).unwrap_or_default();
+                    println!("{}{:<10} {}", if name == default { "*" } else { " " }, name, argv.join(" "));
+                }
+            }
+            Ok(())
+        }
+        Command::Status => {
+            match connect(false).await {
+                Ok(client) => {
+                    let v = client.request(method::MUX_STATUS, json!({})).await?;
+                    if json_out { print_json(&v); return Ok(()); }
+                    println!("acpmux {} pid {} up {}", v.get("version").and_then(Value::as_str).unwrap_or(""), v.get("pid").and_then(Value::as_u64).unwrap_or(0), age(v.get("startedAt").and_then(Value::as_u64).unwrap_or(0)));
+                    println!("socket:   {}", v.get("socket").and_then(Value::as_str).unwrap_or(""));
+                    println!("home:     {}", v.get("home").and_then(Value::as_str).unwrap_or(""));
+                    println!("store:    {}", v.pointer("/store/mode").and_then(Value::as_str).unwrap_or(""));
+                    println!("sessions: {} ({} live agents)", v.get("sessions").and_then(Value::as_u64).unwrap_or(0), v.get("liveAgents").and_then(Value::as_u64).unwrap_or(0));
+                    println!("policy:   {}", v.get("permissionPolicy").and_then(Value::as_str).unwrap_or(""));
+                    println!("web:      {}", v.get("webUrl").and_then(Value::as_str).unwrap_or("-"));
+                    for p in v.get("peers").and_then(Value::as_array).cloned().unwrap_or_default() {
+                        println!(
+                            "peer:     {} {} ({} sessions) {}",
+                            p.get("name").and_then(Value::as_str).unwrap_or(""),
+                            if p.get("connected").and_then(Value::as_bool).unwrap_or(false) { "connected" } else { "offline" },
+                            p.get("sessions").and_then(Value::as_u64).unwrap_or(0),
+                            p.get("url").and_then(Value::as_str).unwrap_or("")
+                        );
+                    }
+                }
+                Err(e) => {
+                    if json_out { print_json(&json!({"running": false, "error": e.to_string()})) } else { println!("daemon not running ({e})") }
+                }
+            }
+            Ok(())
+        }
+        Command::Shutdown => {
+            let client = connect(false).await?;
+            let _ = client.request(method::MUX_SHUTDOWN, json!({})).await;
+            println!("shutdown requested");
+            Ok(())
+        }
+        Command::Config => {
+            let path = Config::path();
+            println!("# {}", path.display());
+            match std::fs::read_to_string(&path) {
+                Ok(s) => println!("{s}"),
+                Err(_) => {
+                    let cfg = Config::load()?;
+                    println!("# (not written yet; effective defaults below)");
+                    println!("{}", serde_json::to_string_pretty(&cfg)?);
+                }
+            }
+            println!("# home: {}", home().display());
+            Ok(())
+        }
+        Command::Web { no_open } => {
+            let client = connect(true).await?;
+            let v = client.request(method::MUX_STATUS, json!({})).await?;
+            let url = v.get("webUrl").and_then(Value::as_str).ok_or_else(|| anyhow!("daemon has no web listener"))?.to_owned();
+            println!("{url}");
+            if !no_open {
+                let _ = std::process::Command::new(if cfg!(target_os = "macos") { "open" } else { "xdg-open" }).arg(&url).spawn();
+            }
+            Ok(())
+        }
+        Command::Peer(cmd) => {
+            let client = connect(true).await?;
+            let v = match cmd {
+                PeerCmd::Add { name, url, token } => {
+                    let mut p = json!({"name": name, "url": url});
+                    if let Some(t) = token { p["token"] = json!(t); }
+                    client.request("_acpmux/peer_add", p).await?;
+                    // Give the connect loop a moment so the listing shows the real state.
+                    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+                    client.request("_acpmux/peers", json!({})).await?
+                }
+                PeerCmd::Ls => client.request("_acpmux/peers", json!({})).await?,
+                PeerCmd::Rm { name } => client.request("_acpmux/peer_remove", json!({"name": name})).await?,
+            };
+            if json_out { print_json(&v); return Ok(()); }
+            let peers = v.get("peers").and_then(Value::as_array).cloned().unwrap_or_default();
+            if peers.is_empty() {
+                println!("no peers (add one: acpmux peer add sandbox-a ws://host:47811 --token T)");
+            }
+            for p in peers {
+                let connected = p.get("connected").and_then(Value::as_bool).unwrap_or(false);
+                println!(
+                    "{:<16} {:<10} {:>3} sessions  {}{}",
+                    p.get("name").and_then(Value::as_str).unwrap_or(""),
+                    if connected { "connected" } else { "offline" },
+                    p.get("sessions").and_then(Value::as_u64).unwrap_or(0),
+                    p.get("url").and_then(Value::as_str).unwrap_or(""),
+                    p.get("error").and_then(Value::as_str).map(|e| format!("  ({e})")).unwrap_or_default(),
+                );
+            }
+            Ok(())
+        }
+        Command::DaemonRun { .. } | Command::Session(_) | Command::Daemon(_) | Command::Host(_) => unreachable!(),
+    }
+}
+
+pub(crate) async fn resolve_id(client: &Client, key: &str) -> Result<String> {
+    let v = client.request(method::MUX_INFO, json!({"sessionId": key})).await?;
+    Ok(v.get("sessionId").and_then(Value::as_str).unwrap_or(key).to_owned())
+}
+
+pub(crate) async fn answer_permission(session: &str, option: Option<String>, allow: bool) -> Result<()> {
+    let client = connect(true).await?;
+    let id = resolve_id(&client, session).await?;
+    let info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
+    let pending = info.get("pending").and_then(Value::as_array).cloned().unwrap_or_default();
+    let Some(first) = pending.first() else {
+        return Err(anyhow!("no pending permission"));
+    };
+    let pid = first.get("permissionId").and_then(Value::as_str).unwrap_or("").to_owned();
+    let options = first.pointer("/request/options").and_then(Value::as_array).cloned().unwrap_or_default();
+    let pick = |kinds: &[&str]| {
+        kinds.iter().find_map(|k| {
+            options
+                .iter()
+                .find(|o| o.get("kind").and_then(Value::as_str) == Some(k))
+                .and_then(|o| o.get("optionId").and_then(Value::as_str).map(str::to_owned))
+        })
+    };
+    let option_id = match (option, allow) {
+        (Some(o), _) => Some(o),
+        (None, true) => pick(&["allow_once", "allow_always"]),
+        (None, false) => pick(&["reject_once", "reject_always"]),
+    };
+    client
+        .request(method::MUX_PERMISSION_RESPOND, json!({"sessionId": id, "permissionId": pid, "optionId": option_id}))
+        .await?;
+    println!("{}", if allow { "allowed" } else { "denied" });
+    Ok(())
+}
+

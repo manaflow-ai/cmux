@@ -3,6 +3,7 @@
 //! text as a Vec<char> so cursor math is by character, and renders into a
 //! fixed-width box with soft wrapping and an internal scroll.
 
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use unicode_width::UnicodeWidthChar;
 
 #[derive(Debug, Clone, Default)]
@@ -448,4 +449,45 @@ mod tests {
         e.home();
         assert_eq!(e.cursor(), 0);
     }
+}
+
+/// The editing keys every text input shares: the composer, the command
+/// line, picker filters, form fields and dialogs. Enter, Esc and Tab are
+/// left to the caller. Returns true when the key was consumed.
+pub fn handle_key(ed: &mut Editor, key: KeyEvent) -> bool {
+    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+    let alt = key.modifiers.contains(KeyModifiers::ALT);
+    let sup = key.modifiers.contains(KeyModifiers::SUPER);
+    match key.code {
+        KeyCode::Backspace if alt || sup => ed.delete_word_back(),
+        KeyCode::Backspace => ed.backspace(),
+        KeyCode::Delete if alt => ed.delete_word_forward(),
+        KeyCode::Delete => ed.delete(),
+        KeyCode::Left if alt => ed.word_left(),
+        KeyCode::Right if alt => ed.word_right(),
+        KeyCode::Left if sup => ed.home(),
+        KeyCode::Right if sup => ed.end(),
+        KeyCode::Left => ed.left(),
+        KeyCode::Right => ed.right(),
+        KeyCode::Up => ed.up(),
+        KeyCode::Down => ed.down(),
+        KeyCode::Home => ed.home(),
+        KeyCode::End => ed.end(),
+        KeyCode::Char('a') if ctrl => ed.home(),
+        KeyCode::Char('e') if ctrl => ed.end(),
+        KeyCode::Char('b') if ctrl => ed.left(),
+        KeyCode::Char('f') if ctrl => ed.right(),
+        KeyCode::Char('b') if alt => ed.word_left(),
+        KeyCode::Char('f') if alt => ed.word_right(),
+        KeyCode::Char('d') if alt => ed.delete_word_forward(),
+        KeyCode::Char('d') if ctrl => ed.delete(),
+        KeyCode::Char('w') if ctrl => ed.delete_word_back(),
+        KeyCode::Char('k') if ctrl => ed.kill_to_line_end(),
+        KeyCode::Char('u') if ctrl => ed.kill_to_line_start(),
+        KeyCode::Char('h') if ctrl => ed.backspace(),
+        KeyCode::Char('z') if ctrl => ed.undo(),
+        KeyCode::Char(c) if !ctrl && !alt && !sup => ed.insert(c),
+        _ => return false,
+    }
+    true
 }

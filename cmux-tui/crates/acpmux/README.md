@@ -28,9 +28,9 @@ acpmux                               # that is it: starts the daemon if needed, 
 
 `Ctrl-t` opens a new session tab at the top of the sidebar with an empty transcript and the
 cursor in the editor, like opencode's `Ctrl-x n`. It inherits the agent, directory, and policy
-of the session you were on; change them with `:agent NAME`, `:cwd PATH`, `:policy P` before
+of the session you were on; change them with `/agent NAME`, `/cwd PATH`, `/policy P` before
 sending. The first Enter creates the session with that message. Esc on an empty draft discards
-it. `:new form` opens the older field-by-field form instead. The bottom line of the TUI shows
+it. `/form` opens the older field-by-field form instead. The bottom line of the TUI shows
 the web dashboard URL.
 
 ```sh
@@ -73,6 +73,27 @@ work but are hidden from help.
 
 `--json` on any command prints the raw response.
 
+## Orchestrating agents from scripts
+
+Every command takes `--json` before it for machine output. The pieces an orchestrator needs:
+
+```
+acpmux run -a codex --cwd ~/proj "fix the failing test"      # new session, send, print only the reply
+acpmux --json run -a claude --policy approve-all "..."       # {"sessionId","name","reply","stopReason"}
+acpmux send NAME --no-wait "..."                              # queue and return at once
+acpmux wait NAME [NAME…] [--any] [--timeout 300] [--print]    # block until the turns end; exit 2 = needs a permission, 3 = timeout
+acpmux wait                                                   # every running local session
+acpmux last NAME [-n 3]                                       # last reply text
+acpmux pending                                                # every pending permission, with the option ids to answer it
+acpmux session allow NAME [OPTION] | acpmux session deny NAME
+acpmux ls --status running | --pending                        # filters; --json for the full records
+acpmux session tail NAME --follow                             # the raw event stream as JSON lines
+```
+
+A typical loop: `run` or `send --no-wait` on several sessions, `wait --any` to react to the
+first that finishes or needs a permission, `pending` and `session allow` to answer, `last` to
+read the result.
+
 ## TUI
 
 The TUI shares cmux-tui's chrome: the same 256-color palette for light and dark terminals, a
@@ -84,10 +105,16 @@ scrolls with the wheel, PgUp/PgDn, Home/End, track click or thumb drag, and a `N
 in the footer when rows overflow. Set `ACPMUX_THEME=light` or `dark` to override the
 `COLORFGBG` guess.
 
+The composer follows Claude Code's shape: a rule, `❯ ` and the message (wrapping under the
+prompt, growing to six rows), a rule, then one row of clickable settings: `⏵⏵ mode`, model,
+`◉ effort`, permissions, directory, and `? keys · / commands` on the right. Each chip opens its
+picker. The transcript title shows only the session name, its state and token usage. The
+status bar shows hosts (click one to filter the sidebar), the last message, and a
+`web dashboard ↗` link. The sidebar starts with `+ new session` and ends with `+ add host`.
+
 Sidebar rows follow cmux rails: the current row is filled and carries a `▎` rail glyph, an
 unread `•` marks sessions that finished a turn (green), wait for a permission (yellow) or
-failed (red) while you were elsewhere, and the `+ new session` / `+ add host` actions stay
-pinned at the bottom. The transcript pane has focus when its title is highlighted; there
+failed (red) while you were elsewhere. The transcript pane has focus when its title is highlighted; there
 j/k, u/d, g/G scroll it. Errors are red rows in the transcript (or under a draft) and a red
 status-bar message with a `[copy]` button.
 
@@ -104,8 +131,9 @@ Tab          focus sidebar (j/k, x stop, f fork, r rename); Esc or Enter back
 Ctrl-n/p     next / prev line in the composer (history at the ends); next / prev session in the sidebar
 Alt-s        hide / show the sidebar (`:sidebar`); Alt-h shows it again
 Alt-←/→      narrow / widen the sidebar (or drag its rule; the transcript keeps 40 columns)
-Ctrl-l       pick model         Ctrl-o   pick mode        :set KEY  pick any option
-:            command mode       ?        help
+Ctrl-l       pick model         Ctrl-o   pick mode        Alt-e     pick thinking effort
+/            command palette    ?        help             Esc       interrupt the running turn
+/set KEY     pick any option    /set KEY=VALUE            Ctrl-Shift-p / Cmd-k also open the palette
 wheel PgUp/PgDn scroll          Home/End top / follow the bottom
 y / n / 1-9  answer permission  Ctrl-q   quit (agents keep running)
 ```
@@ -136,9 +164,50 @@ jump or drag its thumb. Drag in the transcript to select text; releasing copies 
 clipboard over OSC 52 and shows a `Copied` toast. Double-click selects a word, triple-click a
 line, and dragging extends by word or line. Typing clears the selection.
 
-Command mode: `:new [agent] [name] [cwd]`, `:kill [--purge]`, `:fork [name]`, `:mode X`,
-`:model X`, `:set key=value`, `:policy ask|approve-all|approve-reads|deny-all`, `:rename NAME`,
-`:cancel`, `:export [dir]`, `:import DIR`, `:thoughts`, `:q`.
+Commands start with `/`. Press `/` (or Ctrl-Shift-p, Cmd-k) for the palette: every action
+with its keys, filtered as you type. Enter runs the highlighted one; an action that needs
+arguments opens the command line with `/name ` typed, and typing `rename foo` straight into
+the palette runs it. The full list is `src/tui/actions.rs`, one table that also drives the
+help dialog and the key chords: `/new`, `/form`, `/rename NAME`, `/fork [NAME]`, `/stop`,
+`/delete`, `/model [ID]`, `/mode [ID]`, `/effort [LEVEL]`, `/policy [P]`, `/cwd [PATH]`,
+`/agent NAME`, `/set KEY[=VALUE]`, `/thoughts`, `/host add NAME URL`, `/export`, `/import`,
+`/web`, `/quit`.
+
+Thinking effort: Claude Code (`--effort` at spawn, live `apply_flag_settings`), the Zed
+Claude adapter (`effort`) and Codex (`reasoning_effort`, up to `ultra`) all expose it. acpmux
+calls it `effort` everywhere and maps the name onto the harness's own option, so
+`acpmux new --effort high`, `acpmux session set NAME effort=low`, `/effort max`, Alt-e and
+the `thinking` chip all work on any of them. OpenCode and Gemini do not expose one over ACP.
+Assistant text renders as markdown (pulldown-cmark): headings, emphasis, inline code,
+links, nested lists, quotes, rules, simple tables, and fenced code blocks on a shaded
+background with syntect highlighting when the language is known. Every row starts after a
+two-column gutter (`❯` for you, `▸`/`▾` for collapsibles), so text lines up down the page.
+Your messages look like Codex's: a tinted full-width band with `› ` before the text. The
+transcript is a hierarchy of collapsibles, each toggled by a click: the whole turn (click
+your message; collapsed it shows the first line and `· 3 tool calls · 1 reply`), a run of
+consecutive tool calls (`▾ 3 tool calls · Read, Bash, Edit`), one tool call (`▸ ✓ title  kind
+first line of output`), and one thought. Turns and groups start open, details closed. The
+thought being streamed stays open; `/thoughts` opens them all. Right-click a row for
+Expand/Collapse everything, Copy message, Copy row, and Open link.
+
+Right-click works everywhere: a sidebar session (rename, fork, new session in its
+directory, export, copy id, open in web, stop, delete), a draft (harness, directory,
+effort, permissions, discard), the sidebar background (new session, form, add host, hide),
+a host chip (filter, new session there, remove, add), and the composer (copy, clear, undo,
+send, steer, model, effort, permissions). Menus take j/k, Enter and Esc too. Lifecycle chatter
+(agent stopped, resumed, renamed, model set, stderr) is hidden; `/system` shows it. Real
+failures, such as an unexpected exit or a failed resume, always show.
+
+URLs and file paths in the transcript are OSC 8 hyperlinks, so Cmd-click opens them in
+Ghostty, iTerm2, kitty, WezTerm and tmux ≥ 3.4 (paths become `file://` URLs resolved against
+the session directory). Ctrl-click or Alt-click opens them from inside acpmux instead and
+understands `path:line`: set `ACPMUX_EDITOR` (or `VISUAL`) to `code`, `zed`, `nvim`… to open
+at the line. Markdown links show their URL after the text so it is visible and clickable.
+
+Mouse selection also works in the composer: drag over the text and release to copy. In the
+transcript, a drag that reaches the top or bottom edge keeps scrolling while the pointer stays
+there. The composer grows to 12 rows before it scrolls; set `"composer_max_rows"` in
+`~/.acpmux/config.json` or `ACPMUX_COMPOSER_ROWS` to change it.
 
 ## Peers: every session on every machine, from one Mac
 
@@ -204,6 +273,10 @@ processes.
 
 ## Configuration
 
+Harnesses found on PATH join the configured ones at every start: `claude`, `codex-acp`,
+`gemini`, `opencode`, and `pi-acp` (the ACP adapter for pi: `bun add -g pi-acp`). Entries in
+`~/.acpmux/config.json` always win over discovery.
+
 `~/.acpmux/config.json` (override the directory with `ACPMUX_HOME`):
 
 ```json
@@ -223,7 +296,7 @@ processes.
 When no config exists, agents are imported from `~/.acpx/config.json` and from adapters on PATH.
 
 - `permissionPolicy`: `ask` routes `session/request_permission` to attached clients and waits.
-  `approve-all`, `approve-reads`, and `deny-all` answer locally. Per-session override with
+  `approve-all`, `approve-reads`, `approve-edits` (reads and edits auto, shell asks), and `deny-all` answer locally. Per-session override with
   `acpmux set NAME policy=...`.
 - `store.mode`: `local` (default) or `memory`. Local writes `sessions/<id>/session.json` and
   append-only `events/NNNNNN.ndjson` segments.

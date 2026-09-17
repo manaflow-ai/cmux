@@ -8,12 +8,12 @@
 <style>
   :root {
     --bg: #f2f4f6; --panel: #ffffff; --ink: #17212b; --muted: #5f6d7a; --rule: #cfd6dc; --grid: #e6eaee;
-    --acp: #0d8a7c; --acp-soft: #d7efeb; --warn: #b06a12; --warn-soft: #f6e7cf; --bad: #b3261e; --bad-soft: #f7dcda;
+    --acp: #5f6d7a; --acp-soft: #e6eaee; --warn: #b06a12; --warn-soft: #f6e7cf; --bad: #b3261e; --bad-soft: #f7dcda;
     --user: #1f5fa8; --user-soft: #e3ecf8;
   }
   @media (prefers-color-scheme: dark) {
     :root { --bg: #0f1418; --panel: #161c22; --ink: #e6ebef; --muted: #98a5b1; --rule: #2c353e; --grid: #1d252d;
-      --acp: #35c2b0; --acp-soft: #123b36; --warn: #e0a24f; --warn-soft: #3d2c12; --bad: #f28b82; --bad-soft: #3d1a17;
+      --acp: #98a5b1; --acp-soft: #1d252d; --warn: #e0a24f; --warn-soft: #3d2c12; --bad: #f28b82; --bad-soft: #3d1a17;
       --user: #8fb0e6; --user-soft: #1d2a3d; }
   }
   * { box-sizing: border-box; }
@@ -144,7 +144,7 @@
     <label>Agent <select id="new-agent"></select></label>
     <label>Name <input id="new-name" placeholder="backend-review" pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,79}"></label>
     <label>Directory <input id="new-cwd" placeholder="/path/to/repo"></label>
-    <label>Permissions <select id="new-policy"><option value="ask">ask me</option><option value="approve-reads">approve reads, ask for writes</option><option value="approve-all">approve everything</option><option value="deny-all">deny everything</option></select></label>
+    <label>Permissions <select id="new-policy"><option value="ask">ask me</option><option value="approve-reads">approve reads, ask for writes</option><option value="approve-edits">approve reads and edits, ask for shell</option><option value="approve-all">approve everything</option><option value="deny-all">deny everything</option></select></label>
     <label>First message (optional) <input id="new-prompt" placeholder="inspect the failing tests"></label>
     <div class="row"><button type="button" id="new-cancel">Cancel</button><button type="submit" class="primary">Create</button></div>
   </form>

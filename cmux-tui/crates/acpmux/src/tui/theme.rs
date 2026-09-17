@@ -44,6 +44,17 @@ pub struct Chrome {
     pub warn_fg: Color,
     pub error_fg: Color,
     pub attention_fg: Color,
+    /// Shimmer resting and peak colors (RGB), for the working row.
+    /// Codex-style tint behind your own messages.
+    pub user_bg: Color,
+    pub code_bg: Color,
+    pub code_fg: Color,
+    pub heading_fg: Color,
+    pub link_fg: Color,
+    /// syntect theme name for fenced code blocks.
+    pub code_theme: &'static str,
+    pub shimmer_base: (u8, u8, u8),
+    pub shimmer_bright: (u8, u8, u8),
 }
 
 impl Chrome {
@@ -62,7 +73,7 @@ impl Chrome {
             prompt_title_fg: Color::Indexed(255),
             prompt_input_bg: Color::Indexed(233),
             prompt_input_fg: Color::Indexed(255),
-            prompt_button_accent_fg: Color::Indexed(114),
+            prompt_button_accent_fg: Color::Indexed(110),
             prompt_button_hover_bg: Color::Indexed(240),
             toast_bg: Color::Indexed(240),
             toast_fg: Color::Indexed(255),
@@ -82,10 +93,18 @@ impl Chrome {
             user_fg: Color::Indexed(110),
             thought_fg: Color::Indexed(243),
             tool_fg: Color::Indexed(248),
-            ok_fg: Color::Indexed(114),
+            ok_fg: Color::Indexed(244),
             warn_fg: Color::Indexed(179),
             error_fg: Color::Indexed(167),
             attention_fg: Color::Indexed(176),
+            user_bg: Color::Indexed(237),
+            code_bg: Color::Indexed(235),
+            code_fg: Color::Indexed(252),
+            heading_fg: Color::Indexed(255),
+            link_fg: Color::Indexed(110),
+            code_theme: "base16-ocean.dark",
+            shimmer_base: (128, 128, 128),
+            shimmer_bright: (238, 238, 238),
         }
     }
 
@@ -104,7 +123,7 @@ impl Chrome {
             prompt_title_fg: Color::Indexed(234),
             prompt_input_bg: Color::Indexed(255),
             prompt_input_fg: Color::Indexed(234),
-            prompt_button_accent_fg: Color::Indexed(28),
+            prompt_button_accent_fg: Color::Indexed(25),
             prompt_button_hover_bg: Color::Indexed(252),
             toast_bg: Color::Indexed(252),
             toast_fg: Color::Indexed(234),
@@ -124,10 +143,18 @@ impl Chrome {
             user_fg: Color::Indexed(31),
             thought_fg: Color::Indexed(245),
             tool_fg: Color::Indexed(240),
-            ok_fg: Color::Indexed(28),
+            ok_fg: Color::Indexed(246),
             warn_fg: Color::Indexed(130),
             error_fg: Color::Indexed(160),
             attention_fg: Color::Indexed(127),
+            user_bg: Color::Indexed(254),
+            code_bg: Color::Indexed(254),
+            code_fg: Color::Indexed(236),
+            heading_fg: Color::Indexed(232),
+            link_fg: Color::Indexed(25),
+            code_theme: "base16-ocean.light",
+            shimmer_base: (128, 128, 128),
+            shimmer_bright: (30, 30, 30),
         }
     }
 
