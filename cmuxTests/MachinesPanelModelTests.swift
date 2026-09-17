@@ -119,6 +119,15 @@ final class MachinesPanelModelTests: XCTestCase {
         )
     }
 
+    func testUsageRefreshBackoffIsBounded() {
+        XCTAssertEqual(MachinesPanelViewModel.usageBackoffDelay(failureCount: 0), 30)
+        XCTAssertEqual(MachinesPanelViewModel.usageBackoffDelay(failureCount: 1), 30)
+        XCTAssertEqual(MachinesPanelViewModel.usageBackoffDelay(failureCount: 2), 60)
+        XCTAssertEqual(MachinesPanelViewModel.usageBackoffDelay(failureCount: 3), 120)
+        XCTAssertEqual(MachinesPanelViewModel.usageBackoffDelay(failureCount: 4), 300)
+        XCTAssertEqual(MachinesPanelViewModel.usageBackoffDelay(failureCount: 100), 300)
+    }
+
     func testPlanSnapshotLimitStates() {
         XCTAssertNil(MachineSnapshotBuilder.planSnapshot(activeCount: 1, limits: nil))
 
@@ -1305,13 +1314,11 @@ struct MachineUsageReadoutTests {
       ]
     }
     """.utf8)
-
     private func machine(_ id: String) -> MachineSnapshot {
         MachineSnapshotBuilder.snapshot(from: VMSummary(
             id: id, provider: "freestyle", status: "running", image: "cmux-devbox:devbox-20260828b", createdAt: 0, base: nil
         ))
     }
-
     @Test("A finite number outside Int range decodes as zero, never a trap")
     func hugeTokenCountsDoNotTrap() throws {
         let payload = Data("""
@@ -1326,7 +1333,6 @@ struct MachineUsageReadoutTests {
         #expect(totals.outputTokens == 2)
         #expect(totals.totalTokens == 9007199254740993)
     }
-
     @Test("The team payload decodes into typed totals")
     func payloadDecodes() throws {
         let usage = try MachineUsageClient.decodeTeamUsage(payload)
@@ -1344,7 +1350,6 @@ struct MachineUsageReadoutTests {
         ))
         #expect(usage.machines[1].displayName == nil, "JSON null reads as no label")
     }
-
     @Test("Rows key on the machine id; blanks and repeats collapse to one entry")
     func lookupKeysOnMachineID() throws {
         let usage = try MachineUsageClient.decodeTeamUsage(payload)
@@ -1352,7 +1357,6 @@ struct MachineUsageReadoutTests {
         #expect(Set(byID.keys) == ["noble-wren", "idle-owl", "brave-fox", "5f0f7d0e-1b2c-4d3e-8f90-123456789abc"])
         #expect(byID["noble-wren"]?.displayName == "wren", "the first entry wins on a repeated vmId")
         #expect(byID["brave-fox"]?.displayName == "fox", "the provider id keys the row, since GET /api/vm lists it as the machine id")
-
         let stamped = MachineSnapshotBuilder.applyingUsage(
             to: [machine("noble-wren"), machine("idle-owl"), machine("unknown-fox")],
             usage: byID
@@ -1360,11 +1364,9 @@ struct MachineUsageReadoutTests {
         #expect(stamped[0].usage?.totals.totalTokens == 41000)
         #expect(stamped[1].usage?.totals.isEmpty == true)
         #expect(stamped[2].usage == nil, "a machine the payload never names carries no readout")
-
         let cleared = MachineSnapshotBuilder.applyingUsage(to: stamped, usage: [:])
         #expect(cleared.allSatisfy { $0.usage == nil }, "a later payload without the machine drops the stale readout")
     }
-
     @Test("An unavailable payload yields no rows, and malformed payloads throw")
     func unavailableAndMalformed() throws {
         let unavailable = try MachineUsageClient.decodeTeamUsage(Data("""
@@ -1373,7 +1375,6 @@ struct MachineUsageReadoutTests {
         #expect(unavailable.kind == .unavailable)
         #expect(unavailable.asOf == nil)
         #expect(unavailable.byMachineID.isEmpty)
-
         #expect(throws: MachineUsageClientError.self) {
             try MachineUsageClient.decodeTeamUsage(Data(#"{"teamId":"t","kind":"weird","machines":[]}"#.utf8))
         }
@@ -1381,7 +1382,6 @@ struct MachineUsageReadoutTests {
             try MachineUsageClient.decodeTeamUsage(Data(#"{"teamId":"t","kind":"ready","machines":[{"totals":{}}]}"#.utf8))
         }
     }
-
     @Test("The row line reads cost, compact tokens, and the window, including measured zero")
     func rowLine() throws {
         let usage = try MachineUsageClient.decodeTeamUsage(payload)

@@ -34,6 +34,8 @@ public struct MobileAnalyticsComposition {
     public let anonymousID: String
     /// Important transport and backend outcomes sent to the authenticated Axiom bridge.
     public let networkOutcomeReporter: MobileNetworkOutcomeReporter
+    /// Bounded terminal input-to-visible and render timing aggregates.
+    public let terminalLatencyReporter: MobileTerminalLatencyReporter
     /// The network emitter owns the same consent provider and revocation
     /// observer as the product emitter, so opt-out cancels both upload paths.
     public let networkOutcomeEmitter: AnalyticsEmitter
@@ -117,6 +119,17 @@ public struct MobileAnalyticsComposition {
         self.anonymousID = anonymousID
         self.networkOutcomeEmitter = networkOutcomeEmitter
         self.networkOutcomeReporter = MobileNetworkOutcomeReporter(emitter: networkOutcomeEmitter)
+        self.terminalLatencyReporter = MobileTerminalLatencyReporter(
+            emitter: networkOutcomeEmitter,
+            consent: consent,
+            onAnomaly: { [weak diagnosticLog] durationMilliseconds in
+                diagnosticLog?.recordAppEvent(
+                    .terminalRenderLagDetected,
+                    elapsedMilliseconds: durationMilliseconds,
+                    failure: .timedOut
+                )
+            }
+        )
         self.clientConfigContext = ClientConfigEvaluationContext(
             personProperties: Self.clientConfigDeviceProperties(anonymousID: anonymousID),
             anonDistinctId: anonymousID,
