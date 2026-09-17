@@ -289,6 +289,11 @@ async fn main() -> Result<()> {
         (None, None) => None,
         _ => bail!("control URL and control token file must be supplied together"),
     };
+    // A relay without a configured control feed is intentionally offline-only;
+    // report that state as healthy rather than as a broken feed.
+    if feed.is_none() {
+        metrics.feed_healthy.set(1);
+    }
     let http_listener = TcpListener::bind(args.http)
         .await
         .context("bind management listener")?;
