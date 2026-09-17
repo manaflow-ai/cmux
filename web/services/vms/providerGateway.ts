@@ -214,22 +214,38 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
   getStatus: (provider, vmId) =>
     providerEffect(provider, "getStatus", async () => {
       const driver = getProvider(provider);
-      if (!driver.getStatus) return "running" as const;
+      if (driver.capabilities?.getStatus === false || !driver.getStatus) return "running" as const;
       return await driver.getStatus(vmId);
     }),
   resume: (provider, vmId) =>
     providerEffect(provider, "resume", () => getProvider(provider).resume(vmId)),
   pause: (provider, vmId) =>
-    providerEffect(provider, "pause", () => getProvider(provider).pause(vmId)),
+    providerEffect(provider, "pause", async () => {
+      const driver = getProvider(provider);
+      if (driver.capabilities?.pause === false) return;
+      await driver.pause(vmId);
+    }),
   setRuntimeBudget: (provider, vmId, remainingSeconds) => providerEffect(provider, "setRuntimeBudget", async () => {
     const driver = getProvider(provider);
     if (!driver.setRuntimeBudget) throw new Error("Provider runtime caps are unavailable");
     await driver.setRuntimeBudget(vmId, remainingSeconds);
   }),
   snapshot: (provider, vmId, name) =>
-    providerEffect(provider, "snapshot", () => getProvider(provider).snapshot(vmId, name)),
+    providerEffect(provider, "snapshot", async () => {
+      const driver = getProvider(provider);
+      if (!vmCapabilitiesFor(provider).snapshot || !driver.snapshot) {
+        throw new VmOperationUnsupportedError({ provider, operation: "snapshot" });
+      }
+      return await driver.snapshot(vmId, name);
+    }),
   restore: (provider, snapshotId, options) =>
-    providerEffect(provider, "restore", () => getProvider(provider).restore(snapshotId, options)),
+    providerEffect(provider, "restore", async () => {
+      const driver = getProvider(provider);
+      if (!vmCapabilitiesFor(provider).restore || !driver.restore) {
+        throw new VmOperationUnsupportedError({ provider, operation: "restore" });
+      }
+      return await driver.restore(snapshotId, options);
+    }),
   capabilities: (provider) => vmCapabilitiesFor(provider),
   listSnapshots: (provider, vmId) =>
     providerEffect(provider, "listSnapshots", async () => {
@@ -251,7 +267,7 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
   fork: (provider, vmId) =>
     providerEffect(provider, "fork", async () => {
       const driver = getProvider(provider);
-      if (!driver.fork) {
+      if (!vmCapabilitiesFor(provider).fork || !driver.fork) {
         throw new VmOperationUnsupportedError({ provider, operation: "fork" });
       }
       return await driver.fork(vmId);
@@ -261,7 +277,7 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
   openPort: (provider, vmId, port) =>
     providerEffect(provider, "openPort", async () => {
       const impl = getProvider(provider);
-      if (!impl.openPort) {
+      if (!vmCapabilitiesFor(provider).ports || !impl.openPort) {
         throw new VmOperationUnsupportedError({ provider, operation: "openPort" });
       }
       return await impl.openPort(vmId, port);
@@ -269,7 +285,7 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
   getStats: (provider, vmId) =>
     providerEffect(provider, "getStats", async () => {
       const impl = getProvider(provider);
-      if (!impl.getStats) {
+      if (!vmCapabilitiesFor(provider).stats || !impl.getStats) {
         // Typed, so the route answers "unsupported" (non-retryable) instead of
         // a retryable 502 the activity panel would poll forever.
         throw new VmOperationUnsupportedError({ provider, operation: "getStats" });
@@ -315,7 +331,7 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
   openSSH: (provider, vmId) =>
     providerEffect(provider, "openSSH", async () => {
       const impl = getProvider(provider);
-      if (!impl.openSSH) {
+      if (impl.capabilities?.ssh === false || !impl.openSSH) {
         throw new VmOperationUnsupportedError({ provider, operation: "openSSH" });
       }
       return await impl.openSSH(vmId);
@@ -331,7 +347,7 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
   },
   revokeEndpointLeases: (provider, vmId) => {
     const driver = getProvider(provider);
-    if (!driver.revokeEndpointLeases) return Effect.void;
+    if (driver.capabilities?.revokeEndpointLeases === false || !driver.revokeEndpointLeases) return Effect.void;
     return providerEffect(provider, "revokeEndpointLeases", () => driver.revokeEndpointLeases!(vmId));
   },
   supportsPrivateNetworking: (provider) => !!getProvider(provider).privateNetworking,

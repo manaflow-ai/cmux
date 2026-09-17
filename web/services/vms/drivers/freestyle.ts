@@ -36,6 +36,7 @@ import {
   type VMHandle,
   type VMPrivateNetworking,
   type VmProviderDriver,
+  type VmProviderCapabilities,
   type VMResizeOptions,
   type VMStats,
   type VMStatus,
@@ -896,9 +897,22 @@ export class FreestyleProvider implements VmProviderDriver {
   /** The normal terminal transport. SSH is an explicit legacy attach verb, not the default. */
   readonly attachTransports: readonly AttachTransport[] = ["cmux-remote"];
 
-  /** ``create`` honors requested memory through the grow-only size ladder. */
-  /// Freestyle exposes live resource statistics and grow-only resizing.
-  readonly capabilities = { stats: true, sizing: true, desktop: true } as const;
+  readonly capabilities: VmProviderCapabilities = {
+    snapshot: true,
+    restore: true,
+    fork: false,
+    exec: true,
+    stats: true,
+    ports: true,
+    desktop: true,
+    sizing: true,
+    persistentHome: false,
+    attachTransports: this.attachTransports,
+    ssh: false,
+    pause: true,
+    getStatus: true,
+    revokeEndpointLeases: true,
+  };
 
   readonly privateNetworking: VMPrivateNetworking;
 

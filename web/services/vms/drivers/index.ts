@@ -68,8 +68,8 @@ export function vmCapabilitiesOf(provider: VmProviderDriver): VmCapabilities {
   if (typeof provider.openAttach === "function") structuralTransports.push("websocket");
   if (typeof provider.openSSH === "function") structuralTransports.push("ssh");
   return {
-    snapshot: declared.snapshot ?? true,
-    restore: declared.restore ?? true,
+    snapshot: declared.snapshot ?? typeof provider.snapshot === "function",
+    restore: declared.restore ?? typeof provider.restore === "function",
     fork: declared.fork ?? typeof provider.fork === "function",
     exec: declared.exec ?? true,
     stats: declared.stats ?? typeof provider.getStats === "function",

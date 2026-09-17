@@ -8,7 +8,12 @@ state, authorization, billing, and create deduplication.
 ## Capabilities and lifecycle
 
 The registry's `vmCapabilitiesOf` combines implemented methods with explicit capability
-flags. Keep those declarations consistent with the methods a driver can serve.
+flags. The gateway checks those flags before optional provider calls and returns
+`VmOperationUnsupportedError` for disabled operations. `capabilities(provider)` exposes
+that same client-facing matrix. Driver-only `ssh`, `pause`, `getStatus`, and
+`revokeEndpointLeases` flags also gate their operations. Disabled pause and lease
+revocation are no-ops; disabled status returns `running` without a provider request.
+Keep declarations consistent with the methods a driver can serve.
 Private networking is an account-level capability: owner networks and client tunnels
 outlive individual machines.
 

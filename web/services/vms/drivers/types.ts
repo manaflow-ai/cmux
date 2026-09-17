@@ -352,6 +352,16 @@ export interface VmCapabilities {
   readonly attachTransports: readonly AttachTransport[];
 }
 
+/** Driver capability declarations, including operations not exposed in VM API responses. */
+export interface VmProviderCapabilities extends VmCapabilities {
+  readonly ssh: boolean;
+  /** False means the provider handles standby itself and pause is a no-op. */
+  readonly pause: boolean;
+  /** False means status is assumed running without a provider request. */
+  readonly getStatus: boolean;
+  readonly revokeEndpointLeases: boolean;
+}
+
 /** A private network that every machine belonging to one user shares. */
 export type ProviderNetwork = {
   readonly id: string;
@@ -446,11 +456,10 @@ export interface VmProviderDriver {
    */
   readonly privateNetworking?: VMPrivateNetworking;
   /**
-   * Optional-operation support. A driver that implements `snapshot`/`restore` only to
-   * throw NotImplementedError declares that here; `fork` defaults to whether the method
-   * exists. Everything omitted defaults to supported.
+   * Declared support overrides method presence. Omitted flags retain structural
+   * defaults for test doubles and incremental driver implementations.
    */
-  readonly capabilities?: Partial<VmCapabilities>;
+  readonly capabilities?: Partial<VmProviderCapabilities>;
 
   create(options: CreateOptions): Promise<VMHandle>;
   destroy(vmId: string): Promise<void>;
@@ -485,7 +494,7 @@ export interface VmProviderDriver {
   // query parameter for direct browser use.
   openPort?(vmId: string, port: number): Promise<{ url: string; token: string; openUrl: string; expiresAtMs?: number }>;
 
-  snapshot(vmId: string, name?: string): Promise<SnapshotRef>;
+  snapshot?(vmId: string, name?: string): Promise<SnapshotRef>;
   /**
    * Optional: every snapshot taken from `vmId`, newest first. Absent on a
    * provider that cannot enumerate snapshots; the gateway answers unsupported.
@@ -504,7 +513,7 @@ export interface VmProviderDriver {
    * machine like any other, and one restored outside the network would be the
    * only unreachable one in the account.
    */
-  restore(snapshotId: string, options?: RestoreOptions): Promise<VMHandle>;
+  restore?(snapshotId: string, options?: RestoreOptions): Promise<VMHandle>;
   fork?(vmId: string): Promise<VMHandle>;
 
   // Session transports this driver supports. Undefined means the legacy set (`websocket`
