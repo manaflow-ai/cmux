@@ -940,6 +940,49 @@ describe("devbox image template", () => {
     }
   });
 
+  test("concurrent OpenCode starts wait for one authenticated config and preserve a user file", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "cmux-opencode-concurrent-"));
+    let requests = 0;
+    const server = await listen((_request, response) => {
+      requests += 1;
+      setTimeout(() => {
+        response.end(JSON.stringify({ provider: { go: { options: { apiKey: "crt_test" } } } }));
+      }, 100);
+    });
+    try {
+      await Promise.all(Array.from({ length: 4 }, () => sourceAgentConfig(home, server.origin, true)));
+      expect(requests).toBe(1);
+      const config = path.join(home, ".config/opencode/opencode.json");
+      expect(JSON.parse(readFileSync(config, "utf8")).provider.go.options.apiKey).toBe("{env:OPENAI_API_KEY}");
+      writeFileSync(config, '{"provider":{"mine":{}}}');
+      await sourceAgentConfig(home, server.origin, true);
+      expect(readFileSync(config, "utf8")).toBe('{"provider":{"mine":{}}}');
+      expect(requests).toBe(1);
+    } finally {
+      await server.close();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("failed OpenCode config cannot launch a command without its configured provider", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "cmux-opencode-failure-"));
+    let requests = 0;
+    const server = await listen((_request, response) => {
+      requests += 1;
+      response.statusCode = 503;
+      response.end("unavailable");
+    });
+    try {
+      await expect(sourceAgentConfig(home, server.origin, true)).rejects.toThrow();
+      await expect(sourceAgentConfig(home, server.origin, true)).rejects.toThrow();
+      expect(requests).toBe(1);
+      expect(existsSync(path.join(home, ".config/opencode/opencode.json"))).toBe(false);
+    } finally {
+      await server.close();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   test("opencode config tolerates a coderouter without a usable account", async () => {
     const home = mkdtempSync(path.join(tmpdir(), "cmux-devbox-opencode-503-"));
     let body = JSON.stringify({ error: "no_usable_account" });
