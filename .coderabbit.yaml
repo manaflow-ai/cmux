@@ -13,6 +13,12 @@ reviews:
   profile: assertive
   request_changes_workflow: false
   path_instructions:
+    - path: "web/db/**"
+      instructions: |
+        Apply `.github/review-bot-rules/db-table-retention.md` during review. Every table in `web/db/schema.ts` must have a correct entry in `web/db/retention.ts`: rows created per request, command, heartbeat, session, attempt, or issuance are drains with a timestamp cutoff, not `bounded`; rows with `expires_at`/`revoked_at`/`consumed_at`/`closed_at` need a drain that deletes them; per-command telemetry goes to PostHog, not Postgres. The PR must state expected rows per day and the retention window.
+    - path: "web/services/**"
+      instructions: |
+        Apply `.github/review-bot-rules/db-table-retention.md` to new insert paths. Flag any insert that writes one Postgres row per request, command, heartbeat, or attempt into a table registered as `bounded` in `web/db/retention.ts`, and any new event-style insert with no drain or non-Postgres sink.
     - path: "**/*"
       instructions: |
         Apply `.github/review-bot-rules/source-control-artifacts.md` during review. Flag local tool output, generated logs, screenshots, recordings, temp folders, dependency checkouts, caches, build output, and broad scratch directories that enter source control without a deliberate product, docs, fixture, build, or release reason.
