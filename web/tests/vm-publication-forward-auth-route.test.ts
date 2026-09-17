@@ -16,6 +16,8 @@ const serviceSecret = "publication-forward-auth-test-secret";
 const target = {
   publication: { id: "publication-1", hostname: "preview.example.com" },
 } as unknown as Parameters<ForwardAuthHandlerDependencies["begin"]>[0]["target"];
+// What Vercel actually hands the function: its own host, not the publication's.
+const vercelForwardedHost = "cmux.com";
 
 function request(
   overrides: Record<string, string> = {},
@@ -24,7 +26,7 @@ function request(
     headers: {
       authorization: `Bearer ${serviceSecret}`,
       "x-forwarded-proto": "https",
-      "x-forwarded-host": "preview.example.com",
+      "x-forwarded-host": vercelForwardedHost,
       "x-forwarded-method": "GET",
       "x-forwarded-uri": "/editor?file=readme",
       "x-freestyle-tls-rule-id": "tls-rule-1",
@@ -39,6 +41,7 @@ function dependencies(
   return {
     serviceSecret,
     authPageOrigin: "https://cmux.com",
+    resolve: async () => target,
     evaluate: async () => ({ kind: "allow" }),
     begin: async () => {
       throw new Error("unexpected transaction");
@@ -69,8 +72,8 @@ describe("Freestyle publication forward-auth HTTP contract", () => {
   test("requires complete trusted HTTPS request metadata", async () => {
     const malformedHeaders: readonly Record<string, string>[] = [
       { "x-forwarded-proto": "http" },
-      { "x-forwarded-host": "localhost" },
       { "x-freestyle-tls-rule-id": "rule/id" },
+      { "x-freestyle-tls-rule-id": "" },
       { "x-forwarded-uri": "https://attacker.example/" },
     ];
     for (const headers of malformedHeaders) {
@@ -100,11 +103,40 @@ describe("Freestyle publication forward-auth HTTP contract", () => {
 
     expect(result.status).toBe(204);
     expect(captured).toEqual({
-      hostname: "preview.example.com",
       providerTlsRuleId: "tls-rule-1",
       method: "HEAD",
       sessionToken: session,
     });
+  });
+
+  test("identifies the publication by TLS rule id, never by x-forwarded-host", async () => {
+    // Vercel overwrites x-forwarded-host with the function's own host before the
+    // route runs, so a hostname-keyed lookup 404s every protected publication.
+    // The route must not read that header at all: any value, or none, is fine.
+    for (const forwardedHost of [vercelForwardedHost, "!!!not a host!!!", undefined]) {
+      const headers: Record<string, string> = forwardedHost === undefined
+        ? {}
+        : { "x-forwarded-host": forwardedHost };
+      const req = request(headers);
+      if (forwardedHost === undefined) req.headers.delete("x-forwarded-host");
+      const limited: string[] = [];
+      const result = await handleForwardAuthRequest(
+        req,
+        dependencies({
+          evaluate: async () => ({ kind: "sign_in_required", target }),
+          rateLimit: async ({ hostname }) => {
+            limited.push(hostname);
+            return null;
+          },
+          begin: async () => ({
+            location: "https://cmux.com/cloud/access?transaction=one&state=two",
+            transactionCookie: "",
+          }),
+        }),
+      );
+      expect(result.status).toBe(302);
+      expect(limited).toEqual(["preview.example.com"]);
+    }
   });
 
   test("relays a cross-origin authorization redirect with a protected transaction cookie", async () => {
@@ -314,6 +346,7 @@ describe("Freestyle publication forward-auth HTTP contract", () => {
 
     expect(result.status).toBe(302);
     expect(result.headers.get("location")).toBe("/editor");
+    // Bound to the resolved publication's hostname, not to x-forwarded-host.
     expect(captured).toEqual({
       hostname: "preview.example.com",
       code,
@@ -326,6 +359,29 @@ describe("Freestyle publication forward-auth HTTP contract", () => {
     expect(cookies[0]).toContain(`${PUBLICATION_SESSION_COOKIE}=${session}`);
     expect(cookies[1]).toContain(`${PUBLICATION_TRANSACTION_COOKIE}=;`);
     expect(cookies[1]).toContain("Max-Age=0");
+  });
+
+  test("refuses the callback when no active publication owns the TLS rule", async () => {
+    let completed = false;
+    const result = await handleForwardAuthRequest(
+      request({
+        cookie: `${PUBLICATION_TRANSACTION_COOKIE}=${publicationTransactionCookieValue(
+          randomPublicationToken(),
+          randomPublicationToken(),
+        )}`,
+        "x-forwarded-uri": "/_cmux/auth/callback?code=abc&state=def",
+      }),
+      dependencies({
+        resolve: async () => null,
+        complete: async () => {
+          completed = true;
+          return { kind: "invalid" };
+        },
+      }),
+    );
+
+    expect(result.status).toBe(404);
+    expect(completed).toBe(false);
   });
 
   test("fails closed when policy infrastructure fails", async () => {

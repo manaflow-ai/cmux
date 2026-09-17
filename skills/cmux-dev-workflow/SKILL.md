@@ -31,6 +31,8 @@ Do not use `/tmp/cmux-cli` for tagged dogfood; that symlink points at the most r
 
 The team is pinned to Xcode 26.x. `.xcode-version` is the single source of truth for the major; `cmux.xcodeproj/project.pbxproj` carries `objectVersion = 60`, what Xcode 26 writes by default. (`objectVersion = 77` is reserved for synchronized folder groups, which cmux does not use.)
 
+Intel Macs on macOS 14 with Xcode 16.2 (Swift 6.0.3) can still build the macOS app and run tagged `reload.sh` dev builds as a best-effort pathway. Keep app-linked Swift within Swift 6.0 syntax: no trailing commas in parameter or argument lists (SE-0439), no `nonisolated` on type declarations (SE-0449), and the `#if compiler(>=6.2)` / `#else @Sendable` split for `@concurrent` (SE-0461 is Swift 6.2; Swift 6.0 only warns that the attribute was renamed and does not implement its semantics). See "Intel Macs, Xcode 16.2, Swift 6.0" in AGENTS.md.
+
 `scripts/setup.sh` installs the tracked `scripts/git-hooks/pre-commit`, which runs `scripts/normalize-pbxproj.py` on any staged `project.pbxproj` so Xcode's nondeterministic reordering never reaches a commit. The hook is idempotent. CI runs `scripts/check-pbxproj.sh` to enforce both the `objectVersion` pin and normalization, so skipping the hook gives a clear PR failure. Bumping the pin is a deliberate team decision: see [references/xcode-project-normalization.md](references/xcode-project-normalization.md).
 
 ## Sidebar extension point (dev tagging)

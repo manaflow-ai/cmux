@@ -3,7 +3,9 @@ import Foundation
 /// One create the person started from the sheet, alive from the moment the
 /// CLI run launches until the machine exists (then the real fleet row takes
 /// over) or the create fails (then the row stays, red, until retried or
-/// dismissed). Rendered by the Machines panel as a pending machine row.
+/// dismissed). A running operation can be cancelled from the row without
+/// waiting for the provider. Rendered by the Machines panel as a pending
+/// machine row.
 struct MachineCreateOperation: Identifiable, Equatable {
     enum Phase: Equatable {
         case running
@@ -75,10 +77,18 @@ struct MachineCreateOperation: Identifiable, Equatable {
     /// `Error:` prefix is dropped, and the result is capped to fit a
     /// notification body. Nil when nothing is left.
     static func headline(ofOutput output: String) -> String? {
+        let createdFormat = String(localized: "cli.vm.create.createdCloudVM", defaultValue: "Created Cloud VM %@")
+        let createdParts = createdFormat.components(separatedBy: "%@")
         for rawLine in output.split(whereSeparator: \.isNewline) {
             var line = rawLine.trimmingCharacters(in: .whitespaces)
             guard !line.isEmpty, !line.hasPrefix("OK "),
                   MachineCreateCoordinator.createdMachineID(fromOutput: line) == nil else { continue }
+            // Display text is still omitted from headlines, but never used as
+            // the authoritative signal that a machine was created.
+            if createdParts.count == 2,
+               line.hasPrefix(createdParts[0]), line.hasSuffix(createdParts[1]) {
+                continue
+            }
             if line.lowercased().hasPrefix("error:") {
                 line = String(line.dropFirst("error:".count)).trimmingCharacters(in: .whitespaces)
             }

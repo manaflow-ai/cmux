@@ -141,6 +141,9 @@ class GeneratedClientMixin:
     def list_workspaces(self) -> Tree:
         return self._invoke_command('list-workspaces', ListWorkspacesRequest())
 
+    def machine_listening_tcp(self) -> MachineListeningTcpResult:
+        return self._invoke_command('machine-listening-tcp', MachineListeningTcpRequest())
+
     def machine_usage(self) -> MachineUsageResult:
         return self._invoke_command('machine-usage', MachineUsageRequest())
 
@@ -188,6 +191,9 @@ class GeneratedClientMixin:
 
     def pane_neighbor(self, pane: Id, dir: PaneDirection) -> PaneNeighborResult:
         return self._invoke_command('pane-neighbor', PaneNeighborRequest(pane=pane, dir=dir))
+
+    def paste_image(self, surface: Id, terminal_id: str, lease: str, op: str, upload_id: str, *, data: Union[str, None, MissingType] = MISSING, mime: Union[str, None, MissingType] = MISSING, offset: Union[int, None, MissingType] = MISSING, size: Union[int, None, MissingType] = MISSING) -> PasteImageResult:
+        return self._invoke_command('paste-image', PasteImageRequest(surface=surface, terminal_id=terminal_id, lease=lease, op=op, upload_id=upload_id, data=data, mime=mime, offset=offset, size=size))
 
     def ping(self) -> PingResult:
         return self._invoke_command('ping', PingRequest())
@@ -371,6 +377,7 @@ GeneratedClientMixin.list_agents.__cmux_command__ = COMMANDS['list-agents']
 GeneratedClientMixin.list_clients.__cmux_command__ = COMMANDS['list-clients']
 GeneratedClientMixin.list_terminals.__cmux_command__ = COMMANDS['list-terminals']
 GeneratedClientMixin.list_workspaces.__cmux_command__ = COMMANDS['list-workspaces']
+GeneratedClientMixin.machine_listening_tcp.__cmux_command__ = COMMANDS['machine-listening-tcp']
 GeneratedClientMixin.machine_usage.__cmux_command__ = COMMANDS['machine-usage']
 GeneratedClientMixin.mark_workspaces_provider_managed.__cmux_command__ = COMMANDS['mark-workspaces-provider-managed']
 GeneratedClientMixin.mint_terminal_renderer.__cmux_command__ = COMMANDS['mint-terminal-renderer']
@@ -387,6 +394,7 @@ GeneratedClientMixin.new_workspace.__cmux_command__ = COMMANDS['new-workspace']
 GeneratedClientMixin.notify.__cmux_command__ = COMMANDS['notify']
 GeneratedClientMixin.pairing_response.__cmux_command__ = COMMANDS['pairing-response']
 GeneratedClientMixin.pane_neighbor.__cmux_command__ = COMMANDS['pane-neighbor']
+GeneratedClientMixin.paste_image.__cmux_command__ = COMMANDS['paste-image']
 GeneratedClientMixin.ping.__cmux_command__ = COMMANDS['ping']
 GeneratedClientMixin.process_info.__cmux_command__ = COMMANDS['process-info']
 GeneratedClientMixin.put_frontend_projection.__cmux_command__ = COMMANDS['put-frontend-projection']

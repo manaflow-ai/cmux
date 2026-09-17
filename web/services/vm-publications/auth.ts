@@ -4,16 +4,15 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import { getStackServerApp } from "../../app/lib/stack";
-import {
-  CloudVmPublicationRepository,
-  CloudVmPublicationRepositoryLive,
-  type CloudVmPublicationAuthTransaction,
-  type CloudVmPublicationTarget,
+import type {
+  CloudVmPublicationAuthTransaction,
+  CloudVmPublicationTarget,
 } from "./repository";
 import {
   type VmPublicationPolicy,
   type VmPublicationViewer,
   vmPublicationAllowsViewer,
+  publicationOwningTeamId,
 } from "./policy";
 import {
   PUBLICATION_CALLBACK_PATH,
@@ -24,6 +23,10 @@ import {
   publicationTransactionCookieValue,
   randomPublicationToken,
 } from "./security";
+import { normalizePublicationEmail } from "./managedHostnames";
+import { tracePublicationAuthOperation, withPublicationAuthEffectContext } from "./requestTelemetry";
+import { publicationDatabaseRuntime } from "./database";
+import { PublicationAuthRepository, PublicationAuthRepositoryLive } from "./authRepository";
 
 export const PUBLICATION_TRANSACTION_TTL_MS = 10 * 60 * 1_000;
 export const PUBLICATION_AUTH_CODE_TTL_MS = 60 * 1_000;
@@ -51,7 +54,7 @@ export const PublicationViewerResolverLive = Layer.succeed(
   {
     resolve: (userId) =>
       Effect.tryPromise({
-        try: async () => {
+        try: () => tracePublicationAuthOperation("identity", async () => {
           const user = await getStackServerApp().getUser(userId);
           if (!user) return null;
           const teamIds: string[] = [];
@@ -62,7 +65,11 @@ export const PublicationViewerResolverLive = Layer.succeed(
             teamIds.push(...teams.map((team) => team.id));
             const nextCursor = teams.nextCursor?.trim();
             if (!nextCursor) {
-              return { userId: user.id, teamIds };
+              return {
+                userId: user.id, teamIds,
+                verifiedEmails: user.primaryEmailVerified && user.primaryEmail
+                  ? [user.primaryEmail.toLowerCase()] : [],
+              };
             }
             if (seenCursors.has(nextCursor)) {
               throw new Error("Stack team pagination repeated a cursor");
@@ -71,7 +78,7 @@ export const PublicationViewerResolverLive = Layer.succeed(
             cursor = nextCursor;
           }
           throw new Error("Stack team pagination exceeded its page limit");
-        },
+        }),
         catch: (cause) => new PublicationIdentityError({
           operation: "resolvePublicationViewer",
           cause,
@@ -81,16 +88,16 @@ export const PublicationViewerResolverLive = Layer.succeed(
 );
 
 export const PublicationAuthRuntime = Layer.merge(
-  CloudVmPublicationRepositoryLive,
+  PublicationAuthRepositoryLive,
   PublicationViewerResolverLive,
 );
 
 export function runPublicationAuth<A, E>(
-  program: Effect.Effect<A, E, CloudVmPublicationRepository | PublicationViewerResolver>,
+  program: Effect.Effect<A, E, PublicationAuthRepository | PublicationViewerResolver>,
 ): Promise<A> {
-  return Effect.runPromise(
-    program.pipe(Effect.provide(PublicationAuthRuntime), Effect.either),
-  ).then((result) => {
+  return publicationDatabaseRuntime().then(runtime => runtime.runPromise(
+    withPublicationAuthEffectContext(program.pipe(Effect.provide(PublicationAuthRuntime), Effect.either)),
+  )).then((result) => {
     if (result._tag === "Left") throw result.left;
     return result.right;
   });
@@ -142,20 +149,23 @@ export type PublicationRequestEvaluation =
  * limit it: every unauthenticated navigation would otherwise cost a write.
  */
 export function evaluatePublicationRequest(input: {
-  readonly hostname: string;
   readonly providerTlsRuleId: string;
   readonly method: string;
   readonly sessionToken: string | null;
   readonly now?: Date;
 }) {
   return Effect.gen(function* () {
-    const repository = yield* CloudVmPublicationRepository;
+    const repository = yield* PublicationAuthRepository;
     const viewerResolver = yield* PublicationViewerResolver;
-    const target = yield* repository.findActivePublicationForRequest({
-      hostname: input.hostname,
+    const now = input.now ?? new Date();
+    const requestContext = yield* repository.findRequestContext({
       providerTlsRuleId: input.providerTlsRuleId,
+      sessionTokenHash: isPublicationToken(input.sessionToken)
+        ? hashPublicationToken(input.sessionToken) : null,
+      now,
     });
-    if (!target) return { kind: "not_found" } as const satisfies PublicationRequestEvaluation;
+    if (!requestContext) return { kind: "not_found" } as const satisfies PublicationRequestEvaluation;
+    const { session, ...target } = requestContext;
 
     if (target.publication.accessMode === "public") {
       // This can occur briefly during the fail-open-safe half of a protected ->
@@ -163,24 +173,16 @@ export function evaluatePublicationRequest(input: {
       return { kind: "allow" } as const satisfies PublicationRequestEvaluation;
     }
 
-    if (isPublicationToken(input.sessionToken)) {
-      const principal = yield* repository.findValidSession({
-        tokenHash: hashPublicationToken(input.sessionToken),
-        publicationId: target.publication.id,
-        hostname: input.hostname,
-        now: input.now ?? new Date(),
-      });
-      if (principal) {
-        // Personal policy is decided by the session's user alone. Team policy
-        // must see current Stack membership so a removed member loses access
-        // on the next request without waiting for the session to expire.
-        const viewer: VmPublicationViewer | null =
-          principal.publication.accessMode === "team"
-            ? yield* viewerResolver.resolve(principal.session.userId)
-            : { userId: principal.session.userId, teamIds: [] };
-        if (vmPublicationAllowsViewer(principal.publication, viewer)) {
-          return { kind: "allow" } as const satisfies PublicationRequestEvaluation;
-        }
+    if (session) {
+      const owningTeamId = publicationOwningTeamId(target.vm);
+      // Only the owner of a personal VM can skip the identity lookup. Team
+      // VM ownership and email grants depend on current Stack identity.
+      const viewer: VmPublicationViewer | null =
+        owningTeamId !== null || target.publication.accessMode === "team" || session.userId !== target.publication.ownerUserId
+          ? yield* viewerResolver.resolve(session.userId)
+          : { userId: session.userId, teamIds: [] };
+      if (yield* publicationAllowsViewer(target.publication, viewer, now, owningTeamId)) {
+        return { kind: "allow" } as const satisfies PublicationRequestEvaluation;
       }
     }
 
@@ -194,9 +196,25 @@ export function evaluatePublicationRequest(input: {
   });
 }
 
+/**
+ * The publication a Freestyle forward-auth call is about, or null when no
+ * active, reachable publication owns that TLS rule. Both the policy check and
+ * the callback exchange start here so every hostname the route acts on comes
+ * from the publication row, never from a forwarding header.
+ */
+export function resolvePublicationForRequest(input: {
+  readonly providerTlsRuleId: string;
+}) {
+  return Effect.gen(function* () {
+    const repository = yield* PublicationAuthRepository;
+    return yield* repository.findActivePublicationForRequest({
+      providerTlsRuleId: input.providerTlsRuleId,
+    });
+  });
+}
+
 /** Evaluate and, when sign-in is required, mint the transaction in one step. */
 export function authorizePublicationRequest(input: {
-  readonly hostname: string;
   readonly providerTlsRuleId: string;
   readonly method: string;
   readonly returnPath: string;
@@ -234,7 +252,7 @@ export function completePublicationAuthorization(input: {
     ) {
       return { kind: "invalid" } as const;
     }
-    const repository = yield* CloudVmPublicationRepository;
+    const repository = yield* PublicationAuthRepository;
     const now = input.now ?? new Date();
     const sessionToken = randomPublicationToken();
     const consumed = yield* repository.consumeAuthCodeAndCreateSession({
@@ -266,7 +284,7 @@ export function resolvePublicationAccess(input: {
     if (!isPublicationToken(input.transaction) || !isPublicationToken(input.state)) {
       return { kind: "invalid" } as const;
     }
-    const repository = yield* CloudVmPublicationRepository;
+    const repository = yield* PublicationAuthRepository;
     const now = input.now ?? new Date();
     const pending = yield* repository.findPendingAuthTransaction({
       transactionHash: hashPublicationToken(input.transaction),
@@ -278,11 +296,13 @@ export function resolvePublicationAccess(input: {
     if (!input.user) {
       return { kind: "signed_out", transaction: pending } as const;
     }
+    const owningTeamId = publicationOwningTeamId(pending.vm);
     const currentViewer = yield* currentPublicationViewer(
       pending.publication,
       input.user,
+      owningTeamId,
     );
-    if (vmPublicationAllowsViewer(pending.publication, currentViewer)) {
+    if (yield* publicationAllowsViewer(pending.publication, currentViewer, now, owningTeamId)) {
       const code = randomPublicationToken();
       yield* repository.issueAuthCode({
         transactionHash: pending.transaction.transactionHash,
@@ -312,9 +332,10 @@ export function resolvePublicationAccess(input: {
 function currentPublicationViewer(
   publication: VmPublicationPolicy,
   user: PublicationAccessUser,
+  owningTeamId: string | null,
 ) {
   return Effect.gen(function* () {
-    if (publication.accessMode !== "team") {
+    if (publication.accessMode === "public" || (owningTeamId === null && publication.accessMode === "personal" && user.userId === publication.ownerUserId)) {
       return user;
     }
     // Team access is dynamic. Never trust the membership snapshot carried by
@@ -323,8 +344,22 @@ function currentPublicationViewer(
     const resolver = yield* PublicationViewerResolver;
     const fresh = yield* resolver.resolve(user.userId);
     return fresh
-      ? { ...user, teamIds: fresh.teamIds }
-      : { ...user, teamIds: [] };
+      ? { ...user, teamIds: fresh.teamIds, verifiedEmails: fresh.verifiedEmails ?? [] }
+      : { ...user, teamIds: [], verifiedEmails: [] };
+  });
+}
+
+/** Grants are read on each request, so deletion and expiry apply to existing sessions. */
+function publicationAllowsViewer(publication: VmPublicationPolicy & { readonly id: string }, viewer: VmPublicationViewer | null, now: Date, owningTeamId: string | null) {
+  return Effect.gen(function* () {
+    if (vmPublicationAllowsViewer(publication, viewer, owningTeamId)) return true;
+    if (!viewer) return false;
+    const repository = yield* PublicationAuthRepository;
+    for (const value of viewer.verifiedEmails ?? []) {
+      const email = normalizePublicationEmail(value);
+      if (email && (yield* repository.hasEmailGrant({ publicationId: publication.id, email, now }))) return true;
+    }
+    return false;
   });
 }
 
@@ -336,7 +371,7 @@ export function beginPublicationAuthorization(input: {
   readonly now?: Date;
 }) {
   return Effect.gen(function* () {
-    const repository = yield* CloudVmPublicationRepository;
+    const repository = yield* PublicationAuthRepository;
     const transaction = randomPublicationToken();
     const state = randomPublicationToken();
     const verifier = randomPublicationToken();
