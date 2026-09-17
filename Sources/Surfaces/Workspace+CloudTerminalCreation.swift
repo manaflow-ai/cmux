@@ -31,7 +31,8 @@ extension Workspace {
 
 
     /// The cloud resource behind a panel, when the panel projects one.
-    func cloudProjectedResource(forPanel panelID: UUID, catalog: SurfaceCatalog = .shared) -> SurfaceResource? {
+    func cloudProjectedResource(forPanel panelID: UUID, catalog: SurfaceCatalog? = nil) -> SurfaceResource? {
+        let catalog = catalog ?? SurfaceCatalog.shared
         guard let projection = catalog.projection(forPanel: panelID),
               projection.workspaceID == id,
               !projection.resource.machine.isLocal else { return nil }
