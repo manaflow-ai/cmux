@@ -502,26 +502,20 @@ describe("client config", () => {
     });
 
     const allowed = POST(request());
-    await fetchStarted.promise;
-    const secondRateLimitChecked = deferred();
-    let rateLimitCalls = 0;
-    const rateLimitMock = checkRateLimit as unknown as {
-      mockImplementation(implementation: () => Promise<{ rateLimited: boolean; error: string | null }>): void;
-    };
-    rateLimitMock.mockImplementation(async () => {
-      rateLimitCalls += 1;
-      if (rateLimitCalls === 2) secondRateLimitChecked.resolve();
-      return { rateLimited: rateLimitCalls === 2, error: null };
-    });
-    const blocked = POST(request());
-    await secondRateLimitChecked.promise;
-    gate.resolve();
-    const [allowedResponse, blockedResponse] = await Promise.all([allowed, blocked]);
-
-    expect(allowedResponse.status).toBe(200);
-    expect(blockedResponse.status).toBe(429);
-    expect(checkRateLimit).toHaveBeenCalledTimes(2);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    try {
+      await fetchStarted.promise;
+      checkRateLimit.mockResolvedValue({ rateLimited: true, error: null });
+      // Admission must reject this caller while the allowed fetch is still held.
+      const blockedResponse = await POST(request());
+      expect(blockedResponse.status).toBe(429);
+      expect(await blockedResponse.json()).toEqual({ error: "rate_limited" });
+      expect(checkRateLimit).toHaveBeenCalledTimes(2);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      gate.resolve();
+      await allowed;
+    }
+    expect((await allowed).status).toBe(200);
   });
 
   test.each([
