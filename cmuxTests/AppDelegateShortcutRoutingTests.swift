@@ -6333,8 +6333,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #if DEBUG
         let probe = installFocusedTerminalRepairProbeForTesting(appDelegate: appDelegate, keyCode: 14)
         defer { probe.restore() }
-        let event = try XCTUnwrap(makeKeyDownEvent(
-            key: "e", modifiers: [], keyCode: 14, windowNumber: window.windowNumber
+        let specification = try XCTUnwrap(SyntheticKeyEventFactory.parseShortcutCombo("e"))
+        let event = try XCTUnwrap(SyntheticKeyEventFactory.keyEvent(
+            specification: specification, keyDown: true, timestamp: ProcessInfo.processInfo.systemUptime
         ))
         window.sendEvent(event)
         XCTAssertEqual(probe.forwardedKeyDownCount(), 1, "The first key must reach its selected pane exactly once before mount")
@@ -6345,10 +6346,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             if event.action == GHOSTTY_ACTION_RELEASE, event.keycode == 14 { releases += 1 }
         }
         defer { GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousObserver }
-        let keyUp = try XCTUnwrap(NSEvent.keyEvent(
-            with: .keyUp, location: .zero, modifierFlags: [], timestamp: 0,
-            windowNumber: window.windowNumber, context: nil, characters: "e",
-            charactersIgnoringModifiers: "e", isARepeat: false, keyCode: 14
+        let keyUp = try XCTUnwrap(SyntheticKeyEventFactory.keyEvent(
+            specification: specification, keyDown: false, timestamp: ProcessInfo.processInfo.systemUptime
         ))
         window.sendEvent(keyUp)
         XCTAssertEqual(releases, 1, "The release must reach the same unmounted pane exactly once")
