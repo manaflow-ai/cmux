@@ -15,12 +15,12 @@ struct SidebarRowSnapshotCacheTests {
         let retiredID = UUID()
         let replacementID = UUID()
         let snapshot = SidebarWorkspaceRowSuspensionTests.makeModel().snapshot
-        cache.store(snapshot, for: retiredID)
+        cache.replace(with: [retiredID: snapshot])
 
         // A restore/reorder can replace membership without changing its count.
         cache.prune(keeping: [replacementID])
         #expect(cache.value(for: retiredID) == nil)
-        cache.store(snapshot, for: replacementID)
+        cache.replace(with: [replacementID: snapshot])
         #expect(cache.value(for: replacementID) == snapshot)
     }
 
@@ -28,13 +28,13 @@ struct SidebarRowSnapshotCacheTests {
         let cache = SidebarRowSnapshotCache()
         let snapshot = SidebarWorkspaceRowSuspensionTests.makeModel().snapshot
         var liveID = UUID()
-        cache.store(snapshot, for: liveID)
+        cache.replace(with: [liveID: snapshot])
         var retiredIDs: [UUID] = []
         for _ in 0..<100 {
             retiredIDs.append(liveID)
             liveID = UUID()
             cache.prune(keeping: [liveID])
-            cache.store(snapshot, for: liveID)
+            cache.replace(with: [liveID: snapshot])
             #expect(cache.value(for: liveID) == snapshot)
         }
         #expect(retiredIDs.allSatisfy { cache.value(for: $0) == nil })

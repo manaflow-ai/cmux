@@ -18,16 +18,42 @@ struct SidebarSnapshotOwnerTests {
         let cache = SidebarRowSnapshotCache()
         let ids = Set((0..<100).map { _ in UUID() })
         let snapshot = SidebarWorkspaceRowSuspensionTests.makeModel().snapshot
-        for id in ids { cache.store(snapshot, for: id) }
-        #expect(cache.revision == 0)
+        cache.replace(with: Dictionary(uniqueKeysWithValues: ids.map { ($0, snapshot) }))
+        let initialRevision = cache.revision
+        for id in ids { _ = cache.value(for: id) }
+        #expect(cache.revision == initialRevision)
         let changed = SidebarWorkspaceRowSuspensionTests.makeModel(customDescription: "Changed").snapshot
         cache.refresh(workspaceIds: ids) { _ in changed }
-        #expect(cache.revision == 1)
+        #expect(cache.revision == initialRevision + 1)
         cache.refresh(workspaceIds: ids) { _ in changed }
-        #expect(cache.revision == 1)
+        #expect(cache.revision == initialRevision + 1)
         cache.prune(keeping: [])
-        #expect(cache.revision == 1)
+        #expect(cache.revision == initialRevision + 1)
         #expect(cache.snapshotsById.isEmpty)
+    }
+
+    @Test func membershipReconciliationBuildsOnlyNewWorkspaceSnapshots() throws {
+        let cache = SidebarRowSnapshotCache()
+        let snapshot = SidebarWorkspaceRowSuspensionTests.makeModel().snapshot
+        let ids = Set((0..<100).map { _ in UUID() })
+        cache.reconcile(workspaceIds: ids, presentationKey: snapshot.presentationKey) { _ in snapshot }
+        let retired = try #require(ids.first)
+        let replacement = UUID()
+        let nextIds = ids.subtracting([retired]).union([replacement])
+        var requested: Set<UUID> = []
+        cache.reconcile(workspaceIds: nextIds, presentationKey: snapshot.presentationKey) { id in
+            requested.insert(id)
+            return snapshot
+        }
+        #expect(requested == [replacement])
+        #expect(cache.value(for: retired) == nil)
+        #expect(Set(cache.snapshotsById.keys) == nextIds)
+        let revision = cache.revision
+        cache.reconcile(workspaceIds: nextIds, presentationKey: snapshot.presentationKey) { _ in
+            Issue.record("Unchanged membership must reuse its presentation snapshots")
+            return snapshot
+        }
+        #expect(cache.revision == revision)
     }
 
     @Test(arguments: [true, false])
@@ -80,7 +106,13 @@ struct SidebarSnapshotOwnerTests {
             )
             #expect(await converge(window) { cache.value(for: workspace.id) != nil })
             workspace.setCustomTitle("Updated \(cycle)")
+            // Membership reconciliation must preserve an already queued title update.
+            let sibling = manager.addWorkspace(
+                initialSurface: .cloudVMLoading, select: false,
+                autoWelcomeIfNeeded: false, autoRefreshMetadata: false
+            )
             #expect(await converge(window) { cache.value(for: workspace.id)?.title == "Updated \(cycle)" })
+            manager.closeWorkspace(sibling, recordHistory: false)
             manager.closeWorkspace(workspace, recordHistory: false)
             #expect(await converge(window) { cache.value(for: workspace.id) == nil })
             #expect(Set(cache.snapshotsById.keys) == Set(manager.tabs.map(\.id)))

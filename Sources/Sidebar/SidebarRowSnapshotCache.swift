@@ -8,26 +8,33 @@ import Observation
 @Observable
 final class SidebarRowSnapshotCache {
     @ObservationIgnored private(set) var snapshotsById: [UUID: SidebarWorkspaceSnapshotBuilder.Snapshot] = [:]
-    @ObservationIgnored private var settingsFingerprint: SidebarTabItemSettingsSnapshot?
     private(set) var revision: UInt64 = 0
-
-    func resetIfSettingsChanged(_ settings: SidebarTabItemSettingsSnapshot) {
-        guard settingsFingerprint != settings else { return }
-        settingsFingerprint = settings
-        snapshotsById.removeAll(keepingCapacity: true)
-    }
 
     func value(for id: UUID) -> SidebarWorkspaceSnapshotBuilder.Snapshot? {
         _ = revision
         return snapshotsById[id]
     }
 
-    /// Seeds an uncached value during parent projection without invalidating layout.
-    func store(_ snapshot: SidebarWorkspaceSnapshotBuilder.Snapshot, for id: UUID) {
-        snapshotsById[id] = snapshot
+    /// Reconciles membership and settings from lifecycle events, outside rendering.
+    /// Reusing valid snapshots keeps membership changes scoped to new workspaces.
+    func reconcile(
+        workspaceIds: Set<UUID>,
+        presentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey,
+        snapshot: (UUID) -> SidebarWorkspaceSnapshotBuilder.Snapshot?
+    ) {
+        var next: [UUID: SidebarWorkspaceSnapshotBuilder.Snapshot] = [:]
+        next.reserveCapacity(workspaceIds.count)
+        for id in workspaceIds {
+            if let cached = snapshotsById[id], cached.presentationKey == presentationKey {
+                next[id] = cached
+            } else {
+                next[id] = snapshot(id)
+            }
+        }
+        replace(with: next)
     }
 
-    /// Membership changes already invalidate the parent; pruning publishes nothing.
+    /// Deactivation already removes the parent; cleanup publishes nothing.
     func prune(keeping ids: Set<UUID>) {
         for id in snapshotsById.keys where !ids.contains(id) {
             snapshotsById.removeValue(forKey: id)
