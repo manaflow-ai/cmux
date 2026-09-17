@@ -5660,41 +5660,29 @@ struct CMUXCLI {
                     print("No cloud VMs. Try: cmux vm new")
                     break
                 }
-                var rows: [(String, String, String, String, String)] = []
+                var rows: [(String, String, String, String, String, String)] = []
                 rows.reserveCapacity(vms.count)
                 for vm in vms {
-                    let id = (vm["id"] as? String) ?? "?"
-                    let displayName = vm["displayName"] as? String
-                    let slug = vm["slug"] as? String
-                    let label: String
-                    if let displayName, !displayName.isEmpty {
-                        label = displayName
-                    } else if let slug, !slug.isEmpty {
-                        label = slug
-                    } else {
-                        label = id
-                    }
                     rows.append((
-                        id,
-                        label,
+                        (vm["id"] as? String) ?? "?",
+                        (vm["slug"] as? String) ?? "",
+                        (vm["displayName"] as? String) ?? "",
                         (vm["status"] as? String) ?? "unknown",
                         (vm["provider"] as? String) ?? "?",
                         (vm["image"] as? String) ?? "?"
                     ))
                 }
-                let hasLabels = rows.contains { !$0.1.isEmpty }
                 let nameWidth = max(4, rows.map { $0.0.count }.max() ?? 4)
-                let labelWidth = max(5, rows.map { $0.1.count }.max() ?? 5)
-                let stateWidth = max(5, rows.map { $0.2.count }.max() ?? 5)
-                let providerWidth = max(8, rows.map { $0.3.count }.max() ?? 8)
+                let slugWidth = max(4, rows.map { $0.1.count }.max() ?? 4)
+                let labelWidth = max(4, rows.map { $0.2.count }.max() ?? 4)
+                let stateWidth = max(5, rows.map { $0.3.count }.max() ?? 5)
+                let providerWidth = max(8, rows.map { $0.4.count }.max() ?? 8)
                 func pad(_ text: String, _ width: Int) -> String {
                     text.padding(toLength: width, withPad: " ", startingAt: 0)
                 }
-                let labelHeader = hasLabels ? "\(pad("LABEL", labelWidth))  " : ""
-                print("\(pad("NAME", nameWidth))  \(labelHeader)\(pad("STATE", stateWidth))  \(pad("PROVIDER", providerWidth))  IMAGE")
+                print("\(pad("ID", nameWidth))  \(pad("SLUG", slugWidth))  \(pad("NAME", labelWidth))  \(pad("STATE", stateWidth))  \(pad("PROVIDER", providerWidth))  IMAGE")
                 for row in rows {
-                    let labelCell = hasLabels ? "\(pad(row.1, labelWidth))  " : ""
-                    print("\(pad(row.0, nameWidth))  \(labelCell)\(pad(row.2, stateWidth))  \(pad(row.3, providerWidth))  \(row.4)")
+                    print("\(pad(row.0, nameWidth))  \(pad(row.1, slugWidth))  \(pad(row.2, labelWidth))  \(pad(row.3, stateWidth))  \(pad(row.4, providerWidth))  \(row.5)")
                 }
                 if let limits = response["limits"] as? [String: Any],
                    let planId = limits["planId"] as? String {
@@ -5827,6 +5815,8 @@ struct CMUXCLI {
                 let image = (response["image"] as? String) ?? "?"
                 let status = (response["status"] as? String) ?? "unknown"
                 print("\(id)  [\(provider)] \(status)")
+                if let slug = response["slug"] as? String, !slug.isEmpty { print("slug: \(slug)") }
+                if let name = (response["name"] as? String) ?? (response["displayName"] as? String), !name.isEmpty { print("name: \(name)") }
                 print("image: \(image)")
 
             case "prompt", "skill":
@@ -6002,6 +5992,7 @@ struct CMUXCLI {
                     params["kind"] = machineKind.rawValue
                 }
                 if let normalizedProvider { params["provider"] = normalizedProvider }
+                if let machineName, !machineName.isEmpty { params["name"] = machineName }
                 // Size is independent of the image/provider override. Providers that do
                 // not expose sizing ignore this optional field; providers that do use it
                 // for runtime memory get it, and the backend applies the plan ceiling.
@@ -6050,7 +6041,8 @@ struct CMUXCLI {
                 let id = (response["id"] as? String) ?? "?"
                 let provider = (response["provider"] as? String) ?? "?"
                 let image = (response["image"] as? String) ?? "?"
-                // The label is display-only and best-effort: the machine exists either way.
+                // Keep the database label and guest prompt in sync with the
+                // custom name sent to the provider during creation.
                 if let machineName, !machineName.isEmpty {
                     _ = try? client.sendV2(
                         method: "vm.rename",
@@ -6058,6 +6050,8 @@ struct CMUXCLI {
                         responseTimeout: 30
                     )
                 }
+                let slug = (response["slug"] as? String) ?? "?"
+                let name = (response["name"] as? String) ?? machineName
                 if detach {
                     Self.clearVMCreateIdempotency(idempotency)
                     let readyMessage = String(
@@ -6074,6 +6068,8 @@ struct CMUXCLI {
                     print("  web      cmux vm open \(id) <port>")
                     print("  remove   cmux vm rm \(id)")
                     print("")
+                    print("  slug     \(slug)")
+                    if let name, !name.isEmpty { print("  name     \(name)") }
                     print("  provider \(provider) · \(image)")
                     break
                 }
@@ -6088,6 +6084,9 @@ struct CMUXCLI {
                     id
                 )
                 print(createdMessage)
+                print("ID: \(id)")
+                print("Slug: \(slug)")
+                if let name, !name.isEmpty { print("Name: \(name)") }
                 // Stable machine-readable marker alongside the localized line: the app
                 // (`CloudVMActionLauncher`) classifies "created but opening failed" from
                 // this token, never from display text that follows the user's locale.

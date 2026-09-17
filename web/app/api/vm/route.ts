@@ -149,6 +149,7 @@ export async function GET(request: Request): Promise<Response> {
         capabilities: vmCapabilitiesFor(entry.provider),
         createdAt: entry.createdAt,
         displayName: entry.displayName,
+        name: entry.displayName,
         slug: entry.slug,
         // The machine's address on its owner's private network (reachable over
         // the WireGuard tunnel); null for machines created before private
@@ -282,6 +283,7 @@ export async function POST(request: Request): Promise<Response> {
         image,
         imageVersion: imageSelection.imageVersion,
         provider,
+        displayName: typeof candidate.name === "string" ? candidate.name.trim() || null : null,
         idempotencyKey,
         persistentHome: homeVolumeRequested && candidate.persistentHome === true,
         perMachineHome: homeVolumeRequested && candidate.perMachineHome === true,
@@ -306,6 +308,7 @@ export async function POST(request: Request): Promise<Response> {
         createdAt: created.createdAt,
         capabilities: vmCapabilitiesFor(created.provider),
         displayName: created.displayName,
+        name: created.displayName,
         slug: created.slug,
       });
     },
@@ -450,6 +453,20 @@ function invalidCreateRequestResponse(message: string, action: string, details: 
 }
 
 /** The first field-level 400 for a create body, in the order the fields are documented. */
+function invalidCreateNameResponse(name: unknown): Response | null {
+  if (name !== undefined && name !== null &&
+      (typeof name !== "string" || name.trim().length > 64 || /[\u0000-\u001f\u007f]/.test(name))) {
+    return vmErrorResponse({
+      error: "vm_invalid_request",
+      status: 400,
+      message: "`name` must be a printable string of at most 64 characters.",
+      action: "Omit `name`, or send a short custom VM name.",
+      details: { field: "name" },
+    });
+  }
+  return null;
+}
+
 function invalidCreateFieldResponse(candidate: Record<string, unknown>, request: Request): Response | null {
   if (candidate.image !== undefined && typeof candidate.image !== "string") {
     return invalidCreateRequestResponse(
@@ -465,6 +482,8 @@ function invalidCreateFieldResponse(candidate: Record<string, unknown>, request:
       { field: "kind", allowedKinds: VM_IMAGE_KINDS },
     );
   }
+  const invalidName = invalidCreateNameResponse(candidate.name);
+  if (invalidName) return invalidName;
   const invalidProvider = invalidCreateProviderResponse(candidate.provider);
   if (invalidProvider) return invalidProvider;
   const bodyBillingTeamId = candidate.billingTeamId ?? candidate.teamId;

@@ -811,6 +811,7 @@ private func minimalModeTrafficLightFrameInContentCoordinates(for window: NSWind
 
 enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
     case toggleSidebar
+    case toggleRightSidebar
     case showNotifications
     case newTab
     case newWorkspaceMenu
@@ -821,6 +822,8 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
         switch self {
         case .toggleSidebar:
             return "titlebarControl.toggleSidebar"
+        case .toggleRightSidebar:
+            return "titlebarControl.toggleRightSidebar"
         case .showNotifications:
             return "titlebarControl.showNotifications"
         case .newTab:
@@ -838,6 +841,8 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
         switch self {
         case .toggleSidebar:
             return String(localized: "titlebar.sidebar.accessibilityLabel", defaultValue: "Toggle Sidebar")
+        case .toggleRightSidebar:
+            return String(localized: "shortcut.toggleRightSidebar.label", defaultValue: "Toggle Right Sidebar")
         case .showNotifications:
             return String(localized: "titlebar.notifications.accessibilityLabel", defaultValue: "Notifications")
         case .newTab:
@@ -855,6 +860,8 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
         switch self {
         case .toggleSidebar:
             return "toggleSidebar"
+        case .toggleRightSidebar:
+            return "toggleRightSidebar"
         case .showNotifications:
             return "showNotifications"
         case .newTab:
@@ -870,7 +877,7 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
 
     var acceptsContextMenu: Bool {
         switch self {
-        case .toggleSidebar, .newTab, .newWorkspaceMenu, .focusHistoryBack, .focusHistoryForward:
+        case .toggleSidebar, .toggleRightSidebar, .newTab, .newWorkspaceMenu, .focusHistoryBack, .focusHistoryForward:
             return true
         case .showNotifications:
             return false

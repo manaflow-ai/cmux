@@ -92,6 +92,7 @@ import { GO_PAUSE_INTENT_KEY, pauseGoVm } from "./goPause";
 import { networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
 import { isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
+import { CMUX_NAME_METADATA_KEY, FREESTYLE_SLUG_METADATA_KEY } from "./drivers/freestyle";
 import { withVmProductAnalytics } from "./productAnalytics";
 import {
   PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
@@ -345,7 +346,13 @@ export function renameVm(input: {
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input);
+    if (providers.updateMetadata) {
+      yield* providers.updateMetadata(vm.provider as ProviderId, input.providerVmId, {
+        [CMUX_NAME_METADATA_KEY]: input.displayName ?? "",
+      });
+    }
     yield* repo.setDisplayName({ id: vm.id, displayName: input.displayName });
     // Read the committed row so a concurrent rename and attach carry the
     // database's revision, not the request's start time.
@@ -535,6 +542,16 @@ function requireGoMetadataShape(planId: string, metadata: Record<string, unknown
   return requireGoShape(planId, hasVmResourceReservationMetadata(metadata) ? vmResourceReservationFromMetadata(metadata) : null);
 }
 
+function createdProviderMetadata(
+  handle: { providerMetadata?: Record<string, unknown>; providerSlug?: string },
+  existing: Record<string, unknown> | null,
+): Record<string, unknown> {
+  return {
+    ...(handle.providerMetadata ?? existing ?? {}),
+    ...(handle.providerSlug ? { [FREESTYLE_SLUG_METADATA_KEY]: handle.providerSlug } : {}),
+  };
+}
+
 export function createVm(input: {
   readonly userId: string;
   readonly billingCustomerType: BillingCustomerType;
@@ -559,6 +576,8 @@ export function createVm(input: {
   readonly perMachineHome?: boolean;
   /** Runtime memory requested by the caller, in MB. Providers may ignore it. */
   readonly memoryMb?: number;
+  /** Optional custom name stored in provider metadata. */
+  readonly displayName?: string | null;
   /** See CreateOptions.imageSize: CPU and memory are baked; disk can grow later. */
   readonly imageSize?: CreateOptions["imageSize"];
   /** Override the reservation when cloning an existing machine shape. */
@@ -683,6 +702,7 @@ export function createVm(input: {
       "provider_create",
       providers.create(input.provider, {
         image: input.image,
+        name: input.displayName,
         displayName: create.vm.slug ?? undefined,
         promptIdentity: vmPromptIdentity(create.vm),
         providerMetadata: create.vm.providerMetadata,
@@ -733,7 +753,7 @@ export function createVm(input: {
         providerVmId: handle.providerVmId,
         image: handle.image,
         imageVersion: input.imageVersion ?? null,
-        providerMetadata: handle.providerMetadata ?? create.vm.providerMetadata,
+        providerMetadata: createdProviderMetadata(handle, create.vm.providerMetadata),
       }),
     ).pipe(
       Effect.catchAll((err) =>
@@ -4262,6 +4282,7 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
   const metadata = row.providerMetadata ?? {};
   const addressIpv4 = metadata["networkIpv4"];
   const addressIpv6 = metadata["networkIpv6"];
+  const slug = metadata[FREESTYLE_SLUG_METADATA_KEY];
   return {
     providerVmId: row.providerVmId,
     provider: row.provider,
@@ -4270,7 +4291,7 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     status: row.status,
     createdAt: row.createdAt.getTime(),
     displayName: row.displayName ?? null,
-    slug: row.slug ?? null,
+    slug: row.slug ?? (typeof slug === "string" && slug ? slug : null),
     addressIpv4: typeof addressIpv4 === "string" && addressIpv4 ? addressIpv4 : null,
     addressIpv6: typeof addressIpv6 === "string" && addressIpv6 ? addressIpv6 : null,
   };

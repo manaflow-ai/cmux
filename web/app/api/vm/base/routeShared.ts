@@ -124,12 +124,15 @@ export async function runBaseRoute(input: {
 
   return jsonResponse({
     id: entry.providerVmId,
+    slug: entry.slug,
     provider: entry.provider,
     image: entry.image,
     imageVersion: entry.imageVersion,
     kind: vmImageKindFor(entry.provider, entry.image),
     status: entry.status,
     createdAt: entry.createdAt,
+    name: entry.displayName,
+    displayName: entry.displayName,
     capabilities: vmCapabilitiesFor(entry.provider),
     base: {
       id: entry.baseId,

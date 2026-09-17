@@ -1211,12 +1211,13 @@ actor VMClient {
         return result
     }
 
-    func create(image: String? = nil, kind: VMMachineKind? = nil, provider: String? = nil, persistentHome: Bool = false, perMachineHome: Bool = false, memoryMb: Int? = nil, idempotencyKey: String) async throws -> VMSummary {
+    func create(image: String? = nil, kind: VMMachineKind? = nil, provider: String? = nil, name: String? = nil, persistentHome: Bool = false, perMachineHome: Bool = false, memoryMb: Int? = nil, idempotencyKey: String) async throws -> VMSummary {
         return try await withOperation(.create, foreground: true) {
             var body: [String: Any] = [:]
             if let image { body["image"] = image }
             if let kind { body["kind"] = kind.rawValue }
             if let provider { body["provider"] = provider }
+            if let name, !name.isEmpty { body["name"] = name }
             if persistentHome { body["persistentHome"] = true }
             if perMachineHome { body["perMachineHome"] = true }
             if let memoryMb { body["memoryMb"] = memoryMb }

@@ -141,10 +141,9 @@ struct CloudTreeMachineRowContent: View {
     /// about the machine. "Locked" stays — it explains a dead machine row.
     var subtitle: String {
         var parts: [String] = []
-        if machine.showsName {
-            // Named machines keep their address visible: the id is what CLI
-            // verbs and URLs use.
-            parts.append(machine.id)
+        parts.append(String(format: String(localized: "machines.row.id", defaultValue: "ID %@"), machine.id))
+        if let slug = machine.slug, !slug.isEmpty {
+            parts.append(String(format: String(localized: "machines.row.slug", defaultValue: "Slug %@"), slug))
         }
         parts.append(machine.kindLabel)
         if let createdAt = machine.createdAt {
@@ -162,6 +161,10 @@ struct CloudTreeMachineRowContent: View {
             return String(localized: "machines.row.locked", defaultValue: "Locked")
         }
         var parts: [String] = []
+        parts.append(String(format: String(localized: "machines.row.id", defaultValue: "ID %@"), machine.id))
+        if let slug = machine.slug, !slug.isEmpty {
+            parts.append(String(format: String(localized: "machines.row.slug", defaultValue: "Slug %@"), slug))
+        }
         if style.showsMachineStats {
             parts.append(resourceLine)
         }

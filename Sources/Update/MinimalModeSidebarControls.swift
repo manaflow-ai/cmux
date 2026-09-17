@@ -43,7 +43,8 @@ enum TitlebarControlsHitRegions {
     ) -> ClosedRange<CGFloat>? {
         let startX = outerLeadingPadding + config.groupPadding.leading
         let sidebarX = startX
-        let notificationsX = sidebarX + config.buttonSize + config.spacing
+        let rightSidebarX = sidebarX + config.buttonSize + config.spacing
+        let notificationsX = rightSidebarX + config.buttonSize + config.spacing
         let newTabX = notificationsX + config.buttonSize + config.spacing
         let newTabWidth = TitlebarNewWorkspaceSplitButtonMetrics.primaryWidth(config: config)
         let newWorkspaceMenuX = newTabX + newTabWidth
@@ -54,6 +55,8 @@ enum TitlebarControlsHitRegions {
         let minX: CGFloat = switch slot {
         case .toggleSidebar:
             sidebarX
+        case .toggleRightSidebar:
+            rightSidebarX
         case .showNotifications:
             notificationsX
         case .newTab:
@@ -70,7 +73,7 @@ enum TitlebarControlsHitRegions {
             newTabWidth
         case .newWorkspaceMenu:
             newWorkspaceMenuWidth
-        case .toggleSidebar, .showNotifications, .focusHistoryBack, .focusHistoryForward:
+        case .toggleSidebar, .toggleRightSidebar, .showNotifications, .focusHistoryBack, .focusHistoryForward:
             config.buttonSize
         }
         return minX...(minX + width)
@@ -228,6 +231,8 @@ final class MinimalModeSidebarControlActionView: NSView {
         switch slot {
         case .toggleSidebar:
             CmuxExtensionSidebarSelection.showMenu(anchorView: self, event: event)
+        case .toggleRightSidebar:
+            super.rightMouseDown(with: event)
         case .newTab:
             _ = AppDelegate.shared?.showNewWorkspaceContextMenu(anchorView: self, event: event)
         case .newWorkspaceMenu:

@@ -50,6 +50,7 @@ export async function GET(
         status: vm.status,
         createdAt: vm.createdAt,
         displayName: vm.displayName,
+        name: vm.displayName,
         slug: vm.slug,
         address: { ipv4: vm.addressIpv4 ?? null, ipv6: vm.addressIpv6 ?? null },
       });
@@ -114,6 +115,7 @@ export async function PATCH(
       return jsonResponse({
         id: vm.providerVmId,
         displayName: vm.displayName,
+        name: vm.displayName,
         slug: vm.slug,
       });
     },
