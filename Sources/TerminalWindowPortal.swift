@@ -1083,7 +1083,7 @@ final class WindowTerminalPortal: NSObject {
         return frameInContainer.width > 1 && frameInContainer.height > 1
     }
 
-    fileprivate func synchronizeAllEntriesFromExternalGeometryChange() {
+    func synchronizeAllEntriesFromExternalGeometryChange() {
         if let activePortalId = Self.currentlySynchronizingPortalId {
             if activePortalId == ObjectIdentifier(self) {
                 // Our own pass is on the stack (a re-entrant main-queue drain

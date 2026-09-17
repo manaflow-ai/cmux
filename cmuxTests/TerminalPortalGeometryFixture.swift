@@ -22,7 +22,7 @@ final class TerminalPortalGeometryFixture {
     var hosted: GhosttySurfaceScrollView { surface.hostedView }
     var hostedID: ObjectIdentifier { ObjectIdentifier(hosted) }
 
-    init() {
+    init(anchorView: NSView? = nil) {
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 760, height: 420),
             styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false
@@ -32,7 +32,7 @@ final class TerminalPortalGeometryFixture {
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
         window.contentView?.layoutSubtreeIfNeeded()
-        anchor = NSView(frame: NSRect(x: 8, y: 8, width: 520, height: 280))
+        anchor = anchorView ?? NSView(frame: NSRect(x: 8, y: 8, width: 520, height: 280))
         window.contentView?.addSubview(anchor)
         portal = WindowTerminalPortal(window: window)
         surface = TerminalSurface(

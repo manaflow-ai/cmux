@@ -174,4 +174,39 @@ struct TerminalWindowPortalCommittedGeometryTests {
         fixture.portal.commitSettledPaneGeometries()
         #expect(fixture.portal.entriesByHostedId[fixture.hostedID]?.needsSettledCommit == false)
     }
+
+    @Test func exhaustedRetriesDoNotCommitAMovingHierarchy() async throws {
+        let anchor = GeometryMovingAnchorView(frame: NSRect(x: 8, y: 8, width: 520, height: 280))
+        let fixture = TerminalPortalGeometryFixture(anchorView: anchor)
+        defer { fixture.close() }
+        fixture.bind()
+        try await fixture.requireCommit()
+        let before = try #require(fixture.surface.committedPaneGeometry)
+
+        anchor.setFrameSize(NSSize(width: 320, height: 280))
+        fixture.portal.synchronizeHostedViewForAnchor(anchor, syncLayout: false)
+        anchor.nextLayoutWidth = 280
+        anchor.needsLayout = true
+        fixture.portal.geometrySettlementPassesRemaining = 0
+        fixture.portal.synchronizeAllEntriesFromExternalGeometryChange()
+
+        #expect(anchor.frame.width == 280, "The forced layout must actually move the anchor")
+        #expect(fixture.surface.committedPaneGeometry == before)
+        #expect(fixture.portal.entriesByHostedId[fixture.hostedID]?.needsSettledCommit == true)
+        fixture.portal.synchronizeAllEntriesFromExternalGeometryChange()
+        try await fixture.requireCommit()
+        #expect(fixture.surface.committedPaneGeometry?.size.width != before.size.width)
+    }
+}
+
+@MainActor
+private final class GeometryMovingAnchorView: NSView {
+    var nextLayoutWidth: CGFloat?
+
+    override func layout() {
+        super.layout()
+        guard let width = nextLayoutWidth else { return }
+        nextLayoutWidth = nil
+        setFrameSize(NSSize(width: width, height: frame.height))
+    }
 }
