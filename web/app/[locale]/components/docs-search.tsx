@@ -2,13 +2,19 @@
 
 import { useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
-import { Link, useRouter } from "../../../i18n/navigation";
+import { useRouter } from "../../../i18n/navigation";
 import {
   nextDocsSearchIndex,
   normalizeDocsSearchResult,
   type DocsSearchResult,
   type PagefindResultData,
 } from "./docs-search-utils";
+import { DocsLink } from "./docs-link";
+import { useDocsChannel } from "./docs-channel-context";
+import {
+  docsChannelUrl,
+  docsPathAvailableInChannel,
+} from "@/app/lib/docs-channel";
 
 type PagefindModule = {
   init: () => Promise<void> | void;
@@ -29,20 +35,20 @@ type PagefindModule = {
   ) => Promise<null | { results: Array<{ data: () => Promise<PagefindResultData> }> }>;
 };
 
-const pagefindBundlePath = "/pagefind/pagefind.js";
 let pagefindPromise: Promise<PagefindModule> | null = null;
 let pagefindConfigurePromise: Promise<PagefindModule> | null = null;
 
-function importPagefind() {
+function importPagefind(channel: "release" | "nightly") {
+  const pagefindBundlePath = `/_docs-search/${channel}/pagefind.js`;
   return import(
     /* webpackIgnore: true */
     pagefindBundlePath
   ) as Promise<PagefindModule>;
 }
 
-async function loadPagefind() {
+async function loadPagefind(channel: "release" | "nightly") {
   if (!pagefindPromise) {
-    pagefindPromise = importPagefind().catch((error) => {
+    pagefindPromise = importPagefind(channel).catch((error) => {
       pagefindPromise = null;
       throw error;
     });
@@ -81,6 +87,7 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
   const t = useTranslations("docs.search");
   const locale = useLocale();
   const router = useRouter();
+  const channel = useDocsChannel();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<SearchStatus>("idle");
   const [results, setResults] = useState<DocsSearchResult[]>([]);
@@ -103,7 +110,7 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
     setStatus("loading");
 
     try {
-      const pagefind = await loadPagefind();
+      const pagefind = await loadPagefind(channel);
       const searchResult = await pagefind.debouncedSearch(
         trimmedQuery,
         { filters: { locale } },
@@ -112,11 +119,14 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
       if (requestIdRef.current !== requestId || searchResult === null) return;
 
       const pageData = await Promise.all(
-        searchResult.results.slice(0, 8).map((result) => result.data()),
+        searchResult.results.slice(0, 12).map((result) => result.data()),
       );
       if (requestIdRef.current !== requestId) return;
 
-      const normalizedResults = pageData.map(normalizeDocsSearchResult);
+      const normalizedResults = pageData
+        .map(normalizeDocsSearchResult)
+        .filter((result) => docsPathAvailableInChannel(channel, result.href))
+        .slice(0, 8);
       setResults(normalizedResults);
       setActiveIndex(normalizedResults.length ? 0 : -1);
       setStatus("ready");
@@ -137,7 +147,7 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
   }
 
   function preloadPagefind() {
-    void loadPagefind().catch(() => {});
+    void loadPagefind(channel).catch(() => {});
   }
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
@@ -186,7 +196,7 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
       event.preventDefault();
       const result = results[activeIndex];
       if (!result) return;
-      router.push(result.href);
+      router.push(docsChannelUrl(channel, result.href));
       clearAndNavigate();
     }
   }
@@ -255,7 +265,7 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
                 {t("resultsCount", { count: results.length })}
               </div>
               {results.map((result, index) => (
-                <Link
+                <DocsLink
                   id={`docs-search-result-${index}`}
                   key={`${result.href}-${index}`}
                   href={result.href}
@@ -281,7 +291,7 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
                   <div className="mt-1 truncate text-[11px] text-muted/45">
                     {result.href.replace(/^\/[a-z]{2}(?:-[A-Z]{2})?\//, "/")}
                   </div>
-                </Link>
+                </DocsLink>
               ))}
             </div>
           )}

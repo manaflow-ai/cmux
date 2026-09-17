@@ -36,7 +36,7 @@ reviews:
         Apply `.github/review-bot-rules/react-base-ui-accessibility.md` during review. For custom React UI, require `@base-ui-components/react` or an existing local component when it provides the relevant dialog, popover, menu, checkbox, select, switch, tabs, tooltip, combobox, focus, or keyboard behavior. Pass for native semantic controls and for cases with no relevant primitive where the PR owns complete accessibility and keyboard behavior.
     - path: "**/Package.swift"
       instructions: |
-        Apply the cmux custom Swift lint rules in `.github/review-bot-rules/`, especially the concurrency modernization, actor isolation, blocking runtime, file/package boundary, and architectural rethink rules.
+        Apply the cmux custom Swift lint rules in `.github/review-bot-rules/`, especially the concurrency modernization, actor isolation, blocking runtime, package boundary, and architectural rethink rules.
     - path: "**/Package.resolved"
       instructions: |
         Apply `.github/review-bot-rules/swiftpm-package-resolved.md` during review. cmux-owned SwiftPM lockfiles are intentional source-of-truth files, not accidental artifacts; dependency pin changes must be visible in PR diffs.
@@ -58,6 +58,9 @@ reviews:
     - path: "Sources/TerminalController.swift"
       instructions: |
         Apply `.github/review-bot-rules/browser-automation-webkit-waits-off-main.md` during review. Browser socket automation commands that wait on page JavaScript, WebKit callbacks, cookie-store callbacks, screenshots, or injected page hooks must run their blocking wait from the socket worker and use explicit main hops only for WebKit/AppKit access and state mutation. Pass for direct focus/show commands that do not wait.
+    - path: "{Packages/macOS/CmuxRemoteWorkspace/Sources/CmuxRemoteWorkspace/Relay/**,Packages/macOS/CmuxRemoteWorkspace/Tests/CmuxRemoteWorkspaceTests/RemoteCLIRelayPolicyTests.swift,daemon/remote/cmd/cmuxd-remote/commands.go,daemon/remote/cmd/cmuxd-remote/cli.go,daemon/remote/cmd/cmuxd-remote/cli_overrides.go,Sources/Workspace+RemoteRelayCommandRewrite.swift,Sources/WorkspaceRemoteRelayCommandRewriter.swift}"
+      instructions: |
+        Apply `.github/review-bot-rules/remote-relay-authorization.md` during review. The cmux ssh relay credential lives on the remote host, so the remote must be treated as a compromised client (GHSA-9vmv-3hjw-j28c): flag any method added to the relay allowlist without a per-method security analysis, any acceptance of command-bearing params (initial_command, command, tmux_start_command, pane_start_command) through the relay, new workspace/surface/tab ID param names left out of the scoped key sets, and any weakening of deny-by-default. Require allow/deny coverage in RemoteCLIRelayPolicyTests.
     - path: "Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Wire/ControlCommandExecutionPolicy.swift"
       instructions: |
         Apply `.github/review-bot-rules/browser-automation-webkit-waits-off-main.md` during review. Any new browser command that waits on page JavaScript, WebKit callbacks, cookie-store callbacks, screenshots, or injected hooks must be in `socketWorkerMethods`, not `mainActorMethods`, with matching policy test coverage.
@@ -142,10 +145,10 @@ reviews:
         mode: error
         instructions: |
           For Swift changes, fail when the diff violates `.github/review-bot-rules/swift-concurrent-annotation.md`: missing `@concurrent` on `nonisolated async` work that should leave the caller actor, invalid `@concurrent` on synchronous or actor-isolated functions, or CPU/file/network-heavy async helpers called from UI isolation without an explicit hop. Pass for intentionally UI-bound async work.
-      - name: "cmux Swift file and package boundaries"
+      - name: "cmux Swift package boundaries"
         mode: error
         instructions: |
-          For production Swift changes, fail when the diff violates `.github/review-bot-rules/swift-file-package-boundaries.md`: new oversized files, large additions to already oversized files, mixed UI/state/persistence/network/parsing/protocol responsibilities in one file, or independently testable feature logic kept in the app target when it should live behind a small SwiftPM package target. Pass for existing oversized files touched incidentally, small UI/AppKit/Ghostty glue, generated/vendored/prototype/test code, and focused bug fixes that preserve a clear extraction path.
+          For production Swift changes, fail when the diff violates `.github/review-bot-rules/swift-package-boundaries.md`: independently testable or reusable domain logic is kept in the app target when it should live behind a small SwiftPM package target. Pass for small UI/AppKit/Ghostty glue, generated/vendored/prototype/test code, and app-lifecycle composition.
       - name: "cmux SwiftPM lockfiles"
         mode: error
         instructions: |

@@ -5,7 +5,7 @@ import ImageIO
 
 final class RightSidebarChromeHeightUITests: XCTestCase {
     func testSecondaryBarMatchesModeBarAndPaneTabs() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         let dataPath = "/tmp/cmux-ui-test-right-sidebar-chrome-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: dataPath)
 
@@ -55,19 +55,19 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
             "rightSidebarModeControl_sessionsHeight",
             "rightSidebarSecondaryControl_directoryHeight",
             "rightSidebarSecondaryControl_agentHeight",
-            "rightSidebarSecondaryControl_scopeHeight",
+            "rightSidebarVaultViewMenuHeight",
         ]
         guard let controlGeometry = waitForJSONNumbers(controlHeightKeys, greaterThan: 1, atPath: dataPath, timeout: 5),
               let modeControlHeight = Double(controlGeometry["rightSidebarModeControl_sessionsHeight"] ?? ""),
               let directoryControlHeight = Double(controlGeometry["rightSidebarSecondaryControl_directoryHeight"] ?? ""),
               let agentControlHeight = Double(controlGeometry["rightSidebarSecondaryControl_agentHeight"] ?? ""),
-              let scopeControlHeight = Double(controlGeometry["rightSidebarSecondaryControl_scopeHeight"] ?? "") else {
+              let viewMenuControlHeight = Double(controlGeometry["rightSidebarVaultViewMenuHeight"] ?? "") else {
             XCTFail("Timed out waiting for right sidebar control geometry. data=\(loadJSON(atPath: dataPath) ?? [:])")
             return
         }
         XCTAssertEqual(directoryControlHeight, modeControlHeight, accuracy: 0.5, "Expected By folder pill to match mode button height. geometry=\(controlGeometry)")
         XCTAssertEqual(agentControlHeight, modeControlHeight, accuracy: 0.5, "Expected By agent pill to match mode button height. geometry=\(controlGeometry)")
-        XCTAssertEqual(scopeControlHeight, modeControlHeight, accuracy: 0.5, "Expected This folder only control to match mode button height. geometry=\(controlGeometry)")
+        XCTAssertEqual(viewMenuControlHeight, modeControlHeight, accuracy: 0.5, "Expected the Vault view menu control to match mode button height. geometry=\(controlGeometry)")
 
         let feedButton = app.buttons["RightSidebarModeButton.feed"]
         XCTAssertTrue(feedButton.waitForExistence(timeout: 5))
@@ -103,7 +103,7 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
     }
 
     func testMatchedTerminalBackgroundKeepsSidebarBackgroundsAndBordersUnified() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         let dataPath = "/tmp/cmux-ui-test-sidebar-appearance-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: dataPath)
 
@@ -463,7 +463,7 @@ final class TerminalViewportUITests: XCTestCase {
         let dataPath = "/tmp/cmux-ui-test-terminal-viewport-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: dataPath)
 
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_VIEWPORT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_VIEWPORT_PATH"] = dataPath

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { env } from "../../env";
+import { locales } from "../../../i18n/routing";
+import { requestOrigin } from "../../lib/request-origin";
 import { stackServerApp } from "../../lib/stack";
-
-export const dynamic = "force-dynamic";
+import { isPublicationToken } from "../../../services/vm-publications/security";
 
 type SignOutAndSignInDependencies = {
   projectId: string | undefined;
@@ -17,11 +18,17 @@ const CROCKFORD_BASE32_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 function sameOriginURL(value: string | null, request: NextRequest): URL | null {
   if (!value) return null;
   try {
-    const url = new URL(value, request.nextUrl.origin);
-    return url.origin === request.nextUrl.origin ? url : null;
+    const origin = requestOrigin(request);
+    const url = new URL(value, origin);
+    return url.origin === origin ? url : null;
   } catch {
     return null;
   }
+}
+
+function onlySearchParams(url: URL, allowed: readonly string[]): boolean {
+  const keys = [...url.searchParams.keys()].sort();
+  return keys.length === allowed.length && keys.every((key, index) => key === allowed[index]);
 }
 
 function validatedNativeSignInTarget(request: NextRequest): string | null {
@@ -36,28 +43,78 @@ function validatedNativeSignInTarget(request: NextRequest): string | null {
   return `${target.pathname}${target.search}${target.hash}`;
 }
 
+function isSameOriginAbsolutePath(value: string | null, request: NextRequest): boolean {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) return false;
+  return sameOriginURL(value, request) !== null;
+}
+
 function validatedWebSignInTarget(request: NextRequest): string | null {
   const target = sameOriginURL(request.nextUrl.searchParams.get("after_auth_return_to"), request);
   if (!target || target.pathname !== "/handler/sign-in") return null;
-  if (target.searchParams.has("native_app_return_to")) return null;
+  if (!onlySearchParams(target, ["after_auth_return_to"])) return null;
 
   const afterAuth = sameOriginURL(target.searchParams.get("after_auth_return_to"), request);
   if (!afterAuth || afterAuth.pathname !== "/handler/after-sign-in") return null;
-  if (afterAuth.searchParams.has("native_app_return_to")) return null;
+  if (!onlySearchParams(afterAuth, ["after_auth_return_to"])) return null;
 
-  const afterAuthReturnTo = afterAuth.searchParams.get("after_auth_return_to");
-  if (!isSameOriginAbsolutePath(afterAuthReturnTo, request)) return null;
+  const returnPath = afterAuth.searchParams.get("after_auth_return_to");
+  if (!isSameOriginAbsolutePath(returnPath, request)) return null;
+  // Founders account switching must not bypass the Cloud transaction validator.
+  const foundersPaths: readonly string[] = ["/founders", ...locales.map((locale) => `/${locale}/founders`)];
+  if (!returnPath || !foundersPaths.includes(returnPath)) return null;
 
   return `${target.pathname}${target.search}${target.hash}`;
 }
 
-function validatedSignInTarget(request: NextRequest): string | null {
-  return validatedNativeSignInTarget(request) ?? validatedWebSignInTarget(request);
+function validatedCliSignInTarget(request: NextRequest): string | null {
+  const target = sameOriginURL(request.nextUrl.searchParams.get("after_auth_return_to"), request);
+  if (!target || target.pathname !== "/handler/sign-in") return null;
+  if (!onlySearchParams(target, ["after_auth_return_to"])) return null;
+
+  const confirmation = sameOriginURL(target.searchParams.get("after_auth_return_to"), request);
+  const loginCode = confirmation?.searchParams.get("login_code");
+  if (
+    !confirmation ||
+    confirmation.pathname !== "/handler/cli-auth-confirm" ||
+    !onlySearchParams(confirmation, ["login_code"]) ||
+    !loginCode ||
+    loginCode.length > 256 ||
+    !/^[a-zA-Z0-9_-]+$/.test(loginCode)
+  ) {
+    return null;
+  }
+
+  return `${target.pathname}${target.search}`;
 }
 
-function isSameOriginAbsolutePath(value: string | null, request: NextRequest): boolean {
-  if (!value || !value.startsWith("/") || value.startsWith("//")) return false;
-  return sameOriginURL(value, request) !== null;
+// A signed-in viewer refused by a protected Cloud VM domain can switch
+// accounts: sign out, straight into sign-in, and back to the same access
+// transaction. Every hop is same-origin and the transaction is opaque.
+function validatedPublicationSignInTarget(request: NextRequest): string | null {
+  const target = sameOriginURL(request.nextUrl.searchParams.get("after_auth_return_to"), request);
+  if (!target || target.pathname !== "/handler/sign-in") return null;
+  if (!onlySearchParams(target, ["after_auth_return_to"])) return null;
+
+  const afterAuth = sameOriginURL(target.searchParams.get("after_auth_return_to"), request);
+  if (!afterAuth || afterAuth.pathname !== "/handler/after-sign-in") return null;
+  if (!onlySearchParams(afterAuth, ["after_auth_return_to"])) return null;
+
+  const access = sameOriginURL(afterAuth.searchParams.get("after_auth_return_to"), request);
+  if (!access || access.pathname !== "/cloud/access") return null;
+  if (!onlySearchParams(access, ["state", "transaction"])) return null;
+  if (!isPublicationToken(access.searchParams.get("transaction"))) return null;
+  if (!isPublicationToken(access.searchParams.get("state"))) return null;
+
+  return `${target.pathname}${target.search}`;
+}
+
+function validatedSignInTarget(request: NextRequest): string | null {
+  return (
+    validatedNativeSignInTarget(request) ??
+    validatedPublicationSignInTarget(request) ??
+    validatedCliSignInTarget(request) ??
+    validatedWebSignInTarget(request)
+  );
 }
 
 function canStartSignOut(request: NextRequest): boolean {
@@ -138,12 +195,13 @@ function isNextRedirectError(error: unknown): boolean {
 export function makeSignOutAndSignInHandler(dependencies: SignOutAndSignInDependencies) {
   return async function GET(request: NextRequest) {
     const target = validatedSignInTarget(request);
-    if (!target || !canStartSignOut(request)) return NextResponse.redirect(new URL("/", request.url));
+    const origin = requestOrigin(request);
+    if (!target || !canStartSignOut(request)) return NextResponse.redirect(new URL("/", origin));
 
-    const response = NextResponse.redirect(new URL(target, request.url));
+    const response = NextResponse.redirect(new URL(target, origin));
     if (dependencies.projectId) clearStackAuthCookies(response, request, dependencies.projectId);
 
-    const redirectUrl = new URL(target, request.nextUrl.origin).toString();
+    const redirectUrl = new URL(target, origin).toString();
     try {
       await dependencies.signOut?.({ redirectUrl });
     } catch (error) {

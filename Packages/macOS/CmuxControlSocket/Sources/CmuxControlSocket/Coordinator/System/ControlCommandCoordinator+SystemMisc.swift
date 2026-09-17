@@ -30,10 +30,16 @@ extension ControlCommandCoordinator {
     func settingsOpen(_ params: [String: JSONValue]) -> ControlCallResult {
         let targetRaw = string(params, "target")
         let requestedActivate = bool(params, "activate") ?? true
-        let resolution = systemContext?.controlSettingsOpen(
+        guard let systemContext else {
+            // Fail closed: without the app context no window can have been
+            // presented, and `opened` must mean a window actually exists
+            // (https://github.com/manaflow-ai/cmux/issues/7775).
+            return .err(code: "unavailable", message: "Settings context not attached", data: nil)
+        }
+        let resolution = systemContext.controlSettingsOpen(
             targetRaw: targetRaw,
             requestedActivate: requestedActivate
-        ) ?? .opened(target: targetRaw ?? "general")
+        )
         switch resolution {
         case .invalidTarget:
             return .err(
@@ -46,6 +52,12 @@ extension ControlCommandCoordinator {
                 "opened": .bool(true),
                 "target": .string(target),
             ]))
+        case .failed(let message):
+            return .err(
+                code: "unavailable",
+                message: message,
+                data: .object(["target": orNull(targetRaw)])
+            )
         }
     }
 

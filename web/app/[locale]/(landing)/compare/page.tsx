@@ -1,6 +1,11 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import { buildAlternates } from "@/i18n/seo";
+import {
+  buildAlternates,
+  openGraphDefaults,
+  twitterSummary,
+} from "@/i18n/seo";
+import { compareIndexSeoCopy } from "@/i18n/audited-seo";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import { comparePages, comparePath } from "../../../lib/compare-pages";
 import { TrackedLink } from "../tracked-link";
@@ -12,25 +17,20 @@ export async function generateMetadata({
 }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "landing.compare" });
+  const siteMeta = await getTranslations({ locale, namespace: "meta" });
   const alternates = buildAlternates(locale, "/compare");
-  const title = t("metaTitle");
-  const description = t("metaDescription");
+  const { title, description } = compareIndexSeoCopy(locale, t, siteMeta);
   return {
     title,
     description,
     alternates,
     openGraph: {
+      ...openGraphDefaults(locale, "website"),
       title,
       description,
       url: alternates.canonical,
-      siteName: "cmux",
-      type: "website",
     },
-    twitter: {
-      card: "summary_large_image",
-      title,
-      description,
-    },
+    twitter: twitterSummary(locale, title, description),
   };
 }
 

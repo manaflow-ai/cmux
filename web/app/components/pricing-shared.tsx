@@ -1,22 +1,20 @@
 import type { ReactNode } from "react";
 
-export const SHOW_VAULT = false;
-export const SHOW_HOSTED_NETWORKING = false;
+export type PricingFeatureVisibility = {
+  readonly vault: boolean;
+  readonly hostedNetworking: boolean;
+};
 
 export type CompareRow = {
   label: string;
   free: string;
+  go: string;
   pro: string;
+  max: string;
   team: string;
   enterprise: string;
   vault?: boolean;
   hostedNetworking?: boolean;
-};
-
-export type SizeRow = {
-  size: string;
-  use: string;
-  rate: string;
 };
 
 export type FaqItem = {
@@ -25,22 +23,24 @@ export type FaqItem = {
   vault?: boolean;
 };
 
-type PlanColumn = "free" | "pro" | "team" | "enterprise";
+type PlanColumn = "free" | "go" | "pro" | "max" | "team" | "enterprise";
 export type PricingActionSize = "default" | "compact";
 
 export function visibleProFeatures({
   base,
   vault,
   hostedNetworking,
+  visibility,
 }: {
   base: string[];
   vault: string[];
   hostedNetworking: string[];
+  visibility: PricingFeatureVisibility;
 }) {
-  let features = SHOW_VAULT
+  let features = visibility.vault
     ? [...base.slice(0, 2), ...vault, ...base.slice(2)]
     : base;
-  if (SHOW_HOSTED_NETWORKING) {
+  if (visibility.hostedNetworking) {
     features = [
       ...features.slice(0, -1),
       ...hostedNetworking,
@@ -50,16 +50,22 @@ export function visibleProFeatures({
   return features;
 }
 
-export function visibleCompareRows(rows: CompareRow[]) {
+export function visibleCompareRows(
+  rows: CompareRow[],
+  visibility: PricingFeatureVisibility,
+) {
   return rows.filter(
     (row) =>
-      (SHOW_VAULT || !row.vault) &&
-      (SHOW_HOSTED_NETWORKING || !row.hostedNetworking),
+      (visibility.vault || !row.vault) &&
+      (visibility.hostedNetworking || !row.hostedNetworking),
   );
 }
 
-export function visibleFaqItems(items: FaqItem[]) {
-  return items.filter((item) => SHOW_VAULT || !item.vault);
+export function visibleFaqItems(
+  items: FaqItem[],
+  visibility: PricingFeatureVisibility,
+) {
+  return items.filter((item) => visibility.vault || !item.vault);
 }
 
 export function PlanCard({
@@ -70,37 +76,66 @@ export function PlanCard({
   children,
 }: {
   name: string;
-  price: string;
-  period?: string;
+  price: ReactNode;
+  period?: ReactNode;
   badge?: ReactNode;
   children: ReactNode;
 }) {
   return (
-    <div className="relative flex h-full flex-col border border-border p-6">
+    <div className="relative flex h-full min-w-0 flex-col border border-border p-6">
       {badge ? <div className="absolute right-6 top-6">{badge}</div> : null}
       <h2 className="pr-28 text-sm font-medium tracking-tight">{name}</h2>
-      <div className="mt-3 flex items-baseline gap-1.5">
-        <span className="text-3xl font-medium tracking-tight">{price}</span>
-        {period ? <span className="text-sm text-muted">{period}</span> : null}
+      <div className="mt-3">
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-3xl font-medium tabular-nums tracking-tight">
+            {price}
+          </span>
+          {period ? (
+            <span className="max-w-44 text-sm leading-snug text-muted">
+              {period}
+            </span>
+          ) : null}
+        </div>
       </div>
-      <div className="mt-6">{children}</div>
+      <div className="mt-3">{children}</div>
     </div>
   );
 }
 
-export function FeatureList({
-  items,
-  muted,
+export function PricingCategorySection({
+  title,
+  id,
+  description,
+  children,
+  columns = "three",
+  showHeading = true,
 }: {
-  items: string[];
-  muted?: boolean;
+  title: string;
+  id?: string;
+  description: string;
+  children: ReactNode;
+  columns?: "two" | "three" | "four";
+  showHeading?: boolean;
 }) {
+  const headingID = id ?? `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-pricing-category`;
   return (
-    <ul
-      className={`mt-4 space-y-2.5 text-[15px] leading-relaxed ${
-        muted ? "text-muted" : ""
-      }`}
-    >
+    <section className={showHeading ? "mt-12 first:mt-8" : ""} aria-labelledby={headingID}>
+      <div className={showHeading ? "mb-4 max-w-2xl" : "sr-only"}>
+        <h2 id={headingID} className="text-lg font-medium tracking-tight">
+          {title}
+        </h2>
+        <p className="mt-1 text-sm text-muted">{description}</p>
+      </div>
+      <div className={`grid items-stretch gap-5 ${columns === "two" ? "md:grid-cols-2" : columns === "four" ? "md:grid-cols-2 lg:grid-cols-4" : "md:grid-cols-3"}`}>
+        {children}
+      </div>
+    </section>
+  );
+}
+
+export function FeatureList({ items }: { items: string[] }) {
+  return (
+    <ul className="mt-4 space-y-2.5 text-[15px] leading-relaxed">
       {items.map((item, i) => (
         <li key={i} className="flex gap-2.5">
           <CheckIcon />
@@ -183,118 +218,69 @@ export function PricingCompareTable({
   names,
   prices,
   actions,
+  showGo = true,
   stickyTopClassName = "top-12",
 }: {
   rows: CompareRow[];
   names: Record<PlanColumn, string>;
-  prices: Record<PlanColumn, string>;
+  prices: Record<PlanColumn, ReactNode>;
   actions?: Partial<Record<PlanColumn, ReactNode>>;
+  showGo?: boolean;
   stickyTopClassName?: string;
 }) {
-  const gridTemplateColumns = "minmax(12rem,2fr) repeat(4,minmax(8rem,1fr))";
+  // The header and table use identical tracks at every supported width.
+  const gridTemplateColumns = showGo ? "25% repeat(6,12.5%)" : "25% repeat(5,15%)";
 
   return (
-    <div>
-      <div
-        className={`sticky ${stickyTopClassName} z-20 grid border-b border-border py-3 text-[15px] [background:var(--pricing-sticky-bg,var(--background))]`}
-        style={{ gridTemplateColumns }}
-      >
-        <div className="pr-4" />
-        <ColumnHead name={names.free} price={prices.free} action={actions?.free} />
-        <ColumnHead name={names.pro} price={prices.pro} action={actions?.pro} />
-        <ColumnHead name={names.team} price={prices.team} action={actions?.team} />
-        <ColumnHead
-          name={names.enterprise}
-          price={prices.enterprise}
-          action={actions?.enterprise}
-        />
-      </div>
-      <table className="w-full table-fixed border-separate border-spacing-0 text-[15px]">
-        <colgroup>
-          <col className="w-[33.333%]" />
-          <col className="w-[16.667%]" />
-          <col className="w-[16.667%]" />
-          <col className="w-[16.667%]" />
-          <col className="w-[16.667%]" />
-        </colgroup>
-        <tbody>
-        {rows.map((row, i) => (
-          <tr key={i}>
-            <th
-              scope="row"
-              className="border-b border-border py-3 pr-4 text-left align-top font-normal"
-            >
-              {row.label}
-            </th>
-            <CompareCell value={row.free} />
-            <CompareCell value={row.pro} />
-            <CompareCell value={row.team} />
-            <CompareCell value={row.enterprise} />
-          </tr>
-        ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-export function PricingSizeTable({
-  rows,
-  title,
-  body,
-  colSize,
-  colUse,
-  colRate,
-}: {
-  rows: SizeRow[];
-  title: string;
-  body: string;
-  colSize: string;
-  colUse: string;
-  colRate: string;
-}) {
-  return (
-    <section className="mt-16 border-t border-border pt-10">
-      <h2 className="mb-3 text-xs font-medium tracking-tight text-muted">
-        {title}
-      </h2>
-      <p className="max-w-2xl text-[15px] text-muted">{body}</p>
-      <div className="mt-4 overflow-x-auto">
-        <table className="w-full border-collapse text-[15px]">
-          <thead>
-            <tr className="border-b border-border">
-              <th className="py-3 pr-4 text-left align-bottom font-medium min-w-[10rem]">
-                {colSize}
-              </th>
-              <th className="px-4 py-3 text-left align-bottom font-medium">
-                {colUse}
-              </th>
-              <th className="whitespace-nowrap px-4 py-3 text-left align-bottom font-medium">
-                {colRate}
-              </th>
-            </tr>
-          </thead>
+    <div className="max-lg:overflow-x-auto">
+      <div className="min-w-[60rem]">
+        <div
+          className={`sticky ${stickyTopClassName} z-20 grid border-b border-border py-3 text-[15px] [background:var(--pricing-sticky-bg,var(--background))]`}
+          style={{ gridTemplateColumns }}
+        >
+          <div className="pr-4" />
+          <ColumnHead name={names.free} price={prices.free} action={actions?.free} />
+          {showGo ? <ColumnHead name={names.go} price={prices.go} action={actions?.go} /> : null}
+          <ColumnHead name={names.pro} price={prices.pro} action={actions?.pro} />
+          <ColumnHead name={names.max} price={prices.max} action={actions?.max} />
+          <ColumnHead name={names.team} price={prices.team} action={actions?.team} />
+          <ColumnHead
+            name={names.enterprise}
+            price={prices.enterprise}
+            action={actions?.enterprise}
+          />
+        </div>
+        <table className="w-full table-fixed border-separate border-spacing-0 text-[15px]">
+          <colgroup>
+            <col style={{ width: "25%" }} />
+            {showGo ? <col style={{ width: "12.5%" }} /> : null}
+            {showGo ? <col style={{ width: "12.5%" }} /> : null}
+            <col style={{ width: showGo ? "12.5%" : "15%" }} />
+            <col style={{ width: showGo ? "12.5%" : "15%" }} />
+            <col style={{ width: showGo ? "12.5%" : "15%" }} />
+            <col style={{ width: showGo ? "12.5%" : "15%" }} />
+          </colgroup>
           <tbody>
-            {rows.map((row, i) => (
-              <tr key={i} className="border-b border-border">
-                <th
-                  scope="row"
-                  className="whitespace-nowrap py-3 pr-4 text-left align-top font-normal"
-                >
-                  {row.size}
-                </th>
-                <td className="px-4 py-3 text-left align-top text-muted">
-                  {row.use}
-                </td>
-                <td className="whitespace-nowrap px-4 py-3 text-left align-top">
-                  {row.rate}
-                </td>
-              </tr>
-            ))}
+          {rows.map((row, i) => (
+            <tr key={i}>
+              <th
+                scope="row"
+                className="border-b border-border py-3 pr-4 text-left align-top font-normal"
+              >
+                {row.label}
+              </th>
+              <CompareCell value={row.free} />
+              {showGo ? <CompareCell value={row.go} /> : null}
+              <CompareCell value={row.pro} />
+              <CompareCell value={row.max} />
+              <CompareCell value={row.team} />
+              <CompareCell value={row.enterprise} />
+            </tr>
+          ))}
           </tbody>
         </table>
       </div>
-    </section>
+    </div>
   );
 }
 
@@ -304,13 +290,15 @@ function ColumnHead({
   action,
 }: {
   name: string;
-  price: string;
+  price: ReactNode;
   action?: ReactNode;
 }) {
   return (
     <div className="px-4 text-left align-bottom font-medium">
       {name}
-      <span className="block text-xs font-normal text-muted">{price}</span>
+      <span className="block text-xs font-normal tabular-nums text-muted">
+        {price}
+      </span>
       {action ? <div className="mt-2 max-w-32">{action}</div> : null}
     </div>
   );
@@ -325,7 +313,7 @@ export function pricingActionClassName(
   const sizeClass =
     size === "compact"
       ? "px-3 py-1.5 text-xs"
-      : "px-5 py-2.5 text-[15px]";
+      : "min-h-12 px-5 py-3 text-[15px]";
   if (variant === "primary") {
     return `${base} ${sizeClass} bg-foreground transition-opacity hover:opacity-85`;
   }

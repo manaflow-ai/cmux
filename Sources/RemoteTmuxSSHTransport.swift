@@ -36,7 +36,7 @@ actor RemoteTmuxSSHTransport {
     ///   - controlPersistSeconds: idle lifetime of the shared master.
     init(
         host: RemoteTmuxHost,
-        sshExecutablePath: String = "/usr/bin/ssh",
+        sshExecutablePath: String = RemoteTmuxHost.defaultSSHExecutablePath(),
         controlPersistSeconds: Int = 180
     ) {
         self.host = host
@@ -60,7 +60,7 @@ actor RemoteTmuxSSHTransport {
                 throw RemoteTmuxError.commandFailed(exitCode: result.exitCode, stderr: result.stderr)
             }
             if Self.indicatesNoServer(result.stderr) { return [] }
-            throw RemoteTmuxError.commandFailed(exitCode: result.exitCode, stderr: result.stderr)
+            throw commandFailure(result)
         }
         return RemoteTmuxSessionListParser.parse(result.stdout)
     }
@@ -70,13 +70,12 @@ actor RemoteTmuxSSHTransport {
     /// - Returns: the parsed version, or `nil` when `tmux -V` succeeds but its
     ///   output has no `<major>.<minor>` (a dev/distro build like `tmux master`),
     ///   which callers treat as "unknown, allow".
-    /// - Throws: ``RemoteTmuxError/commandFailed`` when the command itself fails
-    ///   (e.g. auth required, or `tmux` not installed) so the caller's existing
-    ///   auth/no-server classification still applies.
+    /// - Throws: ``RemoteTmuxError/commandFailed`` when the command itself fails, or
+    ///   ``RemoteTmuxError/tmuxNotFound(destination:)`` when `tmux` is not installed.
     func tmuxClientVersion() async throws -> RemoteTmuxVersion? {
         let result = try await run(["tmux", "-V"])
         guard result.succeeded else {
-            throw RemoteTmuxError.commandFailed(exitCode: result.exitCode, stderr: result.stderr)
+            throw commandFailure(result)
         }
         return RemoteTmuxVersion.parse(result.stdout)
     }
@@ -86,7 +85,7 @@ actor RemoteTmuxSSHTransport {
         let result = try await runTmux(["display-message", "-p", "#{version}"])
         guard result.succeeded else {
             if Self.indicatesNoServer(result.stderr) { return (serverExists: false, version: nil) }
-            throw RemoteTmuxError.commandFailed(exitCode: result.exitCode, stderr: result.stderr)
+            throw commandFailure(result)
         }
         if let version = RemoteTmuxVersion.parseServerFormat(result.stdout) {
             return (serverExists: true, version: version)
@@ -102,7 +101,7 @@ actor RemoteTmuxSSHTransport {
         if result.succeeded { return true }
         if Self.indicatesRefreshClientSubscriptionUnsupported(result.stderr) { return false }
         if Self.indicatesRefreshClientNeedsCurrentClient(result.stderr) { return true }
-        throw RemoteTmuxError.commandFailed(exitCode: result.exitCode, stderr: result.stderr)
+        throw commandFailure(result)
     }
 
     /// Asserts that the remote server supports live mirroring.
@@ -278,7 +277,7 @@ actor RemoteTmuxSSHTransport {
     /// the mirror window. Best-effort: a missing/dead socket just fails fast.
     nonisolated static func spawnControlMasterExit(
         host: RemoteTmuxHost,
-        sshExecutablePath: String = "/usr/bin/ssh"
+        sshExecutablePath: String = RemoteTmuxHost.defaultSSHExecutablePath()
     ) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: sshExecutablePath)
@@ -295,12 +294,9 @@ actor RemoteTmuxSSHTransport {
     /// returns as soon as the kills land (well under `timeout`). Kills to the SAME host
     /// serialize on that host's transport actor; different hosts run in parallel.
     ///
-    /// CAVEAT: `runProcess` is not cancellation-aware, so on a HUNG connection the
-    /// abandoned kill child can outlive `timeout` (the structured group still awaits
-    /// it). The hard bound on the user-visible app-quit is therefore the CALLER's
-    /// watchdog (``AppDelegate``'s deferred-terminate reply fires regardless), not this
-    /// `timeout`. The orphaned `ssh` is reaped by the OS on app exit; the kill is
-    /// best-effort (it can't land on a dead connection anyway).
+    /// `runProcess` force-stops its child when task cancellation follows the
+    /// timeout, so the structured group also finishes within this boundary.
+    /// The remote kill remains best-effort when the connection itself is dead.
     nonisolated static func killSessions(
         _ jobs: [(transport: RemoteTmuxSSHTransport, target: String)],
         timeout: Duration
@@ -437,6 +433,9 @@ actor RemoteTmuxSSHTransport {
                     }
                     do {
                         try process.run()
+                        if Task.isCancelled {
+                            cancellation.cancel()
+                        }
                     } catch {
                         // The process never started, so the handler will not fire; resume
                         // exactly once here with the launch failure.

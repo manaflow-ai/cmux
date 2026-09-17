@@ -15,7 +15,7 @@ import Testing
 /// remote mirror routes a new tab to a tmux `new-window`, which — without an
 /// explicit `-c <path>` — starts in tmux's default-path (`~`) instead of the
 /// focused tab's directory. cmux appends that directory onto the placement
-/// command built by ``RemoteTmuxController/newWindowCommand(afterWindowId:workingDirectory:)``.
+/// command built by ``RemoteTmuxController/newWindowCommand(afterWindowId:workingDirectory:focus:)``.
 ///
 /// These assert the produced control-mode command: a known directory adds a
 /// single-quoted `-c` after the placement target, and absent/blank/unsafe
@@ -25,21 +25,21 @@ import Testing
     @Test func seedsStartingDirectoryAfterSelectedWindow() {
         #expect(
             RemoteTmuxController.newWindowCommand(afterWindowId: 7, workingDirectory: "/Users/me/proj")
-                == "new-window -a -t @7 -c '/Users/me/proj'"
+                == "new-window -d -a -t @7 -c '/Users/me/proj'"
         )
     }
 
     @Test func seedsStartingDirectoryForEndPlacement() {
         #expect(
             RemoteTmuxController.newWindowCommand(afterWindowId: nil, workingDirectory: "/Users/me/proj")
-                == "new-window -a -t '{end}' -c '/Users/me/proj'"
+                == "new-window -d -a -t '{end}' -c '/Users/me/proj'"
         )
     }
 
     @Test func singleQuotesPathsWithSpaces() {
         #expect(
             RemoteTmuxController.newWindowCommand(afterWindowId: 7, workingDirectory: "/Users/me/My Project")
-                == "new-window -a -t @7 -c '/Users/me/My Project'"
+                == "new-window -d -a -t @7 -c '/Users/me/My Project'"
         )
     }
 
@@ -47,7 +47,7 @@ import Testing
         // shell single-quote escaping: ' -> '\'' so the path survives tmux's parser.
         #expect(
             RemoteTmuxController.newWindowCommand(afterWindowId: 7, workingDirectory: "/Users/me/o'brien")
-                == "new-window -a -t @7 -c '/Users/me/o'\\''brien'"
+                == "new-window -d -a -t @7 -c '/Users/me/o'\\''brien'"
         )
     }
 
@@ -60,7 +60,7 @@ import Testing
     func omitsDirectoryWhenUnusable(_ directory: String?) {
         #expect(
             RemoteTmuxController.newWindowCommand(afterWindowId: 7, workingDirectory: directory)
-                == "new-window -a -t @7"
+                == "new-window -d -a -t @7"
         )
     }
 
@@ -74,7 +74,7 @@ import Testing
         // the quoted argument, so an unsafe path leaves the placement-only command.
         #expect(
             RemoteTmuxController.newWindowCommand(afterWindowId: 7, workingDirectory: directory)
-                == "new-window -a -t @7"
+                == "new-window -d -a -t @7"
         )
     }
 
@@ -114,9 +114,8 @@ import Testing
 }
 
 /// Coverage for the workspace-side resolution that feeds the command above. A
-/// remote-tmux mirror new tab must inherit ONLY a directory the remote actually
-/// reported for the source tab (`panelDirectories`, sourced from
-/// `#{pane_current_path}`) — never the generic resolver's `currentDirectory`
+/// remote-tmux mirror new tab must inherit ONLY a trusted directory the remote
+/// reported for the source tab (`#{pane_current_path}`) — never the generic resolver's `currentDirectory`
 /// fallback, which for a mirror is seeded from the LOCAL workspace it was
 /// created from. A local path is meaningless on the remote and would open the
 /// new tab in the wrong directory.
@@ -126,7 +125,7 @@ import Testing
         let harness = try Harness()
         defer { harness.tearDown() }
 
-        harness.workspace.panelDirectories[harness.sourcePanelId] = "/srv/remote/project"
+        harness.workspace.updateRemotePanelDirectory(panelId: harness.sourcePanelId, directory: "/srv/remote/project")
 
         #expect(
             harness.workspace.remoteTmuxNewWindowWorkingDirectory(forSourcePanelId: harness.sourcePanelId)
