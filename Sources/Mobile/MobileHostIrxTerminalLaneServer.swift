@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxIrohTransport
 import CmuxIrxTransport
 import Foundation
