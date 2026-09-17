@@ -420,7 +420,7 @@ extension CMUXCLI {
         } else {
             var params: [String: Any] = [
                 "initial_command": initialCommand,
-                "title": workspaceTitle.value,
+                "title": workspaceTitle.value, "title_source": workspaceTitle.isGenerated ? "auto" : "user",
             ]
             try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowRaw)
             let created = try client.sendV2(method: "workspace.create", params: params)

@@ -27,8 +27,31 @@
       "title": "cmux Pro necessário",
       "message": "As Cloud VMs exigem um plano cmux Pro.",
       "action": "Faça upgrade para o cmux Pro em {upgradeUrl} para criar Cloud VMs."
+    },
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "Máquinas com {memory} GiB exigem cmux {plan}. Seu plano permite até {max} GiB.",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "Não foi possível verificar a RAM da máquina de origem.",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "Este tamanho de máquina não está disponível. Escolha até {max} GiB.",
+      "action": "cmux vm new --size {max}g"
     }
-  },
+  ,
+    "goLimit": {
+      "savedMessage": "Go inclui duas VMs salvas, incluindo a VM em execução.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "activeMessage": "Go inclui uma VM em execução por vez.",
+      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "hoursMessage": "Go esgotou suas 40 horas de VM neste mês. As VMs salvas estarão disponíveis no próximo período de cobrança.",
+      "hoursAction": "cmux billing checkout --plan pro",
+      "shapeMessage": "Go suporta 2 vCPU, 4 GiB de RAM e 16 GiB de disco.",
+      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    }},
   "billingRecovery": {
     "message": "Se encontramos uma conta, verifique seu e-mail para saber os próximos passos"
   },
@@ -299,7 +322,8 @@
     "nav": {
       "coderouterGroup": "coderouter",
       "coderouterOverview": "visão geral",
-      "team": "equipe"
+      "team": "equipe",
+      "irohDevices": "IROH devices"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -343,6 +367,31 @@
         "pro": "Pro",
         "loading": "Carregando…"
       }
+    },
+    "iroh": {
+      "title": "IROH devices",
+      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
+      "team": "Team",
+      "loading": "Loading devices…",
+      "empty": "No IROH devices are registered for this team.",
+      "unavailable": "Dashboard authorization is unavailable.",
+      "mutationError": "The device change could not be completed.",
+      "revoke": "Revoke access",
+      "deviceId": "Device",
+      "revision": "Revision",
+      "status": "Status",
+      "active": "Active",
+      "revoked": "Revoked",
+      "relaySettings": "Relay settings",
+      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
+      "saveRelaySettings": "Save relay settings"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "Compartilhar com a equipe",
+      "makePrivate": "Tornar privado",
+      "privateImportHint": "Novas contas são privadas. Compartilhe uma conta para disponibilizá-la às VMs Cloud desta equipe.",
+      "description": "As contas compartilhadas ficam disponíveis para as VMs Cloud desta equipe. As contas privadas ficam disponíveis apenas para quem as adicionou.",
+      "cancelAction": "Cancelar"
     }
   },
   "community": {
@@ -917,6 +966,60 @@
     }
   },
   "docs": {
+    "computerUse": {
+      "title": "cmux Computer Use",
+      "metaTitle": "cmux Computer Use: automação do Mac com agentes de IA",
+      "metaDescription": "Deixe Claude Code e Codex controlarem seu Mac com cmux Computer Use. Automatize apps nativos com capturas de tela, acessibilidade, cliques e teclado.",
+      "docsMetaTitle": "Configuração e ferramentas do Computer Use",
+      "docsMetaDescription": "Configure cmux Computer Use no macOS: permissões, ferramentas do Claude Code e Codex, seleção de apps, sessões, habilidades e solução de problemas.",
+      "tagline": "Deixe Claude Code e Codex controlarem seu Mac.",
+      "intro": "Dê aos agentes de programação com IA acesso a apps nativos do Mac. Com cmux Computer Use, eles leem interfaces, capturam telas, clicam em controles e digitam texto.",
+      "imageAlt": "Configuração das permissões de acessibilidade e captura de tela do cmux Computer Use",
+      "caption": "As permissões do Computer Use são gerenciadas por um auxiliar separado, mantendo suas sessões de terminal abertas durante a configuração inicial.",
+      "featuresTitle": "Controle apps nativos do Mac",
+      "featureInspect": "Inspecione interfaces com árvores de acessibilidade e capturas de tela.",
+      "featureAct": "Clique, digite, role, arraste e use atalhos de teclado em apps do macOS.",
+      "featureReview": "Acompanhe o cursor visível do agente, confira o resultado e volte ao terminal de origem.",
+      "agentsTitle": "Seus agentes de programação no cmux",
+      "agentsBody": "Execute {agents} e outros agentes de linha de comando no cmux.",
+      "supportTitle": "Agentes compatíveis",
+      "supportBody": "As ferramentas nativas do Computer Use se conectam automaticamente às sessões do Claude Code e Codex iniciadas no cmux. Outros agentes funcionam no terminal, mas ainda não recebem essa integração automática de controle do Mac.",
+      "setupTitle": "Primeiros passos",
+      "step1": "Instale e abra o cmux para Mac. Ative Computer Use em Ajustes → Computer Use.",
+      "step2": "Use os controles de permissão para conceder Acessibilidade e Gravação de Tela ao cmux Computer Use nos Ajustes do Sistema. Se o auxiliar não aparecer na lista, adicione ou arraste o ícone do app para o painel de permissões.",
+      "step3": "Inicie uma nova sessão do Claude Code ou Codex no cmux. Peça para usar Computer Use e indique o app e a tarefa. As ferramentas se conectam automaticamente, sem configuração manual de MCP.",
+      "permissionsTitle": "Permissões e configuração",
+      "permissionsBody": "Acessibilidade permite ler e operar interfaces; Gravação de Tela permite capturas. Conceda ambas ao cmux Computer Use. Abrir o cmux ou iniciar um agente não concede acesso nem abre a configuração automaticamente.",
+      "tahoeBody": "No macOS Tahoe, aprove também a confirmação adicional de captura de tela. Repita a tarefa quando o cmux indicar que ambas as permissões foram concedidas.",
+      "promptTitle": "Experimente com a Calculadora",
+      "prompt": "Use cmux Computer Use para abrir a Calculadora, clicar em 100 + 105 e me mostrar o resultado.",
+      "workflowBody": "Inspecione o alvo primeiro, atue nos controles dessa captura e inspecione novamente para conferir o resultado. Os índices de elementos só valem para o estado atual; atualize-os após navegação ou alterações no layout. Uma confirmação de clique não prova que a tarefa terminou.",
+      "toolsTitle": "Ferramentas para agentes",
+      "toolsBody": "cmux-cua é o servidor MCP incluído que oferece ferramentas estruturadas para controlar apps nativos. Estes são nomes de ferramentas, não comandos de shell. Os argumentos dependem do perfil do agente; consulte os esquemas disponíveis na sessão.",
+      "codexBody": "Codex usa get_app_state com o nome do app ou identificador de bundle para receber uma captura e uma árvore de acessibilidade. Atue usando um element_index atual ou coordenadas da captura e chame get_app_state novamente. Ferramentas:",
+      "claudeBody": "Claude Code encontra alvos com list_apps e list_windows e usa get_window_state com pid e window_id. Prefira tokens de elementos ou índices recentes. O perfil nativo também oferece perform_actions para grupos de ações que não invalidem os alvos seguintes.",
+      "controlTitle": "Acompanhar e parar o Computer Use",
+      "controlBody": "Computer Use na barra de menus mostra o agente ativo. Focus Computer Use acompanha o app controlado; Focus Calling Terminal volta ao terminal de origem sem parar a automação. Use a ação de parada no menu para encerrar a sessão de controle.",
+      "disableBody": "Desative Computer Use nos Ajustes. Para excluir as ferramentas de uma nova sessão de agente, defina CMUX_COMPUTER_USE_MCP_DISABLED=1 antes de iniciá-lo.",
+      "skillTitle": "Habilidades",
+      "skillBody": "A habilidade cmux-cua explica o fluxo de inspeção e ação. É opcional e não concede permissões do macOS. Para instalação persistente, use o instalador de habilidades do agente; o cmux não instala habilidades globais por padrão.",
+      "skillLink": "Leia a habilidade cmux-cua",
+      "browserTitle": "Apps nativos e automação do navegador",
+      "browserBody": "Computer Use opera janelas nativas com capturas e acessibilidade. Nos painéis de navegador do cmux, use cmux browser para capturas DOM, seletores, formulários e JavaScript. Referências de superfícies do navegador são diferentes dos índices de elementos de apps nativos.",
+      "browserLink": "Referência de automação do navegador",
+      "troubleTitle": "Solução de problemas",
+      "missingTitle": "O agente não tem ferramentas do Computer Use",
+      "missingBody": "Ative Computer Use e inicie uma nova sessão do Claude Code ou Codex no cmux. Sessões existentes podem manter as ferramentas originais. Verifique se variáveis de ambiente ou políticas gerenciadas não o desativaram.",
+      "blockedTitle": "Configuração incompleta, cliques falham ou capturas vazias",
+      "blockedBody": "Reabra Ajustes → Computer Use e conclua as duas etapas de permissão, incluindo confirmações adicionais de captura. Tente novamente depois. Se o auxiliar precisar reiniciar, os terminais podem permanecer abertos.",
+      "targetTitle": "Janela errada ou clique bloqueado",
+      "targetBody": "Inspecione o app novamente e selecione um elemento atual. Se outra janela cobrir o alvo, revele a janela desejada e inspecione antes de repetir. Não reutilize coordenadas ou índices antigos.",
+      "productLink": "Visão geral do cmux Computer Use",
+      "copyTitle": "Copiar prompt do Computer Use",
+      "copyPrompt": "Copiar prompt",
+      "copiedPrompt": "Copiado",
+      "installPrompt": "Use a habilidade $cmux-cua. Se não estiver disponível, instale-a com o instalador normal. Se faltarem permissões, peça para eu abrir Ajustes do cmux → Computer Use. Inspecione antes e verifique cada alteração.\n\nTarefa: [descreva a tarefa aqui]"
+    },
     "remoteTmux": {
       "moshContrast": "Para alternar entre redes, use cmux mosh-tmux. Ele abre um terminal Mosh totalmente integrado conectado a uma sessão tmux nomeada; não substitui o espelhamento nativo de workspaces, abas e divisões oferecido pelo modo de controle tmux via SSH."
     },
@@ -1122,6 +1225,7 @@
           "globalFontMagnification": "Escala por esta porcentagem os terminais, títulos de abas, barras laterais, ajustes, sobreposições e chrome do app pertencentes ao cmux. O conteúdo renderizado das páginas do navegador fica excluído."
         },
         "terminal": {
+          "adaptiveDefaultTheme": "Quando true (padrão), o cmux fornece uma paleta padrão que se adapta à aparência, a menos que um tema do Ghostty ou cores do terminal estejam configurados. A fonte e as outras configurações são preservadas. Quando false, o Ghostty usa sua paleta integrada fixa. Temas e cores explícitos sempre têm prioridade, incluindo theme = light:X,dark:Y.",
           "sessionContentMaxWidth": "Largura máxima opcional, em pontos, para o conteúdo do terminal e do chat integrado do agente. Defina como false para usar toda a largura do painel.",
           "sessionContentAlignment": "Posicionamento horizontal do conteúdo do terminal e do chat integrado do agente quando sessionContentMaxWidth está ativado.",
           "copyOnSelect": "Quando true, copia o texto selecionado no terminal para a área de transferência do sistema quando a seleção é confirmada. Quando false, o cmux não emite uma substituição copy-on-select do Ghostty; a configuração e os padrões do Ghostty controlam o comportamento da área de transferência de seleção.",
@@ -1596,6 +1700,7 @@
       }
     },
     "navItems": {
+      "computerUse": "Controle do computador",
       "gettingStarted": "Primeiros Passos",
       "concepts": "Conceitos",
       "workspaceGroups": "Grupos de Workspaces",
@@ -3878,6 +3983,7 @@
     "email": "E-mail",
     "emailUnavailable": "e-mail indisponível",
     "organization": "Organização",
-    "personalAccount": "conta pessoal"
+    "personalAccount": "conta pessoal",
+    "switchAccountButton": "Usar outra conta"
   }
 }

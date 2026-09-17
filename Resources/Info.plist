@@ -55,6 +55,12 @@
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
+	<key>CMUX_IROH_V2_ENVIRONMENT</key>
+	<string>$(CMUX_IROH_V2_ENVIRONMENT)</string>
+	<key>CMUX_IROH_V2_BASE_URL</key>
+	<string>$(CMUX_IROH_V2_BASE_URL)</string>
+	<key>CMUX_IROH_V2_FORCE_RELAY</key>
+	<string>$(CMUX_IROH_V2_FORCE_RELAY)</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>

@@ -27,8 +27,31 @@
       "title": "يتطلب cmux Pro",
       "message": "تتطلب أجهزة Cloud VM خطة cmux Pro.",
       "action": "قم بالترقية إلى cmux Pro عبر {upgradeUrl} لإنشاء أجهزة Cloud VM."
+    },
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "تتطلب الأجهزة بسعة {memory} GiB اشتراك cmux {plan}. تدعم خطتك حتى {max} GiB.",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "تعذر التحقق من حجم RAM للجهاز المصدر.",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "حجم الجهاز هذا غير متاح حاليًا. اختر حجمًا يصل إلى {max} GiB.",
+      "action": "cmux vm new --size {max}g"
     }
-  },
+  ,
+    "goLimit": {
+      "savedMessage": "تتضمن Go جهازين افتراضيين محفوظين، بما فيهما الجهاز قيد التشغيل.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "activeMessage": "تتضمن Go جهازاً افتراضياً واحداً قيد التشغيل في كل مرة.",
+      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "hoursMessage": "استهلكت Go ساعات تشغيل الأجهزة الأربعين لهذا الشهر. ستتوفر الأجهزة المحفوظة مجدداً عند بدء فترة الفوترة التالية.",
+      "hoursAction": "cmux billing checkout --plan pro",
+      "shapeMessage": "تدعم Go معالجين افتراضيين وذاكرة 4 GiB وقرصاً بسعة 16 GiB.",
+      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    }},
   "billingRecovery": {
     "message": "إذا عثرنا على حساب، فتحقق من بريدك الإلكتروني لمعرفة الخطوات التالية"
   },
@@ -299,7 +322,8 @@
     "nav": {
       "coderouterGroup": "coderouter",
       "coderouterOverview": "نظرة عامة",
-      "team": "الفريق"
+      "team": "الفريق",
+      "irohDevices": "IROH devices"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -343,6 +367,31 @@
         "pro": "Pro",
         "loading": "جارٍ التحميل…"
       }
+    },
+    "iroh": {
+      "title": "IROH devices",
+      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
+      "team": "Team",
+      "loading": "Loading devices…",
+      "empty": "No IROH devices are registered for this team.",
+      "unavailable": "Dashboard authorization is unavailable.",
+      "mutationError": "The device change could not be completed.",
+      "revoke": "Revoke access",
+      "deviceId": "Device",
+      "revision": "Revision",
+      "status": "Status",
+      "active": "Active",
+      "revoked": "Revoked",
+      "relaySettings": "Relay settings",
+      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
+      "saveRelaySettings": "Save relay settings"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "مشاركة مع الفريق",
+      "makePrivate": "جعله خاصًا",
+      "privateImportHint": "الحسابات الجديدة خاصة. شارك الحساب لإتاحته لأجهزة Cloud VM الخاصة بهذا الفريق.",
+      "description": "الحسابات المشتركة متاحة للأجهزة الافتراضية السحابية لهذا الفريق. تبقى الحسابات الخاصة متاحة فقط للشخص الذي أضافها.",
+      "cancelAction": "إلغاء"
     }
   },
   "community": {
@@ -917,6 +966,60 @@
     }
   },
   "docs": {
+    "computerUse": {
+      "title": "cmux Computer Use",
+      "metaTitle": "cmux Computer Use: أتمتة Mac بوكلاء الذكاء الاصطناعي",
+      "metaDescription": "دع Claude Code وCodex يتحكمان في Mac عبر cmux Computer Use. أتمتة التطبيقات الأصلية بلقطات الشاشة وإمكانية الوصول والنقر والكتابة ولوحة المفاتيح.",
+      "docsMetaTitle": "إعداد Computer Use وأدوات الوكلاء",
+      "docsMetaDescription": "إعداد cmux Computer Use على macOS: الأذونات وأدوات Claude Code وCodex واختيار التطبيقات والتحكم بالجلسات والمهارات وحل المشكلات.",
+      "tagline": "دع Claude Code وCodex يتحكمان في جهاز Mac الخاص بك.",
+      "intro": "امنح وكلاء البرمجة بالذكاء الاصطناعي إمكانية استخدام تطبيقات Mac الأصلية. يتيح cmux Computer Use قراءة الواجهات والتقاط الشاشة والنقر على عناصر التحكم وكتابة النصوص.",
+      "imageAlt": "إعداد cmux Computer Use مع أذونات إمكانية الوصول ولقطات الشاشة",
+      "caption": "يدير أذونات Computer Use برنامج مساعد منفصل، لذلك تظل جلسات الطرفية مفتوحة أثناء الإعداد الأولي.",
+      "featuresTitle": "التحكم بتطبيقات Mac الأصلية",
+      "featureInspect": "افحص واجهات التطبيقات باستخدام أشجار إمكانية الوصول ولقطات الشاشة.",
+      "featureAct": "انقر واكتب ومرّر واسحب واستخدم اختصارات لوحة المفاتيح في تطبيقات macOS.",
+      "featureReview": "تابع مؤشر الوكيل المرئي، وافحص النتيجة، ثم عُد إلى الطرفية التي بدأت العملية.",
+      "agentsTitle": "وكلاء البرمجة في cmux",
+      "agentsBody": "شغّل {agents} وغيرهم من وكلاء سطر الأوامر داخل cmux.",
+      "supportTitle": "الوكلاء المدعومون",
+      "supportBody": "تتصل أدوات Computer Use الأصلية تلقائيًا بجلسات Claude Code وCodex التي تبدأ داخل cmux. يمكن للوكلاء الآخرين العمل في الطرفية، لكنهم لا يحصلون بعد على هذا التكامل التلقائي للتحكم في Mac.",
+      "setupTitle": "البدء",
+      "step1": "ثبّت cmux لنظام Mac وافتحه. فعّل Computer Use من الإعدادات → Computer Use.",
+      "step2": "استخدم عناصر الأذونات لمنح cmux Computer Use صلاحيتَي إمكانية الوصول وتسجيل الشاشة في إعدادات النظام. إذا لم يظهر المساعد في القائمة، فأضف مربع تطبيقه أو اسحبه إلى لوحة الأذونات.",
+      "step3": "ابدأ جلسة Claude Code أو Codex جديدة داخل cmux. اطلب استخدام Computer Use وحدد التطبيق والمهمة. تتصل الأدوات تلقائيًا دون إعداد MCP يدوي.",
+      "permissionsTitle": "الأذونات والإعداد",
+      "permissionsBody": "تسمح إمكانية الوصول بقراءة واجهات التطبيقات والتفاعل معها، ويسمح تسجيل الشاشة بالتقاط الصور. امنح الإذنين إلى cmux Computer Use. فتح cmux أو بدء وكيل لا يمنح الوصول ولا يفتح الإعداد تلقائيًا.",
+      "tahoeBody": "على macOS Tahoe، وافق أيضًا على التأكيد الإضافي لالتقاط الشاشة أثناء الإعداد. أعد المحاولة عندما يُظهر cmux أن الإذنين ممنوحان.",
+      "promptTitle": "جرّب باستخدام الآلة الحاسبة",
+      "prompt": "استخدم cmux Computer Use لفتح الآلة الحاسبة، والنقر لإدخال 100 + 105، ثم أرني النتيجة.",
+      "workflowBody": "افحص الهدف أولًا، ثم تفاعل مع عناصر اللقطة الحالية، وأعد الفحص للتحقق من النتيجة. فهارس العناصر تخص اللقطة الحالية فقط؛ حدّثها بعد التنقل أو تغيّر التخطيط. تأكيد نجاح النقر وحده لا يثبت اكتمال المهمة.",
+      "toolsTitle": "أدوات الوكلاء",
+      "toolsBody": "cmux-cua هو خادم MCP المضمّن الذي يوفّر أدوات منظّمة للتحكم بالتطبيقات الأصلية. هذه أسماء أدوات وليست أوامر shell. تختلف الوسائط حسب ملف الوكيل؛ راجع المخططات المتاحة في الجلسة.",
+      "codexBody": "يستخدم Codex أداة get_app_state مع اسم التطبيق أو معرّف الحزمة للحصول على لقطة وشجرة إمكانية الوصول. نفّذ الإجراء باستخدام element_index حالي أو إحداثيات اللقطة، ثم استدعِ get_app_state مجددًا. الأدوات:",
+      "claudeBody": "يستخدم Claude Code أداتَي list_apps وlist_windows لاختيار الهدف، ثم get_window_state مع pid وwindow_id. فضّل رموز العناصر أو الفهارس الحديثة. يدعم الملف الأصلي perform_actions لمجموعات إجراءات لا تُبطل الأهداف اللاحقة.",
+      "controlTitle": "متابعة Computer Use وإيقافه",
+      "controlBody": "يعرض Computer Use في شريط القوائم الوكيل النشط. يتابع Focus Computer Use التطبيق الذي يتحكم به، بينما يعيد Focus Calling Terminal الطرفية الأصلية دون إيقاف الأتمتة. استخدم إجراء الإيقاف في القائمة لإنهاء جلسة التحكم.",
+      "disableBody": "عطّل Computer Use من الإعدادات. لاستبعاد الأدوات من جلسة وكيل جديدة، اضبط CMUX_COMPUTER_USE_MCP_DISABLED=1 قبل تشغيله.",
+      "skillTitle": "المهارات",
+      "skillBody": "تشرح مهارة cmux-cua خطوات الفحص والتنفيذ. هي اختيارية ولا تمنح أذونات macOS. للتثبيت الدائم، استخدم مثبّت مهارات الوكيل؛ لا يثبّت cmux مهارات عامة افتراضيًا.",
+      "skillLink": "اقرأ مهارة cmux-cua",
+      "browserTitle": "التطبيقات الأصلية وأتمتة المتصفح",
+      "browserBody": "يتحكم Computer Use بنوافذ Mac الأصلية عبر الصور وإمكانية الوصول. استخدم cmux browser للوحات المتصفح في cmux للتعامل مع لقطات DOM والمحددات والنماذج وJavaScript. يختلف مرجع سطح المتصفح عن فهرس عنصر التطبيق الأصلي.",
+      "browserLink": "مرجع أتمتة المتصفح",
+      "troubleTitle": "حل المشكلات",
+      "missingTitle": "الوكيل لا يملك أدوات Computer Use",
+      "missingBody": "فعّل Computer Use وابدأ جلسة Claude Code أو Codex جديدة داخل cmux. قد تحتفظ الجلسات الموجودة بإعداد أدواتها القديم. تحقق من عدم تعطيل الميزة بمتغير بيئة أو سياسة إدارية.",
+      "blockedTitle": "إعداد غير مكتمل أو نقرات فاشلة أو لقطات فارغة",
+      "blockedBody": "أعد فتح الإعدادات → Computer Use وأكمل خطوتَي الأذونات، بما في ذلك أي تأكيد إضافي للالتقاط، ثم أعد المحاولة. يمكن إبقاء الطرفيات مفتوحة إذا احتاج المساعد إلى إعادة التشغيل.",
+      "targetTitle": "نافذة غير مقصودة أو نقرة محظورة",
+      "targetBody": "افحص التطبيق مجددًا واختر عنصرًا من حالته الحالية. إذا حجبت نافذة أخرى الهدف، فأظهر النافذة المطلوبة وافحصها قبل المحاولة. لا تُعد استخدام إحداثيات أو فهارس قديمة.",
+      "productLink": "نظرة عامة على cmux Computer Use",
+      "copyTitle": "نسخ مطالبة Computer Use",
+      "copyPrompt": "نسخ المطالبة",
+      "copiedPrompt": "تم النسخ",
+      "installPrompt": "استخدم مهارة $cmux-cua. إذا لم تكن متاحة فثبّتها بالمثبّت المعتاد. عند نقص الأذونات اطلب مني فتح إعدادات cmux → Computer Use. افحص قبل التنفيذ وتحقق بعد كل تغيير.\n\nالمهمة: [صف المهمة هنا]"
+    },
     "remoteTmux": {
       "moshContrast": "للتجوال بين الشبكات، استخدم cmux mosh-tmux. يفتح طرفية Mosh متكاملة متصلة بجلسة tmux مسماة؛ ولا يستبدل مرآة مساحات العمل وعلامات التبويب والأجزاء الأصلية التي يوفرها وضع تحكم tmux عبر SSH."
     },
@@ -1122,6 +1225,7 @@
           "globalFontMagnification": "يضبط بهذا المقدار النسبي أحجام الخطوط في الطرفيات وعناوين التبويبات والأشرطة الجانبية والإعدادات والتراكبات وواجهة التطبيق التي يملكها cmux. لا يشمل محتوى صفحات المتصفح المعروض."
         },
         "terminal": {
+          "adaptiveDefaultTheme": "عند تعيين true (الافتراضي)، يوفر cmux لوحة ألوان افتراضية تتكيف مع المظهر ما لم يتم تكوين سمة Ghostty أو ألوان الطرفية. يتم الاحتفاظ بإعدادات الخط والإعدادات الأخرى. عند تعيين false، يستخدم Ghostty لوحة ألوانه المدمجة الثابتة. تكون الأولوية دائمًا للسمات والألوان المحددة صراحةً، بما في ذلك theme = light:X,dark:Y.",
           "sessionContentMaxWidth": "حد أقصى اختياري للعرض، بالنقاط، لمحتوى الطرفية ودردشة الوكيل المضمنة. عيّن false لاستخدام عرض الجزء بالكامل.",
           "sessionContentAlignment": "الموضع الأفقي لمحتوى الطرفية ودردشة الوكيل المضمنة عند تفعيل sessionContentMaxWidth.",
           "copyOnSelect": "عند true، ينسخ النص المحدد في الطرفية إلى حافظة النظام عند تثبيت التحديد. عند false، لا يصدر cmux تجاوز Ghostty copy-on-select؛ وتتحكم إعدادات Ghostty وقيمه الافتراضية في سلوك حافظة التحديد.",
@@ -1596,6 +1700,7 @@
       }
     },
     "navItems": {
+      "computerUse": "التحكم بالكمبيوتر",
       "gettingStarted": "البدء",
       "concepts": "المفاهيم",
       "workspaceGroups": "مجموعات مساحات العمل",
@@ -3875,6 +3980,7 @@
     "email": "البريد الإلكتروني",
     "emailUnavailable": "البريد الإلكتروني غير متاح",
     "organization": "المؤسسة",
-    "personalAccount": "حساب شخصي"
+    "personalAccount": "حساب شخصي",
+    "switchAccountButton": "استخدام حساب مختلف"
   }
 }

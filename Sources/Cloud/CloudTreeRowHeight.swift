@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCloudMachines
 import CmuxFoundation
 
 @MainActor
@@ -9,7 +10,10 @@ struct CloudTreeRowHeight {
         guard let node = item as? CloudTreeNode else { return GlobalFontMagnification.scaledSize(style.rowHeight) }
         switch node.kind {
         case .machine:
-            return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: true))
+            return GlobalFontMagnification.scaledSize(style.machineRowHeight(
+                hasStats: true,
+                hasUsage: style.machineRowLayout == .twoLine
+            ))
         case .localMachine, .pendingMachine:
             return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: false))
         default:

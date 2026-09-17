@@ -204,6 +204,19 @@ describe("Freestyle platform contract", () => {
     expect(freestyleNetworkAddressMetadata({ publicIpv6: "2602::1" })).toEqual({});
   });
 
+  test("network metadata drops malformed provider addresses before publication", () => {
+    expect(
+      freestyleNetworkAddressMetadata({
+        vpcs: [{ ipv4: "not-an-ip", ipv6: "fd60:1e5e:6720::3" }],
+      }),
+    ).toEqual({ networkIpv6: "fd60:1e5e:6720::3" });
+    expect(
+      freestyleNetworkAddressMetadata({
+        vpcs: [{ ipv4: "not-an-ip", ipv6: "also-not-an-ip" }],
+      }),
+    ).toEqual({});
+  });
+
   test("cmux-remote route prefers the private VPC address and never falls back from it", () => {
     // On a VPC: the private address wins even when a public address exists,
     // because a VPC machine has no public inbound rule. v4 is preferred within
@@ -955,5 +968,34 @@ describe("Freestyle port open: the private address, the desktop healed", () => {
       .rejects.toThrow(/has no desktop/);
     await expect(portFake({ data: PRIVATE, healExit: 1 }).provider.openPort(VM_ID, DEVBOX_DESKTOP_NOVNC_PORT))
       .rejects.toThrow(/did not come up on port 6901/);
+  });
+});
+
+describe("Go provider runtime ceiling", () => {
+  test("sets a lifetime cap at create so traffic cannot restart an exhausted VM", async () => {
+    const fake = fakeFreestyle({ probeExit: 0 });
+    await providerWith(fake).create({ image: "snapshot-small", runtimeBudgetSeconds: 144000,
+      imageSize: { name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 } });
+    expect(fake.creates[0]).toMatchObject({ maxRunTotalSeconds: 144000, automaticRestart: false });
+  });
+  test("a resume adds only the remaining billing-period allowance to prior provider runtime", async () => {
+    const updates: unknown[] = [];
+    const client = { vms: { ref: () => ({ data: async () => ({ totalRunSeconds: 3600 }), update: async (value: unknown) => { updates.push(value); } }) } } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: () => client, resolveDaemonSource: async () => { throw new Error("unused"); } });
+    await provider.setRuntimeBudget(VM_ID, 1800);
+    await provider.setRuntimeBudget(VM_ID, 0);
+    await provider.setRuntimeBudget(VM_ID, null);
+    expect(updates).toEqual([
+      { maxRunTotalSeconds: 5400, automaticRestart: false },
+      { maxRunTotalSeconds: 3600, automaticRestart: false },
+      { maxRunTotalSeconds: -1, automaticRestart: true },
+    ]);
+  });
+  test("missing provider runtime fails closed", async () => {
+    let updated = false;
+    const client = { vms: { ref: () => ({ data: async () => ({}), update: async () => { updated = true; } }) } } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: () => client, resolveDaemonSource: async () => { throw new Error("unused"); } });
+    await expect(provider.setRuntimeBudget(VM_ID, 1800)).rejects.toThrow("setRuntimeBudget");
+    expect(updated).toBe(false);
   });
 });

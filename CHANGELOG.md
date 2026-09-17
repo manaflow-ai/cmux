@@ -2,6 +2,28 @@
 
 All notable changes to cmux are documented here.
 
+## [0.64.24] - 2026-09-15
+
+### Added
+- IROH v2 Cloud connectivity now uses the Cloudflare control plane with durable pairing, relay renewal, direct-only routes, and recovery that stays alive through stalls and traffic bursts ([#12326](https://github.com/manaflow-ai/cmux/pull/12326), [#12411](https://github.com/manaflow-ai/cmux/pull/12411)) -- thanks @azooz2003-bit!
+- Cloud file transfers use private SCP, and iOS Computer details can delete non-IROH routes without losing the computer ([`5f0ce77`](https://github.com/manaflow-ai/cmux/commit/5f0ce77cab82ad60496175b222ec50a0b749085f), [#12691](https://github.com/manaflow-ai/cmux/pull/12691)) -- thanks @azooz2003-bit!
+
+### Changed
+- Cloud Desktop restores authenticated transport, saved splits, and noVNC recovery; Cloud folder drags use the sidebar insertion line and persist across refreshes ([#12633](https://github.com/manaflow-ai/cmux/pull/12633), [#12589](https://github.com/manaflow-ai/cmux/pull/12589)).
+- Browser feature-flag evaluations reuse complete results for five minutes, while Computer Use onboarding and preference notifications avoid startup deadlocks ([#12611](https://github.com/manaflow-ai/cmux/pull/12611), [`3a617be`](https://github.com/manaflow-ai/cmux/commit/3a617be7cd)).
+- The Cloud guest CLI accepts `workspace close --workspace ... --focus false`, and CLI authorization can switch browser accounts without losing the login code ([#12470](https://github.com/manaflow-ai/cmux/pull/12470), [#12679](https://github.com/manaflow-ai/cmux/pull/12679)).
+
+### Fixed
+- Codex `--yolo` no longer calls a missing resume helper or recursively injects restore commands after repeated resumes ([#12659](https://github.com/manaflow-ai/cmux/pull/12659), [#12697](https://github.com/manaflow-ai/cmux/pull/12697)).
+- Terminal panes publish their final size after pane and window geometry settles, preventing transient dimensions from corrupting TUI output ([#12662](https://github.com/manaflow-ai/cmux/pull/12662)).
+- Runaway memory guardrails default to off for new configurations, and internal memory-pressure diagnostics no longer create user notifications ([#12658](https://github.com/manaflow-ai/cmux/pull/12658), [#12667](https://github.com/manaflow-ai/cmux/pull/12667)).
+
+### Thanks to 3 contributors!
+
+- [@azooz2003-bit](https://github.com/azooz2003-bit)
+- [@austinywang](https://github.com/austinywang)
+- [@lawrencecchen](https://github.com/lawrencecchen)
+
 ## [0.64.23] - 2026-09-14
 
 ### Added

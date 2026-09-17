@@ -11,6 +11,7 @@ import {
 } from "freestyle";
 
 import { createHash, randomBytes } from "node:crypto";
+import { isIP } from "node:net";
 import { Effect } from "effect";
 import { announceFreestyleNetwork } from "./freestyleNetworkAnnouncement";
 import { installFreestyleGuestCli, type FreestyleClientFactory } from "./freestyleGuestCli";
@@ -412,8 +413,8 @@ export function freestyleNetworkAddressMetadata(
   const ipv4 = network?.ipv4?.trim();
   const ipv6 = network?.ipv6?.trim();
   return {
-    ...(ipv4 ? { networkIpv4: ipv4 } : {}),
-    ...(ipv6 ? { networkIpv6: ipv6 } : {}),
+    ...(ipv4 && isIP(ipv4) === 4 ? { networkIpv4: ipv4 } : {}),
+    ...(ipv6 && isIP(ipv6) === 6 ? { networkIpv6: ipv6 } : {}),
   };
 }
 
@@ -958,6 +959,9 @@ export class FreestyleProvider implements VMProvider {
             // Do not let an account/provider idle default turn a persistent
             // machine into a one-shot box. Explicit pause/stop still works.
             idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
+            ...(options.runtimeBudgetSeconds !== undefined ? {
+              maxRunTotalSeconds: Math.max(0, Math.floor(options.runtimeBudgetSeconds)), automaticRestart: false,
+            } : {}),
             metadata: { cmux: "cloud" },
             firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId }) },
             ...(networkId ? { vpcs: [{ vpcId: networkId, ipv4: true, ipv6: true }] } : {}),
@@ -968,6 +972,11 @@ export class FreestyleProvider implements VMProvider {
             "cmux.vm.network.private": !!networkId,
           });
           try {
+            // Validate the provider-assigned VPC address without issuing the
+            // guest-side announcement exec. The baked supervisor announces on
+            // clone boot; attach performs the strict announcement before
+            // handing out the private daemon route.
+            if (networkId) await this.announcePrivateAddresses(vm, data, { validateOnly: true });
             if (options.imageSize) {
               // One snapshot per size: the machine already boots at the shape
               // that was sold, so nothing is read back and nothing is grown.
@@ -990,7 +999,12 @@ export class FreestyleProvider implements VMProvider {
             // The in-VM shim is a separate convenience layer over the baked
             // daemon and is installed idempotently for agents and peer links.
             await this.installGuestCli(vm, vmId, options.promptIdentity);
-            await this.announcePrivateAddresses(vm, data);
+            // The baked supervisor announces the VPC interface on clone boot
+            // and every 30 seconds. Waiting for a second guest-side `ip` probe
+            // here made create pay a redundant network round trip and turned
+            // a transient netlink timeout into a destructive rollback. The
+            // attach path performs the strict announcement/readiness check
+            // before handing out the private daemon route.
           } catch (err) {
             // A VM that failed to size or configure must not survive as an
             // orphan, and an undersized machine must not ship as if it were
@@ -1101,6 +1115,20 @@ export class FreestyleProvider implements VMProvider {
         }
       },
     );
+  }
+
+  async setRuntimeBudget(vmId: string, remainingSeconds: number | null): Promise<void> {
+    const vm = this.deps.client(CREATE_TIMEOUT_MS).vms.ref(vmId);
+    if (remainingSeconds === null) {
+      await vm.update({ maxRunTotalSeconds: -1, automaticRestart: true });
+      return;
+    }
+    const data = await vm.data();
+    const used = data.totalRunSeconds;
+    if (typeof used !== "number" || !Number.isFinite(used) || used < 0 || !Number.isFinite(remainingSeconds) || remainingSeconds < 0) {
+      throw new ProviderError("freestyle", "setRuntimeBudget", new Error("Provider runtime counter is unavailable"));
+    }
+    await vm.update({ maxRunTotalSeconds: Math.floor(used + remainingSeconds), automaticRestart: false });
   }
 
   async resume(vmId: string): Promise<VMHandle> {
@@ -1491,12 +1519,16 @@ export class FreestyleProvider implements VMProvider {
     );
   }
 
-  private async announcePrivateAddresses(vm: Vm, data: FreestyleRouteAddresses): Promise<void> {
+  private async announcePrivateAddresses(
+    vm: Vm,
+    data: FreestyleRouteAddresses,
+    options: { readonly validateOnly?: boolean } = {},
+  ): Promise<void> {
     const addresses = (data.vpcs ?? data.networks ?? [])
       .flatMap((network) => [network.ipv4, network.ipv6])
       .filter((address): address is string => typeof address === "string" && address.trim() !== "")
       .map((address) => address.trim());
-    await Effect.runPromise(announceFreestyleNetwork(vm, addresses));
+    await Effect.runPromise(announceFreestyleNetwork(vm, addresses, options));
   }
 
 

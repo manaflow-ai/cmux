@@ -118,7 +118,7 @@ struct CloudSidebarOrderingTests {
         #expect(pasteboard.writeObjects([try #require(writer)]))
         #expect(pasteboard.string(forType: .cloudSidebarRow) == folder.id)
         #expect(fixture.transferRegistry.resolve(from: pasteboard) == nil)
-        #expect(SurfaceResourceDragRegistry.shared.group(id: id) != nil)
+        #expect(SurfaceResourceDragRegistry.shared.group(id: id) == nil)
         writer = nil
         #expect(SurfaceResourceDragRegistry.shared.group(id: id) == nil)
     }
@@ -220,7 +220,7 @@ final class CloudSidebarOrderingFixture {
     func folderID(_ id: String) -> String { CloudTreeNodeBuilder.nodeID(workspace: id, machine: machine) }
 
     func snapshot(titles: [String] = ["cmux1", "cmux2"]) -> SurfaceCatalogSnapshot {
-        let workspaces = (1...2).map {
+        let workspaces = (1...titles.count).map {
             SurfaceRemoteWorkspace(id: "ws_\($0)", name: titles[$0 - 1], index: $0 - 1, focused: $0 == 1)
         }
         let resources = workspaces.map { workspace in

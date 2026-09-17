@@ -1,8 +1,8 @@
 import CmuxSettings
 import Foundation
 
-/// The one application-side Cloud availability decision. The remote
-/// Cloud kill switch must be enabled, the existing
+/// The one application-side Cloud availability decision. The effective
+/// Cloud flag (including any permitted Nightly/debug override) must be enabled, the
 /// Beta Features opt-in must be on, and no managed profile may disable Cloud.
 /// Every Cloud entry point and background owner calls this policy; persisted
 /// Cloud identities remain untouched when it returns false.
@@ -37,8 +37,8 @@ enum CloudMachinesFeature {
     }
 
     /// Pure decision helper for behavior tests and injected composition roots.
-    /// The remote value is authoritative: a false rollout cannot be bypassed
-    /// by the local Beta Features toggle.
+    /// The effective flag is supplied by CmuxFeatureFlags; the Beta Features
+    /// toggle cannot bypass a disabled flag or managed policy.
     nonisolated static func isEnabled(
         defaults: UserDefaults,
         policy: ManagedDevicePolicy,

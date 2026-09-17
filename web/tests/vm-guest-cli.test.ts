@@ -483,6 +483,42 @@ esac
       expect(run.argv).toEqual(["--session", "cloud", "agent", "list"]);
     });
 
+    test("lists only the VM team's account responses and exposes its fixed organization", () => {
+      const setup = (directory: string) => {
+        const curl = join(directory, "curl");
+        writeFileSync(curl, `#!/bin/sh
+case "$*" in
+  *claude-upstream*) printf '%s' '{"teamId":"team-a","accounts":[{"id":"claude-a","label":"Claude A","state":"active"}]}' ;;
+  *accounts*) printf '%s' '{"teamId":"team-a","accounts":[{"id":"native-a","provider":"codex","label":"Codex A","state":"active"}]}' ;;
+  *organizations*) printf '%s' '{"fixed":true,"selectedTeamId":"team-a","teams":[{"id":"team-a"}]}' ;;
+  *) exit 1 ;;
+esac
+`);
+        chmodSync(curl, 0o755);
+      };
+      const env = { CMUX_CODEROUTER_URL: "https://coderouter.cmux.internal" };
+      const listed = runShim(["coderouter", "accounts", "--json"], env, setup);
+      expect(listed.status).toBe(0);
+      expect(JSON.parse(listed.stdout)).toMatchObject({ teamId: "team-a", accounts: [{ id: "native-a" }, { id: "claude-a" }] });
+      const current = runShim(["coderouter", "org", "current", "--json"], env, setup);
+      expect(current.status).toBe(0);
+      expect(JSON.parse(current.stdout)).toEqual({ teamId: "team-a", fixed: true });
+      expect(runShim(["coderouter", "org", "switch", "team-b"], env, setup).status).toBe(2);
+      expect(runShim(["coderouter", "accounts", "--team", "team-b"], env, setup).status).toBe(2);
+    });
+
+    test("does not merge account lists from different teams", () => {
+      const result = runShim(["coderouter", "accounts", "--json"], { CMUX_CODEROUTER_URL: "https://coderouter.cmux.internal" }, directory => {
+        const curl = join(directory, "curl");
+        writeFileSync(curl, `#!/bin/sh
+case "$*" in *claude-upstream*) printf '%s' '{"teamId":"team-b","accounts":[]}' ;; *) printf '%s' '{"teamId":"team-a","accounts":[]}' ;; esac
+`);
+        chmodSync(curl, 0o755);
+      });
+      expect(result.status).toBe(1);
+      expect(result.stdout).toBe("");
+    });
+
     test("passes provider subcommands through the coderouter prefix", () => {
       const run = runShim(["coderouter", "agent", "codex", "exec", "summarize"], {}, (directory) => {
         const codex = join(directory, "codex");

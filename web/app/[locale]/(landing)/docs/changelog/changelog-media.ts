@@ -26,6 +26,26 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
+  "0.64.24": {
+    title: "Reliable Codex Resumes, Account Switching, Cloud CLI Compatibility",
+    features: [
+      {
+        title: "Reliable Codex Resumes",
+        description:
+          "Codex --yolo no longer calls a missing helper or replays a restore command after repeated resume cycles, keeping the active session identity attached to the right terminal.",
+      },
+      {
+        title: "Switch CLI Accounts",
+        description:
+          "The CLI authorization page can sign out the current browser account and return to sign-in with the original confirmation code intact.",
+      },
+      {
+        title: "Cloud CLI Compatibility",
+        description:
+          "Cloud terminal sessions accept the workspace-close syntax used by the in-terminal CLI while preserving routing, JSON output, revision fences, and idempotency.",
+      },
+    ],
+  },
   "0.64.23": {
     title: "Vault Search and Checkpoints, Inline Notification Replies, Nine Languages",
     features: [
