@@ -38,6 +38,7 @@ public actor MobileV3RuntimeComposition {
     public nonisolated let configuration: Configuration
     private var endpoint: NativeEndpoint?
     private var factory: CmxV3ByteTransportFactory?
+    private var grants: CmxV3HTTPGrantProvider?
     private var scope: AuthenticatedTeamScope?
     private var desiredScope: AuthenticatedTeamScope?
     private var authTask: Task<Void, Never>?
@@ -68,8 +69,14 @@ public actor MobileV3RuntimeComposition {
         endpoint?.close()
         endpoint = nil
         factory = nil
+        grants = nil
         scope = nil
         desiredScope = nil
+    }
+
+    public func directory() async throws -> CmxV3Directory {
+        guard let grants else { throw Error.notSignedIn }
+        return try await grants.directory()
     }
 
     public func transport(for request: CmxByteTransportRequest) async throws -> any CmxByteTransport {
@@ -134,6 +141,7 @@ public actor MobileV3RuntimeComposition {
         endpoint?.close()
         endpoint = nil
         factory = nil
+        grants = nil
         scope = nil
         guard let next else { return }
         activationTask = Task { [weak self] in
@@ -191,6 +199,7 @@ public actor MobileV3RuntimeComposition {
         }
         self.endpoint = endpoint
         self.factory = CmxV3ByteTransportFactory(endpoint: endpoint, grants: grants)
+        self.grants = grants
         self.scope = next
         revocationTask = Task { [weak self, weak endpoint] in
             var sequence: Int64 = 0

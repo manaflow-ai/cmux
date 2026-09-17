@@ -49,6 +49,13 @@ public struct CmxV3HTTPGrantProvider: CmxV3GrantProviding, Sendable {
         self.session = URLSession(configuration: copied, delegate: redirectDelegate, delegateQueue: nil)
     }
 
+    public func directory() async throws -> CmxV3Directory {
+        let response: CmxV3Directory = try await post(
+            "/v3/directory", body: DirectoryRequest(team: configuration.team)
+        )
+        return response
+    }
+
     public func enroll(peerID: String, deviceID: UUID, addresses: [String] = []) async throws {
         let payload = EnrollmentPayload(team: configuration.team, deviceID: deviceID, addresses: addresses)
         let response: EnrollmentResponse = try await post(
@@ -63,8 +70,8 @@ public struct CmxV3HTTPGrantProvider: CmxV3GrantProviding, Sendable {
     }
 
     public func authorization(for request: CmxByteTransportRequest, source: String, action: String) async throws -> CmxV3Authorization {
-        let directory: Directory = try await post("/v3/directory", body: DirectoryRequest(team: configuration.team))
-        guard let target = directory.devices.first(where: { $0.peerID == request.route.v3PeerID }) else { throw CmxV3HTTPGrantError.unknownPeer }
+        let directory = try await self.directory()
+        guard let target = directory.devices.first(where: { $0.peerID == request.route.v3PeerID && $0.active }) else { throw CmxV3HTTPGrantError.unknownPeer }
         let payload = AuthorizationPayload(team: configuration.team, destination: target.peerID, action: action)
         let grant: GrantResponse = try await post("/v3/authorize", body: Signed(request: payload, proof: try await proof(path: "/v3/authorize", payload: payload)))
         return CmxV3Authorization(deviceID: target.deviceID, peerID: target.peerID, grant: grant.grant, addresses: target.addresses, renewEverySeconds: target.lease.renewEverySeconds)
@@ -158,25 +165,6 @@ private struct AuthorizationPayload: Codable {
 private struct Signed<Request: Encodable>: Encodable { let request: Request; let proof: CmxV3DeviceProof }
 private struct CmxV3DeviceProof: Codable { let publicKey: String; let nonce: UUID; let issuedAt: UInt64; let signature: String; enum CodingKeys: String, CodingKey { case publicKey = "public_key"; case nonce; case issuedAt = "issued_at"; case signature } }
 private struct GrantResponse: Decodable { let grant: String }
-private struct Directory: Decodable { let devices: [DirectoryDevice] }
-private struct DirectoryDevice: Decodable {
-    let peerID: String
-    let deviceID: String
-    let addresses: [String]
-    let lease: DirectoryLease
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        peerID = try container.decode(String.self, forKey: .peerID)
-        deviceID = try container.decode(String.self, forKey: .deviceID)
-        addresses = try container.decodeIfPresent([String].self, forKey: .addresses) ?? []
-        lease = try container.decodeIfPresent(DirectoryLease.self, forKey: .lease) ?? DirectoryLease(renewEverySeconds: 30)
-    }
-    enum CodingKeys: String, CodingKey { case peerID = "peer_id"; case deviceID = "device_id"; case addresses; case lease }
-}
-private struct DirectoryLease: Decodable {
-    let renewEverySeconds: UInt32
-    enum CodingKeys: String, CodingKey { case renewEverySeconds = "renew_every_seconds" }
-}
 private struct ProofMessage<Payload: Encodable>: Encodable {
     let audience: String; let user: String; let path: String; let nonce: UUID; let issuedAt: UInt64; let payload: Payload
     func encode(to encoder: Encoder) throws {
