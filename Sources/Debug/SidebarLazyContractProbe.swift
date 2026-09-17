@@ -8,7 +8,7 @@ import SwiftUI
 ///
 /// Same pattern as `MinimalModeInvalidationProbe`; compiled out of Release.
 struct SidebarLazyContractProbe {
-    var workspaceRowBody: (() -> Void)?
+    var workspaceRowBody: ((UUID) -> Void)?
     var workspaceRowBodyEnd: (() -> Void)?
     var groupHeaderRowBody: (() -> Void)?
     var workspaceSnapshotBuild: (() -> Void)?
