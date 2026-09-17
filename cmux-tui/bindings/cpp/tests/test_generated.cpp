@@ -112,9 +112,11 @@ TEST("generated command and event metadata is exhaustive and unique") {
         CHECK(command.since <= cmux::raw::kMuxProtocolVersion);
         command_names.insert(command.name);
         if (command.name == "attach-surface") {
-            CHECK_EQ(command.field_requirements.size(), 3U);
+            CHECK_EQ(command.field_requirements.size(), 5U);
             bool mode_since = false;
             bool cols_capability = false;
+            bool generation_capability = false;
+            bool terminal_capability = false;
             for (const auto& field : command.field_requirements) {
                 mode_since =
                     mode_since || (field.name == "mode" && field.since == 7U);
@@ -122,9 +124,19 @@ TEST("generated command and event metadata is exhaustive and unique") {
                     cols_capability ||
                     (field.name == "cols" &&
                      field.capability == "attach-initial-size");
+                generation_capability =
+                    generation_capability ||
+                    (field.name == "expected_generation" &&
+                     field.capability == "attach-identity-v1");
+                terminal_capability =
+                    terminal_capability ||
+                    (field.name == "expected_terminal_id" &&
+                     field.capability == "attach-identity-v1");
             }
             CHECK(mode_since);
             CHECK(cols_capability);
+            CHECK(generation_capability);
+            CHECK(terminal_capability);
             checked_attach_fields = true;
         }
     }

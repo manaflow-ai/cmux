@@ -76,6 +76,8 @@ impl AttachBuilder {
             mode: Optional::Value(self.mode),
             cols,
             rows,
+            expected_generation: Optional::Missing,
+            expected_terminal_id: Optional::Missing,
         })
     }
 }
