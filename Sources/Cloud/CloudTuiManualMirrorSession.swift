@@ -774,6 +774,15 @@ final class CloudTuiManualMirrorSession {
                 transitionToDisconnected(reason: .rejected(error ?? "resize refused"))
                 return
             }
+            // A resize response is a structured protocol record, never a
+            // human-readable diagnostic. Preserve legacy data-null replies,
+            // while rejecting an unknown outcome before it can advance the
+            // latest-wins scheduler.
+            if let outcome,
+               !["applied", "passive", "superseded"].contains(outcome) {
+                transitionToDisconnected(reason: .rejected("unknown resize outcome"))
+                return
+            }
             if outcome == "superseded" {
                 // A leased stream was retired by the daemon. Its numeric
                 // surface may already refer to a replacement, so never treat

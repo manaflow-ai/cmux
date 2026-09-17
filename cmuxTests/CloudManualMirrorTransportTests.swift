@@ -58,6 +58,38 @@ struct CloudManualMirrorTransportTests {
     }
 
     @Test
+    func resizeResponsesPreserveStructuredAcceptanceAndRejectDiagnostics() throws {
+        let decoder = CloudTuiManualIOFrameDecoder()
+        let accepted = try #require(decoder.decode(try Self.line([
+            "id": 9,
+            "ok": true,
+            "data": ["accepted": true, "outcome": "applied"],
+        ])))
+        guard case let .response(requestID, ok, _, _, outcome, isAccepted, _) = accepted else {
+            Issue.record("expected a structured resize response")
+            return
+        }
+        #expect(requestID == 9)
+        #expect(ok)
+        #expect(outcome == "applied")
+        #expect(isAccepted == true)
+
+        // A human-readable diagnostic, or a response carrying an unknown
+        // outcome, must never release resize backpressure.
+        let malformed = try #require(decoder.decode(try Self.line([
+            "id": 10,
+            "ok": true,
+            "data": ["outcome": "active", "message": "resize applied"],
+        ])))
+        guard case let .response(_, _, _, _, _, malformedAccepted, _) = malformed else {
+            Issue.record("expected a response record")
+            return
+        }
+        #expect(malformedAccepted == nil)
+        #expect(decoder.decode(Data("resize diag applied\n".utf8)) == nil)
+    }
+
+    @Test
     func attachFramesCarryTheSparseColorSidecarAsLocalOscBytes() throws {
         let decoder = CloudTuiManualIOFrameDecoder()
         let snapshot = try #require(decoder.decode(try Self.line([
