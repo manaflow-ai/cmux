@@ -1,6 +1,7 @@
 import Bonsplit
 import CmuxBrowser
 import CmuxPanes
+import CmuxSettings
 import Foundation
 
 /// Adapts the main workspace and Dock split trees to one browser-placement path.
@@ -102,6 +103,37 @@ enum BrowserSplitContainer {
         }
     }
 
+    /// Opens a terminal link using the configured placement strategy.
+    ///
+    /// The default ``TerminalLinkBrowserPlacement/reuseOrSplit`` path is the
+    /// same operation used by ``openBrowserToRight(of:request:)``. Explicit
+    /// same-pane and split choices select the source pane or split operation
+    /// directly, while keeping browser creation and focus handling shared by
+    /// the workspace and Dock hosts.
+    func openTerminalLink(
+        from sourcePanelID: UUID,
+        request: BrowserSplitRequest,
+        placement: TerminalLinkBrowserPlacement
+    ) -> BrowserSplitPlacement? {
+        switch placement {
+        case .reuseOrSplit:
+            return openBrowserToRight(of: sourcePanelID, request: request)
+        case .samePane:
+            guard containsPanel(sourcePanelID),
+                  let sourcePane = paneID(forPanelID: sourcePanelID) else {
+                return nil
+            }
+            return createBrowserSurface(in: sourcePane, request: request).map {
+                BrowserSplitPlacement(panel: $0, createdSplit: false)
+            }
+        case .split:
+            guard containsPanel(sourcePanelID) else { return nil }
+            return createBrowserSplit(from: sourcePanelID, request: request).map {
+                BrowserSplitPlacement(panel: $0, createdSplit: true)
+            }
+        }
+    }
+
     private func selectedPanelID(inPane requestedPaneID: UUID) -> UUID? {
         switch self {
         case .workspace(let workspace):
@@ -150,12 +182,13 @@ enum BrowserSplitContainer {
                 inPane: paneID,
                 url: request.url,
                 focus: request.focus,
-                selectWhenNotFocused: true,
+                selectWhenNotFocused: request.selectWhenNotFocused,
                 preferredProfileID: request.preferredProfileID,
-                creationPolicy: .automationPreload,
+                creationPolicy: request.preloadInitialNavigationInBackground ? .automationPreload : .userInitiated,
+                allowsExternalBrowserFallback: request.allowsExternalBrowserFallback,
                 chromeVisibility: request.chromeVisibility,
                 transparentBackground: request.transparentBackground,
-                bypassRemoteProxy: request.bypassRemoteProxy
+                bypassRemoteProxy: request.bypassRemoteProxy ?? false
             )
         case .dock(let dock):
             guard let panelID = dock.newSurface(
@@ -165,9 +198,10 @@ enum BrowserSplitContainer {
                 focus: false,
                 preferredProfileID: request.preferredProfileID,
                 chromeVisibility: request.chromeVisibility,
-                preloadInitialNavigationInBackground: true,
+                preloadInitialNavigationInBackground: request.preloadInitialNavigationInBackground,
                 transparentBackground: request.transparentBackground,
-                bypassRemoteProxy: request.bypassRemoteProxy
+                bypassRemoteProxy: request.bypassRemoteProxy,
+                allowsExternalBrowserFallback: request.allowsExternalBrowserFallback
             ) else {
                 return nil
             }
@@ -190,10 +224,11 @@ enum BrowserSplitContainer {
                 url: request.url,
                 preferredProfileID: request.preferredProfileID,
                 focus: request.focus,
-                creationPolicy: .automationPreload,
+                creationPolicy: request.preloadInitialNavigationInBackground ? .automationPreload : .userInitiated,
+                allowsExternalBrowserFallback: request.allowsExternalBrowserFallback,
                 chromeVisibility: request.chromeVisibility,
                 transparentBackground: request.transparentBackground,
-                bypassRemoteProxy: request.bypassRemoteProxy
+                bypassRemoteProxy: request.bypassRemoteProxy ?? false
             )
         case .dock(let dock):
             guard let panelID = dock.newSplit(
@@ -204,9 +239,10 @@ enum BrowserSplitContainer {
                 url: request.url,
                 preferredProfileID: request.preferredProfileID,
                 chromeVisibility: request.chromeVisibility,
-                preloadInitialNavigationInBackground: true,
+                preloadInitialNavigationInBackground: request.preloadInitialNavigationInBackground,
                 transparentBackground: request.transparentBackground,
                 bypassRemoteProxy: request.bypassRemoteProxy,
+                allowsExternalBrowserFallback: request.allowsExternalBrowserFallback,
                 focus: false
             ) else {
                 return nil

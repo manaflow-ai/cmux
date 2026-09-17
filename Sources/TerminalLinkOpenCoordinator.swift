@@ -271,7 +271,11 @@ struct TerminalLinkOpenCoordinator {
         deferOperation { [self] in
             let currentContainer = self.containerResolver(request.sourceWorkspaceId, sourcePanelId)
             let openedInBrowser = BrowserAvailabilitySettings.isEnabled(defaults: self.defaults)
-                && currentContainer?.openTerminalBrowserLink(url: url, sourcePanelId: sourcePanelId) == true
+                && currentContainer?.openTerminalBrowserLink(
+                    url: url,
+                    sourcePanelId: sourcePanelId,
+                    placement: BrowserLinkOpenSettings.terminalLinkBrowserPlacement(defaults: self.defaults)
+                ) == true
             if openedInBrowser { return }
             self.log("link.openURL embedded open failed, opening externally host=\(host) surfaceId=\(sourcePanelId) url=\(url)")
             if !self.externalOpen(url) { NSSound.beep() }

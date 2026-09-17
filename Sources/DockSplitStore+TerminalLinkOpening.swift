@@ -1,5 +1,6 @@
 import AppKit
 import CmuxPanes
+import CmuxSettings
 import Foundation
 
 extension DockSplitStore: TerminalLinkOpenContainer {
@@ -38,39 +39,24 @@ extension DockSplitStore: TerminalLinkOpenContainer {
         false
     }
 
-    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID) -> Bool {
+    func openTerminalBrowserLink(
+        url: URL,
+        sourcePanelId: UUID,
+        placement: TerminalLinkBrowserPlacement
+    ) -> Bool {
         guard let panelId = panelID(forTerminalLinkSourceID: sourcePanelId),
-              let sourcePane = paneId(forPanelId: panelId) else { return false }
-        if let targetPane = BrowserRightSidePaneResolver().preferredPane(
-            from: sourcePane,
-            in: bonsplitController
-        ) {
-            noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
-            guard let panelId = newSurface(
-                kind: .browser,
-                inPane: targetPane,
-                url: url,
-                focus: false
-            ) else { return false }
-            focusPanelFromDockInteraction(
-                panelId,
-                window: NSApp.keyWindow ?? NSApp.mainWindow
-            )
-            return true
-        }
+              paneId(forPanelId: panelId) != nil else { return false }
         noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
-        guard let panelId = newSplit(
-            kind: .browser,
-            orientation: .horizontal,
-            insertFirst: false,
-            sourcePanelId: panelId,
+        let request = BrowserSplitRequest(
             url: url,
-            focus: false
-        ) else { return false }
-        focusPanelFromDockInteraction(
-            panelId,
-            window: NSApp.keyWindow ?? NSApp.mainWindow
+            focus: true,
+            preloadInitialNavigationInBackground: false,
+            allowsExternalBrowserFallback: false
         )
-        return true
+        return BrowserSplitContainer.dock(self).openTerminalLink(
+            from: panelId,
+            request: request,
+            placement: placement
+        ) != nil
     }
 }

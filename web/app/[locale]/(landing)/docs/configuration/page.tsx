@@ -94,6 +94,7 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //   "customSearchEngineName": "My Search",
   //   "customSearchEngineURLTemplate": "https://search.example.com/?q={query}",
   //   "openTerminalLinksInCmuxBrowser": true,
+  //   "terminalLinkBrowserPlacement": "reuseOrSplit",
   //   "hostsToOpenInEmbeddedBrowser": ["localhost", "*.internal.example"]
   // },
 

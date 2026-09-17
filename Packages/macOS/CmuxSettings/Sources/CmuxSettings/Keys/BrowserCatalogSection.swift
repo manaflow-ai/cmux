@@ -65,6 +65,13 @@ public struct BrowserCatalogSection: SettingCatalogSection {
         userDefaultsKey: "browserOpenTerminalLinksInCmuxBrowser"
     )
 
+    /// Placement used after a terminal link has been routed to the embedded browser.
+    public let terminalLinkBrowserPlacement = DefaultsKey<TerminalLinkBrowserPlacement>(
+        id: "browser.terminalLinkBrowserPlacement",
+        defaultValue: .reuseOrSplit,
+        userDefaultsKey: "browserTerminalLinkBrowserPlacement"
+    )
+
     public let interceptTerminalOpenCommandInCmuxBrowser = DefaultsKey<Bool>(
         id: "browser.interceptTerminalOpenCommandInCmuxBrowser",
         defaultValue: true,

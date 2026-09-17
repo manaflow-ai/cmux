@@ -11,6 +11,30 @@ terminal's original process group. Use `password` or `cmuxOnly` when untrusted
 code may run inside a cmux terminal. `allowAll` also grants
 access to other local macOS users and is unsafe on a shared Mac.
 
+## `browser.terminalLinkBrowserPlacement`
+
+Controls where clicked terminal links and intercepted `open` commands land when
+routed to the embedded browser. Choose the setting in **Settings > Browser** or
+in `cmux.json`.
+
+```json
+{
+  "browser": {
+    "openTerminalLinksInCmuxBrowser": true,
+    "terminalLinkBrowserPlacement": "samePane"
+  }
+}
+```
+
+- `reuseOrSplit` (default): reuse the nearest pane on the right, or create
+  a browser split when none is available.
+- `samePane`: open a new browser tab in the pane containing the terminal link.
+- `split`: always create a new browser split.
+
+Explicit external URL rules and the embedded-browser host allowlist are applied
+before placement, so links routed outside cmux continue to use the system
+browser. Explicit browser navigation and split commands keep their behavior.
+
 ## `mobile.artifactFolderAccess`
 
 Controls which files and folders cmux on iOS may browse after a chat references a directory or a directory path appears in a terminal.
