@@ -145,18 +145,14 @@ def main():
     if not ARGS.built_sha:
         run('az','acr','build','--subscription',ARGS.subscription,'-r',ARGS.registry,'-t',build_tag,'-f','Dockerfile',str(ROOT),capture=False)
     else:
-        # ACR tags are commonly shortened for operator readability. Resolve the
-        # full immutable commit tag first, then its exact 12-character prefix.
-        candidates = [build_tag, *(f'relay:{sha[:length]}' for length in range(8, 17))]
-        for candidate in candidates:
-            try:
-                digest = az('acr','repository','show','-n',ARGS.registry,'--image',candidate)['digest']
-                build_tag = candidate
-                break
-            except subprocess.CalledProcessError:
-                continue
-        else:
+        # Resolve the immutable ACR tag once. Operators may publish either the
+        # full SHA or a short prefix, so avoid one slow failed REST call per
+        # candidate during every regional rollout.
+        tags = az('acr', 'repository', 'show-tags', '-n', ARGS.registry, '--repository', 'relay', '--orderby', 'time_desc')
+        tag = next((tag for tag in tags if sha.startswith(tag) or tag.startswith(sha[:8])), None)
+        if tag is None:
             raise RuntimeError(f'no immutable relay image tag found for {sha}')
+        build_tag = f'relay:{tag}'
     digest=az('acr','repository','show','-n',ARGS.registry,'--image',build_tag)['digest']
     image=f'{registry["loginServer"]}/relay@{digest}'
     tags=az('acr','repository','list','-n',ARGS.registry)
