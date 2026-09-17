@@ -4300,8 +4300,25 @@ fn write_wg_hub_config(dir: &std::path::Path, mode: u32) -> PathBuf {
 #[cfg(unix)]
 #[test]
 fn wg_hub_reports_readiness_and_removes_its_socket_on_sigterm() {
+    use base64::Engine as _;
+
+    let runtime =
+        tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap();
+    let pair = runtime.block_on(cmux_wg::testing::loopback_pair()).unwrap();
+    let endpoint = pair.client.endpoint.as_ref().unwrap();
     let dir = TestTempDir::create("wg-hub");
-    let config = write_wg_hub_config(dir.path(), 0o600);
+    let config = dir.path().join("wg.conf");
+    fs::write(&config, format!(
+        "[Interface]\nPrivateKey = {}\nAddress = {}/32\nMTU = 1200\n\n[Peer]\nPublicKey = {}\nAllowedIPs = 10.0.0.0/8, fd00::/8\nEndpoint = {}:{}\n",
+        base64::engine::general_purpose::STANDARD.encode(*pair.client.private_key),
+        pair.client_v4,
+        base64::engine::general_purpose::STANDARD.encode(pair.client.peer_public_key),
+        endpoint.host, endpoint.port,
+    )).unwrap();
+    fs::set_permissions(&config, fs::Permissions::from_mode(0o600)).unwrap();
+    // Readiness now requires authenticated WireGuard, so keep a real loopback
+    // peer alive instead of pointing the hub at the discard port.
+    let peer = runtime.block_on(cmux_wg::WgNet::start(pair.server, pair.server_socket)).unwrap();
     let socket = dir.path().join("hub").join("wg.sock");
     let mut child = Command::new(bin())
         .args(["wg", "hub", "--config"])
@@ -4356,6 +4373,7 @@ fn wg_hub_reports_readiness_and_removes_its_socket_on_sigterm() {
     };
     assert!(status.success(), "hub exited unsuccessfully after SIGTERM: {status}");
     assert!(!socket.exists(), "hub must remove its socket on exit");
+    runtime.block_on(peer.shutdown());
 }
 
 #[cfg(unix)]
