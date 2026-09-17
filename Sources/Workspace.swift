@@ -14607,8 +14607,11 @@ extension Workspace: BonsplitDelegate {
             ) { [weak self] in
                 guard let self else { return }
                 self.bonsplitController.focusPane(pane)
-                guard let panel = self.selectedTerminalPanel(inPane: pane) else { return }
-                CmuxConfigExecutor.deliver(payload, to: panel)
+                guard let panel = self.selectedTerminalPanel(inPane: pane),
+                      CmuxConfigExecutor.deliver(payload, to: panel) else {
+                    NSSound.beep()
+                    return
+                }
             }
             return
         }

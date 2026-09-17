@@ -191,7 +191,10 @@ struct CmuxConfigExecutor {
             iconSourcePath: iconSourcePath,
             presentingWindow: presentingWindow
         ) {
-            deliver(payload, to: targetTerminal)
+            guard deliver(payload, to: targetTerminal) else {
+                NSSound.beep()
+                return
+            }
             onExecuted?()
         }
     }
