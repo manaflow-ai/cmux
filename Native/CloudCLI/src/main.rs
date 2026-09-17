@@ -240,7 +240,10 @@ fn run() -> CliResult<()> {
     let json_from_args = take_flag_before_terminator(&mut args, "--json");
     let ctx = CloudContext::from_env(json_from_args)?;
     let before_separator = args.split(|arg| arg == "--").next().unwrap_or(&[]);
-    if before_separator.iter().any(|arg| arg == "--help" || arg == "-h") {
+    if before_separator
+        .iter()
+        .any(|arg| arg == "--help" || arg == "-h")
+    {
         return exec_parent_vm(&ctx, &args);
     }
     let subcommand = args.first().map(|arg| arg.to_ascii_lowercase());
@@ -321,8 +324,16 @@ fn run_destroy(ctx: &CloudContext, args: &[String]) -> CliResult<()> {
 fn exec_timeout_seconds(raw: Option<&str>) -> CliResult<u64> {
     match raw {
         None => Ok(30),
-        Some(raw) => raw.parse::<u64>().ok().filter(|seconds| (1..=900).contains(seconds))
-            .ok_or_else(|| CliError::exit("cloud exec: --timeout must be a whole number of seconds between 1 and 900", 2)),
+        Some(raw) => raw
+            .parse::<u64>()
+            .ok()
+            .filter(|seconds| (1..=900).contains(seconds))
+            .ok_or_else(|| {
+                CliError::exit(
+                    "cloud exec: --timeout must be a whole number of seconds between 1 and 900",
+                    2,
+                )
+            }),
     }
 }
 
