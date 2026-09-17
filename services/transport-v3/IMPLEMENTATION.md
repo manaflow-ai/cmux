@@ -109,3 +109,25 @@ seamless upgrades, observability, security audit, and real end-to-end proof.
   mDNS; this is not evidence of working IPv6 transport and must not be hidden.
 - The audit is only a dependency checkpoint. Application threat-model review,
   deployment configuration audit, and all final-state E2E requirements remain.
+
+## Azure staging checkpoint
+
+- Created resource group cmux-v3-staging-shared and registry cmuxv3relaystaging
+  in subscription a428770c-842f-42b8-b23c-cabe9003b47c. No production resources
+  were changed. Staging signer seed and SSH key live in private operator storage.
+- ACR run ca1 built source 410f72d2ead26e3829fd794ce8aaa2c64d650c9c. Image:
+  cmuxv3relaystaging.azurecr.io/relay@sha256:e9de99f3b238885a1a58a54b66d6ebc0f800f6416f3117df9cf0b508ae04065d
+- Imported Caddy 2.11.4 for WSS/TLS. The deployment only transfers public authority
+  keys; each VM generates its private node identity and management token locally.
+- First VM request failed: Standard_B2s unavailable in eastus. D2as_v5 is also
+  restricted for this subscription in eastus and westeurope. Querying the full
+  regional SKU inventories before selecting a supported size. No relay VM was
+  created by those requests. Network/identity resources are retained for reuse.
+- Fixed Azure CLI empty-success JSON handling and cwd-relative dirty-tree check.
+  Deployment resumes from the existing image with --built-sha; no rebuild needed.
+- Added a live relay probe which generates endpoint keys on the leased host and
+  receives short-lived test grants signed on the operator machine. It transfers
+  320 KiB each direction and checks forged-grant denial; not yet run on Azure.
+- Very short offline leases now request correspondingly fresher Stack evidence.
+  Non-local Postgres connections require verified TLS. Neither change is in the
+  already-built relay image; the relay binary itself was unchanged.
