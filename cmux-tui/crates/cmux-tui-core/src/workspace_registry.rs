@@ -79,9 +79,9 @@ use resource_store::{
     apply_resource_patch, complete_terminal_close_patch, create_resource_schema,
     initialize_resource_mutation_retention, migrate_legacy_display_names,
     migrate_resource_agent_projections, migrate_resource_browser_metadata,
-    migrate_resource_mutations_to_session_scope,
-    migrate_resource_tabs_to_multiview, repair_dangling_terminal_resources,
-    resource_tabs_needs_multiview_normalization, validate_resource_invariants,
+    migrate_resource_mutations_to_session_scope, migrate_resource_tabs_to_multiview,
+    repair_dangling_terminal_resources, resource_tabs_needs_multiview_normalization,
+    validate_resource_invariants,
 };
 pub use session_journal::{
     JournalAuthority, JournalClass, JournalProducer, JournalReplayPolicy, JournalSensitivity,
