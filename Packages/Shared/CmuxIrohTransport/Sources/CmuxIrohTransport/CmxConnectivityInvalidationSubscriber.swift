@@ -1,3 +1,4 @@
+import CMUXMobileCore
 public import Foundation
 
 /// Revision-only message carried by the account connectivity channel.
@@ -64,9 +65,9 @@ public actor CmxConnectivityInvalidationSubscriber {
     /// down are never replayed by the channel).
     public typealias StreamEventObserver = @Sendable (String) async -> Void
 
-    private enum StreamOutcome {
+    private enum StreamOutcome: Equatable {
         case served
-        case failed
+        case failed(retryAfterSeconds: Int?)
     }
 
     /// Cadence of the zombie-detection pings. Long enough to stay quiet,
@@ -148,10 +149,15 @@ public actor CmxConnectivityInvalidationSubscriber {
         while !Task.isCancelled {
             let outcome = await subscribeOnce()
             guard !Task.isCancelled else { return }
-            if outcome == .served {
+            let retryAfterSeconds: Int?
+            switch outcome {
+            case .served:
                 backoff.reset()
+                retryAfterSeconds = nil
+            case .failed(let serverFloor):
+                retryAfterSeconds = serverFloor
             }
-            let delay = backoff.nextDelay()
+            let delay = backoff.nextDelay(retryAfterSeconds: retryAfterSeconds)
             guard (try? await sleep(delay)) != nil else { return }
         }
     }
@@ -159,11 +165,11 @@ public actor CmxConnectivityInvalidationSubscriber {
     private func subscribeOnce() async -> StreamOutcome {
         guard let url = Self.subscribeURL(serviceBaseURL: serviceBaseURL) else {
             await onStreamEvent?("failed cause=invalid_url")
-            return .failed
+            return .failed(retryAfterSeconds: nil)
         }
         guard let token = await accessToken(), !token.isEmpty else {
             await onStreamEvent?("failed cause=no_token")
-            return .failed
+            return .failed(retryAfterSeconds: nil)
         }
         var request = URLRequest(url: url)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -214,11 +220,12 @@ public actor CmxConnectivityInvalidationSubscriber {
                     }
                     let closedCleanly = task.closeCode == .normalClosure
                         || task.closeCode == .goingAway
+                    let retryAfterSeconds = Self.retryAfterSeconds(from: task)
                     let outcome: StreamOutcome = closedCleanly && clock.now - startedAt >= .seconds(60)
                         ? .served
-                        : .failed
+                        : .failed(retryAfterSeconds: retryAfterSeconds)
                     await onStreamEvent?(
-                        "\(outcome == .served ? "served" : "failed") close=\(closeCode) error=\(String(describing: error))"
+                        "\(outcome == .served ? "served" : "failed") close=\(closeCode) retry_after_s=\(retryAfterSeconds.map(String.init) ?? "-") error=\(String(describing: error))"
                     )
                     return outcome
                 }
@@ -230,11 +237,11 @@ public actor CmxConnectivityInvalidationSubscriber {
                     data = bytes
                 @unknown default:
                     await onStreamEvent?("failed cause=unknown_message_kind")
-                    return .failed
+                    return .failed(retryAfterSeconds: nil)
                 }
                 guard let invalidation = try? CmxConnectivityInvalidation.parse(data) else {
                     await onStreamEvent?("failed cause=bad_frame bytes=\(data.count)")
-                    return .failed
+                    return .failed(retryAfterSeconds: nil)
                 }
                 guard !Task.isCancelled else { return .served }
                 delivered = true
@@ -244,5 +251,16 @@ public actor CmxConnectivityInvalidationSubscriber {
         } onCancel: {
             task.cancel(with: .goingAway, reason: nil)
         }
+    }
+
+    private static func retryAfterSeconds(
+        from task: URLSessionWebSocketTask
+    ) -> Int? {
+        guard let response = task.response as? HTTPURLResponse,
+              response.statusCode == 429 else { return nil }
+        return CmxRetryAfterPolicy.seconds(
+            from: response,
+            defaultSeconds: CmxRetryAfterPolicy.defaultRateLimitSeconds
+        )
     }
 }

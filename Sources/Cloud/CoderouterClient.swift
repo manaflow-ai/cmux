@@ -102,6 +102,8 @@ actor CoderouterClient {
 
     /// Adds an account. Returns `{ teamId, account, accountsTotal }`.
     func addClaudeAccount(_ input: ClaudeUpstreamInput, label: String?, teamID: String?) async throws -> JSONValue {
+        // `DisableAICredentialUpload` (MDM): the input carries the credential.
+        guard ManagedAICredentialUploadPolicy.isEnabled else { throw ManagedAICredentialUploadPolicy.refusalError() }
         let (data, http) = try await request(
             "POST",
             path: "/api/coderouter/claude-upstream",
@@ -177,6 +179,9 @@ actor CoderouterClient {
         jsonBody: [String: Any]? = nil,
         teamID explicitTeamID: String?
     ) async throws -> (Data, HTTPURLResponse) {
+        // `DisableCloud` (MDM): fail closed before any token or network work,
+        // whichever entry point asked.
+        guard ManagedCloudPolicy.isEnabled else { throw VMClientError.disabledByManagedPolicy }
         let tokens: (accessToken: String, refreshToken: String)
         do {
             tokens = try await auth.currentTokens()

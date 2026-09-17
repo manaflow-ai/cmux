@@ -740,6 +740,22 @@ jobs:
           /tmp/cmux-tui-wheel-smoke/bin/python -m pip install --no-index --find-links dist/pypi-wheels cmux=="$PYPI_VERSION"
           /tmp/cmux-tui-wheel-smoke/bin/cmux --help >/tmp/cmux-help.txt
           grep -i usage /tmp/cmux-help.txt
+          CMUX_TUI_WHEEL_PROBE="$(/tmp/cmux-tui-wheel-smoke/bin/cmux remote-probe --json)"
+          CMUX_TUI_EXPECTED_BUILD_IDENTITY="$(git rev-parse HEAD)"
+          export CMUX_TUI_WHEEL_PROBE CMUX_TUI_EXPECTED_BUILD_IDENTITY
+          python3 - <<'PY'
+          import json
+          import os
+
+          probe = json.loads(os.environ["CMUX_TUI_WHEEL_PROBE"])
+          expected = {
+              "build_identity": os.environ["CMUX_TUI_EXPECTED_BUILD_IDENTITY"],
+              "distribution_version": os.environ["NPM_VERSION"],
+          }
+          for key, value in expected.items():
+              if probe.get(key) != value:
+                  raise SystemExit(f"installed wheel {key} {probe.get(key)!r} != {value!r}")
+          PY
 
       - name: Upload npm package directories
         if: inputs.package_npm

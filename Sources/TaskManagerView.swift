@@ -175,7 +175,7 @@ struct CmuxTaskManagerView: View {
     private func sortIndicator(for column: CmuxTaskManagerSortOrder.Column) -> some View {
         let isActive = model.sortOrder.column == column
         let imageName = model.sortOrder.direction == .ascending ? "chevron.up" : "chevron.down"
-        return CmuxSystemSymbolImage(magnified: imageName, pointSize: 8, weight: .bold)
+        return CmuxSystemSymbolImage(magnified: imageName, pointSize: 8, weight: .bold, tint: isActive ? .primary : .secondary)
             .opacity(isActive ? 1 : 0)
             .frame(width: 8)
             .accessibilityHidden(true)
@@ -472,8 +472,7 @@ struct CmuxTaskManagerRowView: View, Equatable {
             ))
             .frame(width: 14, height: 14)
         } else {
-            CmuxSystemSymbolImage(magnified: row.kind.systemImage, pointSize: 12)
-                .foregroundStyle(row.kind.tint)
+            CmuxSystemSymbolImage(magnified: row.kind.systemImage, pointSize: 12, tint: row.kind.tint)
                 .frame(width: 14)
         }
     }

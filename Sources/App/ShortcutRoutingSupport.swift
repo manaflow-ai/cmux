@@ -957,8 +957,7 @@ func shouldSuppressWindowMoveForFolderDrag(window: NSWindow, event: NSEvent) -> 
         return false
     }
 
-    let contentPoint = contentView.convert(event.locationInWindow, from: nil)
-    let hitView = contentView.hitTest(contentPoint)
+    let hitView = contentView.cmuxHitTest(windowPoint: event.locationInWindow)
     return shouldSuppressWindowMoveForFolderDrag(hitView: hitView)
 }
 

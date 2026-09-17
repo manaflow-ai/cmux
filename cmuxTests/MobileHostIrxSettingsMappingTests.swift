@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxIrxTransport
 import Foundation
 import Testing
 
@@ -162,5 +163,113 @@ struct MobileHostIrxSettingsMappingTests {
         await #expect(throws: Never.self) {
             try await runtime.setIrohRelayPreference(.automatic)
         }
+    }
+}
+
+/// The irx activation retry ladder must honor a broker `Retry-After` floor.
+/// Before this coverage, a 429 on `/api/devices/iroh/challenge` was retried on
+/// a fixed 5 s cadence (35 rejected mints in 3 minutes on one Mac).
+struct MobileHostIrxActivationRetryTests {
+    @Test func firstFailureWithoutServerFloorWaitsTheBaseDelay() {
+        let delay = MobileHostIrxRuntime.activationRetryDelay(
+            after: URLError(.notConnectedToInternet),
+            failureCount: 0,
+            jitterUnitInterval: 0
+        )
+        #expect(delay == 5)
+    }
+
+    @Test func retryAfterFloorWinsOverTheBaseDelay() {
+        let delay = MobileHostIrxRuntime.activationRetryDelay(
+            after: CmxRateLimitedError(retryAfterSeconds: 60),
+            failureCount: 0,
+            jitterUnitInterval: 0
+        )
+        #expect(delay == 60)
+    }
+
+    @Test func repeatedFailuresDoubleUpToTheCap() {
+        let third = MobileHostIrxRuntime.activationRetryDelay(
+            after: URLError(.timedOut), failureCount: 2, jitterUnitInterval: 0
+        )
+        let capped = MobileHostIrxRuntime.activationRetryDelay(
+            after: URLError(.timedOut), failureCount: 20, jitterUnitInterval: 0
+        )
+        #expect(third == 20)
+        #expect(capped == MobileHostIrxRuntime.maximumActivationRetryDelay)
+    }
+
+    @Test func jitterAddsAtMostAQuarterOfTheDelay() {
+        let delay = MobileHostIrxRuntime.activationRetryDelay(
+            after: CmxRateLimitedError(retryAfterSeconds: 60),
+            failureCount: 0,
+            jitterUnitInterval: 1
+        )
+        #expect(delay == 75)
+    }
+}
+
+@MainActor
+struct MobileHostV2ConfigurationTests {
+    @Test func emptyPackagedOverridesUseTheBuiltInWorker() throws {
+        try withBlankReleaseBundle { bundle, defaults in
+            let configuration = try MobileHostV2Configuration.current(
+                values: [:], defaults: defaults, bundle: bundle
+            )
+            #if DEBUG
+            #expect(configuration.environment == "development")
+            #expect(configuration.baseURL.absoluteString == "https://cmux-iroh-v2-development.debussy.workers.dev")
+            #else
+            #expect(configuration.environment == "production")
+            #expect(configuration.baseURL.absoluteString == "https://cmux-iroh-v2.debussy.workers.dev")
+            #endif
+        }
+    }
+
+    @Test func blankOverridesDoNotMaskTheProductionEnvironment() throws {
+        try withBlankReleaseBundle { bundle, defaults in
+            defaults.set("production", forKey: "cmux.iroh.v2.config.CMUX_IROH_V2_ENVIRONMENT")
+            let configuration = try MobileHostV2Configuration.current(
+                values: ["CMUX_IROH_V2_ENVIRONMENT": " \n", "CMUX_IROH_V2_BASE_URL": ""],
+                defaults: defaults,
+                bundle: bundle
+            )
+            #expect(configuration.environment == "production")
+            #expect(configuration.baseURL.absoluteString == "https://cmux-iroh-v2.debussy.workers.dev")
+        }
+    }
+
+    @Test func unknownEnvironmentCannotSelectTheDevelopmentWorker() throws {
+        try withBlankReleaseBundle { bundle, defaults in
+            #expect(throws: V2ControlFailure.scopeMismatch) {
+                try MobileHostV2Configuration.current(
+                    values: ["CMUX_IROH_V2_ENVIRONMENT": "produciton"],
+                    defaults: defaults,
+                    bundle: bundle
+                )
+            }
+        }
+    }
+
+    private func withBlankReleaseBundle(
+        _ body: (Bundle, UserDefaults) throws -> Void
+    ) throws {
+        let identifier = "com.cmuxterm.configuration-test.\(UUID().uuidString)"
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(identifier + ".bundle")
+        let defaults = try #require(UserDefaults(suiteName: identifier))
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            defaults.removePersistentDomain(forName: identifier)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let info: [String: String] = [
+            "CFBundleIdentifier": "com.cmuxterm.app.nightly",
+            "CMUX_IROH_V2_ENVIRONMENT": "",
+            "CMUX_IROH_V2_BASE_URL": ""
+        ]
+        try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+            .write(to: directory.appendingPathComponent("Info.plist"))
+        let bundle = try #require(Bundle(url: directory))
+        try body(bundle, defaults)
     }
 }
