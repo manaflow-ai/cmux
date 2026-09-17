@@ -178,5 +178,3 @@ class FakeCmuxState:
                 ]
             }
         raise RuntimeError(f"Unsupported fake cmux method: {method}")
-
-
