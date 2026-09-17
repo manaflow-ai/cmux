@@ -764,6 +764,8 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     assert "test-without-building" in app_host
     assert "Require compiled app-host test product" in app_host
     assert "macOS compile admission cache was not available; refusing to rebuild" in app_host
+    assert 'DERIVED_DATA_PATH="$RUNNER_TEMP/cmux-derived-data-compile-admission"' in app_host
+    assert 'github.run_id }}-shard-${{ matrix.shard }}' not in app_host
 
     # The focused shard and the logical unit-test batches must both reuse the
     # admission-produced product. A later test invocation that silently changes
@@ -1028,10 +1030,9 @@ def test_global_search_gate_requires_nonempty_successful_execution() -> None:
         assert result.returncode == expected_status, result.stdout + result.stderr
         assert invocations == 1, result.stdout
         assert "-only-testing:cmuxTests/GlobalSearchShortcutBehaviorTests" in result.stdout
-        # A plain `xcodebuild test` gate, like the other focused gates: the
-        # build-for-testing + test-without-building pair ahead of the batches
-        # left the following sharded xcodebuild silent until the job cap.
-        assert "test-without-building" not in result.stdout
+        # The compile admission job supplies the build products, so focused
+        # gates must use test-without-building just like the sharded batches.
+        assert "test-without-building" in result.stdout
 
 
 def test_app_host_rejects_failed_or_empty_shard_generation() -> None:

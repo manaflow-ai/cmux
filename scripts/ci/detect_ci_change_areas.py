@@ -96,9 +96,21 @@ def is_agent_session_web_change(path: str) -> bool:
 
 
 def is_macos_neutral(path: str) -> bool:
-    # `cmux-tui/` is the standalone cmux-tui Rust project, gated by its own `cmux-tui`
-    # workflow; it never affects the macOS app build or app-host tests.
-    if path.startswith(("docs/", "design/", "plans/", "ios/", "web/", "webviews/", "cmux-tui/")):
+    # `cmux-tui/` is the standalone cmux-tui Rust project, gated by its own
+    # workflow; `Packages/iOS/` and `ios/` are covered by the iOS workflow and
+    # do not affect the macOS app build or app-host tests.
+    if path.startswith(
+        (
+            "docs/",
+            "design/",
+            "plans/",
+            "ios/",
+            "Packages/iOS/",
+            "web/",
+            "webviews/",
+            "cmux-tui/",
+        )
+    ):
         return True
     return path == "README.md" or (path.startswith("README.") and path.endswith(".md"))
 

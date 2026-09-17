@@ -1289,7 +1289,9 @@ jobs:
             --execute
 
       - name: Publish nightly release assets
+        id: publish-nightly-attempt-1
         if: needs.decide.outputs.should_publish == 'true'
+        continue-on-error: true
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
         with:
           tag_name: ${{ needs.decide.outputs.release_tag }}
@@ -1315,6 +1317,47 @@ jobs:
             nightly-out/appcast-universal.xml
             nightly-out/cmuxd-remote-*
           overwrite_files: true
+
+      - name: Retry nightly release asset publication
+        id: publish-nightly-attempt-2
+        if: needs.decide.outputs.should_publish == 'true' && steps.publish-nightly-attempt-1.outcome == 'failure'
+        continue-on-error: true
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+        with:
+          tag_name: ${{ needs.decide.outputs.release_tag }}
+          name: ${{ needs.decide.outputs.release_name }}
+          prerelease: true
+          make_latest: false
+          body: |
+            Automated ${{ needs.decide.outputs.channel }} build for `${{ needs.decide.outputs.short_sha }}` from `${{ github.ref_name }}`.
+            **${{ needs.decide.outputs.app_name }}** ships one app per architecture (bundle ID `${{ needs.decide.outputs.bundle_id }}`):
+            - [Apple silicon: ${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg), feed `appcast-arm64.xml`
+            - [Intel: ${{ needs.decide.outputs.dmg_prefix }}-x86_64.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}-x86_64.dmg), feed `appcast-x86_64.xml`
+            - [Universal (any Mac): ${{ needs.decide.outputs.dmg_prefix }}.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}.dmg), feed `appcast.xml`; the app switches to its architecture's feed on the first update check
+          files: |
+            nightly-out/${{ needs.decide.outputs.dmg_prefix }}-*-${{ github.run_id }}*.dmg
+            nightly-out/${{ needs.decide.outputs.dmg_prefix }}-*-${{ github.run_id }}*.delta
+            nightly-out/${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg
+            nightly-out/${{ needs.decide.outputs.dmg_prefix }}-x86_64.dmg
+            nightly-out/${{ needs.decide.outputs.dmg_prefix }}-universal.dmg
+            nightly-out/${{ needs.decide.outputs.dmg_prefix }}.dmg
+            nightly-out/appcast.xml
+            nightly-out/appcast-arm64.xml
+            nightly-out/appcast-x86_64.xml
+            nightly-out/appcast-universal.xml
+            nightly-out/cmuxd-remote-*
+          overwrite_files: true
+
+      - name: Require nightly release asset publication
+        if: >-
+          ${{
+            needs.decide.outputs.should_publish == 'true'
+            && steps.publish-nightly-attempt-1.outcome == 'failure'
+            && steps.publish-nightly-attempt-2.outcome != 'success'
+          }}
+        run: |
+          echo "Nightly release asset publication failed twice; refusing to update feeds or the channel tag." >&2
+          exit 1
 
       - name: Upload nightly appcasts to R2
         if: needs.decide.outputs.should_publish == 'true'
