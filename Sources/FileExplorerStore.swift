@@ -854,6 +854,11 @@ final class FileExplorerStore: ObservableObject {
     }
 
     func materializeRemoteFileForPreview(path: String) async throws -> URL {
+        // `DisableFileTransfer` (MDM): a preview copies the file off the remote
+        // host onto this Mac, which is a cmux-mediated download.
+        guard !ManagedFileTransferPolicy.isDisabled else {
+            throw ManagedFileTransferPolicy.refusalError()
+        }
         guard let sshProvider = provider as? SSHFileExplorerProvider else {
             throw FileExplorerError.providerUnavailable
         }

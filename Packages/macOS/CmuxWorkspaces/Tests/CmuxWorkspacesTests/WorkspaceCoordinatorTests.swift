@@ -903,6 +903,105 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
+    func createWorkspaceGroupWithExternalIDReturnsOneAtomicGroup() {
+        let (model, host, groups, _) = makeWorld()
+        _ = host
+        model.tabs = [CoordinatorStubTab()]
+        guard let first = groups.createWorkspaceGroup(
+            name: "Ops",
+            selectAnchor: false,
+            collapseSidebarSelection: false,
+            externalID: "repo:cmux"
+        ) else {
+            Issue.record("first idempotent group create failed")
+            return
+        }
+        let tabCountAfterFirstCreate = model.tabs.count
+
+        guard let second = groups.createWorkspaceGroup(
+            name: "A different display name",
+            selectAnchor: false,
+            collapseSidebarSelection: false,
+            externalID: " repo:cmux "
+        ) else {
+            Issue.record("idempotent retry did not return the existing group")
+            return
+        }
+
+        // The coordinator receives normalized identities from the control
+        // boundary; direct callers should pass the same canonical value. The
+        // second call must not mint another anchor or group.
+        #expect(second == first)
+        #expect(model.workspaceGroups.count == 1)
+        #expect(model.tabs.count == tabCountAfterFirstCreate)
+        #expect(model.workspaceGroups.first?.idempotencyKey == "repo:cmux")
+    }
+
+    @Test
+    func ungroupCanRemoveOnlyAGeneratedAnchor() {
+        let (model, host, groups, _) = makeWorld()
+        model.tabs = [CoordinatorStubTab(), CoordinatorStubTab()]
+        guard let groupID = groups.createWorkspaceGroup(
+            name: "Orphan",
+            selectAnchor: false,
+            collapseSidebarSelection: false,
+            externalID: "repo:orphan"
+        ) else {
+            Issue.record("generated-anchor group create failed")
+            return
+        }
+        guard let anchorID = model.workspaceGroups.first?.anchorWorkspaceId else {
+            Issue.record("generated-anchor group has no anchor")
+            return
+        }
+
+        let result = groups.ungroupWorkspaceGroup(
+            groupId: groupID,
+            removeGeneratedAnchor: true
+        )
+
+        #expect(result == .removedGeneratedAnchor(workspaceID: anchorID))
+        #expect(host.closedWorkspaceIds == [anchorID])
+        #expect(model.workspaceGroups.isEmpty)
+        #expect(!model.tabs.contains { $0.id == anchorID })
+    }
+
+    @Test
+    func generatedAnchorCleanupRejectsChildrenAndUserSelectedAnchors() {
+        let (model, host, groups, _) = makeWorld()
+        _ = host
+        let child = CoordinatorStubTab()
+        let other = CoordinatorStubTab()
+        model.tabs = [child, other]
+        guard let groupID = groups.createWorkspaceGroup(
+            name: "Guarded",
+            childWorkspaceIds: [child.id],
+            selectAnchor: false,
+            collapseSidebarSelection: false
+        ) else {
+            Issue.record("guarded group create failed")
+            return
+        }
+
+        #expect(groups.ungroupWorkspaceGroup(
+            groupId: groupID,
+            removeGeneratedAnchor: true
+        ) == .generatedAnchorRequiresAnchorOnly(memberWorkspaceCount: 1))
+        #expect(model.workspaceGroups.contains { $0.id == groupID })
+
+        guard let memberID = model.tabs.first(where: { $0.id == child.id })?.id else {
+            Issue.record("group member disappeared")
+            return
+        }
+        groups.setWorkspaceGroupAnchor(groupId: groupID, workspaceId: memberID)
+        #expect(groups.ungroupWorkspaceGroup(
+            groupId: groupID,
+            removeGeneratedAnchor: true
+        ) == .generatedAnchorNotOwned)
+        #expect(model.workspaceGroups.contains { $0.id == groupID })
+    }
+
+    @Test
     func createWorkspaceGroupRefusesForeignAnchorsAsChildren() {
         let (model, host, groups, _) = makeWorld()
         _ = host
@@ -1057,6 +1156,53 @@ struct WorkspaceCoordinatorTests {
 
         #expect(model.workspaceGroups.isEmpty)
         #expect(model.tabs.map(\.id) == [outside.id])
+    }
+
+    /// Closing the final workspace of a pinned group must leave the group
+    /// metadata available for a later explicit Delete Group action.
+    @Test
+    func pinnedAnchorClosePreservesEmptyGroup() throws {
+        let (model, host, groups, _) = makeWorld()
+        _ = host
+        let outside = CoordinatorStubTab()
+        model.tabs = [outside]
+        let groupId = try #require(groups.createWorkspaceGroup(name: "Pinned", childWorkspaceIds: []))
+        groups.setWorkspaceGroupPinned(groupId: groupId, isPinned: true)
+        let original = try #require(model.workspaceGroups.first { $0.id == groupId })
+        let anchorId = original.anchorWorkspaceId
+
+        if let index = model.tabs.firstIndex(where: { $0.id == anchorId }) {
+            model.tabs.remove(at: index)
+        }
+        model.promoteAnchorOrRemoveGroupsAnchoredBy(closedWorkspaceId: anchorId)
+
+        let surviving = try #require(model.workspaceGroups.first { $0.id == groupId })
+        #expect(surviving.name == original.name)
+        #expect(surviving.isPinned)
+        #expect(model.tabs.map(\.id) == [outside.id])
+    }
+
+    @Test
+    func addingWorkspaceToEmptyPinnedGroupPromotesItToAnchor() throws {
+        let (model, host, groups, _) = makeWorld()
+        _ = host
+        let outside = CoordinatorStubTab()
+        model.tabs = [outside]
+        let groupId = try #require(groups.createWorkspaceGroup(name: "Pinned", childWorkspaceIds: []))
+        groups.setWorkspaceGroupPinned(groupId: groupId, isPinned: true)
+        let emptyGroup = try #require(model.workspaceGroups.first { $0.id == groupId })
+        let anchorId = emptyGroup.anchorWorkspaceId
+        if let index = model.tabs.firstIndex(where: { $0.id == anchorId }) {
+            model.tabs.remove(at: index)
+        }
+        model.promoteAnchorOrRemoveGroupsAnchoredBy(closedWorkspaceId: anchorId)
+
+        let newWorkspace = CoordinatorStubTab()
+        model.tabs.append(newWorkspace)
+        groups.addWorkspaceToGroup(workspaceId: newWorkspace.id, groupId: groupId)
+
+        #expect(model.workspaceGroups.first { $0.id == groupId }?.anchorWorkspaceId == newWorkspace.id)
+        #expect(newWorkspace.groupId == groupId)
     }
 
     /// If the snapshot anchor is closed while the Delete Group confirmation is

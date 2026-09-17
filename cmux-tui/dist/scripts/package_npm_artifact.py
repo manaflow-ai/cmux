@@ -14,7 +14,12 @@ from package_contract import PackageContractError, npm_executable_files, validat
 
 PACKAGE_ROOT = "npm-packages"
 MAX_MEMBERS = 1_024
-MAX_EXPANDED_BYTES = 512 * 1024 * 1024
+# Tar-bomb guard on the AGGREGATE four-platform archive, not a product
+# size budget (each install downloads exactly one platform package via
+# optionalDependencies). 512 MiB became too small once the Rust relay
+# binaries (chatmux-relay, cmux-relay) started riding every platform
+# package.
+MAX_EXPANDED_BYTES = 768 * 1024 * 1024
 
 
 def verify_executables(packages_dir: Path) -> None:

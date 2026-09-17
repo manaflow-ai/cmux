@@ -643,7 +643,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "cmux vm-pty-attach --id abcd1234",
             daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint(
                 url: "wss://sandbox.example/rpc",
-                headers: ["e2b-traffic-access-token": "header-a"],
+                headers: ["x-cloud-traffic-token": "header-a"],
                 token: "token-a",
                 sessionId: "sess-a",
                 expiresAtUnix: 1_800_000_000
@@ -664,7 +664,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "cmux vm-pty-attach --id abcd1234",
             daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint(
                 url: "wss://sandbox.example/rpc",
-                headers: ["e2b-traffic-access-token": "header-b"],
+                headers: ["x-cloud-traffic-token": "header-b"],
                 token: "token-b",
                 sessionId: "sess-b",
                 expiresAtUnix: 1_800_000_100
@@ -5971,6 +5971,13 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             )
         }
         guard result == 0 else {
+            // Darwin reports EINVAL for SO_RCVTIMEO / SO_SNDTIMEO once the peer
+            // has already torn the connection down (the bridge answers and
+            // closes right after a half-close). The timeout only bounds the
+            // read that follows, and that read returns EOF immediately on such
+            // a socket, so treat this as "nothing left to bound" rather than a
+            // thrown error that XCTest counts as an unexpected failure.
+            if errno == EINVAL { return }
             throw posixError("setsockopt")
         }
     }

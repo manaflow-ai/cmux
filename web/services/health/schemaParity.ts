@@ -10,9 +10,10 @@ import { jsonResponse } from "../vms/routeHelpers";
  * (web/db/migrations/<name>/migration.sql) against the migrations recorded as
  * applied in the database.
  *
- * drizzle-orm's node-postgres migrator (used by scripts/migrate-aws-rds-iam.ts
- * and scripts/cloud-vm/migrate-vercel-aurora-iam.mjs) records applied
- * migrations in "drizzle"."__drizzle_migrations"
+ * drizzle-orm's node-postgres migrator (used by
+ * scripts/cloud-vm/migrate-planetscale.mjs for the cmux PlanetScale
+ * PostgreSQL branches) records applied migrations in
+ * "drizzle"."__drizzle_migrations"
  * (id, hash, created_at bigint millis, name, applied_at). Pending migrations
  * are folder names absent from that table's "name" column; legacy rows written
  * before the "name" column existed are matched by folder-timestamp millis,

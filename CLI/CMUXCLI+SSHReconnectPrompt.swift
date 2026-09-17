@@ -3,11 +3,17 @@ import Darwin
 import Foundation
 
 extension CMUXCLI {
-    func sshAutoReconnectNoteFormat() -> String {
+    func sshAutoReconnectNoteFormat(discardsInput: Bool = false) -> String {
         let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
         let status = String(localized: "cli.ssh.autoReconnect.status", defaultValue: "[cmux] ssh exited with status %s; reconnecting (attempt %s/%s).", bundle: bundle)
         let stopHint = String(localized: "cli.ssh.autoReconnect.stopHint", defaultValue: "[cmux] close this pane or press Ctrl-C to stop reconnecting.", bundle: bundle)
-        return "\\n\\033[33m\(status)\\033[0m\\n\\033[2m\(stopHint)\\033[0m\\n"
+        let inputNotice = String(
+            localized: "cli.ssh.autoReconnect.inputDiscard",
+            defaultValue: "[cmux] input typed while disconnected is discarded.",
+            bundle: bundle
+        )
+        let inputLine = discardsInput ? "\\033[2m\(inputNotice)\\033[0m\\n" : ""
+        return "\\n\\033[33m\(status)\\033[0m\\n\(inputLine)\\033[2m\(stopHint)\\033[0m\\n"
     }
 
     /// Returns the localized success note printed after a transient SSH
