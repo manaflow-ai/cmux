@@ -48,7 +48,8 @@ import Testing
         // Menu and palette callers use this fallback when the shared action says it failed.
         if !accepted { _ = manager.createSplit(direction: direction) }
         await provider.creationAttemptSignal.wait()
-        await waitForFailure(workspace.cloudPaneCreationFailureStore)
+        let pendingPanelID = try #require(workspace.cloudPendingCreations.keys.first)
+        _ = try await waitForPaneFailure(workspace, panelID: pendingPanelID)
 
         #expect(accepted)
         #expect(provider.creationRequestCount == 1)
@@ -161,36 +162,38 @@ import Testing
         ))
 
         #expect(workspace.routeCloudPaneTerminalTab(inPane: paneID, focus: false))
+        let pendingPanelID = try #require(workspace.cloudPendingCreations.keys.first)
         await provider.creationAttemptSignal.wait()
-        await waitForFailure(workspace.cloudPaneCreationFailureStore)
+        let failure = try await waitForPaneFailure(workspace, panelID: pendingPanelID)
 
         #expect(NSApp.modalWindow == nil)
-        let failure = try #require(workspace.cloudPaneCreationFailureStore.failure)
-        #expect(failure.machine == machine)
-        #expect(!failure.errorText.isEmpty)
-        #expect(!failure.errorText.contains("connection refused"))
-        #expect(workspace.cloudPaneCreationFailureStore.canRetry)
+        #expect(workspace.cloudPaneCreationFailureStore.failure == nil)
+        #expect(workspace.cloudPendingCreations[pendingPanelID]?.machine == machine)
+        #expect(!failure.detail.isEmpty)
+        #expect(!failure.detail.contains("connection refused"))
+        #expect(failure.showsReconnectButton)
         var requestIterator = provider.creationRequests.stream.makeAsyncIterator()
         let firstRequest = await requestIterator.next()
-        workspace.cloudPaneCreationFailureStore.retry(id: failure.id)
+        #expect(workspace.retryReservedCloudTerminalPane(surfaceId: pendingPanelID))
         let retryRequest = await requestIterator.next()
-        await waitForFailure(workspace.cloudPaneCreationFailureStore)
+        _ = try await waitForPaneFailure(workspace, panelID: pendingPanelID)
         #expect(firstRequest != nil)
         #expect(retryRequest == firstRequest)
+        #expect(workspace.cloudPendingCreations.count == 1)
 
-        let retriedFailure = try #require(workspace.cloudPaneCreationFailureStore.failure)
-        workspace.cloudPaneCreationFailureStore.dismiss(id: retriedFailure.id)
-        #expect(workspace.cloudPaneCreationFailureStore.failure == nil)
+        #expect(workspace.closePanel(pendingPanelID, force: true))
+        #expect(workspace.cloudPendingCreations[pendingPanelID] == nil)
+        #expect(workspace.panels[pendingPanelID] == nil)
     }
 
-    @Test("A failed Cloud route never falls back to a local blank terminal")
-    func failedCloudRouteDoesNotCreateLocalPanel() throws {
+    @Test("A retained Cloud projection never falls back to a local terminal", arguments: ["split", "tab", "splitButton"])
+    func failedCloudRouteDoesNotCreateLocalPanel(action: String) throws {
         let harness = try Harness()
         defer { harness.tearDown() }
         let workspace = harness.workspace
         let paneID = try #require(workspace.bonsplitController.focusedPaneId)
         let sourcePanelID = try #require(workspace.focusedPanelId)
-        let machine = SurfaceMachineID.cloud("missing-provider-(UUID().uuidString)")
+        let machine = SurfaceMachineID.cloud("missing-provider-\(UUID().uuidString)")
         let remoteWorkspace = SurfaceRemoteWorkspace(id: "ws-missing-provider", name: "missing", index: 0, focused: true)
         let resource = SurfaceResource(
             id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term-missing-provider"),
@@ -200,9 +203,8 @@ import Testing
             port: nil, url: nil
         )
         let catalog = SurfaceCatalog.shared
-        // Keep the resource and projection visible, but omit its provider to
-        // model a link that disappeared between lookup and the split gesture.
-        catalog.upsert(resource)
+        // A restored projection keeps its Cloud identity before the provider
+        // reconnects and publishes its resource graph.
         catalog.record(SurfaceProjection(
             resource: resource.id,
             workspaceID: workspace.id,
@@ -212,17 +214,23 @@ import Testing
         ))
         defer {
             catalog.endProjections(panelID: sourcePanelID, reason: .replaced)
-            catalog.remove(resource.id)
         }
+        #expect(catalog.hasCloudProjection(panelID: sourcePanelID, workspaceID: workspace.id))
+        #expect(workspace.cloudProjectedResource(forPanel: sourcePanelID) == nil)
 
         let panelCount = workspace.panels.count
-        let outcome = workspace.newTerminalSplitOutcome(
-            from: sourcePanelID,
-            orientation: .horizontal,
-            focus: false
-        )
-        #expect(outcome.isAccepted == false)
+        switch action {
+        case "tab":
+            #expect(!workspace.newTerminalSurfaceOutcome(inPane: paneID, focus: false).isAccepted)
+        case "splitButton":
+            workspace.bonsplitController.splitPane(paneID, orientation: .horizontal)
+        default:
+            #expect(!workspace.newTerminalSplitOutcome(
+                from: sourcePanelID, orientation: .horizontal, focus: false
+            ).isAccepted)
+        }
         #expect(workspace.panels.count == panelCount)
+        #expect(workspace.bonsplitController.allPaneIds.count == 1)
         #expect(workspace.bonsplitController.tabs(inPane: paneID).count == 1)
     }
 
@@ -515,9 +523,10 @@ import Testing
         #expect(workspace.panelIdFromSurfaceId(selectedSurface) == before)
     }
 
-    private func waitForFailure(_ store: CloudPaneCreationFailureStore) async {
-        let deadline = ContinuousClock.now + .seconds(2)
-        while store.failure == nil, ContinuousClock.now < deadline { await Task.yield() }
+    private func waitForPaneFailure(_ workspace: Workspace, panelID: UUID) async throws -> CloudTerminalReconnectOverlayPolicy.Presentation {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while workspace.cloudMaterializationFailures[panelID] == nil, ContinuousClock.now < deadline { await Task.yield() }
+        return try #require(workspace.cloudTerminalReconnectOverlayPresentation(forSurfaceId: panelID))
     }
 
     @MainActor

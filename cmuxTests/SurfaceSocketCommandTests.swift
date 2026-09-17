@@ -127,6 +127,8 @@ struct SurfaceSocketCommandTests {
         let provider: FakeCloudProvider
         let manager: TabManager
         let workspaceID: UUID
+        let previousCloudOverride: Bool?
+        let previousCloudBeta: Any?
         static let wsA = SurfaceRemoteWorkspace(id: "ws_a", name: "alpha", index: 0, focused: true)
         static let wsB = SurfaceRemoteWorkspace(id: "ws_b", name: "beta", index: 1, focused: false)
         static let wsEmpty = SurfaceRemoteWorkspace(id: "ws_empty", name: "empty", index: 2, focused: false)
@@ -138,6 +140,11 @@ struct SurfaceSocketCommandTests {
 
         @MainActor
         init() {
+            let flags = CmuxFeatureFlags.shared
+            previousCloudOverride = flags.overrideValue(for: CmuxFeatureFlags.cloudMachinesFlag)
+            previousCloudBeta = UserDefaults.standard.object(forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+            UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+            flags.setOverride(true, for: CmuxFeatureFlags.cloudMachinesFlag)
             // Locals first: a nested helper must not capture `self` before every stored
             // property is initialized.
             let machineID = "sock-" + UUID().uuidString.lowercased().prefix(8)
@@ -187,6 +194,12 @@ struct SurfaceSocketCommandTests {
             TerminalController.shared.setActiveTabManager(nil)
             SurfaceCatalog.shared.unregister(machine: machine)
             manager.tabs.forEach { $0.teardownAllPanels() }
+            if let previousCloudBeta {
+                UserDefaults.standard.set(previousCloudBeta, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+            }
+            CmuxFeatureFlags.shared.setOverride(previousCloudOverride, for: CmuxFeatureFlags.cloudMachinesFlag)
         }
     }
 
