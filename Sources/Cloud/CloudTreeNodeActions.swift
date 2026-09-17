@@ -62,8 +62,7 @@ struct CloudTreeNodeActions {
         refresh: @escaping @MainActor () -> Void,
         refreshMachine: @escaping @MainActor (SurfaceMachineID) -> Void = { _ in }, operationController: CloudWorkspaceOperationController? = nil
     ) -> CloudTreeNodeActions {
-        @discardableResult
-        @MainActor
+        @MainActor @discardableResult
         func run(
             _ label: String,
             _ operation: @escaping @MainActor (SurfaceCatalog) async throws -> Void
@@ -381,7 +380,7 @@ struct CloudTreeNodeActions {
         )
         actions.organize = { action, id, _ in catalog().organizeSidebar(action, nodeID: id) }
         actions.refreshMachine = refreshMachine
-        let navigationRun: CloudTreeTerminalNavigationCoordinator.Run = { run($0, $1) }
+        let navigationRun: CloudTreeTerminalNavigationCoordinator.Run = run
         let navigation = CloudTreeTerminalNavigationCoordinator(
             machineName: machineName,
             run: navigationRun,
