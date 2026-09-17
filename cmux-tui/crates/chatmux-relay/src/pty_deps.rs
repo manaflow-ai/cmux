@@ -1420,48 +1420,6 @@ impl Drop for ControlEndGuard {
     }
 }
 
-/// Own a daemon child until readiness has been proven. If an async open is
-/// cancelled, `Drop` starts termination and schedules a reaper, so the child
-/// cannot survive after its PTY-open permit is released.
-struct DaemonProcessGuard {
-    child: Option<tokio::process::Child>,
-}
-
-impl DaemonProcessGuard {
-    fn new(child: tokio::process::Child) -> Self {
-        Self { child: Some(child) }
-    }
-
-    fn disarm(&mut self) {
-        self.child = None;
-    }
-
-    async fn cleanup(&mut self) {
-        if let Some(child) = self.child.take() {
-            cleanup_daemon(child).await;
-        }
-    }
-}
-
-impl Drop for DaemonProcessGuard {
-    fn drop(&mut self) {
-        let Some(mut child) = self.child.take() else { return };
-        if let Some(pid) = child.id() {
-            // SAFETY: this is the process group of the child spawned by this
-            // guard. The child handle remains owned until the reaper waits.
-            unsafe {
-                let _ = libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
-            }
-        }
-        let _ = child.start_kill();
-        if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            handle.spawn(async move {
-                let _ = child.wait().await;
-            });
-        }
-    }
-}
-
 #[async_trait]
 impl PtyDeps for RealPtyDeps {
     async fn spawn_pty(
