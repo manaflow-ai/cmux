@@ -106,8 +106,15 @@ describe("VM reconcile cron route", () => {
       skippedNoGetStatus: false,
       expired: { workflow: "vm-expired-sweep" },
     });
-    expect(reconcileVmProviderStatuses).toHaveBeenCalledWith();
-    expect(sweepExpiredVms).toHaveBeenCalledWith();
+    const sweepCalls = (sweepExpiredVms as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    expect(sweepCalls).toHaveLength(1);
+    const sweepInput = sweepCalls[0]?.[0] as { modelPlane?: { revoke?: unknown } } | undefined;
+    expect(typeof sweepInput?.modelPlane?.revoke).toBe("function");
+    // Machines the provider reports gone get their coderouter tokens revoked.
+    const reconcileCalls = (reconcileVmProviderStatuses as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    expect(reconcileCalls).toHaveLength(1);
+    const reconcileInput = reconcileCalls[0]?.[0] as { modelPlane?: { revoke?: unknown } } | undefined;
+    expect(typeof reconcileInput?.modelPlane?.revoke).toBe("function");
     expect(runVmWorkflow).toHaveBeenCalledWith({ workflow: "vm-reconcile" });
     expect(runVmWorkflow).toHaveBeenCalledWith({ workflow: "vm-expired-sweep" });
   });

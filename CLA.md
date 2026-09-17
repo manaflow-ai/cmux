@@ -2,7 +2,7 @@
 
 Thank you for your interest in cmux, an open-source project of Manaflow, Inc. (the "Company"). To clarify the intellectual property license granted with Contributions from any person or entity, the Company must have on file a signed Contributor License Agreement ("CLA") from each Contributor, indicating agreement with the license terms below. This agreement is for your protection as a Contributor as well as the protection of the Company and its users. It does not change your rights to use your own Contributions for any other purpose.
 
-Please complete and sign this Agreement, and return a signed copy to Manaflow, Inc. Read this document carefully before signing and keep a copy for your records.
+Please read this Agreement carefully before signing and keep a copy for your records. For a contribution submitted through GitHub, you may sign electronically by posting the exact phrase `I have read the CLA Document v2.2 and I hereby sign the CLA` as a comment on your pull request. That comment, made from your GitHub account, is your signature and has the same effect as a signed copy returned to Manaflow, Inc. If you cannot sign through GitHub, you may return a completed and signed copy to Manaflow, Inc.
 
 This Agreement is maintained in English and the English version controls. Any translation is provided for convenience only and does not change the terms of this Agreement.
 

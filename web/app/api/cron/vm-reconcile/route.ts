@@ -1,3 +1,5 @@
+import { authorizeCronRequest } from "../../../../services/cronAuth";
+import { vmModelPlaneRevoker } from "../../../../services/vms/modelPlaneGateway";
 import {
   reconcileVmProviderStatuses,
   runVmWorkflow,
@@ -7,16 +9,15 @@ import {
 export const maxDuration = 60;
 
 export async function GET(request: Request): Promise<Response> {
-  const secret = process.env.CRON_SECRET;
-  if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) {
+  if (!authorizeCronRequest(request).ok) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 
   try {
-    // Run cost cleanup first. Provider status probes can consume the route's
-    // time budget, while each failed expiry destroy remains retryable.
-    const expired = await runVmWorkflow(sweepExpiredVms());
-    const result = await runVmWorkflow(reconcileVmProviderStatuses());
+    // Cost cleanup runs before status probes. Failed destroys remain retryable,
+    // while provider-reported deletions revoke their model-plane credentials.
+    const expired = await runVmWorkflow(sweepExpiredVms({ modelPlane: vmModelPlaneRevoker() }));
+    const result = await runVmWorkflow(reconcileVmProviderStatuses({ modelPlane: vmModelPlaneRevoker() }));
     return Response.json({ ok: true, ...result, expired });
   } catch (err) {
     console.error("[VM] cron reconcile/sweep failed", err);

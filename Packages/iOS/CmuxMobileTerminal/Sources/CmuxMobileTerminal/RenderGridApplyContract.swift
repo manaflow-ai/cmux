@@ -17,10 +17,21 @@ public struct RenderGridApplyContract: Equatable, Sendable {
     /// Deltas additionally require that no resize changed the grid since the
     /// previous applied render-grid frame.
     public let isDelta: Bool
+    /// Whether applying this frame must query libghostty for the current grid
+    /// dimensions. The direct primary-screen delta path already has an
+    /// ordered, generation-tracked local grid and can avoid this query on
+    /// every keystroke; full frames and replay paths keep the check enabled.
+    public let requiresSurfaceDimensionCheck: Bool
 
-    public init(columns: Int, rows: Int, isDelta: Bool) {
+    public init(
+        columns: Int,
+        rows: Int,
+        isDelta: Bool,
+        requiresSurfaceDimensionCheck: Bool = true
+    ) {
         self.columns = columns
         self.rows = rows
         self.isDelta = isDelta
+        self.requiresSurfaceDimensionCheck = requiresSurfaceDimensionCheck
     }
 }

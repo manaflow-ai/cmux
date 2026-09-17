@@ -44,6 +44,7 @@ use std::time::Duration;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use bytes::{Buf, BytesMut};
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -122,17 +123,20 @@ pub fn encode_pty_frame(bytes: &[u8]) -> Vec<u8> {
 /// length-prefixed stream that desynced once can never be trusted again, so
 /// the caller must close the connection.
 pub struct TunnelFrameDecoder {
-    buffer: Vec<u8>,
+    buffer: BytesMut,
+    storage_capacity: usize,
     failed: bool,
     max_frame_bytes: usize,
 }
 
 impl TunnelFrameDecoder {
     pub fn new(max_frame_bytes: usize) -> TunnelFrameDecoder {
+        let max_frame_bytes = max_frame_bytes.clamp(1, MAX_TUNNEL_FRAME_BYTES);
         TunnelFrameDecoder {
-            buffer: Vec::new(),
+            storage_capacity: 0,
+            buffer: BytesMut::new(),
             failed: false,
-            max_frame_bytes: max_frame_bytes.clamp(1, MAX_TUNNEL_FRAME_BYTES),
+            max_frame_bytes,
         }
     }
 
@@ -141,6 +145,7 @@ impl TunnelFrameDecoder {
             return Err("decoder_poisoned");
         }
         self.buffer.extend_from_slice(chunk);
+        self.storage_capacity = self.storage_capacity.max(self.buffer.capacity());
         let mut frames = Vec::new();
         while self.buffer.len() >= HEADER_BYTES {
             let length = u32::from_be_bytes([
@@ -161,9 +166,19 @@ impl TunnelFrameDecoder {
             if self.buffer.len() < HEADER_BYTES + length {
                 break;
             }
-            let payload = self.buffer[HEADER_BYTES..HEADER_BYTES + length].to_vec();
-            self.buffer.drain(..HEADER_BYTES + length);
+            self.buffer.advance(HEADER_BYTES);
+            let payload = self.buffer.split_to(length).to_vec();
             frames.push(TunnelFrame { kind, payload });
+        }
+        // A single read may contain many frames. Keep the retained decoder
+        // storage bounded by one maximum-size frame plus its header instead
+        // of holding the capacity of that whole read forever.
+        let retained_limit = self.max_frame_bytes + HEADER_BYTES;
+        if self.storage_capacity > retained_limit && self.buffer.len() <= retained_limit {
+            let mut compacted = BytesMut::with_capacity(retained_limit);
+            compacted.extend_from_slice(&self.buffer);
+            self.storage_capacity = compacted.capacity();
+            self.buffer = compacted;
         }
         Ok(frames)
     }
@@ -704,7 +719,7 @@ mod tests {
             _cmux_tui: &CmuxTui,
             _session: &str,
             _socket_dir: &Path,
-            _cwd: &Path,
+            _cwd: &crate::pty::ResolvedCwd,
             _env: &HashMap<String, String>,
         ) -> Result<EnsureDaemon, String> {
             Err("no daemon in tunnel tests".to_owned())
@@ -833,6 +848,36 @@ mod tests {
         assert_eq!(frames[0].kind, FRAME_KIND_CONTROL);
         assert_eq!(frames[1].kind, FRAME_KIND_PTY);
         assert_eq!(frames[1].payload, b"echo hi\r");
+    }
+
+    #[test]
+    fn decoder_handles_many_frames_without_retaining_batch_storage() {
+        const MAX_FRAME_BYTES: usize = 8;
+        const FRAME_COUNT: usize = 2_048;
+
+        let mut stream = Vec::with_capacity(FRAME_COUNT * (HEADER_BYTES + 1));
+        for index in 0..FRAME_COUNT {
+            stream.extend_from_slice(&encode_tunnel_frame(
+                if index % 2 == 0 { FRAME_KIND_CONTROL } else { FRAME_KIND_PTY },
+                &[index as u8],
+            ));
+        }
+
+        let mut decoder = TunnelFrameDecoder::new(MAX_FRAME_BYTES);
+        let frames = decoder.push(&stream).expect("clean stream");
+
+        assert_eq!(frames.len(), FRAME_COUNT);
+        assert!(frames.iter().enumerate().all(|(index, frame)| {
+            frame.kind == if index % 2 == 0 { FRAME_KIND_CONTROL } else { FRAME_KIND_PTY }
+                && frame.payload == [index as u8]
+        }));
+        assert!(decoder.buffer.is_empty());
+        assert!(
+            decoder.storage_capacity <= MAX_FRAME_BYTES + HEADER_BYTES,
+            "decoder retained {} bytes for a {} byte max frame",
+            decoder.storage_capacity,
+            MAX_FRAME_BYTES
+        );
     }
 
     #[test]

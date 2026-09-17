@@ -1,5 +1,6 @@
 import AppKit
 import CmuxControlSocket
+import CmuxSettings
 import CoreServices
 import Darwin
 import Foundation
@@ -49,11 +50,18 @@ final class ComputerUseRuntimeService {
     private var missedHelperHealthChecks = 0
     private var expectedTerminationProcessIdentifiers: Set<pid_t> = []
 
+    /// `DisableComputerUse` (MDM), read on every enable and start.
+    private let isDisabledByPolicy: () -> Bool
+
     init(
         bundle: Bundle = .main,
         paths: ComputerUseRuntimePaths = ComputerUseRuntimePaths(),
-        transport: SocketTransport = SocketTransport()
+        transport: SocketTransport = SocketTransport(),
+        isDisabledByPolicy: @escaping () -> Bool = {
+            ManagedDevicePolicy().isEnforced(.disableComputerUse)
+        }
     ) {
+        self.isDisabledByPolicy = isDisabledByPolicy
         self.paths = paths
         self.transport = transport
         stateAuthenticationKey = Self.makeStateAuthenticationKey()
@@ -185,7 +193,10 @@ final class ComputerUseRuntimeService {
     }
 
     /// Reconciles the helper daemon with the live `computerUse.enabled` setting.
-    func setEnabled(_ newValue: Bool) async {
+    func setEnabled(_ requested: Bool) async {
+        // `DisableComputerUse` (MDM) wins over the user setting on every apply;
+        // the managed-policy extension re-applies on a transition.
+        let newValue = requested && !isDisabledByPolicy()
         guard acceptsNewLaunches, !Task.isCancelled else { return }
         permissionRefreshGeneration &+= 1
         permissionPhase = permissionPhase.applying(.setEnabled(newValue))
@@ -937,6 +948,7 @@ final class ComputerUseRuntimeService {
     }
 
     private func startIfNeededWithinLifecycle() async {
+        guard !isDisabledByPolicy() else { return }
         guard acceptsNewLaunches, !Task.isCancelled else { return }
         guard let helperURL = await ensureStandaloneHelperInstalledWithinLifecycle() else { return }
         guard acceptsNewLaunches, !Task.isCancelled else { return }

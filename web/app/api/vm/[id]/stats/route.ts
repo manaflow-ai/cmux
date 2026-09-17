@@ -1,12 +1,11 @@
 import {
   jsonResponse,
-  notFoundVm,
   resolveVmRouteAccountScope,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
-import { isVmNotFoundError } from "../../../../../services/vms/errors";
-import { getVmStats, runVmWorkflow } from "../../../../../services/vms/workflows";
+import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
+import { getVmStats } from "../../../../../services/vms/workflows";
 
 // Live CPU / memory / disk for one machine. Sleeping machines answer `asleep`
 // without being woken.
@@ -24,18 +23,14 @@ export async function GET(
       const account = resolveVmRouteAccountScope(user, request);
       if (!account.ok) return account.response;
       setSpanAttributes(span, { "cmux.vm.id": id });
-      try {
-        const stats = await runVmWorkflow(getVmStats({
-          userId: user.id,
-          billingTeamId: account.entitlements.billingTeamId,
-          teamIds: user.teamIds,
-          providerVmId: id,
-        }));
-        return jsonResponse(stats);
-      } catch (err) {
-        if (isVmNotFoundError(err)) return notFoundVm(id);
-        throw err;
-      }
+      const run = await runVmRoute(getVmStats({
+        userId: user.id,
+        billingTeamId: account.entitlements.billingTeamId,
+        teamIds: user.teamIds,
+        providerVmId: id,
+      }), { request });
+      if (!run.ok) return run.response;
+      return jsonResponse(run.value);
     },
   );
 }
