@@ -1,8 +1,10 @@
-import { expect, test, afterAll, beforeAll } from "bun:test";
+import { expect, test, afterAll, beforeAll, setDefaultTimeout } from "bun:test";
 import { Miniflare, convertV4MiniflareOptions } from "miniflare";
 import { join } from "node:path";
 import NodeWebSocket from "ws";
 import { encodeBase64URL, issueTicket, requestSigningInput } from "../src/crypto";
+
+setDefaultTimeout(30_000);
 
 let mf: Miniflare;
 let descriptor: any;
@@ -11,6 +13,7 @@ let ticket = "";
 let fixturePublicKey = "";
 let workerRoot = "";
 let persistencePath = "";
+let controlNamespace: DurableObjectNamespace;
 const environment = "test";
 const projectId = "iroh-v2-test";
 const teamId = "team-control";
@@ -89,6 +92,7 @@ beforeAll(async () => {
       FIXTURE_ENDPOINT_ID: fixturePublicKey,
     },
   }), verbose: true });
+  controlNamespace = await mf.getDurableObjectNamespace("TEAM_CONTROL");
 });
 
 afterAll(async () => { await mf?.dispose(); });
@@ -186,4 +190,16 @@ test("forged scope is rejected before the TeamControl binding", async () => {
     body: JSON.stringify({ schemaId: "session.open.v1", requestId, device: forged }),
   });
   expect(response.status).toBe(403);
+});
+
+test("TeamControl alarm prunes expired state and keeps the next deadline armed", async () => {
+  const stub = controlNamespace.getByName("retention-control");
+  const seeded = await stub.fetch("https://iroh-v2.internal/__test/retention/seed", { method: "POST" });
+  expect(seeded.status).toBe(200);
+  const seedBody = await seeded.json() as { now: number };
+  const alarm = await stub.fetch("https://iroh-v2.internal/__test/retention/alarm", { method: "POST" });
+  expect(alarm.status).toBe(200);
+  const body = await alarm.json() as { nextExpiresAt: number | null; alarm: number | null };
+  expect(body.nextExpiresAt).toBe(seedBody.now + 60);
+  expect(body.alarm).toBe((seedBody.now + 60) * 1000);
 });
