@@ -183,25 +183,26 @@ func anonymousPTYSessionKey(sessionID string, anonymousID uint64) wsPTYSessionKe
 }
 
 type wsPTYSession struct {
-	id             string
-	key            wsPTYSessionKey
-	cmd            *exec.Cmd
-	tmpScript      string // temp file path for large startup scripts; cleaned up on exit
-	ptyFile        *os.File
-	ttyFile        *os.File
-	attachments    map[string]*wsPTYAttachment
-	effectiveCols  int
-	effectiveRows  int
-	lastKnownCols  int
-	lastKnownRows  int
-	resizeConfirms int
-	scrollback     []byte
-	input          chan wsPTYInputChunk
-	inputEnqueueMu sync.Mutex
-	done           chan struct{}
-	idleTimer      *time.Timer
-	closed         bool
-	ptyWriteMu     sync.Mutex
+	id              string
+	key             wsPTYSessionKey
+	cmd             *exec.Cmd
+	tmpScript       string // temp file path for large startup scripts; cleaned up on exit
+	ptyFile         *os.File
+	ttyFile         *os.File
+	attachments     map[string]*wsPTYAttachment
+	effectiveCols   int
+	effectiveRows   int
+	lastKnownCols   int
+	lastKnownRows   int
+	resizeConfirms  int
+	scrollback      []byte
+	scrollbackStart int
+	input           chan wsPTYInputChunk
+	inputEnqueueMu  sync.Mutex
+	done            chan struct{}
+	idleTimer       *time.Timer
+	closed          bool
+	ptyWriteMu      sync.Mutex
 	// Resize must remain usable when a foreground process stops reading input.
 	ptyResizeMu   sync.Mutex
 	ptyFileMu     sync.Mutex
@@ -1179,7 +1180,7 @@ func (h *wsPTYHub) prepareAttachmentWithReservation(
 	// connection. Once published, the attachment follows the connection
 	// lifetime and can be canceled independently by its identity token.
 	attachmentCtx, cancel := context.WithCancel(attachmentLifetimeCtx)
-	replay := append([]byte(nil), session.scrollback...)
+	replay := session.scrollbackSnapshot()
 	clientToken = strings.TrimSpace(clientToken)
 	attachment := &wsPTYAttachment{
 		sessionKey:  sessionKey,
@@ -2015,27 +2016,47 @@ func (h *wsPTYHub) appendScrollbackLocked(session *wsPTYSession, data []byte) {
 		return
 	}
 	if len(data) >= limit {
-		session.scrollback = append(make([]byte, 0, limit), data[len(data)-limit:]...)
+		if cap(session.scrollback) != limit {
+			session.scrollback = make([]byte, limit)
+		} else {
+			session.scrollback = session.scrollback[:limit]
+		}
+		copy(session.scrollback, data[len(data)-limit:])
+		session.scrollbackStart = 0
 		return
 	}
-	if len(session.scrollback)+len(data) > limit {
-		keep := limit - len(data)
-		if keep > len(session.scrollback) {
-			keep = len(session.scrollback)
+	needed := min(limit, len(session.scrollback)+len(data))
+	if cap(session.scrollback) < needed || cap(session.scrollback) > limit {
+		previous := session.scrollback
+		if session.scrollbackStart != 0 {
+			previous = session.scrollbackSnapshot()
 		}
-		next := make([]byte, 0, limit)
-		if keep > 0 {
-			next = append(next, session.scrollback[len(session.scrollback)-keep:]...)
+		if len(previous) > limit {
+			previous = previous[len(previous)-limit:]
 		}
-		session.scrollback = append(next, data...)
-		return
+		capacity := min(limit, max(needed, 2*cap(session.scrollback)))
+		session.scrollback = append(make([]byte, 0, capacity), previous...)
+		session.scrollbackStart = 0
 	}
-	if cap(session.scrollback) > limit {
-		next := make([]byte, len(session.scrollback), limit)
-		copy(next, session.scrollback)
-		session.scrollback = next
+	if available := limit - len(session.scrollback); available > 0 {
+		count := min(available, len(data))
+		session.scrollback = append(session.scrollback, data[:count]...)
+		data = data[count:]
 	}
-	session.scrollback = append(session.scrollback, data...)
+	if len(data) > 0 {
+		// Keep a fixed-size ring: steady output only copies the new bytes.
+		// Chronological replay is materialized once per attachment below.
+		count := copy(session.scrollback[session.scrollbackStart:], data)
+		copy(session.scrollback, data[count:])
+		session.scrollbackStart = (session.scrollbackStart + len(data)) % limit
+	}
+}
+
+func (session *wsPTYSession) scrollbackSnapshot() []byte {
+	replay := make([]byte, len(session.scrollback))
+	count := copy(replay, session.scrollback[session.scrollbackStart:])
+	copy(replay[count:], session.scrollback[:session.scrollbackStart])
+	return replay
 }
 
 func (h *wsPTYHub) recomputeSessionSizeLocked(session *wsPTYSession) bool {

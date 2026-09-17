@@ -880,11 +880,9 @@ func applyNotifyCallerEnv(method string, params map[string]any) string {
 	if workspaceID == "" || surfaceID == "" {
 		return method
 	}
-	params["preferred_workspace_id"] = workspaceID
-	params["preferred_surface_id"] = surfaceID
-	delete(params, "workspace_id")
-	delete(params, "surface_id")
-	return "notification.create_for_caller"
+	params["workspace_id"] = workspaceID
+	params["surface_id"] = surfaceID
+	return "notification.create_for_target"
 }
 
 func defaultRelayOutput(resp string) string {

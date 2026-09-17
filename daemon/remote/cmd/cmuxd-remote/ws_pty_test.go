@@ -2945,8 +2945,9 @@ func TestWebSocketPTYScrollbackDoesNotRetainOversizedChunks(t *testing.T) {
 	if got := cap(session.scrollback); got > 4096 {
 		t.Fatalf("scrollback cap after append = %d, want <= 4096", got)
 	}
-	if !strings.HasSuffix(string(session.scrollback), "tail") {
-		t.Fatalf("scrollback should retain newest output, got suffix %q", string(session.scrollback[len(session.scrollback)-16:]))
+	replay := session.scrollbackSnapshot()
+	if !strings.HasSuffix(string(replay), "tail") {
+		t.Fatalf("scrollback should retain newest output, got suffix %q", string(replay[len(replay)-16:]))
 	}
 }
 

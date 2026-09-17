@@ -1068,9 +1068,7 @@ func tmuxResolveSurfaceTarget(rc *rpcContext, raw string) (workspaceId string, p
 			canonicalCallerPane, _ := tmuxCanonicalPaneId(rc, callerPane, workspaceId)
 			if paneId == callerPane || paneId == canonicalCallerPane {
 				surfaceId, err = tmuxCanonicalSurfaceId(rc, callerSurface, workspaceId)
-				if err == nil {
-					return
-				}
+				return
 			}
 		}
 		surfaceId, err = tmuxSelectedSurfaceId(rc, workspaceId, paneId)
@@ -1083,15 +1081,12 @@ func tmuxResolveSurfaceTarget(rc *rpcContext, raw string) (workspaceId string, p
 		return "", "", "", err
 	}
 
-	// When no explicit target and caller workspace matches, use caller's surface
+	// An inherited surface is authoritative for an untargeted command. If it
+	// disappeared, fail instead of redirecting input or close to current focus.
 	if winSel == "" {
-		if callerWs := tmuxResolvedCallerWorkspaceId(rc); callerWs == workspaceId {
-			if callerSurface := tmuxCallerSurfaceHandle(); callerSurface != "" {
-				surfaceId, err = tmuxCanonicalSurfaceId(rc, callerSurface, workspaceId)
-				if err == nil {
-					return
-				}
-			}
+		if callerSurface := tmuxCallerSurfaceHandle(); callerSurface != "" {
+			surfaceId, err = tmuxCanonicalSurfaceId(rc, callerSurface, workspaceId)
+			return
 		}
 	}
 

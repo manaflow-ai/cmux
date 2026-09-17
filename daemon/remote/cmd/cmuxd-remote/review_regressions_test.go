@@ -171,11 +171,26 @@ func TestRPCEOFInterruptsBlockedOutputBeforeTeardown(t *testing.T) {
 func TestScrollbackSteadyOutputDoesNotAllocateHistoryPerChunk(t *testing.T) {
 	hub := newWebSocketPTYHub(wsPTYServerConfig{}, io.Discard)
 	session := &wsPTYSession{}
-	hub.recordAndBroadcast(session, bytes.Repeat([]byte("x"), defaultWebSocketScrollbackCap))
+	hub.mu.Lock()
+	hub.appendScrollbackLocked(session, bytes.Repeat([]byte("x"), defaultWebSocketScrollbackCap))
+	hub.mu.Unlock()
 	chunk := bytes.Repeat([]byte("z"), 1024)
-	allocs := testing.AllocsPerRun(100, func() { hub.recordAndBroadcast(session, chunk) })
+	allocs := testing.AllocsPerRun(100, func() {
+		hub.mu.Lock()
+		hub.appendScrollbackLocked(session, chunk)
+		hub.mu.Unlock()
+	})
 	if allocs != 0 {
 		t.Fatalf("steady PTY output allocations per 1 KiB chunk = %g, want 0", allocs)
+	}
+}
+
+func TestScrollbackDoesNotReserveFullHistoryForQuietSessions(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{}, io.Discard)
+	session := &wsPTYSession{}
+	hub.recordAndBroadcast(session, []byte("prompt"))
+	if cap(session.scrollback) > 4096 {
+		t.Fatalf("a quiet terminal reserved %d bytes of history", cap(session.scrollback))
 	}
 }
 
