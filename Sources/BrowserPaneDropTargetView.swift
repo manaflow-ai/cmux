@@ -353,7 +353,9 @@ final class BrowserPaneDropTargetView: NSView {
 #endif
             return .move
         case .rejected:
-            clearDragState(phase: "\(phase).reject")
+            activeZone = nil
+            slotView?.setPortalDragDropZone(nil)
+            transferDropRouter.feedback.update(transferDropRouter.rejection, over: self)
             return []
         case .notTransfer:
             break
@@ -398,6 +400,7 @@ final class BrowserPaneDropTargetView: NSView {
     }
 
     private func clearDragState(phase: String) {
+        transferDropRouter.feedback.clear()
         guard activeZone != nil else { return }
         activeZone = nil
         slotView?.setPortalDragDropZone(nil)
