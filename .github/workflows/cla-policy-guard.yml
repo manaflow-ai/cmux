@@ -6,13 +6,16 @@ on:
   # and the policy it protects in the same pull request.
   pull_request_target:
     branches: [main]
-    types: [opened,edited,reopened,synchronize]
-
+    types: [opened,edited,reopened,synchronize,ready_for_review]
 permissions: {}
 
 jobs:
   validate:
     name: CLA policy guard
+    # This control-plane workflow parses attacker-controlled YAML and shell
+    # bytes. Use a GitHub-hosted ephemeral runner; a repository variable must
+    # not be able to redirect it to a persistent or contributor-controlled
+    # machine.
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -22,11 +25,19 @@ jobs:
       - name: Checkout immutable guard revision
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          repository: ${{ github.repository }}
           ref: ${{ github.workflow_sha }}
           fetch-depth: 1
           persist-credentials: false
           sparse-checkout: scripts/ci/validate-cla-policy.rb
           sparse-checkout-cone-mode: false
+
+      - name: Require GitHub-hosted runner
+        if: runner.environment != 'github-hosted'
+        run: |
+          set -euo pipefail
+          echo "::error::CLA policy requires a GitHub-hosted runner"
+          exit 1
 
       - name: Verify trusted checkout
         env:
@@ -37,7 +48,7 @@ jobs:
           [[ "$(git rev-parse HEAD)" == "$WORKFLOW_SHA" ]]
           [[ -f scripts/ci/validate-cla-policy.rb ]]
 
-      - name: Validate proposed CLA policy as data
+      - name: Run trusted CLA regression matrix and validate policy as data
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}

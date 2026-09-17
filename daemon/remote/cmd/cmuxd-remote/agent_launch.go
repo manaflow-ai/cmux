@@ -102,7 +102,8 @@ func runOMORelay(socketPath string, args []string, refreshAddr func() string) in
 		return 1
 	}
 
-	launchContext, err := agentLaunchContextForInvocation(rc, omoLaunchIsNonLaunch(args))
+	nonLaunch := omoLaunchIsNonLaunch(args)
+	launchContext, err := agentLaunchContextForInvocation(rc, nonLaunch)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cmux omo: %v\n", err)
 		return 1
@@ -110,9 +111,11 @@ func runOMORelay(socketPath string, args []string, refreshAddr func() string) in
 
 	// Ensure oh-my-opencode plugin is set up only after a real launch's
 	// inherited surface identity has been validated.
-	if err := omoEnsurePlugin(originalPath); err != nil {
-		fmt.Fprintf(os.Stderr, "cmux omo: plugin setup: %v\n", err)
-		return 1
+	if !nonLaunch {
+		if err := omoEnsurePlugin(originalPath); err != nil {
+			fmt.Fprintf(os.Stderr, "cmux omo: plugin setup: %v\n", err)
+			return 1
+		}
 	}
 
 	configureAgentEnvironment(agentConfig{
@@ -527,7 +530,7 @@ func omoEnsurePlugin(searchPath string) error {
 	userDir := omoUserConfigDir()
 	shadowDir := omoShadowConfigDir()
 
-	if err := os.MkdirAll(shadowDir, 0755); err != nil {
+	if err := ensurePrivateDaemonLeafDirectory(shadowDir); err != nil {
 		return fmt.Errorf("create shadow config dir: %w", err)
 	}
 
@@ -569,7 +572,10 @@ func omoEnsurePlugin(searchPath string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(shadowJsonPath, output, 0644); err != nil {
+	if err := writePrivateAgentConfig(shadowJsonPath, output); err != nil {
+		return err
+	}
+	if err := writeOmoShadowConfig(userDir, shadowDir); err != nil {
 		return err
 	}
 
@@ -593,13 +599,11 @@ func omoEnsurePlugin(searchPath string) error {
 		}
 	}
 
-	// Symlink oh-my-opencode config files
-	for _, filename := range []string{"oh-my-opencode.json", "oh-my-opencode.jsonc"} {
-		userFile := filepath.Join(userDir, filename)
-		shadowFile := filepath.Join(shadowDir, filename)
-		if fileExists(userFile) && !fileExists(shadowFile) {
-			os.Symlink(userFile, shadowFile)
-		}
+	// Preserve the user's JSONC config; the JSON configs above are owned copies.
+	userJSONC := filepath.Join(userDir, "oh-my-opencode.jsonc")
+	shadowJSONC := filepath.Join(shadowDir, "oh-my-opencode.jsonc")
+	if fileExists(userJSONC) && !fileExists(shadowJSONC) {
+		os.Symlink(userJSONC, shadowJSONC)
 	}
 
 	// Install the plugin if not available
@@ -637,55 +641,6 @@ func omoEnsurePlugin(searchPath string) error {
 		if installDir == userDir && !fileExists(shadowNodeModules) {
 			os.Symlink(userNodeModules, shadowNodeModules)
 		}
-	}
-
-	// Configure oh-my-opencode.json with tmux settings
-	omoConfigPath := filepath.Join(shadowDir, "oh-my-opencode.json")
-	var omoConfig map[string]any
-	if data, err := os.ReadFile(omoConfigPath); err == nil {
-		json.Unmarshal(data, &omoConfig)
-	}
-	if omoConfig == nil {
-		// Check if user had one we symlinked
-		userOmoConfig := filepath.Join(userDir, "oh-my-opencode.json")
-		if data, err := os.ReadFile(userOmoConfig); err == nil {
-			json.Unmarshal(data, &omoConfig)
-			os.Remove(omoConfigPath) // Remove symlink so we can write our own copy
-		}
-	}
-	if omoConfig == nil {
-		omoConfig = map[string]any{}
-	}
-
-	tmuxConfig, _ := omoConfig["tmux"].(map[string]any)
-	if tmuxConfig == nil {
-		tmuxConfig = map[string]any{}
-	}
-	needsWrite := false
-	if enabled, _ := tmuxConfig["enabled"].(bool); !enabled {
-		tmuxConfig["enabled"] = true
-		needsWrite = true
-	}
-	if tmuxConfig["main_pane_min_width"] == nil {
-		tmuxConfig["main_pane_min_width"] = 60
-		needsWrite = true
-	}
-	if tmuxConfig["agent_pane_min_width"] == nil {
-		tmuxConfig["agent_pane_min_width"] = 30
-		needsWrite = true
-	}
-	if tmuxConfig["main_pane_size"] == nil {
-		tmuxConfig["main_pane_size"] = 50
-		needsWrite = true
-	}
-	if needsWrite {
-		omoConfig["tmux"] = tmuxConfig
-		// Remove symlink if it exists
-		if target, err := os.Readlink(omoConfigPath); err == nil && target != "" {
-			os.Remove(omoConfigPath)
-		}
-		data, _ := json.MarshalIndent(omoConfig, "", "  ")
-		os.WriteFile(omoConfigPath, data, 0644)
 	}
 
 	os.Setenv("OPENCODE_CONFIG_DIR", shadowDir)

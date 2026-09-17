@@ -22,8 +22,10 @@ import {
   type CtlSocket,
   type CtlStorage,
 } from "./controlPlane";
+import { captureSentryException, type SentryEnv } from "./sentry";
+import { parseRetryAfterSeconds, rateLimitedJson } from "./retryAfterResponse";
 
-export interface ControlPlaneEnv {
+export interface ControlPlaneEnv extends SentryEnv {
   /** Vercel web API origin the DO proxies (dev/prod), e.g. https://cmux.com.
    * Same optional-with-production-default pattern as STACK_API_URL. */
   CMUX_WEB_BASE_URL?: string;
@@ -91,6 +93,13 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
           `control-plane upstream ${init.method} ${path} network failure`,
           String(error).slice(0, 300),
         );
+        await captureSentryException(this.env, "cloudflare-control-plane", error, {
+          durable_object: "AccountControlPlane",
+          operation: "upstream_fetch",
+          method: init.method,
+          path,
+          failure: "network",
+        });
         throw error;
       }
       // A connection-level failure throws out of fetch (the core's retry-once
@@ -103,14 +112,48 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
           `control-plane upstream ${init.method} ${path} -> ${response.status}`,
           JSON.stringify(json)?.slice(0, 300) ?? "<no body>",
         );
+        await captureSentryException(this.env, "cloudflare-control-plane", new Error(
+          `upstream ${init.method} ${path} returned ${response.status}`,
+        ), {
+          durable_object: "AccountControlPlane",
+          operation: "upstream_fetch",
+          method: init.method,
+          path,
+          status: response.status,
+          failure: "http",
+        });
       }
-      return { status: response.status, json };
+      return {
+        status: response.status,
+        json,
+        ...(response.status === 429
+          ? {
+            retryAfterSeconds: parseRetryAfterSeconds(
+              response.headers.get("retry-after"),
+            ),
+          }
+          : {}),
+      };
     },
     scheduleAlarmAt: (atMs) => this.ensureAlarmAt(atMs),
     sockets: () => this.ctx.getWebSockets().map(wrapSocket),
   });
 
   override async fetch(request: Request): Promise<Response> {
+    try {
+      return await this.handleFetch(request);
+    } catch (error) {
+      await captureSentryException(this.env, "cloudflare-control-plane", error, {
+        durable_object: "AccountControlPlane",
+        operation: "fetch",
+        path: new URL(request.url).pathname,
+        method: request.method,
+      });
+      throw error;
+    }
+  }
+
+  private async handleFetch(request: Request): Promise<Response> {
     // Device revocation, forwarded by the worker with rebuilt headers after
     // Stack bearer verification. This DO instance IS the verified account
     // scope; the strict-parsed body carries only {endpointId, revoked}.
@@ -149,7 +192,7 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
       return attachment !== null;
     }).length;
     if (connected >= MAX_CONTROL_SUBSCRIBERS_PER_ACCOUNT) {
-      return json({ error: "too_many_subscribers" }, 429);
+      return rateLimitedJson({ error: "too_many_subscribers" });
     }
 
     const pair = new WebSocketPair();
@@ -167,11 +210,27 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
   }
 
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
-    await this.core.handleMessage(wrapSocket(ws), message);
+    try {
+      await this.core.handleMessage(wrapSocket(ws), message);
+    } catch (error) {
+      await captureSentryException(this.env, "cloudflare-control-plane", error, {
+        durable_object: "AccountControlPlane",
+        operation: "websocket_message",
+      });
+      throw error;
+    }
   }
 
   override async webSocketClose(ws: WebSocket): Promise<void> {
-    await this.core.handleClose(wrapSocket(ws));
+    try {
+      await this.core.handleClose(wrapSocket(ws));
+    } catch (error) {
+      await captureSentryException(this.env, "cloudflare-control-plane", error, {
+        durable_object: "AccountControlPlane",
+        operation: "websocket_close",
+      });
+      throw error;
+    }
     try {
       ws.close();
     } catch {
@@ -180,7 +239,15 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
   }
 
   override async alarm(): Promise<void> {
-    await this.core.handleAlarm();
+    try {
+      await this.core.handleAlarm();
+    } catch (error) {
+      await captureSentryException(this.env, "cloudflare-control-plane", error, {
+        durable_object: "AccountControlPlane",
+        operation: "alarm",
+      });
+      throw error;
+    }
   }
 
   /** Pull the alarm earlier if `due` precedes the currently scheduled one
