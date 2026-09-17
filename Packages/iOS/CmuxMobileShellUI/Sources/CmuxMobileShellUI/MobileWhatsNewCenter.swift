@@ -11,7 +11,10 @@ import Observation
 /// Visibility policy (user-approved): the remote list is truth; the last
 /// fetched list is cached on device and wins while offline; a device that
 /// has NEVER fetched the list shows the binary entries (fail-open to binary
-/// truth, because remote hiding is the exceptional operation).
+/// truth, because remote hiding is the exceptional operation). During a
+/// rollout, a nonempty list containing only retired ids is treated as stale
+/// and falls back to current native entries; an explicit empty list still
+/// hides binary pages.
 ///
 /// Acknowledgement: binary pages advance a single "newest acknowledged entry
 /// id" marker over the ordered catalog, so a user who skipped several
@@ -27,6 +30,9 @@ public final class MobileWhatsNewCenter {
     static let acknowledgedAnnouncementsKey = "dev.cmux.mobile.whatsNew.acknowledgedAnnouncementIds"
     static let cacheKey = "dev.cmux.mobile.whatsNew.remoteList.v1"
     static let requestPath = "/api/whats-new"
+    /// The pairing requirement is part of the client contract, so an older
+    /// cached visibility list must not hide it from team builds.
+    private static let requiredBinaryEntryIDs: Set<String> = ["connections.v2"]
 
     private let requestURL: URL?
     private let appVersion: String
@@ -63,7 +69,7 @@ public final class MobileWhatsNewCenter {
             ?? "0"
         self.buildType = buildType
         self.defaults = defaults
-        self.loader = loader ?? Self.urlSessionLoader
+        self.loader = loader ?? mobileRemoteJSONLoader
         if let cached = defaults.data(forKey: environmentCacheKey),
            let list = try? JSONDecoder().decode(MobileWhatsNewRemoteList.self, from: cached) {
             remoteList = list
@@ -133,6 +139,12 @@ public final class MobileWhatsNewCenter {
     /// explicitly lists "prod". Never-fetched devices show the full catalog
     /// (fail-open to binary truth) still under the compiled-in channel gate,
     /// so a never-fetched official build shows nothing.
+    ///
+    /// During a catalog rollout, an older API deployment can return only
+    /// retired entry ids that this binary no longer carries. Treat that
+    /// nonempty, wholly-unrecognized list like a never-fetched cache so a
+    /// current native page does not disappear from Settings until the API
+    /// catches up. An explicit empty list remains a deliberate retraction.
     var visibleBinaryEntries: [MobileWhatsNewPage] {
         let channelAllowed = MobileWhatsNewCatalog.entries.filter { page in
             MobileWhatsNewChannelPolicy.isVisible(
@@ -142,7 +154,14 @@ public final class MobileWhatsNewCenter {
         }
         guard let remoteList else { return channelAllowed }
         let visible = Set(remoteList.visibleEntryIds)
-        return channelAllowed.filter { visible.contains($0.id) }
+        guard !visible.isEmpty else { return [] }
+        let recognized = visible.intersection(Set(channelAllowed.map(\.id)))
+        guard !recognized.isEmpty else {
+            return channelAllowed
+        }
+        return channelAllowed.filter {
+            visible.contains($0.id) || Self.requiredBinaryEntryIDs.contains($0.id)
+        }
     }
 
     /// Cached announcements targeted at this app version, resolved to
@@ -279,19 +298,5 @@ public final class MobileWhatsNewCenter {
         return url
     }
 
-    private static let urlSessionLoader: Loader = { url in
-        var request = URLRequest(
-            url: url,
-            cachePolicy: .reloadRevalidatingCacheData,
-            timeoutInterval: 10
-        )
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse,
-              (200...299).contains(http.statusCode) else {
-            throw URLError(.badServerResponse)
-        }
-        return data
-    }
 }
 #endif

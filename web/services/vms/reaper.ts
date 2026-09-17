@@ -1,8 +1,10 @@
 import * as Effect from "effect/Effect";
-import type {
-  VMVolume,
-  VMVolumeInventory,
-  VMVolumePage,
+import {
+  volumeCapableProviderId,
+  type ProviderId,
+  type VMVolume,
+  type VMVolumeInventory,
+  type VMVolumePage,
 } from "./drivers";
 import { VmProviderGateway, type VmProviderGatewayShape } from "./providerGateway";
 import {
@@ -87,6 +89,13 @@ export type VmReaperOptions = {
   readonly provisioningLimit?: number;
   /** Age threshold in milliseconds. */
   readonly stuckProvisioningAgeMs?: number;
+  /**
+   * Provider whose persistent home volumes are scanned. Defaults to the first
+   * registered driver exposing a volume inventory — none today, which makes the
+   * orphan-volume scan a no-op reporting partial coverage. Tests inject one to
+   * exercise the scan against a stub gateway.
+   */
+  readonly volumeProvider?: ProviderId;
   readonly env?: Record<string, string | undefined>;
 };
 
@@ -186,6 +195,7 @@ export function reapVmResources(
       scanLimit: volumeScanLimit,
       now,
       minAgeMs: volumeMinAgeMs,
+      provider: input.volumeProvider ?? volumeCapableProviderId(),
     });
 
     const orphan = summary.orphanVolumes;
@@ -278,10 +288,12 @@ function reportOrphanVolumes(
     readonly scanLimit: number;
     readonly now: Date;
     readonly minAgeMs: number;
+    readonly provider: ProviderId | null;
   },
 ): Effect.Effect<void, never> {
   const listVolumes = providers.listVolumes;
-  if (!listVolumes) {
+  const volumeProvider = input.provider;
+  if (!listVolumes || !volumeProvider) {
     summary.orphanVolumes.coveragePartial = true;
     return Effect.void;
   }
@@ -320,7 +332,7 @@ function reportOrphanVolumes(
         1_000,
         VM_REAPER_SCAN_DEADLINE_MS - (Date.now() - scanStartedAtMs),
       );
-      const listed = yield* listVolumes("blaxel", {
+      const listed = yield* listVolumes(volumeProvider, {
         limit: requestLimit,
         ...(cursor ? { cursor } : {}),
       }).pipe(
@@ -349,6 +361,7 @@ function reportOrphanVolumes(
 
       const pageReport = yield* reportVolumePage(
         repo,
+        volumeProvider,
         summary,
         selected,
         input.limit,
@@ -404,6 +417,7 @@ function reportOrphanVolumes(
 
 function reportVolumePage(
   repo: VmRepositoryShape,
+  volumeProvider: ProviderId,
   summary: MutableSummary,
   volumes: readonly VMVolume[],
   candidateLimit: number,
@@ -455,7 +469,7 @@ function reportVolumePage(
           });
           continue;
         }
-        const recorded = yield* recordSystemUsageEvent(repo, ORPHAN_VOLUME_UNKNOWN_ATTACHMENT_EVENT, {
+        const recorded = yield* recordSystemUsageEvent(repo, volumeProvider, ORPHAN_VOLUME_UNKNOWN_ATTACHMENT_EVENT, {
           source: "vm_reaper",
           mode: "report",
           action: "report",
@@ -474,6 +488,7 @@ function reportVolumePage(
 
     const liveReferences = yield* loadLiveReferences(
       repo,
+      volumeProvider,
       free.map(({ name }) => name),
       summary,
     );
@@ -497,7 +512,7 @@ function reportVolumePage(
           });
           continue;
         }
-        const recorded = yield* recordSystemUsageEvent(repo, ORPHAN_VOLUME_UNKNOWN_REFERENCE_EVENT, {
+        const recorded = yield* recordSystemUsageEvent(repo, volumeProvider, ORPHAN_VOLUME_UNKNOWN_REFERENCE_EVENT, {
           source: "vm_reaper",
           mode: "report",
           action: "report",
@@ -562,7 +577,7 @@ function reportVolumePage(
         continue;
       }
       summary.orphanVolumes.candidates += 1;
-      const recorded = yield* recordSystemUsageEvent(repo, ORPHAN_VOLUME_EVENT, {
+      const recorded = yield* recordSystemUsageEvent(repo, volumeProvider, ORPHAN_VOLUME_EVENT, {
         source: "vm_reaper",
         mode: "report",
         action: "report",
@@ -609,6 +624,7 @@ function loadRecentReaperReportKeys(
 
 function loadLiveReferences(
   repo: VmRepositoryShape,
+  provider: ProviderId,
   names: readonly string[],
   summary: MutableSummary,
 ): Effect.Effect<Set<string> | null, never> {
@@ -617,7 +633,7 @@ function loadLiveReferences(
     console.error("[VM] reaper cannot verify live volume references");
     return Effect.succeed(null);
   }
-  return repo.listLiveHomeVolumeNames({ provider: "blaxel", volumeNames: names }).pipe(
+  return repo.listLiveHomeVolumeNames({ provider, volumeNames: names }).pipe(
     Effect.map((liveNames) => new Set(liveNames.map((name) => name.trim()).filter(Boolean))),
     Effect.catchAll((error) => Effect.sync(() => {
       summary.orphanVolumes.errors += 1;
@@ -657,6 +673,7 @@ function recordVmUsageEvent(
 
 function recordSystemUsageEvent(
   repo: VmRepositoryShape,
+  provider: ProviderId,
   eventType: string,
   metadata: Record<string, unknown>,
 ): Effect.Effect<boolean, never> {
@@ -665,7 +682,7 @@ function recordSystemUsageEvent(
     billingTeamId: null,
     billingPlanId: null,
     eventType,
-    provider: "blaxel",
+    provider,
     metadata,
   }).pipe(
     Effect.as(true),

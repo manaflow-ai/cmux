@@ -30,9 +30,22 @@ enabled = true
 name = "TEAM_PRESENCE"
 class_name = "TeamPresence"
 
+# Account control plane: one DO per verified Stack user id serving the
+# /v1/control/socket WebSocket (directory + hint + relay-pass facts, proxied
+# from the Vercel broker with the connecting client's own bearer token). The
+# Vercel base URL is the optional plain var CMUX_WEB_BASE_URL (defaults to
+# https://cmux.com in code, same pattern as STACK_API_URL).
+[[durable_objects.bindings]]
+name = "ACCOUNT_CONTROL_PLANE"
+class_name = "AccountControlPlane"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["TeamPresence"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["AccountControlPlane"]
 
 # Production custom domain on the cmux.dev zone (same Cloudflare account).
 # `custom_domain = true` provisions the DNS record + TLS cert with the deploy;

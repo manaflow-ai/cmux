@@ -60,6 +60,65 @@
         }
       }
     },
+    "mobile.demo.computerName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demo Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デモMac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demo-Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac de démonstration"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac تجريبي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac de demostración"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "示範 Mac"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "演示 Mac"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "데모 Mac"
+          }
+        }
+      }
+    },
     "mobile.buildType.demo": {
       "extractionState": "manual",
       "localizations": {
@@ -10798,6 +10857,65 @@
         }
       }
     },
+    "mobile.computers.routes.scanTailscale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scan Mobile Pairing Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モバイルペアリングコードをスキャン"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopplungscode für Mobilgeräte scannen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scanner le code de jumelage mobile"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مسح رمز اقتران الأجهزة المحمولة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escanear código de vinculación móvil"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "掃描行動裝置配對碼"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "扫描移动设备配对码"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모바일 페어링 코드 스캔"
+          }
+        }
+      }
+    },
     "mobile.computers.section.appearance": {
       "extractionState": "manual",
       "localizations": {
@@ -14456,6 +14574,186 @@
         }
       }
     },
+    "mobile.notificationFeed.history.count": {
+      "comment": "VoiceOver value for a notification group's disclosure control. The number includes the latest notification.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld updates"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld件の更新"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld Aktualisierungen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld mises à jour"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld تحديثات"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld actualizaciones"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 則更新"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 条更新"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트 %lld개"
+          }
+        }
+      }
+    },
+    "mobile.notificationFeed.history.hide": {
+      "comment": "Collapses the older notification rows beneath the latest notification.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide earlier notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前の通知を非表示"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frühere Benachrichtigungen ausblenden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masquer les notifications précédentes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إخفاء الإشعارات السابقة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar notificaciones anteriores"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏較早的通知"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏较早的通知"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이전 알림 숨기기"
+          }
+        }
+      }
+    },
+    "mobile.notificationFeed.history.show": {
+      "comment": "Expands the older notification rows beneath the latest notification.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show earlier notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前の通知を表示"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frühere Benachrichtigungen anzeigen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher les notifications précédentes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار الإشعارات السابقة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar notificaciones anteriores"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示較早的通知"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示较早的通知"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이전 알림 표시"
+          }
+        }
+      }
+    },
     "mobile.notificationFeed.filter": {
       "extractionState": "manual",
       "localizations": {
@@ -18002,55 +18300,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Older cmux versions still work over Tailscale. Open Tailscale Pairing on the Mac and scan its QR, or enter its numeric Tailscale IP and port once."
+            "value": "Older cmux versions still work over Tailscale. Open Mobile Pairing on the Mac and scan its QR, or enter its numeric Tailscale IP and port once."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "古い cmux バージョンでも Tailscale 経由で接続できます。Mac で「Tailscale Pairing」を開き、QR をスキャンするか、数値の Tailscale IP アドレスとポートを一度入力してください。"
+            "value": "古い cmux バージョンでも Tailscale 経由で接続できます。Mac で「モバイルペアリング」を開き、QR をスキャンするか、数値の Tailscale IP アドレスとポートを一度入力してください。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ältere cmux-Versionen funktionieren immer noch über Tailscale. Öffnen Sie Tailscale Pairing auf dem Mac und scannen Sie den QR-Code oder geben Sie einmal die numerische Tailscale-IP und den Port ein."
+            "value": "Ältere cmux-Versionen funktionieren immer noch über Tailscale. Öffnen Sie Mobilgeräte koppeln auf dem Mac und scannen Sie den QR-Code oder geben Sie einmal die numerische Tailscale-IP und den Port ein."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les anciennes versions de cmux fonctionnent toujours sur Tailscale. Ouvrez Tailscale Pairing sur le Mac et scannez son QR, ou entrez une fois son adresse IP Tailscale numérique et son port."
+            "value": "Les anciennes versions de cmux fonctionnent toujours sur Tailscale. Ouvrez Jumelage mobile sur le Mac et scannez son QR, ou entrez une fois son adresse IP Tailscale numérique et son port."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا تزال إصدارات cmux الأقدم تعمل على Tailscale. افتح Tailscale Pairing على جهاز Mac وقم بمسح QR الخاص به، أو أدخل رقم Tailscale IP والمنفذ مرة واحدة."
+            "value": "لا تزال إصدارات cmux الأقدم تعمل على Tailscale. افتح اقتران الأجهزة المحمولة على جهاز Mac وقم بمسح QR الخاص به، أو أدخل رقم Tailscale IP والمنفذ مرة واحدة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las versiones anteriores de cmux todavía funcionan en Tailscale. Abra Tailscale Pairing en Mac y escanee su QR, o ingrese su IP numérica de Tailscale y su puerto una vez."
+            "value": "Las versiones anteriores de cmux todavía funcionan en Tailscale. Abra Vinculación móvil en Mac y escanee su QR, o ingrese su IP numérica de Tailscale y su puerto una vez."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "較舊的 cmux 版本仍然可以在 Tailscale 上運行。在 Mac 上開啟 Tailscale 配對並掃描其二維碼，或輸入其數位 Tailscale IP 和連接埠一次。"
+            "value": "較舊的 cmux 版本仍然可以在 Tailscale 上運行。在 Mac 上開啟行動裝置配對並掃描其二維碼，或輸入其數位 Tailscale IP 和連接埠一次。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "较旧的 cmux 版本仍然可以在 Tailscale 上运行。在 Mac 上打开 Tailscale 配对并扫描其二维码，或输入其数字 Tailscale IP 和端口一次。"
+            "value": "较旧的 cmux 版本仍然可以在 Tailscale 上运行。在 Mac 上打开移动设备配对并扫描其二维码，或输入其数字 Tailscale IP 和端口一次。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이전 cmux 버전은 여전히 ​​Tailscale에서 작동합니다. Mac에서 Tailscale 페어링을 열고 QR을 스캔하거나 숫자로 된 Tailscale IP 및 포트를 한 번 입력하세요."
+            "value": "이전 cmux 버전은 여전히 ​​Tailscale에서 작동합니다. Mac에서 모바일 페어링을 열고 QR을 스캔하거나 숫자로 된 Tailscale IP 및 포트를 한 번 입력하세요."
           }
         }
       }
@@ -18356,13 +18654,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Requires cmux 0.64.20 or later on your Mac."
+            "value": "Same-account Macs connect automatically."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac版cmux 0.64.20以降が必要です。"
+            "value": "同じアカウントのMacに自動で接続します。"
           }
         },
         "de": {
@@ -18474,13 +18772,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Works with cmux 0.64.17 or later. Scan once to authorize the Mac."
+            "value": "Scan once to authorize the Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac版cmux 0.64.17以降で動作します。一度スキャンしてMacを承認します。"
+            "value": "一度スキャンしてMacを承認します。"
           }
         },
         "de": {
@@ -18651,13 +18949,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Works with cmux 0.64.17 or later. Install Tailscale on both devices and join the same network. On 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code once."
+            "value": "Install Tailscale on both devices and join the same network, then scan the pairing code once."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 0.64.17以降で動作します。両方のデバイスにTailscaleをインストールし、同じネットワークに参加してください。0.64.17では「Connect iPhone/iPad」を選び、「Pair iPhone」のコードを一度スキャンします。"
+            "value": "両方のデバイスにTailscaleをインストールして同じネットワークに参加し、ペアリングコードを一度スキャンしてください。"
           }
         },
         "de": {
@@ -19353,6 +19651,65 @@
         }
       }
     },
+    "mobile.sidebar.destination.picker": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Section"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セクション"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bereich"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Section"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قسم"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sección"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "區段"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "区段"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "섹션"
+          }
+        }
+      }
+    },
     "mobile.tabs.notifications": {
       "extractionState": "manual",
       "localizations": {
@@ -19408,6 +19765,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "알림"
+          }
+        }
+      }
+    },
+    "mobile.tabs.notifications.unreadCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications (%lld)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知 (%lld)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benachrichtigungen (%lld)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications (%lld)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إشعارات (%lld)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notificaciones (%lld)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知 (%lld)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知 (%lld)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림 (%lld)"
           }
         }
       }
@@ -22840,55 +23256,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open Tailscale Pairing on the Mac and scan a fresh QR, or enter the Mac's numeric Tailscale IP and port."
+            "value": "Open Mobile Pairing on the Mac and scan a fresh QR, or enter the Mac's numeric Tailscale IP and port."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac で「Tailscale Pairing」を開き、新しい QR をスキャンするか、Mac の数値 Tailscale IP アドレスとポートを入力してください。"
+            "value": "Mac で「モバイルペアリング」を開き、新しい QR をスキャンするか、Mac の数値 Tailscale IP アドレスとポートを入力してください。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Öffnen Sie Tailscale Pairing auf dem Mac und scannen Sie einen neuen QR oder geben Sie die numerische Tailscale-IP und den Port des Mac ein."
+            "value": "Öffnen Sie Mobilgeräte koppeln auf dem Mac und scannen Sie einen neuen QR oder geben Sie die numerische Tailscale-IP und den Port des Mac ein."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ouvrez Tailscale Pairing sur le Mac et scannez un nouveau QR, ou entrez l'adresse IP et le port numérique Tailscale du Mac."
+            "value": "Ouvrez Jumelage mobile sur le Mac et scannez un nouveau QR, ou entrez l'adresse IP et le port numérique Tailscale du Mac."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "افتح Tailscale Pairing على جهاز Mac وقم بمسح QR جديد، أو أدخل عنوان Tailscale IP الرقمي والمنفذ الخاص بجهاز Mac."
+            "value": "افتح اقتران الأجهزة المحمولة على جهاز Mac وقم بمسح QR جديد، أو أدخل عنوان Tailscale IP الرقمي والمنفذ الخاص بجهاز Mac."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abra Tailscale Pairing en Mac y escanee un QR nuevo, o ingrese la IP y el puerto numéricos de Tailscale de Mac."
+            "value": "Abra Vinculación móvil en Mac y escanee un QR nuevo, o ingrese la IP y el puerto numéricos de Tailscale de Mac."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 Mac 上開啟 Tailscale 配對並掃描新的二維碼，或輸入 Mac 的數位 Tailscale IP 和連接埠。"
+            "value": "在 Mac 上開啟行動裝置配對並掃描新的二維碼，或輸入 Mac 的數位 Tailscale IP 和連接埠。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 Mac 上打开 Tailscale 配对并扫描新的二维码，或输入 Mac 的数字 Tailscale IP 和端口。"
+            "value": "在 Mac 上打开移动设备配对并扫描新的二维码，或输入 Mac 的数字 Tailscale IP 和端口。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac에서 Tailscale 페어링을 열고 새로운 QR을 스캔하거나 Mac의 숫자 Tailscale IP 및 포트를 입력하세요."
+            "value": "Mac에서 모바일 페어링을 열고 새로운 QR을 스캔하거나 Mac의 숫자 Tailscale IP 및 포트를 입력하세요."
           }
         }
       }
@@ -23194,55 +23610,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This isn't a cmux pairing QR. On cmux 0.64.17, scan the Pair iPhone code. On newer versions, scan the code in Tailscale Pairing."
+            "value": "This isn't a cmux pairing QR. On cmux 0.64.17, scan the Pair iPhone code. On newer versions, scan the code in Mobile Pairing."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "これはcmuxのペアリングQRコードではありません。cmux 0.64.17では「Pair iPhone」のコードをスキャンします。新しいバージョンでは「Tailscale Pairing」のコードをスキャンしてください。"
+            "value": "これはcmuxのペアリングQRコードではありません。cmux 0.64.17では「Pair iPhone」のコードをスキャンします。新しいバージョンでは「モバイルペアリング」のコードをスキャンしてください。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dies ist kein Cmux-Pairing-QR. Scannen Sie auf cmux 0.64.17 den Pair iPhone-Code. Scannen Sie bei neueren Versionen den Code in Tailscale Pairing."
+            "value": "Dies ist kein Cmux-Pairing-QR. Scannen Sie auf cmux 0.64.17 den Pair iPhone-Code. Scannen Sie bei neueren Versionen den Code in Mobilgeräte koppeln."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ce n'est pas un QR d'appariement cmux. Sur cmux 0.64.17, scannez le code Pair iPhone. Sur les versions plus récentes, scannez le code dans Tailscale Pairing."
+            "value": "Ce n'est pas un QR d'appariement cmux. Sur cmux 0.64.17, scannez le code Pair iPhone. Sur les versions plus récentes, scannez le code dans Jumelage mobile."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "هذا ليس QR الاقتران cmux. في cmux 0.64.17، قم بمسح رمز Pair iPhone. في الإصدارات الأحدث، قم بمسح الرمز ضوئيًا في Tailscale Pairing."
+            "value": "هذا ليس QR الاقتران cmux. في cmux 0.64.17، قم بمسح رمز Pair iPhone. في الإصدارات الأحدث، قم بمسح الرمز ضوئيًا في اقتران الأجهزة المحمولة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Este no es un QR de emparejamiento de cmux. En cmux 0.64.17, escanee el código de emparejamiento de iPhone. En versiones más recientes, escanee el código en Tailscale Pairing."
+            "value": "Este no es un QR de emparejamiento de cmux. En cmux 0.64.17, escanee el código de emparejamiento de iPhone. En versiones más recientes, escanee el código en Vinculación móvil."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "這不是 cmux 配對二維碼。在 cmux 0.64.17 上，掃描配對 iPhone 代碼。在較新版本上，掃描 Tailscale 配對中的程式碼。"
+            "value": "這不是 cmux 配對二維碼。在 cmux 0.64.17 上，掃描配對 iPhone 代碼。在較新版本上，掃描 行動裝置配對中的程式碼。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "这不是 cmux 配对二维码。在 cmux 0.64.17 上，扫描配对 iPhone 代码。在较新版本上，扫描 Tailscale 配对中的代码。"
+            "value": "这不是 cmux 配对二维码。在 cmux 0.64.17 上，扫描配对 iPhone 代码。在较新版本上，扫描 移动设备配对中的代码。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이것은 cmux 페어링 QR이 아닙니다. cmux 0.64.17에서 iPhone 페어링 코드를 스캔하세요. 최신 버전에서는 Tailscale 페어링에서 코드를 스캔하세요."
+            "value": "이것은 cmux 페어링 QR이 아닙니다. cmux 0.64.17에서 iPhone 페어링 코드를 스캔하세요. 최신 버전에서는 모바일 페어링에서 코드를 스캔하세요."
           }
         }
       }
@@ -23371,55 +23787,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This code points at the Mac itself (localhost), so your iPhone can't use it. On cmux 0.64.17, open Pair iPhone. On newer versions, open Tailscale Pairing. Then scan a fresh code."
+            "value": "This code points at the Mac itself (localhost), so your iPhone can't use it. On cmux 0.64.17, open Pair iPhone. On newer versions, open Mobile Pairing. Then scan a fresh code."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このコードはMac自身（localhost）を指しているため、iPhoneからは使えません。cmux 0.64.17では「Pair iPhone」を開きます。新しいバージョンでは「Tailscale Pairing」を開き、新しいコードをスキャンしてください。"
+            "value": "このコードはMac自身（localhost）を指しているため、iPhoneからは使えません。cmux 0.64.17では「Pair iPhone」を開きます。新しいバージョンでは「モバイルペアリング」を開き、新しいコードをスキャンしてください。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dieser Code verweist auf den Mac selbst (localhost), sodass Ihr iPhone ihn nicht verwenden kann. Öffnen Sie unter cmux 0.64.17 „iPhone koppeln“. Öffnen Sie bei neueren Versionen Tailscale Pairing. Scannen Sie dann einen neuen Code."
+            "value": "Dieser Code verweist auf den Mac selbst (localhost), sodass Ihr iPhone ihn nicht verwenden kann. Öffnen Sie unter cmux 0.64.17 „iPhone koppeln“. Öffnen Sie bei neueren Versionen Mobilgeräte koppeln. Scannen Sie dann einen neuen Code."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ce code pointe vers le Mac lui-même (localhost), votre iPhone ne peut donc pas l'utiliser. Sur cmux 0.64.17, ouvrez Pair iPhone. Sur les versions plus récentes, ouvrez Tailscale Pairing. Scannez ensuite un nouveau code."
+            "value": "Ce code pointe vers le Mac lui-même (localhost), votre iPhone ne peut donc pas l'utiliser. Sur cmux 0.64.17, ouvrez Pair iPhone. Sur les versions plus récentes, ouvrez Jumelage mobile. Scannez ensuite un nouveau code."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يشير هذا الرمز إلى جهاز Mac نفسه (المضيف المحلي)، لذا لا يمكن لجهاز iPhone الخاص بك استخدامه. في cmux 0.64.17، افتح Pair iPhone. في الإصدارات الأحدث، افتح Tailscale Pairing. ثم قم بمسح رمز جديد."
+            "value": "يشير هذا الرمز إلى جهاز Mac نفسه (المضيف المحلي)، لذا لا يمكن لجهاز iPhone الخاص بك استخدامه. في cmux 0.64.17، افتح Pair iPhone. في الإصدارات الأحدث، افتح اقتران الأجهزة المحمولة. ثم قم بمسح رمز جديد."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Este código apunta al propio Mac (localhost), por lo que tu iPhone no puede usarlo. En cmux 0.64.17, abra Emparejar iPhone. En versiones más recientes, abra Tailscale Pairing. Luego escanee un código nuevo."
+            "value": "Este código apunta al propio Mac (localhost), por lo que tu iPhone no puede usarlo. En cmux 0.64.17, abra Emparejar iPhone. En versiones más recientes, abra Vinculación móvil. Luego escanee un código nuevo."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此代碼指向 Mac 本身 (localhost)，因此您的 iPhone 無法使用它。在 cmux 0.64.17 上，開啟「配對 iPhone」。在較新版本上，開啟 Tailscale 配對。然後掃描新代碼。"
+            "value": "此代碼指向 Mac 本身 (localhost)，因此您的 iPhone 無法使用它。在 cmux 0.64.17 上，開啟「配對 iPhone」。在較新版本上，開啟行動裝置配對。然後掃描新代碼。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此代码指向 Mac 本身 (localhost)，因此您的 iPhone 无法使用它。在 cmux 0.64.17 上，打开“配对 iPhone”。在较新版本上，打开 Tailscale 配对。然后扫描新代码。"
+            "value": "此代码指向 Mac 本身 (localhost)，因此您的 iPhone 无法使用它。在 cmux 0.64.17 上，打开“配对 iPhone”。在较新版本上，打开移动设备配对。然后扫描新代码。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 코드는 Mac 자체(localhost)를 가리키므로 iPhone에서는 이를 사용할 수 없습니다. cmux 0.64.17에서 iPhone 페어링을 엽니다. 최신 버전에서는 Tailscale 페어링을 엽니다. 그런 다음 새로운 코드를 스캔하세요."
+            "value": "이 코드는 Mac 자체(localhost)를 가리키므로 iPhone에서는 이를 사용할 수 없습니다. cmux 0.64.17에서 iPhone 페어링을 엽니다. 최신 버전에서는 모바일 페어링을 엽니다. 그런 다음 새로운 코드를 스캔하세요."
           }
         }
       }
@@ -27501,55 +27917,232 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The App Log records in-app activity; the Network Log records connection diagnostics. Terminal contents and credentials are never written."
+            "value": "Export includes app events and networking diagnostics. Terminal contents and credentials are never written."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アプリログはアプリ内のアクティビティを記録し、ネットワークログは接続診断を記録します。ターミナルの内容や認証情報が書き込まれることはありません。"
+            "value": "エクスポートにはアプリイベントとネットワーク診断が含まれます。ターミナルの内容や認証情報が書き込まれることはありません。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Das App-Protokoll zeichnet In-App-Aktivitäten auf; Das Netzwerkprotokoll zeichnet Verbindungsdiagnosen auf. Terminalinhalte und Anmeldeinformationen werden niemals geschrieben."
+            "value": "Der Export enthält App-Ereignisse und Netzwerkdiagnosen. Terminalinhalte und Anmeldeinformationen werden niemals geschrieben."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le journal de l'application enregistre l'activité dans l'application ; le journal réseau enregistre les diagnostics de connexion. Le contenu du terminal et les informations d'identification ne sont jamais écrits."
+            "value": "L’exportation inclut les événements de l’app et les diagnostics réseau. Le contenu du terminal et les informations d’identification ne sont jamais écrits."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يسجل سجل التطبيق النشاط داخل التطبيق؛ يسجل سجل الشبكة تشخيصات الاتصال. لا تتم كتابة محتويات المحطة وبيانات الاعتماد أبدًا."
+            "value": "يتضمن التصدير أحداث التطبيق وتشخيصات الشبكة. لا تتم كتابة محتويات المحطة وبيانات الاعتماد أبدًا."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El registro de aplicaciones registra la actividad dentro de la aplicación; el Registro de red registra los diagnósticos de conexión. El contenido y las credenciales del terminal nunca se escriben."
+            "value": "La exportación incluye eventos de la aplicación y diagnósticos de red. El contenido y las credenciales del terminal nunca se escriben."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "應用程式日誌記錄應用程式內的活動；網路日誌記錄連線診斷。終端內容和憑證永遠不會被寫入。"
+            "value": "匯出內容包含應用程式事件和網路診斷。終端內容和憑證永遠不會被寫入。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "应用程序日志记录应用程序内的活动；网络日志记录连接诊断。终端内容和凭据永远不会被写入。"
+            "value": "导出内容包含应用程序事件和网络诊断。终端内容和凭据永远不会被写入。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "앱 로그는 인앱 활동을 기록합니다. 네트워크 로그는 연결 진단을 기록합니다. 터미널 내용과 자격 증명은 기록되지 않습니다."
+            "value": "내보내기에는 앱 이벤트와 네트워크 진단이 포함됩니다. 터미널 내용과 자격 증명은 기록되지 않습니다."
+          }
+        }
+      }
+    },
+    "mobile.settings.diagnostics.export": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export Logs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ログを書き出す"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protokolle exportieren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exporter les journaux"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تصدير السجلات"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exportar registros"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯出日誌"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导出日志"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그 내보내기"
+          }
+        }
+      }
+    },
+    "mobile.settings.diagnostics.export.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t export logs. Check available storage and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ログを書き出せませんでした。空き容量を確認して、もう一度お試しください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protokolle konnten nicht exportiert werden. Prüfen Sie den verfügbaren Speicher und versuchen Sie es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’exporter les journaux. Vérifiez l’espace disponible et réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر تصدير السجلات. تحقق من مساحة التخزين المتاحة وحاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron exportar los registros. Comprueba el almacenamiento disponible y vuelve a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法匯出日誌。請檢查可用儲存空間並重試。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法导出日志。请检查可用存储空间并重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그를 내보낼 수 없습니다. 사용 가능한 저장 공간을 확인한 후 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "mobile.settings.diagnostics.clear.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t clear the verbose connection logs. Check available storage and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消去後に詳細ログを再開できませんでした。ログ記録をオフにしました。空き容量を確認して、もう一度お試しください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die ausführliche Protokollierung konnte nach dem Löschen nicht erneut geöffnet werden. Die Protokollierung wurde deaktiviert. Prüfe den verfügbaren Speicher und versuche es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de rouvrir les journaux détaillés après l’effacement. Les journaux ont été désactivés ; vérifiez l’espace disponible et réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر إعادة فتح التسجيل التفصيلي بعد المسح. تم إيقاف التسجيل؛ تحقق من مساحة التخزين وحاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo volver a abrir el registro detallado después de borrar. Se desactivó el registro; comprueba el espacio disponible e inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除後無法重新開啟詳細記錄。記錄功能已關閉，請檢查可用儲存空間後再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除后无法重新打开详细日志。日志记录已关闭，请检查可用存储空间后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지운 후 상세 로그를 다시 열 수 없습니다. 로그 기록이 꺼졌습니다. 사용 가능한 저장 공간을 확인하고 다시 시도하세요."
           }
         }
       }
@@ -31100,55 +31693,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install cmux on your computer, sign in to the same account, and leave it running. The computer then appears on this phone automatically. To pair through Tailscale, install Tailscale on both devices and connect them to the same Tailscale network. Open Tailscale Pairing on the Mac and scan its QR here, or enter the Mac's numeric Tailscale IP and port."
+            "value": "Install cmux on your computer, sign in to the same account, and leave it running. The computer then appears on this phone automatically. To pair through Tailscale, install Tailscale on both devices and connect them to the same Tailscale network. Open Mobile Pairing on the Mac and scan its QR here, or enter the Mac's numeric Tailscale IP and port."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータに cmux をインストールし、同じ cmux アカウントでサインインしたまま起動しておきます。コンピュータは自動的にこの端末に表示されます。Tailscale 経由でペアリングするには、両方のデバイスに Tailscale をインストールし、同じ Tailscale ネットワークに接続してください。Mac で「Tailscale Pairing」を開き、QR をここでスキャンするか、Mac の数値 Tailscale IP アドレスとポートを入力します。"
+            "value": "コンピュータに cmux をインストールし、同じ cmux アカウントでサインインしたまま起動しておきます。コンピュータは自動的にこの端末に表示されます。Tailscale 経由でペアリングするには、両方のデバイスに Tailscale をインストールし、同じ Tailscale ネットワークに接続してください。Mac で「モバイルペアリング」を開き、QR をここでスキャンするか、Mac の数値 Tailscale IP アドレスとポートを入力します。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Installieren Sie cmux auf Ihrem Computer, melden Sie sich bei demselben Konto an und lassen Sie es laufen. Der Computer erscheint dann automatisch auf diesem Telefon. Um über Tailscale zu koppeln, installieren Sie Tailscale auf beiden Geräten und verbinden Sie sie mit demselben Tailscale-Netzwerk. Öffnen Sie Tailscale Pairing auf dem Mac und scannen Sie hier den QR-Code oder geben Sie die numerische Tailscale-IP und den Port des Mac ein."
+            "value": "Installieren Sie cmux auf Ihrem Computer, melden Sie sich bei demselben Konto an und lassen Sie es laufen. Der Computer erscheint dann automatisch auf diesem Telefon. Um über Tailscale zu koppeln, installieren Sie Tailscale auf beiden Geräten und verbinden Sie sie mit demselben Tailscale-Netzwerk. Öffnen Sie Mobilgeräte koppeln auf dem Mac und scannen Sie hier den QR-Code oder geben Sie die numerische Tailscale-IP und den Port des Mac ein."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Installez cmux sur votre ordinateur, connectez-vous au même compte et laissez-le fonctionner. L'ordinateur apparaît alors automatiquement sur ce téléphone. Pour effectuer un couplage via Tailscale, installez Tailscale sur les deux appareils et connectez-les au même réseau Tailscale. Ouvrez Tailscale Pairing sur le Mac et scannez son QR ici, ou entrez l'adresse IP et le port numérique Tailscale du Mac."
+            "value": "Installez cmux sur votre ordinateur, connectez-vous au même compte et laissez-le fonctionner. L'ordinateur apparaît alors automatiquement sur ce téléphone. Pour effectuer un couplage via Tailscale, installez Tailscale sur les deux appareils et connectez-les au même réseau Tailscale. Ouvrez Jumelage mobile sur le Mac et scannez son QR ici, ou entrez l'adresse IP et le port numérique Tailscale du Mac."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "قم بتثبيت cmux على جهاز الكمبيوتر الخاص بك، وقم بتسجيل الدخول إلى نفس الحساب، واتركه قيد التشغيل. ثم يظهر الكمبيوتر على هذا الهاتف تلقائيًا. للاقتران عبر Tailscale، قم بتثبيت Tailscale على كلا الجهازين وقم بتوصيلهما بنفس شبكة Tailscale. افتح Tailscale Pairing على جهاز Mac وقم بمسح QR الخاص به هنا، أو أدخل عنوان Tailscale IP الرقمي والمنفذ الخاص بجهاز Mac."
+            "value": "قم بتثبيت cmux على جهاز الكمبيوتر الخاص بك، وقم بتسجيل الدخول إلى نفس الحساب، واتركه قيد التشغيل. ثم يظهر الكمبيوتر على هذا الهاتف تلقائيًا. للاقتران عبر Tailscale، قم بتثبيت Tailscale على كلا الجهازين وقم بتوصيلهما بنفس شبكة Tailscale. افتح اقتران الأجهزة المحمولة على جهاز Mac وقم بمسح QR الخاص به هنا، أو أدخل عنوان Tailscale IP الرقمي والمنفذ الخاص بجهاز Mac."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Instale cmux en su computadora, inicie sesión en la misma cuenta y déjelo funcionando. La computadora aparece entonces en este teléfono automáticamente. Para emparejar a través de Tailscale, instale Tailscale en ambos dispositivos y conéctelos a la misma red de Tailscale. Abra Tailscale Pairing en Mac y escanee su QR aquí, o ingrese la IP y el puerto numéricos de Tailscale de Mac."
+            "value": "Instale cmux en su computadora, inicie sesión en la misma cuenta y déjelo funcionando. La computadora aparece entonces en este teléfono automáticamente. Para emparejar a través de Tailscale, instale Tailscale en ambos dispositivos y conéctelos a la misma red de Tailscale. Abra Vinculación móvil en Mac y escanee su QR aquí, o ingrese la IP y el puerto numéricos de Tailscale de Mac."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在您的電腦上安裝 cmux，登入相同帳戶並使其保持運作。然後計算機會自動出現在該手機上。若要透過 Tailscale 進行配對，請在兩台裝置上安裝 Tailscale 並將它們連接到同一 Tailscale 網路。在 Mac 上開啟 Tailscale 配對並在此處掃描其二維碼，或輸入 Mac 的數位 Tailscale IP 和連接埠。"
+            "value": "在您的電腦上安裝 cmux，登入相同帳戶並使其保持運作。然後計算機會自動出現在該手機上。若要透過 Tailscale 進行配對，請在兩台裝置上安裝 Tailscale 並將它們連接到同一 Tailscale 網路。在 Mac 上開啟行動裝置配對並在此處掃描其二維碼，或輸入 Mac 的數位 Tailscale IP 和連接埠。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在您的计算机上安装 cmux，登录到同一帐户并使其保持运行。然后计算机会自动出现在该手机上。要通过 Tailscale 进行配对，请在两台设备上安装 Tailscale 并将它们连接到同一 Tailscale 网络。在 Mac 上打开 Tailscale 配对并在此处扫描其二维码，或输入 Mac 的数字 Tailscale IP 和端口。"
+            "value": "在您的计算机上安装 cmux，登录到同一帐户并使其保持运行。然后计算机会自动出现在该手机上。要通过 Tailscale 进行配对，请在两台设备上安装 Tailscale 并将它们连接到同一 Tailscale 网络。在 Mac 上打开移动设备配对并在此处扫描其二维码，或输入 Mac 的数字 Tailscale IP 和端口。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "컴퓨터에 cmux를 설치하고 동일한 계정으로 로그인한 후 실행 상태로 둡니다. 그러면 컴퓨터가 이 전화기에 자동으로 나타납니다. Tailscale을 통해 페어링하려면 두 장치 모두에 Tailscale을 설치하고 동일한 Tailscale 네트워크에 연결하세요. Mac에서 Tailscale 페어링을 열고 여기에서 QR을 스캔하거나 Mac의 숫자 Tailscale IP 및 포트를 입력하세요."
+            "value": "컴퓨터에 cmux를 설치하고 동일한 계정으로 로그인한 후 실행 상태로 둡니다. 그러면 컴퓨터가 이 전화기에 자동으로 나타납니다. Tailscale을 통해 페어링하려면 두 장치 모두에 Tailscale을 설치하고 동일한 Tailscale 네트워크에 연결하세요. Mac에서 모바일 페어링을 열고 여기에서 QR을 스캔하거나 Mac의 숫자 Tailscale IP 및 포트를 입력하세요."
           }
         }
       }
@@ -62069,6 +62662,360 @@
         }
       }
     },
+    "mobile.screenshot.notification.reply.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reply"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返信"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antworten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Répondre"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رد"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Responder"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回覆"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回复"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "답장"
+          }
+        }
+      }
+    },
+    "mobile.screenshot.notification.reply.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Implemented the fix and opened the PR. Ready for your review — reply to continue."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修正を実装して PR を作成しました。レビューできます。返信して続行してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fix implementiert und PR eröffnet. Bereit für Ihr Review. Antworten Sie, um fortzufahren."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Correctif implémenté et PR ouverte. Prête pour votre relecture. Répondez pour continuer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تنفيذ الإصلاح وفتح طلب السحب. جاهز للمراجعة. رد للمتابعة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Corrección implementada y PR abierta. Lista para tu revisión. Responde para continuar."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已完成修正並建立 PR。可以審閱了，回覆即可繼續。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已完成修复并创建 PR。可以审阅了，回复即可继续。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "수정 사항을 구현하고 PR을 열었습니다. 검토할 준비가 되었습니다. 계속하려면 답장하세요."
+          }
+        }
+      }
+    },
+    "mobile.screenshot.notification.reply.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Message the agent…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントにメッセージ…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nachricht an den Agenten …"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Écrire à l’agent…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "راسل الوكيل…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escribe al agente…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳訊息給代理…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "给代理发消息…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트에게 메시지 보내기…"
+          }
+        }
+      }
+    },
+    "mobile.screenshot.notification.reply.send": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Senden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إرسال"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳送"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发送"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보내기"
+          }
+        }
+      }
+    },
+    "mobile.screenshot.notification.reply.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux agent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux エージェント"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-Agent"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent cmux"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وكيل cmux"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agente de cmux"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 代理"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 代理"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 에이전트"
+          }
+        }
+      }
+    },
+    "mobile.screenshot.notification.reply.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude finished in workspace ~"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude がワークスペース ~ で完了しました"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude ist im Arbeitsbereich ~ fertig"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude a terminé dans l’espace de travail ~"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أنهى Claude العمل في مساحة العمل ~"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude terminó en el espacio de trabajo ~"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 已在工作區 ~ 完成"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 已在工作区 ~ 完成"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude가 작업공간 ~에서 완료했습니다"
+          }
+        }
+      }
+    },
     "mobile.screenshot.notification.title": {
       "extractionState": "manual",
       "localizations": {
@@ -63786,55 +64733,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clear Report"
+            "value": "Clear Logs"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "レポートを消去"
+            "value": "ログを消去"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Klarer Bericht"
+            "value": "Protokolle löschen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Effacer le rapport"
+            "value": "Effacer les journaux"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مسح التقرير"
+            "value": "مسح السجلات"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Borrar informe"
+            "value": "Borrar registros"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "清晰的報告"
+            "value": "清除日誌"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "清晰的报告"
+            "value": "清除日志"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "보고서 지우기"
+            "value": "로그 지우기"
           }
         }
       }
@@ -70093,6 +71040,65 @@
         }
       }
     },
+    "mobile.onboarding.keepAwake.caption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prevent your Mac from sleeping while cmux is open."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxが開いている間、Macがスリープするのを防ぎます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verhindert, dass Ihr Mac in den Ruhezustand wechselt, solange cmux geöffnet ist."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empêche votre Mac de se mettre en veille tant que cmux est ouvert."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمنع دخول جهاز Mac في وضع السكون أثناء فتح cmux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Evita que tu Mac entre en reposo mientras cmux está abierto."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 cmux 開啟期間防止 Mac 進入睡眠。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 cmux 打开期间防止 Mac 进入睡眠。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 열려 있는 동안 Mac이 잠자기 상태로 전환되지 않도록 합니다."
+          }
+        }
+      }
+    },
     "mobile.onboarding.notifications.body": {
       "extractionState": "manual",
       "localizations": {
@@ -71574,55 +72580,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install Tailscale on both devices and use the same Tailscale network. Open Tailscale Pairing on the Mac and scan its QR here, or enter the Mac's numeric Tailscale IP and port. To use Iroh instead, open Settings, tap Connection Method, and choose Iroh."
+            "value": "Install Tailscale on both devices and use the same Tailscale network. Open Mobile Pairing on the Mac and scan its QR here, or enter the Mac's numeric Tailscale IP and port. To use Iroh instead, open Settings, tap Connection Method, and choose Iroh."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "両方のデバイスに Tailscale をインストールし、同じ Tailscale ネットワークを使用してください。Mac で「Tailscale Pairing」を開き、QR をここでスキャンするか、Mac の数値 Tailscale IP アドレスとポートを入力します。Iroh を使うには、「設定」で「接続方法」を開き、「Iroh」を選択してください。"
+            "value": "両方のデバイスに Tailscale をインストールし、同じ Tailscale ネットワークを使用してください。Mac で「モバイルペアリング」を開き、QR をここでスキャンするか、Mac の数値 Tailscale IP アドレスとポートを入力します。Iroh を使うには、「設定」で「接続方法」を開き、「Iroh」を選択してください。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Installieren Sie Tailscale auf beiden Geräten und nutzen Sie dasselbe Tailscale-Netzwerk. Öffnen Sie Tailscale Pairing auf dem Mac und scannen Sie hier den QR-Code oder geben Sie die numerische Tailscale-IP und den Port des Mac ein. Um stattdessen Iroh zu verwenden, öffnen Sie die Einstellungen, tippen Sie auf Verbindungsmethode und wählen Sie Iroh."
+            "value": "Installieren Sie Tailscale auf beiden Geräten und nutzen Sie dasselbe Tailscale-Netzwerk. Öffnen Sie Mobilgeräte koppeln auf dem Mac und scannen Sie hier den QR-Code oder geben Sie die numerische Tailscale-IP und den Port des Mac ein. Um stattdessen Iroh zu verwenden, öffnen Sie die Einstellungen, tippen Sie auf Verbindungsmethode und wählen Sie Iroh."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Installez Tailscale sur les deux appareils et utilisez le même réseau Tailscale. Ouvrez Tailscale Pairing sur le Mac et scannez son QR ici, ou entrez l'adresse IP et le port numérique Tailscale du Mac. Pour utiliser Iroh à la place, ouvrez Paramètres, appuyez sur Méthode de connexion et choisissez Iroh."
+            "value": "Installez Tailscale sur les deux appareils et utilisez le même réseau Tailscale. Ouvrez Jumelage mobile sur le Mac et scannez son QR ici, ou entrez l'adresse IP et le port numérique Tailscale du Mac. Pour utiliser Iroh à la place, ouvrez Paramètres, appuyez sur Méthode de connexion et choisissez Iroh."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "قم بتثبيت Tailscale على كلا الجهازين واستخدم نفس شبكة Tailscale. افتح Tailscale Pairing على جهاز Mac وقم بمسح QR الخاص به هنا، أو أدخل عنوان Tailscale IP الرقمي والمنفذ الخاص بجهاز Mac. لاستخدام Iroh بدلاً من ذلك، افتح الإعدادات، وانقر فوق طريقة الاتصال، واختر Iroh."
+            "value": "قم بتثبيت Tailscale على كلا الجهازين واستخدم نفس شبكة Tailscale. افتح اقتران الأجهزة المحمولة على جهاز Mac وقم بمسح QR الخاص به هنا، أو أدخل عنوان Tailscale IP الرقمي والمنفذ الخاص بجهاز Mac. لاستخدام Iroh بدلاً من ذلك، افتح الإعدادات، وانقر فوق طريقة الاتصال، واختر Iroh."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Instale Tailscale en ambos dispositivos y use la misma red Tailscale. Abra Tailscale Pairing en Mac y escanee su QR aquí, o ingrese la IP y el puerto numéricos de Tailscale de Mac. Para usar Iroh en su lugar, abra Configuración, toque Método de conexión y elija Iroh."
+            "value": "Instale Tailscale en ambos dispositivos y use la misma red Tailscale. Abra Vinculación móvil en Mac y escanee su QR aquí, o ingrese la IP y el puerto numéricos de Tailscale de Mac. Para usar Iroh en su lugar, abra Configuración, toque Método de conexión y elija Iroh."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在兩台裝置上安裝 Tailscale 並使用相同的 Tailscale 網路。在 Mac 上開啟 Tailscale 配對並在此處掃描其二維碼，或輸入 Mac 的數位 Tailscale IP 和連接埠。若要使用 Iroh，請開啟“設定”，點擊“連接方法”，然後選擇“Iroh”。"
+            "value": "在兩台裝置上安裝 Tailscale 並使用相同的 Tailscale 網路。在 Mac 上開啟行動裝置配對並在此處掃描其二維碼，或輸入 Mac 的數位 Tailscale IP 和連接埠。若要使用 Iroh，請開啟“設定”，點擊“連接方法”，然後選擇“Iroh”。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在两台设备上安装 Tailscale 并使用相同的 Tailscale 网络。在 Mac 上打开 Tailscale 配对并在此处扫描其二维码，或输入 Mac 的数字 Tailscale IP 和端口。要使用 Iroh，请打开“设置”，点击“连接方法”，然后选择“Iroh”。"
+            "value": "在两台设备上安装 Tailscale 并使用相同的 Tailscale 网络。在 Mac 上打开移动设备配对并在此处扫描其二维码，或输入 Mac 的数字 Tailscale IP 和端口。要使用 Iroh，请打开“设置”，点击“连接方法”，然后选择“Iroh”。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "두 장치 모두에 Tailscale을 설치하고 동일한 Tailscale 네트워크를 사용하십시오. Mac에서 Tailscale 페어링을 열고 여기에서 QR을 스캔하거나 Mac의 숫자 Tailscale IP 및 포트를 입력하세요. 대신 Iroh를 사용하려면 설정을 열고 연결 방법을 탭한 후 Iroh를 선택하세요."
+            "value": "두 장치 모두에 Tailscale을 설치하고 동일한 Tailscale 네트워크를 사용하십시오. Mac에서 모바일 페어링을 열고 여기에서 QR을 스캔하거나 Mac의 숫자 Tailscale IP 및 포트를 입력하세요. 대신 Iroh를 사용하려면 설정을 열고 연결 방법을 탭한 후 Iroh를 선택하세요."
           }
         }
       }
@@ -71633,55 +72639,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install Tailscale on both devices and use the same Tailscale network. Open Tailscale Pairing on the Mac and scan its QR here, or enter the Mac's numeric Tailscale IP and port."
+            "value": "Install Tailscale on both devices and use the same Tailscale network. Open Mobile Pairing on the Mac and scan its QR here, or enter the Mac's numeric Tailscale IP and port."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "両方のデバイスに Tailscale をインストールし、同じ Tailscale ネットワークを使用してください。Mac で「Tailscale Pairing」を開き、QR をここでスキャンするか、Mac の数値 Tailscale IP アドレスとポートを入力してください。"
+            "value": "両方のデバイスに Tailscale をインストールし、同じ Tailscale ネットワークを使用してください。Mac で「モバイルペアリング」を開き、QR をここでスキャンするか、Mac の数値 Tailscale IP アドレスとポートを入力してください。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Installieren Sie Tailscale auf beiden Geräten und nutzen Sie dasselbe Tailscale-Netzwerk. Öffnen Sie Tailscale Pairing auf dem Mac und scannen Sie hier den QR-Code oder geben Sie die numerische Tailscale-IP und den Port des Mac ein."
+            "value": "Installieren Sie Tailscale auf beiden Geräten und nutzen Sie dasselbe Tailscale-Netzwerk. Öffnen Sie Mobilgeräte koppeln auf dem Mac und scannen Sie hier den QR-Code oder geben Sie die numerische Tailscale-IP und den Port des Mac ein."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Installez Tailscale sur les deux appareils et utilisez le même réseau Tailscale. Ouvrez Tailscale Pairing sur le Mac et scannez son QR ici, ou entrez l'adresse IP et le port numérique Tailscale du Mac."
+            "value": "Installez Tailscale sur les deux appareils et utilisez le même réseau Tailscale. Ouvrez Jumelage mobile sur le Mac et scannez son QR ici, ou entrez l'adresse IP et le port numérique Tailscale du Mac."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "قم بتثبيت Tailscale على كلا الجهازين واستخدم نفس شبكة Tailscale. افتح Tailscale Pairing على جهاز Mac وقم بمسح QR الخاص به هنا، أو أدخل عنوان Tailscale IP الرقمي والمنفذ الخاص بجهاز Mac."
+            "value": "قم بتثبيت Tailscale على كلا الجهازين واستخدم نفس شبكة Tailscale. افتح اقتران الأجهزة المحمولة على جهاز Mac وقم بمسح QR الخاص به هنا، أو أدخل عنوان Tailscale IP الرقمي والمنفذ الخاص بجهاز Mac."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Instale Tailscale en ambos dispositivos y use la misma red Tailscale. Abra Tailscale Pairing en Mac y escanee su QR aquí, o ingrese la IP y el puerto numéricos de Tailscale de Mac."
+            "value": "Instale Tailscale en ambos dispositivos y use la misma red Tailscale. Abra Vinculación móvil en Mac y escanee su QR aquí, o ingrese la IP y el puerto numéricos de Tailscale de Mac."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在兩台裝置上安裝 Tailscale 並使用相同的 Tailscale 網路。在 Mac 上開啟 Tailscale 配對並在此處掃描其二維碼，或輸入 Mac 的數位 Tailscale IP 和連接埠。"
+            "value": "在兩台裝置上安裝 Tailscale 並使用相同的 Tailscale 網路。在 Mac 上開啟行動裝置配對並在此處掃描其二維碼，或輸入 Mac 的數位 Tailscale IP 和連接埠。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在两台设备上安装 Tailscale 并使用相同的 Tailscale 网络。在 Mac 上打开 Tailscale 配对并在此处扫描其二维码，或输入 Mac 的数字 Tailscale IP 和端口。"
+            "value": "在两台设备上安装 Tailscale 并使用相同的 Tailscale 网络。在 Mac 上打开移动设备配对并在此处扫描其二维码，或输入 Mac 的数字 Tailscale IP 和端口。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "두 장치 모두에 Tailscale을 설치하고 동일한 Tailscale 네트워크를 사용하십시오. Mac에서 Tailscale 페어링을 열고 여기에서 QR을 스캔하거나 Mac의 숫자 Tailscale IP 및 포트를 입력하세요."
+            "value": "두 장치 모두에 Tailscale을 설치하고 동일한 Tailscale 네트워크를 사용하십시오. Mac에서 모바일 페어링을 열고 여기에서 QR을 스캔하거나 Mac의 숫자 Tailscale IP 및 포트를 입력하세요."
           }
         }
       }
@@ -82247,6 +83253,270 @@
         }
       }
     },
+    "mobile.pairingOptInUpdate.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Before this iPhone can find a cmux Mac, open Settings > Mobile on that Mac and turn on Enable iOS pairing. While it is off, the Mac stays hidden and starts no iOS pairing networking."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この iPhone で cmux Mac を見つけるには、その Mac で「設定」>「Mobile」を開き、「iOS ペアリングを有効にする」をオンにしてください。オフの間、その Mac は非表示になり、iOS ペアリングのネットワーク通信を開始しません。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Damit dieses iPhone einen cmux Mac findet, öffnen Sie auf dem Mac „Einstellungen“ > „Mobile“ und aktivieren Sie die iOS-Kopplung. Solange sie deaktiviert ist, bleibt der Mac verborgen und startet kein iOS-Kopplungsnetzwerk."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pour que cet iPhone trouve un Mac cmux, ouvrez Réglages > Mobile sur ce Mac et activez le jumelage iOS. Tant qu’il est désactivé, le Mac reste masqué et ne démarre aucun réseau de jumelage iOS."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لكي يعثر هذا الـ iPhone على Mac يعمل بتطبيق cmux، افتح الإعدادات > الهاتف المحمول على جهاز Mac هذا وفعّل اقتران iOS. أثناء إيقافه، سيبقى Mac مخفيًا ولن يبدأ أي اتصال شبكي لاقتران iOS."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Para que este iPhone encuentre un Mac con cmux, abre Ajustes > Móvil en ese Mac y activa el enlace con iOS. Mientras esté desactivado, el Mac permanece oculto y no inicia la red de enlace con iOS."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "若要讓此 iPhone 找到 cmux Mac，請在該 Mac 上開啟「設定」>「行動裝置」，然後開啟 iOS 配對。關閉時，該 Mac 會保持隱藏，且不會啟動 iOS 配對網路。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要让此 iPhone 找到 cmux Mac，请在该 Mac 上打开“设置”>“移动”，然后开启 iOS 配对。关闭时，该 Mac 会保持隐藏，也不会启动 iOS 配对网络。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 iPhone에서 cmux Mac을 찾으려면 해당 Mac에서 설정 > 모바일을 열고 iOS 페어링을 켜세요. 꺼져 있는 동안 Mac은 숨겨지고 iOS 페어링 네트워크를 시작하지 않습니다."
+          }
+        }
+      }
+    },
+    "mobile.pairingOptInUpdate.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Required: Enable iOS pairing on Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "必須: Mac で iOS ペアリングを有効にする"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erforderlich: iOS-Kopplung auf dem Mac aktivieren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requis : activez le jumelage iOS sur le Mac"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مطلوب: فعّل اقتران iOS على Mac"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obligatorio: activa el enlace con iOS en el Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "必要：在 Mac 上開啟 iOS 配對"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "必需：在 Mac 上开启 iOS 配对"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "필수: Mac에서 iOS 페어링 켜기"
+          }
+        }
+      }
+    },
+    "mobile.connectionsUpdate.tailscale.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Tailscale, on your terms"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Tailscaleは自分のペースで"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Tailscale, zu Ihren Bedingungen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Tailscale, selon vos conditions"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "Tailscale ، وفقًا لشروطك"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Tailscale, según tus condiciones"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Tailscale，依照您的條件"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Tailscale，按照您的条件"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Tailscale, 원하는 대로"}}
+      }
+    },
+    "mobile.connectionsUpdate.tailscale.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Choosing Tailscale Only shows exactly what's missing and offers the pairing-code scan right there. Nothing opens on its own."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "「Tailscaleのみ」を選ぶと、足りない設定とペアリングコードのスキャンをその場で案内します。勝手に画面が開くことはありません。"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Wenn Sie sich für „Nur Tailscale“ entscheiden, wird genau angezeigt, was fehlt, und der Pairing-Code-Scan wird direkt dort angeboten. Nichts öffnet sich von alleine."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Choisir Tailscale Only montre exactement ce qui manque et propose l'analyse du code d'appariement directement sur place. Rien ne s'ouvre tout seul."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يؤدي اختيار Tailscale فقط إلى عرض ما هو مفقود بالضبط ويوفر فحص رمز الاقتران هناك. لا شيء يفتح من تلقاء نفسه."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Elegir Tailscale Only muestra exactamente lo que falta y ofrece el escaneo del código de emparejamiento allí mismo. Nada se abre por sí solo."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "選擇“Tailscale Only”會準確顯示缺少的內容，並在此處提供配對碼掃描。没有什么是可以自行打开的。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "选择“Tailscale Only”会准确显示缺少的内容，并在此处提供配对码扫描。没有什么是可以自行打开的。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Tailscale Only를 선택하면 누락된 내용이 정확히 표시되고 바로 페어링 코드 스캔이 제공됩니다. 저절로 열리는 것은 없습니다."}}
+      }
+    },
+    "mobile.pairingOptInUpdate.requirement": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open cmux Settings > Mobile on your Mac and turn on Enable iOS pairing before connecting."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続する前に必須: iPhone で使う各 cmux Mac で「設定」>「Mobile」を開き、「iOS ペアリングを有効にする」をオンにしてください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vor dem Verbinden erforderlich: Öffnen Sie auf jedem cmux Mac, den Sie mit dem iPhone verwenden möchten, „Einstellungen“ > „Mobile“ und aktivieren Sie die iOS-Kopplung."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requis avant la connexion : sur chaque Mac cmux que vous voulez utiliser avec l’iPhone, ouvrez Réglages > Mobile et activez le jumelage iOS."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مطلوب قبل الاتصال: على كل Mac يعمل بتطبيق cmux وتريد استخدامه مع iPhone، افتح الإعدادات > الهاتف المحمول وفعّل اقتران iOS."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obligatorio antes de conectar: en cada Mac con cmux que quieras usar con iPhone, abre Ajustes > Móvil y activa el enlace con iOS."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線前必須完成：在每個要搭配 iPhone 使用的 cmux Mac 上，開啟「設定」>「行動裝置」，然後開啟 iOS 配對。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接前必须完成：在每个要搭配 iPhone 使用的 cmux Mac 上，打开“设置”>“移动”，然后开启 iOS 配对。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결하기 전에 필수: iPhone과 함께 사용할 각 cmux Mac에서 설정 > 모바일을 열고 iOS 페어링을 켜세요."
+          }
+        }
+      }
+    },
+    "mobile.pairingOptInUpdate.releaseLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.0.4 · September 2026"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.0.4 · 2026年9月"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.0.4 · September 2026"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.0.4 · septembre 2026"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.0.4 · سبتمبر 2026"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.0.4 · septiembre de 2026"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.0.4 · 2026 年 9 月"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.0.4 · 2026 年 9 月"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.0.4 · 2026년 9월"
+          }
+        }
+      }
+    },
     "mobile.connectionsUpdate.releaseLabel": {
       "extractionState": "manual",
       "localizations": {
@@ -82306,124 +83576,6 @@
         }
       }
     },
-    "mobile.connectionsUpdate.tailscale.detail": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Choosing Tailscale Only shows exactly what's missing and offers the pairing-code scan right there. Nothing opens on its own."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "「Tailscaleのみ」を選ぶと、足りない設定とペアリングコードのスキャンをその場で案内します。勝手に画面が開くことはありません。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wenn Sie sich für „Nur Tailscale“ entscheiden, wird genau angezeigt, was fehlt, und der Pairing-Code-Scan wird direkt dort angeboten. Nichts öffnet sich von alleine."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Choisir Tailscale Only montre exactement ce qui manque et propose l'analyse du code d'appariement directement sur place. Rien ne s'ouvre tout seul."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يؤدي اختيار Tailscale فقط إلى عرض ما هو مفقود بالضبط ويوفر فحص رمز الاقتران هناك. لا شيء يفتح من تلقاء نفسه."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Elegir Tailscale Only muestra exactamente lo que falta y ofrece el escaneo del código de emparejamiento allí mismo. Nada se abre por sí solo."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "選擇“Tailscale Only”會準確顯示缺少的內容，並在此處提供配對碼掃描。没有什么是可以自行打开的。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "选择“Tailscale Only”会准确显示缺少的内容，并在此处提供配对码扫描。没有什么是可以自行打开的。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tailscale Only를 선택하면 누락된 내용이 정확히 표시되고 바로 페어링 코드 스캔이 제공됩니다. 저절로 열리는 것은 없습니다."
-          }
-        }
-      }
-    },
-    "mobile.connectionsUpdate.tailscale.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tailscale, on your terms"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tailscaleは自分のペースで"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tailscale, zu Ihren Bedingungen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tailscale, selon vos conditions"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tailscale ، وفقًا لشروطك"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tailscale, según tus condiciones"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tailscale，依照您的條件"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tailscale，按照您的条件"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tailscale, 원하는 대로"
-          }
-        }
-      }
-    },
     "mobile.connectionsUpdate.title": {
       "extractionState": "manual",
       "localizations": {
@@ -82479,6 +83631,127 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux의 새로운 기능"
+          }
+        }
+      }
+    },
+    "mobile.whatsNew.pairing.pageTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Action Required: Enable iOS pairing on your Mac"
+          }
+        }
+      }
+    },
+    "mobile.whatsNew.pairing.macSettingsLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac Settings"
+          }
+        }
+      }
+    },
+    "mobile.whatsNew.pairing.compatibilityTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac compatibility"
+          }
+        }
+      }
+    },
+    "mobile.whatsNew.pairing.screenshotLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Mac Settings, Mobile section, showing Enable iOS pairing."
+          }
+        }
+      }
+    },
+    "mobile.whatsNew.pairing.stableLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stable Mac"
+          }
+        }
+      }
+    },
+    "mobile.whatsNew.pairing.nightlyLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly Mac"
+          }
+        }
+      }
+    },
+    "mobile.whatsNew.pairing.macVersionFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux %@ or later"
+          }
+        }
+      }
+    },
+    "mobile.whatsNew.pairing.nightlyVersionFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux NIGHTLY %@ or later"
+          }
+        }
+      }
+    },
+    "mobile.whatsNew.pairing.noStableMinimum": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No stable minimum listed"
+          }
+        }
+      }
+    },
+    "mobile.whatsNew.pairing.noNightlyMinimum": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No separate minimum"
+          }
+        }
+      }
+    },
+    "mobile.whatsNew.pairing.connectionChoicesTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection choices"
           }
         }
       }
@@ -82597,6 +83870,301 @@
           "stringUnit": {
             "state": "translated",
             "value": "발표"
+          }
+        }
+      }
+    },
+    "mobile.whatsNew.debug.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replay What's New"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neuigkeiten erneut anzeigen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revoir les nouveautés"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض المستجدات مجددًا"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volver a ver las novedades"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再次顯示新功能"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再次显示新功能"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새로운 기능 다시 보기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新機能をもう一度表示"
+          }
+        }
+      }
+    },
+    "mobile.whatsNew.debug.first": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "First Update"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erstes Update"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Première mise à jour"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أول تحديث"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primera actualización"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第一個更新"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第一个更新"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "첫 번째 업데이트"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最初のアップデート"
+          }
+        }
+      }
+    },
+    "mobile.whatsNew.debug.last": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last Update"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Letztes Update"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dernière mise à jour"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "آخر تحديث"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Última actualización"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最後一個更新"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最后一个更新"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마지막 업데이트"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最後のアップデート"
+          }
+        }
+      }
+    },
+    "mobile.whatsNew.debug.show": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Sheets"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Infoseiten anzeigen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher les fiches"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض الصفحات"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar las páginas"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示頁面"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示页面"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시트 표시"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シートを表示"
+          }
+        }
+      }
+    },
+    "mobile.whatsNew.debug.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No updates available"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Updates verfügbar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune mise à jour disponible"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد تحديثات متاحة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay actualizaciones disponibles"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有可用的更新"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有可用的更新"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트 없음"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートはありません"
           }
         }
       }
@@ -82837,72 +84405,13 @@
         }
       }
     },
-    "mobile.connectionsUpdate.macUpdate.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Action required: update your Mac"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "要対応：Mac をアップデートしてください"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aktion erforderlich: Aktualisieren Sie Ihren Mac"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Action requise : mettez à jour votre Mac"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الإجراء المطلوب: قم بتحديث جهاز Mac الخاص بك"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Acción requerida: actualice su Mac"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "需要採取的行動：更新您的 Mac"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "需要采取的行动：更新您的 Mac"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "필요한 조치: Mac 업데이트"
-          }
-        }
-      }
-    },
     "mobile.connectionsUpdate.macUpdate.detail": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This iPhone update speaks a new connection protocol and only pairs with an updated Mac. Update cmux on your Mac to %@ before connecting. Not ready to update your Mac? Stay on (or revert to) cmux BETA TestFlight version 1.0.4 (20260817224846), the last version that works with older Macs."
+            "value": "Use cmux %@ or later. Older Macs: use BETA 1.0.4 (20260817224846)."
           }
         },
         "ja": {
@@ -82955,13 +84464,367 @@
         }
       }
     },
+    "mobile.macUpdate.requiredOnMacFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requires %@ on your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac に %@ が必要です。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erfordert %@ auf Ihrem Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nécessite %@ sur votre Mac."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب %@ على جهاز Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requiere %@ en tu Mac."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要在 Mac 上安裝 %@。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要在 Mac 上安装 %@。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac에 %@이(가) 필요합니다."
+          }
+        }
+      }
+    },
+    "mobile.macUpdate.revertShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not ready? Stay on (or revert to) cmux BETA 1.0.4 (20260817224846)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだの場合は、cmux BETA 1.0.4 (20260817224846) をそのままご利用ください（または戻してください）。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch nicht bereit? Bleiben Sie bei cmux BETA 1.0.4 (20260817224846) oder kehren Sie dorthin zurück."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas encore prêt ? Restez sur cmux BETA 1.0.4 (20260817224846) ou revenez-y."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لست مستعدًا بعد؟ ابقَ على cmux BETA 1.0.4 (20260817224846) أو ارجع إليه."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Aún no? Quédate en cmux BETA 1.0.4 (20260817224846) o vuelve a esa versión."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還沒準備好？可以繼續使用（或還原至）cmux BETA 1.0.4 (20260817224846)。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没准备好？可以继续使用（或还原至）cmux BETA 1.0.4 (20260817224846)。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 준비되지 않았나요? cmux BETA 1.0.4 (20260817224846)를 계속 사용하거나 해당 버전으로 되돌리세요."
+          }
+        }
+      }
+    },
+    "computers.listauth.unverified.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not verified on the new connection system yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しい接続システムでまだ確認されていません"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im neuen Verbindungssystem noch nicht verifiziert"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas encore vérifié sur le nouveau système de connexion"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم التحقق منه بعد في نظام الاتصال الجديد"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún no verificado en el nuevo sistema de conexión"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未在新的連線系統上完成驗證"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未在新的连接系统上完成验证"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 연결 시스템에서 아직 확인되지 않음"
+          }
+        }
+      }
+    },
+    "computers.listauth.unverified.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It may be running an older cmux version. Update the Mac, or if it's already updated, open cmux on it once to verify."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "古いバージョンの cmux が動作している可能性があります。Mac をアップデートするか、すでに最新の場合は、その Mac で cmux を一度開いて確認してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Möglicherweise läuft dort eine ältere cmux-Version. Aktualisieren Sie den Mac oder öffnen Sie cmux dort einmal, falls er bereits aktualisiert ist, um ihn zu verifizieren."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il exécute peut-être une ancienne version de cmux. Mettez à jour le Mac ou, s’il est déjà à jour, ouvrez cmux dessus une fois pour le vérifier."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قد يكون يعمل بإصدار أقدم من cmux. حدّث جهاز Mac، أو إذا كان محدّثًا بالفعل، فافتح cmux عليه مرة واحدة للتحقق."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Puede que tenga una versión antigua de cmux. Actualiza el Mac o, si ya está actualizado, abre cmux en él una vez para verificarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "它可能正在執行較舊版本的 cmux。請更新該 Mac；如果已經更新，請在該 Mac 上開啟 cmux 一次以完成驗證。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "它可能正在运行较旧版本的 cmux。请更新该 Mac；如果已经更新，请在该 Mac 上打开 cmux 一次以完成验证。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이전 버전의 cmux를 실행 중일 수 있습니다. Mac을 업데이트하거나, 이미 업데이트된 경우 해당 Mac에서 cmux를 한 번 열어 확인하세요."
+          }
+        }
+      }
+    },
+    "computers.version.outdated.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac update required"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac のアップデートが必要です"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac-Update erforderlich"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mise à jour du Mac requise"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مطلوب تحديث Mac"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se requiere actualizar el Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要更新 Mac"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要更新 Mac"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 업데이트 필요"
+          }
+        }
+      }
+    },
+    "computers.version.outdated.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac is running cmux %@. Update cmux on this Mac to %@ or later."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac は cmux %@ を実行しています。この Mac の cmux を %@ 以降にアップデートしてください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf diesem Mac läuft cmux %@. Aktualisieren Sie cmux auf diesem Mac auf %@ oder neuer."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac exécute cmux %@. Mettez à jour cmux sur ce Mac vers %@ ou une version ultérieure."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل جهاز Mac هذا بإصدار cmux %@. حدّث cmux على هذا الجهاز إلى %@ أو أحدث."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac tiene cmux %@. Actualiza cmux en este Mac a %@ o posterior."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 正在執行 cmux %@。請將此 Mac 上的 cmux 更新至 %@ 或更新版本。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 正在运行 cmux %@。请将此 Mac 上的 cmux 更新至 %@ 或更高版本。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac은 cmux %@을(를) 실행 중입니다. 이 Mac의 cmux를 %@ 이상으로 업데이트하세요."
+          }
+        }
+      }
+    },
     "mobile.connectionsUpdate.macUpdate.detail.official": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This iPhone update speaks a new connection protocol and only pairs with an updated Mac. Update cmux on your Mac to %@ before connecting."
+            "value": "Use cmux %@ or later on your Mac before connecting."
           }
         },
         "ja": {
@@ -83203,7 +85066,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「Macをスリープさせない」を操作するには、このMacに接続してください。"
+          "value": "「Macをスリープさせない」を操作するには、このMacに接続してください。"
           }
         },
         "de": {
@@ -83246,6 +85109,419 @@
           "stringUnit": {
             "state": "translated",
             "value": "Keep Mac Awake를 제어하려면 이 Mac에 연결하세요."
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.bodyWithMinVersionFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use the same cmux account on both devices. Requires cmux %1$@ or newer on your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "両方の端末で同じcmuxアカウントを使用してください。Mac版cmux %1$@以降が必要です。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwenden Sie auf beiden Geräten dasselbe cmux-Konto. Erfordert cmux %1$@ oder neuer auf Ihrem Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisez le même compte cmux sur les deux appareils. Nécessite cmux %1$@ ou une version plus récente sur votre Mac."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدم حساب cmux نفسه على الجهازين. يتطلب cmux %1$@ أو أحدث على جهاز Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa la misma cuenta de cmux en ambos dispositivos. Requiere cmux %1$@ o más reciente en tu Mac."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在兩台裝置上使用同一個 cmux 帳號。Mac 上需要 cmux %1$@ 或更新版本。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在两台设备上使用同一个 cmux 账户。Mac 上需要 cmux %1$@ 或更高版本。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "두 기기에서 같은 cmux 계정을 사용하세요. Mac에 cmux %1$@ 이상이 필요합니다."
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.tailscaleBodyWithMinVersionFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requires cmux %1$@ or newer on your Mac. Install Tailscale on both devices and join the same network, then scan the pairing code once."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac版cmux %1$@以降が必要です。両方のデバイスにTailscaleをインストールして同じネットワークに参加し、ペアリングコードを一度スキャンしてください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erfordert cmux %1$@ oder neuer auf Ihrem Mac. Installieren Sie Tailscale auf beiden Geräten, treten Sie demselben Netzwerk bei und scannen Sie dann den Kopplungscode einmal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nécessite cmux %1$@ ou une version plus récente sur votre Mac. Installez Tailscale sur les deux appareils, rejoignez le même réseau, puis scannez le code de jumelage une fois."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب cmux %1$@ أو أحدث على جهاز Mac. ثبّت Tailscale على الجهازين وانضم إلى الشبكة نفسها، ثم امسح رمز الاقتران مرة واحدة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requiere cmux %1$@ o más reciente en tu Mac. Instala Tailscale en ambos dispositivos, únete a la misma red y luego escanea el código de emparejamiento una vez."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 上需要 cmux %1$@ 或更新版本。在兩台裝置上安裝 Tailscale 並加入同一個網路，然後掃描一次配對碼。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 上需要 cmux %1$@ 或更高版本。在两台设备上安装 Tailscale 并加入同一个网络，然后扫描一次配对码。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac에 cmux %1$@ 이상이 필요합니다. 두 기기에 Tailscale을 설치하고 같은 네트워크에 참여한 다음 페어링 코드를 한 번 스캔하세요."
+          }
+        }
+      }
+    },
+    "mobile.pairing.macVersionTooOld.format": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac is running cmux %1$@. Update cmux on this Mac to %2$@ or newer to connect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacはcmux %1$@を実行しています。接続するには、このMacのcmuxを%2$@以降にアップデートしてください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf diesem Mac läuft cmux %1$@. Aktualisieren Sie cmux auf diesem Mac auf %2$@ oder neuer, um eine Verbindung herzustellen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac exécute cmux %1$@. Mettez à jour cmux sur ce Mac vers %2$@ ou une version plus récente pour vous connecter."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل جهاز Mac هذا بإصدار cmux %1$@. حدّث cmux على هذا الجهاز إلى %2$@ أو أحدث للاتصال."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac tiene cmux %1$@. Actualiza cmux en este Mac a %2$@ o más reciente para conectarte."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 正在執行 cmux %1$@。請將此 Mac 上的 cmux 更新至 %2$@ 或更新版本以進行連線。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 正在运行 cmux %1$@。请将此 Mac 上的 cmux 更新至 %2$@ 或更高版本以进行连接。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac은 cmux %1$@을(를) 실행 중입니다. 연결하려면 이 Mac의 cmux를 %2$@ 이상으로 업데이트하세요."
+          }
+        }
+      }
+    },
+    "mobile.pairing.macVersionTooOld.unknownFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac is running an older version of cmux. Update cmux on this Mac to %1$@ or newer to connect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacは古いバージョンのcmuxを実行しています。接続するには、このMacのcmuxを%1$@以降にアップデートしてください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf diesem Mac läuft eine ältere cmux-Version. Aktualisieren Sie cmux auf diesem Mac auf %1$@ oder neuer, um eine Verbindung herzustellen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac exécute une ancienne version de cmux. Mettez à jour cmux sur ce Mac vers %1$@ ou une version plus récente pour vous connecter."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل جهاز Mac هذا بإصدار أقدم من cmux. حدّث cmux على هذا الجهاز إلى %1$@ أو أحدث للاتصال."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac tiene una versión antigua de cmux. Actualiza cmux en este Mac a %1$@ o más reciente para conectarte."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 正在執行較舊版本的 cmux。請將此 Mac 上的 cmux 更新至 %1$@ 或更新版本以進行連線。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 正在运行较旧版本的 cmux。请将此 Mac 上的 cmux 更新至 %1$@ 或更高版本以进行连接。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac은 이전 버전의 cmux를 실행 중입니다. 연결하려면 이 Mac의 cmux를 %1$@ 이상으로 업데이트하세요."
+          }
+        }
+      }
+    },
+    "mobile.pairing.macVersionTooOld.nightlyFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac is running cmux %1$@. Update cmux on this Mac to Nightly %2$@ or later to connect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacはcmux %1$@を実行しています。接続するには、このMacのcmux Nightlyを%2$@以降にアップデートしてください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf diesem Mac läuft cmux %1$@. Aktualisieren Sie cmux auf diesem Mac auf Nightly %2$@ oder neuer, um eine Verbindung herzustellen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac exécute cmux %1$@. Mettez à jour cmux sur ce Mac vers la Nightly %2$@ ou une version ultérieure pour vous connecter."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل جهاز Mac هذا بإصدار cmux %1$@. حدّث cmux على هذا الجهاز إلى Nightly %2$@ أو أحدث للاتصال."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac tiene cmux %1$@. Actualiza cmux en este Mac a Nightly %2$@ o posterior para conectarte."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 正在執行 cmux %1$@。請將此 Mac 上的 cmux 更新至 Nightly %2$@ 或更新版本以進行連線。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 正在运行 cmux %1$@。请将此 Mac 上的 cmux 更新至 Nightly %2$@ 或更高版本以进行连接。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac은 cmux %1$@을(를) 실행 중입니다. 연결하려면 이 Mac의 cmux를 Nightly %2$@ 이상으로 업데이트하세요."
+          }
+        }
+      }
+    },
+    "mobile.pairing.guidance.macVersionTooOld": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On the Mac, update cmux (cmux menu > Check for Updates, or download the latest from cmux.com). This computer reconnects automatically after the update."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macでcmuxをアップデートしてください（cmuxメニュー > アップデートを確認、またはcmux.comから最新版をダウンロード）。アップデート後、このコンピュータには自動的に再接続します。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktualisieren Sie cmux auf dem Mac (Menü „cmux“ > „Nach Updates suchen“, oder laden Sie die neueste Version von cmux.com). Dieser Computer verbindet sich nach dem Update automatisch neu."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur le Mac, mettez à jour cmux (menu cmux > Rechercher des mises à jour, ou téléchargez la dernière version sur cmux.com). Cet ordinateur se reconnecte automatiquement après la mise à jour."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "على جهاز Mac، حدّث cmux (قائمة cmux > التحقق من وجود تحديثات، أو نزّل أحدث إصدار من cmux.com). يعيد هذا الكمبيوتر الاتصال تلقائيًا بعد التحديث."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En el Mac, actualiza cmux (menú cmux > Buscar actualizaciones, o descarga la última versión desde cmux.com). Este ordenador se vuelve a conectar automáticamente tras la actualización."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請在 Mac 上更新 cmux（cmux 選單 > 檢查更新，或從 cmux.com 下載最新版本）。更新後，這台電腦會自動重新連線。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在 Mac 上更新 cmux（cmux 菜单 > 检查更新，或从 cmux.com 下载最新版本）。更新后，这台电脑会自动重新连接。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac에서 cmux를 업데이트하세요(cmux 메뉴 > 업데이트 확인 또는 cmux.com에서 최신 버전 다운로드). 업데이트 후 이 컴퓨터는 자동으로 다시 연결됩니다."
+          }
+        }
+      }
+    },
+    "mobile.pairing.macVersionTooOld.nightlyUnknownFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac needs a newer cmux Nightly. Update cmux on this Mac to %1$@ or later to connect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacのcmux Nightlyを%1$@以降にアップデートして接続してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Mac benötigt eine neuere cmux Nightly. Aktualisieren Sie cmux auf diesem Mac auf %1$@ oder neuer, um eine Verbindung herzustellen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac a besoin d’une Nightly cmux plus récente. Mettez à jour cmux sur ce Mac vers %1$@ ou une version ultérieure pour vous connecter."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج جهاز Mac هذا إلى إصدار Nightly أحدث من cmux. حدّث cmux على هذا الجهاز إلى %1$@ أو أحدث للاتصال."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac necesita una Nightly de cmux más reciente. Actualiza cmux en este Mac a %1$@ o posterior para conectarte."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 需要更新版本的 cmux Nightly。請將此 Mac 上的 cmux 更新至 %1$@ 或更新版本以進行連線。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 需要更新版本的 cmux Nightly。请将此 Mac 上的 cmux 更新至 %1$@ 或更高版本以进行连接。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에는 최신 cmux Nightly가 필요합니다. 연결하려면 이 Mac의 cmux를 %1$@ 이상으로 업데이트하세요."
           }
         }
       }

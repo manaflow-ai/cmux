@@ -57,47 +57,88 @@ public struct TerminalLetterboxGeometry {
     /// - Chrome hidden (HIDE button): the grid reclaims everything; nothing is
     ///   reserved (there is no bar to keep a seam against).
     ///
+    /// When the surface extends under the top safe area for the scroll-edge
+    /// band (iOS 26 navigation-bar blur over live scrollback rows), the
+    /// bounds include that band, so `topContentInset` reserves it: the grid
+    /// starts below the bar exactly where it did before the expansion, and
+    /// the band above it holds render-only overscan rows.
+    ///
     /// - Parameters:
     ///   - bounds: The host view bounds size in points.
     ///   - composerBandHeight: The open composer band height in points (0 closed).
     ///   - toolbarHeight: The reserved persistent toolbar height in points.
     ///   - bottomSafeAreaInset: The resolved bottom safe-area inset in points.
     ///   - chromeHidden: True while the HIDE button has suppressed the dock.
+    ///   - topContentInset: The top safe-area band included in `bounds` that
+    ///     the grid must not occupy (0 when the surface does not underlap
+    ///     the top bar).
     /// - Returns: The grid container size in points.
     public static func terminalContainerSize(
         bounds: CGSize,
         composerBandHeight: CGFloat,
         toolbarHeight: CGFloat,
         bottomSafeAreaInset: CGFloat,
-        chromeHidden: Bool
+        chromeHidden: Bool,
+        topContentInset: CGFloat = 0
     ) -> CGSize {
         let reservedBottom: CGFloat = chromeHidden
             ? 0
             : max(0, composerBandHeight) + max(0, toolbarHeight) + max(0, bottomSafeAreaInset)
                 + dockSeamPadding
-        let bottomInset = min(reservedBottom, max(0, bounds.height - 1))
+        let reservedTop = max(0, topContentInset)
+        let reserved = reservedBottom + reservedTop
+        let totalInset = min(reserved, max(0, bounds.height - 1))
         let containerW = max(1, bounds.width)
-        let containerH = max(1, bounds.height - bottomInset)
+        let containerH = max(1, bounds.height - totalInset)
         return CGSize(width: containerW, height: containerH)
     }
 
-    /// Resolve the bottom safe-area inset, preferring the view's own inset and
-    /// falling back to the window's when the view inset is zero (it can be zero
-    /// before the view is on a window, and STALE for one layout pass right after
-    /// the keyboard hides).
+    /// Resolve the physical bottom safe area from the stationary outer layout.
     ///
     /// Mirrors `GhosttySurfaceView.safeAreaInsetsBottom`. Factored out so the
-    /// "do not trust a zero view inset" rule is host-testable: passing a zero
-    /// (stale) view inset must return the window inset, not zero, so the
-    /// keyboard-down grid height does not briefly over-extend under the home
-    /// indicator and then snap back.
+    /// terminal grid stays independent of keyboard presentation. Sliding the
+    /// full-height surface changes its local safe area, including nonzero
+    /// intermediate values. Feeding those values back into the grid reservation
+    /// resizes and reflows the terminal, which changes the content measurement
+    /// and moves the surface again. Prefer the window or captured outer inset;
+    /// the local view is only a fallback before those sources are available.
     ///
     /// - Parameters:
-    ///   - viewInset: The view's `safeAreaInsets.bottom` (may be a stale 0).
-    ///   - windowInset: The window's `safeAreaInsets.bottom` (authoritative).
+    ///   - viewInset: The moving view's local inset, used only as a fallback.
+    ///   - windowInset: The window's `safeAreaInsets.bottom` (authoritative
+    ///     when the window reports it). `nil` means unavailable; `.some(0)` is
+    ///     an authoritative zero on devices without a bottom reservation.
+    ///   - capturedInset: A safe-area value captured outside an ignored
+    ///     SwiftUI subtree, when UIKit cannot expose it to the terminal leaf.
+    ///   - ancestorInsets: Safe-area values reported by UIKit ancestors. A
+    ///     SwiftUI `ignoresSafeArea` subtree can make both the surface and its
+    ///     immediate host report zero even though an outer hosting container
+    ///     still carries the device's bottom inset.
     /// - Returns: The inset to reserve in points.
-    public static func resolvedBottomSafeAreaInset(viewInset: CGFloat, windowInset: CGFloat) -> CGFloat {
-        viewInset > 0 ? viewInset : max(0, windowInset)
+    public static func resolvedBottomSafeAreaInset(
+        viewInset: CGFloat,
+        windowInset: CGFloat?,
+        capturedInset: CGFloat? = nil,
+        ancestorInsets: [CGFloat] = []
+    ) -> CGFloat {
+        if let windowInset {
+            return max(0, windowInset)
+        }
+        if let capturedInset {
+            return max(0, capturedInset)
+        }
+        if viewInset > 0 {
+            return viewInset
+        }
+        // Ancestors may add their own bottom chrome (for example a tab or
+        // navigation container), so use the smallest positive inset rather
+        // than inheriting the largest container reservation. This recovers
+        // the physical device safe area without reserving a parent bar twice.
+        return ancestorInsets
+            .filter { $0 > 0 }
+            .min()
+            .map { max(0, $0) }
+            ?? 0
     }
 
     /// The container size in device pixels for libghostty's `set_size`.

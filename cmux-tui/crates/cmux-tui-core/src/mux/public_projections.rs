@@ -9,9 +9,10 @@ pub(super) struct RestoredPublicProjections {
     pub(super) has_terminal_defaults: bool,
     pub(super) next_notification_id: u64,
     pub(super) agent_records: HashMap<TerminalPublicId, TerminalAgentRecord>,
-    pub(super) agent_hook_fences: HashMap<TerminalPublicId, super::HookFence>,
+    pub(super) agent_hook_fences: HashMap<TerminalPublicId, HookFence>,
     pub(super) terminal_notifications: HashMap<TerminalPublicId, SurfaceNotification>,
     pub(super) notification_ledger: VecDeque<ResourceNotification>,
+    pub(super) notification_reads: HashMap<NotificationPublicId, BTreeSet<String>>,
 }
 
 pub(super) fn restore_public_projections(
@@ -22,6 +23,7 @@ pub(super) fn restore_public_projections(
     let default_colors = projections.terminal_defaults.unwrap_or_default();
     let mut notification_ledger = VecDeque::with_capacity(projections.notifications.len());
     let mut terminal_notifications = HashMap::new();
+    let mut notification_reads = HashMap::new();
     for (index, notification) in projections.notifications.into_iter().enumerate() {
         let numeric_id =
             u64::try_from(index).context("notification count exceeds uint64")?.saturating_add(1);
@@ -45,9 +47,16 @@ pub(super) fn restore_public_projections(
                 );
             }
         }
+        if !notification.read_by.is_empty() {
+            notification_reads.insert(
+                notification.id.clone(),
+                notification.read_by.into_iter().collect::<BTreeSet<String>>(),
+            );
+        }
         notification_ledger.push_back(ResourceNotification {
             id: notification.id,
             title: notification.title,
+            subtitle: notification.subtitle,
             body: notification.body,
             level,
             terminal_id: notification.terminal_id,
@@ -64,7 +73,7 @@ pub(super) fn restore_public_projections(
     for hook_state in projections.agent_hook_states {
         agent_hook_fences.insert(
             hook_state.terminal_id,
-            super::HookFence {
+            HookFence {
                 session_id: hook_state.agent_session_id,
                 sequence: hook_state.applied_sequence,
                 ended: hook_state.ended,
@@ -84,8 +93,8 @@ pub(super) fn restore_public_projections(
                 // marker sequence as their legacy generation token so a
                 // session-less event continues the same lifecycle after a
                 // restart without reusing a terminal-wide identity.
-                agent_hook_fences.entry(agent.terminal_id.clone()).or_insert(super::HookFence {
-                    session_id: super::legacy_hook_session_id(&agent.terminal_id, value),
+                agent_hook_fences.entry(agent.terminal_id.clone()).or_insert(HookFence {
+                    session_id: legacy_hook_session_id(&agent.terminal_id, value),
                     sequence: value,
                     ended: ended.is_some(),
                 });
@@ -97,8 +106,8 @@ pub(super) fn restore_public_projections(
             // cannot resurrect the completed session. Sequence zero is the
             // one-release compatibility generation for records without a
             // marker.
-            agent_hook_fences.entry(agent.terminal_id.clone()).or_insert(super::HookFence {
-                session_id: super::legacy_hook_session_id(&agent.terminal_id, 0),
+            agent_hook_fences.entry(agent.terminal_id.clone()).or_insert(HookFence {
+                session_id: legacy_hook_session_id(&agent.terminal_id, 0),
                 sequence: 0,
                 ended: true,
             });
@@ -128,6 +137,7 @@ pub(super) fn restore_public_projections(
         agent_hook_fences,
         terminal_notifications,
         notification_ledger,
+        notification_reads,
     })
 }
 
@@ -212,11 +222,13 @@ mod tests {
                 id: NotificationPublicId::parse("notification_00000000000000000000000000000001")
                     .unwrap(),
                 title: "build".into(),
+                subtitle: None,
                 body: String::new(),
                 level: "info".into(),
                 terminal_id: Some(terminal.clone()),
                 created_at_ms: 1,
                 unread: true,
+                read_by: vec![],
             }],
             agents: vec![RegistryAgentProjection {
                 id: AgentPublicId::parse("agent_00000000000000000000000000000001").unwrap(),
@@ -249,11 +261,13 @@ mod tests {
                 id: NotificationPublicId::parse("notification_00000000000000000000000000000002")
                     .unwrap(),
                 title: "orphan".into(),
+                subtitle: None,
                 body: String::new(),
                 level: "warning".into(),
                 terminal_id: None,
                 created_at_ms: 2,
                 unread: true,
+                read_by: vec![],
             }],
             agents: Vec::new(),
             agent_hook_states: Vec::new(),
@@ -273,11 +287,13 @@ mod tests {
                 id: NotificationPublicId::parse("notification_00000000000000000000000000000003")
                     .unwrap(),
                 title: "finished".into(),
+                subtitle: None,
                 body: String::new(),
                 level: "info".into(),
                 terminal_id: Some(terminal.clone()),
                 created_at_ms: 3,
                 unread: true,
+                read_by: vec![],
             }],
             agents: Vec::new(),
             agent_hook_states: Vec::new(),
