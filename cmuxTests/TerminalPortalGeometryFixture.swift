@@ -2,6 +2,7 @@ import AppKit
 import CmuxTerminal
 import Darwin
 import GhosttyKit
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -41,6 +42,9 @@ final class TerminalPortalGeometryFixture {
     }
 
     func bind(visible: Bool = true) {
+        // Match the host's visibility-before-attachment order so a visible
+        // runtime must wait for its first committed portal geometry.
+        hosted.setVisibleInUI(visible)
         portal.bind(hostedView: hosted, to: anchor, visibleInUI: visible)
     }
 
@@ -63,23 +67,54 @@ final class TerminalPortalGeometryFixture {
         NotificationCenter.default.post(name: NSWindow.didEndLiveResizeNotification, object: window)
     }
 
-    func flushLayout() {
+    func flushLayout() async {
         window.contentView?.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        // Suspend the test behind the portal's queued callbacks. A nested
+        // RunLoop from a synchronous MainActor test does not drain that work.
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
     }
 
-    func waitForCommit(width: CGFloat? = nil) -> Bool {
-        let deadline = Date().addingTimeInterval(2)
+    func requireCommit(
+        width: CGFloat? = nil,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
         repeat {
             if let geometry = surface.committedPaneGeometry,
                geometry.phase == .settled, gridMatchesPTY(),
                portal.entriesByHostedId[hostedID]?.needsSettledCommit == false,
+               geometry.size == hosted.surfaceView.frame.size,
                width.map({ abs($0 - geometry.size.width) < 0.5 }) ?? true {
-                return true
+                return
             }
-            flushLayout()
-        } while Date() < deadline
-        return false
+            await flushLayout()
+        } while ContinuousClock.now < deadline && !Task.isCancelled
+        let didCommit = false
+        try #require(
+            didCommit,
+            Comment(rawValue: "Expected a settled geometry with matching Ghostty grid and PTY; " +
+                "geometry=\(String(describing: surface.committedPaneGeometry)), " +
+                "viewport=\(hosted.surfaceView.frame.size), runtime=\(surface.surface != nil), " +
+                "tty=\(surface.controllingTTYName() ?? "nil"), " +
+                "pending=\(String(describing: portal.entriesByHostedId[hostedID]?.needsSettledCommit))"),
+            sourceLocation: sourceLocation
+        )
+    }
+
+    func requireScrollback(sourceLocation: SourceLocation = #_sourceLocation) async throws {
+        // Real shell output keeps the scroller present after the runtime's
+        // first scrollbar packet; a style toggle on an empty shell is a no-op.
+        let command = #"/bin/sh -c 'i=0; while [ "$i" -lt 80 ]; do printf "cmux-geometry-scroll\n"; i=$((i + 1)); done'"#
+        try #require(surface.sendInput(command + "\r"), sourceLocation: sourceLocation)
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        repeat {
+            if let scrollbar = hosted.surfaceView.scrollbar, scrollbar.total > scrollbar.len { return }
+            await flushLayout()
+        } while ContinuousClock.now < deadline && !Task.isCancelled
+        let hasScrollback = false
+        try #require(hasScrollback, "Expected shell output to create real scrollback", sourceLocation: sourceLocation)
     }
 
     /// Read the actual terminal screen and kernel TTY, not just Ghostty's
