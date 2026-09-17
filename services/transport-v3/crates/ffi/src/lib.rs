@@ -311,6 +311,31 @@ impl NativeStream {
         }
         result
     }
+    /// Send chunks and wait for each peer queue acknowledgement.
+    pub async fn send_acknowledged(
+        &self,
+        data: Vec<u8>,
+        operation: Arc<Operation>,
+    ) -> Result<(), NativeError> {
+        if data.is_empty() || data.len() > 16 * 1024 * 1024 {
+            return Err(NativeError::Invalid);
+        }
+        let result = self
+            .run(&operation, async {
+                let _write = self.writing.lock().await;
+                for chunk in data.chunks(session::MAX_DATA) {
+                    self.sending
+                        .send_acknowledged(chunk.to_vec().into())
+                        .await?;
+                }
+                Ok(())
+            })
+            .await;
+        if result == Err(NativeError::Cancelled) {
+            self.close();
+        }
+        result
+    }
     pub async fn receive(&self, operation: Arc<Operation>) -> Result<Vec<u8>, NativeError> {
         self.run(&operation, async {
             self.receiving.lock().await.receive().await

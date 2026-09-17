@@ -8,6 +8,7 @@ use futures::{SinkExt, StreamExt};
 use libp2p::{PeerId, Stream, StreamProtocol};
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashMap,
     sync::{Arc, Mutex},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -25,6 +26,7 @@ const HANDSHAKE: Duration = Duration::from_secs(5);
 const DATA: u8 = 0;
 const RENEW: u8 = 1;
 const RENEWED: u8 = 2;
+const DATA_ACK: u8 = 3;
 type Wire = Framed<Compat<Stream>, LengthDelimitedCodec>;
 type Reply = oneshot::Sender<Result<(), Error>>;
 
@@ -196,6 +198,7 @@ impl Context {
             .clone()
             .try_acquire_owned()
             .map_err(|_| Error::Capacity)?;
+        let cursor = lane.cursor;
         tokio::time::timeout(HANDSHAKE, async {
             let stream = control
                 .open_stream(destination, PROTOCOL)
@@ -220,7 +223,7 @@ impl Context {
                 return Err(Error::Denied);
             }
             let admission = self.admit(scope, &grant)?;
-            Ok(self.start(wire, scope, admission, true, slot))
+            Ok(self.start(wire, scope, admission, true, cursor, slot))
         })
         .await
         .map_err(|_| Error::Timeout)?
@@ -253,7 +256,10 @@ impl Context {
                 .map_err(|_| Error::Transport)?;
             // The reply itself can stall. Do not return an already-expired session.
             admission.check(self.clock.now(), &self.revocations.borrow())?;
-            Ok((hello.lane, self.start(wire, scope, admission, false, slot)))
+            Ok((
+                hello.lane.clone(),
+                self.start(wire, scope, admission, false, hello.lane.cursor, slot),
+            ))
         })
         .await
         .map_err(|_| Error::Timeout)?
@@ -264,6 +270,7 @@ impl Context {
         scope: GrantScope,
         admission: Admission,
         initiator: bool,
+        cursor: Option<u64>,
         slot: OwnedSemaphorePermit,
     ) -> Session {
         wire.codec_mut().set_max_frame_length(MAX_DATA + 1);
@@ -271,6 +278,7 @@ impl Context {
         let (in_tx, in_rx) = mpsc::channel(QUEUE);
         let (closed_tx, closed_rx) = watch::channel(None);
         let (permit_tx, _) = watch::channel(Arc::new(admission));
+        let pending_data = Arc::new(Mutex::new(HashMap::<u64, Reply>::new()));
         let guard = Arc::new(Guard {
             context: self.clone(),
             scope,
@@ -279,7 +287,16 @@ impl Context {
         let running = guard.clone();
         let task = tokio::spawn(async move {
             let _slot = slot;
-            let result = drive(wire, out_rx, in_tx, running, initiator).await;
+            let result = drive(
+                wire,
+                out_rx,
+                in_tx,
+                running,
+                initiator,
+                cursor,
+                pending_data,
+            )
+            .await;
             closed_tx.send_replace(Some(result));
         });
         Session {
@@ -349,9 +366,14 @@ impl Guard {
 }
 
 enum Outbound {
-    Data(Bytes, Reply),
+    Data {
+        bytes: Bytes,
+        reply: Reply,
+        acknowledged: bool,
+    },
     Renew(String, Reply),
-    Ack(u64),
+    RenewAck(u64),
+    DataAck(u64),
 }
 struct Pending {
     id: u64,
@@ -386,6 +408,13 @@ impl Session {
     }
     pub async fn send(&self, bytes: Bytes) -> Result<(), Error> {
         self.sender().send(bytes).await
+    }
+
+    /// Sends a frame and waits until the peer has accepted it into its bounded
+    /// receive queue. This acknowledgement is the handover primitive for
+    /// replayable application inputs; ordinary `send` retains flush semantics.
+    pub async fn send_acknowledged(&self, bytes: Bytes) -> Result<(), Error> {
+        self.sender().send_acknowledged(bytes).await
     }
     /// Returns only after the receiving endpoint acknowledges the signed renewal.
     /// Only the stream initiator may renew. This never extends a token locally.
@@ -447,12 +476,28 @@ impl SessionSender {
         self.abort.abort();
     }
     pub async fn send(&self, bytes: Bytes) -> Result<(), Error> {
+        self.send_data(bytes, false).await
+    }
+
+    pub async fn send_acknowledged(&self, bytes: Bytes) -> Result<(), Error> {
+        self.send_data(bytes, true).await
+    }
+
+    async fn send_data(&self, bytes: Bytes, acknowledged: bool) -> Result<(), Error> {
         if bytes.is_empty() || bytes.len() > MAX_DATA {
             return Err(Error::Protocol);
         }
         self.guard.check()?;
         let (tx, rx) = oneshot::channel();
-        self.command(Outbound::Data(bytes, tx), rx).await
+        self.command(
+            Outbound::Data {
+                bytes,
+                reply: tx,
+                acknowledged,
+            },
+            rx,
+        )
+        .await
     }
     pub async fn renew(&self, token: String) -> Result<(), Error> {
         self.guard.validate(&token)?;
@@ -492,21 +537,36 @@ async fn drive(
     incoming: mpsc::Sender<Bytes>,
     guard: Arc<Guard>,
     initiator: bool,
+    cursor: Option<u64>,
+    pending_data: Arc<Mutex<HashMap<u64, Reply>>>,
 ) -> Error {
     let (mut sink, mut stream) = wire.split();
     let (control_tx, mut control_rx) = mpsc::channel(4);
     let pending = Mutex::<Option<Pending>>::new(None);
+    let mut last_received = cursor.unwrap_or(0);
     let read = async {
         while let Some(frame) = stream.next().await {
             let frame = frame.map_err(|_| Error::Transport)?;
             guard.check()?;
             match frame.first().copied() {
-                Some(DATA) if frame.len() > 1 => {
+                Some(DATA) if frame.len() > 9 => {
                     if !initiator && guard.scope.lane == LaneKind::Terminal {
                         return Err(Error::Denied);
                     }
-                    incoming
-                        .send(frame.freeze().slice(1..))
+                    let sequence =
+                        u64::from_be_bytes(frame[1..9].try_into().map_err(|_| Error::Protocol)?);
+                    if sequence > last_received {
+                        if sequence != last_received.saturating_add(1) {
+                            return Err(Error::Protocol);
+                        }
+                        last_received = sequence;
+                        incoming
+                            .send(frame.freeze().slice(9..))
+                            .await
+                            .map_err(|_| Error::Closed)?;
+                    }
+                    control_tx
+                        .send(Outbound::DataAck(sequence))
                         .await
                         .map_err(|_| Error::Closed)?;
                 }
@@ -516,7 +576,7 @@ async fn drive(
                     let token = std::str::from_utf8(&frame[9..]).map_err(|_| Error::Protocol)?;
                     guard.replace(guard.validate(token)?)?;
                     control_tx
-                        .send(Outbound::Ack(id))
+                        .send(Outbound::RenewAck(id))
                         .await
                         .map_err(|_| Error::Closed)?;
                 }
@@ -534,13 +594,25 @@ async fn drive(
                     guard.replace(item.permit)?;
                     let _ = item.reply.send(Ok(()));
                 }
+                Some(DATA_ACK) if frame.len() == 9 => {
+                    let sequence =
+                        u64::from_be_bytes(frame[1..9].try_into().map_err(|_| Error::Protocol)?);
+                    if let Some(reply) = pending_data
+                        .lock()
+                        .map_err(|_| Error::Closed)?
+                        .remove(&sequence)
+                    {
+                        let _ = reply.send(Ok(()));
+                    }
+                }
                 _ => return Err(Error::Protocol),
             }
         }
         Err::<(), _>(Error::Closed)
     };
     let write = async {
-        let mut sequence = 0_u64;
+        let mut data_sequence = cursor.unwrap_or(0);
+        let mut renew_sequence = 0_u64;
         loop {
             let command = tokio::select! {
                 biased;
@@ -550,17 +622,38 @@ async fn drive(
             guard.check()?;
             let mut body = BytesMut::new();
             let reply = match command {
-                Outbound::Data(bytes, reply) => {
+                Outbound::Data {
+                    bytes,
+                    reply,
+                    acknowledged,
+                } => {
                     if initiator && guard.scope.lane == LaneKind::Terminal {
                         let _ = reply.send(Err(Error::Denied));
                         continue;
                     }
+                    data_sequence = data_sequence.checked_add(1).ok_or(Error::Protocol)?;
                     body.extend_from_slice(&[DATA]);
+                    body.extend_from_slice(&data_sequence.to_be_bytes());
                     body.extend_from_slice(&bytes);
-                    Some(reply)
+                    if acknowledged {
+                        let mut pending = pending_data.lock().map_err(|_| Error::Closed)?;
+                        if pending.len() >= QUEUE * 8 {
+                            let _ = reply.send(Err(Error::Capacity));
+                            continue;
+                        }
+                        pending.insert(data_sequence, reply);
+                        None
+                    } else {
+                        Some(reply)
+                    }
                 }
-                Outbound::Ack(id) => {
+                Outbound::RenewAck(id) => {
                     body.extend_from_slice(&[RENEWED]);
+                    body.extend_from_slice(&id.to_be_bytes());
+                    None
+                }
+                Outbound::DataAck(id) => {
+                    body.extend_from_slice(&[DATA_ACK]);
                     body.extend_from_slice(&id.to_be_bytes());
                     None
                 }
@@ -581,14 +674,14 @@ async fn drive(
                         let _ = reply.send(Err(Error::Busy));
                         continue;
                     }
-                    sequence = sequence.checked_add(1).ok_or(Error::Protocol)?;
+                    renew_sequence = renew_sequence.checked_add(1).ok_or(Error::Protocol)?;
                     *state = Some(Pending {
-                        id: sequence,
+                        id: renew_sequence,
                         permit,
                         reply,
                     });
                     body.extend_from_slice(&[RENEW]);
-                    body.extend_from_slice(&sequence.to_be_bytes());
+                    body.extend_from_slice(&renew_sequence.to_be_bytes());
                     body.extend_from_slice(token.as_bytes());
                     None
                 }

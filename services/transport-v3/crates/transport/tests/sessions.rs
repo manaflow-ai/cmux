@@ -162,6 +162,34 @@ async fn acknowledged_renewal_keeps_stream_alive_past_original_expiry() {
 }
 
 #[tokio::test]
+async fn acknowledged_data_waits_for_peer_queue_and_replays_from_cursor() {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        let mut pair = Pair::new(4).await;
+        let (a, mut b) = pair.open(pair.grant(Some(60), 1)).await;
+        let sending = a.send_acknowledged(Bytes::from_static(b"input"));
+        let receiving = b.receive();
+        let (sent, received) = tokio::join!(sending, receiving);
+        sent.unwrap();
+        assert_eq!(received.unwrap(), b"input"[..]);
+
+        // The lane cursor seeds the next sequence and rejects a gap, which is
+        // the invariant a handover replay needs before accepting new bytes.
+        let replay_lane = Lane {
+            cursor: Some(41),
+            ..lane()
+        };
+        let (a2, mut b2) = pair.open_lane(pair.grant(Some(60), 1), replay_lane).await;
+        let sending = a2.send_acknowledged(Bytes::from_static(b"after-replay"));
+        let receiving = b2.receive();
+        let (sent, received) = tokio::join!(sending, receiving);
+        sent.unwrap();
+        assert_eq!(received.unwrap(), b"after-replay"[..]);
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
 async fn expiry_cancels_idle_reads_and_full_buffers_and_releases_capacity() {
     tokio::time::timeout(Duration::from_secs(12), async {
         let mut pair = Pair::new(1).await;
