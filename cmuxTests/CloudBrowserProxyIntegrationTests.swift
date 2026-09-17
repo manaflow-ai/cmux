@@ -84,10 +84,12 @@ struct CloudBrowserProxyIntegrationTests {
         #expect(panel.webView.configuration.websiteDataStore === panel.websiteDataStore)
         #expect(panel.websiteDataStore.proxyConfigurations.count == 1)
         let deadline = ContinuousClock.now.advanced(by: .seconds(10))
-        while !panel.cloudAccess.showsPage && ContinuousClock.now < deadline {
+        while (!panel.cloudAccess.showsPage || panel.webView.url != url || panel.webView.isLoading)
+            && ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(10))
         }
         try #require(panel.cloudAccess.showsPage)
+        try #require(panel.webView.url == url && !panel.webView.isLoading)
         let posted = try #require(try await panel.webView.callAsyncJavaScript("""
             const response = await fetch('http://localhost:8000/echo', {
               method: 'POST', body: 'after-profile-switch', signal: AbortSignal.timeout(5000)
