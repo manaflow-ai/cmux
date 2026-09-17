@@ -1,5 +1,7 @@
 import AppKit
 import Foundation
+import struct CmuxSettings.BrowserCatalogSection
+import struct CmuxSettings.UserDefaultsSettingsClient
 import Testing
 
 #if canImport(cmux_DEV)
@@ -142,7 +144,8 @@ struct TerminalLinkBrowserPlacementTests {
             #expect(defaults.string(forKey: "browserTerminalLinkBrowserPlacement") == "samePane")
             try #"{"browser":{"terminalLinkBrowserPlacement":"invalid"}}"#.write(to: file, atomically: true, encoding: .utf8)
             store.reload()
-            #expect(defaults.string(forKey: "browserTerminalLinkBrowserPlacement") == "split")
+            #expect(UserDefaultsSettingsClient(defaults: defaults)
+                .value(for: BrowserCatalogSection().terminalLinkBrowserPlacement) == .split)
         }
     }
 
