@@ -76,6 +76,9 @@ impl Default for TrackedProcesses {
 struct ScopeRegistration {
     marker: String,
     file_marker: FileMarker,
+    // Deferred scans still use this inode as identity after the caller exits.
+    // Keep its descriptor alive so a later scope cannot reuse that inode.
+    _marker_fd: Arc<OwnedFd>,
     root: ProcessIdentity,
     tracked: Arc<Mutex<TrackedProcesses>>,
     #[cfg(test)]
@@ -143,7 +146,7 @@ struct ProcessScopeTracker {
 /// that leave that group.
 pub struct UnixProcessScope {
     marker: String,
-    _marker_fd: OwnedFd,
+    _marker_fd: Arc<OwnedFd>,
     file_marker: FileMarker,
     root: Option<ProcessIdentity>,
     #[cfg(target_os = "linux")]
@@ -304,7 +307,7 @@ impl UnixProcessScope {
         let (marker_fd, file_marker) = create_file_marker(&marker)?;
         Ok(Self {
             marker,
-            _marker_fd: marker_fd,
+            _marker_fd: Arc::new(marker_fd),
             file_marker,
             root: None,
             #[cfg(target_os = "linux")]
@@ -428,6 +431,7 @@ impl UnixProcessScope {
         let registration = registry.register(ScopeRegistration {
             marker: self.marker.clone(),
             file_marker: self.file_marker,
+            _marker_fd: Arc::clone(&self._marker_fd),
             root,
             tracked: self.tracked.clone(),
             #[cfg(test)]
@@ -1540,7 +1544,10 @@ mod tests {
         drop(scope);
         let retained = file_marker_for_fd(marker_fd).is_ok_and(|actual| actual == marker);
         resume.send(()).unwrap();
-        assert!(retained, "an inactive scan must retain the inode it still uses as ownership evidence");
+        assert!(
+            retained,
+            "an inactive scan must retain the inode it still uses as ownership evidence"
+        );
     }
 
     #[cfg(target_os = "linux")]
@@ -1553,6 +1560,7 @@ mod tests {
         let registration = ScopeRegistration {
             marker: scope.marker.clone(),
             file_marker: scope.file_marker,
+            _marker_fd: Arc::clone(&scope._marker_fd),
             root: ProcessIdentity { pid: u32::MAX, started: 0 },
             tracked: scope.tracked.clone(),
             track_before_finalization: true,
