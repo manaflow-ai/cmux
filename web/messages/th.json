@@ -1964,15 +1964,16 @@
     "warning": "บิลด์ nightly อาจมีบั๊กหรือฟีเจอร์ที่ยังไม่สมบูรณ์ หากพบปัญหา รายงานบน <githubLink>GitHub</githubLink> หรือใน <discordLink>#nightly-bugs บน Discord</discordLink> แล้วสลับกลับไปใช้เวอร์ชันเสถียร"
   },
   "rc": {
-    "title": "cmux RC",
-    "subtitle": "บิลด์ release candidate",
-    "metaTitle": "cmux RC — บิลด์ Release Candidate",
-    "metaDescription": "ดาวน์โหลด cmux RC ซึ่งเป็น release candidate ของเวอร์ชันเสถียรถัดไป ติดตั้งควบคู่กับเวอร์ชันเสถียรและ nightly พร้อมอัปเดตอัตโนมัติของตัวเอง",
-    "description": "cmux RC คือ release candidate ของเวอร์ชันเสถียรถัดไป สร้างจาก nightly ที่ผ่านการทดสอบแล้ว เปลี่ยนแปลงเฉพาะการแก้ไขที่คัดเลือกมาเป็นเวลาไม่กี่วัน และจะกลายเป็นเวอร์ชันเสถียรถัดไปเมื่อผ่านการตรวจสอบ มี bundle ID เป็นของตัวเอง จึงทำงานควบคู่กับแอปเวอร์ชันเสถียรและ nightly ได้",
-    "download": "ดาวน์โหลด RC สำหรับ Mac",
+    "title": "cmux Release Candidate",
+    "subtitle": "บิลด์เสถียรถัดไป มาก่อนสองสามวัน",
+    "metaTitle": "cmux Release Candidate — เข้าถึงบิลด์เสถียรถัดไปก่อนใคร",
+    "metaDescription": "ลอง release candidate ของ cmux: บิลด์เสถียรถัดไปที่เผยแพร่ล่วงหน้าสองสามวันบนช่องทางอัปเดตของตัวเอง แอปเดียวกัน bundle ID เดียวกัน สลับช่องทางได้ในการตั้งค่า",
+    "description": "Release candidate คือบิลด์เสถียรถัดไปของ cmux ที่เผยแพร่ล่วงหน้าสองสามวันเพื่อให้เราพบปัญหาก่อนที่ทุกคนจะได้รับ เป็นแอปเดียวกับเวอร์ชันเสถียร: ติดตั้งทับ cmux ที่ใช้อยู่ หรือสลับการติดตั้งเดิมไปยังช่องทางอัปเดต release candidate ในการตั้งค่า > อัปเดต เมื่อผ่านการทดสอบ บิลด์เดียวกันนี้จะกลายเป็นเวอร์ชันเสถียร",
+    "download": "ดาวน์โหลด release candidate สำหรับ Mac",
     "downloadArm64": "DMG สำหรับ Apple silicon",
     "downloadIntel": "DMG สำหรับ Intel",
-    "warning": "Release candidate อาจยังมีบั๊กอยู่ หากพบปัญหา รายงานบน <githubLink>GitHub</githubLink> หรือใน <discordLink>Discord</discordLink> แล้วสลับกลับไปใช้เวอร์ชันเสถียร"
+    "channelHint": "มี cmux อยู่แล้ว? เปิดการตั้งค่า > อัปเดต แล้วตั้งช่องทางอัปเดตเป็น Release candidate หรือรัน <code>cmux config set updates.channel rc</code>",
+    "warning": "Release candidate อาจยังมีบั๊ก หากพบปัญหา โปรดรายงานที่ <githubLink>GitHub</githubLink> หรือใน <discordLink>Discord</discordLink> การสลับกลับไปช่องทางเสถียรจะหยุดอัปเดต release candidate แต่ไม่ดาวน์เกรด หากต้องการดาวน์เกรดให้ติดตั้งเวอร์ชันเสถียรใหม่"
   },
   "languageSwitcher": {
     "label": "ภาษา"

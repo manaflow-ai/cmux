@@ -1963,15 +1963,16 @@
     "warning": "Le build nightly possono contenere bug o funzionalità incomplete. In caso di problemi, segnalali su <githubLink>GitHub</githubLink> o in <discordLink>#nightly-bugs su Discord</discordLink> e torna alla versione stabile."
   },
   "rc": {
-    "title": "cmux RC",
-    "subtitle": "Build release candidate",
-    "metaTitle": "cmux RC — Build Release Candidate",
-    "metaDescription": "Scarica cmux RC, la release candidate della prossima versione stabile. Si installa accanto alla versione stabile e alla nightly con aggiornamenti automatici propri.",
-    "description": "cmux RC è la release candidate della prossima versione stabile. Viene creata da una nightly testata, cambia solo con correzioni selezionate per alcuni giorni e diventa la prossima versione stabile se supera i test. Ha un proprio bundle ID, quindi funziona accanto alle app stabile e nightly.",
-    "download": "Scarica RC per Mac",
+    "title": "cmux Release Candidate",
+    "subtitle": "La prossima build stabile, qualche giorno in anticipo",
+    "metaTitle": "cmux Release Candidate — Accesso anticipato alla prossima build stabile",
+    "metaDescription": "Prova la release candidate di cmux: la prossima build stabile pubblicata qualche giorno in anticipo sul proprio canale di aggiornamento. Stessa app, stesso bundle ID, cambia canale nelle Impostazioni.",
+    "description": "La release candidate è la prossima build stabile di cmux, pubblicata qualche giorno in anticipo per individuare i problemi prima che la ricevano tutti. È la stessa app della versione stabile: installala sopra il tuo cmux attuale, oppure passa un'installazione esistente al canale di aggiornamento release candidate in Impostazioni > Aggiornamenti. Quando la candidata supera i test, la stessa build diventa la versione stabile.",
+    "download": "Scarica la release candidate per Mac",
     "downloadArm64": "DMG per Apple silicon",
     "downloadIntel": "DMG per Intel",
-    "warning": "Le release candidate possono ancora contenere bug. In caso di problemi, segnalali su <githubLink>GitHub</githubLink> o su <discordLink>Discord</discordLink> e torna alla versione stabile."
+    "channelHint": "Hai già cmux? Apri Impostazioni > Aggiornamenti e imposta il canale di aggiornamento su Release candidate, oppure esegui <code>cmux config set updates.channel rc</code>.",
+    "warning": "Le release candidate possono ancora contenere bug. Se qualcosa si rompe, segnalalo su <githubLink>GitHub</githubLink> o su <discordLink>Discord</discordLink>. Tornare al canale Stabile interrompe gli aggiornamenti release candidate ma non esegue il downgrade; per quello reinstalla la versione stabile."
   },
   "languageSwitcher": {
     "label": "Lingua"

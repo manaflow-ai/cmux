@@ -1963,15 +1963,16 @@
     "warning": "Builds nightly podem conter bugs ou recursos incompletos. Se algo quebrar, reporte no <githubLink>GitHub</githubLink> ou em <discordLink>#nightly-bugs no Discord</discordLink> e volte para a versão estável."
   },
   "rc": {
-    "title": "cmux RC",
-    "subtitle": "Builds release candidate",
-    "metaTitle": "cmux RC — Builds Release Candidate",
-    "metaDescription": "Baixe o cmux RC, o release candidate da próxima versão estável. Instala ao lado da versão estável e da nightly com suas próprias atualizações automáticas.",
-    "description": "O cmux RC é o release candidate da próxima versão estável. Ele é criado a partir de uma nightly testada, muda apenas com correções selecionadas por alguns dias e se torna a próxima versão estável quando aprovado. Ele tem seu próprio bundle ID, então funciona ao lado dos apps estável e nightly.",
-    "download": "Baixar RC para Mac",
+    "title": "cmux Release Candidate",
+    "subtitle": "A próxima versão estável, alguns dias antes",
+    "metaTitle": "cmux Release Candidate — Acesso antecipado à próxima versão estável",
+    "metaDescription": "Experimente a release candidate do cmux: a próxima versão estável publicada alguns dias antes em seu próprio canal de atualização. Mesmo app, mesmo bundle ID, troque de canal nas Configurações.",
+    "description": "A release candidate é a próxima versão estável do cmux, publicada alguns dias antes para encontrarmos problemas antes que todos a recebam. É o mesmo app da versão estável: instale por cima do seu cmux atual ou mude uma instalação existente para o canal de atualização release candidate em Configurações > Atualizações. Quando a candidata é aprovada, a mesma build vira a versão estável.",
+    "download": "Baixar a release candidate para Mac",
     "downloadArm64": "DMG para Apple silicon",
     "downloadIntel": "DMG para Intel",
-    "warning": "Release candidates ainda podem ter bugs. Se algo quebrar, reporte no <githubLink>GitHub</githubLink> ou no <discordLink>Discord</discordLink> e volte para a versão estável."
+    "channelHint": "Já tem o cmux? Abra Configurações > Atualizações e defina o canal de atualização como Release candidate, ou execute <code>cmux config set updates.channel rc</code>.",
+    "warning": "Release candidates ainda podem ter bugs. Se algo quebrar, relate no <githubLink>GitHub</githubLink> ou no <discordLink>Discord</discordLink>. Voltar ao canal Estável interrompe as atualizações de release candidate, mas não faz downgrade; para isso, reinstale a versão estável."
   },
   "languageSwitcher": {
     "label": "Idioma"

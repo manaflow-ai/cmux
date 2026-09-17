@@ -1963,15 +1963,16 @@
     "warning": "每夜构建可能包含错误或不完整的功能。如果遇到问题，请在 <githubLink>GitHub</githubLink> 或 <discordLink>Discord 的 #nightly-bugs</discordLink> 上报告，并切换回稳定版。"
   },
   "rc": {
-    "title": "cmux RC",
-    "subtitle": "候选发布版构建",
-    "metaTitle": "cmux RC — 候选发布版构建",
-    "metaDescription": "下载 cmux RC，下一个稳定版的候选发布版。可与稳定版和每夜构建并行安装，拥有独立的自动更新。",
-    "description": "cmux RC 是下一个稳定版的候选发布版。它从经过测试的每夜构建切出，几天内仅通过精选的修复进行变更，通过验证后即成为下一个稳定版。它拥有独立的 Bundle ID，因此可以与稳定版和每夜构建应用并行运行。",
-    "download": "下载 Mac 版 RC",
+    "title": "cmux 候选发布版",
+    "subtitle": "提前几天获得下一个稳定版",
+    "metaTitle": "cmux 候选发布版 — 抢先体验下一个稳定版",
+    "metaDescription": "试用 cmux 候选发布版：下一个稳定版构建在独立的更新通道上提前几天发布。同一个应用，同一个 bundle ID，在设置中切换通道。",
+    "description": "候选发布版是 cmux 的下一个稳定版构建，提前几天发布，以便在推送给所有人之前发现问题。它与稳定版是同一个应用：直接覆盖安装到当前的 cmux 上，或在“设置 > 更新”中把现有安装切换到候选发布版更新通道。候选版通过验证后，同一个构建就会成为稳定版。",
+    "download": "下载 Mac 版候选发布版",
     "downloadArm64": "Apple 芯片 DMG",
     "downloadIntel": "Intel DMG",
-    "warning": "候选发布版仍可能存在错误。如果遇到问题，请在 <githubLink>GitHub</githubLink> 或 <discordLink>Discord</discordLink> 上报告，并切换回稳定版。"
+    "channelHint": "已经安装了 cmux？打开“设置 > 更新”，把更新通道设为“候选发布版”，或运行 <code>cmux config set updates.channel rc</code>。",
+    "warning": "候选发布版仍可能存在缺陷。如果出现问题，请在 <githubLink>GitHub</githubLink> 或 <discordLink>Discord</discordLink> 反馈。切回稳定通道会停止候选发布版更新，但不会降级；如需降级，请重新安装稳定版。"
   },
   "languageSwitcher": {
     "label": "语言"

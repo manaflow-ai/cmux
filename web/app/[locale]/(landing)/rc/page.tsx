@@ -49,8 +49,8 @@ export default function RcPage() {
         {/* Header */}
         <div className="flex items-center gap-4 mb-6">
           <img
-            src="/logo-rc.png"
-            alt="cmux RC icon"
+            src="/logo.png"
+            alt="cmux icon"
             width={48}
             height={48}
             className="rounded-xl"
@@ -106,6 +106,19 @@ export default function RcPage() {
 
         <p
           className="text-[15px] text-muted mt-8"
+          style={{ lineHeight: 1.5 }}
+        >
+          {t.rich("channelHint", {
+            code: (chunks) => (
+              <code className="font-mono text-[13px] bg-code-bg px-1.5 py-0.5 rounded">
+                {chunks}
+              </code>
+            ),
+          })}
+        </p>
+
+        <p
+          className="text-[15px] text-muted mt-4"
           style={{ lineHeight: 1.5 }}
         >
           {t.rich("warning", {

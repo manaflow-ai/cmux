@@ -3402,15 +3402,16 @@
     "warning": "ナイトリービルドにはバグや未完成の機能が含まれる場合があります。問題が発生した場合は<githubLink>GitHub</githubLink>または<discordLink>Discordの#nightly-bugs</discordLink>で報告し、安定版に切り替えてください。"
   },
   "rc": {
-    "title": "cmux RC",
-    "subtitle": "リリース候補ビルド",
-    "metaTitle": "cmux RC — リリース候補ビルド",
-    "metaDescription": "cmux RCをダウンロード。次期安定版のリリース候補です。安定版やナイトリー版と並行してインストールでき、独自の自動アップデート機能付き。",
-    "description": "cmux RCは次期安定版のリリース候補です。テスト済みのナイトリービルドから切り出され、数日間はチェリーピックした修正のみが加わり、検証を通過すると次の安定版になります。独自のバンドルIDを持つため、安定版およびナイトリー版と並行して動作します。",
-    "download": "Mac版 RCをダウンロード",
+    "title": "cmux リリース候補",
+    "subtitle": "次の安定版を数日早く",
+    "metaTitle": "cmux リリース候補 — 次の安定版への早期アクセス",
+    "metaDescription": "cmux のリリース候補を試す: 次の安定版ビルドを専用のアップデートチャンネルで数日早く公開します。同じアプリ、同じバンドル ID で、設定からチャンネルを切り替えられます。",
+    "description": "リリース候補は cmux の次の安定版ビルドで、全員に届く前に問題を見つけるために数日早く公開されます。安定版と同じアプリなので、現在の cmux に上書きインストールするか、既存のインストールで「設定 > アップデート」からリリース候補のアップデートチャンネルに切り替えてください。候補が合格すると、同じビルドがそのまま安定版になります。",
+    "download": "Mac 用リリース候補をダウンロード",
     "downloadArm64": "Apple silicon用DMG",
     "downloadIntel": "Intel用DMG",
-    "warning": "リリース候補にはまだバグが含まれる場合があります。問題が発生した場合は<githubLink>GitHub</githubLink>または<discordLink>Discord</discordLink>で報告し、安定版に切り替えてください。"
+    "channelHint": "すでに cmux をお使いですか? 「設定 > アップデート」を開いてアップデートチャンネルを「リリース候補」にするか、<code>cmux config set updates.channel rc</code> を実行してください。",
+    "warning": "リリース候補にはまだバグが残っている可能性があります。問題があれば <githubLink>GitHub</githubLink> または <discordLink>Discord</discordLink> で報告してください。安定版チャンネルに戻すとリリース候補のアップデートは止まりますが、ダウングレードはされません。その場合は安定版を再インストールしてください。"
   },
   "languageSwitcher": {
     "label": "言語"
