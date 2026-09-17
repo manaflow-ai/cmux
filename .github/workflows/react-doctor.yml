@@ -1,0 +1,62 @@
+name: React Doctor
+
+# Static analysis for the Next.js web app (web/). react-doctor is a
+# deterministic React analyzer (Oxlint-based + dead-code detection). On pull
+# requests we scan only the files the PR changed (`--diff` against the base
+# branch), so the existing backlog never blocks a PR; only newly introduced
+# findings do. See https://react.doctor.
+#
+# We invoke the react-doctor CLI directly instead of the millionco/react-doctor
+# composite action: this org requires every action (including ones nested inside
+# a composite action) to be pinned to a full commit SHA, and that action's
+# internal steps reference actions/setup-node and actions/github-script by tag.
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/react-doctor.yml"
+      - "web/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  react-doctor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: "22"
+
+      - name: Scan changed web files
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags origin "$BASE_REF"
+          # --diff scopes to files changed vs the PR base; only newly introduced
+          # findings can fail the job. Capture the exit code directly (a pipe
+          # would mask react-doctor's status behind sed's). react-doctor reports
+          # paths relative to the scanned directory (web/), so re-prefix `web/`
+          # on the emitted annotations so they anchor on the right file in the
+          # PR's Files tab.
+          set +e
+          npx -y react-doctor@0.2.14 web \
+            --diff "origin/$BASE_REF" \
+            --fail-on warning \
+            --annotations > rd.out 2>&1
+          status=$?
+          set -e
+          sed -E 's#^::(warning|error) file=#::\1 file=web/#' rd.out
+          echo "react-doctor exit: $status"
+          exit "$status"
