@@ -1178,7 +1178,7 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn interpreter_wrapped_process_reports_the_script_name() {
+    fn interpreter_wrapped_process_keeps_kernel_executable_identity() {
         use std::os::unix::fs::PermissionsExt;
 
         let root =
@@ -1186,12 +1186,12 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
         let script = root.join("codex");
-        std::fs::write(&script, "#!/bin/sh\nsleep 30\n").unwrap();
+        std::fs::write(&script, "#!/bin/sh\nread token\n").unwrap();
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
 
         let mut child = std::process::Command::new("/bin/sh")
             .arg(&script)
-            .stdin(std::process::Stdio::null())
+            .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .spawn()
@@ -1201,7 +1201,7 @@ mod tests {
         child.wait().unwrap();
         let _ = std::fs::remove_dir_all(&root);
 
-        let expected = script.to_string_lossy().into_owned();
+        let expected = std::fs::canonicalize("/bin/sh").unwrap().to_string_lossy().into_owned();
         assert_eq!(observed.as_deref(), Some(expected.as_str()));
     }
 
