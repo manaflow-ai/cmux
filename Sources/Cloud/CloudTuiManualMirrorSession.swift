@@ -24,6 +24,7 @@ final class CloudTuiManualMirrorSession {
     private let operations: CloudOperationRecorder?
     private var diagnosticContext: CloudOperationContext?
     private var creationAttachment: CloudCreationAttachment?
+    private let resolveLegacySurfaceID: (@MainActor () async throws -> UInt64)?
     private var diagnosticReplayReceived = false
     private var diagnosticDeadline: Task<Void, Never>?
     private(set) var diagnosticFailure: CloudDiagnosticFailure?
@@ -147,6 +148,7 @@ final class CloudTuiManualMirrorSession {
         initiallyClaimsGeometry: Bool = true,
         operations: CloudOperationRecorder? = nil,
         creationAttachment: CloudCreationAttachment? = nil,
+        resolveLegacySurfaceID: (@MainActor () async throws -> UInt64)? = nil,
         commandBuilder: CloudTuiManualIOCommand = CloudTuiManualIOCommand(),
         deadlines: CloudTuiManualMirrorDeadlines = .standard,
         clock: any Clock<Duration> = ContinuousClock(),
@@ -157,6 +159,7 @@ final class CloudTuiManualMirrorSession {
         self.presentationPolicy = presentationPolicy
         self.operations = operations
         self.creationAttachment = creationAttachment
+        self.resolveLegacySurfaceID = resolveLegacySurfaceID
         self.machineID = machineID
         self.terminalID = terminalID
         self.remoteSurfaceID = remoteSurfaceID
@@ -328,7 +331,7 @@ final class CloudTuiManualMirrorSession {
     }
     /// Starts or rebinds the byte attachment to the current link socket.
     func reconnect(socketPath: String) {
-        guard phase != .stopped, remoteSurfaceID != 0 else { return }
+        guard phase != .stopped, remoteSurfaceID != 0 || creationAttachment != nil else { return }
         if self.socketPath == socketPath,
            (connection != nil || connectTask != nil) {
             if phase == .attached {
@@ -554,6 +557,15 @@ final class CloudTuiManualMirrorSession {
         watchdog.noteFrame()
         switch frame {
         case let .snapshot(surfaceID, columns, rows, bytes, colors):
+            // This dedicated connection has only one pending attachment. The
+            // identity-capable daemon validates the receipt before sending its
+            // initial frame; input still waits for the attachment acknowledgement.
+            if remoteSurfaceID == 0, creationAttachment != nil,
+               serverCapabilities.contains("attach-identity-v1"),
+               pendingRequests.values.contains(where: { if case .attach = $0 { return true }; return false }) {
+                remoteSurfaceID = surfaceID
+                inputRouter.updateSurfaceID(surfaceID)
+            }
             guard surfaceID == remoteSurfaceID else { return }
             applyReplay(bytes, reset: replayNeedsReset)
             applyColors(colors)
@@ -720,7 +732,23 @@ final class CloudTuiManualMirrorSession {
             }
             serverCapabilities = Set(capabilities)
             if creationAttachment != nil, !serverCapabilities.contains("attach-identity-v1") {
-                transitionToDisconnected(reason: .rejected("creation attachment identity unsupported"))
+                guard let resolveLegacySurfaceID, let currentConnection = connection else {
+                    transitionToDisconnected(reason: .rejected("creation attachment identity unsupported"))
+                    return
+                }
+                Task { @MainActor [weak self, weak currentConnection] in
+                    do {
+                        let surfaceID = try await resolveLegacySurfaceID()
+                        guard let self, let currentConnection, self.connection === currentConnection else { return }
+                        self.creationAttachment = nil
+                        self.remoteSurfaceID = surfaceID
+                        self.inputRouter.updateSurfaceID(surfaceID)
+                        self.sendClientInfo()
+                    } catch {
+                        guard let self, let currentConnection, self.connection === currentConnection else { return }
+                        self.transitionToDisconnected(reason: .rejected(String(describing: error)))
+                    }
+                }
                 return
             }
             sendClientInfo()
@@ -737,7 +765,7 @@ final class CloudTuiManualMirrorSession {
             // applied the registration before the attach is sent.
             sendAttach()
         case .attach:
-            guard ok else {
+            guard ok, remoteSurfaceID != 0 else {
                 transitionToDisconnected(reason: .rejected(error ?? "attach-surface refused"))
                 return
             }
@@ -889,6 +917,7 @@ final class CloudTuiManualMirrorSession {
             requestID: requestID
         ) else { return }
         if let attachment = creationAttachment {
+            if remoteSurfaceID == 0 { command.removeValue(forKey: "surface") }
             command["expected_generation"] = attachment.generation
             command["expected_terminal_id"] = attachment.terminalID
         }

@@ -26,8 +26,8 @@ extension CmuxTuiSurfaceProvider {
         // A pool terminal opened into a mirrored workspace takes its tab there, not in
         // whichever workspace the daemon happens to focus.
         let resolved: (surfaceID: UInt64, placement: SurfaceRemotePlacement?)
-        if let attachment = resource.creationAttachment {
-            resolved = (attachment.surfaceID, nil)
+        if resource.creationAttachment != nil {
+            resolved = (0, nil)
         } else {
             resolved = try await resolveSurfaceIDForMaterialization(
                 terminalID: resource.id.key,
@@ -51,6 +51,15 @@ extension CmuxTuiSurfaceProvider {
             remoteSurfaceID: resolved.surfaceID,
             operations: links.operations,
             creationAttachment: resource.creationAttachment,
+            resolveLegacySurfaceID: { [weak self] in
+                guard let self else { throw CancellationError() }
+                let resolved = try await self.resolveSurfaceIDForMaterialization(
+                    terminalID: resource.id.key, socketPath: connected.socketPath, link: link,
+                    requiresExistingView: remoteTabID != nil, correlationID: correlationID,
+                    preferredWorkspaceID: resource.remoteWorkspace?.id
+                )
+                return resolved.surfaceID
+            },
             correlationID: correlationID,
             onNeedsReconnect: { [weak self] in
                 self?.scheduleRefresh()

@@ -1613,10 +1613,8 @@ struct SurfaceRemoteView: Hashable, Codable, Sendable {
     var paneIndex: Int? = nil
 }
 
-/// Transient creation response metadata. The daemon must validate this identity
-/// again when attaching; numeric handles alone are unsafe across restarts.
+/// Stable identity from the creation receipt, checked again before attachment.
 struct CloudCreationAttachment: Hashable, Codable, Sendable {
-    let surfaceID: UInt64
     let generation: String
     let terminalID: String
 }

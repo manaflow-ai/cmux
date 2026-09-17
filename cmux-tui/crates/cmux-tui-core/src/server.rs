@@ -1359,7 +1359,8 @@ enum Command {
     },
     /// Stream a surface: vt-state event followed by live output events.
     AttachSurface {
-        surface: SurfaceId,
+        #[serde(default)]
+        surface: Option<SurfaceId>,
         #[serde(default)]
         expected_generation: Option<String>,
         #[serde(default)]
@@ -1418,9 +1419,9 @@ impl Command {
             | Self::ReleaseSurfaceSize { surface }
             | Self::ReleaseAttachedViewSize { surface, .. }
             | Self::DetachAttachedView { surface, .. }
-            | Self::AttachSurface { surface, .. }
             | Self::ScrollSurface { surface, .. } => Some(*surface),
-            Self::Notify { surface, .. }
+            Self::AttachSurface { surface, .. }
+            | Self::Notify { surface, .. }
             | Self::ListAgents { surface, .. }
             | Self::Subscribe { surface, .. } => *surface,
             _ => None,
@@ -12817,6 +12818,29 @@ fn handle_command_with_cancellation(
                 (None, None) => None,
                 _ => anyhow::bail!("attach-surface cols and rows must be supplied together"),
             };
+            let surface_id = match surface_id {
+                Some(surface) => surface,
+                None => {
+                    let generation = expected_generation.as_deref().ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "attachment identity requires generation and terminal together"
+                        )
+                    })?;
+                    anyhow::ensure!(
+                        mux.registry_identity().1 == generation,
+                        "attachment_generation_mismatch"
+                    );
+                    let terminal = expected_terminal_id.as_deref().ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "attachment identity requires generation and terminal together"
+                        )
+                    })?;
+                    let terminal = TerminalPublicId::parse(terminal)
+                        .map_err(|_| anyhow::anyhow!("attachment_terminal_mismatch"))?;
+                    mux.resource_surface_for_terminal(&terminal)
+                        .ok_or_else(|| anyhow::anyhow!("attachment_terminal_mismatch"))?
+                }
+            };
             let surface = get_surface(mux, surface_id)?;
             match (expected_generation, expected_terminal_id) {
                 (Some(generation), Some(terminal)) => {
@@ -19581,7 +19605,7 @@ mod tests {
             ),
         ] {
             let command = Command::AttachSurface {
-                surface: surface.id,
+                surface: Some(surface.id),
                 mode: None,
                 cols: None,
                 rows: None,
@@ -19592,7 +19616,7 @@ mod tests {
             assert!(error.to_string().contains(expected), "{error:#}");
         }
         let command = Command::AttachSurface {
-            surface: surface.id,
+            surface: None,
             mode: None,
             cols: None,
             rows: None,
@@ -19630,7 +19654,7 @@ mod tests {
             &mux,
             client,
             Command::AttachSurface {
-                surface: surface.id,
+                surface: Some(surface.id),
                 mode: None,
                 cols: None,
                 rows: None,

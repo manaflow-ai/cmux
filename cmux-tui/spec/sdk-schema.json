@@ -9892,8 +9892,8 @@
        "kind": "ref",
        "name": "Id"
       },
-      "presence": "required",
-      "nullable": false
+      "presence": "optional",
+      "nullable": true
      },
      "mode": {
       "type": {

@@ -17,7 +17,7 @@ public final class AttachSurfaceRequest implements WireValue {
     private final Field<String> expectedTerminalId;
     private final Field<AttachSurfaceRequestMode> mode;
     private final Field<Integer> rows;
-    private final UInt64 surface;
+    private final Field<UInt64> surface;
 
     private AttachSurfaceRequest(Builder builder) {
         this.cols = builder.cols;
@@ -25,8 +25,7 @@ public final class AttachSurfaceRequest implements WireValue {
         this.expectedTerminalId = builder.expectedTerminalId;
         this.mode = builder.mode;
         this.rows = builder.rows;
-        if (!builder.surfaceSet) throw new IllegalArgumentException("surface is required");
-        this.surface = Wire.nonNull(builder.surface, "surface");
+        this.surface = builder.surface;
     }
 
     public static Builder builder() { return new Builder(); }
@@ -36,7 +35,7 @@ public final class AttachSurfaceRequest implements WireValue {
     public Field<String> expectedTerminalId() { return expectedTerminalId; }
     public Field<AttachSurfaceRequestMode> mode() { return mode; }
     public Field<Integer> rows() { return rows; }
-    public UInt64 surface() { return surface; }
+    public Field<UInt64> surface() { return surface; }
 
     public static AttachSurfaceRequest fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "AttachSurfaceRequest");
@@ -61,8 +60,10 @@ public final class AttachSurfaceRequest implements WireValue {
         if (!Wire.isMissing(rawRows)) {
             builder.rows(rawRows == null ? null : Wire.uint16(rawRows, "AttachSurfaceRequest.rows"));
         }
-        Object rawSurface = Wire.required(object, "surface");
-        builder.surface(Wire.uint64(rawSurface, "AttachSurfaceRequest.surface"));
+        Object rawSurface = Wire.optional(object, "surface");
+        if (!Wire.isMissing(rawSurface)) {
+            builder.surface(rawSurface == null ? null : Wire.uint64(rawSurface, "AttachSurfaceRequest.surface"));
+        }
         return builder.build();
     }
 
@@ -96,8 +97,7 @@ public final class AttachSurfaceRequest implements WireValue {
         private Field<String> expectedTerminalId = Field.omitted();
         private Field<AttachSurfaceRequestMode> mode = Field.omitted();
         private Field<Integer> rows = Field.omitted();
-        private UInt64 surface;
-        private boolean surfaceSet;
+        private Field<UInt64> surface = Field.omitted();
 
         public Builder cols(Integer value) {
             this.cols = Field.ofNullable(value);
@@ -120,8 +120,7 @@ public final class AttachSurfaceRequest implements WireValue {
             return this;
         }
         public Builder surface(UInt64 value) {
-            this.surface = value;
-            this.surfaceSet = true;
+            this.surface = Field.ofNullable(value);
             return this;
         }
         public AttachSurfaceRequest build() { return new AttachSurfaceRequest(this); }

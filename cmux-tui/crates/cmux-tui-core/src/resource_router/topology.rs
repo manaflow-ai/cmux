@@ -375,22 +375,7 @@ fn dispatch_exact_topology_mutation(
         | ResourceOperation::PaneRun
         | ResourceOperation::TabCreateTerminal
         | ResourceOperation::TabCreateBrowser => {
-            // The durable receipt stays replayable. Runtime handles are derived
-            // from its exact live tab on each response, never persisted/replayed.
-            let attachment = commit.result["terminal_id"].as_str().and_then(|terminal| {
-                let surface_id = mux.resource_surface_for_created_path(&commit.result).ok()?;
-                let surface = mux.surface(surface_id)?;
-                if surface.terminal_public_id().map(|id| id.as_str()) != Some(terminal) {
-                    return None;
-                }
-                let (_, generation) = mux.registry_identity();
-                Some(json!({"surface":surface_id,"terminal_id":terminal,"generation":generation}))
-            });
-            let mut result = mutation_result(mux, commit.result, commit.revision, commit.replayed)?;
-            if let Some(attachment) = attachment {
-                result["attachment"] = attachment;
-            }
-            Ok(result)
+            mutation_result(mux, commit.result, commit.revision, commit.replayed)
         }
         _ => Err(ResourceError::operation_failed(
             super::operation_name(operation),
@@ -541,34 +526,6 @@ mod tests {
             ),
         )
         .unwrap()
-    }
-
-    #[test]
-    fn creation_attachment_hint_matches_live_terminal_and_does_not_survive_close() {
-        let mux = mux();
-        let first = terminal_workspace(&mux, "attach-hint");
-        let terminal =
-            TerminalPublicId::parse(first["value"]["terminal_id"].as_str().unwrap()).unwrap();
-        let surface = mux.resource_surface_for_terminal(&terminal).unwrap();
-        assert_eq!(first["attachment"]["surface"], json!(surface));
-        assert_eq!(first["attachment"]["terminal_id"], first["value"]["terminal_id"]);
-        assert_eq!(first["attachment"]["generation"], first["generation"]);
-        let replay = terminal_workspace(&mux, "attach-hint");
-        assert_eq!(replay["value"], first["value"]);
-        assert_eq!(replay["attachment"], first["attachment"]);
-        dispatch(
-            &mux,
-            parsed(
-                ResourceOperation::TabClose,
-                selectors(None, None, None, first["value"]["tab_id"].as_str()),
-                json!({}),
-                Some("close-hint"),
-            ),
-        )
-        .unwrap();
-        let detached = terminal_workspace(&mux, "attach-hint");
-        assert!(detached.get("attachment").is_none());
-        mux.shutdown();
     }
 
     #[test]
