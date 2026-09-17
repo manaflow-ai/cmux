@@ -77,6 +77,27 @@ public actor MobileV3RuntimeComposition {
         return try factory.makeTransport(for: request)
     }
 
+    public func eventStream(for request: CmxByteTransportRequest) async throws -> CmxIndependentEventByteStream {
+        guard let factory else { throw Error.notSignedIn }
+        let transport = try factory.makeLaneTransport(for: request, kind: 1)
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    while let bytes = try await transport.receive() {
+                        continuation.yield(bytes)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in
+                task.cancel()
+                Task { await transport.close() }
+            }
+        }
+    }
+
     public func terminalLane(for request: CmxByteTransportRequest, surfaceID: String, cursor: UInt64?) async throws -> any MobileTerminalLaneConnection {
         guard let factory else { throw Error.notSignedIn }
         return MobileV3TerminalLane(
