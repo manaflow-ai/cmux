@@ -174,71 +174,87 @@ CMUX_TOML_CHECK
 
 }
 
-# OpenCode's provider catalog is optional shell-adjacent state. It must never
-# be fetched while a shell is starting: the endpoint can be unavailable and
-# its timeout is deliberately much longer than the terminal latency budget.
-# Fetch only when OpenCode is invoked, keep one authenticated fetch in flight,
-# and negatively cache an outage so repeated launches do not stampede the edge.
+# Optional provider discovery belongs to OpenCode launch, never shell startup.
+# Python owns the advisory lock so process exit releases it even after a crash.
 cmux_ensure_opencode_config() {
-  local cmux_config="$HOME/.config/opencode/opencode.json"
-  local cmux_state_dir="$HOME/.cache/cmux"
-  local cmux_state="$cmux_state_dir/opencode-config.state"
-  local cmux_lock="$cmux_state_dir/opencode-config.lock"
-  local cmux_now cmux_failed_at cmux_opencode_config
+  [ -e "$HOME/.config/opencode/opencode.json" ] && return 0
+  [ -n "${CMUX_CODEROUTER_URL-}" ] && [ -n "${OPENAI_API_KEY-}" ] || return 0
+  python3 - <<'CMUX_OPENCODE_CONFIG'
+import fcntl, hashlib, json, os, pathlib, re, subprocess, sys, tempfile, time
 
-  [ -e "$cmux_config" ] && return 0
-  [ -n "${CMUX_CODEROUTER_URL-}" ] || return 0
-  [ -n "${OPENAI_API_KEY-}" ] || return 0
-  command -v curl >/dev/null 2>&1 || return 0
+config = pathlib.Path.home() / ".config/opencode/opencode.json"
+origin = os.environ["CMUX_CODEROUTER_URL"].rstrip("/")
+key = os.environ["OPENAI_API_KEY"]
+state = pathlib.Path.home() / ".cache/cmux"
+state.mkdir(parents=True, exist_ok=True, mode=0o700)
+scope = hashlib.sha256((origin + "\0" + key).encode()).hexdigest()
+failure = state / ("opencode-config-" + scope + ".failed")
 
-  # A service outage is not a reason to make every later OpenCode launch wait
-  # ten seconds. The next launch after this short window gets a fresh chance.
-  cmux_now=$(date +%s)
-  if [ -r "$cmux_state" ]; then
-    IFS= read -r cmux_failed_at < "$cmux_state" || cmux_failed_at=""
-    case $cmux_failed_at in
-      ''|*[!0-9]*) ;;
-      *) [ "$((cmux_now - cmux_failed_at))" -lt 60 ] && return 0 ;;
-    esac
-  fi
+def unavailable():
+    print("cmux: OpenCode provider configuration is unavailable; retry in one minute.", file=sys.stderr)
+    sys.exit(75)
 
-  mkdir -p "$cmux_state_dir" 2>/dev/null || return 0
-  # mkdir is an atomic lock on every supported guest image and does not make
-  # concurrent OpenCode launches wait. A second launch returns immediately;
-  # the first launch publishes either the config or the shared failure marker.
-  mkdir "$cmux_lock" 2>/dev/null || return 0
-  (
-    trap 'rmdir "$cmux_lock" 2>/dev/null || true' EXIT
-    [ -e "$cmux_config" ] && exit 0
+def redact(value):
+    if isinstance(value, dict):
+        return {k: redact(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [redact(v) for v in value]
+    if isinstance(value, str):
+        return re.sub(r"crt_[A-Za-z0-9._-]+", "{env:OPENAI_API_KEY}", value.replace(key, "{env:OPENAI_API_KEY}"))
+    return value
 
-    cmux_opencode_config=$(curl -fsS --connect-timeout 2 -m 10 \
-      -H "authorization: Bearer $OPENAI_API_KEY" \
-      "$CMUX_CODEROUTER_URL/api/coderouter/opencode/config" 2>/dev/null) || cmux_opencode_config=""
-    case $cmux_opencode_config in
-      '{"provider":{}}')
-        printf '%s\n' "$cmux_now" > "$cmux_state" 2>/dev/null || true
-        ;;
-      '{"provider":'*)
-        mkdir -p "${cmux_config%/*}" 2>/dev/null && (
-          umask 077
-          printf '%s\n' "$cmux_opencode_config" \
-            | sed "s/\"$OPENAI_API_KEY\"/\"{env:OPENAI_API_KEY}\"/g" \
-            | sed 's/"crt_[A-Za-z0-9._-]*"/"{env:OPENAI_API_KEY}"/g' \
-            > "$cmux_config.cmux-tmp" 2>/dev/null && mv -f "$cmux_config.cmux-tmp" "$cmux_config" 2>/dev/null
-        ) || printf '%s\n' "$cmux_now" > "$cmux_state" 2>/dev/null || true
-        ;;
-      *)
-        printf '%s\n' "$cmux_now" > "$cmux_state" 2>/dev/null || true
-        ;;
-    esac
-    unset cmux_opencode_config
-  )
+with (state / "opencode-config.lock").open("a") as lock:
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    # Waiting callers must observe the result of the first request before
+    # deciding to retry or launch. Existing user configuration always wins.
+    if config.exists() or config.is_symlink():
+        sys.exit(0)
+    try:
+        age = time.time() - float(failure.read_text())
+        if 0 <= age < 60:
+            unavailable()
+    except (FileNotFoundError, ValueError):
+        pass
+    try:
+        result = subprocess.run(
+            ["curl", "-fsS", "--connect-timeout", "2", "-m", "10",
+             "-H", "authorization: Bearer " + key,
+             origin + "/api/coderouter/opencode/config"],
+            capture_output=True, timeout=12, check=True,
+        )
+        document = json.loads(result.stdout)
+        if not isinstance(document, dict) or not isinstance(document.get("provider"), dict) or not document["provider"]:
+            raise ValueError("missing provider catalog")
+        document = redact(document)
+        config.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        fd, temporary = tempfile.mkstemp(prefix=".cmux-config-", dir=config.parent)
+        try:
+            with os.fdopen(fd, "w") as output:
+                json.dump(document, output)
+                output.write("\n")
+                output.flush()
+                os.fsync(output.fileno())
+            try:
+                # Atomic write-if-absent, never replace a user edit made while
+                # the request was in flight, including an existing symlink.
+                os.link(temporary, config)
+            except FileExistsError:
+                pass
+        finally:
+            os.unlink(temporary)
+        failure.unlink(missing_ok=True)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        if config.exists() or config.is_symlink():
+            sys.exit(0)
+        failure.write_text(str(time.time()))
+        unavailable()
+CMUX_OPENCODE_CONFIG
 }
 
-# Keep the command's existing argv and exit status. The only new work is the
-# authenticated, lazy config fetch above, immediately before OpenCode starts.
+# The installed executable wrapper also covers exec/direct agent launches.
+# This function retains the lazy path when this file is updated independently.
 opencode() {
-  cmux_ensure_opencode_config
+  cmux_ensure_opencode_config || return $?
   command opencode "$@"
 }
 

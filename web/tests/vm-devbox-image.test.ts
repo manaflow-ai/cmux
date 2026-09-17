@@ -105,6 +105,7 @@ describe("devbox image template", () => {
       "cmux-bashrc",
       "cmux-devbox-boot",
       "cmux-motd",
+      "cmux-opencode",
       "cmux-prompt.bash",
       "cmux-terminfo.sh",
       "cmux-terminfo.src",
@@ -121,6 +122,7 @@ describe("devbox image template", () => {
       "cmux-bashrc",
       "cmux-devbox-boot",
       "cmux-motd",
+      "cmux-opencode",
       "cmux-prompt.bash",
       "cmux-terminfo.sh",
       "cmux-terminfo.src",
@@ -995,12 +997,13 @@ describe("devbox image template", () => {
     try {
       const configPath = path.join(home, ".config/opencode/opencode.json");
       // 503 no_usable_account: nothing written, the shell exits clean.
-      await sourceAgentConfig(home, server.origin, true);
+      await expect(sourceAgentConfig(home, server.origin, true)).rejects.toThrow();
       expect(existsSync(configPath)).toBe(false);
       // An empty catalog is not persisted either (it would block retries).
+      rmSync(path.join(home, ".cache/cmux"), { recursive: true, force: true });
       body = JSON.stringify({ provider: {} });
       status = 200;
-      await sourceAgentConfig(home, server.origin, true);
+      await expect(sourceAgentConfig(home, server.origin, true)).rejects.toThrow();
       expect(existsSync(configPath)).toBe(false);
     } finally {
       await server.close();

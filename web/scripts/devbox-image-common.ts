@@ -34,6 +34,7 @@ export const devboxDockerfilePath = path.join(devboxDir, "Dockerfile");
 export const DEVBOX_TEMPLATE_FILES = [
   "Dockerfile",
   "agent-config.sh",
+  "cmux-opencode",
   "chrome-managed-policy.json",
   "cmux-bashrc",
   "cmux-devbox-boot",

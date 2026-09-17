@@ -1,0 +1,7 @@
+#!/bin/bash
+# Every entrypoint, including exec and direct process spawn, prepares the same
+# authenticated provider configuration before starting the pinned executable.
+set -e
+. /etc/cmux/agent-config.sh
+cmux_ensure_opencode_config
+exec /usr/local/libexec/cmux-opencode-real "$@"
