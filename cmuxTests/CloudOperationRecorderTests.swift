@@ -142,6 +142,30 @@ struct CloudOperationRecorderTests {
         #expect(recorder.reference(operationID: root.operationID.uuidString.lowercased(), traceID: root.traceID, spanID: root.spanID) == nil)
     }
 
+    @Test func cliTransferFailureProducesCopyableCorrelatedSpans() async throws {
+        let sink = CapturedCloudDiagnostics()
+        let identity = AuthenticatedSessionIdentity(generation: 1, accountID: "test-account")
+        let recorder = CloudOperationRecorder(uploader: sink, identity: { identity })
+        let reference = try #require(await recorder.recordFileTransferFailure(phase: .file, failure: .process, errorNumber: 255))
+        let operation = try #require(recorder.operations.last)
+        #expect(operation.needsAttention)
+        #expect(operation.copyableError.contains(reference))
+        let spans = await sink.spans
+        #expect(spans.count == 2)
+        #expect(Set(spans.map(\.traceId)).count == 1)
+        #expect(spans.first?.phase == .file)
+        #expect(spans.first?.errorNumber == 255)
+        #expect(spans.allSatisfy { $0.operation == .file && $0.failure == .process })
+    }
+
+    @Test func signedOutCLIReportDoesNotRecordOrExport() async {
+        let sink = CapturedCloudDiagnostics()
+        let recorder = CloudOperationRecorder(uploader: sink)
+        #expect(await recorder.recordFileTransferFailure(phase: .request, failure: .network, errorNumber: nil) == nil)
+        #expect(recorder.operations.isEmpty)
+        #expect(await sink.spans.isEmpty)
+    }
+
     @Test func metadataSeparatesNightlyFromItsBackend() {
         let info: [String: Any] = ["CFBundleShortVersionString": "1.2.3", "CFBundleVersion": "45", "CMUXCommit": "abcdef123"]
         #expect(CloudTelemetryClient.current(info: info, flavor: .nightly).channel == "nightly")

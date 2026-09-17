@@ -19576,7 +19576,7 @@ struct CMUXCLI {
                                         browser tab on its port, opened here.
               push <id> <local> [remote] [--exclude <pattern>]... [--no-default-excludes]
                                         Copy a local file or directory onto the VM over the
-                                        exec channel (no SSH needed). Alias: `upload`.
+                                        private Cloud link using SCP. Alias: `upload`.
               push <id> <local> [remote] --watch [--interval <s>]
                                         Keep pushing: re-sync whenever a local file changes,
                                         until Ctrl-C.
