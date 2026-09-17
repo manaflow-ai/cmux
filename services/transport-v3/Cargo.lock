@@ -673,6 +673,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570"
 
 [[package]]
+name = "combine"
+version = "4.6.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cfc320937d09e6de266b31b9afb480f197d7a861be86be7cb2ea7e5d1bfffc5e"
+dependencies = [
+ "bytes",
+ "memchr",
+]
+
+[[package]]
 name = "concurrent-queue"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1015,18 +1025,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "enum-as-inner"
-version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1e6a265c649f3f5979b601d26f1d05ada116434c87741c9493cb56218f76cbc"
-dependencies = [
- "heck",
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
 name = "enum-ordinalize"
 version = "4.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1359,24 +1357,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
-name = "hickory-proto"
-version = "0.25.2"
+name = "hickory-net"
+version = "0.26.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8a6fe56c0038198998a6f217ca4e7ef3a5e51f46163bd6dd60b5c71ca6c6502"
+checksum = "c480823ed7c2c5d0f09c41020cb6b7c28029ce60ec42dc942158dcf22f8e0a4d"
 dependencies = [
  "async-trait",
  "cfg-if",
  "data-encoding",
- "enum-as-inner",
  "futures-channel",
  "futures-io",
  "futures-util",
+ "hickory-proto",
  "idna",
  "ipnet",
- "once_cell",
- "rand 0.9.5",
- "ring",
- "socket2 0.5.10",
+ "jni",
+ "rand 0.10.2",
  "thiserror 2.0.20",
  "tinyvec",
  "tokio",
@@ -1385,21 +1381,46 @@ dependencies = [
 ]
 
 [[package]]
-name = "hickory-resolver"
-version = "0.25.2"
+name = "hickory-proto"
+version = "0.26.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc62a9a99b0bfb44d2ab95a7208ac952d31060efc16241c87eaf36406fecf87a"
+checksum = "12b92608f679a6fa515dd1d15c1ff89443026e391200a2c840c7afcba482893d"
+dependencies = [
+ "data-encoding",
+ "idna",
+ "ipnet",
+ "jni",
+ "once_cell",
+ "prefix-trie",
+ "rand 0.10.2",
+ "ring",
+ "thiserror 2.0.20",
+ "tinyvec",
+ "tracing",
+ "url",
+]
+
+[[package]]
+name = "hickory-resolver"
+version = "0.26.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f3da5255c95d5a716857d54b5b8f4e8d67c3484d3beaaaae2ce25063b3ba981"
 dependencies = [
  "cfg-if",
  "futures-util",
+ "hickory-net",
  "hickory-proto",
  "ipconfig",
+ "ipnet",
+ "jni",
  "moka",
+ "ndk-context",
  "once_cell",
  "parking_lot",
- "rand 0.9.5",
+ "rand 0.10.2",
  "resolv-conf",
  "smallvec",
+ "system-configuration",
  "thiserror 2.0.20",
  "tokio",
  "tracing",
@@ -1504,7 +1525,7 @@ dependencies = [
  "hyper",
  "libc",
  "pin-project-lite",
- "socket2 0.6.5",
+ "socket2",
  "tokio",
  "tower-service",
  "tracing",
@@ -1736,7 +1757,7 @@ version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4d40460c0ce33d6ce4b0630ad68ff63d6661961c48b6dba35e5a4d81cfb48222"
 dependencies = [
- "socket2 0.6.5",
+ "socket2",
  "widestring",
  "windows-registry",
  "windows-result",
@@ -1748,6 +1769,9 @@ name = "ipnet"
 version = "2.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "791930b43c0d5973160d90a8f3894509f2b273430f5c5c73b668636d0287c5c0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "is_terminal_polyfill"
@@ -1834,6 +1858,55 @@ dependencies = [
 ]
 
 [[package]]
+name = "jni"
+version = "0.22.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5efd9a482cf3a427f00d6b35f14332adc7902ce91efb778580e180ff90fa3498"
+dependencies = [
+ "cfg-if",
+ "combine",
+ "jni-macros",
+ "jni-sys",
+ "log",
+ "simd_cesu8",
+ "thiserror 2.0.20",
+ "walkdir",
+ "windows-link",
+]
+
+[[package]]
+name = "jni-macros"
+version = "0.22.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a00109accc170f0bdb141fed3e393c565b6f5e072365c3bd58f5b062591560a3"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "rustc_version",
+ "simd_cesu8",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "jni-sys"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c6377a88cb3910bee9b0fa88d4f42e1d2da8e79915598f65fb0c7ee14c878af2"
+dependencies = [
+ "jni-sys-macros",
+]
+
+[[package]]
+name = "jni-sys-macros"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "38c0b942f458fe50cdac086d2f946512305e5631e720728f2a61aabcd47a6264"
+dependencies = [
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "js-sys"
 version = "0.3.105"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1915,7 +1988,7 @@ checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
 [[package]]
 name = "libp2p"
 version = "0.56.1"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=e277dfbd12a6491e1c09befa3651191ab7965893#e277dfbd12a6491e1c09befa3651191ab7965893"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
 dependencies = [
  "bytes",
  "either",
@@ -1950,7 +2023,7 @@ dependencies = [
 [[package]]
 name = "libp2p-allow-block-list"
 version = "0.6.0"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=e277dfbd12a6491e1c09befa3651191ab7965893#e277dfbd12a6491e1c09befa3651191ab7965893"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
 dependencies = [
  "libp2p-core",
  "libp2p-identity",
@@ -1960,7 +2033,7 @@ dependencies = [
 [[package]]
 name = "libp2p-connection-limits"
 version = "0.6.0"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=e277dfbd12a6491e1c09befa3651191ab7965893#e277dfbd12a6491e1c09befa3651191ab7965893"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
 dependencies = [
  "libp2p-core",
  "libp2p-identity",
@@ -1970,7 +2043,7 @@ dependencies = [
 [[package]]
 name = "libp2p-core"
 version = "0.43.2"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=e277dfbd12a6491e1c09befa3651191ab7965893#e277dfbd12a6491e1c09befa3651191ab7965893"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
 dependencies = [
  "either",
  "fnv",
@@ -1994,7 +2067,7 @@ dependencies = [
 [[package]]
 name = "libp2p-dcutr"
 version = "0.14.1"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=e277dfbd12a6491e1c09befa3651191ab7965893#e277dfbd12a6491e1c09befa3651191ab7965893"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
 dependencies = [
  "asynchronous-codec",
  "either",
@@ -2015,7 +2088,7 @@ dependencies = [
 [[package]]
 name = "libp2p-dns"
 version = "0.44.0"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=e277dfbd12a6491e1c09befa3651191ab7965893#e277dfbd12a6491e1c09befa3651191ab7965893"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
 dependencies = [
  "async-trait",
  "futures",
@@ -2030,7 +2103,7 @@ dependencies = [
 [[package]]
 name = "libp2p-identify"
 version = "0.47.0"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=e277dfbd12a6491e1c09befa3651191ab7965893#e277dfbd12a6491e1c09befa3651191ab7965893"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
 dependencies = [
  "asynchronous-codec",
  "either",
@@ -2068,7 +2141,7 @@ dependencies = [
 [[package]]
 name = "libp2p-mdns"
 version = "0.48.0"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=e277dfbd12a6491e1c09befa3651191ab7965893#e277dfbd12a6491e1c09befa3651191ab7965893"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
 dependencies = [
  "futures",
  "hickory-proto",
@@ -2078,7 +2151,7 @@ dependencies = [
  "libp2p-swarm",
  "rand 0.8.8",
  "smallvec",
- "socket2 0.6.5",
+ "socket2",
  "tokio",
  "tracing",
 ]
@@ -2086,7 +2159,7 @@ dependencies = [
 [[package]]
 name = "libp2p-metrics"
 version = "0.17.1"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=e277dfbd12a6491e1c09befa3651191ab7965893#e277dfbd12a6491e1c09befa3651191ab7965893"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
 dependencies = [
  "futures",
  "libp2p-core",
@@ -2104,7 +2177,7 @@ dependencies = [
 [[package]]
 name = "libp2p-noise"
 version = "0.46.1"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=e277dfbd12a6491e1c09befa3651191ab7965893#e277dfbd12a6491e1c09befa3651191ab7965893"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
 dependencies = [
  "asynchronous-codec",
  "bytes",
@@ -2126,7 +2199,7 @@ dependencies = [
 [[package]]
 name = "libp2p-ping"
 version = "0.47.0"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=e277dfbd12a6491e1c09befa3651191ab7965893#e277dfbd12a6491e1c09befa3651191ab7965893"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
 dependencies = [
  "futures",
  "futures-timer",
@@ -2141,7 +2214,7 @@ dependencies = [
 [[package]]
 name = "libp2p-quic"
 version = "0.13.0"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=e277dfbd12a6491e1c09befa3651191ab7965893#e277dfbd12a6491e1c09befa3651191ab7965893"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
 dependencies = [
  "futures",
  "futures-timer",
@@ -2153,7 +2226,7 @@ dependencies = [
  "rand 0.8.8",
  "ring",
  "rustls",
- "socket2 0.6.5",
+ "socket2",
  "thiserror 2.0.20",
  "tokio",
  "tracing",
@@ -2162,7 +2235,7 @@ dependencies = [
 [[package]]
 name = "libp2p-relay"
 version = "0.21.1"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=e277dfbd12a6491e1c09befa3651191ab7965893#e277dfbd12a6491e1c09befa3651191ab7965893"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
 dependencies = [
  "asynchronous-codec",
  "bytes",
@@ -2185,7 +2258,7 @@ dependencies = [
 [[package]]
 name = "libp2p-request-response"
 version = "0.29.0"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=e277dfbd12a6491e1c09befa3651191ab7965893#e277dfbd12a6491e1c09befa3651191ab7965893"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
 dependencies = [
  "async-trait",
  "futures",
@@ -2203,7 +2276,7 @@ dependencies = [
 [[package]]
 name = "libp2p-swarm"
 version = "0.47.1"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=e277dfbd12a6491e1c09befa3651191ab7965893#e277dfbd12a6491e1c09befa3651191ab7965893"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
 dependencies = [
  "either",
  "fnv",
@@ -2224,7 +2297,7 @@ dependencies = [
 [[package]]
 name = "libp2p-swarm-derive"
 version = "0.35.1"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=e277dfbd12a6491e1c09befa3651191ab7965893#e277dfbd12a6491e1c09befa3651191ab7965893"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
 dependencies = [
  "heck",
  "quote",
@@ -2234,14 +2307,14 @@ dependencies = [
 [[package]]
 name = "libp2p-tcp"
 version = "0.44.1"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=e277dfbd12a6491e1c09befa3651191ab7965893#e277dfbd12a6491e1c09befa3651191ab7965893"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
 dependencies = [
  "futures",
  "futures-timer",
  "if-watch",
  "libc",
  "libp2p-core",
- "socket2 0.6.5",
+ "socket2",
  "tokio",
  "tracing",
 ]
@@ -2249,7 +2322,7 @@ dependencies = [
 [[package]]
 name = "libp2p-tls"
 version = "0.6.2"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=e277dfbd12a6491e1c09befa3651191ab7965893#e277dfbd12a6491e1c09befa3651191ab7965893"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
 dependencies = [
  "futures",
  "futures-rustls",
@@ -2267,7 +2340,7 @@ dependencies = [
 [[package]]
 name = "libp2p-upnp"
 version = "0.6.0"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=e277dfbd12a6491e1c09befa3651191ab7965893#e277dfbd12a6491e1c09befa3651191ab7965893"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
 dependencies = [
  "futures",
  "futures-timer",
@@ -2281,7 +2354,7 @@ dependencies = [
 [[package]]
 name = "libp2p-websocket"
 version = "0.45.2"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=e277dfbd12a6491e1c09befa3651191ab7965893#e277dfbd12a6491e1c09befa3651191ab7965893"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
 dependencies = [
  "either",
  "futures",
@@ -2301,7 +2374,7 @@ dependencies = [
 [[package]]
 name = "libp2p-yamux"
 version = "0.47.0"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=e277dfbd12a6491e1c09befa3651191ab7965893#e277dfbd12a6491e1c09befa3651191ab7965893"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
 dependencies = [
  "either",
  "futures",
@@ -2534,7 +2607,7 @@ dependencies = [
 [[package]]
 name = "multistream-select"
 version = "0.13.0"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=e277dfbd12a6491e1c09befa3651191ab7965893#e277dfbd12a6491e1c09befa3651191ab7965893"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
 dependencies = [
  "bytes",
  "futures",
@@ -2543,6 +2616,12 @@ dependencies = [
  "tracing",
  "unsigned-varint",
 ]
+
+[[package]]
+name = "ndk-context"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "27b02d87554356db9e9a873add8782d4ea6e3e58ea071a9adb9a2e8ddb884a8b"
 
 [[package]]
 name = "netlink-packet-core"
@@ -2914,6 +2993,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "925383efa346730478fb4838dbe9137d2a47675ad789c546d150a6e1dd4ab31c"
 
 [[package]]
+name = "prefix-trie"
+version = "0.8.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4cf6e3177f0684016a5c209b00882e15f8bdd3f3bb48f0491df10cd102d0c6e7"
+dependencies = [
+ "either",
+ "ipnet",
+ "num-traits",
+]
+
+[[package]]
 name = "pretty"
 version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3024,7 +3114,7 @@ dependencies = [
 [[package]]
 name = "quick-protobuf-codec"
 version = "0.3.1"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=e277dfbd12a6491e1c09befa3651191ab7965893#e277dfbd12a6491e1c09befa3651191ab7965893"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
 dependencies = [
  "asynchronous-codec",
  "bytes",
@@ -3047,7 +3137,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash",
  "rustls",
- "socket2 0.6.5",
+ "socket2",
  "thiserror 2.0.20",
  "tokio",
  "tracing",
@@ -3085,7 +3175,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.5",
+ "socket2",
  "tracing",
  "windows-sys 0.61.2",
 ]
@@ -3392,7 +3482,7 @@ checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 [[package]]
 name = "rw-stream-sink"
 version = "0.4.0"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=e277dfbd12a6491e1c09befa3651191ab7965893#e277dfbd12a6491e1c09befa3651191ab7965893"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
 dependencies = [
  "futures",
  "pin-project",
@@ -3617,6 +3707,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "simd_cesu8"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11031e251abf8611c80f460e19dbdeb54a66db918e49c65a7065b46ac7aec520"
+dependencies = [
+ "rustc_version",
+ "simdutf8",
+]
+
+[[package]]
+name = "simdutf8"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
+
+[[package]]
 name = "simple_asn1"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3671,16 +3777,6 @@ dependencies = [
  "rustc_version",
  "sha2",
  "subtle",
-]
-
-[[package]]
-name = "socket2"
-version = "0.5.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e22376abed350d73dd1cd119b57ffccad95b4e585a7cda43e286245ce23c0678"
-dependencies = [
- "libc",
- "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3972,7 +4068,7 @@ dependencies = [
  "mio",
  "pin-project-lite",
  "signal-hook-registry",
- "socket2 0.6.5",
+ "socket2",
  "tokio-macros",
  "windows-sys 0.61.2",
 ]

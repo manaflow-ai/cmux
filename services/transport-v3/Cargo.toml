@@ -17,7 +17,7 @@ ed25519-dalek = { version = "2.2", features = ["pkcs8", "rand_core"] }
 futures = "0.3"
 hex = "0.4"
 jsonwebtoken = "9.3"
-libp2p = { git = "https://github.com/manaflow-ai/rust-libp2p", rev = "e277dfbd12a6491e1c09befa3651191ab7965893", default-features = false, features = ["tokio", "quic", "tcp", "dns", "websocket", "noise", "yamux", "relay", "dcutr", "identify", "ping", "macros", "request-response", "json", "ed25519"] }
+libp2p = { git = "https://github.com/manaflow-ai/rust-libp2p", rev = "5e889629590ae4b52a0213a2ab85a28cb1ffeb3b", default-features = false, features = ["tokio", "quic", "tcp", "dns", "websocket", "noise", "yamux", "relay", "dcutr", "identify", "ping", "macros", "request-response", "json", "ed25519"] }
 libp2p-identity = { version = "0.2", features = ["ed25519", "peerid", "rand"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

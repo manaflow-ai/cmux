@@ -63,3 +63,20 @@ seamless upgrades, observability, security audit, and real end-to-end proof.
 - [ ] NAT/blocked-UDP/network-change/suspension/cross-region/revocation E2E matrix.
 - [ ] Security audit of code and deployed configuration; address findings.
 - [ ] Final requirement-by-requirement evidence audit.
+
+## Dependency audit checkpoint
+
+- Added the dependency-audit gate in separate failing commit 2dbb3cef290.
+- cargo-audit 0.22.2 found RUSTSEC-2026-0118 and RUSTSEC-2026-0119 in
+  Hickory 0.25.2. Fork commit 5e889629590ae4b52a0213a2ab85a28cb1ffeb3b
+  upgrades Hickory to 0.26.3 and adapts DNS and mDNS APIs. DNS configuration
+  construction now returns errors instead of introducing a new panic.
+- After updating the application pin: 20 Rust tests pass, strict Clippy passes,
+  dependency audit reports zero vulnerabilities. One maintenance warning remains
+  for paste (not in the selected runtime dependency tree).
+- Fork DNS tests (2), DNS builder tests (3), and mDNS unit tests (5) pass.
+  The mDNS IPv6 integration test fails on this fleet host with unavailable
+  interface addresses, identically on the pre-update baseline. V3 does not enable
+  mDNS; this is not evidence of working IPv6 transport and must not be hidden.
+- The audit is only a dependency checkpoint. Application threat-model review,
+  deployment configuration audit, and all final-state E2E requirements remain.
