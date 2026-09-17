@@ -22563,10 +22563,8 @@ mod tests {
 
         let error = restore_agent_roster(&registry, &[]).unwrap_err();
         assert!(error.to_string().contains("complete reducer snapshot"));
-        let (_, cursor, _) = registry
-            .journal_reducer_state(AGENT_ROSTER_REDUCER_ID)
-            .unwrap()
-            .unwrap();
+        let (_, cursor, _) =
+            registry.journal_reducer_state(AGENT_ROSTER_REDUCER_ID).unwrap().unwrap();
         assert_eq!(cursor, 0, "failed recovery must leave the durable snapshot untouched");
     }
 
