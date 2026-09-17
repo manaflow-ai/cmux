@@ -46,7 +46,8 @@ function apnsConfig(): ApnsConfig | null {
 export const DEFAULT_PUSH_TTL_SECONDS = 120;
 const MAX_PUSH_TTL_SECONDS = 300;
 
-function pushPayloadFingerprint(
+/** Exported for tests: binds a correlation id to one canonical logical event. */
+export function pushPayloadFingerprint(
   payload: PushPayload,
   targetBundleId: string,
 ): string {
@@ -61,6 +62,8 @@ function pushPayloadFingerprint(
     retargetsToLiveSurfaceOwner: payload.retargetsToLiveSurfaceOwner,
     macDeviceId: payload.macDeviceId,
     macInstanceTag: payload.macInstanceTag,
+    workspaceGroupId: payload.workspaceGroupId,
+    workspaceGroupName: payload.workspaceGroupName,
     notificationId: payload.notificationId,
     expirationEpochSeconds: payload.expirationEpochSeconds,
     dismissedIds: payload.dismissedIds,

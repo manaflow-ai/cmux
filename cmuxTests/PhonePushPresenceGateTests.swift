@@ -159,14 +159,16 @@ import Testing
             macDeviceId: "mac-1",
             macInstanceTag: "stable",
             badgeCount: 1,
-            hideContent: false
+            hideContent: false,
+            workspaceGroup: nil
         )
         let trustedPayload = PhonePushPayload(
             notification: trusted,
             macDeviceId: "mac-1",
             macInstanceTag: "nightly",
             badgeCount: 2,
-            hideContent: false
+            hideContent: false,
+            workspaceGroup: nil
         )
 
         #expect(confinedPayload.workspaceId == workspaceId.uuidString)
@@ -179,6 +181,53 @@ import Testing
         #expect(trustedPayload.retargetsToLiveSurfaceOwner)
         #expect(trustedPayload.macInstanceTag == "nightly")
         #expect(trustedPayload.replyShape == "text")
+    }
+
+    @Test func phonePayloadCarriesWorkspaceGroupAndRedactsNameWhenHidden() {
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: UUID(),
+            surfaceId: nil,
+            retargetsToLiveSurfaceOwner: false,
+            title: "Relay",
+            subtitle: "Completed",
+            body: "Owned by a sidebar group",
+            createdAt: Self.now,
+            isRead: false
+        )
+        let groupId = UUID()
+
+        let visible = PhonePushPayload(
+            notification: notification,
+            macDeviceId: "mac-1",
+            macInstanceTag: "stable",
+            badgeCount: 1,
+            hideContent: false,
+            workspaceGroup: (id: groupId, name: "Backend")
+        )
+        let hidden = PhonePushPayload(
+            notification: notification,
+            macDeviceId: "mac-1",
+            macInstanceTag: "stable",
+            badgeCount: 1,
+            hideContent: true,
+            workspaceGroup: (id: groupId, name: "Backend")
+        )
+        let ungrouped = PhonePushPayload(
+            notification: notification,
+            macDeviceId: "mac-1",
+            macInstanceTag: "stable",
+            badgeCount: 1,
+            hideContent: false,
+            workspaceGroup: nil
+        )
+
+        #expect(visible.workspaceGroupId == groupId.uuidString)
+        #expect(visible.workspaceGroupName == "Backend")
+        #expect(hidden.workspaceGroupId == groupId.uuidString)
+        #expect(hidden.workspaceGroupName == nil)
+        #expect(ungrouped.workspaceGroupId == nil)
+        #expect(ungrouped.workspaceGroupName == nil)
     }
 
     // MARK: - Heuristic details
@@ -417,6 +466,7 @@ import Testing
     // MARK: - Server acknowledgement
 
     @Test func requestEnvelopePinsCorrelationExpirationAndRedactsBeforeEncoding() throws {
+        let workspaceGroupId = UUID().uuidString
         let payload = PhonePushPayload(
             kind: .notify,
             title: "secret title",
@@ -424,6 +474,8 @@ import Testing
             body: "secret terminal output",
             replyShape: "",
             workspaceId: UUID().uuidString,
+            workspaceGroupId: workspaceGroupId,
+            workspaceGroupName: "secret group name",
             surfaceId: UUID().uuidString,
             retargetsToLiveSurfaceOwner: true,
             macDeviceId: UUID().uuidString,
@@ -464,6 +516,8 @@ import Testing
         #expect(!encoded.contains("secret title"))
         #expect(!encoded.contains("secret subtitle"))
         #expect(!encoded.contains("secret terminal output"))
+        #expect(body["workspaceGroupId"] as? String == workspaceGroupId)
+        #expect(!encoded.contains("secret group name"))
     }
 
     @Test func requestEnvelopeBoundsVisibleTextWithoutSplittingCharacters() throws {
@@ -475,6 +529,8 @@ import Testing
             body: String(repeating: longCharacter, count: 300),
             replyShape: "",
             workspaceId: UUID().uuidString,
+            workspaceGroupId: nil,
+            workspaceGroupName: nil,
             surfaceId: UUID().uuidString,
             retargetsToLiveSurfaceOwner: true,
             macDeviceId: UUID().uuidString,
@@ -514,6 +570,8 @@ import Testing
             body: "done",
             replyShape: "",
             workspaceId: String(repeating: "a", count: 201),
+            workspaceGroupId: nil,
+            workspaceGroupName: nil,
             surfaceId: nil,
             retargetsToLiveSurfaceOwner: false,
             macDeviceId: nil,
@@ -541,6 +599,8 @@ import Testing
             body: "",
             replyShape: "",
             workspaceId: nil,
+            workspaceGroupId: nil,
+            workspaceGroupName: nil,
             surfaceId: nil,
             retargetsToLiveSurfaceOwner: false,
             macDeviceId: nil,

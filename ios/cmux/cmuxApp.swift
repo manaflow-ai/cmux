@@ -161,6 +161,7 @@ struct cmuxApp: App {
             analytics: Self.root.analytics.emitter,
             terminalLatencyObserver: Self.root.analytics.terminalLatencyReporter,
             pushCoordinator: Self.root.pushCoordinator,
+            pushFilterSettings: Self.root.pushFilterSettings,
             displaySettings: Self.root.displaySettings,
             featureFlags: Self.root.featureFlags,
             connectionMethodStore: Self.root.connectionMethodStore,
