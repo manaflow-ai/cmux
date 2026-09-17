@@ -53,6 +53,8 @@ extension RemoteDaemonRPCClient: RemotePTYBridgeRPCClient {
                 onEvent(.exit)
             case .error(let detail):
                 onEvent(.error(detail))
+            case .codedError(let message, let code):
+                onEvent(.codedError(message: message, code: code))
             }
         }
     }
