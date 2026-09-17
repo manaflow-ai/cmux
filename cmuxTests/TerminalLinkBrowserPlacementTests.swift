@@ -137,9 +137,12 @@ struct TerminalLinkBrowserPlacementTests {
             try #"{"browser":{"terminalLinkBrowserPlacement":"split"}}"#.write(to: file, atomically: true, encoding: .utf8)
             store.reload()
             #expect(defaults.string(forKey: "browserTerminalLinkBrowserPlacement") == "split")
+            try #"{"browser":{"terminalLinkBrowserPlacement":"samePane"}}"#.write(to: file, atomically: true, encoding: .utf8)
+            store.reload()
+            #expect(defaults.string(forKey: "browserTerminalLinkBrowserPlacement") == "samePane")
             try #"{"browser":{"terminalLinkBrowserPlacement":"invalid"}}"#.write(to: file, atomically: true, encoding: .utf8)
             store.reload()
-            #expect(defaults.string(forKey: "browserTerminalLinkBrowserPlacement") != "invalid")
+            #expect(defaults.string(forKey: "browserTerminalLinkBrowserPlacement") == "split")
         }
     }
 
