@@ -37,7 +37,6 @@ extension TerminalController {
             socketPath: socketPath,
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
             arguments: arguments,
-            showsProgress: false,
             presentsFailureAlert: true
         )
         return didStart

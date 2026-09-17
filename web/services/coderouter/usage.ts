@@ -1,11 +1,50 @@
-import { listAccounts, markAccountCooldown } from "./repository";
+import type { CoderouterAccountAccess } from "./accountAccess";
+import {
+  listAccounts,
+  listEncryptedCredentials,
+  markAccountCooldown,
+} from "./repository";
 import { freshCredential } from "./refresh";
+import { fetchProviderRead } from "./providerFetch";
+import { addCoderouterBreadcrumb, reportCoderouterFailure } from "./observability";
 
 const CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
+const usageRequests = new Map<
+  string,
+  Promise<Awaited<ReturnType<typeof loadAccountsWithUsage>>>
+>();
 
-export async function accountsWithUsage(teamId: string) {
-  const accounts = await listAccounts(teamId);
-  return await Promise.all(accounts.map(async (account) => {
+export async function accountsWithUsage(teamId: string, access?: CoderouterAccountAccess) {
+  const key = JSON.stringify([teamId, access]);
+  const pending = usageRequests.get(key);
+  if (pending) return await pending;
+
+  // Provider reads fan out in parallel. Coalesce only requests that are
+  // concurrently in flight; completed quota data is never served from cache.
+  const request = loadAccountsWithUsage(teamId, access);
+  usageRequests.set(key, request);
+  try {
+    return await request;
+  } finally {
+    usageRequests.delete(key);
+  }
+}
+
+async function loadAccountsWithUsage(teamId: string, access?: CoderouterAccountAccess) {
+  const startedAt = performance.now();
+  addCoderouterBreadcrumb("status", "Loading account usage");
+  // Account metadata and encrypted envelopes are independent RDS reads.
+  const rdsStartedAt = performance.now();
+  const [accounts, credentials] = await Promise.all([
+    listAccounts(teamId, access),
+    listEncryptedCredentials(teamId),
+  ]);
+  const rdsMs = performance.now() - rdsStartedAt;
+  const credentialsByAccount = new Map(
+    credentials.map((credential) => [credential.accountId, credential]),
+  );
+  const providerStartedAt = performance.now();
+  const withUsage = await Promise.all(accounts.map(async (account) => {
     if (account.provider !== "codex" || account.state !== "active") {
       return account;
     }
@@ -13,10 +52,11 @@ export async function accountsWithUsage(teamId: string) {
       const credential = await freshCredential({
         teamId,
         accountId: account.id,
-        expectedRevision: 0,
+        expectedRevision: credentialsByAccount.get(account.id)?.credentialRevision ?? 0,
+        known: credentialsByAccount.get(account.id),
       });
       if (credential.provider !== "codex") return account;
-      const response = await fetch(CODEX_USAGE_URL, {
+      const response = await fetchProviderRead(() => fetch(CODEX_USAGE_URL, {
         headers: {
           authorization: `Bearer ${credential.accessToken}`,
           "chatgpt-account-id": credential.accountId,
@@ -24,8 +64,13 @@ export async function accountsWithUsage(teamId: string) {
         },
         cache: "no-store",
         signal: AbortSignal.timeout(5_000),
-      });
+      }));
       if (!response.ok) {
+        reportCoderouterFailure(
+          response.status === 429 ? "provider_rate_limit" : "provider_usage",
+          new Error("provider usage request failed"),
+          { provider: account.provider, status: response.status },
+        );
         return { ...account, usageError: `HTTP ${response.status}` };
       }
       const usage: unknown = await response.json();
@@ -34,10 +79,28 @@ export async function accountsWithUsage(teamId: string) {
         await markAccountCooldown(account.id, cooldownMs);
       }
       return { ...account, usage };
-    } catch {
+    } catch (error) {
+      reportCoderouterFailure("provider_usage", error, {
+        provider: account.provider,
+      });
       return { ...account, usageError: "unavailable" };
     }
   }));
+  addCoderouterBreadcrumb("status", "Provider usage fanout completed", {
+    account_count: accounts.length,
+    provider_ms: Math.round(performance.now() - providerStartedAt),
+  });
+  return {
+    accounts: withUsage,
+    usageAsOf: new Date().toISOString(),
+    usageGeneratedAtMs: Date.now(),
+    cacheMaxAgeSeconds: 0,
+    timing: {
+      rdsMs,
+      providerMs: performance.now() - providerStartedAt,
+      totalMs: performance.now() - startedAt,
+    },
+  };
 }
 
 function usageCooldown(value: unknown): number | null {
@@ -53,6 +116,6 @@ function usageCooldown(value: unknown): number | null {
   return (resetSeconds.length > 0 ? Math.min(...resetSeconds) : 60) * 1_000;
 }
 
-function isRecord(value: unknown): value is Record<string, any> {
+function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

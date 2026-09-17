@@ -77,12 +77,17 @@ import {
 import {
   destroyVm,
   listUserVms,
+  deletePrivateNetworkingForAccountDeletion,
   revokeUserIdentityLeasesForAccountDeletion,
   runVmWorkflow,
+  type VmModelPlaneRevoker,
 } from "../../../services/vms/workflows";
+import {
+  deleteVmPublicationRowsForAccountDeletion,
+  deleteVmPublicationsForAccountDeletion,
+} from "../../../services/vm-publications/accountDeletion";
+import { vmModelPlaneRevoker } from "../../../services/vms/modelPlaneGateway";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const VAULT_OBJECT_DELETE_BATCH_SIZE = 100;
 const DELETED_ACCOUNT_ACTOR_ID = "deleted-account";
@@ -280,6 +285,24 @@ export async function DELETE(request: Request): Promise<Response> {
     }
     await refreshAccountDeletionTombstoneLease(userId);
     try {
+      const publications = await deleteVmPublicationsForAccountDeletion({
+        ownerUserId: userId,
+        beforePublicationTeardown: () => {
+          destructiveCleanupStarted = true;
+        },
+        afterPublicationTeardown: async () => {
+          await refreshAccountDeletionTombstoneLease(userId);
+        },
+      });
+      if (publications.publications > 0 || publications.providerRules > 0) {
+        destructiveCleanupStarted = true;
+      }
+    } catch (error) {
+      logAccountDeleteError("account.delete.vm_publication_cleanup_failed", error);
+      throw error;
+    }
+    await refreshAccountDeletionTombstoneLease(userId);
+    try {
       destroyedVms = await destroyPersonalCloudVms(userId, accountScope.teamIds, {
         afterVmDestroy: async () => {
           await refreshAccountDeletionTombstoneLease(userId);
@@ -293,6 +316,17 @@ export async function DELETE(request: Request): Promise<Response> {
       }
       throw error;
     }
+    // After the machines: the provider refuses to delete a network that
+    // still has attached VMs, so this must follow destroyPersonalCloudVms.
+    // Tunnel deletion revokes every enrolled computer's WireGuard access.
+    try {
+      const networking = await runVmWorkflow(deletePrivateNetworkingForAccountDeletion(userId));
+      if (networking.tunnels > 0 || networking.networks > 0) destructiveCleanupStarted = true;
+    } catch (error) {
+      logAccountDeleteError("account.delete.private_network_cleanup_failed", error);
+      throw error;
+    }
+    await refreshAccountDeletionTombstoneLease(userId);
     await deleteVaultRowsAndObjectsForAccount(userId, {
       beforeObjectDeletion: () => {
         destructiveCleanupStarted = true;
@@ -392,6 +426,39 @@ export async function DELETE(request: Request): Promise<Response> {
     }
     return jsonResponse({ ok: true, destroyedVms });
   } catch (error) {
+    if (error instanceof AccountDeletionPhonePushDeliveryInProgressError) {
+      if (!destructiveCleanupStarted && stackMetadataMarked) {
+        await restoreStackMetadataAfterAccountDeletionFailure(
+          stackUser,
+          originalStackMetadata,
+          { restoreBillingEntitlements: restoreBillingEntitlementsOnFailure },
+        );
+      }
+      if (accountDeletionTombstoneStarted) {
+        await markAccountDeletionTombstoneFailed(userId, error);
+      }
+      logAccountDeleteError(
+        destructiveCleanupStarted
+          ? "account.delete.partial_after_destructive_cleanup"
+          : "account.delete.failed",
+        error,
+      );
+      return new Response(
+        JSON.stringify({
+          error: "account_delete_push_delivery_in_progress",
+          retryable: true,
+          retryAfterSeconds: error.retryAfterSeconds,
+          destroyedVms,
+        }),
+        {
+          status: 409,
+          headers: {
+            "content-type": "application/json",
+            "retry-after": String(error.retryAfterSeconds),
+          },
+        },
+      );
+    }
     if (destructiveCleanupStarted || cmuxOwnedRowsDeleted) {
       if (accountDeletionTombstoneStarted) {
         await markAccountDeletionFailureCheckpoint(
@@ -800,6 +867,13 @@ class AccountDeletionDestructiveCleanupError extends Error {
   }
 }
 
+class AccountDeletionPhonePushDeliveryInProgressError extends Error {
+  constructor(readonly retryAfterSeconds: number) {
+    super("phone push delivery is in progress");
+    this.name = "AccountDeletionPhonePushDeliveryInProgressError";
+  }
+}
+
 async function revokeAccountDeletionIdentityLeases(
   userId: string,
   options: { readonly afterBatch?: () => Promise<void> } = {},
@@ -835,6 +909,8 @@ async function destroyPersonalCloudVms(
         providerVmId: string;
         provider: ProviderId;
         afterProviderDestroy: () => void;
+        modelPlane: VmModelPlaneRevoker;
+        source: "account_deletion";
       } = {
         userId,
         teamIds: accountTeamIds,
@@ -843,6 +919,8 @@ async function destroyPersonalCloudVms(
         afterProviderDestroy: () => {
           destructiveCleanupStarted = true;
         },
+        modelPlane: vmModelPlaneRevoker(),
+        source: "account_deletion",
       };
       if (vm.billingTeamId) destroyInput.billingTeamId = vm.billingTeamId;
       const destroyProgram = destroyVm(destroyInput);
@@ -1017,6 +1095,7 @@ async function finishPostStackAccountCleanup(
   if (options.deletePostHogPerson !== false) {
     await deletePostHogPersonForAccountDeletion(userId);
   }
+  await deleteVmPublicationsForAccountDeletion({ ownerUserId: userId });
   await deleteCmuxOwnedAccountRows(userId, accountTeamIds);
 }
 
@@ -1405,6 +1484,15 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
       );
     }
     const personalVmIds = personalVmRows.map((vm) => vm.id);
+    const phonePushLeases = await tx
+      .select({ deliveryLeaseUntil: deviceTokens.deliveryLeaseUntil })
+      .from(deviceTokens)
+      .where(and(
+        eq(deviceTokens.userId, userId),
+        eq(deviceTokens.platform, "ios"),
+      ))
+      .for("update");
+    assertNoActivePhonePushDeliveryLease(phonePushLeases, now);
 
     await tx.delete(deviceTokens).where(eq(deviceTokens.userId, userId));
     await tx.delete(notificationSendEvents).where(eq(notificationSendEvents.userId, userId));
@@ -1494,6 +1582,7 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
         ? or(eq(cloudVmSessions.userId, userId), inArray(cloudVmSessions.vmId, personalVmIds))
         : eq(cloudVmSessions.userId, userId),
     );
+    await deleteVmPublicationRowsForAccountDeletion(tx, userId);
     if (personalVmRows.length > 0) {
       await tx.delete(cloudVms).where(inArray(cloudVms.id, personalVmRows.map((vm) => vm.id)));
     }
@@ -1538,6 +1627,23 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
       eq(vaultCliAuthRequests.userId, userId),
     );
   });
+}
+
+function assertNoActivePhonePushDeliveryLease(
+  rows: readonly { readonly deliveryLeaseUntil: Date | null }[],
+  now: Date,
+): void {
+  const blockedUntilMs = rows.reduce(
+    (maximum, row) => Math.max(
+      maximum,
+      row.deliveryLeaseUntil?.getTime() ?? 0,
+    ),
+    0,
+  );
+  if (blockedUntilMs <= now.getTime()) return;
+  throw new AccountDeletionPhonePushDeliveryInProgressError(
+    Math.max(1, Math.ceil((blockedUntilMs - now.getTime()) / 1_000)),
+  );
 }
 
 async function accountDeletionScopeForUser(user: DeletableStackUser): Promise<{

@@ -1,14 +1,18 @@
 import {
   claimRefreshLease,
   completeRefreshLease,
+  encryptedCredentialForAccount,
   failRefreshLease,
-  withVaultLease,
+  releaseRefreshLease,
 } from "./repository";
 import {
-  putVaultCredential,
-  readTeamVault,
-} from "./vault";
-import type { CodeRouterCredential } from "./types";
+  decryptCredential,
+  encryptCredential,
+  type EncryptedCredential,
+} from "./encryption";
+import { isApiKeyCredential, type ApiKeyCredential, type CodeRouterCredential } from "./types";
+import { addCoderouterBreadcrumb, reportCoderouterFailure } from "./observability";
+import { assertSameCodexOwner, codexOwner, withCodexOwner, CodexOwnerMismatch } from "./codexIdentity";
 
 const CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const OPENCODE_CLIENT_ID = "opencode-cli";
@@ -22,107 +26,216 @@ export class CodeRouterCredentialBroken extends Error {
   readonly _tag = "CodeRouterCredentialBroken";
 }
 
-export async function freshCredential(input: {
+export type FreshCredentialInput = {
   readonly teamId: string;
   readonly accountId: string;
   readonly expectedRevision: number;
   readonly force?: boolean;
-}): Promise<CodeRouterCredential> {
-  const before = await readCredential(input.teamId, input.accountId);
-  if (!input.force && before.credential.expiresAt > Date.now() + REFRESH_SKEW_MS) {
-    return before.credential;
-  }
+  readonly known?: EncryptedCredential;
+  readonly signal?: AbortSignal;
+};
 
-  const leaseId = await claimRefreshLease(input.accountId);
-  if (!leaseId) throw new CodeRouterRefreshBusy("credential refresh already in progress");
-  try {
-    // The lease winner must re-read Stack after claiming. Another request may
-    // have refreshed and rotated the token immediately before this lease.
-    const current = await readCredential(input.teamId, input.accountId);
+export type CredentialRefreshDependencies = {
+  readonly read: typeof readCredential;
+  readonly decrypt: typeof decryptCredential;
+  readonly claim: typeof claimRefreshLease;
+  readonly release: typeof releaseRefreshLease;
+  readonly refresh: typeof refreshProviderCredential;
+  readonly encrypt: typeof encryptCredential;
+  readonly complete: typeof completeRefreshLease;
+  readonly fail: typeof failRefreshLease;
+  readonly isTerminal: typeof isTerminalRefreshError;
+  readonly failureCode: typeof refreshFailureCode;
+};
+
+export function createCredentialRefresher(
+  dependencies: CredentialRefreshDependencies,
+): (input: FreshCredentialInput) => Promise<CodeRouterCredential> {
+  return async (input) => {
+    throwIfAborted(input.signal);
     if (
-      !input.force &&
-      current.credential.expiresAt > Date.now() + REFRESH_SKEW_MS
+      input.known &&
+      input.expectedRevision > 0 &&
+      input.known.credentialRevision !== input.expectedRevision
     ) {
-      await completeRefreshLease({
+      throw new CodeRouterRefreshBusy("credential revision changed");
+    }
+    let before;
+    try {
+      before = input.known
+        ? {
+          envelope: input.known,
+          credential: await dependencies.decrypt(input.known, undefined, input.signal),
+        }
+        :
+        await dependencies.read(input.teamId, input.accountId, input.signal);
+      throwIfAborted(input.signal);
+    } catch (error) {
+      if (!input.signal?.aborted) reportCoderouterFailure("credential_decrypt", error);
+      throw error;
+    }
+    if (isApiKeyCredential(before.credential)) {
+      return await settleApiKeyCredential(dependencies, input, before.credential);
+    }
+    if (!input.force && before.credential.expiresAt > Date.now() + REFRESH_SKEW_MS) {
+      return before.credential;
+    }
+
+    const leaseId = await dependencies.claim(input.accountId, new Date(), input.signal);
+    if (!leaseId) {
+      throwIfAborted(input.signal);
+      addCoderouterBreadcrumb("refresh", "Credential refresh already in progress", {
+        provider: currentProvider(before.credential),
+      }, "warning");
+      throw new CodeRouterRefreshBusy("credential refresh already in progress");
+    }
+    addCoderouterBreadcrumb("refresh", "Credential refresh lease acquired", {
+      provider: currentProvider(before.credential),
+      forced: input.force === true,
+    });
+    try {
+      throwIfAborted(input.signal);
+      // The lease winner must re-read after claiming. Another request may have
+      // refreshed and rotated the token immediately before this lease.
+      const current = await dependencies.read(input.teamId, input.accountId, input.signal);
+      throwIfAborted(input.signal);
+      if (
+        !input.force &&
+        credentialExpiryMs(current.credential) > Date.now() + REFRESH_SKEW_MS
+      ) {
+        await dependencies.release(input.accountId, leaseId, input.signal);
+        throwIfAborted(input.signal);
+        return current.credential;
+      }
+
+      const refreshed = await dependencies.refresh(current.credential, input.signal);
+      throwIfAborted(input.signal);
+      const encrypted = await dependencies.encrypt({
+        teamId: input.teamId,
+        accountId: input.accountId,
+        provider: refreshed.provider,
+        credentialRevision: current.envelope.credentialRevision + 1,
+        credential: refreshed,
+        signal: input.signal,
+      });
+      throwIfAborted(input.signal);
+      await dependencies.complete({
         accountId: input.accountId,
         leaseId,
-        vaultRevision: current.revision,
-        credentialExpiresAt: new Date(current.credential.expiresAt),
+        expectedRevision: current.envelope.credentialRevision,
+        credential: refreshed,
+        encrypted,
+        signal: input.signal,
       });
-      return current.credential;
-    }
-
-    const refreshed = await refreshProviderCredential(current.credential);
-    const revision = await withVaultLease(input.teamId, async () => {
-      let lastError: unknown;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          return await putVaultCredential(
-            input.teamId,
-            input.accountId,
-            refreshed,
-            current.revision,
-          );
-        } catch (error) {
-          lastError = error;
-          if (attempt < 2) {
-            await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
-          }
-        }
+      throwIfAborted(input.signal);
+      addCoderouterBreadcrumb("refresh", "Credential refresh completed", {
+        provider: refreshed.provider,
+      });
+      return refreshed;
+    } catch (error) {
+      if (input.signal?.aborted) {
+        await dependencies.release(input.accountId, leaseId, input.signal).catch(() => undefined);
+        throw error;
       }
-      throw lastError;
-    });
-    await completeRefreshLease({
-      accountId: input.accountId,
-      leaseId,
-      vaultRevision: revision,
-      credentialExpiresAt: new Date(refreshed.expiresAt),
-    });
-    return refreshed;
-  } catch (error) {
-    const terminal = isTerminalRefreshError(error);
-    await failRefreshLease(
-      input.accountId,
-      leaseId,
-      terminal,
-      refreshFailureCode(error),
-    ).catch(() => undefined);
-    if (terminal) {
-      throw new CodeRouterCredentialBroken("provider refresh token is no longer usable");
+      const terminal = dependencies.isTerminal(error);
+      reportCoderouterFailure("provider_refresh", error, {
+        provider: currentProvider(before.credential),
+        terminal,
+      });
+      await dependencies.fail(
+        input.accountId,
+        leaseId,
+        terminal,
+        dependencies.failureCode(error),
+        input.signal,
+      ).catch(() => undefined);
+      if (terminal) {
+        throw new CodeRouterCredentialBroken("provider refresh token is no longer usable");
+      }
+      throw error;
     }
-    throw error;
-  }
+  };
 }
 
-async function readCredential(teamId: string, accountId: string) {
-  const account = (await readTeamVault(teamId)).accounts[accountId];
-  if (!account) throw new CodeRouterCredentialBroken("vault credential not found");
-  return account;
-}
-
-async function refreshProviderCredential(
-  credential: CodeRouterCredential,
+/**
+ * An API key has nothing to refresh. A forced refresh after a 401 means the
+ * provider rejected the key itself, so the account is marked broken (visible
+ * in the dashboard) and the request moves to the next account.
+ */
+async function settleApiKeyCredential(
+  dependencies: CredentialRefreshDependencies,
+  input: FreshCredentialInput,
+  credential: ApiKeyCredential,
 ): Promise<CodeRouterCredential> {
+  if (!input.force) return credential;
+  const leaseId = await dependencies.claim(input.accountId, new Date(), input.signal);
+  if (!leaseId) throw new CodeRouterRefreshBusy("credential refresh already in progress");
+  await dependencies.fail(input.accountId, leaseId, true, "api_key_rejected", input.signal)
+    .catch(() => undefined);
+  throw new CodeRouterCredentialBroken("provider rejected the API key");
+}
+
+/** API keys never expire; only a forced refresh reaches the provider for them. */
+function credentialExpiryMs(credential: CodeRouterCredential): number {
+  return isApiKeyCredential(credential) ? Number.POSITIVE_INFINITY : credential.expiresAt;
+}
+
+function currentProvider(credential: CodeRouterCredential): string {
+  return credential.provider;
+}
+
+export const freshCredential = createCredentialRefresher({
+  read: readCredential,
+  decrypt: decryptCredential,
+  claim: claimRefreshLease,
+  release: releaseRefreshLease,
+  refresh: refreshProviderCredential,
+  encrypt: encryptCredential,
+  complete: completeRefreshLease,
+  fail: failRefreshLease,
+  isTerminal: isTerminalRefreshError,
+  failureCode: refreshFailureCode,
+});
+
+async function readCredential(teamId: string, accountId: string, signal?: AbortSignal) {
+  const envelope = await encryptedCredentialForAccount(teamId, accountId, signal);
+  if (!envelope) {
+    throw new CodeRouterCredentialBroken("encrypted credential not found");
+  }
+  return {
+    envelope,
+    credential: await decryptCredential(envelope, undefined, signal),
+  };
+}
+
+export async function refreshProviderCredential(
+  credential: CodeRouterCredential,
+  signal?: AbortSignal,
+): Promise<CodeRouterCredential> {
+  if (isApiKeyCredential(credential)) return credential;
   if (credential.provider === "codex") {
+    codexOwner(credential);
     const token = await postForm("https://auth.openai.com/oauth/token", {
       grant_type: "refresh_token",
       refresh_token: credential.refreshToken,
       client_id: CODEX_CLIENT_ID,
-    });
-    return {
+    }, signal);
+    const refreshed = {
       ...credential,
       accessToken: requiredString(token, "access_token"),
       refreshToken: optionalString(token, "refresh_token") ?? credential.refreshToken,
       idToken: optionalString(token, "id_token") ?? credential.idToken,
       expiresAt: Date.now() + optionalPositiveNumber(token, "expires_in", 3_600) * 1_000,
     };
+    assertSameCodexOwner(credential, refreshed);
+    return withCodexOwner(refreshed);
   }
 
   const token = await postJson("https://console.opencode.ai/auth/device/token", {
     grant_type: "refresh_token",
     refresh_token: credential.refreshToken,
     client_id: OPENCODE_CLIENT_ID,
-  });
+  }, signal);
   return {
     ...credential,
     accessToken: requiredString(token, "access_token"),
@@ -143,12 +256,14 @@ class ProviderRefreshError extends Error {
 async function postForm(
   url: string,
   body: Record<string, string>,
+  signal?: AbortSignal,
 ): Promise<Record<string, unknown>> {
   const response = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams(body),
     cache: "no-store",
+    signal: requestSignal(signal, 10_000),
   });
   return await providerJson(response);
 }
@@ -156,14 +271,26 @@ async function postForm(
 async function postJson(
   url: string,
   body: Record<string, string>,
+  signal?: AbortSignal,
 ): Promise<Record<string, unknown>> {
   const response = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
     cache: "no-store",
+    signal: requestSignal(signal, 10_000),
   });
   return await providerJson(response);
+}
+
+function requestSignal(signal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  return signal ? AbortSignal.any([signal, timeout]) : timeout;
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (!signal?.aborted) return;
+  throw signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
 }
 
 async function providerJson(response: Response): Promise<Record<string, unknown>> {
@@ -188,13 +315,14 @@ function providerErrorCode(value: unknown): string | undefined {
     optionalString(value, "error");
 }
 
-function isTerminalRefreshError(error: unknown): boolean {
-  return error instanceof ProviderRefreshError &&
+export function isTerminalRefreshError(error: unknown): boolean {
+  return error instanceof CodexOwnerMismatch || error instanceof ProviderRefreshError &&
     (error.status === 400 || error.status === 401) &&
     /invalid|expired|reused|revoked|not_found/i.test(error.code);
 }
 
 function refreshFailureCode(error: unknown): string {
+  if (error instanceof CodexOwnerMismatch) return "credential_owner_mismatch";
   return error instanceof ProviderRefreshError ? error.code : "refresh_unavailable";
 }
 

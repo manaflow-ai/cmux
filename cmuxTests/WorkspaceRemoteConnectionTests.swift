@@ -9,7 +9,6 @@ import CmuxRemoteSession
 import CmuxSidebar
 import CmuxRemoteWorkspace
 import CmuxTerminal
-
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -643,7 +642,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "cmux vm-pty-attach --id abcd1234",
             daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint(
                 url: "wss://sandbox.example/rpc",
-                headers: ["e2b-traffic-access-token": "header-a"],
+                headers: ["x-cloud-traffic-token": "header-a"],
                 token: "token-a",
                 sessionId: "sess-a",
                 expiresAtUnix: 1_800_000_000
@@ -664,7 +663,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "cmux vm-pty-attach --id abcd1234",
             daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint(
                 url: "wss://sandbox.example/rpc",
-                headers: ["e2b-traffic-access-token": "header-b"],
+                headers: ["x-cloud-traffic-token": "header-b"],
                 token: "token-b",
                 sessionId: "sess-b",
                 expiresAtUnix: 1_800_000_100
@@ -761,6 +760,22 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(bootstrapMessage, message)
         XCTAssertFalse(bootstrapMessage.contains("pty.session"))
         XCTAssertFalse(bootstrapMessage.contains("pty.write.notification"))
+    }
+
+    func testRemoteDaemonBootstrapErrorsDoNotExposeUpstreamDetails() {
+        let rawError = NSError(domain: "cmux.remote.daemon", code: 41, userInfo: [
+            NSLocalizedDescriptionKey: "provider=/private/home/austin/.cmuxd path=/secret/token raw stderr",
+        ])
+
+        let message = RemoteSessionCoordinator.userFacingRemoteDaemonBootstrapErrorMessage(
+            rawError,
+            strings: .appLocalized
+        )
+
+        XCTAssertEqual(message, "Could not confirm that the remote daemon is ready")
+        XCTAssertFalse(message.contains("/private/home"))
+        XCTAssertFalse(message.contains("/secret/token"))
+        XCTAssertFalse(message.contains("raw stderr"))
     }
 
     @MainActor
@@ -1044,11 +1059,11 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         workspace.configureRemoteConnection(config, autoConnect: false)
         let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
         workspace.markRemoteTerminalSessionEnded(surfaceId: panelID, relayPort: nil)
-        let replacement = workspace.createReplacementTerminalPanel()
+        let replacement = try XCTUnwrap(workspace.createReplacementTerminalPanel())
         let firstReplacementCommand = replacement.surface.initialCommand
 
         workspace.markRemoteTerminalSessionEnded(surfaceId: panelID, relayPort: 64034)
-        let secondReplacement = workspace.createReplacementTerminalPanel()
+        let secondReplacement = try XCTUnwrap(workspace.createReplacementTerminalPanel())
 
         XCTAssertNotNil(firstReplacementCommand)
         XCTAssertNil(secondReplacement.surface.initialCommand)
@@ -1697,7 +1712,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         workspace.configureRemoteConnection(config, autoConnect: false)
         let workspacePane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
         let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
-        let dock = workspace.dockSplit
+        let dock = workspace.requiredDockSplitForTesting
         defer { dock.closeAllPanels() }
         let dockPane = try XCTUnwrap(dock.bonsplitController.allPaneIds.first)
 
@@ -2051,10 +2066,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 if command.contains("mkdir -p") {
                     return (status: 0, stdout: "", stderr: "")
                 }
-                // The daemon upload streams the binary through an ssh exec channel into `cat >`
+                // The daemon upload streams the binary through an ssh exec channel into a backgrounded `cat`
                 // rather than shelling out to scp, so the remote path this test is about arrives
                 // inside the command and the destination host is its own argument.
-                if command.contains("cat > ") {
+                if command.contains("cat > ") || command.contains("cat <&3 > ") {
                     lock.withLock {
                         uploadCommand = command
                         uploadDestination = arguments.dropLast().last
@@ -2169,6 +2184,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                         __CMUX_REMOTE_OS__=Linux
                         __CMUX_REMOTE_ARCH__=x86_64
                         __CMUX_REMOTE_EXISTS__=yes
+                        __CMUX_REMOTE_SIZE__=123
                         """,
                         stderr: ""
                     )
@@ -2192,11 +2208,11 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 if command.contains("mkdir -p") {
                     return (status: 0, stdout: "", stderr: "")
                 }
-                // The upload streams over the ssh exec channel into `cat >`, not scp. Recording how
+                // The upload streams over the ssh exec channel into a backgrounded `cat`, not scp. Recording how
                 // many hellos preceded it is what keeps this test about a *reinstall*: an upload
                 // before any hello would be a first install and would not exercise the
                 // missing-capability path this test is named for.
-                if command.contains("cat > ") {
+                if command.contains("cat > ") || command.contains("cat <&3 > ") {
                     lock.withLock {
                         uploadCommand = command
                         uploadPayload = stdin
@@ -5955,6 +5971,13 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             )
         }
         guard result == 0 else {
+            // Darwin reports EINVAL for SO_RCVTIMEO / SO_SNDTIMEO once the peer
+            // has already torn the connection down (the bridge answers and
+            // closes right after a half-close). The timeout only bounds the
+            // read that follows, and that read returns EOF immediately on such
+            // a socket, so treat this as "nothing left to bound" rather than a
+            // thrown error that XCTest counts as an unexpected failure.
+            if errno == EINVAL { return }
             throw posixError("setsockopt")
         }
     }

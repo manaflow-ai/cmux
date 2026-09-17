@@ -6,13 +6,14 @@ const codex = {
   provider: "codex",
   accessToken: "access",
   refreshToken: "refresh",
-  idToken: "id",
+  idToken: "header.eyJlbWFpbCI6ICJwZXJzb25AZXhhbXBsZS5jb20iLCAiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS9hdXRoIjogeyJjaGF0Z3B0X3VzZXJfaWQiOiAiZml4dHVyZS11c2VyIiwgImNoYXRncHRfYWNjb3VudF9pZCI6ICJhY2NvdW50LTEifX0.signature",
+  userId: "fixture-user",
   accountId: "account-1",
   email: "person@example.com",
   expiresAt: Date.now() + 3_600_000,
 };
 
-describe("CodeRouter Stack vault", () => {
+describe("coderouter vault", () => {
   test("accepts complete Codex and OpenCode Go credentials", () => {
     expect(parseCredential(codex)).toEqual(codex);
     expect(parseCredential({
@@ -39,7 +40,7 @@ describe("CodeRouter Stack vault", () => {
       accounts: {
         "account-1": { revision: 1, credential: { ...codex, refreshToken: "" } },
       },
-    })).toThrow("invalid Stack CodeRouter vault account");
+    })).toThrow("invalid coderouter vault account");
   });
 
   test("treats an absent vault as an empty versioned vault", () => {

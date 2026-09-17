@@ -16,14 +16,10 @@ extension MobileHostAuthorizationTests {
     @Test func testMobileHostConnectionClosesWhenFirstFrameTimesOut() async throws {
         let connectionID = UUID()
         let recorder = MobileHostConnectionCloseRecorder()
-        let connection = NWConnection(
-            host: NWEndpoint.Host("127.0.0.1"),
-            port: NWEndpoint.Port(rawValue: 9)!,
-            using: .tcp
-        )
+        let transport = RecordingMobileHostByteTransport()
         let session = MobileHostConnection(
             id: connectionID,
-            connection: connection,
+            transport: transport,
             firstFrameTimeoutNanoseconds: 1_000_000,
             authorizeRequest: { _ in nil },
             onAuthorizedRequest: { _ in },
@@ -43,18 +39,13 @@ extension MobileHostAuthorizationTests {
         let finalRecordedIDs = await recorder.recordedIDs()
         #expect(finalRecordedIDs == [connectionID])
     }
-    @Test func testMobileHostConnectionClosesWhenIdleAfterFirstFrame() async throws {
+    @Test func testMobileHostConnectionKeepsControlUsableAfterFirstFrame() async throws {
         let connectionID = UUID()
         let recorder = MobileHostConnectionCloseRecorder()
-        let connection = NWConnection(
-            host: NWEndpoint.Host("127.0.0.1"),
-            port: NWEndpoint.Port(rawValue: 9)!,
-            using: .tcp
-        )
+        let transport = RecordingMobileHostByteTransport()
         let session = MobileHostConnection(
             id: connectionID,
-            connection: connection,
-            idleTimeoutNanoseconds: 1_000_000,
+            transport: transport,
             authorizeRequest: { _ in nil },
             onAuthorizedRequest: { _ in },
             handleRequest: { _ in .ok([:]) },
@@ -62,18 +53,15 @@ extension MobileHostAuthorizationTests {
                 await recorder.record(id)
             }
         )
-        await session.debugStartIdleTimeoutAfterFrameForTesting()
-        for _ in 0..<100 {
-            let recordedIDs = await recorder.recordedIDs()
-            if !recordedIDs.isEmpty {
-                break
-            }
-            try await Task.sleep(nanoseconds: 1_000_000)
-        }
-        let finalRecordedIDs = await recorder.recordedIDs()
-        #expect(finalRecordedIDs == [connectionID])
+        let frame = try MobileSyncFrameCodec.encodeFrame(
+            Data(#"{"id":"status","method":"mobile.host.status","params":{}}"#.utf8)
+        )
+        await session.debugHandleReceiveDataForTesting(frame)
+        #expect(await transport.waitForSentBufferCount(1).count == 1)
+        #expect(await recorder.recordedIDs().isEmpty)
+        await session.close(reason: "test cleanup")
     }
-    @Test func testMobileHostConnectionKeepsSubscribedEventStreamPastIdleTimeout() async throws {
+    @Test func testMobileHostConnectionKeepsSubscribedEventStreamIdle() async throws {
         let connectionID = UUID()
         let recorder = MobileHostConnectionCloseRecorder()
         let connection = NWConnection(
@@ -84,7 +72,6 @@ extension MobileHostAuthorizationTests {
         let session = MobileHostConnection(
             id: connectionID,
             connection: connection,
-            idleTimeoutNanoseconds: 1_000_000,
             authorizeRequest: { _ in nil },
             onAuthorizedRequest: { _ in },
             handleRequest: { _ in .ok([:]) },
@@ -93,26 +80,15 @@ extension MobileHostAuthorizationTests {
             }
         )
         await session.subscribe(streamID: "events", topics: ["terminal.updated"])
-        await session.debugStartIdleTimeoutAfterFrameForTesting()
-        // An active subscription suppresses the idle-after-frame timeout: the
-        // arm path early-returns without scheduling any close. Awaiting an
-        // actor-isolated round-trip on the connection guarantees the arm call
-        // was fully processed and that the connection is still alive and
-        // subscribed, so the recorder reflects the final state with no
-        // wall-clock window to race.
+        // Subscriptions remain usable without requiring synthetic traffic. The
+        // host has no application-level idle deadline after admission.
         #expect(await session.isSubscribed(to: "terminal.updated"))
         let subscribedCloseIDs = await recorder.recordedIDs()
         #expect(subscribedCloseIDs.isEmpty)
         _ = await session.unsubscribe(streamID: "events")
-        for _ in 0..<100 {
-            let recordedIDs = await recorder.recordedIDs()
-            if !recordedIDs.isEmpty {
-                break
-            }
-            try await Task.sleep(nanoseconds: 1_000_000)
-        }
-        let finalRecordedIDs = await recorder.recordedIDs()
-        #expect(finalRecordedIDs == [connectionID])
+        #expect(await !session.isSubscribed(to: "terminal.updated"))
+        #expect(await recorder.recordedIDs().isEmpty)
+        await session.close(reason: "test cleanup")
     }
 
     @Test func testDeadIndependentEventLaneFallsBackCurrentAndFutureEventsToControl() async throws {
@@ -183,7 +159,7 @@ extension MobileHostAuthorizationTests {
         await session.close(reason: "test complete")
     }
 
-    @Test func testIndependentEventBackpressureClosesAtBoundedQueueCapacity() async throws {
+    @Test func testIndependentEventBackpressurePreservesOrderedEvents() async throws {
         let control = RecordingMobileHostByteTransport()
         let independent = TestMobileHostIndependentEventWriter(
             behavior: .blockAfterProbe
@@ -198,10 +174,7 @@ extension MobileHostAuthorizationTests {
             handleRequest: { _ in .ok([:]) },
             onClose: { _ in }
         )
-        // A non-droppable topic (state-sync deltas cannot be re-derived by the
-        // client) keeps the close-on-overflow contract; recoverable topics like
-        // terminal.render_grid are shed instead — see
-        // testStalledRenderGridSubscriberStaysOpenWithBoundedEventQueue.
+        // Ordered state changes remain queued while the event lane is busy.
         _ = await session.debugHandleSubscriptionRPCForTesting(
             MobileHostRPCRequest(
                 id: "subscribe",
@@ -232,15 +205,16 @@ extension MobileHostAuthorizationTests {
             )
         }
         #expect(
-            !(await session.sendEvent(
+            await session.sendEvent(
                 topic: "mobile.sync.delta",
                 payload: ["seq": 257]
-            ))
+            )
         )
 
-        #expect(await control.observedCloseCount() == 1)
-        #expect(await independent.observedCloseCount() == 1)
-        #expect(await session.debugQueuedEventCountForTesting() == 0)
+        #expect(await control.observedCloseCount() == 0)
+        #expect(await independent.observedCloseCount() == 0)
+        #expect(await session.debugQueuedEventCountForTesting() == 257)
+        await session.close(reason: "test complete")
     }
 
     @Test func testIdempotentSubscriptionDoesNotReprobeHealthyIndependentLane() async throws {
@@ -333,11 +307,8 @@ extension MobileHostAuthorizationTests {
         #expect(await transport.observedCloseCount() == 1)
     }
 
-    /// Events that cannot be re-derived by the client (state-sync deltas and
-    /// other non-refresh topics) must keep the close-on-overflow contract: the
-    /// host may never silently drop them, so a subscriber that stops draining
-    /// is torn down at the bounded capacity instead of growing without bound.
-    @Test func testStalledSubscriberOverflowOnNonRecoverableTopicClosesConnection() async throws {
+    /// Ordered events must survive congestion without forcing a reconnect.
+    @Test func testStalledSubscriberPreservesOrderedEventsBeyondSheddingBudget() async throws {
         let transport = StalledSendMobileHostByteTransport()
         let session = MobileHostConnection(
             id: UUID(),
@@ -359,9 +330,10 @@ extension MobileHostAuthorizationTests {
             }
         }
 
-        #expect(await transport.observedCloseCount() == 1)
-        #expect(admitted <= 258)
-        #expect(await session.debugQueuedEventCountForTesting() == 0)
+        #expect(await transport.observedCloseCount() == 0)
+        #expect(admitted == 300)
+        #expect(await session.debugQueuedEventCountForTesting() >= 299)
+        await session.close(reason: "test complete")
     }
 
     /// End-to-end fan-out proof for issue #8842: sustained emission through the
@@ -410,18 +382,64 @@ extension MobileHostAuthorizationTests {
         }
     }
 
-    /// A subscriber whose transport accepted a frame but never completes the
-    /// write (TCP zero-window peer) is torn down by the bounded event-send
-    /// stall deadline instead of pinning the connection's queue, tasks, and
-    /// socket forever.
-    @Test func testEventSendStallDeadlineClosesStalledConnection() async throws {
+    /// Simulator frames are full snapshots, so a phone that temporarily cannot
+    /// drain the event lane should keep the control connection and receive the
+    /// newest frame once draining resumes. Closing the connection here freezes
+    /// the phone view while pointer RPCs can still reconnect and keep moving
+    /// the Mac simulator.
+    @Test func testStalledSimulatorFrameSubscriberShedsOldFramesWithoutClosingConnection() async throws {
+        let transport = StalledSendMobileHostByteTransport()
+        let session = MobileHostConnection(
+            id: UUID(),
+            transport: transport,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in }
+        )
+        await session.subscribe(streamID: "events", topics: ["simulator.frame"])
+
+        for sequence in 0..<600 {
+            _ = await session.sendEvent(
+                topic: "simulator.frame",
+                payload: [
+                    "panel_id": "sim-panel-9401",
+                    "seq": sequence,
+                    "data_base64": "frame-\(sequence)",
+                ]
+            )
+        }
+
+        #expect(await transport.observedCloseCount() == 0)
+        #expect(await session.debugQueuedEventCountForTesting() <= 256)
+        #expect(await session.isSubscribed(to: "simulator.frame"))
+
+        await session.close(reason: "test cleanup")
+    }
+
+    @Test func testSimulatorFrameCoalescesByPanelID() {
+        #expect(MobileHostService.eventCoalesceKey(
+            topic: "simulator.frame",
+            payload: ["panel_id": "sim-panel-9401"]
+        ) == "sim-panel-9401")
+        #expect(MobileHostEventTopicPolicy.isDroppable(
+            topic: "simulator.frame",
+            coalesceKey: "sim-panel-9401"
+        ))
+        #expect(!MobileHostEventTopicPolicy.isDroppable(
+            topic: "simulator.state",
+            coalesceKey: "sim-panel-9401"
+        ))
+    }
+
+    /// A stalled event write does not end the connection or interrupt framing.
+    @Test func testEventSendStallDoesNotCloseConnection() async throws {
         let transport = StalledSendMobileHostByteTransport()
         let recorder = MobileHostConnectionCloseRecorder()
         let connectionID = UUID()
         let session = MobileHostConnection(
             id: connectionID,
             transport: transport,
-            eventSendStallTimeoutNanoseconds: 5_000_000,
             authorizeRequest: { _ in nil },
             onAuthorizedRequest: { _ in },
             handleRequest: { _ in .ok([:]) },
@@ -435,12 +453,10 @@ extension MobileHostAuthorizationTests {
             payload: ["surface_id": "surface-stall-8842", "full": true]
         )
         await transport.waitUntilSendStalled()
-        for _ in 0..<2_000 {
-            if !(await recorder.recordedIDs().isEmpty) { break }
-            try await Task.sleep(nanoseconds: 1_000_000)
-        }
-        #expect(await recorder.recordedIDs() == [connectionID])
-        #expect(await transport.observedCloseCount() == 1)
+        // The transport's signal proves the write is suspended and unresolved.
+        #expect(await recorder.recordedIDs().isEmpty)
+        #expect(await transport.observedCloseCount() == 0)
+        await session.close(reason: "test complete")
     }
 
     // MARK: - Bounded event queue admission policy
@@ -468,7 +484,6 @@ extension MobileHostAuthorizationTests {
             isFullRenderGridFrame: false, frame: frame
         )
         #expect(!overflow.admitted)
-        #expect(!overflow.shouldClose)
         #expect(overflow.renderGridResyncSurfaceIDs == ["s1"])
         #expect(queue.count == 0)
         // While poisoned, deltas stay refused even though there is room.
@@ -490,7 +505,7 @@ extension MobileHostAuthorizationTests {
         #expect(queue.count == 2)
     }
 
-    @Test func testEventQueueOverflowOnNonDroppableTopicRequestsClose() {
+    @Test func testEventQueuePreservesOrderedEventsBeyondSheddingBudget() {
         let queue = MobileHostConnectionEventQueue(
             maximumEventCount: 1,
             maximumByteCount: 1_000_000
@@ -505,8 +520,10 @@ extension MobileHostAuthorizationTests {
             topic: "mobile.sync.delta", coalesceKey: nil,
             isFullRenderGridFrame: false, frame: frame
         )
-        #expect(!overflow.admitted)
-        #expect(overflow.shouldClose)
+        #expect(overflow.admitted)
+        #expect(queue.count == 2)
+        #expect(queue.dequeue()?.frame == frame)
+        #expect(queue.dequeue()?.frame == frame)
     }
 
     @Test func testEventQueueEnforcesByteBudgetBySheddingOldestDroppable() {
@@ -651,6 +668,237 @@ extension MobileHostAuthorizationTests {
         await session.close(reason: "test complete")
     }
 
+}
+
+@Suite
+struct MobileHostSimulatorFrameQueueDiagnosticsTests {
+    @Test func simulatorFrameSheddingReportsSafeCounters() {
+        let queue = MobileHostConnectionEventQueue(
+            maximumEventCount: 1,
+            maximumByteCount: 1_000_000
+        )
+        queue.updateSubscribedTopics(["simulator.frame"])
+        let frame = Data(repeating: 0x61, count: 16)
+        #expect(queue.enqueue(
+            topic: "simulator.frame", coalesceKey: "sim-1",
+            isFullRenderGridFrame: false, frame: frame
+        ).admitted)
+
+        let newest = queue.enqueue(
+            topic: "simulator.frame", coalesceKey: "sim-1",
+            isFullRenderGridFrame: false, frame: frame
+        )
+
+        #expect(newest.admitted)
+        #expect(newest.shedEventCount == 1)
+        #expect(newest.shedByteCount == 16)
+        #expect(newest.simulatorFrameShedPanelIDs == ["sim-1"])
+        #expect(newest.renderGridResyncSurfaceIDs.isEmpty)
+        #expect(queue.count == 1)
+    }
+
+    @Test func simulatorFrameSheddingCreatesOneReplayDebtForExactPanel() {
+        let queue = MobileHostConnectionEventQueue(
+            maximumEventCount: 2,
+            maximumByteCount: 1_000_000
+        )
+        queue.updateSubscribedTopics(["simulator.frame"])
+        let frame = Data(repeating: 0x61, count: 16)
+        #expect(queue.enqueue(
+            topic: "simulator.frame", coalesceKey: "sim-1",
+            isFullRenderGridFrame: false, frame: frame
+        ).admitted)
+        #expect(queue.enqueue(
+            topic: "simulator.frame", coalesceKey: "sim-2",
+            isFullRenderGridFrame: false, frame: frame
+        ).admitted)
+
+        let newest = queue.enqueue(
+            topic: "simulator.frame", coalesceKey: "sim-1",
+            isFullRenderGridFrame: false, frame: frame
+        )
+
+        #expect(newest.admitted)
+        #expect(queue.takeSimulatorFrameReplayAfterDrainRequests() == ["sim-1"])
+        #expect(queue.takeSimulatorFrameReplayAfterDrainRequests().isEmpty)
+    }
+
+    @Test func drainProgressRoutesSimulatorReplayToExactConnectionAndPanel() async {
+        let connectionID = UUID()
+        let replayRecorder = MobileHostSimulatorReplayRecorder()
+        let queue = MobileHostConnectionEventQueue(
+            maximumEventCount: 1,
+            maximumByteCount: 1_000_000
+        )
+        let session = MobileHostConnection(
+            id: connectionID,
+            transport: RecordingMobileHostByteTransport(),
+            eventQueue: queue,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in },
+            requestSimulatorFrameReplay: { connectionID, panelIDs in
+                await replayRecorder.record(connectionID: connectionID, panelIDs: panelIDs)
+            }
+        )
+        await session.subscribe(streamID: "events", topics: ["simulator.frame"])
+        let frame = Data(repeating: 0x61, count: 16)
+        #expect(queue.enqueue(
+            topic: "simulator.frame", coalesceKey: "sim-a",
+            isFullRenderGridFrame: false, frame: frame
+        ).admitted)
+        #expect(queue.enqueue(
+            topic: "simulator.frame", coalesceKey: "sim-b",
+            isFullRenderGridFrame: false, frame: frame
+        ).admitted)
+
+        await session.drainQueuedEvents()
+
+        #expect(await replayRecorder.requests() == [
+            MobileHostSimulatorReplayRequest(connectionID: connectionID, panelIDs: ["sim-a"]),
+        ])
+        await session.close(reason: "test cleanup")
+    }
+
+    @Test func simulatorReplayDebtSurvivesUnsubscribeDrainAndResubscribe() async {
+        let connectionID = UUID()
+        let replayRecorder = MobileHostSimulatorReplayRecorder()
+        let queue = MobileHostConnectionEventQueue(
+            maximumEventCount: 1,
+            maximumByteCount: 1_000_000
+        )
+        let session = MobileHostConnection(
+            id: connectionID,
+            transport: RecordingMobileHostByteTransport(),
+            eventQueue: queue,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in },
+            requestSimulatorFrameReplay: { connectionID, panelIDs in
+                await replayRecorder.record(connectionID: connectionID, panelIDs: panelIDs)
+            }
+        )
+        await session.subscribe(streamID: "events", topics: ["simulator.frame"])
+        let frame = Data(repeating: 0x61, count: 16)
+        #expect(queue.enqueue(
+            topic: "simulator.frame", coalesceKey: "sim-a",
+            isFullRenderGridFrame: false, frame: frame
+        ).admitted)
+        #expect(queue.enqueue(
+            topic: "simulator.frame", coalesceKey: "sim-b",
+            isFullRenderGridFrame: false, frame: frame
+        ).admitted)
+
+        _ = await session.unsubscribe(streamID: "events")
+        await session.drainQueuedEvents()
+        #expect(await replayRecorder.requests().isEmpty)
+
+        await session.subscribe(streamID: "events", topics: ["simulator.frame"])
+        #expect(await replayRecorder.requests() == [
+            MobileHostSimulatorReplayRequest(connectionID: connectionID, panelIDs: ["sim-a"]),
+        ])
+        await session.close(reason: "test cleanup")
+    }
+
+    @Test func simulatorReplayDebtSurvivesUnsubscribeDuringReplay() async {
+        let connectionID = UUID()
+        let replayGate = BlockingMobileHostSimulatorReplayRecorder()
+        let queue = MobileHostConnectionEventQueue(
+            maximumEventCount: 1,
+            maximumByteCount: 1_000_000
+        )
+        let session = MobileHostConnection(
+            id: connectionID,
+            transport: RecordingMobileHostByteTransport(),
+            eventQueue: queue,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in },
+            requestSimulatorFrameReplay: { connectionID, panelIDs in
+                await replayGate.recordAndWait(
+                    connectionID: connectionID,
+                    panelIDs: panelIDs
+                )
+            }
+        )
+        await session.subscribe(streamID: "events", topics: ["simulator.frame"])
+        let frame = Data(repeating: 0x61, count: 16)
+        #expect(queue.enqueue(
+            topic: "simulator.frame", coalesceKey: "sim-a",
+            isFullRenderGridFrame: false, frame: frame
+        ).admitted)
+        #expect(queue.enqueue(
+            topic: "simulator.frame", coalesceKey: "sim-b",
+            isFullRenderGridFrame: false, frame: frame
+        ).admitted)
+
+        let drain = Task { await session.drainQueuedEvents() }
+        await replayGate.waitUntilBlocked()
+        _ = await session.unsubscribe(streamID: "events")
+        await replayGate.release()
+        await drain.value
+
+        let resubscribe = Task {
+            await session.subscribe(streamID: "events", topics: ["simulator.frame"])
+        }
+        await replayGate.waitUntilBlocked()
+        #expect(await replayGate.requests() == [
+            MobileHostSimulatorReplayRequest(connectionID: connectionID, panelIDs: ["sim-a"]),
+            MobileHostSimulatorReplayRequest(connectionID: connectionID, panelIDs: ["sim-a"]),
+        ])
+        await replayGate.release()
+        await resubscribe.value
+        await session.close(reason: "test cleanup")
+    }
+}
+
+private struct MobileHostSimulatorReplayRequest: Equatable, Sendable {
+    let connectionID: UUID
+    let panelIDs: Set<String>
+}
+
+private actor MobileHostSimulatorReplayRecorder {
+    private var recordedRequests: [MobileHostSimulatorReplayRequest] = []
+
+    func record(connectionID: UUID, panelIDs: Set<String>) {
+        recordedRequests.append(MobileHostSimulatorReplayRequest(
+            connectionID: connectionID,
+            panelIDs: panelIDs
+        ))
+    }
+
+    func requests() -> [MobileHostSimulatorReplayRequest] { recordedRequests }
+}
+
+private actor BlockingMobileHostSimulatorReplayRecorder {
+    private var recordedRequests: [MobileHostSimulatorReplayRequest] = []
+    private var blockedContinuation: CheckedContinuation<Void, Never>?
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+    func recordAndWait(connectionID: UUID, panelIDs: Set<String>) async {
+        recordedRequests.append(MobileHostSimulatorReplayRequest(
+            connectionID: connectionID,
+            panelIDs: panelIDs
+        ))
+        blockedContinuation?.resume()
+        blockedContinuation = nil
+        await withCheckedContinuation { releaseContinuation = $0 }
+    }
+
+    func waitUntilBlocked() async {
+        if releaseContinuation != nil { return }
+        await withCheckedContinuation { blockedContinuation = $0 }
+    }
+
+    func release() {
+        releaseContinuation?.resume()
+        releaseContinuation = nil
+    }
+
+    func requests() -> [MobileHostSimulatorReplayRequest] { recordedRequests }
 }
 
 /// A byte transport whose `send` never completes on its own: it models a
