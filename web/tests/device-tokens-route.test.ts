@@ -104,6 +104,44 @@ describe("device token route", () => {
     });
   });
 
+  dbTest("allows a legacy registration without an E2E push key", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    const token = "d".repeat(64);
+    const response = await POST(
+      new Request("https://cmux.test/api/device-tokens", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify({
+          deviceToken: token,
+          bundleId: "com.cmux.app",
+          platform: "ios",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).ok).toBe(true);
+    const [row] = await sql<{
+      installationId: string;
+      pushKeyId: string;
+      pushPublicKey: string | null;
+    }[]>`
+      select installation_id as "installationId",
+        push_key_id as "pushKeyId",
+        push_public_key as "pushPublicKey"
+      from device_tokens
+      where user_id = 'push-user-1' and device_token = ${token}
+    `;
+    expect(row).toEqual({
+      installationId: "legacy",
+      pushKeyId: "legacy",
+      pushPublicKey: null,
+    });
+  });
+
   dbTest("allows a released legacy client to unregister its unique token", async () => {
     if (!sql) throw new Error("test database not initialized");
     const token = "b".repeat(64);

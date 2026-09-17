@@ -268,6 +268,20 @@ function parseRegistrationInput(
     return { ok: false, response: jsonResponse({ error: "client_namespace_mismatch" }, 403) };
   }
   if (platform !== "ios") return { ok: false, response: jsonResponse({ error: "invalid_platform" }, 400) };
+  if (clientNamespace === "legacy" && !installationId && !pushKeyId && !pushPublicKey) {
+    return {
+      ok: true,
+      value: {
+        deviceToken,
+        bundle,
+        platform,
+        installationId: "legacy",
+        pushKeyId: "legacy",
+        pushPublicKey: "",
+        isLegacy: true,
+      },
+    };
+  }
   const pushKeys = parsePushKeyFields(installationId, pushKeyId, pushPublicKey);
   if (!pushKeys) {
     recordApnsEncryptionKeyRejection();
