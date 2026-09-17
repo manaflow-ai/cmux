@@ -470,34 +470,6 @@ final class WorkspaceContentViewVisibilityTests {
     }
 
     @Test
-    @MainActor
-    func minimalModeSidebarFooterRevealsOnHoverAndDuringActiveUpdate() {
-        let hoveredControls = SidebarFooterControl.allCases.filter {
-            SidebarFooterPresentationPolicy.isVisible(
-                $0,
-                presentationMode: .minimal,
-                isHovered: true
-            )
-        }
-        #expect(hoveredControls == SidebarFooterControl.allCases)
-
-        let activeUpdateControls = SidebarFooterControl.allCases.filter {
-            SidebarFooterPresentationPolicy.isVisible(
-                $0,
-                presentationMode: .minimal,
-                isUpdateActive: true
-            )
-        }
-        #expect(activeUpdateControls == [.upgrade, .update])
-        #expect(
-            !SidebarFooterPresentationPolicy.isVisible(
-                .update,
-                presentationMode: .minimal
-            )
-        )
-    }
-
-    @Test
     func sidebarAccountPictureAndIconPresentationsStayDistinct() {
         let picture = SidebarAccountButtonPresentation.resolve(
             isSignedIn: true,

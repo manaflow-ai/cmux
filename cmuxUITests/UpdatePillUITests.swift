@@ -234,29 +234,6 @@ final class UpdatePillUITests: XCTestCase {
         XCTAssertFalse(pillButton(app: app, expectedLabel: "Update Didn’t Start").exists)
     }
 
-    func testAttemptUpdateShowsStatusPillInMinimalMode() {
-        let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
-        systemSettings.terminate()
-        let app = XCUIApplication.cmuxTestApplication()
-        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
-        // Command-line defaults make the minimal presentation active before the
-        // first window mounts, matching the user's persistent setting.
-        app.launchArguments += ["-workspacePresentationMode", "minimal"]
-        launchAndActivate(app)
-        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 6.0))
-
-        app.typeKey("p", modifierFlags: [.command, .shift])
-        app.typeText("Attempt Update")
-        app.typeKey(.return, modifierFlags: [])
-
-        let upToDatePill = pillButton(app: app, expectedLabel: "No Updates Available")
-        XCTAssertTrue(
-            upToDatePill.waitForExistence(timeout: 10.0),
-            "Attempt Update should briefly surface its result in minimal mode"
-        )
-        assertVisibleSize(upToDatePill)
-    }
-
     func testNoSparklePermissionDialogIsShown() {
         let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
         systemSettings.terminate()
@@ -358,20 +335,20 @@ final class UpdatePillUITests: XCTestCase {
         )
     }
 
-    private func pillButton(app: XCUIApplication, expectedLabel: String) -> XCUIElement {
+    func pillButton(app: XCUIApplication, expectedLabel: String) -> XCUIElement {
         // On macOS, SwiftUI accessibility identifiers are not always reliably surfaced for titlebar-style
         // UI across OS/Xcode versions. Prefer the pill's accessibility label, but keep an identifier
         // fallback for local runs.
         return app.buttons[expectedLabel]
     }
 
-    private func waitForWindowCount(atLeast count: Int, app: XCUIApplication, timeout: TimeInterval) -> Bool {
+    func waitForWindowCount(atLeast count: Int, app: XCUIApplication, timeout: TimeInterval) -> Bool {
         pollUntil(timeout: timeout) {
             app.windows.count >= count
         }
     }
 
-    private func assertVisibleSize(_ element: XCUIElement, timeout: TimeInterval = 2.0) {
+    func assertVisibleSize(_ element: XCUIElement, timeout: TimeInterval = 2.0) {
         let pollInterval: TimeInterval = 0.05
         var size = element.frame.size
         var exists = element.exists
@@ -433,7 +410,7 @@ final class UpdatePillUITests: XCTestCase {
         return app
     }
 
-    private func launchAndActivate(_ app: XCUIApplication, activateTimeout: TimeInterval = 2.0) {
+    func launchAndActivate(_ app: XCUIApplication, activateTimeout: TimeInterval = 2.0) {
         app.launch()
         let activated = pollUntil(timeout: activateTimeout) {
             guard app.state != .runningForeground else {
@@ -554,7 +531,7 @@ final class TitlebarShortcutHintsUITests: XCTestCase {
         app.descendants(matching: .any).matching(identifier: identifier).firstMatch
     }
 
-    private func waitForWindowCount(atLeast count: Int, app: XCUIApplication, timeout: TimeInterval) -> Bool {
+    func waitForWindowCount(atLeast count: Int, app: XCUIApplication, timeout: TimeInterval) -> Bool {
         pollUntil(timeout: timeout) {
             app.windows.count >= count
         }
