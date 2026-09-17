@@ -90,6 +90,7 @@ public:
     [[nodiscard]] Result<MintTerminalRendererResult> mint_terminal_renderer(const MintTerminalRendererRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<MintTerminalRendererResult> mint_terminal_renderer_by_terminal(const MintTerminalRendererByTerminalRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> move_tab(const MoveTabRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<EmptyResult> move_tab_to_workspace(const MoveTabToWorkspaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<MoveTerminalResult> move_terminal(const MoveTerminalRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<WorkspaceMutationResult> move_workspace(const MoveWorkspaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SurfaceResult> new_browser_tab(const NewBrowserTabRequest& request, RequestOptions options = {});

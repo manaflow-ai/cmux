@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d9db9b34a8e4f367ce1aae230fcd188796903d6adf169f9675872a48d9fd1f25. */
+/* cmux-tui mux protocol 12, IR 97abd178931f122e95cf5d0ad337184cce1d2ce451f7a6ee84aca9b75d960d5d. */
 
 
 import type * as T from "./types.js";
@@ -442,6 +442,14 @@ export interface MoveTabRequest extends CmuxRequestBase {
   "surface": T.Id;
 }
 export type MoveTabResult = T.EmptyResult;
+
+/** Protocol v12; authority: control. */
+export interface MoveTabToWorkspaceRequest extends CmuxRequestBase {
+  cmd: "move-tab-to-workspace";
+  "surface": T.Id;
+  "workspace"?: (T.Id) | null;
+}
+export type MoveTabToWorkspaceResult = T.EmptyResult;
 
 /** Protocol v9; authority: control. */
 export interface MoveTerminalRequest extends CmuxRequestBase {
@@ -1015,6 +1023,7 @@ export type CmuxRequest =
   | MintTerminalRendererRequest
   | MintTerminalRendererByTerminalRequest
   | MoveTabRequest
+  | MoveTabToWorkspaceRequest
   | MoveTerminalRequest
   | MoveWorkspaceRequest
   | NewBrowserTabRequest
@@ -1465,6 +1474,14 @@ export interface CmuxCommandDefinitionMap {
     result: MoveTabResult;
     authority: "control";
     since: 5;
+    capability: null;
+    stream: null;
+  };
+  "move-tab-to-workspace": {
+    request: MoveTabToWorkspaceRequest;
+    result: MoveTabToWorkspaceResult;
+    authority: "control";
+    since: 12;
     capability: null;
     stream: null;
   };

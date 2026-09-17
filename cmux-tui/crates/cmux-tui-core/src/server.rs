@@ -1190,14 +1190,13 @@ enum Command {
     },
     MoveTab {
         surface: SurfaceId,
-        #[serde(default)]
-        pane: Option<PaneId>,
-        #[serde(default)]
+        pane: PaneId,
         index: usize,
+    },
+    MoveTabToWorkspace {
+        surface: SurfaceId,
         #[serde(default)]
         workspace: Option<WorkspaceId>,
-        #[serde(default)]
-        new_workspace: bool,
     },
     MoveWorkspace {
         #[serde(default)]
@@ -1412,6 +1411,7 @@ impl Command {
             | Self::BrowserActivate { surface }
             | Self::ProcessInfo { surface }
             | Self::MoveTab { surface, .. }
+            | Self::MoveTabToWorkspace { surface, .. }
             | Self::CloseSurface { surface }
             | Self::RenameSurface { surface, .. }
             | Self::ResizeSurface { surface, .. }
@@ -12306,13 +12306,11 @@ fn handle_command_with_cancellation(
                 "generation":generation,
             }))
         }
-        Command::MoveTab { surface, pane, index, workspace, new_workspace } => {
-            anyhow::ensure!(usize::from(pane.is_some()) + usize::from(workspace.is_some()) + usize::from(new_workspace) == 1, "choose one tab move destination");
-            if pane.is_none() {
-                mux.move_tab_to_workspace(surface, workspace)?;
-                return Ok(json!({}));
-            }
-            let pane = pane.expect("validated pane destination");
+        Command::MoveTabToWorkspace { surface, workspace } => {
+            mux.move_tab_to_workspace(surface, workspace)?;
+            Ok(json!({}))
+        }
+        Command::MoveTab { surface, pane, index } => {
             let valid = mux.with_state(|state| {
                 state.surfaces.contains_key(&surface)
                     && state.panes.contains_key(&pane)

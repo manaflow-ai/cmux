@@ -1397,6 +1397,8 @@ impl Mux {
         workspace: Option<WorkspaceId>,
     ) -> anyhow::Result<()> {
         if let Some(workspace) = workspace {
+            if self.with_state(|state| state.pane_of(surface).and_then(|pane| state.screen_of(pane))
+                .is_some_and(|(wi, _)| state.workspaces[wi].id == workspace)) { return Ok(()); }
             let target = self.with_state(|state| -> anyhow::Result<_> {
                 let ws = state.workspace_by_id(workspace).context("destination workspace disappeared")?;
                 Ok(ws.active_screen_ref().and_then(|screen| state.panes.get(&screen.active_pane))

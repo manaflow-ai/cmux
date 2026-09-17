@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR d9db9b34a8e4f367ce1aae230fcd188796903d6adf169f9675872a48d9fd1f25.
+// cmux-tui mux protocol 12, IR 97abd178931f122e95cf5d0ad337184cce1d2ce451f7a6ee84aca9b75d960d5d.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -629,6 +629,17 @@ pub struct MoveTabRequest {
 
 #[rustfmt::skip]
 pub type MoveTabResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MoveTabToWorkspaceRequest {
+    pub surface: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub workspace: Optional<T::Id>,
+}
+
+#[rustfmt::skip]
+pub type MoveTabToWorkspaceResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1579,6 +1590,10 @@ impl CmuxClient {
 
     pub fn move_tab(&mut self, request: MoveTabRequest) -> Result<MoveTabResult> {
         self.execute(&MOVE_TAB_METADATA, &request)
+    }
+
+    pub fn move_tab_to_workspace(&mut self, request: MoveTabToWorkspaceRequest) -> Result<MoveTabToWorkspaceResult> {
+        self.execute(&MOVE_TAB_TO_WORKSPACE_METADATA, &request)
     }
 
     pub fn move_terminal(&mut self, request: MoveTerminalRequest) -> Result<T::MoveTerminalResult> {

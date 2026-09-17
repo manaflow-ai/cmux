@@ -12403,7 +12403,8 @@ impl App {
 
     fn menu_action_resource(&self, action: MenuAction) -> Option<MenuActionResource> {
         match action {
-            MenuAction::RenameSurface(surface) => Some(MenuActionResource::Surface(surface)),
+            MenuAction::RenameSurface(surface)
+            | MenuAction::MoveTabToWorkspace { surface, .. } => Some(MenuActionResource::Surface(surface)),
             MenuAction::CopyStatusMessage => {
                 self.status_message.clone().map(MenuActionResource::StatusMessage)
             }

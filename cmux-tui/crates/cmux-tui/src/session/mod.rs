@@ -2071,7 +2071,7 @@ impl Session {
         match self {
             Session::Local(mux) => mux.move_tab_to_workspace(surface, workspace),
             Session::Remote(remote) => remote.request(json!({
-                "cmd":"move-tab", "surface":surface, "workspace":workspace, "new_workspace":workspace.is_none()
+                "cmd":"move-tab-to-workspace", "surface":surface, "workspace":workspace
             })).map(|_| ()),
         }
     }
