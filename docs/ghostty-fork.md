@@ -34,6 +34,10 @@ visibility, and Hangul canonical font resolution.
 - Conflict note: preserve the directory copy before replacing its source;
   sanitizing PATH before Ghostty runs cannot prevent this later corruption.
 - The GhosttyKit build workflow runs the focused environment lifetime test.
+- Universal ReleaseFast artifact:
+  https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-574bbf96701fb8e7fc205adb14341b70c57b827e-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+  (`6f1397e1c9d076d7eb607eb9b1e1efecce60aeef17bae52cbd0db18f31a09f46`,
+  pinned in `scripts/ghosttykit-checksums.txt`).
 
 ### Previous main-aligned feature pin
 
