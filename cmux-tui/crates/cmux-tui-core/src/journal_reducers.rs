@@ -183,10 +183,10 @@ impl AgentRoster {
             let Some(state) = event.normalized("state").and_then(agent_state_from_str) else {
                 return Vec::new();
             };
-            let source = event
-                .normalized("source")
-                .and_then(agent_source_from_str)
-                .unwrap_or(AgentSource::Socket);
+            // The adapter id is the provenance marker. Do not trust the
+            // normalized source field here: it is a payload echo and a
+            // forged `source: hook` must not bypass hook precedence.
+            let source = AgentSource::Socket;
             let updated_at_ms = event
                 .normalized("updated_at_ms")
                 .and_then(|value| value.parse::<u64>().ok())
@@ -357,6 +357,37 @@ mod tests {
             roster.apply(&hook_event(3, "agent.state.changed", &subjects, &socket_payload));
         assert!(deltas.is_empty());
         assert_eq!(roster.entries["term_a"].source, "hook");
+    }
+
+    #[test]
+    fn socket_echo_cannot_spoof_hook_precedence_through_normalized_source() {
+        let subjects = terminal_subject("term_a");
+        let hook_payload = json!({"adapter": {"id": "claude", "version": 1}});
+        let spoofed_socket_payload = json!({
+            "adapter": {"id": SOCKET_REPORT_ADAPTER, "version": 1},
+            "normalized": {
+                "state": "idle",
+                // A direct report rejected by hook arbitration can carry the
+                // winning projection source. It remains a socket echo for
+                // reducer precedence purposes.
+                "source": "hook",
+                "source_session": "spoof",
+            },
+        });
+        let mut roster = AgentRoster::default();
+
+        roster.apply(&stamped_event(10_000, "agent.turn.started", &subjects, &hook_payload));
+        let deltas = roster.apply(&stamped_event(
+            11_000,
+            "agent.state.changed",
+            &subjects,
+            &spoofed_socket_payload,
+        ));
+
+        assert!(deltas.is_empty());
+        assert_eq!(roster.entries["term_a"].source, "hook");
+        assert_eq!(roster.entries["term_a"].state, "working");
+        assert_eq!(roster.entries["term_a"].agent.as_deref(), Some("claude"));
     }
 
     #[test]
