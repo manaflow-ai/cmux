@@ -4833,13 +4833,12 @@ class TerminalController {
                 requestedWorkspaceId: requestedWorkspaceId,
                 preferredSurfaceId: preferredSurfaceId
             )
-            if let error = resolved.error {
-                return (nil, error)
-            }
+            if let error = resolved.error { return (nil, error) }
             guard let target = resolved.target else {
                 return resolved
             }
-            if target.controller != nil || Date() >= deadline {
+            if target.controller != nil || Date() >= deadline ||
+                v2RemoteSessionParkedResult(workspaceId: target.workspaceId, params: params) != nil {
                 return (target, nil)
             }
 
@@ -5189,7 +5188,7 @@ class TerminalController {
             return .err(code: "not_found", message: "Workspace not found", data: nil)
         }
         guard let controller = target.controller else {
-            return .err(code: "remote_pty_error", message: "remote connection is not active", data: [
+            return v2RemoteSessionParkedResult(workspaceId: target.workspaceId, params: params) ?? .err(code: "remote_pty_error", message: "remote connection is not active", data: [
                 "workspace_id": target.workspaceId.uuidString,
                 "workspace_ref": target.workspaceRef,
             ])
@@ -5214,6 +5213,7 @@ class TerminalController {
             payload["daemon_version"] = endpoint.daemonVersion ?? NSNull()
             return .ok(payload)
         } catch {
+            if let parked = error as? RemoteSessionParkedError { return v2RemoteSessionParkedResult(detail: parked.detail, workspaceId: target.workspaceId, workspaceRef: target.workspaceRef) }
             let code = (error as? RemotePTYLifecycleError) == .intentionallyClosed ? "pty_lifecycle_closed" : "remote_pty_error"
             return .err(code: code, message: v2RemotePTYUserFacingErrorMessage(error), data: [
                 "workspace_id": target.workspaceId.uuidString,
