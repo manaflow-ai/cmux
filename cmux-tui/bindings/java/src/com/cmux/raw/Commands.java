@@ -59,7 +59,7 @@ public final class Commands {
     public static final CommandMetadata MINT_TERMINAL_RENDERER = new CommandMetadata("mint-terminal-renderer", Authority.FRONTEND, 9, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MINT_TERMINAL_RENDERER_BY_TERMINAL = new CommandMetadata("mint-terminal-renderer-by-terminal", Authority.FRONTEND, 11, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MOVE_TAB = new CommandMetadata("move-tab", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata MOVE_TAB_TO_WORKSPACE = new CommandMetadata("move-tab-to-workspace", Authority.CONTROL, 12, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata MOVE_TAB_TO_WORKSPACE = new CommandMetadata("move-tab-to-workspace", Authority.CONTROL, 12, "tab-workspace-move-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MOVE_TERMINAL = new CommandMetadata("move-terminal", Authority.CONTROL, 9, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MOVE_WORKSPACE = new CommandMetadata("move-workspace", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("expected_generation", 7L), Map.entry("expected_revision", 7L), Map.entry("key", 7L), Map.entry("mutation_id", 7L), Map.entry("origin", 7L)), Map.ofEntries(Map.entry("key", "workspace-registry-v1")));
     public static final CommandMetadata NEW_BROWSER_TAB = new CommandMetadata("new-browser-tab", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());

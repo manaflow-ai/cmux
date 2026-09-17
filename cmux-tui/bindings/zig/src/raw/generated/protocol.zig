@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "97abd178931f122e95cf5d0ad337184cce1d2ce451f7a6ee84aca9b75d960d5d";
+pub const ir_sha256 = "3516f328325fbd149ce352bc9e0ac9504d9ee121f4b18f16bdca37ab175b6bea";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -3011,7 +3011,7 @@ pub fn moveTabToWorkspace(client: anytype, request: MoveTabToWorkspaceRequest) !
             .name = "move-tab-to-workspace",
             .authority = "control",
             .since = 12,
-            .capability = null,
+            .capability = "tab-workspace-move-v1",
         },
         request,
     );
@@ -5244,7 +5244,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "mint-terminal-renderer", .authority = "frontend", .since = 9, .capability = null, .stream = null },
     .{ .name = "mint-terminal-renderer-by-terminal", .authority = "frontend", .since = 11, .capability = null, .stream = null },
     .{ .name = "move-tab", .authority = "control", .since = 5, .capability = null, .stream = null },
-    .{ .name = "move-tab-to-workspace", .authority = "control", .since = 12, .capability = null, .stream = null },
+    .{ .name = "move-tab-to-workspace", .authority = "control", .since = 12, .capability = "tab-workspace-move-v1", .stream = null },
     .{ .name = "move-terminal", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "move-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "new-browser-tab", .authority = "control", .since = 5, .capability = null, .stream = null },

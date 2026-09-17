@@ -1,12 +1,12 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 97abd178931f122e95cf5d0ad337184cce1d2ce451f7a6ee84aca9b75d960d5d.
+// cmux-tui mux protocol 12, IR 3516f328325fbd149ce352bc9e0ac9504d9ee121f4b18f16bdca37ab175b6bea.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{CommandMetadata, EventMetadata, ProfileMetadata, StreamMetadata};
 
 pub const SDK_SCHEMA_VERSION: u32 = 2;
 pub const MUX_PROTOCOL_VERSION: u32 = 12;
-pub const SDK_IR_SHA256: &str = "97abd178931f122e95cf5d0ad337184cce1d2ce451f7a6ee84aca9b75d960d5d";
+pub const SDK_IR_SHA256: &str = "3516f328325fbd149ce352bc9e0ac9504d9ee121f4b18f16bdca37ab175b6bea";
 
 #[rustfmt::skip]
 pub const CONTROL_PROFILE: ProfileMetadata = ProfileMetadata {
@@ -489,7 +489,7 @@ pub const MOVE_TAB_METADATA: CommandMetadata = CommandMetadata {
 pub const MOVE_TAB_TO_WORKSPACE_METADATA: CommandMetadata = CommandMetadata {
     name: "move-tab-to-workspace",
     since: 12,
-    capability: None,
+    capability: Some("tab-workspace-move-v1"),
     authority: "control",
     stream: None,
 };

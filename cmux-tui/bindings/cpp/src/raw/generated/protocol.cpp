@@ -18524,7 +18524,7 @@ constexpr std::array<CommandMetadata, 108> kCommands{{
     {"mint-terminal-renderer", "frontend", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"mint-terminal-renderer-by-terminal", "frontend", 11U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"move-tab", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"move-tab-to-workspace", "control", 12U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"move-tab-to-workspace", "control", 12U, "tab-workspace-move-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"move-terminal", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"move-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand51FieldRequirements)},
     {"new-browser-tab", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},

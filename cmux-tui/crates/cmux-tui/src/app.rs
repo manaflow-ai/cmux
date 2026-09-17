@@ -2241,6 +2241,10 @@ impl OrderedSession {
         }
     }
 
+    fn supports_tab_workspace_moves(&self) -> bool {
+        self.inner.supports_tab_workspace_moves()
+    }
+
     fn supports_clear_history_key_fallback(&self, surface: SurfaceId) -> bool {
         self.inner.supports_clear_history_key_fallback(surface)
     }
@@ -21034,7 +21038,10 @@ impl App {
     }
 
     fn move_tab_to_workspace(&mut self, surface: SurfaceId, workspace: Option<WorkspaceId>) {
-        if self.surface_only.is_some() || self.tab_location(surface).is_none() {
+        if self.surface_only.is_some()
+            || !self.session.supports_tab_workspace_moves()
+            || self.tab_location(surface).is_none()
+        {
             return;
         }
         if workspace.is_none()
@@ -21051,7 +21058,7 @@ impl App {
     }
 
     fn tab_move_workspace_item(&self, surface: SurfaceId) -> Option<MenuItem> {
-        if self.surface_only.is_some() {
+        if self.surface_only.is_some() || !self.session.supports_tab_workspace_moves() {
             return None;
         }
         let (source_pane, _) = self.tab_location(surface)?;

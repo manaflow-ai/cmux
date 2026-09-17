@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 97abd178931f122e95cf5d0ad337184cce1d2ce451f7a6ee84aca9b75d960d5d. */
+/* cmux-tui mux protocol 12, IR 3516f328325fbd149ce352bc9e0ac9504d9ee121f4b18f16bdca37ab175b6bea. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "97abd178931f122e95cf5d0ad337184cce1d2ce451f7a6ee84aca9b75d960d5d" as const;
+export const SDK_IR_SHA256 = "3516f328325fbd149ce352bc9e0ac9504d9ee121f4b18f16bdca37ab175b6bea" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -599,7 +599,7 @@ export const COMMAND_METADATA = {
   "move-tab-to-workspace": {
     "authority": "control",
     "since": 12,
-    "capability": null,
+    "capability": "tab-workspace-move-v1",
     "fields": {},
     "stream": null,
     "constraints": [

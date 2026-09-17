@@ -10467,7 +10467,7 @@
   "move-tab-to-workspace": {
    "authority": "control",
    "since": 12,
-   "capability": null,
+   "capability": "tab-workspace-move-v1",
    "request": {
     "kind": "object",
     "fields": {

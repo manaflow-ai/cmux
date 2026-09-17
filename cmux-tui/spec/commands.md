@@ -3023,7 +3023,8 @@ required. Optional `workspace` is a numeric workspace ID; omission creates a new
 workspace. Existing nonempty destinations use their active pane. Empty and new
 destinations create a screen and pane in the same durable transaction as the
 move. The destination becomes selected. Unknown source/destination IDs fail.
-Provider-owned workspace creation is rejected. Older servers reject this verb.
+Provider-owned workspace creation is rejected. The server advertises
+`tab-workspace-move-v1`; clients hide these UI actions for older owners.
 
 ```json
 {"id":26,"cmd":"move-tab-to-workspace","surface":1}

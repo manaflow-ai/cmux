@@ -90,6 +90,7 @@ pub const GUARDED_BROWSER_POINTER_CAPABILITY: &str = "browser-pointer-frame-guar
 pub const DAEMON_HANDOFF_FORCE_CAPABILITY: &str = "daemon-handoff-force-v1";
 pub const VIEWPORT_SPLITS_CAPABILITY: &str = "viewport-splits-v1";
 pub const VIEWPORT_COLUMN_RESIZE_CAPABILITY: &str = "viewport-column-resize-v1";
+pub const TAB_WORKSPACE_MOVE_CAPABILITY: &str = "tab-workspace-move-v1";
 pub const LAYOUT_UNDO_CAPABILITY: &str = "layout-undo-v1";
 pub const CLEAR_HISTORY_CAPABILITY: &str = "clear-history-v1";
 pub const CLEAR_HISTORY_KEY_CAPABILITY: &str = "clear-history-key-v1";
@@ -203,6 +204,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         VIEWPORT_SPLITS_CAPABILITY,
         VIEWPORT_COLUMN_RESIZE_CAPABILITY,
         LAYOUT_UNDO_CAPABILITY,
+        TAB_WORKSPACE_MOVE_CAPABILITY,
         CLEAR_HISTORY_CAPABILITY,
         SURFACE_SUBSCRIBE_FILTER_CAPABILITY,
         SESSION_JOURNAL_CAPABILITY,

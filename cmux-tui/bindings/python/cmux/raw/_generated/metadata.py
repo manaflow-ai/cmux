@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '97abd178931f122e95cf5d0ad337184cce1d2ce451f7a6ee84aca9b75d960d5d'
+IR_SHA256 = '3516f328325fbd149ce352bc9e0ac9504d9ee121f4b18f16bdca37ab175b6bea'
 
 
 @dataclass(frozen=True)
@@ -666,7 +666,7 @@ COMMANDS = {
         'move-tab-to-workspace',
         'control',
         12,
-        None,
+        'tab-workspace-move-v1',
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
