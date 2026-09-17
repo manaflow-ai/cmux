@@ -380,6 +380,13 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "مشاركة مع الفريق",
+      "makePrivate": "جعله خاصًا",
+      "privateImportHint": "الحسابات الجديدة خاصة. شارك الحساب لإتاحته لأجهزة Cloud VM الخاصة بهذا الفريق.",
+      "description": "الحسابات المشتركة متاحة للأجهزة الافتراضية السحابية لهذا الفريق. تبقى الحسابات الخاصة متاحة فقط للشخص الذي أضافها.",
+      "cancelAction": "إلغاء"
     }
   },
   "community": {
@@ -1003,10 +1010,10 @@
       "targetTitle": "نافذة غير مقصودة أو نقرة محظورة",
       "targetBody": "افحص التطبيق مجددًا واختر عنصرًا من حالته الحالية. إذا حجبت نافذة أخرى الهدف، فأظهر النافذة المطلوبة وافحصها قبل المحاولة. لا تُعد استخدام إحداثيات أو فهارس قديمة.",
       "productLink": "نظرة عامة على cmux Computer Use",
-    "copyTitle": "نسخ مطالبة Computer Use",
-    "copyPrompt": "نسخ المطالبة",
-    "copiedPrompt": "تم النسخ",
-    "installPrompt": "استخدم مهارة $cmux-cua. إذا لم تكن متاحة فثبّتها بالمثبّت المعتاد. عند نقص الأذونات اطلب مني فتح إعدادات cmux → Computer Use. افحص قبل التنفيذ وتحقق بعد كل تغيير.\n\nالمهمة: [صف المهمة هنا]"
+      "copyTitle": "نسخ مطالبة Computer Use",
+      "copyPrompt": "نسخ المطالبة",
+      "copiedPrompt": "تم النسخ",
+      "installPrompt": "استخدم مهارة $cmux-cua. إذا لم تكن متاحة فثبّتها بالمثبّت المعتاد. عند نقص الأذونات اطلب مني فتح إعدادات cmux → Computer Use. افحص قبل التنفيذ وتحقق بعد كل تغيير.\n\nالمهمة: [صف المهمة هنا]"
     },
     "remoteTmux": {
       "moshContrast": "للتجوال بين الشبكات، استخدم cmux mosh-tmux. يفتح طرفية Mosh متكاملة متصلة بجلسة tmux مسماة؛ ولا يستبدل مرآة مساحات العمل وعلامات التبويب والأجزاء الأصلية التي يوفرها وضع تحكم tmux عبر SSH."

@@ -380,6 +380,13 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "与团队共享",
+      "makePrivate": "设为私有",
+      "privateImportHint": "新账户默认为私有。共享账户后，此团队的云虚拟机即可使用。",
+      "description": "共享账户可供此团队的 Cloud VM 使用。私有账户仅供添加它们的人使用。",
+      "cancelAction": "取消"
     }
   },
   "community": {
@@ -1003,10 +1010,10 @@
       "targetTitle": "选错窗口或点击被阻止",
       "targetBody": "重新查看应用，从当前状态中选择新的元素。如果其他窗口遮挡了目标，请先显示目标窗口再重新查看。不要复用过期坐标或元素索引。",
       "productLink": "cmux Computer Use 概览",
-    "copyTitle": "复制 Computer Use 提示词",
-    "copyPrompt": "复制提示词",
-    "copiedPrompt": "已复制",
-    "installPrompt": "本任务使用 $cmux-cua 技能。若技能不可用，请用常用技能安装器安装。若缺少权限，请让我打开 cmux 设置 → Computer Use。操作前检查，每次变更后验证。\n\n任务：[在此描述任务]"
+      "copyTitle": "复制 Computer Use 提示词",
+      "copyPrompt": "复制提示词",
+      "copiedPrompt": "已复制",
+      "installPrompt": "本任务使用 $cmux-cua 技能。若技能不可用，请用常用技能安装器安装。若缺少权限，请让我打开 cmux 设置 → Computer Use。操作前检查，每次变更后验证。\n\n任务：[在此描述任务]"
     },
     "remoteTmux": {
       "moshContrast": "如需在网络之间漫游，请使用 cmux mosh-tmux。它会打开一个连接到命名 tmux 会话的完整 Mosh 终端；不会取代 SSH tmux 控制模式提供的原生工作区、标签页和分屏镜像。"

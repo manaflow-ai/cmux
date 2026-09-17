@@ -224,11 +224,8 @@ jobs:
     if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *'
     # Match the PR Release-build runner and Xcode so its compilation cache is reusable.
     runs-on: ${{ vars.MACOS_RUNNER_26_RELEASE || 'blacksmith-6vcpu-macos-26' }}
-    # This job exists to rebuild the cache after it is gone, so it runs cold
-    # by design and needs the same cold budget as build-nightly-app. The
-    # Blacksmith store also evicts main's own entry (main run 35179030871
-    # restored nothing 4.5 hours after run 35159407931 saved it), and the
-    # scheduled refresh 35134963192 was cancelled at 45 minutes mid-compile.
+    # This job rebuilds the cache after the store drops it, so it runs cold
+    # by design; scheduled run 35134963192 was cancelled at 45 minutes.
     timeout-minutes: 90
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
@@ -419,12 +416,10 @@ jobs:
     # runner override may point at a slower shared builder, which defeats the
     # purpose of the one-architecture path.
     runs-on: ${{ needs.decide.outputs.fast_build == 'true' && 'blacksmith-12vcpu-macos-26' || vars.MACOS_RUNNER_26_NIGHTLY_BUILD || 'blacksmith-6vcpu-macos-26' }}
-    # A warm main build finishes in about 35 minutes. The Blacksmith cache is
-    # scoped per branch, so the first build of a new rc/** branch starts with
-    # no compilation cache and no SwiftPM cache and needs the cold budget
-    # (rc/v0.65.0 run 35172632556 was cancelled at 45 minutes mid-compile).
-    # main hits the same wall when the store evicts its own entry: runs
-    # 35179030871 and 35182663752 restored nothing and were cancelled cold.
+    # The Blacksmith cache is scoped per branch and also drops main's own
+    # entry (runs 35179030871 and 35182663752 restored nothing and were
+    # cancelled at 45 minutes mid-compile), so the budget must fit a cold
+    # build, not only a warm one.
     timeout-minutes: 90
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
@@ -538,15 +533,15 @@ jobs:
             archs="arm64 x86_64"
             only_active="NO"
           fi
-          # The universal Release graph now contains enough whole-module Swift
-          # jobs that the default CPU-sized fan-out can exhaust a Blacksmith
-          # host before xcodebuild prints its final diagnostic. Keep the build
-          # universal, but bound concurrent build tasks to make peak memory a
-          # reproducible property of the workflow. One job is intentional:
-          # multi-job fan-out still lets the Blacksmith host terminate the
-          # whole process group before the wrapper can print its failure footer.
+          # Let xcodebuild fan out across the host. The two whole-module Swift
+          # compiles of the cmux target (about 10 and 16 minutes) miss the
+          # compilation cache on every push because every push changes the
+          # module, and `-jobs 1` made them run back to back: the warm build
+          # step went from 21 minutes to 31-40 (#12704). The diagnostics
+          # wrapper does not need a serial build; PR 12704 recorded 95% free
+          # memory on the 50 GiB host during the failure it was written for.
           ./scripts/ci/run-xcodebuild-with-diagnostics.sh -- \
-            env CMUX_SKIP_ZIG_BUILD=1 xcodebuild -jobs 1 -scheme cmux -configuration Release -derivedDataPath build-universal \
+            env CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
             -clonedSourcePackagesDirPath .spm-cache \
             -showBuildTimingSummary \
