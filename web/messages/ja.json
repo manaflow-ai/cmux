@@ -4,8 +4,9 @@
     "description": "ターミナルに戻ってセットアップを完了してください。"
   },
   "guestCLI": {
-    "topologyHelp": "ターミナルを再起動せずに、このマシンの配置を変更します:\n  cmux workspace new [--name <name>] [--json]\n  cmux workspace rename <workspace> <name> [--json]\n  cmux workspace move <workspace> --index <index> [--json]\n  cmux workspace focus|close <workspace> [--json]\n  cmux tab rename <tab> <name> [--json]\n  cmux terminal rename <terminal|current> <name> [--json]\n  cmux tab move <tab> --workspace <ws> --screen <screen> --pane <pane> --index <index> [--json]\n  cmux pane split <pane> <left|right|up|down> [--ratio <fraction>] [--json]\n  cmux pane swap <pane> --other-workspace <ws> --other-screen <screen> --other-pane <pane> [--json]\n  cmux pane resize <pane> --split <split> --ratio <fraction> [--json]\n  cmux pane|tab focus <id> [--json]\n  cmux workspace|pane|tab list [--json]\n\nID は cmux tree で確認できます。インデックスは 0 から始まります。\nタブ名は配置ごとに設定され、terminal rename はそのターミナルの現在の全配置を変更します。\n複数の表示があるターミナルは tab move で対象の配置だけを移動してください。\nピアでは cmux vm <workspace|pane|tab|terminal> <verb> <machine> ... を使います。\nセレクターを先に指定するデーモン構文も利用できます。layout apply は新規または空の\nワークスペース用です。使用中の配置は move/swap/resize で変更してください。\nこれらはデーモンのレイアウトを変更します。Mac で表示するには\ncmux vm workspace open <machine> <ws> を使います。",
+    "topologyHelp": "ターミナルを再起動せずに、このマシンの配置を変更します:\n  cmux workspace new [--name <name>] [--json]\n  cmux workspace rename <workspace> <name> [--json]\n  cmux workspace move <workspace> --index <index> [--json]\n  cmux workspace focus|close <workspace> [--json]\n  cmux workspace <selector> close [--json]\n  cmux workspace close --workspace <selector> [--focus false] [--json]\n  cmux tab rename <tab> <name> [--json]\n  cmux terminal rename <terminal|current> <name> [--json]\n  cmux tab move <tab> --workspace <ws> --screen <screen> --pane <pane> --index <index> [--json]\n  cmux pane split <pane> <left|right|up|down> [--ratio <fraction>] [--json]\n  cmux pane swap <pane> --other-workspace <ws> --other-screen <screen> --other-pane <pane> [--json]\n  cmux pane resize <pane> --split <split> --ratio <fraction> [--json]\n  cmux pane|tab focus <id> [--json]\n  cmux workspace|pane|tab list [--json]\n\nID は cmux tree で確認できます。インデックスは 0 から始まります。\nタブ名は配置ごとに設定され、terminal rename はそのターミナルの現在の全配置を変更します。\n複数の表示があるターミナルは tab move で対象の配置だけを移動してください。\nピアでは cmux vm <workspace|pane|tab|terminal> <verb> <machine> ... を使います。\nセレクターを先に指定するデーモン構文も利用できます。layout apply は新規または空の\nワークスペース用です。使用中の配置は move/swap/resize で変更してください。\nこれらはデーモンのレイアウトを変更します。Mac で表示するには\ncmux vm workspace open <machine> <ws> を使います。\nclose は互換性のため --focus false を受け付けますが、追加のフォーカス操作は行いません。\n--focus true は未対応です。リビジョンと冪等性のオプションはデーモンへそのまま渡されます。",
     "topologyUsage": "配置コマンドの引数が無効です。名前変更と配置操作は cmux workspace help で確認してください。",
+    "topologyCloseFocus": "workspace close では --focus false のみ指定できます。明示的にフォーカスを移すには workspace focus <id> を使ってください。",
     "topologyRenameTarget": "ターミナル %s を変更できません。対象の配置またはバージョン付きスナップショットがありません。cmux tree のターミナル ID を使ってください。",
     "topologyRenamePartial": "ターミナル %s の名前変更は %s 個の配置を変更した時点で停止しました。変更済みの名前は残ります。再試行前に cmux tree で確認してください。",
     "topologyRenameReceipt": "ターミナル %s の名前変更結果が無効、または世代が変わりました。一部の名前は変更済みの可能性があります。再試行前に cmux tree で確認してください。",
@@ -167,8 +168,31 @@
       "title": "cmux Pro が必要です",
       "message": "Cloud VM を利用するには cmux Pro プランが必要です。",
       "action": "{upgradeUrl} で cmux Pro にアップグレードすると Cloud VM を作成できます。"
+    },
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "{memory} GiB のマシンには cmux {plan} が必要です。現在のプランの上限は {max} GiB です。",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "元のマシンの RAM 容量を確認できませんでした。",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "このマシンサイズは現在利用できません。{max} GiB 以下を選択してください。",
+      "action": "cmux vm new --size {max}g"
     }
-  },
+  ,
+    "goLimit": {
+      "savedMessage": "Go では実行中の VM を含めて 2 台まで保存できます。",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "activeMessage": "Go では同時に 1 台の VM を実行できます。",
+      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "hoursMessage": "Go の今月の 40 VM 時間を使い切りました。保存済み VM は次の請求期間から再び利用できます。",
+      "hoursAction": "cmux billing checkout --plan pro",
+      "shapeMessage": "Go は 2 vCPU、4 GiB RAM、16 GiB ディスクに対応しています。",
+      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    }},
   "ios": {
     "metaTitle": "cmux iOS — iPhone と iPad でターミナルを",
     "metaDescription": "cmux iOS アプリは、Mac のターミナルを自分の Tailscale やローカルネットワーク経由で iPhone・iPad にリアルタイムでミラーリング。どこからでもコーディングエージェントを操作できます。",
@@ -294,7 +318,8 @@
       "accountGroup": "アカウント",
       "billing": "請求",
       "team": "チーム",
-      "testflight": "iOS TestFlight"
+      "testflight": "iOS TestFlight",
+      "irohDevices": "IROH デバイス"
     },
     "home": {
       "title": "ダッシュボード",
@@ -473,6 +498,12 @@
         "annualPrice": "${monthly}/月（年払い）",
         "grantedBody": "このアカウントの Pro アクセスは cmux チームによって付与されています。管理するサブスクリプションはありません。"
       },
+      "go": {
+        "name": "cmux Go",
+        "activeBody": "Go プランは有効です。次回更新日は {date} です。",
+        "pendingBody": "Go プランは {date} に終了します。",
+        "monthlyPrice": "${amount}/月"
+      },
       "team": {
         "name": "cmux Team",
         "fallbackName": "チーム",
@@ -507,6 +538,13 @@
         "free": "無料",
         "pro": "Pro",
         "loading": "読み込み中…"
+      },
+      "max": {
+        "name": "cmux Max",
+        "activeBody": "Max プランは有効です。次回更新日は {date} です。",
+        "pendingBody": "Max プランは {date} に終了します。",
+        "monthlyPrice": "${amount}/月",
+        "upsell": "Max は月額 $200 で、マシンごとに最大 64 GB RAM を利用できます。月払いのみです。"
       }
     },
     "testflight": {
@@ -552,6 +590,24 @@
         "join": "iOS TestFlightに参加",
         "leave": "TestFlightから退出"
       }
+    },
+    "iroh": {
+      "title": "IROH devices",
+      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
+      "team": "Team",
+      "loading": "Loading devices…",
+      "empty": "No IROH devices are registered for this team.",
+      "unavailable": "Dashboard authorization is unavailable.",
+      "mutationError": "The device change could not be completed.",
+      "revoke": "Revoke access",
+      "deviceId": "Device",
+      "revision": "Revision",
+      "status": "Status",
+      "active": "Active",
+      "revoked": "Revoked",
+      "relaySettings": "Relay settings",
+      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
+      "saveRelaySettings": "Save relay settings"
     }
   },
   "vault": {
@@ -791,18 +847,22 @@
     "metaDescriptionNoVault": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では分離された Cloud VM が使えます。Enterprise は SSO とセルフホストに対応します。",
     "metaDescriptionNoVaultShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM を利用でき、Enterprise では SSO とセルフホストに対応します。",
     "title": "料金",
+    "categories": {
+      "individual": {
+        "title": "個人向け",
+        "description": "無料で始めて、必要に応じて Cloud の容量を追加できます。"
+      },
+      "business": {
+        "title": "チームとビジネス向け",
+        "description": "組織向けの一元請求、管理、コントロール。"
+      }
+    },
     "alreadyPaid": "購入済みですか？Founder's Edition を接続する",
     "perMonth": "/月",
-    "perMonthBilledYearly": "/月（年払い）",
     "perUserMonth": "/ユーザー/月",
-    "perUserMonthBilledYearly": "/ユーザー/月（年払い）",
     "billingPeriod": "請求期間",
     "monthly": "月払い",
-    "annual": "年払い",
-    "saveAnnual": "{discount}%割引",
-    "annualComparePrice": "${monthly}/月",
     "teamMonthlyComparePrice": "${monthly}/ユーザー/月",
-    "teamAnnualComparePrice": "${monthly}/ユーザー/月",
     "currentPlan": "現在のプラン",
     "manageBilling": "請求を管理",
     "free": {
@@ -819,13 +879,24 @@
         "Discord と GitHub でのコミュニティサポート"
       ]
     },
+    "go": {
+      "name": "Go",
+      "cta": "Go を入手",
+      "featuresLead": "集中作業向けの小さな Cloud VM:",
+      "features": [
+        "アクティブな Cloud VM 1 台",
+        "2 vCPU、4 GiB RAM、16 GiB ディスク",
+        "実行中の VM を含めて合計 2 台の VM を保存",
+        "毎月 40 VM 時間を含み、上限で VM は一時停止します"
+      ]
+    },
     "pro": {
       "name": "Pro",
       "cta": "Pro を入手",
       "featuresLead": "Free のすべてに加えて:",
       "features": [
         "分離されたリモートサンドボックスの Cloud VM 上で動くクラウドエージェント",
-        "最大 50 台の Cloud VM で、24 GB RAM と 6 vCPU を共有",
+        "最大 50 台の Cloud VM で、24 GB RAM と 6 vCPUを共有",
         "ワークスペースは無制限",
         "cmux iOS アプリとメールサポート"
       ],
@@ -835,6 +906,15 @@
       ],
       "hostedNetworkingFeatures": [
         "iOS アプリから Mac に接続するホスト型ネットワーク、Tailscale の設定不要"
+      ]
+    },
+    "max": {
+      "name": "Max",
+      "cta": "Max を入手",
+      "featuresLead": "Pro のすべてに加えて:",
+      "features": [
+        "マシンごとに最大 64 GB RAM",
+        "Pro のすべて: 50 台の Cloud VM、無制限のワークスペース、iOS アプリ"
       ]
     },
     "team": {
@@ -867,131 +947,176 @@
           "label": "ネイティブ macOS ターミナル、オープンソース",
           "free": "true",
           "pro": "true",
+          "max": "true",
           "team": "true",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "true"
         },
         {
           "label": "自分のキーで使うローカル CLI エージェント",
           "free": "true",
           "pro": "true",
+          "max": "true",
           "team": "true",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "true"
         },
         {
           "label": "縦型タブ、分割、通知、ソケット API",
           "free": "true",
           "pro": "true",
+          "max": "true",
           "team": "true",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "true"
         },
         {
           "label": "セッション履歴",
           "free": "ローカル",
           "pro": "無制限",
+          "max": "無制限",
           "team": "無制限",
           "enterprise": "無制限",
-          "vault": true
+          "vault": true,
+          "go": "ローカル"
         },
         {
           "label": "cmux Vault: クラウドセッションバックアップ",
           "free": "false",
           "pro": "true",
+          "max": "true",
           "team": "true",
           "enterprise": "true",
-          "vault": true
+          "vault": true,
+          "go": "false"
         },
         {
           "label": "すべてのセッションを横断検索",
           "free": "false",
           "pro": "true",
+          "max": "true",
           "team": "true",
           "enterprise": "true",
-          "vault": true
+          "vault": true,
+          "go": "false"
         },
         {
           "label": "Cloud VM 上のクラウドエージェント",
           "free": "false",
           "pro": "true",
+          "max": "true",
           "team": "true",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "true"
         },
         {
           "label": "同時 Cloud VM 数",
           "free": "false",
           "pro": "50",
+          "max": "50",
           "team": "ユーザーごとに 50",
-          "enterprise": "カスタム"
+          "enterprise": "カスタム",
+          "go": "1"
         },
         {
           "label": "すべての Cloud VM で共有するリソース",
           "free": "false",
-          "pro": "24 GB RAM と 6 vCPU をすべての VM で共有",
-          "team": "ユーザーあたり 24 GB RAM と 6 vCPU を、そのユーザーのすべての VM で共有",
-          "enterprise": "カスタム"
+          "pro": "24 GB RAM と 6 vCPUをすべての VM で共有",
+          "max": "各 VM に 64 GB RAM と 16 vCPU",
+          "team": "ユーザーあたり 24 GB RAM と 6 vCPUを、そのユーザーの VM で共有",
+          "enterprise": "カスタム",
+          "go": "2 vCPU、4 GiB RAM、16 GiB ディスク"
+        },
+        {
+          "label": "最大の Cloud VM",
+          "free": "24 GB RAM",
+          "pro": "24 GB RAM",
+          "max": "64 GB RAM",
+          "team": "24 GB RAM",
+          "enterprise": "カスタム",
+          "go": "4 GiB RAM"
         },
         {
           "label": "ワークスペース",
           "free": "無制限",
           "pro": "無制限",
+          "max": "無制限",
           "team": "無制限",
-          "enterprise": "無制限"
+          "enterprise": "無制限",
+          "go": "無制限"
         },
         {
           "label": "iOS アプリ",
           "free": "false",
           "pro": "true",
+          "max": "true",
           "team": "true",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "false"
         },
         {
           "label": "Mac に接続するネットワーク",
           "free": "持ち込み",
           "pro": "ホスト型",
+          "max": "ホスト型",
           "team": "ホスト型",
           "enterprise": "セルフホスト",
-          "hostedNetworking": true
+          "hostedNetworking": true,
+          "go": "持ち込み"
         },
         {
           "label": "SSO と SAML サインイン",
           "free": "false",
           "pro": "false",
+          "max": "false",
           "team": "false",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "false"
         },
         {
           "label": "セルフホストとエアギャップ実行",
           "free": "false",
           "pro": "false",
+          "max": "false",
           "team": "false",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "false"
         },
         {
           "label": "監査ログ: セッション、ネットワーク、ブラウザ",
           "free": "false",
           "pro": "false",
+          "max": "false",
           "team": "false",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "false"
         },
         {
           "label": "ボリューム価格",
           "free": "false",
           "pro": "false",
+          "max": "false",
           "team": "false",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "false"
         },
         {
           "label": "SOC 2 と SLA",
           "free": "false",
           "pro": "false",
+          "max": "false",
           "team": "false",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "false"
         },
         {
           "label": "サポート",
           "free": "コミュニティ",
           "pro": "メール",
+          "max": "メール",
           "team": "優先",
-          "enterprise": "専任"
+          "enterprise": "専任",
+          "go": "コミュニティ"
         }
       ]
     },
@@ -1005,7 +1130,11 @@
         },
         {
           "q": "Cloud VM とは何ですか?",
-          "a": "クラウド上の永続的な Linux マシンで、使い捨て（cattle）ではなくペットです。Zen of cmux のとおり、マシンはソリューションではなくプリミティブです。ファイル、インストールしたツール、状態はそのまま保持され、その上に構築したものはあなたのものです。エージェントはそこでリポジトリをクローンし、コマンドを実行し、プルリクエストを開くため、お使いの Mac には触れません。Pro では最大 50 台の Cloud VM で、24 GB RAM と 6 vCPU を共有します。Team ではユーザーごとに同じ上限が適用されます。従量課金や超過料金はありません。"
+          "a": "クラウド上の永続的な Linux マシンで、使い捨て（cattle）ではなくペットです。Zen of cmux のとおり、マシンはソリューションではなくプリミティブです。ファイル、インストールしたツール、状態はそのまま保持され、その上に構築したものはあなたのものです。エージェントはそこでリポジトリをクローンし、コマンドを実行し、プルリクエストを開くため、お使いの Mac には触れません。Pro では最大 50 台の Cloud VM で、24 GB RAM と 6 vCPUを共有します。Team ではユーザーごとに同じプールが適用されます。"
+        },
+        {
+          "q": "Max では何が追加されますか?",
+          "a": "Max は月払いで $200/月です。Pro のすべてを含み、32 GB または 64 GB RAM の Cloud VM を利用できます。Pro、Team、Free のマシンは最大 24 GB RAM です。"
         },
         {
           "q": "cmux Vault とは何ですか?",
@@ -1018,7 +1147,7 @@
         },
         {
           "q": "課金はどのように行われますか?",
-          "a": "Pro は月払いで $50/月、年払いでは $40/月（20%割引）です。Team は月払いで $60/ユーザー/月、年払いでは $48/ユーザー/月です。有料プランではユーザーごとに最大 50 台の Cloud VM で、ユーザーあたり 24 GB RAM と 6 vCPU を共有します。従量課金や超過料金はありません。ターミナルとローカルエージェントは無料のままです。"
+          "a": "有料プランは月払いです。Pro は月額 $50、Max は月額 $200、Team はユーザーあたり月額 $60 です。ターミナルとローカルエージェントは無料のままです。"
         },
         {
           "q": "クラウドをセルフホストできますか?",
@@ -1026,7 +1155,7 @@
         },
         {
           "q": "チームプランはありますか?",
-          "a": "はい。Team は月払いで $60/ユーザー/月、年払いでは $48/ユーザー/月で、チーム全体の一元請求と優先サポートが含まれます。"
+          "a": "はい。Team はユーザーあたり月額 $60 で、チーム全体の一元請求と優先サポートが含まれます。"
         }
       ]
     },
@@ -1037,11 +1166,20 @@
     "billingError": "チェックアウトの開始中に問題が発生しました。しばらくしてからもう一度お試しください。",
     "billingUnavailable": "現在、決済をご利用いただけません。時間をおいてお試しください。",
     "billingCancelled": "チェックアウトはキャンセルされました。請求は発生していません。",
+    "billingAnnualUnavailable": "新規サブスクリプションでは年払いをご利用いただけません。以下から月払いのプランをお選びください。",
+    "billingPlanUnavailable": "このプランはまだご利用いただけません。以下から Pro または Max をお選びください。",
     "billingInvalidPlan": "指定されたプランはご利用いただけません。以下からプランをお選びください。",
     "signedOutNotice": "サインインしていません。サインインすると、現在のプランの確認や購入済みプランの復元ができます。",
     "signedOutSignIn": "サインイン",
     "billingInvalidRelay": "アプリのチェックアウトリンクの有効期限が切れているか、検証できませんでした。cmuxに戻ってもう一度お試しください。",
-    "welcomeTeam": "cmux Team のご購入が完了しました。"
+    "welcomeTeam": "cmux Team のご購入が完了しました。",
+    "audience": {
+      "label": "料金の対象",
+      "individual": "個人",
+      "team": "チームとエンタープライズ"
+    },
+    "priceMonthlyNote": "月払いは${amount}/月",
+    "priceMonthlyPerUserNote": "月払いは${amount}/ユーザー/月"
   },
   "home": {
     "taglinePrefix": "次のために作られたターミナル：",
@@ -1778,6 +1916,60 @@
     }
   },
   "docs": {
+    "computerUse": {
+      "title": "cmux Computer Use",
+      "metaTitle": "cmux Computer Use: AIエージェントでMacを自動操作",
+      "metaDescription": "cmux Computer UseでClaude CodeとCodexがMacを操作。スクリーンショット、アクセシビリティ、クリック、文字入力でネイティブアプリを自動化します。",
+      "docsMetaTitle": "Computer Useの設定とエージェントツール",
+      "docsMetaDescription": "macOSでcmux Computer Useを設定する方法。権限、Claude CodeとCodexのツール、対象アプリ、セッション操作、スキル、問題の解決方法を解説します。",
+      "tagline": "Claude CodeとCodexにMacを操作させよう。",
+      "intro": "AIコーディングエージェントがMacのネイティブアプリを操作できます。cmux Computer Useで画面の構造を読み取り、スクリーンショットを撮影し、クリックや文字入力を行います。",
+      "imageAlt": "アクセシビリティとスクリーンショットの権限を設定するcmux Computer Useの画面",
+      "caption": "Computer Useの権限は独立したヘルパーが管理するため、初期設定中もターミナルセッションを開いたままにできます。",
+      "featuresTitle": "Macのネイティブアプリを操作",
+      "featureInspect": "アクセシビリティツリーとスクリーンショットでアプリの画面を確認。",
+      "featureAct": "macOSアプリでクリック、文字入力、スクロール、ドラッグ、キーボードショートカットを実行。",
+      "featureReview": "エージェントのカーソルを見ながら結果を確認し、呼び出し元のターミナルに戻れます。",
+      "agentsTitle": "cmuxで使うコーディングエージェント",
+      "agentsBody": "{agents}などのコマンドラインエージェントをcmuxで実行できます。",
+      "supportTitle": "対応エージェント",
+      "supportBody": "ネイティブのComputer Useツールは、cmux内で起動したClaude CodeとCodexのセッションに自動接続されます。他のエージェントもターミナルで動作しますが、Mac操作の自動連携にはまだ対応していません。",
+      "setupTitle": "使い始める",
+      "step1": "Mac版cmuxをインストールして開きます。「設定」→「Computer Use」でComputer Useを有効にします。",
+      "step2": "権限ボタンからシステム設定を開き、cmux Computer Useにアクセシビリティと画面収録を許可します。一覧にヘルパーがない場合は、アプリのタイルを権限画面に追加またはドラッグしてください。",
+      "step3": "cmux内でClaude CodeまたはCodexの新しいセッションを開始します。Computer Useの利用を依頼し、アプリ名と作業を指定してください。ツールは自動接続され、MCPの手動設定は不要です。",
+      "permissionsTitle": "権限と初期設定",
+      "permissionsBody": "アクセシビリティはアプリ画面の読み取りと操作に、画面収録はスクリーンショットに必要です。両方をcmux Computer Useに許可してください。cmuxやエージェントを起動するだけでは権限は付与されず、設定画面も自動では開きません。",
+      "tahoeBody": "macOS Tahoeでは、設定中に表示される追加の画面キャプチャ確認も許可してください。cmuxで両方の権限が許可済みになってから作業を再試行します。",
+      "promptTitle": "計算機で試す",
+      "prompt": "cmux Computer Useで計算機を開き、100 + 105をボタンで入力して、結果を見せてください。",
+      "workflowBody": "最初に対象を確認し、そのスナップショットのコントロールを操作してから、再度確認して結果を検証します。要素インデックスは現在のスナップショット専用です。画面遷移やレイアウト変更後は取得し直してください。クリックの成功通知だけでは作業完了を確認できません。",
+      "toolsTitle": "エージェントツール",
+      "toolsBody": "cmux-cuaは同梱のMCPサーバーで、ネイティブアプリ操作用の構造化ツールをエージェントに提供します。以下はシェルコマンドではなくツール名です。引数はエージェントのプロファイルによって異なるため、セッションに接続されたスキーマを参照してください。",
+      "codexBody": "Codexはアプリ名またはバンドルIDを指定してget_app_stateを呼び、スクリーンショットとアクセシビリティツリーを取得します。現在のelement_indexまたは画像上の座標で操作し、get_app_stateで再確認します。ツール一覧：",
+      "claudeBody": "Claude Codeはlist_appsとlist_windowsで対象を探し、pidとwindow_idを指定してget_window_stateを呼びます。要素トークンまたは最新のインデックスを優先してください。ネイティブプロファイルでは、後続の対象を無効にしない操作をperform_actionsでまとめて実行できます。",
+      "controlTitle": "操作を追跡・停止する",
+      "controlBody": "メニューバーのComputer Use項目に操作中のエージェントが表示されます。「Focus Computer Use」は操作対象アプリを表示し、「Focus Calling Terminal」は呼び出し元に戻ります。ターミナルに戻っても自動操作は止まりません。停止するにはメニューの停止項目を使います。",
+      "disableBody": "無効にするには設定でComputer Useをオフにします。新しいエージェントからツールを除外する場合は、起動前にCMUX_COMPUTER_USE_MCP_DISABLED=1を設定してください。",
+      "skillTitle": "スキル",
+      "skillBody": "cmux-cuaスキルは画面確認と操作の手順を説明します。利用は任意で、macOSの権限は付与しません。永続的に導入する場合はエージェントのスキルインストーラーを使ってください。cmuxは既定ではグローバルスキルをインストールしません。",
+      "skillLink": "cmux-cuaスキルを読む",
+      "browserTitle": "ネイティブアプリとブラウザ自動化",
+      "browserBody": "Computer UseはスクリーンショットとアクセシビリティでMacのウィンドウを操作します。cmuxのブラウザペインにはcmux browserコマンドを使い、DOMスナップショット、セレクター、フォーム、JavaScriptを操作します。ブラウザのサーフェス参照とネイティブアプリの要素インデックスは別のものです。",
+      "browserLink": "ブラウザ自動化リファレンス",
+      "troubleTitle": "トラブルシューティング",
+      "missingTitle": "Computer Useツールが見つからない",
+      "missingBody": "cmuxの設定でComputer Useを有効にし、cmux内でClaude CodeまたはCodexの新しいセッションを開始します。既存セッションには古いツール設定が残る場合があります。環境変数や管理ポリシーで無効になっていないか確認してください。",
+      "blockedTitle": "設定が未完了、クリックが失敗、または画像が空白",
+      "blockedBody": "「設定」→「Computer Use」を開き直し、追加のキャプチャ確認を含めて両方の権限設定を完了します。完了後に再試行してください。ヘルパーの再起動が必要でもターミナルセッションは開いたままにできます。",
+      "targetTitle": "別のウィンドウが選ばれる、またはクリックがブロックされる",
+      "targetBody": "アプリを再確認し、現在の状態から要素を選び直します。他のウィンドウに隠れている場合は対象を表示してから再確認してください。古い座標や要素インデックスを再利用しないでください。",
+      "productLink": "cmux Computer Useの概要",
+    "copyTitle": "Computer Useのプロンプトをコピー",
+    "copyPrompt": "プロンプトをコピー",
+    "copiedPrompt": "コピーしました",
+    "installPrompt": "この作業では $cmux-cua スキルを使ってください。利用できなければ通常のスキルインストーラーで導入してください。権限がなければcmuxの設定 → Computer Useを開くよう伝えてください。操作前に確認し、変更のたびに検証してください。\n\nタスク：[ここにタスクを記入]"
+    },
     "managedPolicies": {
       "title": "管理デバイスポリシー（MDM）",
       "metaTitle": "管理デバイスポリシー（MDM）",
@@ -2164,7 +2356,7 @@
           "paneResizeStepPixels": "ペインのリサイズショートカットを1回押すごとに移動するピクセル数。範囲は 1～200、既定値は 20 です。変更はすぐに適用されます。"
         },
         "terminal": {
-          "adaptiveDefaultTheme": "true（既定）の場合、Ghostty 設定にディレクティブが一つもないときに限り、cmux の管理するライト／ダークパレットを適用します。false の場合、未設定の Ghostty では固定された組み込みパレットを使用します。Ghostty のディレクティブが一つでもあれば管理パレットは適用せず、theme = light:X,dark:Y は引き続き外観に追従します。",
+          "adaptiveDefaultTheme": "true（既定）の場合、Ghostty のテーマやターミナルの色が設定されていなければ、外観に追従する既定のパレットを適用します。フォントなどの設定は保持されます。false の場合は Ghostty の固定された組み込みパレットを使用します。theme = light:X,dark:Y を含め、明示的なテーマと色の設定が常に優先されます。",
           "agentHibernation": "通常のエージェント休止の設定です。cmux はアイドル中のバックグラウンドエージェントプロセスを終了して RAM と CPU を解放し、そのタブを開いたときに保存済みセッションから再開します。通常の休止には、再開可能なコーディングエージェントであること、ライフサイクルがアイドルと報告していること、ターミナルが画面外にあること、ライブターミナル数が設定上限を超えていること、アイドル時間と確認時間を通して出力が変化していないことが必要です。これとは別に、メモリ負荷が危険な状態では enabled が false でも、安全なアイドル中のバックグラウンドエージェントを cmux が上限付きのバッチで休止する場合があります。表示中、実行中、入力待ち、最近変更された、またはトランスクリプトを保護できないエージェントは対象外です。プレースホルダーの「再開」ボタンは手動の代替手段です。",
           "agentHibernationEnabled": "ライブターミナル数の上限に基づく通常のエージェント休止を有効にします。false の場合も、メモリ負荷が危険な状態での安全休止は有効です。",
           "copyOnSelect": "true の場合、選択が確定したときにターミナルで選択したテキストをシステムクリップボードへコピーします。false の場合、cmux は Ghostty の copy-on-select 上書きを出力せず、選択クリップボードの動作は Ghostty の設定と既定値に従います。",
@@ -2935,6 +3127,7 @@
       "envSocket": "shimが接続するcmuxコントロールソケットのパス"
     },
     "navItems": {
+      "computerUse": "コンピュータ操作",
       "gettingStarted": "はじめに",
       "tui": "cmux TUI",
       "concepts": "コンセプト",
@@ -5442,6 +5635,7 @@
     "email": "メールアドレス",
     "emailUnavailable": "メールアドレスを取得できません",
     "organization": "組織",
-    "personalAccount": "個人アカウント"
+    "personalAccount": "個人アカウント",
+    "switchAccountButton": "別のアカウントを使用"
   }
 }

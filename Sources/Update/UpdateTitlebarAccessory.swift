@@ -180,11 +180,7 @@ final class TitlebarControlsLayoutModel {
         )
 
         observers.append(
-            notificationCenter.addObserver(
-                forName: UserDefaults.didChangeNotification,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
+            notificationCenter.addUserDefaultsObserver(object: nil) { [weak self] in
                 MainActor.assumeIsolated {
                     self?.refreshStyleIfNeeded()
                 }
@@ -2040,11 +2036,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         hostingView.layer?.masksToBounds = false
         containerView.addSubview(hostingView)
 
-        userDefaultsObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
+        userDefaultsObserver = NotificationCenter.default.addUserDefaultsObserver(object: nil) { [weak self] in
             guard let self else { return }
             let shouldShow = self.showsWorkspaceTitlebar
             let debugSnapshot = MinimalModeTitlebarDebugSettings.snapshot()
@@ -2865,11 +2857,7 @@ final class UpdateTitlebarAccessoryController {
 
         // Re-evaluate all windows when the presentation mode changes so that
         // accessories are removed in minimal mode and re-attached in standard mode.
-        observers.append(center.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
+        observers.append(center.addUserDefaultsObserver(object: nil) { [weak self] in
             Task { @MainActor [weak self] in
                 self?.reattachIfPresentationModeChanged()
             }

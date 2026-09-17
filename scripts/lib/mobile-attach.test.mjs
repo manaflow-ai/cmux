@@ -590,6 +590,21 @@ test("macOS and iOS reloads share the dev API backend override", () => {
   assert.match(iosReload, /explicit_base_url=.*CMUX_DEV_API_BASE_URL/);
 });
 
+test("tagged macOS launches require a personal credential file by default", () => {
+  const macReload = fs.readFileSync(path.join(repoRoot, "scripts/reload.sh"), "utf8");
+
+  assert.match(macReload, /tagged launches require authenticated dev credentials/u);
+  assert.match(macReload, /cmuxterm-dev\.env.*cmux\.env/su);
+  assert.match(macReload, /AUTH_PROFILE="personal"/u);
+});
+
+test("bundle launches clear inherited tagged runtime state", () => {
+  const launcher = fs.readFileSync(path.join(repoRoot, "scripts/launch-bundle-app.swift"), "utf8");
+
+  assert.match(launcher, /runtimeEnvironmentPrefixes = \["CMUX_", "GHOSTTY_"\]/u);
+  assert.match(launcher, /removeValue\(forKey: "CMUXD_UNIX_PATH"\)/u);
+});
+
 test("iOS Simulator defaults to its tagged localhost API", () => {
   const result = resolveIOSAPIBaseURL("simulator", { CMUX_PORT: "4123" });
   assert.equal(result.status, 0, result.stderr);
