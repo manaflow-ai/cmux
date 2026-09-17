@@ -97,6 +97,12 @@ extension WorkspaceListView {
                             if newTerminalMenuValue.isEnabled {
                                 newTerminalMenu.equatable()
                             }
+                            if let sidebarToggleAction {
+                                WorkspaceSidebarToggleButton(
+                                    action: sidebarToggleAction,
+                                    usesSystemToolbarChrome: true
+                                )
+                            }
                         }
                     }
                 }

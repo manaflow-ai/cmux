@@ -16,6 +16,13 @@ import Network
 /// failure-response delay (anti-timing-oracle), and every NSError
 /// domain/code/message must not change.
 ///
+/// Post-authentication, every command line is authorized by
+/// `RemoteRelayCommandPolicy` (GHSA-9vmv-3hjw-j28c): deny-by-default method
+/// allowlist, remote-owned workspace/surface targets only, no command-bearing
+/// parameters on local objects. Denied commands receive a
+/// `{"id":...,"ok":false,"error":{"code":"remote_relay_denied","message":...}}`
+/// line and never reach the local socket.
+///
 /// Isolation design: all mutable state (listener, sessions, aliases,
 /// localPort, per-session phase/buffer) is confined to the private serial
 /// `queue`. Mutators are `start()`/`stop()` (caller thread, blocking on the
@@ -27,6 +34,9 @@ import Network
 /// argument. The actor/async migration is a deliberate later-phase item
 /// (plan: "Modernization hot-spots").
 public final class RemoteCLIRelayServer: @unchecked Sendable {
+    /// Bounds authenticated and pre-auth relay work, including local socket waits.
+    static let maximumConcurrentSessions = 16
+
     private let localSocketPath: String
     private let relayID: String
     private let relayToken: Data
@@ -40,7 +50,6 @@ public final class RemoteCLIRelayServer: @unchecked Sendable {
     private var localPort: Int?
     private var workspaceAliases: [UUID: UUID] = [:]
     private var surfaceAliases: [UUID: UUID] = [:]
-
     /// Creates a relay for one remote connection.
     ///
     /// - Parameters:
@@ -173,7 +182,8 @@ public final class RemoteCLIRelayServer: @unchecked Sendable {
     }
 
     private func acceptConnectionLocked(_ connection: NWConnection) {
-        guard !isStopped else {
+        guard !isStopped,
+              sessions.count < Self.maximumConcurrentSessions else {
             connection.cancel()
             return
         }
@@ -183,8 +193,8 @@ public final class RemoteCLIRelayServer: @unchecked Sendable {
             localSocketPath: localSocketPath,
             relayID: relayID,
             relayToken: relayToken,
-            commandRewriter: { [weak self] commandLine in
-                self?.rewriteCommandLineLocked(commandLine) ?? commandLine
+            commandEvaluator: { [weak self] commandLine in
+                self?.evaluateCommandLineLocked(commandLine) ?? .deny("relay authorization is unavailable")
             },
             queue: queue,
             clock: clock
@@ -195,12 +205,43 @@ public final class RemoteCLIRelayServer: @unchecked Sendable {
         session.start()
     }
 
-    private func rewriteCommandLineLocked(_ commandLine: Data) -> Data {
-        commandRewriter.rewriteRemoteRelayCommandLine(
-            commandLine,
+    /// Applies the remote-relay authorization policy first; only allowed
+    /// commands reach the app's alias-aware rewriter and the local socket.
+    private func evaluateCommandLineLocked(_ commandLine: Data) -> CommandDisposition {
+        switch RemoteRelayCommandPolicy().evaluate(
+            commandLine: commandLine,
             workspaceAliases: workspaceAliases,
             surfaceAliases: surfaceAliases
-        )
+        ) {
+        case .deny(let reason):
+            return .deny(reason)
+        case .allow:
+            let rewritten = commandRewriter.rewriteRemoteRelayCommandLine(
+                commandLine,
+                workspaceAliases: workspaceAliases,
+                surfaceAliases: surfaceAliases
+            )
+            guard hasAuthorizationEnvelope(rewritten) else {
+                return .deny("relay authorization could not be established")
+            }
+            return .forward(rewritten)
+        }
+    }
+
+    private func hasAuthorizationEnvelope(_ commandLine: Data) -> Bool {
+        guard let line = String(data: commandLine, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              let data = line.data(using: .utf8),
+              let request = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              request["method"] is String,
+              let params = request["params"] as? [String: Any],
+              let owner = params["_cmux_remote_workspace_id"] as? String,
+              UUID(uuidString: owner) != nil,
+              let authentication = params["_cmux_remote_relay_request_authentication_code"] as? String,
+              !authentication.isEmpty else {
+            return false
+        }
+        return true
     }
 
     private static func makeLoopbackListener() throws -> NWListener {

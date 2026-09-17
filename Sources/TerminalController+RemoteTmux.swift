@@ -14,6 +14,9 @@ extension TerminalController {
     /// Params: `host` (required SSH destination/alias), optional `port` (Int),
     /// optional `identity_file` (String).
     nonisolated func v2RemoteTmuxSessions(id: Any?, params: [String: Any]) -> String {
+        guard ManagedRemoteConnectionsPolicy.isEnabled else {
+            return v2Error(id: id, code: "remote_connections_disabled", message: ManagedRemoteConnectionsPolicy.disabledMessage)
+        }
         guard RemoteTmuxController.isEnabled else {
             return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
         }
@@ -85,6 +88,9 @@ extension TerminalController {
     /// Params: `host` (required), `session` (required tmux session name),
     /// optional `create` (Bool — attach-or-create). Returns the control surface id.
     nonisolated func v2RemoteTmuxAttach(id: Any?, params: [String: Any]) -> String {
+        guard ManagedRemoteConnectionsPolicy.isEnabled else {
+            return v2Error(id: id, code: "remote_connections_disabled", message: ManagedRemoteConnectionsPolicy.disabledMessage)
+        }
         guard RemoteTmuxController.isEnabled else {
             return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
         }
@@ -123,6 +129,9 @@ extension TerminalController {
     /// sidebar workspace in the resolved window. Params: `host` (required),
     /// optional `port`, `identity_file`, `activate`, and routing selectors.
     nonisolated func v2RemoteTmuxMirror(id: Any?, params: [String: Any]) -> String {
+        guard ManagedRemoteConnectionsPolicy.isEnabled else {
+            return v2Error(id: id, code: "remote_connections_disabled", message: ManagedRemoteConnectionsPolicy.disabledMessage)
+        }
         guard RemoteTmuxController.isEnabled else {
             return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
         }
@@ -166,6 +175,9 @@ extension TerminalController {
     /// dedicated new window. Params: `host` (required), optional `port`,
     /// `identity_file`, and `activate`.
     nonisolated func v2RemoteTmuxWindow(id: Any?, params: [String: Any]) -> String {
+        guard ManagedRemoteConnectionsPolicy.isEnabled else {
+            return v2Error(id: id, code: "remote_connections_disabled", message: ManagedRemoteConnectionsPolicy.disabledMessage)
+        }
         guard RemoteTmuxController.isEnabled else {
             return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
         }
@@ -234,6 +246,9 @@ extension TerminalController {
     /// `remote.tmux.detach` — detach a control client and remove its mirror workspace;
     /// leaves the remote session alive.
     nonisolated func v2RemoteTmuxDetach(id: Any?, params: [String: Any]) -> String {
+        guard ManagedRemoteConnectionsPolicy.isEnabled else {
+            return v2Error(id: id, code: "remote_connections_disabled", message: ManagedRemoteConnectionsPolicy.disabledMessage)
+        }
         guard RemoteTmuxController.isEnabled else {
             return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
         }
@@ -257,6 +272,9 @@ extension TerminalController {
     ///
     /// Diagnostics surface for verifying the ghostty → cmux event pipe end to end.
     nonisolated func v2RemoteTmuxState(id: Any?, params: [String: Any]) -> String {
+        guard ManagedRemoteConnectionsPolicy.isEnabled else {
+            return v2Error(id: id, code: "remote_connections_disabled", message: ManagedRemoteConnectionsPolicy.disabledMessage)
+        }
         guard RemoteTmuxController.isEnabled else {
             return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
         }
@@ -312,6 +330,9 @@ extension TerminalController {
     ///
     /// Params: `host` (required), `session` (required).
     nonisolated func v2RemoteTmuxPaneSurfaces(id: Any?, params: [String: Any]) -> String {
+        guard ManagedRemoteConnectionsPolicy.isEnabled else {
+            return v2Error(id: id, code: "remote_connections_disabled", message: ManagedRemoteConnectionsPolicy.disabledMessage)
+        }
         guard RemoteTmuxController.isEnabled else {
             return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
         }
@@ -348,6 +369,9 @@ extension TerminalController {
     /// this instead of reading pixels off screenshots. Params: `host`
     /// (required), `session` (required).
     nonisolated func v2RemoteTmuxPaneGrids(id: Any?, params: [String: Any]) -> String {
+        guard ManagedRemoteConnectionsPolicy.isEnabled else {
+            return v2Error(id: id, code: "remote_connections_disabled", message: ManagedRemoteConnectionsPolicy.disabledMessage)
+        }
         guard RemoteTmuxController.isEnabled else {
             return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
         }

@@ -1,0 +1,127 @@
+[0/1] Planning build
+Building for debugging...
+[0/4] Write sources
+[2/4] Write swift-version--58304C5D6DBC2206.txt
+[4/7] Emitting module CmuxIrxTransport
+[5/7] Compiling CmuxIrxTransport V2InboundAdmissionAuthority.swift
+[6/7] Compiling CmuxIrxTransport V2ControlService.swift
+[7/10] Compiling CmuxIrxTransportTests V2InboundAdmissionAuthorityTests.swift
+[8/10] Emitting module CmuxIrxTransportTests
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxControlPlaneTests.swift:26:30: warning: capture of 'iso' with non-Sendable type 'ISO8601DateFormatter' in a '@Sendable' closure [#SendableClosureCaptures]
+ 24 |         decoder.dateDecodingStrategy = .custom { decoder in
+ 25 |             let raw = try decoder.singleValueContainer().decode(String.self)
+ 26 |             guard let date = iso.date(from: raw) else {
+    |                              `- warning: capture of 'iso' with non-Sendable type 'ISO8601DateFormatter' in a '@Sendable' closure [#SendableClosureCaptures]
+ 27 |                 throw DecodingError.dataCorrupted(.init(
+ 28 |                     codingPath: decoder.codingPath,
+
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk/System/Library/Frameworks/Foundation.framework/Headers/NSISO8601DateFormatter.h:46:12: note: class 'ISO8601DateFormatter' does not conform to the 'Sendable' protocol
+44 | 
+45 | API_AVAILABLE(macosx(10.12), ios(10.0), watchos(3.0), tvos(10.0))
+46 | @interface NSISO8601DateFormatter : NSFormatter <NSSecureCoding> {
+   |            `- note: class 'ISO8601DateFormatter' does not conform to the 'Sendable' protocol
+47 | @private
+48 |     CFDateFormatterRef _formatter;
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxCtlListAuthTests.swift:15:30: warning: capture of 'iso' with non-Sendable type 'ISO8601DateFormatter' in a '@Sendable' closure [#SendableClosureCaptures]
+ 13 |         decoder.dateDecodingStrategy = .custom { decoder in
+ 14 |             let raw = try decoder.singleValueContainer().decode(String.self)
+ 15 |             guard let date = iso.date(from: raw) else {
+    |                              `- warning: capture of 'iso' with non-Sendable type 'ISO8601DateFormatter' in a '@Sendable' closure [#SendableClosureCaptures]
+ 16 |                 throw DecodingError.dataCorrupted(.init(
+ 17 |                     codingPath: decoder.codingPath,
+
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk/System/Library/Frameworks/Foundation.framework/Headers/NSISO8601DateFormatter.h:46:12: note: class 'ISO8601DateFormatter' does not conform to the 'Sendable' protocol
+44 | 
+45 | API_AVAILABLE(macosx(10.12), ios(10.0), watchos(3.0), tvos(10.0))
+46 | @interface NSISO8601DateFormatter : NSFormatter <NSSecureCoding> {
+   |            `- note: class 'ISO8601DateFormatter' does not conform to the 'Sendable' protocol
+47 | @private
+48 |     CFDateFormatterRef _formatter;
+
+[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+[8/10] Write Objects.LinkFileList
+[9/10] Linking CmuxIrxTransportPackageTests
+Build complete! (3.07s)
+Test Suite 'Selected tests' started at 2026-09-10 22:14:23.005.
+Test Suite 'CmuxIrxTransportPackageTests.xctest' started at 2026-09-10 22:14:23.006.
+Test Suite 'CmuxIrxTransportPackageTests.xctest' passed at 2026-09-10 22:14:23.006.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-09-10 22:14:23.006.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+◇ Test run started.
+↳ Testing Library Version: 1501
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite IrxDirectOnlyEndpointTests started.
+◇ Suite V2FileStateStoreTests started.
+◇ Suite V2WireSigningTests started.
+◇ Suite V2ControlServiceTests started.
+◇ Suite "control plane list-auth wire" started.
+◇ Suite V2InboundAdmissionAuthorityTests started.
+◇ Test replacesOneFilePerScopeAndIgnoresLegacyState() started.
+◇ Test matchesWorkerCanonicalBytesAndEd25519Signatures() started.
+◇ Test distinctFreshKeysNeverAdoptOneAnother() started.
+◇ Test directConnectionNeedsNoCredentialAndCannotAcquireARelay() started.
+◇ Test helloV2CarriesClientInfoAndOmitsItWhenAbsent() started.
+◇ Test relayOnlyTargetIsRejectedBeforeAnyEndpointOpens() started.
+◇ Test wrongLocalTupleKeyOrGenerationInvalidatesTheOwner() started.
+◇ Test restoredAuthoritySurvivesOnlyTheInitialEmptyPublication() started.
+◇ Test missingInboundFieldNeverUsesTheOutboundDirectory() started.
+◇ Test freshSnapshotAfterWallRollbackDoesNotExtendAnUnchangedExpiry() started.
+◇ Test foreignTeamProjectEnvironmentAndRevokedPeersAreDenied() started.
+◇ Test deadlinesUseTheEarlierPeerOrDirectoryExpiryWithoutWallClockResurrection() started.
+◇ Test replacementGenerationCannotReuseAnOldAdmissionReceipt() started.
+◇ Test staleSnapshotsAndFreshRestampsCannotUndoKnownRevocation() started.
+◇ Test ownRevocationAndConcurrentInvalidationArePermanent() started.
+◇ Test partialDirectoryAndDuplicateKeyOrTupleNeverGrantAccess() started.
+◇ Test onlyInboundPermissionsGrantAccessToTheTLSKey() started.
+◇ Test knownRevocationClearsAuthorityInTheCompleteSnapshot() started.
+◇ Test rateLimitPreservesCredentialsAndOnlyBlocksItsOperation() started.
+◇ Test renewalsAndForegroundKeepTheSameSocket() started.
+◇ Test deliveryCheckpointIsEchoedWithoutWaitingForAnApplicationObserverOrReply() started.
+◇ Test retiredSchemaWaitsAnHourButAllowsAnExplicitRetry() started.
+◇ Test permanentClosesStopWhileCapacityClosesBackOff() started.
+◇ Test unavailableSocketUsesOnlyTheVersionedHTTPRecoveryRoutes() started.
+◇ Test anotherCacheFormatCannotEstablishOrPreserveAuthority() started.
+◇ Test uncertainSocketMutationKeepsItsRequestIDWhenRecoveringThroughHTTP() started.
+◇ Test protocolCloseCodesPreserveBoundedRetryPolicy() started.
+◇ Test paginationPinsRevisionAndRestartsAfterConcurrentChange() started.
+◇ Test enrollmentThenResumeUsesOneRegistrationAndSignedTicket() started.
+◇ Test stopInvalidatesAnOutstandingReplyBeforeItCanChangeCache() started.
+✔ Test distinctFreshKeysNeverAdoptOneAnother() passed after 0.001 seconds.
+✔ Test helloV2CarriesClientInfoAndOmitsItWhenAbsent() passed after 0.002 seconds.
+✔ Suite "control plane list-auth wire" passed after 0.002 seconds.
+✔ Test restoredAuthoritySurvivesOnlyTheInitialEmptyPublication() passed after 0.005 seconds.
+✔ Test partialDirectoryAndDuplicateKeyOrTupleNeverGrantAccess() passed after 0.005 seconds.
+✔ Test missingInboundFieldNeverUsesTheOutboundDirectory() passed after 0.005 seconds.
+✔ Test onlyInboundPermissionsGrantAccessToTheTLSKey() passed after 0.005 seconds.
+✔ Test permanentClosesStopWhileCapacityClosesBackOff() passed after 0.005 seconds.
+✔ Test wrongLocalTupleKeyOrGenerationInvalidatesTheOwner() passed after 0.006 seconds.
+✔ Test foreignTeamProjectEnvironmentAndRevokedPeersAreDenied() passed after 0.005 seconds.
+✔ Test protocolCloseCodesPreserveBoundedRetryPolicy() passed after 0.005 seconds.
+✔ Test replacementGenerationCannotReuseAnOldAdmissionReceipt() passed after 0.005 seconds.
+✔ Test staleSnapshotsAndFreshRestampsCannotUndoKnownRevocation() passed after 0.005 seconds.
+✔ Test freshSnapshotAfterWallRollbackDoesNotExtendAnUnchangedExpiry() passed after 0.006 seconds.
+✔ Test deadlinesUseTheEarlierPeerOrDirectoryExpiryWithoutWallClockResurrection() passed after 0.006 seconds.
+✔ Test ownRevocationAndConcurrentInvalidationArePermanent() passed after 0.006 seconds.
+✔ Test anotherCacheFormatCannotEstablishOrPreserveAuthority() passed after 0.006 seconds.
+✔ Suite V2InboundAdmissionAuthorityTests passed after 0.007 seconds.
+✔ Test relayOnlyTargetIsRejectedBeforeAnyEndpointOpens() passed after 0.007 seconds.
+✔ Test renewalsAndForegroundKeepTheSameSocket() passed after 0.008 seconds.
+✔ Test retiredSchemaWaitsAnHourButAllowsAnExplicitRetry() passed after 0.008 seconds.
+✔ Test deliveryCheckpointIsEchoedWithoutWaitingForAnApplicationObserverOrReply() passed after 0.008 seconds.
+✔ Test stopInvalidatesAnOutstandingReplyBeforeItCanChangeCache() passed after 0.008 seconds.
+✔ Test knownRevocationClearsAuthorityInTheCompleteSnapshot() passed after 0.008 seconds.
+✔ Test paginationPinsRevisionAndRestartsAfterConcurrentChange() passed after 0.008 seconds.
+✔ Test matchesWorkerCanonicalBytesAndEd25519Signatures() passed after 0.009 seconds.
+✔ Test enrollmentThenResumeUsesOneRegistrationAndSignedTicket() passed after 0.008 seconds.
+✔ Suite V2WireSigningTests passed after 0.009 seconds.
+✔ Test uncertainSocketMutationKeepsItsRequestIDWhenRecoveringThroughHTTP() passed after 0.009 seconds.
+✔ Test rateLimitPreservesCredentialsAndOnlyBlocksItsOperation() passed after 0.009 seconds.
+✔ Test replacesOneFilePerScopeAndIgnoresLegacyState() passed after 0.011 seconds.
+✔ Suite V2FileStateStoreTests passed after 0.012 seconds.
+✔ Test unavailableSocketUsesOnlyTheVersionedHTTPRecoveryRoutes() passed after 0.011 seconds.
+✔ Suite V2ControlServiceTests passed after 0.012 seconds.
+✔ Test directConnectionNeedsNoCredentialAndCannotAcquireARelay() passed after 0.024 seconds.
+✔ Suite IrxDirectOnlyEndpointTests passed after 0.024 seconds.
+✔ Test run with 30 tests in 6 suites passed after 0.025 seconds.

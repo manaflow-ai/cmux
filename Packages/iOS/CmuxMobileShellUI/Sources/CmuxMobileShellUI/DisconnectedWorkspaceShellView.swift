@@ -81,7 +81,10 @@ struct DisconnectedWorkspaceShellView: View {
                     if let showComputers {
                         ToolbarItem(placement: .topBarLeading) {
                             Button(action: showComputers) {
-                                Image(systemName: "desktopcomputer")
+                                MobileDevicesToolbarLabel(
+                                    gateWarningPairingIDs: store?.macVersionUpdateRequiredPairingIDs ?? [],
+                                    computerPairingIDs: savedComputerPairingIDs
+                                )
                             }
                             .accessibilityLabel(L10n.string(
                                 "mobile.connections.title",
@@ -108,15 +111,17 @@ struct DisconnectedWorkspaceShellView: View {
                     // known/restored Mac shows up here for one-tap reconnect.
                     // Same-account discovery is the primary path. Manual pairing
                     // is available only when the root supplies its Tailscale action.
-                    await store?.loadPairedMacs()
+                    async let pairedMacs: Void = store?.loadPairedMacs() ?? ()
+                    await pairedMacs
                     #if os(iOS)
+                    async let registryDevices: Void = store?.loadRegistryDevices() ?? ()
                     // Registry + presence enrich the rows (online dots, build
                     // labels). The loop then keeps presence and last-seen fresh
                     // while the app is parked on this screen; like the Computers
                     // screen it deliberately does NOT dial offline Macs (see
                     // `refreshComputersScreen()`), so no reconnect storm.
                     // Cancellation is wired to this `.task`'s lifecycle.
-                    await store?.loadRegistryDevices()
+                    await registryDevices
                     while !Task.isCancelled {
                         try? await Task.sleep(for: .seconds(10))
                         guard !Task.isCancelled else { break }
@@ -158,6 +163,12 @@ struct DisconnectedWorkspaceShellView: View {
     /// shows, so a Mac paired under several stored ids is one row here too.
     private var savedComputers: [MacComputerSnapshot] {
         store.map { MacComputerSnapshot.snapshots(from: $0) } ?? []
+    }
+
+    /// The Computers sheet includes both shown and hidden rows, so both sets
+    /// participate in the toolbar warning scope while this screen is open.
+    private var savedComputerPairingIDs: Set<String> {
+        Set(savedComputers.map(\.id) + (store?.hiddenComputers.map(\.id) ?? []))
     }
 
     @ViewBuilder
@@ -282,9 +293,9 @@ struct DisconnectedWorkspaceShellView: View {
         }
         #endif
         return L10n.string(
-            "mobile.devices.emptyDescription",
-            defaultValue: "For Iroh to find a Mac, run cmux 0.64.20 or later on the Mac, sign in to cmux on both devices with the same account, and keep cmux running on the Mac while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
-        )
+            "mobile.v2.devices.emptyDescription",
+            defaultValue: "On your Mac, turn on Enable iOS pairing in cmux Settings. Select the same team on both devices and keep cmux running. Only Macs you own or have permission to connect to appear here."
+        ) + " " + MobilePairingCopy().emptyWorkspaceMessage
     }
 
     /// Reconnect this row's computer. `switchToMac` promotes a live secondary
@@ -443,8 +454,8 @@ struct DisconnectedWorkspaceShellView: View {
             Text(
                 savedMacs.isEmpty
                     ? L10n.string(
-                        "mobile.devices.emptyDescription",
-                        defaultValue: "For Iroh to find a Mac, run cmux 0.64.20 or later on the Mac, sign in to cmux on both devices with the same account, and keep cmux running on the Mac while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
+                        "mobile.v2.devices.emptyDescription",
+                        defaultValue: "On your Mac, turn on Enable iOS pairing in cmux Settings. Select the same team on both devices and keep cmux running. Only Macs you own or have permission to connect to appear here."
                     )
                     : savedMacDescription
             )

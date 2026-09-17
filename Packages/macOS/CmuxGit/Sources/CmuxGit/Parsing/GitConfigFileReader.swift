@@ -3,7 +3,7 @@ import Dispatch
 import Foundation
 
 /// Reads repository-controlled Git config files through bounded regular-file I/O.
-nonisolated struct GitConfigFileReader: Sendable {
+struct GitConfigFileReader: Sendable {
     /// The result distinguishes an oversized file from an unavailable path.
     enum ReadResult: Sendable {
         case contents(String, consumedByteCount: Int)

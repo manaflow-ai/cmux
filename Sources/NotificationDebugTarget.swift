@@ -1,10 +1,25 @@
 import Foundation
 import UserNotifications
+import CmuxSettings
 
 #if DEBUG
 struct NotificationDebugTarget: Sendable {
     let workspaceId: UUID
     let surfaceId: UUID?
+    /// Debug callers may name an agent so the matrix can be exercised without
+    /// pretending every synthetic event came from Claude. The default keeps
+    /// existing debug commands source-compatible.
+    let agentID: String
+
+    init?(workspaceId: UUID, surfaceId: UUID?, agentID: String = "claude") {
+        self.workspaceId = workspaceId
+        self.surfaceId = surfaceId
+        let normalized = agentID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard NotificationSoundOverrideContext.isValidAgentID(normalized) else {
+            return nil
+        }
+        self.agentID = normalized
+    }
 }
 
 /// DEBUG-only socket adapters for `debug.notification.*` verbs, kept out of
@@ -46,9 +61,16 @@ extension TerminalController {
             preferTTY: notificationDebugBoolParam(params, "prefer_tty") ?? false,
             preferredWorkspaceIsExplicit: true
         ) else { return nil }
+        let agentID: String
+        if params.keys.contains("agent_id") {
+            agentID = (params["agent_id"] as? String) ?? ""
+        } else {
+            agentID = "claude"
+        }
         return NotificationDebugTarget(
             workspaceId: target.workspaceId,
-            surfaceId: target.surfaceId
+            surfaceId: target.surfaceId,
+            agentID: agentID
         )
     }
 
