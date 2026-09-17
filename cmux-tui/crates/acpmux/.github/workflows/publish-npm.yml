@@ -1,0 +1,55 @@
+name: publish-npm
+
+# Publishes the npm distribution in npm/ with npm Trusted Publishing (OIDC).
+# No NPM_TOKEN is stored in this repository, and no one has to type a 2FA
+# one-time password to cut a release.
+#
+# npm trusted publisher settings that must match this file:
+#   Package          : @acpmux/acpmux
+#   Organization     : manaflow-ai
+#   Repository       : acpmux
+#   Workflow filename: publish-npm.yml
+#   Environment      : (leave empty)
+#
+# Trusted Publishing needs npm >= 11.5.1, so the workflow upgrades npm before
+# publishing rather than trusting the runner's bundled version.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Pack only, do not publish"
+        required: true
+        default: false
+        type: boolean
+
+permissions: {}
+
+jobs:
+  publish:
+    name: Publish @acpmux/acpmux
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read   # the repository is private; checkout needs it
+      id-token: write  # required for Trusted Publishing
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Upgrade npm for Trusted Publishing
+        run: |
+          npm install -g npm@latest
+          npm --version
+
+      - name: Pack and inspect
+        working-directory: npm
+        run: npm pack --dry-run
+
+      - name: Publish
+        if: ${{ !inputs.dry_run }}
+        working-directory: npm
+        run: npm publish --access public

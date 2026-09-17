@@ -1,0 +1,26 @@
+{
+  "name": "@acpmux/acpmux",
+  "version": "0.0.2",
+  "description": "tmux for ACP agents: a session multiplexer daemon with CLI and TUI",
+  "keywords": ["acp", "agent-client-protocol", "agents", "multiplexer", "tmux"],
+  "license": "MIT",
+  "author": "Manaflow",
+  "homepage": "https://github.com/manaflow-ai/acpmux",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/manaflow-ai/acpmux.git"
+  },
+  "bugs": {
+    "url": "https://github.com/manaflow-ai/acpmux/issues"
+  },
+  "bin": {
+    "acpmux": "bin/acpmux.js"
+  },
+  "files": ["bin", "README.md", "LICENSE"],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
