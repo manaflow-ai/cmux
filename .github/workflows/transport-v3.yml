@@ -4,11 +4,15 @@ on:
   pull_request:
     paths:
       - services/transport-v3/**
+      - Packages/Shared/CmuxV3Transport/**
+      - Packages/Shared/CMUXMobileCore/**
       - .github/workflows/transport-v3.yml
   push:
     branches: [main]
     paths:
       - services/transport-v3/**
+      - Packages/Shared/CmuxV3Transport/**
+      - Packages/Shared/CMUXMobileCore/**
       - .github/workflows/transport-v3.yml
   workflow_dispatch:
 
@@ -84,3 +88,7 @@ jobs:
       - run: cargo test --workspace --locked
       - run: cargo build -p cmux-v3-transport --lib --target aarch64-apple-ios --locked
       - run: cargo check -p cmux-v3-transport --target aarch64-apple-ios-sim --locked
+      - name: Generate native Apple artifact and test Swift adapter
+        run: |
+          python3 ops/apple/build.py --package ../../Packages/Shared/CmuxV3Transport --target-dir "$RUNNER_TEMP/v3-apple" --release
+          swift test --package-path ../../Packages/Shared/CmuxV3Transport

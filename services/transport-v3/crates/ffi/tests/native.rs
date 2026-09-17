@@ -100,11 +100,22 @@ async fn native_owner_supports_full_duplex_cancellation_and_revocation() {
         );
         let left = vec![1; 128 * 1024];
         let right = vec![2; 128 * 1024];
-        let writes = async { tokio::try_join!(sending.send(left.clone(), Operation::new()), sending.send(right.clone(), Operation::new())).unwrap(); };
+        let writes = async {
+            tokio::try_join!(
+                sending.send(left.clone(), Operation::new()),
+                sending.send(right.clone(), Operation::new())
+            )
+            .unwrap();
+        };
         let reads = async {
             let mut bytes = Vec::new();
-            while bytes.len() < left.len() + right.len() { bytes.extend(receiving.receive(Operation::new()).await.unwrap()); }
-            assert!(bytes == [left.as_slice(), right.as_slice()].concat() || bytes == [right.as_slice(), left.as_slice()].concat());
+            while bytes.len() < left.len() + right.len() {
+                bytes.extend(receiving.receive(Operation::new()).await.unwrap());
+            }
+            assert!(
+                bytes == [left.as_slice(), right.as_slice()].concat()
+                    || bytes == [right.as_slice(), left.as_slice()].concat()
+            );
         };
         tokio::join!(writes, reads);
         b.update_revocations(2, vec![]).unwrap();

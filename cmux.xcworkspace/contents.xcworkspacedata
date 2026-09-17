@@ -46,6 +46,9 @@
       <FileRef
          location = "group:CmuxSyntaxHighlighting">
       </FileRef>
+      <FileRef
+         location = "group:CmuxV3Transport">
+      </FileRef>
    </Group>
    <Group
       location = "container:Packages/iOS"

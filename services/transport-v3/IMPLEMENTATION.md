@@ -206,8 +206,9 @@ seamless upgrades, observability, security audit, and real end-to-end proof.
   check_queries.py runs these cases in the real query engine without ingesting
   records or firing alerts. Both unused Europe resource groups are deleted.
 - Disposable PostgreSQL test container and its exact two SSH tunnels are stopped.
-  Fleet lease 20260916220258-19123-14679 is released; acquire a new lease before
-  any further remote builds or probes. No production database was touched.
+  Fleet lease 20260916220258-19123-14679 is released. New Mac workloads now use
+  the controller job system following the 2026-09-17 retirement instruction.
+  No production database was touched.
 
 - Operator log queries bypass Azure's documented two-minute response cache using
   Cache-Control: no-store. Freshness still depends on ingestion; timestamps are
@@ -268,3 +269,29 @@ seamless upgrades, observability, security audit, and real end-to-end proof.
   remains excluded and paste's Linux build-time maintenance warning remains.
 - New-stream preference is not existing-stream migration. The endpoint owner
   still needs explicit route/session handover and replay before old circuits close.
+
+## Swift endpoint integration checkpoint
+
+- Added a Rust endpoint owner, UniFFI 0.31.2 bindings, and a Swift CmxByteTransport
+  adapter. The generated API permits simultaneous read/write, explicit per-call
+  cancellation, close, permission renewal, and revocation updates. Large writes
+  are split into bounded frames under one write lock to prevent interleaving.
+- Two native Rust ownership tests and two Swift tests with real loopback QUIC
+  passed before the route-factory changes. They cover concurrent connect,
+  cancellation, late connection cleanup, and large byte transfer. The broader
+  mobile RPC suite stalled and was interrupted; its completion is unverified.
+- Typed v3 routes use separate peer and device identities. The factory checks
+  the provider's authenticated enrollment binding before dialing, supplies the
+  connection permission to relays, and refuses Stack-bearer transport mode.
+  No production grant provider or app composition switch is implemented yet.
+- Removed an uncommitted placeholder native API. Missing XCFrameworks are build
+  errors; setup and iOS build entrypoints now generate the actual artifact. The
+  generation script serializes writes and caches by source/settings/content hash.
+- The first controller attempt failed before execution because its default
+  shell did not support Bash process substitution. Job 78b261551930d1b98fb38905
+  explicitly invokes Bash and is building all Apple slices from 2436efaa279.
+  Its final test/artifact result is pending. Earlier local Swift test invocations
+  did not follow the fleet execution rule; no further local builds are used.
+- Added localized libp2p v3 labels to existing diagnostics/settings vocabulary.
+  Labels contain no device identifiers. HIG writing page was requested but its
+  content required JavaScript; no layout or interaction changes were designed.

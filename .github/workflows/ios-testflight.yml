@@ -400,6 +400,7 @@ jobs:
           # falls back to a from-source build. The iOS app links GhosttyKit via
           # a local-path binaryTarget, so it must exist before package resolve.
           ./scripts/ensure-ghosttykit.sh
+          bash ./scripts/ensure-transport-v3.sh
 
       - name: Materialize App Store Connect API key
         env:

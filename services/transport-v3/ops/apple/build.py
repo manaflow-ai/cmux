@@ -5,8 +5,12 @@ XcodeBuildMCP has no XCFramework packaging operation; xcodebuild is used only
 for this packaging step. App and simulator builds use the normal fleet tooling.
 """
 import argparse
+import fcntl
+import hashlib
+import json
 from pathlib import Path
 import os
+import platform
 import shutil
 import subprocess
 import tempfile
@@ -24,9 +28,32 @@ def main():
     p.add_argument('--target-dir', type=Path, required=True)
     p.add_argument('--mac-only', action='store_true', help='Host proof only; not an iOS artifact')
     p.add_argument('--release', action='store_true')
+    p.add_argument('--if-stale', action='store_true', help='Reuse only artifacts matching these sources and file hashes')
     args = p.parse_args()
     package = args.package.resolve()
     target = args.target_dir.resolve()
+    package.mkdir(parents=True, exist_ok=True)
+    lock = (package/'.native-build.lock').open('a')
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    digest = hashlib.sha256()
+    inputs = [ROOT/'Cargo.toml', ROOT/'Cargo.lock', ROOT/'rust-toolchain.toml', Path(__file__).resolve()]
+    inputs += sorted(p for p in (ROOT/'crates').rglob('*') if p.suffix in {'.rs', '.toml'})
+    for source in inputs:
+        digest.update(str(source.relative_to(ROOT)).encode())
+        digest.update(source.read_bytes())
+    digest.update(json.dumps([args.mac_only, args.release]).encode())
+    digest.update(platform.machine().encode())
+    digest.update(subprocess.check_output(['xcodebuild', '-version']))
+    stamp = digest.hexdigest()
+    receipt_path = package/'Native'/'receipt.json'
+    if args.if_stale and receipt_path.is_file():
+        receipt = json.loads(receipt_path.read_text())
+        if receipt.get('source') == stamp and receipt.get('files') and all(
+            (package/name).is_file() and hashlib.sha256((package/name).read_bytes()).hexdigest() == sha
+            for name, sha in receipt['files'].items()
+        ):
+            print('Native artifact matches source and content hashes')
+            return
     env = dict(os.environ, CARGO_TARGET_DIR=str(target), MACOSX_DEPLOYMENT_TARGET='14.0', IPHONEOS_DEPLOYMENT_TARGET='17.0')
     profile = 'release' if args.release else 'debug'
     mode = ['--release'] if args.release else []
@@ -70,6 +97,10 @@ def main():
         sources = package/'Sources'/'CmuxV3Native'
         sources.mkdir(parents=True, exist_ok=True)
         shutil.copy2(generated/'CmuxV3Native.swift', sources)
+        files = sorted(p for p in destination.rglob('*') if p.is_file()) + [sources/'CmuxV3Native.swift']
+        receipt_path.write_text(json.dumps({'source': stamp, 'files': {
+            str(p.relative_to(package)): hashlib.sha256(p.read_bytes()).hexdigest() for p in files
+        }}, indent=2)+'\n')
     print('Built', destination, 'macOS only' if args.mac_only else 'macOS + iOS + simulator')
 
 

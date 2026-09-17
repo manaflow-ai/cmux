@@ -33,4 +33,12 @@ func v3RouteRejectsMalformedOrOversizedDirectoryHints() throws {
     #expect(throws: CmxV3PeerIdentity.Error.invalidAddress) {
         try CmxV3PeerIdentity(peerID: "peer", addresses: tooMany)
     }
+    let encoded: [String: Any] = ["peer_id": "peer", "addresses": tooMany]
+    let data = try JSONSerialization.data(withJSONObject: encoded)
+    #expect(throws: CmxV3PeerIdentity.Error.invalidAddress) {
+        try JSONDecoder().decode(CmxV3PeerIdentity.self, from: data)
+    }
+    #expect(throws: CmxV3PeerIdentity.Error.invalidPeerID) {
+        try CmxV3PeerIdentity(peerID: " peer ", addresses: [])
+    }
 }

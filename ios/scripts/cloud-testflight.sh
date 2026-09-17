@@ -253,6 +253,7 @@ build_archive_local() {
   build_number="$(date -u +%Y%m%d%H%M%S)"
   ARCHIVE_PATH="$out/cmux-ios-beta.xcarchive"
   [[ -x "$REPO_ROOT/scripts/ensure-ghosttykit.sh" ]] && ( cd "$REPO_ROOT" && ./scripts/ensure-ghosttykit.sh ) || true
+  bash "$REPO_ROOT/scripts/ensure-transport-v3.sh"
   # Same UNSIGNED Release archive the fleet builds, so the downstream export/
   # re-sign/upload path is identical. CODE_SIGNING_ALLOWED=NO keeps signing out of
   # the archive; upload-testflight.sh does all signing.
