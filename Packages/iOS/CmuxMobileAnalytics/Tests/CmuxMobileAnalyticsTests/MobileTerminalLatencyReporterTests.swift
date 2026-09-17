@@ -94,6 +94,7 @@ import CMUXMobileCore
         reporter.framePresented(surfaceID: "s", inputSequence: nil, receivedAtNanos: 1)
         for _ in 0..<6 {
             let receipt = clock.value
+            reporter.outputReceived(surfaceID: "s", appliedInputSequence: nil, byteCount: 1, queueDepth: 0)
             clock.value += 300_000_000
             reporter.framePresented(surfaceID: "s", inputSequence: nil, receivedAtNanos: receipt)
         }

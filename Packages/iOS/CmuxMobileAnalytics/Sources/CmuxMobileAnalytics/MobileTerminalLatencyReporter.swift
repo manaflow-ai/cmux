@@ -32,6 +32,7 @@ public final class MobileTerminalLatencyReporter: MobileTerminalLatencyObserving
         var lastActivityAt: UInt64
         var inputStarts: [UInt64: UInt64] = [:]
         var presentationStarts: [UInt64: UInt64] = [:]
+        var firstReceivedAt: UInt64?
         var lastPresentedReceipt: UInt64 = 0
         var lastAnomalyAt: [String: UInt64] = [:]
         var consecutiveSlowFrames = 0
@@ -93,6 +94,7 @@ public final class MobileTerminalLatencyReporter: MobileTerminalLatencyObserving
                 surface.inputStarts.removeAll(keepingCapacity: true)
                 surface.presentationStarts.removeAll(keepingCapacity: true)
                 surface.consecutiveSlowFrames = 0
+                surface.firstReceivedAt = nil
             }
         }
     }
@@ -118,6 +120,7 @@ public final class MobileTerminalLatencyReporter: MobileTerminalLatencyObserving
     public func outputReceived(surfaceID: String, appliedInputSequence: UInt64?, byteCount: Int, queueDepth: Int, receivedAtNanos: UInt64? = nil) {
         guard let surface = state(for: surfaceID) else { return }
         let timestamp = receivedAtNanos ?? now()
+        if surface.firstReceivedAt == nil { surface.firstReceivedAt = timestamp }
         surface.window.outputCount += 1
         surface.window.outputBytes += max(0, byteCount)
         surface.window.maxQueueDepth = max(surface.window.maxQueueDepth, queueDepth)
@@ -146,10 +149,13 @@ public final class MobileTerminalLatencyReporter: MobileTerminalLatencyObserving
     }
 
     public func framePresented(surfaceID: String, inputSequence: UInt64?, receivedAtNanos: UInt64) {
-        guard receivedAtNanos >= foregroundStartedAt,
-              let surface = state(for: surfaceID), receivedAtNanos > surface.lastPresentedReceipt else { return }
+        guard isForeground, enabled, consent.isTelemetryEnabled,
+              receivedAtNanos >= foregroundStartedAt,
+              let surface = states[surfaceID], let firstReceipt = surface.firstReceivedAt,
+              receivedAtNanos >= firstReceipt, receivedAtNanos > surface.lastPresentedReceipt else { return }
         let timestamp = now()
         guard timestamp >= receivedAtNanos else { return }
+        surface.lastActivityAt = timestamp
         surface.lastPresentedReceipt = receivedAtNanos
         surface.window.presentedCount += 1
         let duration = timestamp - receivedAtNanos
