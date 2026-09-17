@@ -346,12 +346,13 @@ async fn events(
         let update = RevocationUpdate {
             key_id: String::new(),
             team_id: identity.team.clone(),
-            sequence: row.sequence as u64,
+            sequence: row.team_sequence as u64,
             policy_revision: row.revision as u64,
             revoked_peers,
             issued_at: now(),
         };
         updates.push(serde_json::json!({
+            "cursor": row.sequence,
             "sequence": update.sequence,
             "policy_revision": update.policy_revision,
             "update": s.signer.sign_revocation(update, now()).map_err(|_| Error::Unavailable)?,
@@ -404,14 +405,16 @@ async fn relay_events(
         let update = RevocationUpdate {
             key_id: String::new(),
             team_id: row.team_id,
-            sequence: row.sequence as u64,
+            sequence: row.team_sequence as u64,
             policy_revision: row.revision as u64,
             revoked_peers,
             issued_at: now(),
         };
-        updates.push(serde_json::json!({"sequence":update.sequence,
+        updates.push(
+            serde_json::json!({"cursor":row.sequence,"sequence":update.sequence,
             "policy_revision":update.policy_revision,
-            "update":s.signer.sign_revocation(update, now()).map_err(|_| Error::Unavailable)?}));
+            "update":s.signer.sign_revocation(update, now()).map_err(|_| Error::Unavailable)?}),
+        );
     }
     Ok(Json(serde_json::json!({"events":updates})))
 }

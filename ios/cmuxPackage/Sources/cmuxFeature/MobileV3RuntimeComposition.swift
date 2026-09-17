@@ -140,6 +140,11 @@ public actor MobileV3RuntimeComposition {
             address: "/ip4/0.0.0.0/udp/0/quic-v1",
             operation: CmuxV3Native.Operation()
         )
+        let advertisedAddresses = try await endpoint.addresses(operation: CmuxV3Native.Operation())
+            .compactMap { address -> String? in
+                guard !address.isEmpty, !address.contains("/p2p/") else { return nil }
+                return "\(address)/p2p/\(endpoint.peerId())"
+            }
         let provider = try CmxV3HTTPGrantProvider.Configuration(
             origin: configuration.controlOrigin,
             audience: configuration.audience,
@@ -153,7 +158,7 @@ public actor MobileV3RuntimeComposition {
             }
         )
         let grants = CmxV3HTTPGrantProvider(configuration: provider)
-        try await grants.enroll(peerID: endpoint.peerId(), deviceID: deviceID)
+        try await grants.enroll(peerID: endpoint.peerId(), deviceID: deviceID, addresses: advertisedAddresses)
         guard desiredScope == next else {
             endpoint.close()
             throw Error.scopeChanged

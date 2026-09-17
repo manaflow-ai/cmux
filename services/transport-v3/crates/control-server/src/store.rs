@@ -30,6 +30,7 @@ struct Record {
 pub struct EventRecord {
     pub team_id: String,
     pub sequence: i64,
+    pub team_sequence: i64,
     pub revision: i64,
     pub action: String,
     pub peer_id: Option<String>,
@@ -104,7 +105,7 @@ impl Store {
         action: &str,
         peer: Option<&str>,
     ) -> Result<(), Error> {
-        sqlx::query("INSERT INTO transport_v3_events(team_id,revision,actor,action,peer_id) VALUES($1,$2,$3,$4,$5)")
+        sqlx::query("INSERT INTO transport_v3_events(team_id,team_sequence,revision,actor,action,peer_id) VALUES($1,COALESCE((SELECT max(team_sequence)+1 FROM transport_v3_events WHERE team_id=$1),1),$2,$3,$4,$5)")
             .bind(&identity.team).bind(revision).bind(&identity.user).bind(action).bind(peer).execute(&mut **tx).await?;
         Ok(())
     }
@@ -382,7 +383,7 @@ impl Store {
             return Err(Error::Invalid);
         }
         sqlx::query_as::<_, EventRecord>(
-            "SELECT team_id,sequence,revision,action,peer_id FROM transport_v3_events WHERE team_id=$1 AND sequence>$2 ORDER BY sequence LIMIT $3"
+            "SELECT team_id,sequence,team_sequence,revision,action,peer_id FROM transport_v3_events WHERE team_id=$1 AND team_sequence>$2 ORDER BY team_sequence LIMIT $3"
         )
         .bind(&identity.team).bind(after).bind(limit).fetch_all(&self.0).await.map_err(Into::into)
     }
@@ -438,7 +439,7 @@ impl Store {
             return Err(Error::Invalid);
         }
         sqlx::query_as::<_, EventRecord>(
-            "SELECT team_id,sequence,revision,action,peer_id FROM transport_v3_events WHERE ($1='*' OR team_id=$1) AND sequence>$2 ORDER BY sequence LIMIT $3"
+            "SELECT team_id,sequence,team_sequence,revision,action,peer_id FROM transport_v3_events WHERE sequence>$2 AND ($1='*' OR team_id=$1) ORDER BY sequence LIMIT $3"
         ).bind(team).bind(after).bind(limit).fetch_all(&self.0).await.map_err(Into::into)
     }
 }

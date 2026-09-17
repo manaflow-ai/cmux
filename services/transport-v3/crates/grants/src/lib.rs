@@ -330,6 +330,8 @@ impl Revocations {
             if update.sequence != previous.saturating_add(1) {
                 return Err(Error::InvalidGrant);
             }
+        } else if update.sequence != 1 {
+            return Err(Error::InvalidGrant);
         }
         self.sequences
             .insert(update.team_id.clone(), update.sequence);

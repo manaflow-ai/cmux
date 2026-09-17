@@ -63,4 +63,13 @@ fn forged_or_stale_revocation_updates_are_rejected() {
     update.issued_at = 600;
     let stale = signer.sign_revocation(update, 600).unwrap();
     assert!(keys.admit_revocation(&stale, "team", 1000).is_err());
+    let gap = RevocationUpdate {
+        key_id: "authority".into(),
+        team_id: "other".into(),
+        sequence: 3,
+        policy_revision: 1,
+        revoked_peers: vec![],
+        issued_at: 1000,
+    };
+    assert!(Revocations::default().apply_update(&gap).is_err());
 }

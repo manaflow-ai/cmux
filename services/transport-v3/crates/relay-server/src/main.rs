@@ -444,11 +444,10 @@ fn spawn_revocation_feed(
             };
             metrics.feed_healthy.set(1);
             for event in body.events {
-                if event.sequence <= sequence || gate.apply_revocation_token(&event.update).is_err()
-                {
+                if event.cursor <= sequence || gate.apply_revocation_token(&event.update).is_err() {
                     break;
                 }
-                sequence = event.sequence;
+                sequence = event.cursor;
                 metrics.feed_sequence.set(sequence as i64);
             }
         }
@@ -461,6 +460,7 @@ struct FeedResponse {
 }
 #[derive(serde::Deserialize)]
 struct FeedEvent {
+    cursor: u64,
     sequence: u64,
     update: String,
 }
@@ -592,7 +592,7 @@ mod feed_tests {
         };
         let token = signer.sign_revocation(update, now()).unwrap();
         let response = serde_json::json!({
-            "events": [{"sequence": 1, "update": token}]
+            "events": [{"cursor": 1, "sequence": 1, "update": token}]
         });
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
