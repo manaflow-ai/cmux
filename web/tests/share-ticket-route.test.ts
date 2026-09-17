@@ -31,6 +31,7 @@ function deps(overrides: Partial<ShareTicketRouteDeps> = {}): ShareTicketRouteDe
       teamIds: [],
       userBillingPlanId: null,
       billingPlanId: null,
+      billingSeats: null,
     }),
     signingKey: () => privateKey,
     signingKeyId: () => "current",
