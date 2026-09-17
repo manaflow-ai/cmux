@@ -4130,7 +4130,10 @@ final class SocketClient {
             sections.append("Request ID: \(requestID)")
         }
         if let traceID = trimmedNonEmptyV2Text(traceID) {
-            sections.append("Axiom trace: \(traceID)")
+            sections.append(String(
+                format: String(localized: "cloudVM.error.traceId", defaultValue: "Trace ID: %@"),
+                traceID
+            ))
         }
         return sections.joined(separator: "\n\n")
     }

@@ -234611,6 +234611,20 @@
         }
       }
     },
+    "cloudVM.error.traceId": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Trace ID: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "トレース ID: %@" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "跟踪 ID：%@" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Nachverfolgungs-ID: %@" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "ID de suivi : %@" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "معرّف التتبع: %@" } },
+        "es": { "stringUnit": { "state": "translated", "value": "ID de seguimiento: %@" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "追蹤 ID：%@" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "추적 ID: %@" } }
+      }
+    },
     "cloudVM.error.requestId": {
       "extractionState": "manual",
       "localizations": {
