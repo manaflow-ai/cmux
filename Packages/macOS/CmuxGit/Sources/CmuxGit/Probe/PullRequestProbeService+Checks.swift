@@ -44,9 +44,17 @@ extension PullRequestProbeService {
             cursor = next
         }
         guard !Task.isCancelled else { return nil }
-        let checks = contexts.values.map(\.check).sorted { $0.name == $1.name ? $0.id < $1.id : $0.name < $1.name }
+        let collectedChecks: [PullRequestCheck] = contexts.values.map { context in
+            context.check
+        }
+        let checks = collectedChecks.sorted { lhs, rhs in
+            if lhs.name == rhs.name {
+                return lhs.id < rhs.id
+            }
+            return lhs.name < rhs.name
+        }
         let summary = PullRequestChecksSummary(checks: checks, mergeStatus: mergeStatus, complete: complete)
-        if complete, summary.status != .unavailable, currentSHA == headSHA {
+        if complete, summary.status != PullRequestCheckStatus.unavailable, currentSHA == headSHA {
             await checksCache.insert(summary, for: key, now: Date())
         }
         return summary
