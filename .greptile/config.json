@@ -72,8 +72,8 @@
       "severity": "high"
     },
     {
-      "id": "cmux-swift-file-package-boundaries",
-      "rule": "Flag Swift changes that add too much unrelated responsibility to one file or miss a SwiftPM package boundary: new production Swift files over 400 lines without one responsibility, files over 800 lines, large additions to existing oversized files, mixed UI/state/persistence/network/parsing/protocol code, or independently testable feature logic kept in the app target instead of a small package.",
+      "id": "cmux-swift-package-boundaries",
+      "rule": "Flag independently testable or reusable Swift domain logic kept in the app target instead of a small SwiftPM package. Pass for app-lifecycle composition, small UI/AppKit/Ghostty glue, generated or vendored code, prototypes, and tests.",
       "scope": [
         "**/*.swift",
         "**/Package.swift",
@@ -245,6 +245,20 @@
         "web/app/[locale]/(landing)/**/page.tsx",
         "web/app/sitemap.ts",
         "web/app/lib/agent-page-paths.ts"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "cmux-remote-relay-authorization",
+      "rule": "Apply .github/review-bot-rules/remote-relay-authorization.md (GHSA-9vmv-3hjw-j28c). The cmux ssh relay credential lives on the remote host, so treat relay clients as compromised: flag any v2 method added to the RemoteRelayCommandPolicy allowlist without a per-method security analysis (command execution on local objects, mutation of non-owned objects, local state reads), any acceptance of command-bearing params (initial_command, command, tmux_start_command, pane_start_command) through the relay on any method, new workspace/surface/tab ID param names not added to the policy's scoped key sets, and any weakening of the deny-by-default shape (prefix-allowing method families, skipping the non-UUID ref denial, passing unmapped IDs through). Require allow/deny coverage in RemoteCLIRelayPolicyTests.",
+      "scope": [
+        "Packages/macOS/CmuxRemoteWorkspace/Sources/CmuxRemoteWorkspace/Relay/**",
+        "Packages/macOS/CmuxRemoteWorkspace/Tests/CmuxRemoteWorkspaceTests/RemoteCLIRelayPolicyTests.swift",
+        "daemon/remote/cmd/cmuxd-remote/commands.go",
+        "daemon/remote/cmd/cmuxd-remote/cli.go",
+        "daemon/remote/cmd/cmuxd-remote/cli_overrides.go",
+        "Sources/Workspace+RemoteRelayCommandRewrite.swift",
+        "Sources/WorkspaceRemoteRelayCommandRewriter.swift"
       ],
       "severity": "high"
     }

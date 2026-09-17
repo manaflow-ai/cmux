@@ -27,6 +27,8 @@ func numberedAwareStrokesConflict(
     _ rhs: ShortcutStroke,
     numbered rhsNumbered: Bool
 ) -> Bool {
+    let lhs = lhs.canonicalized()
+    let rhs = rhs.canonicalized()
     let lhsFamily = lhsNumbered && isNumberedDigitKey(lhs.key)
     let rhsFamily = rhsNumbered && isNumberedDigitKey(rhs.key)
     if lhsFamily || rhsFamily {

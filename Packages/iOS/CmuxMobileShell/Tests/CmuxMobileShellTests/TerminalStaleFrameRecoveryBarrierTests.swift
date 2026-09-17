@@ -167,12 +167,10 @@ import Testing
 
 /// The reviewer-reported stall: a live full frame establishes the baseline, a
 /// delta before its ack arms a follow-up replay, and the follow-up FAILS.
-/// Releasing that barrier used to erase the delivered baseline and exhaust the
-/// missing-baseline budget, so every later delta was dropped as baseline-less
-/// until an incidental full frame arrived. The release must restore the
-/// pre-barrier baseline so deltas keep flowing.
+/// Once retry budget is exhausted, fail-open must tear down the barrier instead
+/// of waiting forever; the next full live frame re-establishes the baseline.
 @MainActor
-@Test func failedFollowUpReplayRestoresLiveBaseline() async throws {
+@Test func failedFollowUpReplayFailsOpenForNextFullFrame() async throws {
     let router = LivenessHostRouter()
     await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
     await router.holdNextReplayResponses()
@@ -212,27 +210,26 @@ import Testing
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: baselineChunk.streamToken)
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: 4)
 
-    // The failed follow-up must hand the pre-barrier baseline back instead of
-    // leaving the surface baseline-less with an exhausted replay budget.
-    let baselineRestored = try await pollUntil {
+    // The failed follow-up must fail open instead of leaving live output
+    // dropped behind an exhausted replay budget.
+    let failedOpen = try await pollUntil {
         store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil
             && !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
-            && store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == 50
     }
-    #expect(baselineRestored, "a failed follow-up replay must restore the live baseline")
+    #expect(failedOpen, "a failed follow-up replay must fail open")
     #expect(store.terminalPreBarrierDeliveredEndSeqBySurfaceID[surfaceID] == nil)
 
-    // Deltas keep flowing against the restored baseline.
+    // The next full live frame rebuilds the baseline and resumes delivery.
     await transport.deliver(try renderGridEventFrame(
         surfaceID: surfaceID,
         seq: 60,
-        text: "delta-after-recovery",
-        full: false
+        text: "full-after-recovery",
+        full: true
     ))
-    let deltaChunk = try #require(await iterator.next())
-    lines.append(String(decoding: deltaChunk.data, as: UTF8.self))
-    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: deltaChunk.streamToken)
-    #expect(lines.last?.contains("delta-after-recovery") == true)
+    let fullChunk = try #require(await iterator.next())
+    lines.append(String(decoding: fullChunk.data, as: UTF8.self))
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: fullChunk.streamToken)
+    #expect(lines.last?.contains("full-after-recovery") == true)
     #expect(store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == 60)
 
     await router.releaseAllHeld()

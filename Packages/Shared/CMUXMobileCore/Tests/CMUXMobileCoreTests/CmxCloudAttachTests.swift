@@ -2,185 +2,133 @@ import Foundation
 import Testing
 @testable import CMUXMobileCore
 
-/// Coverage for decoding the backend `POST /api/vm/{id}/attach-endpoint`
-/// response into a ``CmxCloudAttachEndpoint`` — the cloud-route data contract
-/// for issue #6700.
+/// Behavior coverage for the current Cloud daemon endpoint contract.
 @Suite struct CmxCloudAttachTests {
-    /// A header-less Freestyle-style WebSocket response (the default provider;
-    /// it authorizes by token alone) with both the terminal PTY lease and the
-    /// cmuxd-remote daemon lease. Mirrors `WebSocketPtyEndpoint` in
-    /// `web/services/vms/drivers/types.ts`.
-    private func freestyleResponseJSON(
-        terminalURL: String = "wss://vm-123.vm.freestyle.sh/terminal",
-        terminalToken: String = "cmux-freestyle-pty-aaaa",
-        daemonURL: String = "wss://vm-123.vm.freestyle.sh/rpc",
-        daemonToken: String = "cmux-freestyle-rpc-bbbb",
-        daemonExpiresAtUnix: Double = 1_900_000_000
-    ) -> String {
-        """
-        {
-          "transport": "websocket",
-          "url": "\(terminalURL)",
-          "headers": {},
-          "token": "\(terminalToken)",
-          "sessionId": "sess-pty-1",
-          "expiresAtUnix": 1899999000,
-          "daemon": {
-            "url": "\(daemonURL)",
-            "headers": {},
-            "token": "\(daemonToken)",
-            "sessionId": "sess-rpc-1",
-            "expiresAtUnix": \(daemonExpiresAtUnix)
-          }
-        }
-        """
+    private func response() -> [String: Any] {
+        [
+            "transport": "cmux-remote",
+            "route": "ws://10.0.0.2:7777/v1/link",
+            "token": "lease-ledger-secret",
+            "expiresAtUnix": 1_900_000_000,
+            "session": "cloud",
+            "trustedCarrier": true,
+        ]
     }
 
-    /// An E2B-style response: every lease carries the `e2b-traffic-access-token`
-    /// handshake header the brokered upgrade requires (`drivers/e2b.ts`).
-    private func e2bResponseJSON() -> String {
-        """
-        {
-          "transport": "websocket",
-          "url": "wss://7777-sandbox.e2b.app/terminal",
-          "headers": { "e2b-traffic-access-token": "tok-pty" },
-          "token": "cmux-e2b-pty-aaaa",
-          "sessionId": "sess-pty-1",
-          "expiresAtUnix": 1899999000,
-          "daemon": {
-            "url": "wss://7777-sandbox.e2b.app/rpc",
-            "headers": { "e2b-traffic-access-token": "tok-rpc" },
-            "token": "cmux-e2b-rpc-bbbb",
-            "sessionId": "sess-rpc-1",
-            "expiresAtUnix": 1900000000
-          }
-        }
-        """
+    private func decode(_ object: [String: Any]) throws -> CmxCloudAttachEndpoint {
+        try CmxCloudAttach().decode(JSONSerialization.data(withJSONObject: object))
     }
 
-    private func data(_ json: String) -> Data {
-        Data(json.utf8)
+    @Test func decodesPrivateCarrierEndpointWithoutOptionalMetadata() throws {
+        let endpoint = try decode(response())
+        #expect(endpoint.transport == "cmux-remote")
+        #expect(endpoint.route == "ws://10.0.0.2:7777/v1/link")
+        #expect(endpoint.token == "lease-ledger-secret")
+        #expect(endpoint.session == "cloud")
+        #expect(endpoint.trustedCarrier)
+        #expect(endpoint.expiresAtUnix == 1_900_000_000)
+        #expect(endpoint.daemonBuild == nil)
+        #expect(endpoint.invitation == nil)
+        #expect(endpoint.networkAddresses == nil)
     }
 
-    // MARK: - Decoding
-
-    @Test func decodesTerminalAndDaemonLeases() throws {
-        let endpoint = try CmxCloudAttach().decode(data(freestyleResponseJSON()))
-
-        #expect(endpoint.transport == "websocket")
-        #expect(endpoint.terminal.url == "wss://vm-123.vm.freestyle.sh/terminal")
-        #expect(endpoint.terminal.token == "cmux-freestyle-pty-aaaa")
-        #expect(endpoint.terminal.sessionID == "sess-pty-1")
-        #expect(endpoint.terminal.expiresAtUnix == 1_899_999_000)
-        #expect(endpoint.terminal.headers.isEmpty)
-
-        // The daemon lease carries everything the cmuxd-remote handshake needs:
-        // url, token, and session id.
-        let daemon = try #require(endpoint.daemon)
-        #expect(daemon.url == "wss://vm-123.vm.freestyle.sh/rpc")
-        #expect(daemon.token == "cmux-freestyle-rpc-bbbb")
-        #expect(daemon.sessionID == "sess-rpc-1")
-        #expect(daemon.expiresAtUnix == 1_900_000_000)
-        #expect(daemon.headers.isEmpty)
+    @Test func preservesDaemonBuildAndBothPrivateAddresses() throws {
+        var object = response()
+        object["daemonBuild"] = ["commit": "abc123", "remoteProtocol": 3, "version": "0.1"]
+        object["networkAddresses"] = ["ipv4": "10.0.0.2", "ipv6": "fd00::2"]
+        let endpoint = try decode(object)
+        #expect(endpoint.daemonBuild == CmxCloudDaemonBuild(commit: "abc123", remoteProtocol: 3, version: "0.1"))
+        #expect(endpoint.networkAddresses == CmxCloudNetworkAddresses(ipv4: "10.0.0.2", ipv6: "fd00::2"))
+        #expect(try JSONDecoder().decode(CmxCloudAttachEndpoint.self, from: JSONEncoder().encode(endpoint)) == endpoint)
     }
 
-    @Test func decodePreservesHandshakeHeaders() throws {
-        // Decoding is faithful: an E2B endpoint keeps the per-lease headers the
-        // brokered WebSocket upgrade requires, on both leases.
-        let endpoint = try CmxCloudAttach().decode(data(e2bResponseJSON()))
-        #expect(endpoint.terminal.headers["e2b-traffic-access-token"] == "tok-pty")
-        #expect(endpoint.daemon?.headers["e2b-traffic-access-token"] == "tok-rpc")
+    @Test func preservesNullBuildFieldsAndSingleAddressFamily() throws {
+        var object = response()
+        object["daemonBuild"] = ["commit": NSNull(), "remoteProtocol": NSNull(), "version": NSNull()]
+        object["networkAddresses"] = ["ipv6": "fd00::2"]
+        let endpoint = try decode(object)
+        #expect(endpoint.daemonBuild == CmxCloudDaemonBuild(commit: nil, remoteProtocol: nil, version: nil))
+        #expect(endpoint.networkAddresses == CmxCloudNetworkAddresses(ipv6: "fd00::2"))
     }
 
-    @Test func decodesEndpointWithoutDaemon() throws {
-        let json = """
-        {
-          "transport": "websocket",
-          "url": "wss://vm-9.vm.freestyle.sh/terminal",
-          "headers": {},
-          "token": "cmux-freestyle-pty-only",
-          "sessionId": "sess-pty-only",
-          "expiresAtUnix": 1899999000
-        }
-        """
-        let endpoint = try CmxCloudAttach().decode(data(json))
-        #expect(endpoint.terminal.token == "cmux-freestyle-pty-only")
-        #expect(endpoint.terminal.headers.isEmpty)
-        #expect(endpoint.daemon == nil)
-    }
-
-    @Test func decodeDefaultsTransportWhenAbsent() throws {
-        let json = """
-        {
-          "url": "wss://vm-9.vm.freestyle.sh/terminal",
-          "token": "t",
-          "sessionId": "s",
-          "expiresAtUnix": 1899999000
-        }
-        """
-        let endpoint = try CmxCloudAttach().decode(data(json))
-        #expect(endpoint.transport == "websocket")
-        #expect(endpoint.terminal.headers.isEmpty)
-    }
-
-    @Test func decodeRejectsSSHTransport() {
-        // The SSH fallback has a different shape (host/port/credential) and the
-        // phone cannot dial it; it must surface as a typed transport error, not
-        // an opaque decode failure.
-        let json = """
-        {
-          "transport": "ssh",
-          "host": "vm-ssh.freestyle.sh",
-          "port": 22,
-          "username": "cmux",
-          "publicKeyFingerprint": null,
-          "credential": { "kind": "password", "value": "one-time" },
-          "identityHandle": "identity-1"
-        }
-        """
-        #expect(throws: CmxCloudAttachError.unsupportedTransport("ssh")) {
-            _ = try CmxCloudAttach().decode(data(json))
+    @Test func doesNotInferCarrierTrustFromSecureRouteOrInvitation() throws {
+        var object = response()
+        object["route"] = "wss://machine.example/v1/link?token=route-secret"
+        object["trustedCarrier"] = false
+        object["invitation"] = [
+            "uri": "cmux://enroll/enrollment-secret",
+            "invitationId": "invitation-secret",
+            "expiresAtUnix": 1_899_999_000,
+        ]
+        let endpoint = try decode(object)
+        #expect(!endpoint.trustedCarrier)
+        let invitation = try #require(endpoint.invitation)
+        #expect(invitation.uri == "cmux://enroll/enrollment-secret")
+        #expect(invitation.invitationId == "invitation-secret")
+        #expect(invitation.expiresAt == Date(timeIntervalSince1970: 1_899_999_000))
+        #expect(try CmxCloudAttach().decode(JSONEncoder().encode(endpoint)) == endpoint)
+        for diagnostic in [String(describing: endpoint), String(reflecting: endpoint), String(describing: invitation), String(reflecting: invitation)] {
+            #expect(!diagnostic.contains("secret"))
+            #expect(!diagnostic.contains("machine.example"))
         }
     }
 
-    // MARK: - Codable round-trip
-
-    @Test func roundTripsEndpointWithHeaders() throws {
-        // The header-bearing path exercises the headers encode branch.
-        let endpoint = try CmxCloudAttach().decode(data(e2bResponseJSON()))
-        let encoded = try JSONEncoder().encode(endpoint)
-        let reDecoded = try JSONDecoder().decode(CmxCloudAttachEndpoint.self, from: encoded)
-        #expect(reDecoded == endpoint)
+    @Test(arguments: ["ssh", "websocket", "future-transport"])
+    func rejectsUnsupportedTransportBeforeReadingItsFields(_ transport: String) throws {
+        let data = try JSONSerialization.data(withJSONObject: ["transport": transport])
+        #expect(throws: CmxCloudAttachError.unsupportedTransport(transport)) {
+            _ = try CmxCloudAttach().decode(data)
+        }
+        #expect(throws: CmxCloudAttachError.unsupportedTransport(transport)) {
+            _ = try JSONDecoder().decode(CmxCloudAttachEndpoint.self, from: data)
+        }
     }
 
-    @Test func roundTripsEndpointWithoutHeaders() throws {
-        let endpoint = try CmxCloudAttach().decode(data(freestyleResponseJSON()))
-        let encoded = try JSONEncoder().encode(endpoint)
-        let reDecoded = try JSONDecoder().decode(CmxCloudAttachEndpoint.self, from: encoded)
-        #expect(reDecoded == endpoint)
-        // Empty headers are omitted from the encoded form, not written as `{}`.
-        let object = try #require(
-            try JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+    @Test(arguments: ["transport", "route", "token", "expiresAtUnix", "session", "trustedCarrier"])
+    func rejectsMissingAndNullRequiredFields(_ key: String) throws {
+        var object = response()
+        object.removeValue(forKey: key)
+        #expect(throws: DecodingError.self) { _ = try decode(object) }
+        object[key] = NSNull()
+        #expect(throws: DecodingError.self) { _ = try decode(object) }
+    }
+
+    @Test(arguments: ["transport", "route", "token", "expiresAtUnix", "session", "trustedCarrier", "daemonBuild", "invitation", "networkAddresses"])
+    func rejectsMalformedFieldTypes(_ key: String) throws {
+        var object = response()
+        object[key] = ["unexpected": "object"]
+        // Objects are legal for metadata, but their recognized fields must have
+        // the backend's declared types.
+        if key == "daemonBuild" { object[key] = ["remoteProtocol": "invalid"] }
+        if key == "networkAddresses" { object[key] = ["ipv4": 123] }
+        #expect(throws: DecodingError.self) { _ = try decode(object) }
+    }
+
+    @Test(arguments: [-1.0, 0.0, 1_900_000_000.0])
+    func preservesExpiryIncludingAlreadyExpiredValues(_ timestamp: Double) throws {
+        var object = response()
+        object["expiresAtUnix"] = timestamp
+        let endpoint = try decode(object)
+        #expect(endpoint.expiresAtUnix == timestamp)
+        #expect(endpoint.expiresAt == Date(timeIntervalSince1970: timestamp))
+        let invitation = CmxCloudAttachInvitation(uri: "cmux://enroll/test", invitationId: "test", expiresAtUnix: timestamp)
+        #expect(invitation.expiresAt == endpoint.expiresAt)
+    }
+
+    @Test func initializerAndCodecRoundTripWithoutLegacyFields() throws {
+        let endpoint = CmxCloudAttachEndpoint(
+            route: "ws://10.0.0.2:7777/v1/link",
+            token: "lease-ledger-secret",
+            expiresAtUnix: 1_900_000_000,
+            session: "cloud",
+            trustedCarrier: true
         )
+        let encoded = try JSONEncoder().encode(endpoint)
+        #expect(try CmxCloudAttach().decode(encoded) == endpoint)
+        let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        #expect(object["url"] == nil)
+        #expect(object["sessionId"] == nil)
+        #expect(object["daemon"] == nil)
         #expect(object["headers"] == nil)
-    }
-
-    // MARK: - Lease expiry
-
-    @Test func leaseExpiresAtConvertsUnixSeconds() throws {
-        let endpoint = try CmxCloudAttach().decode(
-            data(freestyleResponseJSON(daemonExpiresAtUnix: 1_900_000_000))
-        )
-        #expect(endpoint.daemon?.expiresAt == Date(timeIntervalSince1970: 1_900_000_000))
-    }
-
-    @Test func leaseExpiresAtPreservesNonPositiveValueAsExpiredDate() throws {
-        // A required zero lease expiry should remain the Unix epoch so callers
-        // treat the lease as expired instead of as open-ended.
-        let endpoint = try CmxCloudAttach().decode(
-            data(freestyleResponseJSON(daemonExpiresAtUnix: 0))
-        )
-        #expect(endpoint.daemon?.expiresAtUnix == 0)
-        #expect(endpoint.daemon?.expiresAt == Date(timeIntervalSince1970: 0))
     }
 }

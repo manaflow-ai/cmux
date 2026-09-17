@@ -3,7 +3,7 @@ import {
   JsonLd,
   breadcrumbList,
   faqPage,
-} from "../components/json-ld";
+} from "@/app/[locale]/components/json-ld";
 
 const stripTags = (s: string) => s.replace(/<\/?[a-zA-Z]+>/g, "");
 

@@ -28,6 +28,9 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+# Outer harness allowance above BrowserScreenshotTimingBudget's 41.5-second client deadline.
+BROWSER_SCREENSHOT_RESPONSE_TIMEOUT_S = 45.0
+
 
 class cmuxError(Exception):
     """Exception raised for cmux errors."""

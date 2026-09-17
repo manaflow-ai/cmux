@@ -170,6 +170,67 @@ struct FilePreviewTextEditorTextKitTests {
         }
     }
 
+    @Test("text preview editor preserves marked text from printable Option shortcuts")
+    func editorPreservesMarkedTextFromPrintableOptionShortcut() throws {
+        try withDefaultShortcutSettings {
+            KeyboardShortcutSettings.setShortcut(
+                StoredShortcut(
+                    first: ShortcutStroke(
+                        key: "y",
+                        command: false,
+                        shift: false,
+                        option: true,
+                        control: false,
+                        keyCode: UInt16(kVK_ANSI_Y)
+                    )
+                ),
+                for: .saveFilePreview
+            )
+
+            let panel = TextEditingPanelSpy()
+            let textView = SavingTextView.makeFilePreviewTextView()
+            textView.panel = panel
+            textView.setMarkedText(
+                "に",
+                selectedRange: NSRange(location: 1, length: 0),
+                replacementRange: NSRange(location: NSNotFound, length: 0)
+            )
+            #expect(textView.hasMarkedText())
+
+            let optionSave = try #require(Self.keyEvent(
+                characters: "¥",
+                charactersIgnoringModifiers: "y",
+                modifierFlags: [.option],
+                keyCode: UInt16(kVK_ANSI_Y)
+            ))
+            _ = textView.performKeyEquivalent(with: optionSave)
+
+            #expect(panel.saveCount == 0)
+            #expect(textView.hasMarkedText())
+
+            KeyboardShortcutSettings.setShortcut(
+                StoredShortcut(
+                    first: ShortcutStroke(
+                        key: "y",
+                        command: true,
+                        shift: false,
+                        option: false,
+                        control: false,
+                        keyCode: UInt16(kVK_ANSI_Y)
+                    )
+                ),
+                for: .saveFilePreview
+            )
+            let commandSave = try #require(Self.keyEvent(
+                characters: "y",
+                keyCode: UInt16(kVK_ANSI_Y)
+            ))
+
+            #expect(textView.performKeyEquivalent(with: commandSave))
+            #expect(panel.saveCount == 1)
+        }
+    }
+
     @Test("text preview editor clears pending chord shortcuts when leaving a window")
     func editorClearsPendingShortcutChordsWhenLeavingWindow() throws {
         try withDefaultShortcutSettings {
@@ -303,6 +364,7 @@ struct FilePreviewTextEditorTextKitTests {
 
     private static func keyEvent(
         characters: String,
+        charactersIgnoringModifiers: String? = nil,
         modifierFlags: NSEvent.ModifierFlags = [.command],
         keyCode: UInt16
     ) -> NSEvent? {
@@ -314,7 +376,7 @@ struct FilePreviewTextEditorTextKitTests {
             windowNumber: 0,
             context: nil,
             characters: characters,
-            charactersIgnoringModifiers: characters,
+            charactersIgnoringModifiers: charactersIgnoringModifiers ?? characters,
             isARepeat: false,
             keyCode: keyCode
         )

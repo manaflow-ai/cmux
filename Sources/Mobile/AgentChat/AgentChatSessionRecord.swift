@@ -26,12 +26,21 @@ struct AgentChatSessionRecord: Sendable {
     /// Live activity state derived from hook events.
     var state: ChatAgentState
 
+    /// Whether `state` has been established by the agent's hook lifecycle.
+    /// Process-table discovery proves presence and identity, but not idleness.
+    var hasHookLifecycleState: Bool = false
+
     /// When the record entered `.ended`. Best-effort process observations sampled
     /// before this point must not revive it after a hook or exit watcher ended it.
     var endedAt: Date?
 
     /// Timestamp of the most recent hook or transcript activity.
     var lastActivityAt: Date
+
+    /// Child agent runs (Claude `Task` tool spawns, Codex subagent runs)
+    /// observed under this session, newest last. Bounded; settled children
+    /// are pruned after ``AgentChatChildRun/settledRetention``.
+    var children: [AgentChatChildRun] = []
 
     /// Conversation title (first user prompt), filled by the tailer.
     var title: String?
@@ -51,6 +60,21 @@ struct AgentChatSessionRecord: Sendable {
 
     mutating func rememberHookStoreSessionID(_ id: String) {
         if id != sessionID { hookStoreSessionID = id }
+    }
+
+    mutating func setHookLifecycleState(_ nextState: ChatAgentState) {
+        state = nextState
+        hasHookLifecycleState = true
+    }
+
+    mutating func setProcessObservedIdle() {
+        state = .idle
+        hasHookLifecycleState = false
+    }
+
+    mutating func setTranscriptObservedIdle() {
+        state = .idle
+        hasHookLifecycleState = false
     }
 
     /// Adopts terminal/transcript bindings from a hook-store entry. The
@@ -106,4 +130,24 @@ struct AgentChatSessionRecord: Sendable {
             version: version
         )
     }
+}
+
+/// One child agent run under a parent session: a Claude `Task` tool spawn or
+/// a Codex subagent run, tracked purely from the parent's hook events (the
+/// child has no hooks of its own).
+struct AgentChatChildRun: Sendable, Equatable {
+    /// Correlation id: the hook `requestId` when present, else synthesized.
+    let id: String
+    /// Human label: the Task description / subagent type, when the payload
+    /// carried one.
+    var label: String?
+    let startedAt: Date
+    var endedAt: Date?
+
+    var isRunning: Bool { endedAt == nil }
+
+    /// How long a settled child stays in the record before pruning.
+    static let settledRetention: TimeInterval = 15 * 60
+    /// Bound on children kept per session (oldest settled dropped first).
+    static let capacity = 16
 }

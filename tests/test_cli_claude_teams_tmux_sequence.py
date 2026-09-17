@@ -13,7 +13,8 @@ import tempfile
 import threading
 from pathlib import Path
 
-from claude_teams_test_utils import resolve_cmux_cli
+from claude_teams_test_utils import resolve_cmux_cli, stable_tmux_numeric_id
+
 INITIAL_WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
 INITIAL_WINDOW_ID = "22222222-2222-4222-8222-222222222222"
 INITIAL_PANE_ID = "33333333-3333-4333-8333-333333333333"
@@ -38,6 +39,7 @@ class FakeCmuxState:
     def __init__(self) -> None:
         self.lock = threading.Lock()
         self.requests: list[str] = []
+        self.equalize_calls: list[dict[str, object]] = []
         self.workspace = {
             "id": INITIAL_WORKSPACE_ID,
             "ref": "workspace:1",
@@ -177,6 +179,9 @@ class FakeCmuxState:
                         "title": "teammate",
                     }
                 )
+                if params.get("focus") is True:
+                    self.current_pane_id = NEW_PANE_ID
+                    self.current_surface_id = NEW_SURFACE_ID
                 return {
                     "surface_id": NEW_SURFACE_ID,
                     "pane_id": NEW_PANE_ID,
@@ -187,6 +192,9 @@ class FakeCmuxState:
                 self.current_pane_id = surface["pane_id"]
                 return {"ok": True}
             if method == "pane.resize":
+                return {"ok": True}
+            if method == "workspace.equalize_splits":
+                self.equalize_calls.append(dict(params))
                 return {"ok": True}
             if method == "surface.send_text":
                 return {"ok": True}
@@ -285,6 +293,8 @@ tmux list-panes -t "$window_target" -F '#{pane_id}' > "$FAKE_PANE_LIST_LOG"
         env["HOME"] = str(home)
         env["PATH"] = f"{real_bin}:/usr/bin:/bin"
         env["CMUX_SOCKET_PATH"] = str(socket_path)
+        env["CMUX_WORKSPACE_ID"] = INITIAL_WORKSPACE_ID
+        env["CMUX_SURFACE_ID"] = INITIAL_SURFACE_ID
         env["FAKE_TMUX_PANE_LOG"] = str(tmux_pane_log)
         env["FAKE_SOCKET_LOG"] = str(tmux_socket_log)
         env["FAKE_WINDOW_TARGET_LOG"] = str(window_target_log)
@@ -316,9 +326,12 @@ tmux list-panes -t "$window_target" -F '#{pane_id}' > "$FAKE_PANE_LIST_LOG"
             print(f"stderr={proc.stderr.strip()}")
             return 1
 
+        initial_pane_token = stable_tmux_numeric_id(INITIAL_PANE_ID)
+        new_pane_token = stable_tmux_numeric_id(NEW_PANE_ID)
+
         tmux_pane = read_text(tmux_pane_log)
-        if tmux_pane != f"%{INITIAL_PANE_ID}":
-            print(f"FAIL: expected TMUX_PANE=%{INITIAL_PANE_ID}, got {tmux_pane!r}")
+        if tmux_pane != f"%{initial_pane_token}":
+            print(f"FAIL: expected TMUX_PANE=%{initial_pane_token}, got {tmux_pane!r}")
             return 1
 
         socket_value = read_text(tmux_socket_log)
@@ -332,20 +345,31 @@ tmux list-panes -t "$window_target" -F '#{pane_id}' > "$FAKE_PANE_LIST_LOG"
             return 1
 
         split_pane = read_text(split_pane_log)
-        if split_pane != f"%{NEW_PANE_ID}":
-            print(f"FAIL: expected split-window to print %{NEW_PANE_ID}, got {split_pane!r}")
+        if split_pane != f"%{new_pane_token}":
+            print(f"FAIL: expected split-window to print %{new_pane_token}, got {split_pane!r}")
             return 1
 
         pane_lines = pane_list_log.read_text(encoding="utf-8").splitlines()
-        expected_panes = [f"%{INITIAL_PANE_ID}", f"%{NEW_PANE_ID}"]
+        expected_panes = [f"%{initial_pane_token}", f"%{new_pane_token}"]
         if pane_lines != expected_panes:
             print(f"FAIL: expected list-panes output {expected_panes!r}, got {pane_lines!r}")
             return 1
 
-        if state.current_pane_id != INITIAL_PANE_ID:
+        if state.current_pane_id != NEW_PANE_ID:
             print(
-                "FAIL: expected split-window to keep the leader pane focused, "
+                "FAIL: expected split-window without -d to focus the teammate pane, "
                 f"got current pane {state.current_pane_id!r}"
+            )
+            return 1
+
+        expected_equalize_call = {
+            "workspace_id": INITIAL_WORKSPACE_ID,
+            "orientation": "vertical",
+        }
+        if state.equalize_calls != [expected_equalize_call] * 2:
+            print(
+                "FAIL: expected split-window and main-vertical selection to "
+                f"equalize the teammate column, got {state.equalize_calls!r}"
             )
             return 1
 

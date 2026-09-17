@@ -162,6 +162,57 @@ struct FileExplorerGitStatusProviderTests {
         )
     }
 
+    @Test
+    func sshStatusQueryOverridesHostConfiguredRemoteCommand() throws {
+        // The remote git status runs as an ssh command-line command, which
+        // OpenSSH refuses while a host-configured RemoteCommand is in effect
+        // (issue #7246) — the argv must carry `-o RemoteCommand=none` before
+        // the destination.
+        let repoURL = try Self.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: repoURL) }
+
+        let argvLog = repoURL.appendingPathComponent("ssh-argv.txt")
+        let fakeSSHURL = try Self.writeExecutableScript(
+            #"""
+            #!/bin/sh
+            for arg in "$@"; do printf '%s\n' "$arg"; done > "$CMUX_TEST_SSH_ARGV_LOG"
+            printf '%s\n---GIT_STATUS---\n M remote.txt\0' "$CMUX_TEST_REPO_ROOT"
+            """#,
+            named: "fake-ssh",
+            in: repoURL
+        )
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_TEST_REPO_ROOT"] = repoURL.path
+        environment["CMUX_TEST_SSH_ARGV_LOG"] = argvLog.path
+
+        let status = GitStatusProvider(
+            sshExecutableURL: fakeSSHURL,
+            environment: environment
+        ).fetchStatusSSH(
+            directory: repoURL.path,
+            destination: "example.invalid",
+            port: nil,
+            identityFile: nil,
+            sshOptions: []
+        )
+
+        #expect(
+            status[repoURL.appendingPathComponent("remote.txt").path] == .some(.modified)
+        )
+        let argv = try String(contentsOf: argvLog, encoding: .utf8)
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+        let overrideIndex = argv.indices.dropLast().first {
+            argv[$0] == "-o" && argv[$0 + 1] == "RemoteCommand=none"
+        }
+        let destinationIndex = argv.firstIndex(of: "example.invalid")
+        #expect(overrideIndex != nil, "\(argv)")
+        #expect(destinationIndex != nil, "\(argv)")
+        if let overrideIndex, let destinationIndex {
+            #expect(overrideIndex < destinationIndex)
+        }
+    }
+
     private static func makeTemporaryDirectory() throws -> URL {
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-file-explorer-git-status-\(UUID().uuidString)", isDirectory: true)
