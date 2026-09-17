@@ -1449,6 +1449,7 @@
 		7520C0DF0000000000000005 /* CodexTurnLedgerModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7520C0DF0000000000000006 /* CodexTurnLedgerModels.swift */; };
 		7520C0DF0000000000000007 /* CodexTurnLedgerPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7520C0DF0000000000000008 /* CodexTurnLedgerPersistence.swift */; };
 		7520C0DF0000000000000009 /* CodexTurnLifecycleCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7520C0DF000000000000000A /* CodexTurnLifecycleCoordinator.swift */; };
+		A309733FDB404C4C8ED469B4 /* CodexWriterLockAdmissionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABCD0A76742646F48571CFB1 /* CodexWriterLockAdmissionTests.swift */; };
 		C4041001000000000000001B /* CommandClickFileOpenRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4041001000000000000001A /* CommandClickFileOpenRouter.swift */; };
 		C0DEC0DE000000000000F302 /* CommandPaletteEmojiTitleSearchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEC0DE000000000000F301 /* CommandPaletteEmojiTitleSearchTests.swift */; };
 		C0DE86060000000000000001 /* CommandPaletteFocusRestoreCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE86060000000000000002 /* CommandPaletteFocusRestoreCoordinator.swift */; };
@@ -5253,6 +5254,7 @@
 		7520C0DF0000000000000006 /* CodexTurnLedgerModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTurnLedgerModels.swift; sourceTree = "<group>"; };
 		7520C0DF0000000000000008 /* CodexTurnLedgerPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTurnLedgerPersistence.swift; sourceTree = "<group>"; };
 		7520C0DF000000000000000A /* CodexTurnLifecycleCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTurnLifecycleCoordinator.swift; sourceTree = "<group>"; };
+		ABCD0A76742646F48571CFB1 /* CodexWriterLockAdmissionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexWriterLockAdmissionTests.swift; sourceTree = "<group>"; };
 		C4041001000000000000001A /* CommandClickFileOpenRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandClickFileOpenRouter.swift; sourceTree = "<group>"; };
 		C0DEC0DE000000000000F301 /* CommandPaletteEmojiTitleSearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteEmojiTitleSearchTests.swift; sourceTree = "<group>"; };
 		C0DE86060000000000000002 /* CommandPaletteFocusRestoreCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteFocusRestoreCoordinator.swift; sourceTree = "<group>"; };
@@ -11393,6 +11395,7 @@
 				A5D4120EA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift */,
 				C0DE60C0000000000000A031 /* CLICoderouterCommandTests.swift */,
 				F6572063A1B2C3D4E5F60718 /* RestoreAdmissionRetryTests.swift */,
+				ABCD0A76742646F48571CFB1 /* CodexWriterLockAdmissionTests.swift */,
 				C0DE60C0000000000000A035 /* CLICoderouterBootstrapTests.swift */,
 				A5D4120EA1B2C3D4E5F60F02 /* CLIVMTransferTests.swift */,
 				7C52C82B48E0D40919A92FF1 /* CLIVMLayoutEnvTests.swift */,
@@ -15290,6 +15293,7 @@
 				C0DEBACC0000000000000002 /* CodexTeamsSocketFixture.swift in Sources */,
 				C0DE7100C0DE7100C0DE7100 /* CodexTerminalErrorNotificationTests.swift in Sources */,
 				7520C0DF0000000000000001 /* CodexTurnCompletionOwnershipTests.swift in Sources */,
+				A309733FDB404C4C8ED469B4 /* CodexWriterLockAdmissionTests.swift in Sources */,
 				C0DEC0DE000000000000F302 /* CommandPaletteEmojiTitleSearchTests.swift in Sources */,
 				C0DEC0DE000000000000F202 /* CommandPaletteNucleoFFILibrarySupport.swift in Sources */,
 				C0DEC0DE000000000000F102 /* CommandPaletteNucleoFFITests.swift in Sources */,
