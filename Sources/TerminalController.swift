@@ -15999,7 +15999,7 @@ class TerminalController {
         #endif
         let sendResult = MobileTerminalByteTee.shared.performMobileInput(
             surfaceID: surfaceId,
-            sequence: (params["input_sequence"] as? String).flatMap(UInt64.init),
+            sequence: (params["input_sequence"] as? String).flatMap(UInt64.init)
         ) { terminalTarget.sendInputResult(text) }
         switch sendResult {
         case .sent:
