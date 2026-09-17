@@ -605,7 +605,7 @@ actor MobileHostIrohApplicationLaneRouter {
     ) async {
         let laneClass: MobileHostIrohApplicationLaneQuota.LaneClass
         switch lane {
-        case .terminal:
+        case .terminal, .terminalInput:
             laneClass = .terminal
         case .artifact:
             laneClass = .artifact
@@ -629,6 +629,11 @@ actor MobileHostIrohApplicationLaneRouter {
                 await Self.handleTerminalLane(
                     resourceID: resourceID,
                     cursor: cursor,
+                    stream: stream
+                )
+            case let .terminalInput(resourceID):
+                await Self.handleTerminalInputLane(
+                    resourceID: resourceID,
                     stream: stream
                 )
             case let .artifact(resourceID, offset):
@@ -702,6 +707,46 @@ actor MobileHostIrohApplicationLaneRouter {
         await stream.receiveStream.stop(errorCode: 0)
     }
 
+    /// Serves render-grid input without opening a second byte-output stream.
+    /// The empty replay envelope establishes readiness and the input half then
+    /// stays open for fire-and-forget length-prefixed frames.
+    private nonisolated static func handleTerminalInputLane(
+        resourceID: CmxIrohResourceID,
+        stream: CmxIrohBidirectionalStream
+    ) async {
+        guard let surfaceID = terminalSurfaceID(resourceID),
+              await MainActor.run(body: {
+                  GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID) != nil
+              }) else {
+            await reject(stream, errorCode: ErrorCode.unsupportedResource)
+            return
+        }
+        do {
+            let currentSequence = await MainActor.run {
+                MobileTerminalByteTee.shared.replayState(surfaceID: surfaceID)?.seq ?? 0
+            }
+            let baseline = try CmxIrohTerminalOutputEnvelope(
+                kind: .replay,
+                retainedBaseSequence: currentSequence,
+                sequence: currentSequence,
+                currentSequence: currentSequence,
+                payload: Data()
+            )
+            try await stream.sendStream.send(
+                CmxIrohTerminalOutputEnvelopeCodec().encode(baseline)
+            )
+            _ = await receiveTerminalInput(
+                surfaceID: surfaceID,
+                stream: stream
+            )
+        } catch is CancellationError {
+            await stream.sendStream.reset(errorCode: 0)
+        } catch {
+            await reject(stream, errorCode: ErrorCode.invalidInput)
+        }
+        await stream.receiveStream.stop(errorCode: 0)
+    }
+
     /// Returns `true` when the complete lane should close. A clean input-side
     /// finish returns false because the client may intentionally retain an
     /// output-only terminal stream.
@@ -722,7 +767,10 @@ actor MobileHostIrohApplicationLaneRouter {
                     return true
                 }
                 for input in try decodeTerminalInputFrames(from: &buffer) {
-                    guard await sendTerminalInput(input, surfaceID: surfaceID) else {
+                    guard await sendTerminalInput(
+                        input,
+                        surfaceID: surfaceID
+                    ) else {
                         await reject(stream, errorCode: ErrorCode.invalidInput)
                         return true
                     }
@@ -845,7 +893,10 @@ actor MobileHostIrohApplicationLaneRouter {
             }
             switch surface.sendInputResult(input) {
             case .sent:
-                surface.forceRefresh(reason: "mobileHost.irohTerminalLaneInput")
+                // PTY output is observed by MobileTerminalByteTee, which
+                // schedules the normal render tick. A refresh here would
+                // emit a duplicate full frame before the echo and make every
+                // key compete with the output lane's replay fence.
                 return true
             case .queued:
                 return true

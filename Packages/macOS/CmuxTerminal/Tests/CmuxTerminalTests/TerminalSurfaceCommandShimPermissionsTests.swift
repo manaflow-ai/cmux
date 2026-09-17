@@ -61,6 +61,7 @@ struct TerminalSurfaceCommandShimPermissionsTests {
         )
         let surfaceId = UUID()
         let shimDirectory = parentDirectory.appending(path: surfaceId.uuidString, directoryHint: .isDirectory)
+        let staleShim = shimDirectory.appending(path: "stale-agent", directoryHint: .notDirectory)
         let wrapperDirectory = root.appending(path: "bin", directoryHint: .isDirectory)
         let wrapper = wrapperDirectory.appending(path: "cmux-claude-wrapper", directoryHint: .notDirectory)
         defer { try? fileManager.removeItem(at: root) }
@@ -70,6 +71,7 @@ struct TerminalSurfaceCommandShimPermissionsTests {
         for directory in [parentDirectory, shimDirectory] {
             try fileManager.setAttributes([.posixPermissions: 0o775], ofItemAtPath: directory.path)
         }
+        try "stale\n".write(to: staleShim, atomically: true, encoding: .utf8)
         try "#!/bin/sh\nexit 0\n".write(to: wrapper, atomically: true, encoding: .utf8)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: wrapper.path)
 
@@ -82,6 +84,9 @@ struct TerminalSurfaceCommandShimPermissionsTests {
             )
         )
         #expect(shim.directoryPath == shimDirectory.path)
+        let claudeShim = try #require(shim.shim(named: "claude"))
+        #expect(!fileManager.fileExists(atPath: staleShim.path))
+        #expect(fileManager.isExecutableFile(atPath: claudeShim.executablePath))
         for directory in [parentDirectory, shimDirectory] {
             let attributes = try fileManager.attributesOfItem(atPath: directory.path)
             let permissions = try #require(attributes[.posixPermissions] as? NSNumber)
@@ -152,7 +157,6 @@ struct TerminalSurfaceCommandShimPermissionsTests {
         #expect(process.terminationStatus == 0)
         #expect(String(data: data, encoding: .utf8) == "literal-path\n")
     }
-
     @Test("Official Hermes profile aliases route through the Hermes wrapper")
     func officialHermesProfileAliasesRouteThroughWrapper() throws {
         let fileManager = FileManager.default

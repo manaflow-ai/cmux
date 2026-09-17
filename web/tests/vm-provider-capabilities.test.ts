@@ -1,24 +1,49 @@
 import { describe, expect, test } from "bun:test";
 
-import { vmCapabilitiesFor } from "../services/vms/drivers";
+import { vmCapabilitiesFor, vmCapabilitiesOf } from "../services/vms/drivers";
+import { MockVMProvider } from "../services/vms/drivers/mock";
+import { VmOperationUnsupportedError, VmProviderOperationError } from "../services/vms/errors";
+import { vmWorkflowErrorResponse } from "../services/vms/routeHelpers";
 import { vmUnsupportedCopy, vmUnsupportedOperationKey } from "../services/vms/vmErrorMessages";
 
 describe("Cloud VM provider capabilities", () => {
   test("ports and stats follow the driver's methods, so clients can hide verbs that would only fail", () => {
-    // Blaxel mints tokened preview URLs and reports stats; the other drivers do neither.
-    const blaxel = vmCapabilitiesFor("blaxel");
-    expect(blaxel.ports).toBe(true);
-    expect(blaxel.stats).toBe(true);
-    for (const provider of ["e2b", "freestyle", "daytona"] as const) {
-      const capabilities = vmCapabilitiesFor(provider);
-      expect(capabilities.ports).toBe(false);
-      expect(capabilities.stats).toBe(false);
-    }
+    const freestyle = vmCapabilitiesFor("freestyle");
+    expect(freestyle.ports).toBe(true);
+    expect(freestyle.stats).toBe(true);
+    const minimal = vmCapabilitiesOf(new MockVMProvider());
+    expect(minimal.ports).toBe(false);
+    expect(minimal.stats).toBe(false);
+    const disabled = vmCapabilitiesOf(new MockVMProvider({
+      features: { ports: true, stats: true },
+      capabilities: { ports: false, stats: false },
+    }));
+    expect(disabled.ports).toBe(false);
+    expect(disabled.stats).toBe(false);
+  });
+
+  test("unsupported stats return a non-retryable 501 with stats-specific guidance", async () => {
+    const response = await vmWorkflowErrorResponse(new VmProviderOperationError({
+      provider: "freestyle",
+      operation: "getStats",
+      cause: new VmOperationUnsupportedError({ provider: "freestyle", operation: "getStats" }),
+    }));
+    expect(response!.status).toBe(501);
+    expect(response!.headers.get("retry-after")).toBeNull();
+    const payload = await response!.json();
+    expect(payload).toMatchObject({
+      error: "vm_operation_unsupported",
+      retryable: false,
+      details: { operation: "getStats", retryable: false },
+    });
+    expect(payload.message).toContain("CPU");
+    expect(payload.action).toContain("cmux vm status");
   });
 
   test("an unsupported openPort/getStats maps to its own non-retryable copy", async () => {
     expect(vmUnsupportedOperationKey("openPort")).toBe("openPort");
     expect(vmUnsupportedOperationKey("getStats")).toBe("getStats");
+    expect(vmUnsupportedOperationKey("get_stats")).toBe("getStats");
     expect(vmUnsupportedOperationKey("fork")).toBe("fork");
     expect(vmUnsupportedOperationKey("listVolumes")).toBe("default");
     for (const locale of ["en", "ja"] as const) {
