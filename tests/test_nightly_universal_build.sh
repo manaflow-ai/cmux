@@ -9,10 +9,10 @@ if ! awk '
   /^      - name: Build nightly app \(Release\)/ { in_build=1; next }
   in_build && /^      - name:/ { in_build=0 }
   in_build && /run-xcodebuild-with-diagnostics\.sh --/ { saw_wrapper=1 }
-  in_build && /xcodebuild -jobs 1 -scheme cmux/ { saw_bounded_jobs=1 }
-  END { exit !(saw_wrapper && saw_bounded_jobs) }
+  in_build && /xcodebuild -jobs / { saw_jobs_cap=1 }
+  END { exit !(saw_wrapper && !saw_jobs_cap) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly Release builds must bound xcodebuild concurrency and retain failure diagnostics"
+  echo "FAIL: nightly Release builds must retain failure diagnostics and must not cap xcodebuild concurrency (a -jobs cap serializes the per-arch whole-module compiles)"
   exit 1
 fi
 
@@ -88,7 +88,7 @@ fi
 if ! awk '
   /^  refresh-compilation-cache:/ { in_refresh=1; next }
   in_refresh && /^  [a-zA-Z0-9_-]+:/ { in_refresh=0 }
-  in_refresh && /timeout-minutes: 45/ { saw_cold_build_timeout=1 }
+  in_refresh && /timeout-minutes: 90/ { saw_cold_build_timeout=1 }
   in_refresh && /if: github\.event_name == '\''schedule'\'' && github\.event\.schedule == '\''17 \*\/6 \* \* \*'\''/ { saw_schedule_gate=1 }
   in_refresh && /runs-on: \$\{\{ vars\.MACOS_RUNNER_26_RELEASE/ { saw_release_runner=1 }
   in_refresh && /CMUX_CI_XCODE_APP_MACOS_26/ { saw_release_xcode=1 }
@@ -103,7 +103,7 @@ if ! awk '
   in_refresh && /-quiet/ { saw_quiet=1 }
   END { exit !(saw_cold_build_timeout && saw_schedule_gate && saw_release_runner && saw_release_xcode && saw_xcode_selection && saw_lookup && saw_restore_action && saw_restore_id && saw_cache && saw_refresh && saw_change_gate && saw_timing_summary && !saw_quiet) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: the six-hour schedule must allow 45 minutes for a cold cache build and use the matching runner, Xcode, and visible timing output"
+  echo "FAIL: the six-hour schedule must allow 90 minutes for a cold cache build and use the matching runner, Xcode, and visible timing output"
   exit 1
 fi
 

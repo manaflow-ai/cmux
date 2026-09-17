@@ -174,7 +174,10 @@ final class AppCompositionRoot {
         }
         self.featureFlags = MobileFeatureFlags(
             loader: analytics.clientConfig,
-            request: analytics.anonymousClientConfigRequest
+            request: analytics.anonymousClientConfigRequest,
+            onTerminalLatencyChanged: { [reporter = analytics.terminalLatencyReporter] enabled in
+                reporter.setEnabled(enabled)
+            }
         )
         #if DEBUG
         let pushNotificationSettings:
@@ -380,6 +383,7 @@ final class AppCompositionRoot {
         let emitter = analytics.emitter
         switch phase {
         case .active:
+            analytics.terminalLatencyReporter.setForeground(true)
             diagnosticLog.recordAppEvent(.appForegrounded)
             connectionMethodStore.recordConfiguredMethodDiagnostic()
             let isFullForegroundReturn = !hasForegrounded || wasBackgrounded
@@ -413,11 +417,13 @@ final class AppCompositionRoot {
             emitter.capture("ios_app_foregrounded", foregroundProps)
             hasForegrounded = true
         case .inactive:
+            analytics.terminalLatencyReporter.setForeground(false)
             diagnosticLog.recordAppEvent(.appBecameInactive)
             // The switcher opened; a swipe-kill from here may skip the
             // background transition entirely, so snapshot diagnostics now.
             break
         case .background:
+            analytics.terminalLatencyReporter.setForeground(false)
             diagnosticLog.recordAppEvent(.appBackgrounded)
             wasBackgrounded = true
             Task { await irx.didEnterBackground() }
@@ -436,9 +442,11 @@ final class AppCompositionRoot {
             }
             // Force a flush before the OS may suspend us, so queued events survive.
             let networkOutcomeReporter = self.networkOutcomeReporter
+            let terminalLatencyReporter = self.analytics.terminalLatencyReporter
             Task {
                 await emitter.flush()
                 await networkOutcomeReporter.flush()
+                await terminalLatencyReporter.flush()
             }
         @unknown default:
             break
