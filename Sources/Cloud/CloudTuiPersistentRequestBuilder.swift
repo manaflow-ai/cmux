@@ -117,8 +117,9 @@ enum CloudTuiRequests {
     static func identifyArguments(socketPath: String) -> CloudTuiRequest? { CloudTuiRequest("identify", raw: true) }
     static func listeningPortsArguments(socketPath: String) -> CloudTuiRequest? { CloudTuiRequest("machine-listening-tcp", raw: true) }
     static func resolveTerminalArguments(socketPath: String, terminalID: String) -> CloudTuiRequest? {
-        guard CloudTuiCommandLine.resolveTerminalArguments(socketPath: socketPath, terminalID: terminalID) != nil else { return nil }
-        return CloudTuiRequest("resolve-terminal", ["terminal_id": terminalID.hasPrefix("term_") ? terminalID : "term_" + terminalID], raw: true)
+        let payload = terminalID.hasPrefix("term_") ? String(terminalID.dropFirst(5)) : terminalID
+        guard payload.utf8.count == 32, payload.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else { return nil }
+        return CloudTuiRequest("resolve-terminal", ["terminal_id": "term_" + payload], raw: true)
     }
     static func setDefaultColorsArguments(socketPath: String, foreground: String?, background: String?) -> CloudTuiRequest? {
         var fields: [String: Any] = [:]
