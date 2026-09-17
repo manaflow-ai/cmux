@@ -26233,6 +26233,67 @@ mod tests {
     }
 
     #[test]
+    fn prefix_pane_shortcuts_create_and_resize_without_alt() {
+        let (mux, _) = test_mux("prefix-pane-shortcuts-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.config.keys.apply(&std::collections::HashMap::from([(
+            "alt_shortcuts".to_string(),
+            serde_json::json!(false),
+        )]));
+        app.replace_tree(app.session.tree());
+        app.sync_layout((120, 30));
+
+        // Exercise legacy character reports and enhanced Shift+base-key reports.
+        let sequences = [
+            (KeyEvent::new(KeyCode::Char('N'), KeyModifiers::NONE), 2),
+            (KeyEvent::new(KeyCode::Char('n'), KeyModifiers::SHIFT), 3),
+        ];
+        for (key, pane_count) in sequences {
+            app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL)).unwrap();
+            app.handle_key(key).unwrap();
+            while app.session.has_pending_mutations() {
+                app.handle(events.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+            }
+            assert!(!app.prefix_armed);
+            assert_eq!(app.tree.active_screen().unwrap().panes.len(), pane_count);
+        }
+
+        app.sync_layout((120, 30));
+        let pane = app.active_pane().unwrap();
+        let initial = app.pane_areas.iter().find(|area| area.pane == pane).unwrap().rect;
+        for grow_key in [
+            KeyEvent::new(KeyCode::Char('+'), KeyModifiers::NONE),
+            KeyEvent::new(KeyCode::Char('='), KeyModifiers::SHIFT),
+        ] {
+            app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL)).unwrap();
+            app.handle_key(grow_key).unwrap();
+            while app.session.has_pending_mutations() {
+                app.handle(events.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+            }
+            app.sync_layout((120, 30));
+            let grown = app.pane_areas.iter().find(|area| area.pane == pane).unwrap().rect;
+            assert!(grown.width > initial.width || grown.height > initial.height);
+
+            app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL)).unwrap();
+            app.handle_key(KeyEvent::new(KeyCode::Char('-'), KeyModifiers::NONE)).unwrap();
+            while app.session.has_pending_mutations() {
+                app.handle(events.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+            }
+            app.sync_layout((120, 30));
+            assert_eq!(
+                app.pane_areas.iter().find(|area| area.pane == pane).unwrap().rect,
+                initial
+            );
+        }
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
     fn pane_context_new_pane_runs_the_same_smart_layout_action_as_alt_n() {
         let (mux, _) = test_mux("context-new-pane-test", None);
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
