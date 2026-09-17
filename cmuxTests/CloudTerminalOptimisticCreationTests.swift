@@ -33,8 +33,8 @@ struct CloudTerminalOptimisticCreationTests {
         try harness.shortcut(key)
         let pending = try #require(harness.pending.first)
         #expect(harness.pending.count == 1)
-        #expect(harness.workspace.focusedPanelId == pending.id)
-        let pane = try #require(harness.workspace.paneId(forPanelId: pending.id))
+        #expect(harness.workspace.focusedPanelId == pending.panelID)
+        let pane = try #require(harness.workspace.paneId(forPanelId: pending.panelID))
         #expect((pane == harness.sourcePaneID) == (key == "t"))
         #expect(harness.workspace.bonsplitController.allPaneIds.count == (key == "t" ? 1 : 2))
         var arrivals = harness.provider.arrivals.stream.makeAsyncIterator()
@@ -75,7 +75,7 @@ struct CloudTerminalOptimisticCreationTests {
         let pending = try #require(harness.pending.first)
         var arrivals = harness.provider.arrivals.stream.makeAsyncIterator()
         _ = await arrivals.next()
-        _ = harness.workspace.closePanel(pending.id, force: true)
+        _ = harness.workspace.closePanel(pending.panelID, force: true)
         harness.provider.acceptNext()
         #expect(await harness.waitUntil { harness.pending.isEmpty })
         #expect(harness.provider.projected == 0)
@@ -93,10 +93,9 @@ struct CloudTerminalOptimisticCreationTests {
         _ = await arrivals.next()
         harness.provider.acceptNext()
         #expect(await harness.waitUntil {
-            if case .failed = pending.state.phase { return true }
-            return false
+            harness.workspace.cloudMaterializationFailures[pending.panelID] != nil
         })
-        pending.retry()
+        pending.retry?()
         #expect(await harness.waitUntil { harness.pending.isEmpty })
         #expect(harness.provider.anchors.count == 1)
         #expect(harness.provider.projected == 1)
@@ -139,14 +138,13 @@ struct CloudTerminalOptimisticCreationTests {
         _ = await arrivals.next()
         harness.provider.rejectNext()
         #expect(await harness.waitUntil {
-            if case .failed = pending.state.phase { return true }
-            return false
+            harness.workspace.cloudMaterializationFailures[pending.panelID] != nil
         })
-        pending.retry()
-        #expect(await harness.waitUntil { pending.state.phase != .starting })
+        pending.retry?()
+        #expect(await harness.waitUntil { harness.workspace.cloudMaterializationFailures[pending.panelID] != nil })
         #expect(harness.provider.anchors.count == 1)
         #expect(harness.provider.projected == 0)
-        #expect(harness.workspace.panels[pending.id] === pending)
+        #expect(harness.workspace.cloudPendingCreations[pending.panelID] === pending)
     }
 
     @Test
@@ -156,7 +154,7 @@ struct CloudTerminalOptimisticCreationTests {
         _ = harness.workspace.bonsplitController.splitPane(harness.sourcePaneID, orientation: .vertical)
         let pending = try #require(harness.pending.first)
         #expect(harness.workspace.bonsplitController.allPaneIds.count == 2)
-        #expect(harness.workspace.focusedPanelId == pending.id)
+        #expect(harness.workspace.focusedPanelId == pending.panelID)
         var arrivals = harness.provider.arrivals.stream.makeAsyncIterator()
         _ = await arrivals.next()
         harness.provider.acceptNext()
@@ -176,7 +174,7 @@ struct CloudTerminalOptimisticCreationTests {
         )
         actions.newTerminal(harness.provider.machine, "ws")
         let pending = try #require(harness.pending.first)
-        #expect(harness.workspace.paneId(forPanelId: pending.id) == harness.sourcePaneID)
+        #expect(harness.workspace.paneId(forPanelId: pending.panelID) == harness.sourcePaneID)
         var arrivals = harness.provider.arrivals.stream.makeAsyncIterator()
         _ = await arrivals.next()
         harness.provider.acceptNext()

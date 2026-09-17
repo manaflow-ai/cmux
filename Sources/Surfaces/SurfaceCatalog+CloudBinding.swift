@@ -10,6 +10,15 @@ extension SurfaceCatalog {
         isBase: Bool? = nil,
         generatedTitle: String? = nil
     ) {
+        let workspaceBeforeBind = cloudWorkspaceRenameService.environment.workspace(localWorkspaceID)
+        let wasUnbound = workspaceBeforeBind?.cloudVMBinding?.remoteWorkspaceID?.isEmpty != false
+        let titleBeforeBind = workspaceBeforeBind?.customTitle
+        let sourceBeforeBind = workspaceBeforeBind?.effectiveCustomTitleSource
+        let isLegacyGeneratedTitle = generatedTitle.map {
+            titleBeforeBind?.trimmingCharacters(in: .whitespacesAndNewlines) ==
+                $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                && workspaceBeforeBind?.customTitleSource == nil
+        } ?? false
         cloudWorkspaceRenameService.bind(
             localWorkspaceID: localWorkspaceID,
             machine: machine,
@@ -17,28 +26,35 @@ extension SurfaceCatalog {
             isBase: isBase,
             generatedTitle: generatedTitle
         )
-        // A person can rename the local placeholder before the remote workspace
-        // receipt arrives. Once binding supplies that identity, send the user
-        // title through the same ordered lane as every later rename.
-        if let workspace = cloudWorkspaceRenameService.environment.workspace(localWorkspaceID),
-           let title = workspace.customTitle,
-           workspace.effectiveCustomTitleSource == .user,
-           !Self.isGeneratedTitle(title, generatedTitle: generatedTitle),
-           workspace.cloudVMBinding?.remoteWorkspaceID?.isEmpty == false {
+        // A remote id can arrive after a user edit. Submit that edit once, at
+        // the first identity binding, before graph reconciliation can apply an
+        // older snapshot. Repeated receipts never replay the old title.
+        if wasUnbound,
+           remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+           sourceBeforeBind == .user,
+           !isLegacyGeneratedTitle,
+           let titleBeforeBind,
+           let workspace = workspaceBeforeBind {
             propagateCloudWorkspaceRename(
                 workspace: workspace,
-                localTitle: title,
-                previousCustomTitle: generatedTitle,
-                previousCustomTitleSource: .user
+                localTitle: titleBeforeBind,
+                previousCustomTitle: titleBeforeBind,
+                previousCustomTitleSource: sourceBeforeBind
+            )
+        }
+        if let workspace = cloudWorkspaceRenameService.environment.workspace(localWorkspaceID),
+           let state = cloudStates[machine],
+           (cloudStateObservations[machine] ?? .current).freshness == .current {
+            cloudWorkspaceRenameService.reconcileRemoteWorkspaceName(
+                workspace: workspace,
+                machine: machine,
+                state: state,
+                catalog: self,
+                observation: cloudStateObservations[machine] ?? .current
             )
         }
         requestCloudWorkspaceProjection(localWorkspaceID)
         cloudWorkspaceRenameService.updateCloudDirectories(localWorkspaceID: localWorkspaceID, catalog: self)
-    }
+}
 
-    private static func isGeneratedTitle(_ title: String, generatedTitle: String?) -> Bool {
-        guard let generatedTitle else { return false }
-        return title.trimmingCharacters(in: .whitespacesAndNewlines)
-            == generatedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
 }

@@ -12,10 +12,10 @@ import Testing
 @Suite("Cloud tree native drag ownership", .serialized)
 struct CloudTreeNativeDragOwnershipTests {
     private final class HoverWindow: NSWindow {
-        var simulatesKeyWindow = false
+        var simulatedKeyWindow = false
         var pointerOnScreen = NSPoint.zero
 
-        override var isKeyWindow: Bool { simulatesKeyWindow }
+        override var isKeyWindow: Bool { simulatedKeyWindow }
         override var mouseLocationOutsideOfEventStream: NSPoint { pointerOnScreen }
     }
 
@@ -313,11 +313,12 @@ struct CloudTreeNativeDragOwnershipTests {
         let cell = try #require(outline.view(atColumn: 0, row: 0, makeIfNecessary: true) as? CloudTreeCellView)
         let buttons = try #require(cell.subviews.last)
         let rowPoint = NSPoint(x: outline.rect(ofRow: 0).midX, y: outline.rect(ofRow: 0).midY)
-        window.pointerOnScreen = window.convertToScreen(NSRect(origin: outline.convert(rowPoint, to: nil), size: .zero)).origin
+        let rowRect = NSRect(origin: outline.convert(rowPoint, to: nil), size: .zero)
+        window.pointerOnScreen = window.convertToScreen(rowRect).origin
 
         NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
         #expect(buttons.alphaValue == 0)
-        window.simulatesKeyWindow = true
+        window.simulatedKeyWindow = true
         NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
         #expect(buttons.alphaValue == 1)
         _ = window
@@ -346,7 +347,6 @@ struct CloudTreeNativeDragOwnershipTests {
     }
 
     private static let machineActions = MachineRowActions(
-        setupVPN: { _ in },
         openShell: { _ in },
         openDesktop: { _ in },
         runCommand: { _, _ in },

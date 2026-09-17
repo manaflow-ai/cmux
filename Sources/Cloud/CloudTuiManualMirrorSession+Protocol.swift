@@ -14,14 +14,6 @@ extension CloudTuiManualMirrorSession {
         }
     }
 
-    /// Returns whether a sizing claim is unavailable on an older daemon.
-    static func isUnsupportedClaimError(_ error: String?) -> Bool {
-        guard let error = error?.lowercased() else { return false }
-        return error.contains("unknown command")
-            || error.contains("unsupported")
-            || error.contains("unrecognized command")
-    }
-
     func applyReplay(_ bytes: Data, reset: Bool) {
         if reset {
             // Drop every remote color before the reset rather than trusting

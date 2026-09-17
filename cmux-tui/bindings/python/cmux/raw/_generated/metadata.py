@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '3e8a21a3080c830d3765698c21641715ff9592b480170c4c7e6a7a764d362543'
+IR_SHA256 = 'd9db9b34a8e4f367ce1aae230fcd188796903d6adf169f9675872a48d9fd1f25'
 
 
 @dataclass(frozen=True)
@@ -813,6 +813,25 @@ COMMANDS = {
         {
             'dir': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
+        },
+    ),
+    'paste-image': CommandMetadata(
+        'paste-image',
+        'control',
+        12,
+        'terminal-image-paste-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'data': CommandFieldMetadata(None, None),
+            'lease': CommandFieldMetadata(None, None),
+            'mime': CommandFieldMetadata(None, None),
+            'offset': CommandFieldMetadata(None, None),
+            'op': CommandFieldMetadata(None, None),
+            'size': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(None, None),
+            'upload_id': CommandFieldMetadata(None, None),
         },
     ),
     'ping': CommandMetadata(

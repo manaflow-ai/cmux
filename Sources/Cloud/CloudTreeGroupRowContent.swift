@@ -1,13 +1,10 @@
-import AppKit
 import SwiftUI
 
-/// Renders one Cloud tree section header and its optional contextual action.
+/// Renders one Cloud tree section header and its optional count.
 struct CloudTreeGroupRowContent: View {
     let title: String
     let count: Int?
     let style: CloudTreeStyle
-    let helpAction: (@MainActor (NSWindow?) -> Void)?
-    var showsHelp = true
 
     var body: some View {
         HStack(alignment: .center, spacing: style.iconGap) {
@@ -22,11 +19,6 @@ struct CloudTreeGroupRowContent: View {
                         .cmuxFont(size: style.detailSize, design: style.fontDesign, monospacedDigit: true)
                         .foregroundStyle(.tertiary)
                 }
-            }
-            if showsHelp, let helpAction {
-                CloudVPNSetupButtonRepresentable(setup: helpAction)
-                    .frame(width: 28, height: 24)
-                    .accessibilitySortPriority(1)
             }
             Spacer(minLength: 0)
         }

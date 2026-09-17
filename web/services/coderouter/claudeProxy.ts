@@ -1,3 +1,4 @@
+import { accountAccessForIdentity } from "./accountAccess";
 // The Claude leg of coderouter: serves the Anthropic Messages API to a guest
 // (Claude Code inside a Cloud VM, or any Anthropic SDK client holding a
 // route token) and forwards to one of the team's Claude upstream accounts.
@@ -403,6 +404,7 @@ async function routeWithFailover(
         upstreamHeaderDeadlineAt,
         runtime.now,
         (signal) => dependencies.select(identity.teamId, {
+          access: accountAccessForIdentity(identity),
           stickyKey: stickyKey(identity),
           excludedAccountIds: excluded,
           signal,

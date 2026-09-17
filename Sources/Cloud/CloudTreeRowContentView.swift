@@ -4,7 +4,7 @@ import SwiftUI
 enum CloudTreeRowGrid {
     /// Width of the outline's disclosure slot; content starts `disclosureGap` after it.
     static let disclosureSlot: CGFloat = 16
-    static let disclosureGap: CGFloat = 10
+    static let disclosureGap: CGFloat = 4
     /// Machine rows: the status dot has its own slot, never adjacent to the chevron.
     static let dotSlot: CGFloat = 10
     static let dotGap: CGFloat = 8
@@ -28,8 +28,6 @@ enum CloudTreeIconPalette {
 struct CloudTreeRowContentView: View {
     let kind: CloudTreeNode.Kind
     var style: CloudTreeStyle = CloudTreeStyleStore.current
-    var showsCloudVPNWarning = false
-    var cloudVPNSetup: (@MainActor (NSWindow?) -> Void)? = nil
 
     private static func nonEmptyTrimmed(_ value: String?) -> String? {
         guard let value else { return nil }
@@ -56,7 +54,7 @@ struct CloudTreeRowContentView: View {
         }
     }
 
-    @ViewBuilder
+    @MainActor @ViewBuilder
     private var row: some View {
         switch kind {
         case .machine(let machine, _):
@@ -66,11 +64,11 @@ struct CloudTreeRowContentView: View {
         case .localMachine(let row):
             CloudTreeLocalMachineRowContent(row: row, style: style)
         case .terminalsPool(_, let count):
-            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.terminals", defaultValue: "Terminals"), count: count, style: style, helpAction: nil)
+            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.terminals", defaultValue: "Terminals"), count: count, style: style)
         case .displaysPool(_, let count):
-            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.displays", defaultValue: "Displays"), count: count, style: style, helpAction: nil)
+            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.displays", defaultValue: "Displays"), count: count, style: style)
         case .workspacesGroup:
-            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.workspaces", defaultValue: "Workspaces"), count: nil, style: style, helpAction: nil)
+            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.workspaces", defaultValue: "Workspaces"), count: nil, style: style)
         case .workspace(_, let workspace, _, _, _):
             // No open marker here (none on any row since #11069); the row's open
             // verb reads "Go to Workspace" when it is already showing locally.
@@ -101,7 +99,7 @@ struct CloudTreeRowContentView: View {
                 detail: CloudTreeRowContentView.text(for: resource)
             )
         case .browsersGroup:
-            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.browsers", defaultValue: "Browsers"), count: nil, style: style, helpAction: nil)
+            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.browsers", defaultValue: "Browsers"), count: nil, style: style)
         case .browser(let row):
             CloudTreeLeafRow(
                 style: style,
@@ -111,12 +109,7 @@ struct CloudTreeRowContentView: View {
                 detail: CloudTreeBrowserDetail.text(for: row)
             )
         case .portsGroup:
-            CloudTreeGroupRowContent(
-                title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"),
-                count: nil,
-                style: style,
-                helpAction: cloudVPNSetup, showsHelp: showsCloudVPNWarning
-            )
+            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"), count: nil, style: style)
         case .port(let resource, let url, _):
             CloudTreeLeafRow(
                 style: style,
@@ -132,6 +125,7 @@ struct CloudTreeRowContentView: View {
             CloudTreePlaceholderContent(placeholder: placeholder, style: style)
         }
     }
+
     /// Formats terminal totals for group and machine summaries.
     static func count(_ terminals: Int) -> String {
         terminals == 1
@@ -159,42 +153,6 @@ struct CloudTreeRowContentView: View {
         guard key.hasPrefix(prefix) else { return nil }
         let number = key.dropFirst(prefix.count)
         return number.isEmpty ? nil : ":\(number)"
-    }
-}
-
-/// A row glyph in the shared icon slot, drawn per the style's icon treatment:
-/// monochrome label color, semantic tint, or a Settings-style filled squircle
-/// with a white glyph.
-struct CloudTreeRowIcon: View {
-    let style: CloudTreeStyle
-    let systemName: String
-    let tint: Color
-    var dimmed: Bool = false
-
-    var body: some View {
-        switch style.iconTreatment {
-        case .monochrome:
-            Image(systemName: systemName)
-                .font(.system(size: style.iconSize, weight: .regular))
-                .foregroundStyle(dimmed ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.secondary))
-                .frame(width: style.iconSlot, alignment: .center)
-        case .tinted:
-            Image(systemName: systemName)
-                .font(.system(size: style.iconSize, weight: .regular))
-                .foregroundStyle(tint.opacity(dimmed ? 0.45 : 0.85))
-                .frame(width: style.iconSlot, alignment: .center)
-        case .chips:
-            let side = style.iconSlot - 4
-            RoundedRectangle(cornerRadius: side * 0.28, style: .continuous)
-                .fill(tint.opacity(dimmed ? 0.4 : 0.9))
-                .frame(width: side, height: side)
-                .overlay {
-                    Image(systemName: systemName)
-                        .font(.system(size: style.iconSize, weight: .medium))
-                        .foregroundStyle(.white)
-                }
-                .frame(width: style.iconSlot, alignment: .center)
-        }
     }
 }
 

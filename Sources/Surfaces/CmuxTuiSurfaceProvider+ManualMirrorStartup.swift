@@ -16,8 +16,10 @@ extension CmuxTuiSurfaceProvider {
         _ resource: SurfaceResource,
         remoteTabID: String? = nil,
         at destination: SurfaceDestination,
-        focus: Bool
+        focus: Bool,
+        adopting reservation: CloudTerminalPaneReservation? = nil
     ) async throws -> CloudManualMirrorMaterialization {
+        try catalog.validateOwnership(of: [resource.id], at: destination)
         let selectedRemoteView = remoteTabID.flatMap { tabID in
             resource.remoteViews?.first(where: { $0.tabID == tabID })
         }
@@ -36,7 +38,21 @@ extension CmuxTuiSurfaceProvider {
         let inputRouter = session.inputRouter
         var createdPanel: (workspaceID: UUID, panelID: UUID)?
         do {
-            let created = try SurfacePaneFactory.makeCloudManualMirrorPane(
+            let created: (workspaceID: UUID, panelID: UUID, surface: TerminalSurface)
+            if let reservation {
+                guard let workspace = Workspace.liveWorkspace(id: reservation.workspaceID),
+                      let adopted = workspace.adoptReservedCloudTerminalPane(
+                        reservation,
+                        onResize: { [weak session] sample in session?.apply(size: sample) },
+                        onRuntimeReady: { [weak session] in session?.runtimeReady() },
+                        onFocus: { [weak session] in session?.claimGeometry() },
+                        attachment: session.attachmentStatus
+                      ) else { throw CancellationError() }
+                created = adopted
+                reservation.inputRelay.attach(inputRouter)
+                session.startPresentationEpisode(elapsed: reservation.elapsed)
+            } else {
+                created = try SurfacePaneFactory.makeCloudManualMirrorPane(
                 at: destination,
                 focus: focus,
                 onInput: { input in inputRouter.send(input) },
@@ -52,6 +68,7 @@ extension CmuxTuiSurfaceProvider {
                 },
                 attachment: session.attachmentStatus
             )
+            }
             createdPanel = (created.workspaceID, created.panelID)
             session.bind(surface: created.surface)
             let existingExplicitInput = created.surface.onExplicitInput

@@ -41,8 +41,8 @@ struct CloudTerminalOptimisticHarness {
             remoteWorkspaceID: "ws", remoteTabID: "source-tab"
         ))
     }
-    var pending: [CloudTerminalPendingPanel] {
-        workspace.panels.values.compactMap { $0 as? CloudTerminalPendingPanel }
+    var pending: [CloudTerminalPaneReservation] {
+        Array(workspace.cloudPendingCreations.values)
     }
     func shortcut(_ key: String, focus: Bool = true) throws {
         let outcome: TerminalPanelCreationOutcome

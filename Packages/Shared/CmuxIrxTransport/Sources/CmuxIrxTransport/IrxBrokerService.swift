@@ -110,6 +110,10 @@ public actor IrxBrokerService {
         public var accountID: String?
         /// The app's Keychain access group (iOS); nil on macOS.
         public var keychainAccessGroup: String?
+        /// Additional signed capabilities supplied by the owning runtime.
+        public var additionalCapabilities: [String]
+        /// Separates compatibility caches for independently enrolled v2 tuples.
+        public var cacheIdentity: String?
 
         public init(
             baseURL: URL,
@@ -120,7 +124,9 @@ public actor IrxBrokerService {
             cacheDirectory: URL,
             identityGeneration: Int = 1,
             accountID: String? = nil,
-            keychainAccessGroup: String? = nil
+            keychainAccessGroup: String? = nil,
+            additionalCapabilities: [String] = [],
+            cacheIdentity: String? = nil
         ) {
             self.baseURL = baseURL
             self.clientNamespace = clientNamespace
@@ -131,12 +137,14 @@ public actor IrxBrokerService {
             self.identityGeneration = identityGeneration
             self.accountID = accountID
             self.keychainAccessGroup = keychainAccessGroup
+            self.additionalCapabilities = additionalCapabilities
+            self.cacheIdentity = cacheIdentity
         }
 
         var cacheScope: IrxBrokerCacheScope? {
             guard let accountID, let backendHost = baseURL.host else { return nil }
             return IrxBrokerCacheScope(
-                accountID: accountID,
+                accountID: cacheIdentity.map { "\(accountID)|\($0)" } ?? accountID,
                 backendHost: backendHost,
                 keychainAccessGroup: keychainAccessGroup
             )
@@ -351,7 +359,8 @@ public actor IrxBrokerService {
             endpointID: identity.endpointIDHex,
             identityGeneration: configuration.identityGeneration,
             pairingEnabled: pairingEnabled,
-            capabilities: Self.registrationCapabilities(for: configuration.platform),
+            capabilities: Array(Set(Self.registrationCapabilities(for: configuration.platform)
+                + configuration.additionalCapabilities)).sorted(),
             pathHints: hints,
             directPorts: directPorts
         )

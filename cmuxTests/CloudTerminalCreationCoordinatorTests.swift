@@ -10,32 +10,44 @@ import Testing
 @Suite("Cloud terminal creation")
 struct CloudTerminalCreationCoordinatorTests {
     @Test @MainActor
+    func retryDuringCreationDoesNotStartAnotherRemoteTerminal() async {
+        let started = CloudLinkFirstValue<Bool>()
+        let release = CloudLinkFirstValue<Bool>()
+        let completed = CloudLinkFirstValue<Bool>()
+        let resource = Self.resource(key: "term_created")
+        var createCount = 0
+        let coordinator = CloudTerminalCreationCoordinator(
+            create: {
+                createCount += 1
+                started.resolve(true)
+                // The remote mutation can commit even after local cancellation.
+                _ = await release.result
+                return resource
+            },
+            project: { resource in
+                (SurfaceProjection(resource: resource.id, workspaceID: UUID(), panelID: UUID()), false)
+            },
+            onFailure: { _ in },
+            onSuccess: { completed.resolve(true) }
+        )
+        coordinator.start()
+        _ = await started.result
+        coordinator.retry()
+        release.resolve(true)
+        _ = await completed.result
+        #expect(createCount == 1)
+    }
+
+    @Test @MainActor
     func materializationFailureKeepsTheCreatedTerminalForRetry() async {
-        let panel = CloudTerminalPendingPanel(
-            workspaceId: UUID(),
-            machine: .cloud("machine")
-        )
-        let resource = SurfaceResource(
-            id: SurfaceResourceID(machine: .cloud("machine"), kind: .terminal, key: "term_1"),
-            title: "",
-            detail: nil,
-            lifecycle: .launching,
-            agent: nil,
-            remoteWorkspace: nil,
-            remoteViews: [],
-            port: nil,
-            url: nil
-        )
+        let resource = Self.resource(key: "term_1")
         var createCount = 0
         var projectCount = 0
         var shouldFail = true
-        let projection = SurfaceProjection(
-            resource: resource.id,
-            workspaceID: UUID(),
-            panelID: UUID()
-        )
+        var starts = 0
+        var failures = 0
+        let projection = SurfaceProjection(resource: resource.id, workspaceID: UUID(), panelID: UUID())
         let coordinator = CloudTerminalCreationCoordinator(
-            panel: panel,
             create: {
                 createCount += 1
                 return resource
@@ -48,62 +60,50 @@ struct CloudTerminalCreationCoordinatorTests {
                 }
                 return (projection: projection, reused: false)
             },
-            onSuccess: { _ in }
+            onStart: { starts += 1 },
+            onFailure: { _ in failures += 1 },
+            onSuccess: {}
         )
-        panel.onRetry = { coordinator.retry() }
         coordinator.start()
-        await Self.yieldUntil {
-            if case .failed = panel.state.phase { return true }
-            return false
-        }
+        await Self.yieldUntil { failures == 1 }
         #expect(createCount == 1)
         #expect(projectCount == 1)
 
-        panel.retry()
+        coordinator.retry()
         await Self.yieldUntil { projectCount == 2 }
         #expect(createCount == 1)
-        #expect(panel.state.phase == .starting)
+        #expect(starts == 2)
     }
 
     @Test @MainActor
-    func closingPendingPanelCancelsTheOperation() async {
-        let panel = CloudTerminalPendingPanel(
-            workspaceId: UUID(),
-            machine: .cloud("machine")
+    func cancellationReportsOnceAndSkipsFailure() async {
+        var cancelled = 0
+        var failed = 0
+        let coordinator = CloudTerminalCreationCoordinator(
+            create: {
+                try await Task.sleep(for: .seconds(5))
+                return Self.resource(key: "term_slow")
+            },
+            project: { _ in throw CancellationError() },
+            onFailure: { _ in failed += 1 },
+            onCancel: { cancelled += 1 },
+            onSuccess: {}
         )
-        var cancelled = false
-        panel.onCancel = { cancelled = true }
-        panel.close()
-        #expect(cancelled)
+        coordinator.start()
+        coordinator.cancel()
+        await Self.yieldUntil { cancelled >= 1 }
+        #expect(cancelled == 1)
+        #expect(failed == 0)
     }
 
     @Test @MainActor
     func cancellationDiscardsAProjectionCreatedByTheStaleOperation() async {
-        let panel = CloudTerminalPendingPanel(
-            workspaceId: UUID(),
-            machine: .cloud("machine")
-        )
-        let resource = SurfaceResource(
-            id: SurfaceResourceID(machine: .cloud("machine"), kind: .terminal, key: "term_1"),
-            title: "",
-            detail: nil,
-            lifecycle: .launching,
-            agent: nil,
-            remoteWorkspace: nil,
-            remoteViews: [],
-            port: nil,
-            url: nil
-        )
-        let projection = SurfaceProjection(
-            resource: resource.id,
-            workspaceID: UUID(),
-            panelID: UUID()
-        )
+        let resource = Self.resource(key: "term_1")
+        let projection = SurfaceProjection(resource: resource.id, workspaceID: UUID(), panelID: UUID())
         let startedStream = AsyncStream<Void>.makeStream()
         var release: CheckedContinuation<Void, Never>?
         var discarded = false
         let coordinator = CloudTerminalCreationCoordinator(
-            panel: panel,
             create: { resource },
             project: { _ in
                 startedStream.continuation.yield(())
@@ -112,7 +112,8 @@ struct CloudTerminalCreationCoordinatorTests {
                 }
                 return (projection: projection, reused: false)
             },
-            onSuccess: { _ in },
+            onFailure: { _ in },
+            onSuccess: {},
             discardProjection: { _ in discarded = true }
         )
 
@@ -126,6 +127,14 @@ struct CloudTerminalCreationCoordinatorTests {
         #expect(discarded)
     }
 
+    private static func resource(key: String) -> SurfaceResource {
+        SurfaceResource(
+            id: SurfaceResourceID(machine: .cloud("machine"), kind: .terminal, key: key),
+            title: "", detail: nil, lifecycle: .launching, agent: nil,
+            remoteWorkspace: nil, remoteViews: [], port: nil, url: nil
+        )
+    }
+
     @MainActor
     private static func yieldUntil(
         timeout: Duration = .seconds(2),
@@ -135,5 +144,6 @@ struct CloudTerminalCreationCoordinatorTests {
         while !condition(), ContinuousClock.now < deadline {
             await Task.yield()
         }
+        #expect(condition())
     }
 }

@@ -13,6 +13,15 @@ import Testing
 @Suite("Cloud terminal startup latency")
 struct CloudTerminalStartupLatencyTests {
     @Test
+    func terminalCreationFailuresKeepTheirKnownCause() {
+        #expect(CloudDiagnosticFailure.classify(CmuxTuiSurfaceProvider.ProviderError.remoteTabNotFound("tab_source")) == .notFound)
+        #expect(CloudDiagnosticFailure.classify(CmuxTuiSurfaceProvider.ProviderError.invalidSnapshot("machine")) == .response)
+        #expect(CloudDiagnosticFailure.classify(CmuxTuiSurfaceProvider.ProviderError.terminalAttachTimedOut(
+            terminalID: "term_created", failure: .transportUnavailable
+        )) == .timeout)
+    }
+
+    @Test
     func readinessRetainsReplayAndFrameUntilAttachAcknowledges() {
         var readiness = CloudTerminalStartupReadiness()
         readiness.begin(baselineFrame: 40)
@@ -103,13 +112,14 @@ struct CloudTerminalStartupLatencyTests {
     }
 
     @Test @MainActor
-    func unresolvedPaneShowsProgressUntilCancelledOrFailed() {
+    func unresolvedPaneStaysSilentUntilCancelledOrFailed() {
         let session = CloudTuiManualMirrorSession(
             machineID: "machine", terminalID: "term_pending", remoteSurfaceID: 0,
+            presentationPolicy: .immediate,
             onNeedsReconnect: {}
         )
         defer { session.stop() }
-        #expect(session.connectionPresentation?.showsProgress == true)
+        #expect(session.connectionPresentation == nil)
         #expect(session.cancelConnectionAttempt())
         #expect(session.connectionPresentation == nil)
         #expect(session.retryConnection())

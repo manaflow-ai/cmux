@@ -1,106 +1,116 @@
 import Foundation
 
-/// Owns one optimistic Cloud pane and retains its acknowledged terminal across projection retries.
+/// Coordinates one asynchronous Cloud terminal creation behind a reserved pane.
+///
+/// The coordinator retains a creation result after the remote terminal is born. If the
+/// first local projection fails while `cmux-tui` is restarting, Retry reuses that terminal
+/// instead of creating a second one.
 @MainActor
 final class CloudTerminalCreationCoordinator {
     typealias Create = @MainActor () async throws -> SurfaceResource
     typealias Project = @MainActor (SurfaceResource) async throws -> (projection: SurfaceProjection, reused: Bool)
     typealias DiscardProjection = @MainActor (SurfaceProjection) -> Void
 
-    private weak var panel: CloudTerminalPendingPanel?
     private let create: Create
     private let project: Project
     private let discardProjection: DiscardProjection
-    private let onSuccess: @MainActor (SurfaceProjection) -> Void
     private let onStart: @MainActor () -> Void
-    private let onFinish: @MainActor () -> Void
+    private let onFailure: @MainActor (Error) -> Void
+    private let onCancel: @MainActor () -> Void
+    private let onSuccess: @MainActor () -> Void
     private var task: Task<Void, Never>?
+    private var generation: UInt64 = 0
     private var creationTask: Task<SurfaceResource, Error>?
-    private var createdResource: SurfaceResource?
     private var cancelled = false
+    private var createdResource: SurfaceResource?
 
+    /// Runs the same create/project lifecycle for every optimistic pane.
     init(
-        panel: CloudTerminalPendingPanel,
         create: @escaping Create,
         project: @escaping Project,
-        onSuccess: @escaping @MainActor (SurfaceProjection) -> Void,
-        discardProjection: @escaping DiscardProjection = { _ in },
         onStart: @escaping @MainActor () -> Void = {},
-        onFinish: @escaping @MainActor () -> Void = {}
+        onFailure: @escaping @MainActor (Error) -> Void,
+        onCancel: @escaping @MainActor () -> Void = {},
+        onSuccess: @escaping @MainActor () -> Void,
+        discardProjection: @escaping DiscardProjection = { _ in }
     ) {
-        self.panel = panel
         self.create = create
         self.project = project
+        self.onStart = onStart
+        self.onFailure = onFailure
+        self.onCancel = onCancel
         self.onSuccess = onSuccess
         self.discardProjection = discardProjection
-        self.onStart = onStart
-        self.onFinish = onFinish
     }
 
-    /// Resolves a pending pane used as the anchor of another shortcut.
-    /// The dependent request shares this create instead of issuing a second one.
+    /// Shares the exact create receipt with shortcuts anchored to the pending pane.
     func resource() async throws -> SurfaceResource {
         guard !cancelled else { throw CancellationError() }
         if let createdResource { return createdResource }
-        guard let creationTask else { throw CancellationError() }
-        let resource = try await creationTask.value
+        if creationTask == nil {
+            let create = self.create
+            creationTask = Task { @MainActor in try await create() }
+        }
+        let resource = try await creationTask!.value
         guard !cancelled else { throw CancellationError() }
         createdResource = resource
         return resource
     }
 
+    /// Begins creation or retries the last remote resource's local projection.
     func start() {
+        // A repeated retry is still the same intent. Cancelling a create can
+        // discard its receipt after the remote mutation has already committed.
         guard task == nil, !cancelled else { return }
-        panel?.resetForRetry()
+        generation &+= 1
+        let operationGeneration = generation
         onStart()
-        if creationTask == nil {
-            let create = self.create
-            creationTask = Task { @MainActor in try await create() }
-        }
         task = Task { @MainActor [weak self] in
             guard let self else { return }
             defer {
-                self.task = nil
-                self.onFinish()
+                if self.generation == operationGeneration { self.task = nil }
             }
-            guard let panel = self.panel else { return }
             do {
                 let resource = try await self.resource()
+                guard self.generation == operationGeneration else { return }
                 try Task.checkCancellation()
-                let result = try await self.project(resource)
-                guard !self.cancelled, !Task.isCancelled, self.panel === panel else {
-                    if !result.reused { self.discardProjection(result.projection) }
+                let projectionResult = try await self.project(resource)
+                guard self.generation == operationGeneration,
+                      !Task.isCancelled else {
+                    if !projectionResult.reused {
+                        self.discardProjection(projectionResult.projection)
+                    }
                     return
                 }
-                self.onSuccess(result.projection)
+                self.onSuccess()
             } catch is CancellationError {
-                if !self.cancelled { panel.showFailure(canRetry: self.createdResource != nil) }
+                if self.generation == operationGeneration { self.onCancel() }
+                return
             } catch {
-                guard !self.cancelled, !Task.isCancelled, self.panel === panel else { return }
-                #if DEBUG
-                cmuxDebugLog("cloud.pane.createFailed machine=\(panel.machine.rawValue) error=\(String(reflecting: error))")
-                #endif
-                panel.showFailure(canRetry: self.createdResource != nil)
+                guard self.generation == operationGeneration,
+                      !Task.isCancelled else { return }
+                self.onFailure(error)
             }
         }
     }
 
-    /// Only retries local projection of a terminal whose creation was acknowledged.
-    /// An unknown remote create outcome is never replayed with a new identity.
+    /// Retries the current operation while preserving any successfully-created resource.
     func retry() {
-        guard createdResource != nil else { return }
         start()
     }
 
+    /// Cancels work when the user closes the temporary pane.
     func cancel() {
         cancelled = true
+        generation &+= 1
         creationTask?.cancel()
         task?.cancel()
-        onFinish()
+        task = nil
+        onCancel()
     }
 
     deinit {
-        task?.cancel()
         creationTask?.cancel()
+        task?.cancel()
     }
 }

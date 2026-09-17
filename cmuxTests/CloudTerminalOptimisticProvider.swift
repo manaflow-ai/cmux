@@ -75,5 +75,14 @@ final class CloudTerminalOptimisticProvider: SurfaceProvider, SurfaceLayoutTermi
         projected += 1
         return SurfaceProjection(resource: resource.id, workspaceID: pane.workspaceID, panelID: pane.panelID)
     }
+    func materialize(_ resource: SurfaceResource, remoteView: SurfaceRemoteView?, at destination: SurfaceDestination, focus: Bool, adopting reservation: CloudTerminalPaneReservation?) async throws -> SurfaceProjection {
+        guard let reservation else { return try await materialize(resource, at: destination, focus: focus) }
+        if failNextProjection {
+            failNextProjection = false
+            throw SurfaceCatalogError.unavailable(resource.id, reason: "fixture projection failed")
+        }
+        projected += 1
+        return SurfaceProjection(resource: resource.id, workspaceID: reservation.workspaceID, panelID: reservation.panelID)
+    }
     func projectionDidEnd(_ projection: SurfaceProjection) {}
 }

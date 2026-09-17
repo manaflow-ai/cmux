@@ -87,56 +87,96 @@ extension CmuxTuiSurfaceProvider {
         return resolutions
     }
 
-    /// Replaces a restored placeholder projection with a native manual pane.
-    func reprojectManualMirror(
+    /// Attaches a reserved pane to `resource` and keeps trying until it works.
+    ///
+    /// Used for restored panes and for a Cloud workspace opened as a whole: the
+    /// projection is already recorded on the reserved pane, so the layout is
+    /// complete before any machine round trip, and every pane attaches in
+    /// parallel. A failure is transient by default (the link is still coming up
+    /// after a relaunch, the daemon's ordered lane is busy): the loop waits on
+    /// the background backoff and tries again, and only after several rounds
+    /// does the pane show Reconnect, which restarts the loop at once. Closing
+    /// the pane cancels the loop; a terminal that exited is reported as such.
+    func attachReservedTerminalPane(
+        _ reservation: CloudTerminalPaneReservation,
         resource: SurfaceResource,
-        projection: SurfaceProjection,
-        paneID: String,
-        generation: UInt64
-    ) async {
-        guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() else { return }
-        do {
-            let materialized = try await materializeManualMirrorTerminal(
-                resource,
-                remoteTabID: projection.remoteTabID,
-                at: .tab(workspaceID: projection.workspaceID, paneID: paneID, index: nil),
-                focus: false
-            )
-            guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog(),
-                  let currentProjection = catalog.projection(forPanel: projection.panelID),
-                  currentProjection.resource == resource.id,
-                  currentProjection.workspaceID == projection.workspaceID else {
-                SurfacePaneFactory.close(panelID: materialized.panelID, in: materialized.workspaceID)
-                return
-            }
-            materializedPanels.insert(materialized.panelID)
-            catalog.replaceProjection(
-                currentProjection,
-                withPanel: materialized.panelID,
-                in: materialized.workspaceID,
-                remotePlacement: materialized.remotePlacement
-            )
-            AppDelegate.shared?.workspace(containingSurfaceID: projection.panelID)?
-                .clearCloudMaterializationFailure(surfaceID: projection.panelID)
-            SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
-        } catch {
-            materializedPanels.remove(projection.panelID)
-            let detail = CloudMachineLink.errorText(error).isEmpty
-                ? String(localized: "cloud.overlay.materializationFailed.detail", defaultValue: "The secure Cloud terminal endpoint is unavailable.")
-                : CloudMachineLink.errorText(error)
-            var reference: String?
-            if let recorder = links.operations {
-                let context = recorder.begin(.terminal)
-                reference = "operation=\(context.operationID.uuidString.lowercased()) trace=\(context.traceID)"
-                await recorder.finish(context, error: error)
-            }
-            if let workspace = AppDelegate.shared?.workspace(containingSurfaceID: projection.panelID) {
-                workspace.setCloudMaterializationFailure(
-                    surfaceID: projection.panelID,
-                    detail: detail,
-                    reference: reference
+        remoteTabID: String?
+    ) {
+        let panelID = reservation.panelID
+        materializedPanels.insert(panelID)
+        restoredAttachTasks[panelID]?.cancel()
+        let generation = lifecycleGeneration
+        reservation.retry = { [weak self] in
+            guard let self else { return }
+            self.restoredAttachTasks[panelID]?.cancel()
+            self.attachReservedTerminalPane(reservation, resource: resource, remoteTabID: remoteTabID)
+        }
+        reservation.cancel = { [weak self] in
+            guard let self else { return }
+            self.restoredAttachTasks.removeValue(forKey: panelID)?.cancel()
+            self.materializedPanels.remove(panelID)
+        }
+        restoredAttachTasks[panelID] = Task { @MainActor [weak self] in
+            var failures = 0
+            while !Task.isCancelled {
+                guard let self, self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog(),
+                      let workspace = Workspace.liveWorkspace(id: reservation.workspaceID),
+                      workspace.cloudPendingCreations[panelID] === reservation else { return }
+                let destination = SurfaceDestination.tab(
+                    workspaceID: reservation.workspaceID,
+                    paneID: SurfacePaneFactory.paneID(ofPanel: panelID, in: reservation.workspaceID) ?? "",
+                    index: nil
                 )
+                do {
+                    let materialized = try await self.materializeManualMirrorTerminal(
+                        resource,
+                        remoteTabID: remoteTabID,
+                        at: destination,
+                        focus: false,
+                        adopting: reservation
+                    )
+                    guard !Task.isCancelled, self.isCurrentLifecycleGeneration(generation) else {
+                        self.manualMirrorSessions.removeValue(forKey: materialized.panelID)?.stop()
+                        return
+                    }
+                    if let placement = materialized.remotePlacement {
+                        self.catalog.cloudPlacementCoordinator.confirmPlacement(placement, on: self.machine)
+                        if let current = self.catalog.projection(forPanel: panelID) {
+                            self.catalog.setRemotePlacement(for: current, placement: placement)
+                        }
+                    }
+                    workspace.completeReservedCloudTerminalPane(reservation, adoptedPanelID: materialized.panelID)
+                    self.restoredAttachTasks[panelID] = nil
+                    return
+                } catch is CancellationError {
+                    return
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    if let providerError = error as? CmuxTuiSurfaceProvider.ProviderError,
+                       case .terminalExited = providerError {
+                        // The shell ended while the pane was waiting: the pane
+                        // closes the way an exited local terminal does.
+                        self.restoredAttachTasks[panelID] = nil
+                        workspace.cancelReservedCloudTerminalPane(panelID: panelID)
+                        SurfacePaneFactory.closeExited(panelID: panelID, in: reservation.workspaceID)
+                        return
+                    }
+                    failures += 1
+                    self.attachmentLog.giveUp(
+                        machineID: self.machineID, terminalID: resource.id.key,
+                        attempts: failures, reason: CloudMachineLink.errorText(error)
+                    )
+                    if failures >= Self.reservedAttachFailuresBeforeReporting {
+                        workspace.failReservedCloudTerminalPane(reservation, error: error)
+                    }
+                    let delay = CloudTerminalAttachmentRetryPolicy.background.cappedDelay(afterFailures: failures)
+                    do { try await self.attachmentClock.sleep(for: delay) } catch { return }
+                }
             }
         }
     }
+
+    /// Rounds of the background backoff (1 s, 2 s, 4 s, 8 s: about fifteen
+    /// seconds) a restored pane may fail before it explains itself with Reconnect.
+    static let reservedAttachFailuresBeforeReporting = 4
 }

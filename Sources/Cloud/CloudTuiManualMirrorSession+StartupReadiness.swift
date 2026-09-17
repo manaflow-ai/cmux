@@ -78,6 +78,7 @@ extension CloudTuiManualMirrorSession {
             self.startupDeadlineTask?.cancel()
             self.startupDeadlineTask = nil
             self.recordStartupStage("usable-frame")
+            self.updatePresentationEpisode()
             surface.hostedView.synchronizeCloudTerminalReconnectOverlay()
             surface.owningWorkspace()?.postRemoteConnectionPresentationDidChange()
         }

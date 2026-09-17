@@ -120,7 +120,7 @@ final class CloudTreeTerminalNavigationCoordinator {
                 group: group
             ),
             focus: true,
-            host: .app,
+            host: .appOptimistic,
             layout: layout
         )
         guard !Task.isCancelled else {
