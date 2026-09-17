@@ -101,6 +101,71 @@ struct CmuxTextActionConfigTests {
         #expect(decoded.title == "AB")
     }
 
+    // MARK: - Category (right-click Snippets submenu)
+
+    @Test func categoryDecodesTrimmedAndFlowsIntoResolvedAction() throws {
+        let config = try decode("""
+        { "actions": { "fixup": { "type": "text", "category": "  Git  ", "text": "git commit --fixup HEAD" } } }
+        """)
+        let definition = try #require(config.actions["fixup"])
+        #expect(definition.category == "Git")
+        let resolved = try #require(
+            CmuxResolvedConfigAction.fromDefinition(id: "fixup", definition: definition, sourcePath: nil)
+        )
+        #expect(resolved.category == "Git")
+    }
+
+    @Test func blankCategoryDecodesAsNil() throws {
+        let config = try decode(#"{ "actions": { "loose": { "type": "text", "category": "   ", "text": "hi" } } }"#)
+        #expect(config.actions["loose"]?.category == nil)
+    }
+
+    @Test func categoryRoundTripsThroughEncoding() throws {
+        let original = CmuxConfigActionDefinition(
+            action: .text(CmuxTextActionPayload(text: "x", submit: false)),
+            title: "X",
+            category: "Ops"
+        )
+        let data = try JSONEncoder().encode(original)
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(object["category"] as? String == "Ops")
+        let decoded = try JSONDecoder().decode(CmuxConfigActionDefinition.self, from: data)
+        #expect(decoded.category == "Ops")
+    }
+
+    @Test @MainActor func storeExposesOnlyTextActionsAsSnippetMenuEntries() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-snippet-entries-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let globalConfigURL = root.appendingPathComponent("cmux.json")
+        try """
+        {
+          "actions": {
+            "run-tests": { "type": "command", "title": "Run Tests", "command": "npm test" },
+            "fixup": { "type": "text", "category": "Git", "title": "Fixup", "text": "git commit --fixup HEAD" },
+            "review": { "type": "text", "title": "Review Prompt", "text": "review this" }
+          }
+        }
+        """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store = CmuxConfigStore(
+            globalConfigPath: globalConfigURL.path,
+            localConfigPath: nil,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        let entries = store.snippetMenuEntries()
+        #expect(entries.map(\.actionID).sorted() == ["fixup", "review"])
+        let model = CmuxSnippetMenuModel.build(from: entries)
+        #expect(model.uncategorized.map(\.title) == ["Review Prompt"])
+        #expect(model.categories.map(\.name) == ["Git"])
+        #expect(model.categories.first?.items.first?.payload.text == "git commit --fixup HEAD")
+    }
+
     // MARK: - Surface tab bar buttons
 
     @Test func surfaceTabBarButtonDecodesAndEncodesTextType() throws {
