@@ -284,6 +284,26 @@ async fn read_permission_cannot_open_or_send_terminal_input() {
             pair.server.accept(source, incoming).await,
             Err(Error::Denied)
         ));
+
+        // A hand-written peer cannot inject input on an admitted read stream either.
+        let mut raw = pair
+            .control
+            .open_stream(pair.destination, session::PROTOCOL)
+            .await
+            .unwrap();
+        let body = serde_json::to_vec(
+            &serde_json::json!({"grant":pair.grant_action(Some(60), 1, "terminal_read"),
+            "lane":{"kind":"terminal","resource":"test-terminal","cursor":null}}),
+        )
+        .unwrap();
+        raw.write_all(&(body.len() as u32).to_be_bytes())
+            .await
+            .unwrap();
+        raw.write_all(&body).await.unwrap();
+        let (source, incoming) = pair.inbound.next().await.unwrap();
+        let (_, server) = pair.server.accept(source, incoming).await.unwrap();
+        raw.write_all(&[0, 0, 0, 2, 0, b'x']).await.unwrap();
+        assert_eq!(server.closed().await, Error::Denied);
     })
     .await
     .unwrap();
