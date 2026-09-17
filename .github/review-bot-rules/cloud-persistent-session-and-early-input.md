@@ -7,7 +7,8 @@ Apply this rule to Cloud terminal creation, persistent cmux-tui transport, manua
 - Spawn a new `cmux-tui` client, CLI process, authenticated carrier, or event socket for each control request, split/tab, snapshot, or event subscription when the machine-owned persistent session can multiplex it.
 - Route control requests and revisioned events over separate physical transports without a documented protocol or isolation requirement. Independent logical terminal streams over one carrier are allowed when they preserve attachment leases, cancellation, geometry ownership, and byte routing.
 - Make the user wait for remote PTY creation, shell startup, snapshot refresh, or terminal attachment before inserting the local manual pane or starting its empty Ghostty runtime.
-- Drop or retarget input typed during the local pane, renderer, or remote attachment transition. Preserve authored input order and the surface identity that owns key down, key repeat, key up, cancellation, and reconnect.
+- Gate a manual renderer on local shell startup work, such as installing local agent command wrappers. Manual I/O launches no local child; keep that work on the exec path.
+- Drop or retarget input typed during the local pane, renderer, or remote attachment transition. Preserve authored input order and the surface identity that owns key down, key repeat, key up, cancellation, and attachment. Never replay queued bytes to a replacement terminal or generation.
 - Replace a current validated event graph with an unconditional full snapshot on every Cmd-D/Cmd-T path, or remove idempotency keys, auth checks, revision fences, attachment leases, or fail-closed identity resolution to save time.
 
 ## Pass

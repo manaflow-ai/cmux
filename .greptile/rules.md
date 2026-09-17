@@ -151,3 +151,5 @@ Pass for routes intentionally kept out of the sitemap (legal, deeplink, redirect
 ## Cloud Persistent Session and Early Input
 
 For Cloud terminal creation and transport, keep one authenticated machine-owned cmux-tui session and multiplex control replies and revisioned events over it. Logical per-terminal streams are allowed when they preserve attachment leases, cancellation, geometry ownership, and byte routing. Reserve the local manual pane and start its empty Ghostty runtime immediately; remote PTY creation, shell startup, and attachment populate that runtime later. Preserve ordered input ownership, auth, idempotency keys, revision fences, and attachment leases. Reuse a current validated event graph and refresh only for cold, stale, missing, or revision-conflict state.
+
+Manual renderers must not wait for local command-wrapper installation: that startup work belongs to surfaces that execute a local child. Never replay early input to a replacement terminal or generation.

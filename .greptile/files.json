@@ -6,7 +6,10 @@
       "scope": [
         "Sources/Cloud/**/*.swift",
         "Sources/Surfaces/**/*.swift",
-        "Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/**/*.swift"
+        "Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/**/*.swift",
+        "Sources/AppDelegate*.swift",
+        "Sources/Ghostty*.swift",
+        "cmux-tui/crates/**/src/**/*.rs"
       ]
     },
     {

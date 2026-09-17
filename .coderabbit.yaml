@@ -107,16 +107,16 @@ reviews:
       instructions: |
         Apply `.github/review-bot-rules/landing-page-registry-parity.md` during review. Flag an `agentReadablePages` entry whose path is not in `web/app/sitemap.ts` (or vice versa), since the two registries must stay in sync.
 
-    - path: "{Sources/Cloud/**/*.swift,Sources/Surfaces/**/*.swift,Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/**/*.swift}"
+    - path: "{Sources/Cloud/**/*.swift,Sources/Surfaces/**/*.swift,Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/**/*.swift,Sources/AppDelegate*.swift,Sources/Ghostty*.swift,cmux-tui/crates/**/src/**/*.rs}"
       instructions: |
-        Apply `.github/review-bot-rules/cloud-persistent-session-and-early-input.md` during review. Cloud terminal creation must reuse the machine-owned persistent cmux-tui session, start the local empty manual Ghostty runtime at reservation time, preserve ordered input ownership through attachment, and retain auth, idempotency, revision, and lease fences. Logical per-terminal streams over one carrier are allowed. Do not require a remote PTY or shell before showing the empty cursor.
+        Apply `.github/review-bot-rules/cloud-persistent-session-and-early-input.md` during review. Cloud terminal creation must reuse the machine-owned persistent cmux-tui session, start the local empty manual Ghostty runtime at reservation time, preserve ordered input ownership through attachment, and retain auth, idempotency, revision, and lease fences. Logical per-terminal streams over one carrier are allowed. Do not require a remote PTY, shell, or local command-wrapper installation before showing a manual surface's empty cursor.
 
   pre_merge_checks:
     custom_checks:
       - name: "cmux Cloud persistent session and early input"
         mode: error
         instructions: |
-          For Cloud terminal creation and transport changes, fail when the diff violates `.github/review-bot-rules/cloud-persistent-session-and-early-input.md`: it spawns a new cmux-tui client or physical transport per request/event, waits for remote PTY or shell readiness before showing the local empty manual Ghostty runtime, loses ordered input ownership during attachment, or weakens auth, idempotency, revision, or lease fences. Permit independent logical streams over one authenticated carrier when they preserve cancellation, geometry, and byte routing. Permit snapshots for cold, stale, missing, or revision-conflict state and tests/latency evidence that keep stages separate.
+          For Cloud terminal creation and transport changes, fail when the diff violates `.github/review-bot-rules/cloud-persistent-session-and-early-input.md`: it gates manual renderers on local command-wrapper installation, spawns a new cmux-tui client or physical transport per request/event, waits for remote PTY or shell readiness before showing the local empty manual Ghostty runtime, loses ordered input ownership during attachment, or weakens auth, idempotency, revision, or lease fences. Permit independent logical streams over one authenticated carrier when they preserve cancellation, geometry, and byte routing. Permit snapshots for cold, stale, missing, or revision-conflict state and tests/latency evidence that keep stages separate.
       - name: "cmux Swift actor isolation"
         mode: error
         instructions: |
