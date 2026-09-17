@@ -1,4 +1,5 @@
 import CmuxTerminal
+import CmuxCloudImagePaste
 import Foundation
 
 /// Sends Ghostty manual-surface input to a remote cmux-tui PTY.
@@ -61,6 +62,20 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
             pendingLines.removeAll(keepingCapacity: false)
             pendingByteCount = 0
         }
+    }
+
+    /// Orders a control request with the manual input that preceded the paste.
+    func sendControl(
+        _ command: [String: Any], on connection: CloudTuiManualIOConnection, requestID: UInt64
+    ) throws -> UInt64 {
+        let command = command.merging(["id": requestID]) { _, value in value }
+        guard let line = commandBuilder.line(command) else {
+            throw CloudImagePasteError.unavailable
+        }
+        // Image commit shares the input lane. Queue it behind prior manual input,
+        // and retain this exact connection rather than replaying it after reconnect.
+        queue.async { connection.send(line: line) }
+        return requestID
     }
 
     /// Enqueues one manual input event.

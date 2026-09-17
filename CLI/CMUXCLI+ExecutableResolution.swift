@@ -14,7 +14,7 @@ extension CMUXCLI {
     func missingProviderExecutableMessage(displayName: String, executableName: String) -> String {
         let format = String(
             localized: "agentSession.error.missingProviderExecutable",
-            defaultValue: "%@ was not found. Install it and make sure \"%@\" is available on PATH."
+            defaultValue: "%@ was not found. Install it and make sure \"%@\" can be run from your terminal."
         )
         return String(format: format, displayName, executableName)
     }
@@ -200,6 +200,11 @@ extension CMUXCLI {
     /// retain cmux's root `--help` contract while forwarding nested help unchanged.
     func shouldDispatchCmuxSubcommandHelp(command: String, commandArgs: [String]) -> Bool {
         switch command {
+        case "agent":
+            return CmuxTuiRemoteRouting.vmAgentRequestsHelp(commandArgs)
+        case "vm", "cloud", "coderouter":
+            return !CmuxTuiRemoteRouting.isAgentSubcommand(commandArgs.first)
+                || CmuxTuiRemoteRouting.vmAgentRequestsHelp(Array(commandArgs.dropFirst()))
         case "claude-teams", "codex-teams":
             return false
         case "omo", "omx", "omc":

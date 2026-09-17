@@ -2,6 +2,8 @@
 // per-provider implementations behind an interface. Callers hold a `VMProvider` and never reach
 // into specifics.
 
+import type { GuestPromptIdentity } from "../guestPrompt";
+
 export type ProviderId = "freestyle";
 
 const PROVIDER_IDS: readonly ProviderId[] = ["freestyle"];
@@ -17,6 +19,8 @@ export type VMStatus = "creating" | "running" | "paused" | "destroyed";
 export type VMStats = {
   readonly state: "awake" | "asleep" | "unknown";
   readonly sampledAt: number;
+  /** Timestamp of the latest guest reporter sample, even when it is stale. */
+  readonly resourceSampledAt?: number;
   readonly cpus?: number;
   readonly cpuPercent?: number;
   readonly loadAverage1m?: number;
@@ -72,6 +76,12 @@ export type CreateOptions = {
   image: string; // provider-specific template/snapshot identifier
   /** User-facing name stored in provider metadata. It is separate from the provider slug. */
   name?: string | null;
+  /** Provider-enforced lifetime runtime allowance for this allocation. */
+  runtimeBudgetSeconds?: number;
+  /** Human-facing machine label; providers may ignore this cosmetic field. */
+  displayName?: string;
+  /** Current prompt name, written into the guest rather than a shell environment. */
+  promptIdentity?: GuestPromptIdentity;
   providerMetadata?: Record<string, unknown>;
   /**
    * Name of a persistent volume to mount as the machine's home directory. Providers that
@@ -132,6 +142,16 @@ export type VmEdgeRule = {
 export type RestoreOptions = Pick<CreateOptions, "edgeRules" | "providerMetadata"> & {
   /** The owner's private network; see {@link CreateOptions.network}. */
   network?: ProviderNetworkRef;
+};
+
+/** Private guest SSH, with the host key read through the authenticated provider API.
+ * The client keeps its private key; only its public key reaches the control plane. */
+export type SCPEndpoint = {
+  host: string;
+  port: number;
+  username: string;
+  hostPublicKey: string;
+  expiresAtUnix: number;
 };
 
 export type SSHEndpoint = {
@@ -208,6 +228,15 @@ export type CmuxRemoteEndpoint = {
     remoteProtocol: number | null;
     version: string | null;
   };
+  /**
+   * The daemon's cloud listener grants carrier authentication: the client dials
+   * `remote connect --carrier` with no enrollment and no invitation, because the
+   * route is reachable only inside the owner's private network. False only for
+   * a daemon the provider could not bring to the trusted build, in which case
+   * an already-enrolled device may still dial with its stored key.
+   */
+  trustedCarrier: boolean;
+  /** @deprecated Never returned since the trusted listener; kept so older clients decode. */
   invitation?: {
     /** Single-use `cmux://enroll/...` URI; the client must pass it via `--invite-file`, never argv. */
     uri: string;
@@ -225,6 +254,8 @@ export type CmuxRemoteEndpoint = {
 };
 
 export type CmuxRemoteAttachOptions = {
+  /** Authoritative display name and revision, refreshed before returning the terminal. */
+  promptIdentity?: GuestPromptIdentity;
   /**
    * The caller's cmux-tui device fingerprint, when it already enrolled with this
    * VM's daemon. Lets the provider skip minting an invitation.
@@ -293,13 +324,36 @@ export type SnapshotRef = {
   name?: string;
 };
 
-/** What a provider can actually do, so clients hide verbs that would only fail. */
+/** Grow-only resources accepted by a provider resize operation. */
+export type VMResizeOptions = {
+  readonly cpu?: number;
+  readonly memoryMb?: number;
+  readonly storageMb?: number;
+};
+
+/**
+ * What a provider can actually do, so clients hide verbs that would only fail.
+ * This is the client-visible provider contract: every VM API response carries
+ * it, and the CLI/app gates verbs on it instead of assuming a provider name.
+ */
 export interface VmCapabilities {
   readonly snapshot: boolean;
   readonly restore: boolean;
   readonly fork: boolean;
-  /** The provider can mint a browser preview URL for a machine port. */
+  /** One-shot non-interactive command execution (`POST /api/vm/:id/exec`). */
+  readonly exec: boolean;
+  /** Live CPU/memory/disk readings (`GET /api/vm/:id/stats`). */
+  readonly stats: boolean;
+  /** Token-gated HTTPS preview URLs for arbitrary VM ports (`POST /api/vm/:id/open-port`). */
   readonly ports: boolean;
+  /** A desktop (VNC) image exists for this provider. */
+  readonly desktop: boolean;
+  /** `CreateOptions.memoryMb` is honored rather than ignored. */
+  readonly sizing: boolean;
+  /** `CreateOptions.homeVolume` is honored rather than ignored. */
+  readonly persistentHome: boolean;
+  /** Session transports the driver can hand out, in preference order. */
+  readonly attachTransports: readonly AttachTransport[];
 }
 
 /** A private network that every machine belonging to one user shares. */
@@ -334,6 +388,13 @@ export type ProviderTunnel = {
   readonly addressV6: string | null;
 };
 
+/** Result of enrolling a tunnel, including whether provider state was recovered or rotated. */
+export type ProviderTunnelCreateResult = {
+  readonly tunnel: ProviderTunnel;
+  readonly created: boolean;
+  readonly rotated: boolean;
+};
+
 export type CreateProviderTunnelOptions = {
   readonly slug: string;
   readonly displayName?: string;
@@ -362,7 +423,7 @@ export interface VMPrivateNetworking {
   /** Delete a network. Must succeed when it is already gone. */
   deleteNetwork(networkId: string): Promise<void>;
   /** Create a tunnel with the network already attached. */
-  createTunnel(options: CreateProviderTunnelOptions): Promise<ProviderTunnel>;
+  createTunnel(options: CreateProviderTunnelOptions): Promise<ProviderTunnelCreateResult>;
   /**
    * Read a tunnel back with its address inside `networkId`, re-attaching the
    * network if the attachment is missing. Null when the tunnel is gone at the
@@ -389,9 +450,8 @@ export interface VMProvider {
   readonly privateNetworking?: VMPrivateNetworking;
   /**
    * Optional-operation support. A driver that implements `snapshot`/`restore` only to
-   * throw NotImplementedError declares that here; `fork` and `ports` default
-   * to whether their methods exist. Everything omitted defaults to supported where a
-   * legacy client needs that compatibility behavior.
+   * throw NotImplementedError declares that here; `fork` defaults to whether the method
+   * exists. Everything omitted defaults to supported.
    */
   readonly capabilities?: Partial<VmCapabilities>;
 
@@ -416,9 +476,12 @@ export interface VMProvider {
   /// Live CPU/memory/disk for the Cloud panel's activity view. Must not wake a
   /// sleeping machine.
   getStats?(vmId: string): Promise<VMStats>;
+  /** Grow one or more VM resources. Freestyle currently uses storage only. */
+  resize?(vmId: string, options: VMResizeOptions): Promise<void>;
 
   pause(vmId: string): Promise<void>;
   resume(vmId: string): Promise<VMHandle>;
+  setRuntimeBudget?(vmId: string, remainingSeconds: number | null): Promise<void>;
 
   exec(vmId: string, command: string, opts?: ExecOptions): Promise<ExecResult>;
 
@@ -428,6 +491,18 @@ export interface VMProvider {
   openPort?(vmId: string, port: number): Promise<{ url: string; token: string; openUrl: string; expiresAtMs?: number }>;
 
   snapshot(vmId: string, name?: string): Promise<SnapshotRef>;
+  /**
+   * Optional: every snapshot taken from `vmId`, newest first. Absent on a
+   * provider that cannot enumerate snapshots; the gateway answers unsupported.
+   */
+  listSnapshots?(vmId: string): Promise<SnapshotRef[]>;
+  /**
+   * Optional: delete one snapshot taken from `vmId`. A snapshot that does not
+   * exist or was taken from another machine fails with an error
+   * `isProviderNotFoundError` recognizes, so the workflow answers not-found
+   * rather than deleting across machines.
+   */
+  deleteSnapshot?(vmId: string, snapshotId: string): Promise<void>;
   /**
    * Boot a new machine from a snapshot. `options.network` places it on the
    * owner's private network exactly as `create` does — a restored machine is a
@@ -443,30 +518,35 @@ export interface VMProvider {
   // VmAttachTransportUnsupportedError before reaching the provider.
   readonly attachTransports?: readonly AttachTransport[];
 
-  // Returns a live attach endpoint the client can dial into: cmuxd-remote WebSocket PTY
-  // with a short-lived one-use lease, or SSH. Every current driver is cmux-remote only
-  // and throws here; the seam stays for a provider that serves a raw PTY again.
-  openAttach(vmId: string, options?: AttachOptions): Promise<AttachEndpoint>;
+  // Optional: a live attach endpoint the client can dial into — a cmuxd-remote WebSocket
+  // PTY with a short-lived one-use lease. A driver only implements this when it lists
+  // `websocket` in attachTransports; workflows refuse the transport before reaching a
+  // driver that omits it.
+  openAttach?(vmId: string, options?: AttachOptions): Promise<AttachEndpoint>;
 
   // Optional: attach through the cmux-tui remote daemon in the VM (see CmuxRemoteEndpoint).
   // Every cmux Cloud machine runs this daemon; providers that have not been migrated
   // leave this undefined.
   openCmuxRemote?(vmId: string, options?: CmuxRemoteAttachOptions): Promise<CmuxRemoteEndpoint>;
-  // Optional: approve the pending enrollment a previous openCmuxRemote invited.
+  // Optional, compatibility only: the trusted listener needs no approval, so a
+  // provider answers `approved` without touching the machine. Older Mac builds
+  // still call it once after their first connect.
   approveCmuxRemoteEnrollment?(
     vmId: string,
     invitationId: string,
     options?: CmuxRemoteApprovalOptions,
   ): Promise<CmuxRemoteApprovalResult>;
 
-  // Returns a live SSH endpoint the client can dial into. Drivers are responsible for ensuring
-  // sshd is running (some providers need an explicit start step).
-  openSSH(vmId: string): Promise<SSHEndpoint>;
+  // Optional: a live SSH endpoint the client can dial into. Drivers are responsible for
+  // ensuring sshd is running (some providers need an explicit start step). Only drivers
+  // listing `ssh` in attachTransports implement this.
+  openSSH?(vmId: string): Promise<SSHEndpoint>;
+  prepareSCP?(vmId: string, publicKey: string): Promise<SCPEndpoint>;
 
   // Best-effort revocation of an identity handle that `openSSH` previously returned. No-op
   // if the driver doesn't mint revocable credentials, must not throw on unknown
   // or already-revoked handles. Cleanup paths rely on it being safe to call.
-  revokeSSHIdentity(identityHandle: string): Promise<void>;
+  revokeSSHIdentity?(identityHandle: string): Promise<void>;
 
   /**
    * Invalidates endpoint credentials and live daemon connections for one VM.
@@ -487,5 +567,13 @@ export class ProviderError extends Error {
   ) {
     super(`[${provider}] ${message}`);
     this.name = "ProviderError";
+  }
+}
+
+/** An unpublished runtime artifact; diagnostics stay server-side while routes localize the failure. */
+export class ProviderArtifactUnavailableError extends ProviderError {
+  constructor(provider: ProviderId, diagnostic: { readonly manifestUrl: string; readonly target: string }) {
+    super(provider, "vm_artifact_unavailable", diagnostic);
+    this.name = "ProviderArtifactUnavailableError";
   }
 }
