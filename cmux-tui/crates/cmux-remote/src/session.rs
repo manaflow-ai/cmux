@@ -956,6 +956,12 @@ impl ScheduledSender {
                     }
                     let _ = tokio::time::timeout(SCHEDULER_ABORT_WAIT_TIMEOUT, async {
                         for task in tasks {
+                            // Tasks awaited before the shutdown deadline have
+                            // already consumed their JoinHandle completion.
+                            // Tokio panics if such a handle is polled again.
+                            if task.is_finished() {
+                                continue;
+                            }
                             let _ = task.await;
                         }
                     })
@@ -1468,25 +1474,34 @@ mod tests {
     #[tokio::test]
     async fn shutdown_rejects_send_waiting_for_queue_without_orphaning_completion() {
         let link = Arc::new(GatedRecordingLink::new());
-        let mut limits = SessionLimits::default();
-        limits.queued_frames_per_lane = 1;
+        let limits = SessionLimits { queued_frames_per_lane: 1, ..SessionLimits::default() };
         let session = ReliableSession::new(SessionId([19; 16]), link.clone(), limits);
+        fn encode(sequence: u64, payload: &'static [u8]) -> Bytes {
+            Bytes::from(
+                WireFrame {
+                    session: SessionId([19; 16]),
+                    generation: 0,
+                    lane: Lane::Bulk,
+                    flags: FrameFlags::RELIABLE,
+                    sequence,
+                    acknowledgement: 0,
+                    stream: 1,
+                    payload: payload.to_vec(),
+                }
+                .encode()
+                .unwrap(),
+            )
+        }
 
         let first = tokio::spawn({
-            let session = session.clone();
-            async move {
-                session.send(Lane::Bulk, 1, Bytes::from_static(b"first"), FrameFlags::empty()).await
-            }
+            let scheduler = session.scheduler.clone();
+            async move { scheduler.send(Lane::Bulk, encode(1, b"first")).await }
         });
         link.entered.acquire().await.unwrap().forget();
 
         let second = tokio::spawn({
-            let session = session.clone();
-            async move {
-                session
-                    .send(Lane::Bulk, 2, Bytes::from_static(b"second"), FrameFlags::empty())
-                    .await
-            }
+            let scheduler = session.scheduler.clone();
+            async move { scheduler.send(Lane::Bulk, encode(2, b"second")).await }
         });
         tokio::time::timeout(Duration::from_secs(1), async {
             while session.scheduler.inner.budgets[lane_index(Lane::Bulk)].load(Ordering::Acquire)
@@ -1499,17 +1514,18 @@ mod tests {
         .expect("second frame was not admitted to the bounded lane queue");
 
         let third = tokio::spawn({
-            let session = session.clone();
-            async move {
-                session.send(Lane::Bulk, 3, Bytes::from_static(b"third"), FrameFlags::empty()).await
-            }
+            let scheduler = session.scheduler.clone();
+            async move { scheduler.send(Lane::Bulk, encode(3, b"third")).await }
         });
         session.scheduler.request_shutdown();
         let third_result = tokio::time::timeout(Duration::from_secs(1), third)
             .await
             .expect("send waiting for queue did not observe shutdown")
             .unwrap();
-        assert!(matches!(third_result, Err(SessionError::SchedulerClosed)));
+        assert!(matches!(
+            third_result,
+            Err(ScheduleError::Ambiguous(SessionError::SchedulerClosed))
+        ));
 
         link.release.add_permits(1);
         let _ = first.await;

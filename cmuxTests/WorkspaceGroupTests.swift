@@ -1082,7 +1082,11 @@ struct WorkspaceGroupTests {
     @Test func sessionSnapshotRoundtripPreservesGroups() throws {
         let manager = makeTabManager()
         let child = manager.tabs[0].id
-        let groupId = manager.createWorkspaceGroup(name: "Round Trip", childWorkspaceIds: [child])!
+        let groupId = manager.createWorkspaceGroup(
+            name: "Round Trip",
+            childWorkspaceIds: [child],
+            externalID: "repo:round-trip"
+        )!
         manager.toggleWorkspaceGroupPinned(groupId: groupId)
         manager.toggleWorkspaceGroupCollapsed(groupId: groupId)
         manager.setWorkspaceGroupColor(groupId: groupId, hex: "#123456")
@@ -1096,6 +1100,8 @@ struct WorkspaceGroupTests {
         #expect(g.isPinned == true)
         #expect(g.customColor == "#123456")
         #expect(g.iconSymbol == "leaf.fill")
+        #expect(g.externalID == "repo:round-trip")
+        #expect(g.anchorWorkspaceProvenance == WorkspaceGroupAnchorProvenance.generated.rawValue)
 
         let restored = TabManager()
         restored.restoreSessionSnapshot(snapshot)
@@ -1105,6 +1111,8 @@ struct WorkspaceGroupTests {
         #expect(restoredGroup.isPinned == true)
         #expect(restoredGroup.customColor == "#123456")
         #expect(restoredGroup.iconSymbol == "leaf.fill")
+        #expect(restoredGroup.externalID == "repo:round-trip")
+        #expect(restoredGroup.anchorWorkspaceProvenance == .generated)
     }
 
     @Test func workspaceGroupIconSymbolResolutionFallsBackToRenderableIcon() {

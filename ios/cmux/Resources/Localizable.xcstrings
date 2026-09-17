@@ -18373,13 +18373,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Requires cmux 0.64.20 or later on your Mac."
+            "value": "Same-account Macs connect automatically."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac版cmux 0.64.20以降が必要です。"
+            "value": "同じアカウントのMacに自動で接続します。"
           }
         },
         "de": {
@@ -18491,13 +18491,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Works with cmux 0.64.17 or later. Scan once to authorize the Mac."
+            "value": "Scan once to authorize the Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac版cmux 0.64.17以降で動作します。一度スキャンしてMacを承認します。"
+            "value": "一度スキャンしてMacを承認します。"
           }
         },
         "de": {
@@ -18668,13 +18668,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Works with cmux 0.64.17 or later. Install Tailscale on both devices and join the same network. On 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code once."
+            "value": "Install Tailscale on both devices and join the same network, then scan the pairing code once."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 0.64.17以降で動作します。両方のデバイスにTailscaleをインストールし、同じネットワークに参加してください。0.64.17では「Connect iPhone/iPad」を選び、「Pair iPhone」のコードを一度スキャンします。"
+            "value": "両方のデバイスにTailscaleをインストールして同じネットワークに参加し、ペアリングコードを一度スキャンしてください。"
           }
         },
         "de": {
@@ -83450,6 +83450,125 @@
           "stringUnit": {
             "state": "translated",
             "value": "Keep Mac Awake를 제어하려면 이 Mac에 연결하세요."
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.bodyWithMinVersionFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use the same cmux account on both devices. Requires cmux %1$@ or newer on your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "両方の端末で同じcmuxアカウントを使用してください。Mac版cmux %1$@以降が必要です。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.tailscaleBodyWithMinVersionFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requires cmux %1$@ or newer on your Mac. Install Tailscale on both devices and join the same network, then scan the pairing code once."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac版cmux %1$@以降が必要です。両方のデバイスにTailscaleをインストールして同じネットワークに参加し、ペアリングコードを一度スキャンしてください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.macVersionTooOld.format": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac is running cmux %1$@, but this version of the app requires cmux %2$@ or newer on the Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacはcmux %1$@を実行していますが、このバージョンのアプリにはMac版cmux %2$@以降が必要です。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.macVersionTooOld.unknownFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac is running an older version of cmux. This version of the app requires cmux %1$@ or newer on the Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacは古いバージョンのcmuxを実行しています。このバージョンのアプリにはMac版cmux %1$@以降が必要です。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.macVersionTooOld.nightlyFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac is running cmux %1$@, but this version of the app needs a newer cmux Nightly (%2$@ or later)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacはcmux %1$@を実行していますが、このバージョンのアプリにはより新しいcmux Nightly（%2$@以降）が必要です。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.guidance.macVersionTooOld": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On the Mac, update cmux (cmux menu > Check for Updates, or download the latest from cmux.com). This computer reconnects automatically after the update."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macでcmuxをアップデートしてください（cmuxメニュー > アップデートを確認、またはcmux.comから最新版をダウンロード）。アップデート後、このコンピュータには自動的に再接続します。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.macVersionTooOld.nightlyUnknownFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This version of the app needs a newer cmux Nightly on this Mac (%1$@ or later)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このバージョンのアプリには、このMacでより新しいcmux Nightly（%1$@以降）が必要です。"
           }
         }
       }

@@ -175,7 +175,7 @@ struct MachineCreateCoordinatorTests {
             id: "calm-petrel", provider: "freestyle", image: "image", isDesktop: false,
             activity: .ready, createdAt: nil, label: nil
         )
-        #expect(coordinator.operations.first?.isSuperseded(by: [machine], catalogMachines: []))
+        #expect(coordinator.operations.first?.isSuperseded(by: [machine], catalogMachines: []) == true)
     }
 
     // MARK: Success
@@ -475,14 +475,14 @@ struct MachinesPanelPendingCreateTests {
         // A pending operation without its emitted machine id cannot safely be
         // matched by a label or timestamp, especially with concurrent creates.
         let uncorrelated = MachineCreateOperation(
-            id: UUID(), request: Self.newMachineRequest(name: "troll"), startedAt: started
+            id: UUID(), request: MachineCreateCoordinatorTests.newMachineRequest(name: "troll"), startedAt: started
         )
         #expect(rows(machines: [created], pending: [uncorrelated]).first?.hasPrefix("pending-machine:") == true)
 
         // Two concurrent unnamed creates must not both disappear when one
         // newly observed machine has no matching authoritative id.
         let uncorrelatedOther = MachineCreateOperation(
-            id: UUID(), request: Self.newMachineRequest(name: nil), startedAt: started
+            id: UUID(), request: MachineCreateCoordinatorTests.newMachineRequest(name: nil), startedAt: started
         )
         let concurrentRows = rows(machines: [anonymous], pending: [uncorrelated, uncorrelatedOther])
         #expect(concurrentRows.filter { $0.hasPrefix("pending-machine:") }.count == 2)

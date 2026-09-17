@@ -41,9 +41,20 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         childWorkspaceIds: [UUID] = [],
         anchorWorkingDirectory: String? = nil,
         selectAnchor: Bool = true,
-        collapseSidebarSelection: Bool = true
+        collapseSidebarSelection: Bool = true,
+        externalID: String? = nil
     ) -> UUID? {
         guard let host else { return nil }
+        let trimmedExternalID = externalID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedExternalID = trimmedExternalID?.isEmpty == true ? nil : trimmedExternalID
+        // The coordinator is main-actor isolated, so this lookup and the
+        // insertion below form one atomic create-if-absent turn even when
+        // several socket clients arrive concurrently. Names are deliberately
+        // not consulted: a user may own multiple groups with the same name.
+        if let normalizedExternalID,
+           let existingGroup = model.workspaceGroups.first(where: { $0.externalID == normalizedExternalID }) {
+            return existingGroup.id
+        }
         // Eligible children: not currently an anchor of a different group.
         // Pulling an anchor into a new group would orphan the
         // source group (its anchorWorkspaceId would no longer match), so we
@@ -80,7 +91,9 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
             isPinned: false,
             anchorWorkspaceId: anchor.id,
             customColor: nil,
-            iconSymbol: nil
+            iconSymbol: nil,
+            externalID: normalizedExternalID,
+            anchorWorkspaceProvenance: .generated
         )
         model.workspaceGroups.append(group)
         anchor.groupId = group.id
@@ -304,18 +317,30 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
     /// push the now-ungrouped members down into the "ungrouped tier at the
     /// bottom" slot, which makes Ungroup feel like a destructive move
     /// instead of a flatten-in-place.
-    public func ungroupWorkspaceGroup(groupId: UUID) {
+    @discardableResult
+    public func ungroupWorkspaceGroup(
+        groupId: UUID,
+        removeGeneratedAnchor: Bool = false
+    ) -> WorkspaceGroupUngroupResult {
+        guard let group = model.workspaceGroups.first(where: { $0.id == groupId }) else {
+            return .groupNotFound
+        }
         let memberIds = model.tabs.filter { $0.groupId == groupId }.map(\.id)
-        guard let group = model.workspaceGroups.first(where: { $0.id == groupId }) else { return }
+        if removeGeneratedAnchor {
+            return removeGeneratedAnchorWorkspace(group: group, groupId: groupId, memberIds: memberIds)
+        }
         // An empty pinned group is durable state. Removing it through Ungroup
         // would bypass the explicit Delete Group action that owns its
         // confirmation; users can unpin it first if they want to flatten it.
-        guard !memberIds.isEmpty || !group.isPinned else { return }
+        guard !memberIds.isEmpty || !group.isPinned else {
+            return .emptyPinnedCannotUngroup
+        }
         for id in memberIds {
             model.assignGroup(workspaceId: id, groupId: nil)
         }
         model.workspaceGroups.removeAll { $0.id == groupId }
         host?.workspaceOrderDidChange(movedWorkspaceIds: memberIds)
+        return .dissolved(keptWorkspaceCount: memberIds.count)
     }
 
     /// Delete a group and close every workspace inside it (anchor + all
@@ -445,6 +470,7 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         guard let tab = model.tabs.first(where: { $0.id == workspaceId }), tab.groupId == groupId else { return }
         guard model.workspaceGroups[groupIndex].liveAnchorWorkspaceId != workspaceId else { return }
         model.workspaceGroups[groupIndex].anchorWorkspaceId = workspaceId
+        model.workspaceGroups[groupIndex].anchorWorkspaceProvenance = .user
         // Hoist the new anchor to the front of its members in tabs[] so the
         // sidebar header is rendered at the anchor's position. Without this,
         // the header would still draw at the (former) first member but the

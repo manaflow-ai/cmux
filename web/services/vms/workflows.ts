@@ -985,7 +985,14 @@ export function forkVm(input: {
         reason: createDisabledReason,
       }));
     }
-    yield* preflightResumeIfSuspended(repo, providers, source, input.providerVmId, "fork");
+    yield* preflightResumeIfSuspended(
+      repo,
+      providers,
+      source,
+      input.providerVmId,
+      "fork",
+      { forceProviderProbe: true },
+    );
 
     if (source.provider === "freestyle" && providers.fork) {
       const create = yield* beginCreateWithLazyProviderRefresh(repo, providers, {
@@ -1303,6 +1310,16 @@ const RESUME_SETTLE_ATTEMPTS = 10;
 const RESUME_SETTLE_INTERVAL = "1 second";
 type VmResumeSource = "exec" | "attach" | "ssh" | "fork" | "open_port";
 
+type ResumePreflightOptions = {
+  /**
+   * Probe the provider even when Postgres still says `running`. Providers may
+   * pause a VM independently (for example after an idle timeout), so an
+   * attach/open operation must verify the live state before minting a route.
+   * Passive reads intentionally leave this off.
+   */
+  readonly forceProviderProbe?: boolean;
+};
+
 // resume() can legitimately return a not-yet-running handle (Freestyle maps a
 // post-start "starting" state to "creating"), so poll briefly until the VM is
 // observably running; never record a running transition for a VM that has not
@@ -1443,16 +1460,17 @@ function preflightResumeIfSuspended(
   vm: CloudVmRow,
   providerVmId: string,
   resumeSource: VmResumeSource,
+  options: ResumePreflightOptions = {},
 ): Effect.Effect<boolean, VmWorkflowError> {
   return Effect.gen(function* () {
     const getStatus = providers.getStatus;
     const resume = providers.resume;
     if (!getStatus || !resume) return false;
-    // Our row is the source of truth for a machine we paused. A row that says
-    // running gets no provider read: a guest exec wakes a machine Freestyle
-    // idled on its own, and the status cron records that state within its
-    // cadence. Only a row we paused, or one still creating, asks the provider.
-    if (vm.status === "running") return false;
+    const forceProviderProbe = options.forceProviderProbe === true;
+    // A passive/exec path can trust the row and let the provider operation
+    // perform its own wake. User-open paths opt into a live probe because a
+    // provider can idle-pause a VM while Postgres still says `running`.
+    if (vm.status === "running" && !forceProviderProbe) return false;
 
     const status = yield* getStatus(vm.provider, providerVmId).pipe(
       Effect.timeoutFail({
@@ -1468,11 +1486,23 @@ function preflightResumeIfSuspended(
         // Fail closed when the row durably says paused and the probe cannot
         // prove otherwise: minting endpoints against a suspended VM would
         // hand out unusable credentials and record leases/usage for it.
-        vm.status === "paused"
+        vm.status === "paused" || forceProviderProbe
           ? Effect.fail(err)
           : Effect.succeed(null as VMStatus | null),
       ),
     );
+    if (status === "destroyed") {
+      // A live provider read is authoritative for an access operation. Do not
+      // mint an endpoint (or start a fork) against an id that Freestyle has
+      // already removed; mark the row so the next fleet refresh drops it and
+      // return the same not-found contract as ownership checks.
+      yield* repo.markProviderObservedStatus({
+        id: vm.id,
+        providerVmId,
+        status: "destroyed",
+      }).pipe(Effect.catchAll(() => Effect.succeed(false)));
+      return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
+    }
     if (status === "creating") {
       // Another caller's resume is in flight; wait for it rather than
       // minting endpoints or running commands against a not-yet-ready VM.
@@ -1890,13 +1920,6 @@ export function openVmPort(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireAccessibleUserVm(input);
-    yield* preflightResumeIfSuspended(
-      repo,
-      providers,
-      vm,
-      input.providerVmId,
-      "open_port",
-    );
     if (!providers.openPort) {
       return yield* Effect.fail(
         new VmProviderOperationError({
@@ -1906,6 +1929,14 @@ export function openVmPort(input: {
         }),
       );
     }
+    yield* preflightResumeIfSuspended(
+      repo,
+      providers,
+      vm,
+      input.providerVmId,
+      "open_port",
+      { forceProviderProbe: true },
+    );
     const endpoint = yield* providers.openPort(vm.provider, input.providerVmId, input.port);
     // Keep the preview token in the same revocation ledger as terminal/RPC
     // endpoints. The raw token is never persisted; only its hash is needed to
@@ -1961,7 +1992,6 @@ export function openVmCmuxRemote(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireAccessibleUserVm(input);
-    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "attach");
     if (!providers.openCmuxRemote) {
       return yield* Effect.fail(
         new VmProviderOperationError({
@@ -1971,6 +2001,14 @@ export function openVmCmuxRemote(input: {
         }),
       );
     }
+    yield* preflightResumeIfSuspended(
+      repo,
+      providers,
+      vm,
+      input.providerVmId,
+      "attach",
+      { forceProviderProbe: true },
+    );
     const endpoint = yield* withResumeOnSuspendedAfterFailure(
       repo,
       providers,
@@ -2183,7 +2221,14 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
         }),
       );
     }
-    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "attach");
+    yield* preflightResumeIfSuspended(
+      repo,
+      providers,
+      vm,
+      input.providerVmId,
+      "attach",
+      { forceProviderProbe: true },
+    );
     // Once preflight records the VM as running, that state is externally
     // visible to concurrent attach/SSH requests. Later cleanup failures must
     // fail closed without pausing a VM another request may have attached to.
