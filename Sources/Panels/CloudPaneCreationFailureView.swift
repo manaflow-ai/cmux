@@ -2,290 +2,369 @@ import AppKit
 import CmuxAppKitSupportUI
 import SwiftUI
 
-/// Installs the failure card in the window's native overlay layer.
-///
-/// Cloud terminal views are AppKit portal views. A SwiftUI overlay mounted in
-/// the workspace content can render behind the terminal and let terminal text
-/// show through the error. The bridge keeps a native card above the portal
-/// host while keeping all points outside the card untouched.
+/// Mounts the latest cloud pane creation failure above one workspace's content.
 struct CloudPaneCreationFailurePresentation: ViewModifier {
     let failureStore: CloudPaneCreationFailureStore
     var isWorkspaceVisible = true
+    var sourceView: NSView?
+    #if DEBUG
+    @AppStorage("cloudPaneFailurePrototypeStyle") private var prototypeStyle = "compact-bordered"
+    #endif
 
+    private var style: CloudPaneCreationFailureView.Style {
+        #if DEBUG
+        CloudPaneCreationFailureView.Style(rawValue: prototypeStyle) ?? .compactBordered
+        #else
+        .compactBordered
+        #endif
+    }
+
+    /// Adds the failure card above the workspace content when a failure exists.
     func body(content: Content) -> some View {
-        content.background(
-            CloudPaneCreationFailureWindowBridge(
-                failure: failureStore.failure,
-                isWorkspaceVisible: isWorkspaceVisible,
-                onRetry: failureStore.canRetry ? { [weak failureStore] id in
-                    failureStore?.retry(id: id)
-                } : nil,
+        content.background {
+            NativeOverlay(
+                failure: isWorkspaceVisible ? failureStore.failure : nil,
+                sourceView: sourceView,
+                style: style,
+                onRetry: failureStore.canRetry ? { [weak failureStore] id in failureStore?.retry(id: id) } : nil,
                 onDismiss: { [weak failureStore] id in failureStore?.dismiss(id: id) }
             )
+        }
+    }
+
+    /// The anchor stays in the workspace layout; the interactive card is a
+    /// native sibling above the terminal/browser portals, like the palette.
+    struct NativeOverlay: NSViewRepresentable {
+        let failure: CloudPaneCreationFailure?
+        let sourceView: NSView?
+        let style: CloudPaneCreationFailureView.Style
+        let onRetry: ((UUID) -> Void)?
+        let onDismiss: (UUID) -> Void
+
+        func makeCoordinator() -> Coordinator { Coordinator() }
+
+        func makeNSView(context: Context) -> AnchorView {
+            let view = AnchorView()
+            view.coordinator = context.coordinator
+            context.coordinator.anchor = view
+            return view
+        }
+
+        func updateNSView(_ view: AnchorView, context: Context) {
+            context.coordinator.update(
+                failure: failure,
+                layoutDirection: context.environment.layoutDirection,
+                colorScheme: context.environment.colorScheme,
+                sourceView: sourceView,
+                style: style,
+                onRetry: onRetry,
+                onDismiss: onDismiss
+            )
+        }
+
+        static func dismantleNSView(_ view: AnchorView, coordinator: Coordinator) {
+            view.coordinator = nil
+            coordinator.removeCard()
+        }
+
+        @MainActor
+        final class AnchorView: NSView {
+            weak var coordinator: Coordinator?
+            override var isHidden: Bool {
+                didSet { coordinator?.synchronize() }
+            }
+            override func viewWillMove(toWindow newWindow: NSWindow?) {
+                if newWindow !== window { coordinator?.removeCard() }
+                super.viewWillMove(toWindow: newWindow)
+            }
+            override func viewWillMove(toSuperview newSuperview: NSView?) {
+                if newSuperview == nil { coordinator?.removeCard() }
+                super.viewWillMove(toSuperview: newSuperview)
+            }
+            override func hitTest(_ point: NSPoint) -> NSView? { nil }
+            override func viewDidMoveToWindow() {
+                super.viewDidMoveToWindow()
+                coordinator?.synchronize()
+            }
+            override func layout() {
+                super.layout()
+                coordinator?.synchronize()
+            }
+            override func setFrameOrigin(_ newOrigin: NSPoint) {
+                super.setFrameOrigin(newOrigin)
+                coordinator?.synchronize()
+            }
+            override func setFrameSize(_ newSize: NSSize) {
+                super.setFrameSize(newSize)
+                coordinator?.synchronize()
+            }
+        }
+
+        @MainActor
+        final class Coordinator {
+            private struct RenderState: Equatable {
+                let failure: CloudPaneCreationFailure
+                let width: CGFloat
+                let layoutDirection: LayoutDirection
+                let colorScheme: ColorScheme
+                let style: CloudPaneCreationFailureView.Style
+            }
+
+            weak var anchor: AnchorView?
+            private var failure: CloudPaneCreationFailure?
+            private var onDismiss: ((UUID) -> Void)?
+            private var onRetry: ((UUID) -> Void)?
+            private var layoutDirection: LayoutDirection = .leftToRight
+            private var colorScheme: ColorScheme = .light
+            private var card: NSHostingView<AnyView>?
+            private var rendered: RenderState?
+            private weak var sourceView: NSView?
+            private var style: CloudPaneCreationFailureView.Style = .compactBordered
+            private var geometryObservers: [NSObjectProtocol] = []
+            private var observedViews: [ObjectIdentifier] = []
+            private var isSynchronizing = false
+            private let chromeComposition = AppWindowChromeComposition()
+
+            func update(
+                failure: CloudPaneCreationFailure?,
+                layoutDirection: LayoutDirection,
+                colorScheme: ColorScheme,
+                sourceView: NSView?,
+                style: CloudPaneCreationFailureView.Style,
+                onRetry: ((UUID) -> Void)?,
+                onDismiss: @escaping (UUID) -> Void
+            ) {
+                self.failure = failure
+                self.layoutDirection = layoutDirection
+                self.colorScheme = colorScheme
+                self.sourceView = sourceView
+                self.style = style
+                self.onRetry = onRetry
+                self.onDismiss = onDismiss
+                synchronize()
+            }
+
+            func removeCard() {
+                card?.removeFromSuperview()
+                card = nil
+                rendered = nil
+                geometryObservers.forEach(NotificationCenter.default.removeObserver)
+                geometryObservers.removeAll()
+                observedViews.removeAll()
+            }
+
+            deinit { geometryObservers.forEach(NotificationCenter.default.removeObserver) }
+
+            private func observeGeometry(from source: NSView, through container: NSView) {
+                var views: [NSView] = []
+                var current: NSView? = source
+                while let view = current, view !== container {
+                    views.append(view)
+                    current = view.superview
+                }
+                let identities = views.map(ObjectIdentifier.init)
+                guard observedViews != identities else { return }
+                geometryObservers.forEach(NotificationCenter.default.removeObserver)
+                geometryObservers.removeAll()
+                observedViews = identities
+                for view in views {
+                    view.postsFrameChangedNotifications = true
+                    view.postsBoundsChangedNotifications = true
+                    for name in [NSView.frameDidChangeNotification, NSView.boundsDidChangeNotification] {
+                        geometryObservers.append(NotificationCenter.default.addObserver(forName: name, object: view, queue: .main) { [weak self] _ in
+                            MainActor.assumeIsolated { self?.synchronize() }
+                        })
+                    }
+                }
+            }
+
+            func synchronize() {
+                // Measuring the SwiftUI card can synchronously lay out its
+                // anchor. The anchor remains the sole source of geometry.
+                guard !isSynchronizing else { return }
+                isSynchronizing = true
+                defer { isSynchronizing = false }
+                guard let failure, let anchor, let window = anchor.window, let sourceView,
+                      !anchor.isHiddenOrHasHiddenAncestor,
+                      sourceView.window === window, !sourceView.isHiddenOrHasHiddenAncestor,
+                      let target = chromeComposition.contentOverlayTargetResolver.installationTarget(for: window) else {
+                    removeCard()
+                    return
+                }
+                observeGeometry(from: sourceView, through: target.container)
+                // The originating terminal defines placement, even if focus
+                // moves while the remote request is in flight. Its native
+                // content bounds exclude Bonsplit's tab and split controls.
+                let bounds = target.container.convert(sourceView.visibleRect, from: sourceView)
+                    .intersection(target.container.convert(target.reference.bounds, from: target.reference))
+                guard !bounds.isNull, bounds.width > 32, bounds.height > 24 else {
+                    removeCard()
+                    return
+                }
+                let width = min(style == .dialog ? 320 : 360, bounds.width - 24)
+                let nextRender = RenderState(failure: failure, width: width, layoutDirection: layoutDirection, colorScheme: colorScheme, style: style)
+                let root = AnyView(
+                    CloudPaneCreationFailureView(
+                        failure: failure, style: style,
+                        onRetry: onRetry == nil ? nil : { [weak self] in self?.onRetry?(failure.id) },
+                        onDismiss: { [weak self] in self?.onDismiss?(failure.id) }
+                    )
+                    .environment(\.layoutDirection, layoutDirection)
+                    .environment(\.colorScheme, colorScheme)
+                    .frame(width: width)
+                    .fixedSize(horizontal: false, vertical: true)
+                )
+                let host = card ?? NSHostingView(rootView: root)
+                if card == nil {
+                    host.identifier = NSUserInterfaceItemIdentifier("cmux.cloudPaneCreationFailure.card")
+                    host.sizingOptions = [.intrinsicContentSize]
+                    host.wantsLayer = true
+                    host.layer?.backgroundColor = NSColor.clear.cgColor
+                }
+                card = host
+                if host.superview !== target.container {
+                    host.removeFromSuperview()
+                    // Portals install just above the content reference (or
+                    // each other), keeping later portal mounts below this card.
+                    // Palette and other foreground controls retain their order.
+                    let foregroundSurface = target.container.subviews.last {
+                        $0 is WindowTerminalHostView || $0 is WindowBrowserHostView
+                    } ?? target.reference
+                    target.container.addSubview(host, positioned: .above, relativeTo: foregroundSurface)
+                }
+                var height = host.frame.height
+                if rendered != nextRender {
+                    host.rootView = root
+                    height = ceil(host.fittingSize.height)
+                    rendered = nextRender
+                }
+                let x = bounds.midX - width / 2
+                let y = bounds.midY - height / 2
+                let frame = NSRect(x: x, y: y, width: width, height: height)
+                if host.frame != frame { host.frame = frame }
+            }
+        }
+    }
+}
+
+/// A workspace failure and a reserved terminal use the same responsive content.
+struct CloudPaneCreationFailureView: View {
+    typealias Style = CloudFailureCard.Style
+    let failure: CloudPaneCreationFailure
+    var style: Style = .compactBordered
+    var onRetry: (() -> Void)? = nil
+    let onDismiss: () -> Void
+
+    var body: some View {
+        CloudFailureCard(
+            title: failure.displayTitle, detail: failure.errorText,
+            copyableText: failure.copyableText, style: style,
+            onRetry: onRetry, onDismiss: onDismiss
         )
     }
 }
 
-@MainActor
-private struct CloudPaneCreationFailureWindowBridge: NSViewRepresentable {
-    let failure: CloudPaneCreationFailure?
-    let isWorkspaceVisible: Bool
-    let onRetry: ((UUID) -> Void)?
-    let onDismiss: (UUID) -> Void
+/// Text takes the entire card width. The close control cannot compress the body
+/// into a narrow column, and copying remains a contextual troubleshooting action.
+struct CloudFailureCard: View {
+    enum Style: String, Equatable { case compact, compactBordered = "compact-bordered", dialog, inline }
+    let title: String
+    let detail: String
+    let copyableText: String
+    var style: Style = .compactBordered
+    var onRetry: (() -> Void)? = nil
+    let onDismiss: () -> Void
 
-    func makeNSView(context: Context) -> CloudPaneCreationFailureOverlayHostView {
-        let view = CloudPaneCreationFailureOverlayHostView(frame: .zero)
-        view.isHidden = !isWorkspaceVisible
-        view.update(failure: failure, onRetry: onRetry, onDismiss: onDismiss)
-        return view
-    }
-
-    func updateNSView(_ nsView: CloudPaneCreationFailureOverlayHostView, context: Context) {
-        nsView.isHidden = !isWorkspaceVisible
-        nsView.update(failure: failure, onRetry: onRetry, onDismiss: onDismiss)
-    }
-
-    static func dismantleNSView(_ nsView: CloudPaneCreationFailureOverlayHostView, coordinator: ()) {
-        nsView.detach()
-    }
-}
-
-/// Owns a card that is inserted above the window's portal views.
-@MainActor
-final class CloudPaneCreationFailureOverlayHostView: NSView {
-    private let card = CloudPaneCreationFailureOverlayView(frame: .zero)
-    private let chromeComposition = AppWindowChromeComposition()
-    private var installConstraints: [NSLayoutConstraint] = []
-    private weak var installedContainer: NSView?
-    private weak var installedReference: NSView?
-    private var pendingFailure: CloudPaneCreationFailure?
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        translatesAutoresizingMaskIntoConstraints = false
-        wantsLayer = true
-        layer?.backgroundColor = NSColor.clear.cgColor
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    func update(
-        failure: CloudPaneCreationFailure?,
-        onRetry: ((UUID) -> Void)?,
-        onDismiss: @escaping (UUID) -> Void
-    ) {
-        pendingFailure = failure
-        guard let failure else {
-            removeCard()
-            return
-        }
-        card.update(failure: failure, onRetry: onRetry, onDismiss: onDismiss)
-        _ = ensureInstalled()
-    }
-
-    override var isHidden: Bool {
-        didSet { _ = ensureInstalled() }
-    }
-
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-    override func layout() {
-        super.layout()
-        _ = ensureInstalled()
-    }
-
-    override func viewWillMove(toWindow newWindow: NSWindow?) {
-        if newWindow !== window { removeCard() }
-        super.viewWillMove(toWindow: newWindow)
-    }
-
-    override func viewWillMove(toSuperview newSuperview: NSView?) {
-        if newSuperview == nil { removeCard() }
-        super.viewWillMove(toSuperview: newSuperview)
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        _ = ensureInstalled()
-    }
-
-    func detach() {
-        pendingFailure = nil
-        removeCard()
-    }
-
-    private func removeCard() {
-        NSLayoutConstraint.deactivate(installConstraints)
-        installConstraints.removeAll()
-        card.removeFromSuperview()
-        installedContainer = nil
-        installedReference = nil
-    }
-
-    @discardableResult
-    private func ensureInstalled() -> Bool {
-        guard pendingFailure != nil, !isHiddenOrHasHiddenAncestor,
-              let window,
-              let target = chromeComposition.contentOverlayTargetResolver.installationTarget(for: window) else {
-            removeCard()
-            return false
-        }
-        card.fit(width: min(420, max(160, bounds.width - 32)))
-        if card.superview !== target.container || installedContainer !== target.container || installedReference !== target.reference {
-            NSLayoutConstraint.deactivate(installConstraints)
-            installConstraints.removeAll()
-            card.removeFromSuperview()
-            target.container.addSubview(card, positioned: .above, relativeTo: nil)
-            installConstraints = [
-                card.centerXAnchor.constraint(equalTo: centerXAnchor),
-                card.centerYAnchor.constraint(equalTo: centerYAnchor),
-            ]
-            NSLayoutConstraint.activate(installConstraints)
-            installedContainer = target.container
-            installedReference = target.reference
-        }
-        return true
-    }
-}
-
-/// A native, opaque failure card above portal-hosted terminal views.
-@MainActor
-final class CloudPaneCreationFailureOverlayView: NSView {
-    private let iconView = NSImageView(frame: .zero)
-    private let titleLabel = NSTextField(wrappingLabelWithString: "")
-    private let detailLabel = NSTextField(wrappingLabelWithString: "")
-    private let recoveryLabel = NSTextField(wrappingLabelWithString: "")
-    private let retryButton = NSButton(frame: .zero)
-    private let dismissButton = NSButton(frame: .zero)
-    private var currentFailure: CloudPaneCreationFailure?
-    private var onRetry: ((UUID) -> Void)?
-    private var onDismiss: ((UUID) -> Void)?
-    private lazy var cardWidth = widthAnchor.constraint(equalToConstant: 420)
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        translatesAutoresizingMaskIntoConstraints = false
-        wantsLayer = true
-        layer?.cornerRadius = 12
-        layer?.borderWidth = 1
-        layer?.borderColor = NSColor.systemOrange.withAlphaComponent(0.38).cgColor
-        updateBackgroundColor()
-        layer?.shadowColor = NSColor.black.withAlphaComponent(0.22).cgColor
-        layer?.shadowOpacity = 1
-        layer?.shadowRadius = 12
-        layer?.shadowOffset = CGSize(width: 0, height: -4)
-
-        iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconView.image = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: nil)
-        iconView.contentTintColor = .systemOrange
-        iconView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 19, weight: .semibold)
-
-        for label in [titleLabel, detailLabel, recoveryLabel] {
-            label.translatesAutoresizingMaskIntoConstraints = false
-            label.maximumNumberOfLines = 4
-            label.lineBreakMode = .byWordWrapping
-        }
-        titleLabel.font = .systemFont(ofSize: 15, weight: .semibold)
-        titleLabel.textColor = .labelColor
-        detailLabel.font = .systemFont(ofSize: 12, weight: .medium)
-        detailLabel.textColor = .secondaryLabelColor
-        recoveryLabel.font = .systemFont(ofSize: 11)
-        recoveryLabel.textColor = .secondaryLabelColor
-
-        retryButton.translatesAutoresizingMaskIntoConstraints = false
-        retryButton.title = String(localized: "common.retry", defaultValue: "Retry")
-        retryButton.bezelStyle = .rounded
-        retryButton.controlSize = .regular
-        retryButton.target = self
-        retryButton.action = #selector(handleRetry)
-        retryButton.setAccessibilityIdentifier("CloudPaneCreationFailureRetry")
-
-        dismissButton.translatesAutoresizingMaskIntoConstraints = false
-        dismissButton.title = String(localized: "cloudPane.newTerminalFailed.ok", defaultValue: "OK")
-        dismissButton.bezelStyle = .rounded
-        dismissButton.controlSize = .regular
-        dismissButton.target = self
-        dismissButton.action = #selector(handleDismiss)
-        dismissButton.keyEquivalent = "\u{1b}"
-        dismissButton.keyEquivalentModifierMask = []
-        dismissButton.setAccessibilityIdentifier("CloudPaneCreationFailureDismiss")
-
-        let labels = NSStackView(views: [titleLabel, detailLabel, recoveryLabel])
-        labels.translatesAutoresizingMaskIntoConstraints = false
-        labels.orientation = .vertical
-        labels.alignment = .leading
-        labels.spacing = 6
-        let actions = NSStackView(views: [retryButton, dismissButton])
-        actions.translatesAutoresizingMaskIntoConstraints = false
-        actions.orientation = .horizontal
-        actions.alignment = .centerY
-        actions.spacing = 8
-        addSubview(iconView)
-        addSubview(labels)
-        addSubview(actions)
-
-        NSLayoutConstraint.activate([
-            cardWidth,
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20),
-            iconView.topAnchor.constraint(equalTo: topAnchor, constant: 22),
-            iconView.widthAnchor.constraint(equalToConstant: 24),
-            iconView.heightAnchor.constraint(equalToConstant: 24),
-            labels.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 12),
-            labels.topAnchor.constraint(equalTo: topAnchor, constant: 20),
-            labels.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
-            titleLabel.widthAnchor.constraint(equalTo: labels.widthAnchor),
-            detailLabel.widthAnchor.constraint(equalTo: labels.widthAnchor),
-            recoveryLabel.widthAnchor.constraint(equalTo: labels.widthAnchor),
-            labels.bottomAnchor.constraint(equalTo: actions.topAnchor, constant: -14),
-            actions.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
-            actions.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -16),
-        ])
-        setAccessibilityIdentifier("CloudPaneCreationFailure")
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    func fit(width: CGFloat) {
-        if cardWidth.constant != width { cardWidth.constant = width }
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        updateBackgroundColor()
-    }
-
-    private func updateBackgroundColor() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+    private var cornerRadius: CGFloat {
+        switch style {
+        case .compactBordered: 0
+        case .inline: 3
+        case .compact, .dialog: 9
         }
     }
 
-    func update(
-        failure: CloudPaneCreationFailure,
-        onRetry: ((UUID) -> Void)?,
-        onDismiss: @escaping (UUID) -> Void
-    ) {
-        currentFailure = failure
-        self.onRetry = onRetry
-        self.onDismiss = onDismiss
-        retryButton.isHidden = onRetry == nil
-        titleLabel.stringValue = failure.title
-        detailLabel.stringValue = failure.errorText
-        recoveryLabel.stringValue = failure.recoveryText
-        needsLayout = true
+    var body: some View {
+        VStack(alignment: style == .dialog ? .center : .leading, spacing: 10) {
+            Header(title: title, style: style, onDismiss: onDismiss)
+            Text(detail)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(style == .dialog ? .center : .leading)
+                .frame(maxWidth: .infinity, alignment: style == .dialog ? .center : .leading)
+                .fixedSize(horizontal: false, vertical: true)
+            if let onRetry {
+                Button(String(localized: "common.retry", defaultValue: "Retry"), action: onRetry)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .fixedSize()
+                    .accessibilityIdentifier("CloudPaneCreationFailureRetry")
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: style == .dialog ? .center : .leading)
+        .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: cornerRadius))
+        .overlay {
+            if style == .compactBordered {
+                Rectangle()
+                    .strokeBorder(Color.primary.opacity(0.22), lineWidth: 1)
+            } else if style != .inline {
+                RoundedRectangle(cornerRadius: 9)
+                    .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
+            }
+        }
+        .overlay(alignment: .leading) {
+            if style == .inline { Rectangle().fill(Color.secondary.opacity(0.35)).frame(width: 2) }
+        }
+        .shadow(color: .black.opacity(style == .compact || style == .dialog ? 0.09 : 0), radius: 8, y: 3)
+        .accessibilityIdentifier("CloudPaneCreationFailure")
+        .cloudErrorCopyMenu(copyableText)
     }
 
-    override func menu(for event: NSEvent) -> NSMenu? {
-        currentFailure.map { CloudErrorCopy.menu($0.copyableText) }
+    private struct Header: View {
+        let title: String
+        let style: Style
+        let onDismiss: () -> Void
+        var body: some View {
+            VStack(spacing: 8) {
+                if style == .dialog {
+                    HStack {
+                        Image(systemName: "terminal")
+                            .font(.system(size: 20, weight: .regular))
+                            .foregroundStyle(.secondary)
+                            .accessibilityHidden(true)
+                        Spacer(minLength: 8)
+                        DismissButton(onDismiss: onDismiss)
+                    }
+                }
+                HStack(alignment: .top, spacing: 8) {
+                    Text(title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .multilineTextAlignment(style == .dialog ? .center : .leading)
+                        .frame(maxWidth: .infinity, alignment: style == .dialog ? .center : .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .layoutPriority(1)
+                    if style != .dialog { DismissButton(onDismiss: onDismiss) }
+                }
+            }
+        }
     }
 
-    @objc private func handleDismiss() {
-        guard let id = currentFailure?.id else { return }
-        onDismiss?(id)
-    }
-
-    @objc private func handleRetry() {
-        guard let id = currentFailure?.id else { return }
-        onRetry?(id)
+    private struct DismissButton: View {
+        let onDismiss: () -> Void
+        var body: some View {
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .medium))
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .fixedSize()
+            .keyboardShortcut(.cancelAction)
+            .help(String(localized: "machines.pending.dismiss", defaultValue: "Dismiss"))
+            .accessibilityLabel(String(localized: "machines.pending.dismiss", defaultValue: "Dismiss"))
+            .accessibilityIdentifier("CloudPaneCreationFailureDismiss")
+        }
     }
 }
