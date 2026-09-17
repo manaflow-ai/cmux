@@ -6,6 +6,7 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
     private var application: XCUIApplication?
     private var fixture: URL!
     private var socketPath = ""
+    private var launchTag = ""
 
     override func setUp() {
         super.setUp()
@@ -13,7 +14,8 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
         fixture = FileManager.default.temporaryDirectory
             .appendingPathComponent("terminal-link-placement-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: fixture, withIntermediateDirectories: true)
-        socketPath = "/tmp/cmux-debug-issue-12798-terminal-links-same.sock"
+        socketPath = "/tmp/cmux-debug-issue-\(UUID().uuidString).sock"
+        launchTag = "issue-12798-ui-\(UUID().uuidString.prefix(8))"
     }
 
     override func tearDown() {
@@ -46,7 +48,7 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
             "-AppleLanguages", "(en)",
             "-AppleLocale", "en_US",
         ]
-        app.launchEnvironment["CMUX_TAG"] = "issue-12798-terminal-links-same"
+        app.launchEnvironment["CMUX_TAG"] = launchTag
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
         app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
@@ -62,9 +64,23 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
         // Do not install the URL-capture sink: the click must create a real browser.
         app.launch()
         XCTAssertTrue(poll { self.readState(stateURL)["ready"] as? String == "1" })
-        XCTAssertTrue(waitForControlSocketReady(socketPath: socketPath, pingTimeout: 10) {
-            self.controlSocketCommandViaNetcat("ping", socketPath: self.socketPath, responseTimeout: 1) == "PONG"
-        })
+        XCTAssertTrue(waitForControlSocketReady(
+            listenerBindTimeout: 30,
+            pingTimeout: 10,
+            socketFileExists: {
+                self.socketCandidates().contains { FileManager.default.fileExists(atPath: $0) }
+            },
+            pingReturnsPong: {
+                for candidate in self.socketCandidates() {
+                    guard FileManager.default.fileExists(atPath: candidate) else { continue }
+                    if self.controlSocketCommandViaNetcat("ping", socketPath: candidate, responseTimeout: 1) == "PONG" {
+                        self.socketPath = candidate
+                        return true
+                    }
+                }
+                return false
+            }
+        ))
         let source = try XCTUnwrap(readState(stateURL)["surfaceId"] as? String)
         let workspace = try XCTUnwrap(rpc("workspace.current")["workspace_id"] as? String)
         let initial = try surfaces(workspace)
@@ -138,6 +154,17 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
 
     private func panes(_ workspace: String) throws -> [[String: Any]] {
         try XCTUnwrap(rpc("pane.list", ["workspace_id": workspace])["panes"] as? [[String: Any]])
+    }
+
+    private func socketCandidates() -> [String] {
+        let slug = launchTag
+            .lowercased()
+            .replacingOccurrences(of: ".", with: "-")
+            .replacingOccurrences(of: "_", with: "-")
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined(separator: "-")
+        return [socketPath, "/tmp/cmux-debug-\(slug).sock"]
     }
 
     private func readState(_ url: URL) -> [String: Any] {
