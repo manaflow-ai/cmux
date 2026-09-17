@@ -4,18 +4,30 @@ import Foundation
 
 /// Streams every published connection state so a test can await the session's
 /// terminal transition instead of sleeping or polling for it.
-final class ReadinessRecordingHost: RemoteSessionHosting, Sendable {
+final class ReadinessRecordingHost: RemoteSessionHosting, @unchecked Sendable {
     let connectionStates: AsyncStream<ReadinessConnectionPublication>
     private let continuation: AsyncStream<ReadinessConnectionPublication>.Continuation
+    private let lock = NSLock()
+    private var history: [WorkspaceRemoteConnectionState] = []
 
     init() {
         (connectionStates, continuation) = AsyncStream.makeStream()
+    }
+
+    /// Every connection state published so far, oldest first.
+    var publishedStates: [WorkspaceRemoteConnectionState] {
+        lock.lock()
+        defer { lock.unlock() }
+        return history
     }
 
     func publishConnectionState(
         _ state: WorkspaceRemoteConnectionState,
         detail: String?
     ) {
+        lock.lock()
+        history.append(state)
+        lock.unlock()
         continuation.yield(
             ReadinessConnectionPublication(state: state, detail: detail)
         )

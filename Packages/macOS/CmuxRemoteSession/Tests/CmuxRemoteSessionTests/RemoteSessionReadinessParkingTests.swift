@@ -352,6 +352,40 @@ struct RemoteSessionReadinessParkingTests {
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
     }
 
+    @Test(
+        "A ControlMaster reaped after the session parked does not repaint it as reconnecting",
+        .timeLimit(.minutes(1))
+    )
+    func controlMasterReapLeavesAParkedSessionParked() async throws {
+        let host = ReadinessRecordingHost()
+        let fixture = try await Self.makeCoordinator(
+            host: host,
+            runner: ReadinessScriptedProcessRunner(daemon: .missing),
+            clock: ManualBrokerClock()
+        )
+        let coordinator = fixture.coordinator
+        defer { fixture.cleanUp() }
+
+        // Three identical bootstrap failures exhaust the retry policy.
+        for _ in 0..<3 {
+            coordinator.queue.sync { coordinator.beginConnectionAttemptLocked() }
+        }
+        _ = try #require(await host.firstPublication(of: .suspended))
+
+        // The shared master outlives the parked transport; its reap arrives
+        // later from the broker's observer, outside the state machine.
+        coordinator.queue.sync {
+            coordinator.handleSharedControlMasterReapLocked(eventID: UUID())
+        }
+
+        // Nothing is scheduled to leave `.reconnecting` while parked, so
+        // publishing it would strand the workspace there without its verdict.
+        #expect(host.publishedStates.last == .suspended)
+        #expect(coordinator.queue.sync { coordinator.parkedState != nil })
+
+        _ = await coordinator.stopAndWait(cleanupScope: .transport)
+    }
+
     @Test("A managed Cloud VM session, whose broker redials while the machine wakes, carries no deadline")
     func cloudVMSessionsAreNotDeadlined() async throws {
         let fixture = try await Self.makeCoordinator(
