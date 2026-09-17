@@ -1,3 +1,4 @@
+import { accountAccessForIdentity } from "./accountAccess";
 // The Claude leg of coderouter: serves the Anthropic Messages API to a guest
 // (Claude Code inside a Cloud VM, or any Anthropic SDK client holding a
 // route token) and forwards to one of the team's Claude upstream accounts.
@@ -13,6 +14,7 @@
 // the AWS event stream back to SSE. Usage is read from a bounded head and
 // tail of the response only.
 import {
+  authenticateCoderouterCredential,
   authenticateRequestRouteToken,
   type RouteTokenAuthResult,
   type RouteTokenIdentity,
@@ -140,7 +142,7 @@ type ClaudeProxyRuntime = {
 };
 
 const defaultDependencies: ClaudeProxyDependencies = {
-  authenticate: (request) => authenticateRequestRouteToken(request),
+  authenticate: (request) => authenticateRequestRouteToken(request, authenticateCoderouterCredential),
   select: selectClaudeUpstream,
   cooldown: markClaudeAccountCooldown,
   touchUsed: touchClaudeAccountUsed,
@@ -402,6 +404,7 @@ async function routeWithFailover(
         upstreamHeaderDeadlineAt,
         runtime.now,
         (signal) => dependencies.select(identity.teamId, {
+          access: accountAccessForIdentity(identity),
           stickyKey: stickyKey(identity),
           excludedAccountIds: excluded,
           signal,
@@ -1051,6 +1054,7 @@ function captureRouteHealth(dependencies: ClaudeProxyDependencies, input: Health
     requestId: input.requestId,
     teamId: input.identity?.teamId,
     stackUserId: input.identity?.stackUserId,
+    apiKeyId: input.identity?.apiKeyId,
     vmId: input.identity?.vmId ?? null,
     provider: "claude",
     agent,
@@ -1087,6 +1091,7 @@ function captureModelUsage(
     requestId: ledger.requestId,
     teamId: identity.teamId,
     stackUserId: identity.stackUserId,
+    apiKeyId: identity.apiKeyId,
     vmId: identity.vmId,
     provider: "claude",
     upstreamKind: upstream.kind,

@@ -62,6 +62,11 @@ export function DashboardShell({
           label: t("cloudDevices"),
           active: pathname.startsWith("/dashboard/cloud"),
         },
+        {
+          href: "/dashboard/iroh",
+          label: t("irohDevices"),
+          active: pathname.startsWith("/dashboard/iroh"),
+        },
       ],
     },
     {

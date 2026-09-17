@@ -450,7 +450,7 @@ struct WorkspaceShellView: View {
                             createWorkspace: createWorkspaceInCompactStack,
                             canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
                         )
-                        .toolbarVisibility(.hidden, for: .tabBar)
+                        .mobileToolbarVisibility(.hidden, for: .tabBar)
                 }
             }
             .onAppear {
@@ -652,8 +652,8 @@ struct WorkspaceShellView: View {
             whatsNewWebLoads = [:]
         }) {
             // Presentation sizing lives inside the sheet: fitted to content
-            // for the common single-page case, full height only for web
-            // pages, multi-page catch-up, and accessibility type.
+            // for each selected native page, full height for web pages and
+            // accessibility type.
             MobileWhatsNewSheet(
                 pages: whatsNewSheetPages,
                 allowedWebHosts: whatsNewCenter?.allowedWebHosts ?? [],
@@ -687,19 +687,18 @@ struct WorkspaceShellView: View {
     /// that miss it are dropped unacknowledged and try again next launch.
     private static let whatsNewPreloadDeadline: Duration = .seconds(10)
 
-    /// Stages the one-time What's New sheet when there are unseen pages and
-    /// the device already has Computers. Staging is not presenting: the
-    /// preload gate (`preloadAndPresentWhatsNew`) presents only once every
-    /// page in the sheet renders immediately. Acknowledgement happens in the
-    /// sheet content's `onAppear` (first actual presentation, not on
-    /// dismiss): early enough that a kill mid-presentation cannot re-show
-    /// the sheet forever, late enough that a swallowed presentation (a
-    /// state-restored sheet already occupying the presenter) never marks
-    /// pages as seen.
+    /// Stages the one-time What's New sheet when there are unseen pages.
+    /// Pairing requirements must be visible before the first Mac is
+    /// discovered, so this gate cannot depend on a nonempty computer list.
+    /// Staging is not presenting: the preload gate
+    /// (`preloadAndPresentWhatsNew`) presents only once every page in the
+    /// sheet renders immediately. Acknowledgement happens in the sheet
+    /// content's `onAppear` (first actual presentation, not on dismiss):
+    /// early enough that a kill mid-presentation cannot re-show the sheet
+    /// forever, late enough that a swallowed presentation (a state-restored
+    /// sheet already occupying the presenter) never marks pages as seen.
     private func presentWhatsNewIfNeeded() {
-        guard let whatsNewCenter,
-              !store.pairedMacs.isEmpty,
-              !showsWhatsNewSheet else { return }
+        guard let whatsNewCenter, !showsWhatsNewSheet else { return }
         let pages = whatsNewCenter.unseenPages
         guard !pages.isEmpty else { return }
         whatsNewCandidatePages = pages
@@ -742,15 +741,14 @@ struct WorkspaceShellView: View {
         }
         guard !Task.isCancelled else { return }
         whatsNewCandidatePages = nil
-        // The gate conditions can drift during the bounded preload window (a
-        // refresh can withdraw a page, the last Computer can disappear), so
-        // re-check them now instead of trusting the staging-time snapshot.
-        guard let whatsNewCenter, !store.pairedMacs.isEmpty else { return }
+        // The remote list can change during the bounded preload window, so
+        // re-check visibility now instead of trusting the staging snapshot.
+        guard let whatsNewCenter else { return }
         let stillUnseen = Set(whatsNewCenter.unseenPages.map(\.listID))
         let readyPages = pages.filter { page in
             guard stillUnseen.contains(page.listID) else { return false }
             switch page.body {
-            case .features:
+            case .features, .pairingSetup:
                 return true
             case .web:
                 return loads[page.listID]?.phase == .loaded
@@ -792,7 +790,7 @@ struct WorkspaceShellView: View {
                     )
                 )
                     #if os(iOS)
-                    .toolbarVisibility(.hidden, for: .tabBar, .bottomBar)
+                    .mobileToolbarVisibility(.hidden, for: .tabBar, .bottomBar)
                     #endif
                     // Only on the pushed compact stack (where a back button
                     // exists): replace the system back button with a custom one
@@ -996,7 +994,7 @@ struct WorkspaceShellView: View {
         // Keep the sidebar's navigation container opaque through the status
         // bar. A plain view background only paints the list's content bounds,
         // leaving the top safe area to the split view's default system color.
-        .containerBackground(Color(uiColor: .systemGroupedBackground), for: .navigation)
+        .mobileNavigationContainerBackground(Color(uiColor: .systemGroupedBackground))
         .onGeometryChange(for: CGFloat.self) { proxy in
             proxy.size.width
         } action: { width in
@@ -1360,7 +1358,10 @@ struct WorkspaceShellView: View {
             names = names.mapValues(buildScope.computerDisplayName)
         }
 
-        let buildLabelsByID = store.pairedMacBuildLabelsByEntryID()
+        let buildLabelsByID = WorkspaceMacBuildLabelResolver().labels(
+            workspaces: store.workspaces,
+            existing: store.pairedMacBuildLabelsByEntryID()
+        )
         let toolbarMachineSnapshots = WorkspaceMachineSnapshots(
             workspaces: store.workspaces,
             filterMachineIDFor: { scope.aliasIndex.representativeID(for: $0) },

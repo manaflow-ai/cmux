@@ -6,6 +6,17 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 WORKFLOW_FILE="$ROOT_DIR/.github/workflows/nightly.yml"
 
 if ! awk '
+  /^      - name: Build nightly app \(Release\)/ { in_build=1; next }
+  in_build && /^      - name:/ { in_build=0 }
+  in_build && /run-xcodebuild-with-diagnostics\.sh --/ { saw_wrapper=1 }
+  in_build && /xcodebuild -jobs / { saw_jobs_cap=1 }
+  END { exit !(saw_wrapper && !saw_jobs_cap) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly Release builds must retain failure diagnostics and must not cap xcodebuild concurrency (a -jobs cap serializes the per-arch whole-module compiles)"
+  exit 1
+fi
+
+if ! awk '
   /^      - name: Build (universal nightly app|nightly app) \(Release\)/ { in_universal=1; next }
   in_universal && /^      - name:/ { in_universal=0 }
   in_universal && /-destination '\''generic\/platform=macOS'\''/ { saw_universal_destination=1 }
@@ -77,7 +88,7 @@ fi
 if ! awk '
   /^  refresh-compilation-cache:/ { in_refresh=1; next }
   in_refresh && /^  [a-zA-Z0-9_-]+:/ { in_refresh=0 }
-  in_refresh && /timeout-minutes: 45/ { saw_cold_build_timeout=1 }
+  in_refresh && /timeout-minutes: 90/ { saw_cold_build_timeout=1 }
   in_refresh && /if: github\.event_name == '\''schedule'\'' && github\.event\.schedule == '\''17 \*\/6 \* \* \*'\''/ { saw_schedule_gate=1 }
   in_refresh && /runs-on: \$\{\{ vars\.MACOS_RUNNER_26_RELEASE/ { saw_release_runner=1 }
   in_refresh && /CMUX_CI_XCODE_APP_MACOS_26/ { saw_release_xcode=1 }
@@ -92,7 +103,7 @@ if ! awk '
   in_refresh && /-quiet/ { saw_quiet=1 }
   END { exit !(saw_cold_build_timeout && saw_schedule_gate && saw_release_runner && saw_release_xcode && saw_xcode_selection && saw_lookup && saw_restore_action && saw_restore_id && saw_cache && saw_refresh && saw_change_gate && saw_timing_summary && !saw_quiet) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: the six-hour schedule must allow 45 minutes for a cold cache build and use the matching runner, Xcode, and visible timing output"
+  echo "FAIL: the six-hour schedule must allow 90 minutes for a cold cache build and use the matching runner, Xcode, and visible timing output"
   exit 1
 fi
 
@@ -117,7 +128,7 @@ if grep -Eq 'current_head_(prebuild|postbuild)|still_current' "$WORKFLOW_FILE"; 
 fi
 
 R2_UPLOAD_LINE="$(grep -nF -- '- name: Upload nightly appcasts to R2' "$WORKFLOW_FILE" | cut -d: -f1)"
-TAG_MOVE_LINE="$(grep -nF -- '- name: Move nightly tag to built commit' "$WORKFLOW_FILE" | cut -d: -f1)"
+TAG_MOVE_LINE="$(grep -nF -- '- name: Move channel release tag to built commit' "$WORKFLOW_FILE" | cut -d: -f1)"
 if [ -z "$R2_UPLOAD_LINE" ] || [ -z "$TAG_MOVE_LINE" ] || [ "$TAG_MOVE_LINE" -le "$R2_UPLOAD_LINE" ]; then
   echo "FAIL: the nightly tag completion marker must move only after GitHub and R2 publication succeed"
   exit 1
@@ -245,8 +256,8 @@ if ! awk '
   exit 1
 fi
 
-if ! grep -Fq 'bundle ID `com.cmuxterm.app.nightly`' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly workflow must publish the unified nightly bundle ID"
+if ! grep -Fq "bundleId: 'com.cmuxterm.app.nightly'," "$WORKFLOW_FILE" || ! grep -Fq "bundleId: 'com.cmuxterm.app.rc'," "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly workflow must publish the unified nightly bundle ID and the rc channel bundle ID"
   exit 1
 fi
 
@@ -255,7 +266,7 @@ if ! grep -Fq 'cp appcast.xml appcast-universal.xml' "$WORKFLOW_FILE"; then
   exit 1
 fi
 
-if ! grep -Fq './scripts/sparkle_generate_appcast.sh "$NIGHTLY_DMG_IMMUTABLE" nightly "$NIGHTLY_APPCAST"' "$WORKFLOW_FILE"; then
+if ! grep -Fq './scripts/sparkle_generate_appcast.sh "$NIGHTLY_DMG_IMMUTABLE" "$CHANNEL_RELEASE_TAG" "$NIGHTLY_APPCAST"' "$WORKFLOW_FILE"; then
   echo "FAIL: nightly workflow must generate one appcast per variant"
   exit 1
 fi
@@ -263,9 +274,11 @@ fi
 if ! awk '
   /NIGHTLY_APPCAST="appcast-\$\{NIGHTLY_VARIANT\}\.xml"/ { saw_thin_feed=1 }
   /NIGHTLY_APPCAST="appcast\.xml"/ { saw_legacy_feed=1 }
-  /"https:\/\/files\.cmux\.com\/nightly\/\$\{NIGHTLY_APPCAST\}"/ { saw_feed_injection=1 }
-  /NIGHTLY_DMG_IMMUTABLE="cmux-nightly-macos-\$\{NIGHTLY_VARIANT\}-\$\{NIGHTLY_BUILD\}\.dmg"/ { saw_immutable_name=1 }
-  END { exit !(saw_thin_feed && saw_legacy_feed && saw_feed_injection && saw_immutable_name) }
+  /"\$\{CHANNEL_FEED_BASE\}\/\$\{NIGHTLY_APPCAST\}"/ { saw_feed_injection=1 }
+  /feedBase: .https:\/\/files\.cmux\.com\/nightly.,/ { saw_nightly_feed_base=1 }
+  /feedBase: .https:\/\/files\.cmux\.com\/rc.,/ { saw_rc_feed_base=1 }
+  /NIGHTLY_DMG_IMMUTABLE="\$\{CHANNEL_DMG_PREFIX\}-\$\{NIGHTLY_VARIANT\}-\$\{NIGHTLY_BUILD\}\.dmg"/ { saw_immutable_name=1 }
+  END { exit !(saw_thin_feed && saw_legacy_feed && saw_feed_injection && saw_nightly_feed_base && saw_rc_feed_base && saw_immutable_name) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: each variant must bake its own feed URL and immutable DMG name"
   exit 1
@@ -274,8 +287,8 @@ fi
 if ! awk '
   /^      - name: Assemble legacy nightly names/ { in_legacy=1; next }
   in_legacy && /^      - name:/ { in_legacy=0 }
-  in_legacy && /cp cmux-nightly-macos-universal\.dmg cmux-nightly-macos\.dmg/ { saw_universal_legacy=1 }
-  in_legacy && /cmux-nightly-macos-x86_64\.dmg cmux-nightly-macos\.dmg/ { saw_intel_legacy=1 }
+  in_legacy && /cp "\$\{CHANNEL_DMG_PREFIX\}-universal\.dmg" "\$\{CHANNEL_DMG_PREFIX\}\.dmg"/ { saw_universal_legacy=1 }
+  in_legacy && /\$\{CHANNEL_DMG_PREFIX\}-x86_64\.dmg" "\$\{CHANNEL_DMG_PREFIX\}\.dmg/ { saw_intel_legacy=1 }
   END { exit !(saw_universal_legacy && !saw_intel_legacy) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: the legacy nightly DMG and feed must stay universal: browsers cannot pick an architecture, the app can"
@@ -437,7 +450,7 @@ if ! awk '
   /^  [a-zA-Z0-9_-]+:/ { job="" }
   job == "report" && /contains\(needs\.\*\.result, .failure.\)/ { saw_report_gate=1 }
   job == "report" && /issues: write/ { saw_report_perm=1 }
-  job == "report" && /nightly-failure/ { saw_report_label=1 }
+  job == "report" && /\$\{channel\}-failure/ { saw_report_label=1 }
   job == "close" && /needs\.publish-nightly\.result == .success./ { saw_close_gate=1 }
   job == "close" && /state: .closed./ { saw_close=1 }
   END { exit !(saw_report_gate && saw_report_perm && saw_report_label && saw_close_gate && saw_close) }
@@ -446,8 +459,9 @@ if ! awk '
   exit 1
 fi
 
-if ! grep -Fq "core.setOutput('should_publish', isMainRef && !buildOnly ? 'true' : 'false');" "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly decide step must expose should_publish only for main refs that are not measurement runs"
+if ! grep -Fq "const shouldPublish = (isMainRef || isRcRef) && !buildOnly && !fastBuild;" "$WORKFLOW_FILE" \
+  || ! grep -Fq "core.setOutput('should_publish', shouldPublish ? 'true' : 'false');" "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly decide step must expose should_publish only for main and rc/ refs that are not measurement or fast runs"
   exit 1
 fi
 
@@ -456,7 +470,7 @@ if ! awk '
   in_upload && /^      - name:/ { in_upload=0 }
   in_upload && /if: needs\.decide\.outputs\.should_publish != '\''true'\''/ { saw_if=1 }
   in_upload && /uses: actions\/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7/ { saw_upload=1 }
-  in_upload && /cmux-nightly-macos\*\.dmg/ { saw_arm_artifacts=1 }
+  in_upload && /\$\{\{ needs\.decide\.outputs\.dmg_prefix \}\}\*\.dmg/ { saw_arm_artifacts=1 }
   in_upload && /appcast\*\.xml/ { saw_appcasts=1 }
   END { exit !(saw_if && saw_upload && saw_arm_artifacts && saw_appcasts) }
 ' "$WORKFLOW_FILE"; then
@@ -465,12 +479,12 @@ if ! awk '
 fi
 
 if ! awk '
-  /^      - name: Move nightly tag to built commit/ { in_move=1; next }
+  /^      - name: Move channel release tag to built commit/ { in_move=1; next }
   in_move && /^      - name:/ { in_move=0 }
   in_move && /if: needs\.decide\.outputs\.should_publish == '\''true'\''/ { saw_move_if=1 }
   END { exit !saw_move_if }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: moving the nightly tag must be gated to main nightly publishes"
+  echo "FAIL: moving the channel release tag must be gated to publishing runs"
   exit 1
 fi
 
@@ -478,10 +492,10 @@ if ! awk '
   /^      - name: Publish nightly release assets/ { in_publish=1; next }
   in_publish && /^      - name:/ { in_publish=0 }
   in_publish && /if: needs\.decide\.outputs\.should_publish == '\''true'\''/ { saw_publish_if=1 }
-  in_publish && /cmux-nightly-macos-\*-\$\{\{ github\.run_id \}\}\*\.dmg/ { saw_immutable=1 }
-  in_publish && /cmux-nightly-macos\.dmg/ { saw_stable=1 }
-  in_publish && /cmux-nightly-macos-arm64\.dmg/ { saw_arm=1 }
-  in_publish && /cmux-nightly-macos-x86_64\.dmg/ { saw_intel=1 }
+  in_publish && /\$\{\{ needs\.decide\.outputs\.dmg_prefix \}\}-\*-\$\{\{ github\.run_id \}\}\*\.dmg/ { saw_immutable=1 }
+  in_publish && /\$\{\{ needs\.decide\.outputs\.dmg_prefix \}\}\.dmg/ { saw_stable=1 }
+  in_publish && /\$\{\{ needs\.decide\.outputs\.dmg_prefix \}\}-arm64\.dmg/ { saw_arm=1 }
+  in_publish && /\$\{\{ needs\.decide\.outputs\.dmg_prefix \}\}-x86_64\.dmg/ { saw_intel=1 }
   in_publish && /appcast-arm64\.xml/ { saw_arm_appcast=1 }
   in_publish && /appcast-x86_64\.xml/ { saw_intel_appcast=1 }
   in_publish && /appcast-universal\.xml/ { saw_universal_appcast=1 }

@@ -77,7 +77,9 @@ export const billingStatusProcedure = os
     return {
       billingAvailable: isStripeBillingConfigured(),
       personal: {
-        planId: status.planId,
+        // Keep the wire schema's stable plan-family enum while the resolver
+        // retains the exact personal plan for internal entitlement checks.
+        planId: status.isPro ? "pro" : "free",
         isPro: status.isPro,
         billingManagement: status.billingManagement,
         hasPaidManualGrant: isPaidPlanId(manualVmPlanOverride(user.clientReadOnlyMetadata)),

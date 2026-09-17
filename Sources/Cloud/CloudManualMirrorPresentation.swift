@@ -7,7 +7,8 @@ struct CloudManualMirrorPresentation {
 
     var connectionState: WorkspaceRemoteConnectionState? {
         switch phase {
-        case .idle, .connecting: return .connecting
+        case .idle: return nil
+        case .connecting: return .connecting
         case .attached: return replayReceived ? .connected : .connecting
         case .disconnected: return .error
         case .stopped: return nil
