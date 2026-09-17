@@ -25,6 +25,15 @@ public final class WorkstreamStore {
     public private(set) var hasMorePersistedItems = false
     public private(set) var isLoadingOlderItems = false
 
+    /// Monotonic change counter bumped on every item mutation (ingest,
+    /// resolve, expire, history load). Remote mirrors of the feed (the iOS
+    /// Feed tab) compare list responses against this revision to discard
+    /// stale snapshots, the same contract the notification feed uses.
+    public private(set) var revision: Int = 0
+    /// Fires on the main actor after each revision bump so the app layer can
+    /// broadcast a revision-only invalidation to subscribed phones.
+    public var onRevisionChange: ((Int) -> Void)?
+
     public var pending: [WorkstreamItem] {
         items.filter { $0.status.isPending }
     }
@@ -92,6 +101,7 @@ public final class WorkstreamStore {
                 hasMorePersistedItems = page.hasMoreBefore
                 oldestLoadedPersistenceOffset = page.startOffset
                 rebuildContextIndex()
+                bumpRevision()
             }
         }
         do {
@@ -135,6 +145,9 @@ public final class WorkstreamStore {
         self.oldestLoadedPersistenceOffset = page.startOffset ?? oldestLoadedPersistenceOffset
         hasMorePersistedItems = page.hasMoreBefore
         rebuildContextIndex()
+        if !olderItems.isEmpty {
+            bumpRevision()
+        }
     }
 
     // MARK: - Ingest
@@ -145,6 +158,7 @@ public final class WorkstreamStore {
     func ingestPrepared(_ item: WorkstreamItem) {
         insert(item)
         updateContextIndex(with: item)
+        bumpRevision()
         if let persistence {
             Task { [persistence, item] in
                 try? await persistence.append(item)
@@ -170,6 +184,7 @@ public final class WorkstreamStore {
         let now = clock()
         items[idx].status = .resolved(decision, at: now)
         items[idx].updatedAt = now
+        bumpRevision()
     }
 
     /// Marks one still-pending item expired.
@@ -179,22 +194,33 @@ public final class WorkstreamStore {
         let now = clock()
         items[idx].status = .expired(at: now)
         items[idx].updatedAt = now
+        bumpRevision()
     }
 
     /// Marks every still-pending item created before `threshold` as
     /// expired. Call periodically to clean stale items.
     public func expirePending(olderThan threshold: TimeInterval) {
         let now = clock()
+        var didExpireItem = false
         for idx in items.indices {
             guard items[idx].status.isPending else { continue }
             if now.timeIntervalSince(items[idx].createdAt) > threshold {
                 items[idx].status = .expired(at: now)
                 items[idx].updatedAt = now
+                didExpireItem = true
             }
+        }
+        if didExpireItem {
+            bumpRevision()
         }
     }
 
     // MARK: - Private helpers
+
+    private func bumpRevision() {
+        revision += 1
+        onRevisionChange?(revision)
+    }
 
     private func insert(_ item: WorkstreamItem) {
         items.append(item)
@@ -250,11 +276,16 @@ public final class WorkstreamStore {
     /// so the exact moment an agent dies, its pending cards close.
     public func expireItems(forPpid ppid: Int) {
         let now = clock()
+        var didExpireItem = false
         for idx in items.indices {
             guard items[idx].status.isPending,
                   items[idx].ppid == ppid else { continue }
             items[idx].status = .expired(at: now)
             items[idx].updatedAt = now
+            didExpireItem = true
+        }
+        if didExpireItem {
+            bumpRevision()
         }
     }
 
@@ -268,13 +299,18 @@ public final class WorkstreamStore {
         isProcessAlive: (Int) -> Bool = WorkstreamStore.defaultIsProcessAlive
     ) {
         let now = clock()
+        var didExpireItem = false
         for idx in items.indices {
             guard items[idx].status.isPending else { continue }
             guard let ppid = items[idx].ppid, ppid > 0 else { continue }
             if !isProcessAlive(ppid) {
                 items[idx].status = .expired(at: now)
                 items[idx].updatedAt = now
+                didExpireItem = true
             }
+        }
+        if didExpireItem {
+            bumpRevision()
         }
     }
 

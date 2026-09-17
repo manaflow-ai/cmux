@@ -49,6 +49,9 @@ public struct NotificationFeedPreviewView: View {
                 NavigationStack {
                     NotificationFeedPreviewWorkspacesView()
                 }
+            } feed: {
+                Text(verbatim: "Agent feed fixture")
+                    .foregroundStyle(.secondary)
             } notifications: {
                 NavigationStack {
                     ScrollViewReader { proxy in

@@ -36,6 +36,8 @@ extension ControlCommandCoordinator {
         context: (any ControlMobileHostContext)?
     ) async -> ControlCallResult? {
         switch request.method {
+        case "mobile.terminal.paste", "terminal.paste":
+            return await context?.controlMobileTerminalPaste(params: request.params)
         case "mobile.task.models.list":
             return await context?.controlMobileTaskModelsList(
                 params: request.params
@@ -69,8 +71,6 @@ extension ControlCommandCoordinator {
             return context?.controlMobileTerminalScroll(params: request.params)
         case "mobile.terminal.mouse", "terminal.mouse":
             return context?.controlMobileTerminalMouse(params: request.params)
-        case "mobile.terminal.paste", "terminal.paste":
-            return context?.controlMobileTerminalPaste(params: request.params)
         case "mobile.task.attachment.upload":
             return context?.controlMobileTaskAttachmentUpload(params: request.params)
         case "chat.sessions.dump":

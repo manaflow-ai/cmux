@@ -2649,7 +2649,6 @@
 		3865A0013865A0013865A001 /* SearchIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0013865B0013865B001 /* SearchIndex.swift */; };
 		3865A0043865A0043865A004 /* SearchIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0043865B0043865B004 /* SearchIndexTests.swift */; };
 		C0DEF0C20000000000000001 /* SemanticVersion.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0C20000000000000002 /* SemanticVersion.swift */; };
-		5E2701040000000000000003 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = 5E2701040000000000000001 /* Sentry */; };
 		A5001601 /* SentryHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001600 /* SentryHelper.swift */; };
 		FE003106 /* SessionAgentPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003006 /* SessionAgentPresentation.swift */; };
 		A9F200000000000000000008 /* SessionAgentSessionPanelSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000008 /* SessionAgentSessionPanelSnapshot.swift */; };
@@ -3259,6 +3258,7 @@
 		C7AF10000000000000000003 /* TerminalController+MobileChatArtifacts.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7AF10000000000000000004 /* TerminalController+MobileChatArtifacts.swift */; };
 		D1B800000000000000000006 /* TerminalController+MobileDirectoryList.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1B800000000000000000016 /* TerminalController+MobileDirectoryList.swift */; };
 		D1A700000000000000000002 /* TerminalController+MobileDirectorySearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A700000000000000000005 /* TerminalController+MobileDirectorySearch.swift */; };
+		D7AB00000000000000C101 /* TerminalController+MobileFeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000C100 /* TerminalController+MobileFeed.swift */; };
 		D7AB00000000000000B001 /* TerminalController+MobileNotificationSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000B000 /* TerminalController+MobileNotificationSync.swift */; };
 		D1F0A0040000000000000001 /* TerminalController+MobilePhonePushSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A0040000000000000002 /* TerminalController+MobilePhonePushSettings.swift */; };
 		D7AB00000000000000B011 /* TerminalController+MobileScrollPrefetch.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000B010 /* TerminalController+MobileScrollPrefetch.swift */; };
@@ -7070,6 +7070,7 @@
 		C7AF10000000000000000004 /* TerminalController+MobileChatArtifacts.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileChatArtifacts.swift"; sourceTree = "<group>"; };
 		D1B800000000000000000016 /* TerminalController+MobileDirectoryList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileDirectoryList.swift"; sourceTree = "<group>"; };
 		D1A700000000000000000005 /* TerminalController+MobileDirectorySearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileDirectorySearch.swift"; sourceTree = "<group>"; };
+		D7AB00000000000000C100 /* TerminalController+MobileFeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileFeed.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000B000 /* TerminalController+MobileNotificationSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileNotificationSync.swift"; sourceTree = "<group>"; };
 		D1F0A0040000000000000002 /* TerminalController+MobilePhonePushSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobilePhonePushSettings.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000B010 /* TerminalController+MobileScrollPrefetch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileScrollPrefetch.swift"; sourceTree = "<group>"; };
@@ -7811,7 +7812,6 @@
 				C01E00AA00000000000000A4 /* CmuxSyntaxHighlighting in Frameworks */,
 				730600040000000000000001 /* CmuxWindowing in Frameworks */,
 				1A0B0C0D0E0F101112132214 /* IrohLib in Frameworks */,
-				5E2701040000000000000003 /* Sentry in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -9349,6 +9349,7 @@
 				81260000000000000000000A /* TerminalController+RemoteTerminalTransportErrors.swift */,
 				7371B0010000000000000002 /* TerminalController+ControlWorkspaceStrings.swift */,
 				D7AB00000000000000B000 /* TerminalController+MobileNotificationSync.swift */,
+				D7AB00000000000000C100 /* TerminalController+MobileFeed.swift */,
 				D1F0A0040000000000000002 /* TerminalController+MobilePhonePushSettings.swift */,
 				D7AB00000000000000B010 /* TerminalController+MobileScrollPrefetch.swift */,
 				D1B800000000000000000016 /* TerminalController+MobileDirectoryList.swift */,
@@ -11880,7 +11881,6 @@
 				EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */,
 				1A0B0C0D0E0F101112132002 /* CmuxMobileTransport */,
 				CA52A005CA52A005CA52A005 /* CmuxCanvas */,
-				5E2701040000000000000001 /* Sentry */,
 				5E2701040000000000000002 /* CmuxFoundation */,
 				5E27010400000000000000A3 /* CmuxSettings */,
 				5E27010400000000000000A4 /* CmuxWorkspaces */,
@@ -14274,6 +14274,7 @@
 				C7AF10000000000000000003 /* TerminalController+MobileChatArtifacts.swift in Sources */,
 				D1B800000000000000000006 /* TerminalController+MobileDirectoryList.swift in Sources */,
 				D1A700000000000000000002 /* TerminalController+MobileDirectorySearch.swift in Sources */,
+				D7AB00000000000000C101 /* TerminalController+MobileFeed.swift in Sources */,
 				D7AB00000000000000B001 /* TerminalController+MobileNotificationSync.swift in Sources */,
 				D1F0A0040000000000000001 /* TerminalController+MobilePhonePushSettings.swift in Sources */,
 				D7AB00000000000000B011 /* TerminalController+MobileScrollPrefetch.swift in Sources */,
@@ -17078,11 +17079,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A5001232 /* XCRemoteSwiftPackageReference "Sparkle" */;
 			productName = Sparkle;
-		};
-		5E2701040000000000000001 /* Sentry */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */;
-			productName = Sentry;
 		};
 		5E2701040000000000000002 /* CmuxFoundation */ = {
 			isa = XCSwiftPackageProductDependency;
