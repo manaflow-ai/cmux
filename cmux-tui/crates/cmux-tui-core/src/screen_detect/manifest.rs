@@ -307,6 +307,12 @@ impl ManifestSet {
     pub(crate) fn identify(&self, process_name: &str) -> Option<&CompiledManifest> {
         self.manifests.iter().find(|manifest| manifest.matches_process_name(process_name))
     }
+
+    /// Find a bundled manifest by its immutable id. Scanner state stores ids,
+    /// not mutable process labels, so cached lookups must use this boundary.
+    pub(crate) fn identify_id(&self, id: &str) -> Option<&CompiledManifest> {
+        self.manifests.iter().find(|manifest| manifest.id() == id)
+    }
 }
 
 pub(crate) fn compile_manifest_source(content: &str) -> Result<CompiledManifest, String> {
@@ -813,6 +819,14 @@ mod tests {
         for shell in ["bash", "zsh", "vim", "node", "muse-helper", "codex-helper", ""] {
             assert!(set.identify(shell).is_none(), "{shell} is not an agent");
         }
+    }
+
+    #[test]
+    fn screen_detect_cached_manifest_ids_use_an_exact_lookup() {
+        let set = ManifestSet::bundled();
+        assert_eq!(set.identify_id("codex").map(CompiledManifest::id), Some("codex"));
+        assert!(set.identify_id("/opt/homebrew/bin/codex").is_none());
+        assert!(set.identify_id("codex-helper").is_none());
     }
 
     #[test]
