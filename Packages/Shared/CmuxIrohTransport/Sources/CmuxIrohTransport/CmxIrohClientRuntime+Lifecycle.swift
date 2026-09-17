@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 extension CmxIrohClientRuntime {
     func performSignOut(
@@ -6,61 +6,18 @@ extension CmxIrohClientRuntime {
         bindingAuthorization: CmxIrohBindingRequestAuthorization?,
         revision: UInt64
     ) async -> CmxIrohClientSignOutPreparation {
-        async let wasPersisted = Self.persist(pendingRevocation, to: pendingRevocations)
-        async let networkTeardown: Void = tearDownNetwork(preserveBinding: true)
-        let (persisted, _) = await (wasPersisted, networkTeardown)
-        let preparation = CmxIrohClientSignOutPreparation(
+        await performSignOutFlow(
             pendingRevocation: pendingRevocation,
-            wasPersisted: persisted,
-            bindingAuthorization: bindingAuthorization
+            bindingAuthorization: bindingAuthorization,
+            revision: revision,
+            tearDownNetwork: {
+                await self.tearDownNetwork(preserveBinding: true)
+            },
+            deactivateLocalState: { [offlinePolicyCache, handleLocalDeactivation] in
+                try? await offlinePolicyCache?.deactivate()
+                await handleLocalDeactivation()
+            }
         )
-
-        guard lifecyclePhase == .signingOut,
-              lifecycleRevision == revision else {
-            signOutOperation = nil
-            return preparation
-        }
-        guard persisted else {
-            lifecyclePhase = .quarantined
-            currentSnapshot = CmxIrohClientRuntimeSnapshot(
-                state: .quarantined,
-                endpointID: nil,
-                bindingID: pendingRevocation?.bindingID
-            )
-            signOutOperation = nil
-            return preparation
-        }
-
-        try? await offlinePolicyCache?.deactivate()
-        await handleLocalDeactivation()
-        guard lifecyclePhase == .signingOut,
-              lifecycleRevision == revision else {
-            signOutOperation = nil
-            return preparation
-        }
-        localBinding = nil
-        lastRegistrationRefreshState = nil
-        lifecyclePhase = .inactive
-        currentSnapshot = CmxIrohClientRuntimeSnapshot(
-            state: .inactive,
-            endpointID: nil,
-            bindingID: nil
-        )
-        signOutOperation = nil
-        return preparation
-    }
-
-    nonisolated static func persist(
-        _ revocation: CmxIrohPendingRevocation?,
-        to pendingRevocations: CmxIrohPendingRevocationOutbox
-    ) async -> Bool {
-        guard let revocation else { return true }
-        do {
-            try await pendingRevocations.enqueue(revocation)
-            return true
-        } catch {
-            return false
-        }
     }
 
     func tearDownNetwork(preserveBinding: Bool = false) async {
