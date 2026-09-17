@@ -380,6 +380,13 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "Ekiple paylaş",
+      "makePrivate": "Özel yap",
+      "privateImportHint": "Yeni hesaplar özeldir. Bu ekibin Cloud VM makinelerinde kullanmak için bir hesabı paylaşın.",
+      "description": "Paylaşılan hesaplar bu ekibin Cloud VM’leri tarafından kullanılabilir. Özel hesaplar yalnızca onları ekleyen kişi tarafından kullanılabilir.",
+      "cancelAction": "İptal"
     }
   },
   "community": {
@@ -1003,10 +1010,10 @@
       "targetTitle": "Yanlış pencere veya engellenen tıklama",
       "targetBody": "Uygulamayı tekrar inceleyip güncel durumdan bir öğe seçin. Başka pencere hedefi kapatıyorsa hedef pencereyi gösterip yeniden inceleyin. Eski koordinatları veya öğe indekslerini tekrar kullanmayın.",
       "productLink": "cmux Computer Use genel bakışı",
-    "copyTitle": "Computer Use istemini kopyala",
-    "copyPrompt": "İstemi kopyala",
-    "copiedPrompt": "Kopyalandı",
-    "installPrompt": "Bu görevde $cmux-cua becerisini kullan. Yoksa normal yükleyiciyle kur. İzin yoksa cmux Ayarları → Computer Use’u açmamı iste. Önce incele ve her değişikliği doğrula.\n\nGörev: [görevi buraya yaz]"
+      "copyTitle": "Computer Use istemini kopyala",
+      "copyPrompt": "İstemi kopyala",
+      "copiedPrompt": "Kopyalandı",
+      "installPrompt": "Bu görevde $cmux-cua becerisini kullan. Yoksa normal yükleyiciyle kur. İzin yoksa cmux Ayarları → Computer Use’u açmamı iste. Önce incele ve her değişikliği doğrula.\n\nGörev: [görevi buraya yaz]"
     },
     "remoteTmux": {
       "moshContrast": "Ağlar arasında dolaşım için cmux mosh-tmux kullanın. Adlandırılmış bir tmux oturumuna bağlı, tam entegre bir Mosh terminali açar; SSH tmux denetim modunun sunduğu yerel çalışma alanı, sekme ve bölme yansıtmasını değiştirmez."
@@ -1213,6 +1220,7 @@
           "globalFontMagnification": "cmux'a ait terminalleri, sekme başlıklarını, kenar çubuklarını, ayarları, katmanları ve uygulama chrome'unu bu yüzdeyle ölçekler. Render edilen tarayıcı sayfası içeriği hariçtir."
         },
         "terminal": {
+          "adaptiveDefaultTheme": "true (varsayılan) olduğunda cmux, bir Ghostty teması veya terminal renkleri yapılandırılmadıkça görünüme uyarlanan varsayılan bir palet sağlar. Yazı tipi ve diğer ayarlar korunur. false olduğunda Ghostty sabit yerleşik paletini kullanır. theme = light:X,dark:Y dahil açıkça belirtilen temalar ve renkler her zaman önceliklidir.",
           "sessionContentMaxWidth": "Terminal ve yerleşik ajan sohbeti içeriği için puan cinsinden isteğe bağlı maksimum genişlik. Bölmenin tamamını kullanmak için false olarak ayarlayın.",
           "sessionContentAlignment": "sessionContentMaxWidth etkin olduğunda terminal ve yerleşik ajan sohbeti içeriğinin yatay konumu.",
           "copyOnSelect": "true olduğunda, seçim kesinleştiğinde seçilen terminal metni sistem panosuna kopyalanır. false olduğunda cmux bir Ghostty copy-on-select geçersiz kılması yaymaz; seçim panosu davranışını Ghostty yapılandırması ve varsayılanları kontrol eder.",

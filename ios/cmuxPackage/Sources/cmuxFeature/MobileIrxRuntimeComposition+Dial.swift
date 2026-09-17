@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxAuthRuntime
 import CmuxIrohTransport
 import CmuxIrxTransport
 import Foundation
@@ -25,14 +26,63 @@ extension MobileIrxRuntimeComposition {
     }
 
     func ensureSession(forPeer peerHex: String, trigger: String) async throws -> IrxClientSession {
-        guard let scope = activeScope else { throw CompositionError.notSignedIn }
-        let currentEpoch = epoch
+        let ready = try await waitForRuntimeReadiness(for: peerHex)
+        let scope = ready.scope
+        let currentEpoch = ready.epoch
         try await assertScope(scope, epoch: currentEpoch)
         let desired = dialIntentByPeer[peerHex] ?? .automatic
         let replace = activeDialIntentByPeer[peerHex].map { $0 != desired } ?? false
         let session = try await engine(forPeer: peerHex).ensureSession(explicit: replace, trigger: trigger)
         try await assertScope(scope, epoch: currentEpoch)
         return session
+    }
+
+    private func waitForRuntimeReadiness(
+        for peerHex: String
+    ) async throws -> (scope: AuthenticatedTeamScope, epoch: UInt64) {
+        if let ready = runtimeReadinessState(for: peerHex) {
+            return ready
+        }
+
+        let becameReady = await withTaskGroup(of: Bool.self) { group in
+            group.addTask { [weak self] in
+                guard let self else { return false }
+                for await _ in await self.changes() {
+                    guard !Task.isCancelled else { return false }
+                    if await self.runtimeReadinessState(for: peerHex) != nil {
+                        return true
+                    }
+                }
+                return false
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(20))
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
+        guard becameReady, let ready = runtimeReadinessState(for: peerHex) else {
+            throw CompositionError.notSignedIn
+        }
+        return ready
+    }
+
+    private func runtimeReadinessState(
+        for peerHex: String
+    ) -> (scope: AuthenticatedTeamScope, epoch: UInt64)? {
+        guard let scope = activeScope, let cache, !cache.authorityRevoked else {
+            return nil
+        }
+        switch dialIntentByPeer[peerHex] ?? .automatic {
+        case .automatic:
+            // The supervisor binds or repairs its endpoint during dial.
+            guard endpointSupervisor != nil else { return nil }
+        case .direct:
+            guard identity != nil else { return nil }
+        }
+        return (scope, epoch)
     }
 
     func dialOnce(peerHex: String) async throws -> IrxClientSession {
