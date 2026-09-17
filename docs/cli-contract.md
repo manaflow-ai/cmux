@@ -91,7 +91,7 @@ Environment:
 | `sessions [list]` | List saved agent session records without requiring a running cmux socket. Filters: `--agent <name>`, `--session <id>`, `--workspace <id>`, `--surface <id>`, `--cwd <text>`. Overrides: `--state-dir <path>`, `--codex-home <path>`. Text output defaults to 100 results; `--limit <n>` takes a positive integer and `--all` removes the limit. Supports `--json`. |
 | `auth` | Manage auth status, login, and logout through the app. |
 | `coderouter`, `cr` | `cmux coderouter <status|machines|claude>` manages the team's coderouter model plane through the app (sign-in state, per-machine usage, the team's Claude upstream accounts). Every other `cmux coderouter ...` verb and all of `cmux cr ...` exec the CodeRouter CLI unchanged with the `CMUX_*`/`CMUXD_*` environment stripped: `coderouter` or `cr` on PATH first, then the official installer's `~/.coderouter/bin/coderouter` (`$CODEROUTER_INSTALL/bin` when set), never with a network call. When neither exists and stdin and stderr are terminals, cmux shows the documented installer `curl -fsSL https://cmux.com/coderouter/install.sh | sh`, says what it does (checksum-verified binary into `~/.coderouter/bin`, PATH line in the shell profile), asks once (`Install CodeRouter now? [y/N]`), and after `y` fetches the script, runs it with `sh`, and execs the new install with the original arguments. Any other outcome (non-interactive, declined, download or installer failure) prints that install command on stderr and exits 127. |
-| `vm`, `cloud` | Manage cloud VMs and their HTTPS publications. `cloud` is an alias for `vm`. |
+| `cloud`, `vm` | Manage cloud VMs and their HTTPS publications. `cloud` uses the bundled Rust helper on local sockets; `vm` is the compatibility entrypoint. Both accept the same commands. |
 | `cloud guide`, `cloud --skill` (also `vm guide`, `vm --skill`) | Print the same short Cloud guide without connecting to the app. `--json` returns `{topic: "cloud", format: "markdown", content: "..."}`. This does not install a skill or start an agent; `vm prompt` and its existing `vm skill` alias keep that behavior. |
 | `remotes`, `remote` | Manage remote Macs in the team device registry so they appear in the iOS app's device list. `remote` is an alias for `remotes`. |
 | `rpc` | Call a raw v2 socket method with optional JSON params. |
@@ -286,7 +286,9 @@ Auth subcommands:
 | `auth login` | Begin sign-in through the app and wait for completion. |
 | `auth logout` | Clear the current session. |
 
-VM subcommands:
+Cloud VM subcommands (available as both `cloud` and `vm`):
+
+The bundled `cmux-cloud` helper handles `rm`, `exec`, and `ssh-info` socket operations in Rust. Creation, listing, interactive sessions, and additional commands delegate to the current `cmux vm` implementation, retaining its image selection, billing output, and private transport behavior. Help and guides use the shared CLI documentation. Relay sockets keep the shared Swift path. Delegated operations require the bundled macOS launcher.
 
 | Command | Contract |
 | --- | --- |

@@ -387,18 +387,22 @@ jobs:
           ./scripts/normalize-system-extension-bundle.sh "$APP" "com.cmuxterm.app.tunnel"
           APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
           CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
+          CLOUD_CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-cloud"
           HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
           DIFF_SIDECAR="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-diff-sidecar"
           APP_ARCHS="$(lipo -archs "$APP_BINARY")"
           CLI_ARCHS="$(lipo -archs "$CLI_BINARY")"
+          CLOUD_CLI_ARCHS="$(lipo -archs "$CLOUD_CLI_BINARY")"
           HELPER_ARCHS="$(lipo -archs "$HELPER_BINARY")"
           SDK_VERSION="$(otool -l "$APP_BINARY" | awk '/LC_BUILD_VERSION/ { in_version=1; next } in_version && /sdk / { print $2; exit }')"
           echo "App binary architectures: $APP_ARCHS"
           echo "CLI binary architectures: $CLI_ARCHS"
+          echo "Cloud CLI binary architectures: $CLOUD_CLI_ARCHS"
           echo "Ghostty helper architectures: $HELPER_ARCHS"
           echo "App SDK version: $SDK_VERSION"
           [[ "$APP_ARCHS" == *arm64* && "$APP_ARCHS" == *x86_64* ]]
           [[ "$CLI_ARCHS" == *arm64* && "$CLI_ARCHS" == *x86_64* ]]
+          [[ "$CLOUD_CLI_ARCHS" == *arm64* && "$CLOUD_CLI_ARCHS" == *x86_64* ]]
           [[ "$HELPER_ARCHS" == *arm64* && "$HELPER_ARCHS" == *x86_64* ]]
           TUNNEL_BINARY="$APP/Contents/Library/SystemExtensions/com.cmuxterm.app.tunnel.systemextension/Contents/MacOS/cmuxTunnel"
           [ -x "$TUNNEL_BINARY" ] || { echo "Cloud tunnel extension binary not found at $TUNNEL_BINARY" >&2; exit 1; }

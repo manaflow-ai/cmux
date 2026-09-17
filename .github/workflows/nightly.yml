@@ -869,6 +869,7 @@ jobs:
           for binary in \
             "$APP/Contents/MacOS/cmux" \
             "$APP/Contents/Resources/bin/cmux" \
+            "$APP/Contents/Resources/bin/cmux-cloud" \
             "$APP/Contents/Resources/bin/ghostty" \
             "$APP/Contents/Resources/bin/cmux-tui" \
             "$APP/Contents/Resources/bin/cmux-cua" \

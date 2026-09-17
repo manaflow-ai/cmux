@@ -3043,6 +3043,10 @@ final class SocketClient {
         relayEndpoint != nil
     }
 
+    static func isRelaySocketPath(_ raw: String) -> Bool {
+        parseRelayEndpoint(raw) != nil
+    }
+
     func connectionAppearsOpen() -> Bool {
         if relayEndpoint != nil, socketFD < 0 {
             do {
@@ -4699,6 +4703,92 @@ struct CMUXCLI {
         }
     }
 
+    private static func cloudCLIExecutablePath() -> String? {
+        let fileManager = FileManager.default
+        var candidates: [URL] = []
+        if let override = normalizedEnvValue(ProcessInfo.processInfo.environment["CMUX_CLOUD_CLI_PATH"]) {
+            candidates.append(URL(fileURLWithPath: override))
+        }
+        if let executableURL = CLIExecutableLocator.currentExecutableURL() {
+            candidates.append(executableURL.deletingLastPathComponent().appendingPathComponent("cmux-cloud"))
+        }
+        if let appBundle = CLIExecutableLocator.enclosingAppBundle() {
+            candidates.append(
+                appBundle.bundleURL
+                    .appendingPathComponent("Contents", isDirectory: true)
+                    .appendingPathComponent("Resources", isDirectory: true)
+                    .appendingPathComponent("bin", isDirectory: true)
+                    .appendingPathComponent("cmux-cloud", isDirectory: false)
+            )
+        }
+        for candidate in candidates {
+            let path = candidate.path
+            var isDirectory: ObjCBool = false
+            if fileManager.fileExists(atPath: path, isDirectory: &isDirectory),
+                !isDirectory.boolValue,
+                fileManager.isExecutableFile(atPath: path)
+            {
+                return path
+            }
+        }
+        return nil
+    }
+
+    private func runCloudRustCommand(
+        commandArgs: [String],
+        socketPath: String,
+        explicitPassword: String?,
+        jsonOutput: Bool,
+        idFormatArg: String?,
+        windowId: String?
+    ) throws -> Never {
+        guard let helperPath = Self.cloudCLIExecutablePath() else {
+            throw CLIError(message: String(
+                localized: "cli.cloud.helper.missing",
+                defaultValue: "cmux cloud helper is missing. Reload cmux and retry."
+            ))
+        }
+
+        let resolvedPassword = SocketPasswordResolver.resolve(
+            explicit: explicitPassword,
+            socketPath: socketPath
+        )
+        setenv("CMUX_CLOUD_SOCKET_PATH", socketPath, 1)
+        setenv("CMUX_SOCKET_PATH", socketPath, 1)
+        setenv("CMUX_CLOUD_JSON", jsonOutput ? "1" : "0", 1)
+        if let resolvedPassword {
+            setenv("CMUX_CLOUD_SOCKET_PASSWORD", resolvedPassword, 1)
+        } else {
+            unsetenv("CMUX_CLOUD_SOCKET_PASSWORD")
+        }
+        if let idFormatArg {
+            setenv("CMUX_CLOUD_ID_FORMAT", idFormatArg, 1)
+        } else {
+            unsetenv("CMUX_CLOUD_ID_FORMAT")
+        }
+        if let windowId {
+            setenv("CMUX_CLOUD_WINDOW", windowId, 1)
+        } else {
+            unsetenv("CMUX_CLOUD_WINDOW")
+        }
+        if let currentExecutablePath = CLIExecutableLocator.currentExecutableURL()?.path {
+            setenv("CMUX_CLOUD_PARENT_CLI", currentExecutablePath, 1)
+        }
+
+        var argv = ([helperPath] + commandArgs).map { strdup($0) }
+        defer {
+            for item in argv {
+                free(item)
+            }
+        }
+        argv.append(nil)
+        execv(helperPath, &argv)
+        throw CLIError(message: String(
+            localized: "cli.cloud.helper.launchFailed",
+            defaultValue: "Could not start the cmux cloud helper. Reload cmux and retry."
+        ))
+    }
+
     private static func shouldFocusWindowBeforeDispatch(command: String, commandArgs: [String]) -> Bool {
         let normalizedCommand = command.lowercased()
         // `window` repositions a window (e.g. `window display`); it must not
@@ -5327,6 +5417,18 @@ struct CMUXCLI {
         )
 
         let idFormat = try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)
+        if command == "cloud", !SocketClient.isRelaySocketPath(resolvedSocketPath) {
+            client.close()
+            try runCloudRustCommand(
+                commandArgs: commandArgs,
+                socketPath: resolvedSocketPath,
+                explicitPassword: socketPasswordArg,
+                jsonOutput: jsonOutput,
+                idFormatArg: idFormatArg,
+                windowId: windowId
+            )
+        }
+
         // Workspace inspection JSON is a scripting boundary: keep stable UUIDs
         // beside renumberable refs unless the caller explicitly chooses a format.
         let preserveStableWorkspaceIDs = jsonOutput && idFormatArg == nil
