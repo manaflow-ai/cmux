@@ -118,12 +118,61 @@ func cliRunProcess(_ process: Process) throws {
     try process.run()
 }
 
+/// Signal state saved before an exec attempt so it can be restored on the
+/// failure path (on success the process image is replaced and nothing runs).
+struct CLIChildLaunchPreviousSignalState {
+    var mask: sigset_t
+    var ignoredActions: [(signal: Int32, action: sigaction)]
+}
+
+/// The signals whose SIG_IGN disposition must not leak into an exec'd child.
+/// SIGWINCH ignored/blocked leaves a TUI blind to resizes for its lifetime
+/// (https://github.com/manaflow-ai/cmux/issues/12681); the terminal-control
+/// pair and SIGPIPE similarly change child behavior if inherited ignored.
+private let cliChildLaunchDefaultedSignals: [Int32] = [SIGWINCH, SIGPIPE, SIGTTOU, SIGTTIN]
+
+/// `execve` hands the calling thread's signal mask and every SIG_IGN
+/// disposition to the new image. CLI command handlers run on Swift
+/// cooperative-pool threads, which block nearly every signal (0xFBFEE027),
+/// so without this reset an agent resumed through `cmux restore`/`cmux fork`
+/// starts with SIGWINCH blocked and never observes a resize again.
+func cliAdoptDefaultChildLaunchSignalState() -> CLIChildLaunchPreviousSignalState {
+    var empty = sigset_t()
+    sigemptyset(&empty)
+    var previousMask = sigset_t()
+    pthread_sigmask(SIG_SETMASK, &empty, &previousMask)
+    var ignoredActions: [(signal: Int32, action: sigaction)] = []
+    for signal in cliChildLaunchDefaultedSignals
+        where CLIChildLaunchSignalDiagnostics.isIgnored(signal) {
+        var defaultAction = sigaction()
+        defaultAction.__sigaction_u.__sa_handler = SIG_DFL
+        sigemptyset(&defaultAction.sa_mask)
+        defaultAction.sa_flags = 0
+        var previousAction = sigaction()
+        if sigaction(signal, &defaultAction, &previousAction) == 0 {
+            ignoredActions.append((signal, previousAction))
+        }
+    }
+    return CLIChildLaunchPreviousSignalState(mask: previousMask, ignoredActions: ignoredActions)
+}
+
+func cliRestoreChildLaunchSignalState(_ previous: CLIChildLaunchPreviousSignalState) {
+    var mask = previous.mask
+    pthread_sigmask(SIG_SETMASK, &mask, nil)
+    for entry in previous.ignoredActions {
+        var action = entry.action
+        sigaction(entry.signal, &action, nil)
+    }
+}
+
 func cliExecFailureErrno(
     context: String = "cli.exec",
     target: String = "",
     _ body: () -> Void
 ) -> Int32 {
     withCLIDefaultSIGPIPEForChildLaunch {
+        let previousSignalState = cliAdoptDefaultChildLaunchSignalState()
+        defer { cliRestoreChildLaunchSignalState(previousSignalState) }
         CLIChildLaunchSignalDiagnostics.log(context: context, target: target)
         body()
         return errno

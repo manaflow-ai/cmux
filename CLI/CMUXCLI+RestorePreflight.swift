@@ -80,6 +80,33 @@ extension CMUXCLI {
             )
         }
 
+        // Spawn with a default signal state: the CLI runs on a cooperative-pool
+        // thread whose blocked mask (and any SIG_IGN dispositions) would
+        // otherwise be inherited by the provider-setup child.
+        var attributes: posix_spawnattr_t?
+        let attributesStatus = posix_spawnattr_init(&attributes)
+        guard attributesStatus == 0 else {
+            throw loggedRestoreError(
+                stage: "provider.spawn-attributes",
+                errorCode: attributesStatus,
+                message: String(
+                    localized: "cli.restore.error.providerSetupConfigurationFailed",
+                    defaultValue: "restore: provider setup could not start. Check the agent's provider settings, then retry."
+                )
+            )
+        }
+        defer { posix_spawnattr_destroy(&attributes) }
+        var spawnSignalMask = sigset_t()
+        sigemptyset(&spawnSignalMask)
+        var spawnDefaultSignals = sigset_t()
+        sigemptyset(&spawnDefaultSignals)
+        for signal in [SIGWINCH, SIGPIPE, SIGTTOU, SIGTTIN] {
+            sigaddset(&spawnDefaultSignals, signal)
+        }
+        posix_spawnattr_setsigmask(&attributes, &spawnSignalMask)
+        posix_spawnattr_setsigdefault(&attributes, &spawnDefaultSignals)
+        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF))
+
         var processID: pid_t = 0
         let status = withCStringArray(invocation.arguments) { argv in
             withEnvironmentCStringArray(invocationEnvironment) { environment in
@@ -88,7 +115,7 @@ extension CMUXCLI {
                         &processID,
                         $0,
                         &fileActions,
-                        nil,
+                        &attributes,
                         argv,
                         environment
                     )

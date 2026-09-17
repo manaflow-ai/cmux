@@ -137,6 +137,7 @@ final class CodexTeamsAppServerProcess {
             POSIX_SPAWN_CLOEXEC_DEFAULT
                 | POSIX_SPAWN_SETPGROUP
                 | POSIX_SPAWN_START_SUSPENDED
+                | POSIX_SPAWN_SETSIGMASK
         )
         try CodexTeamsPOSIXSupport.require(
             posix_spawnattr_setflags(&attributes, flags),
@@ -145,6 +146,14 @@ final class CodexTeamsAppServerProcess {
         try CodexTeamsPOSIXSupport.require(
             posix_spawnattr_setpgroup(&attributes, 0),
             operation: "configure Codex Teams process group leader"
+        )
+        // The watcher spawns from a cooperative-pool thread whose blocked
+        // mask would otherwise be inherited by the app server and its agents.
+        var spawnSignalMask = sigset_t()
+        sigemptyset(&spawnSignalMask)
+        try CodexTeamsPOSIXSupport.require(
+            posix_spawnattr_setsigmask(&attributes, &spawnSignalMask),
+            operation: "reset Codex Teams signal mask"
         )
 
         let targetExecutable = executablePath.hasPrefix("/") ? executablePath : "/usr/bin/env"

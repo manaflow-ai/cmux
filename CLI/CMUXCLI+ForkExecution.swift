@@ -186,12 +186,12 @@ extension CMUXCLI {
                 detail: invocation.arguments.first ?? "none"
             )
         }
-        CLIChildLaunchSignalDiagnostics.log(context: "fork.invocation", target: executable)
-        let executionError = withCStringArray(invocation.arguments) { argv in
-            withEnvironmentCStringArray(invocationEnvironment) { environment in
-                executable.withCString {
-                    _ = execve($0, argv, environment)
-                    return errno
+        let executionError = cliExecFailureErrno(context: "fork.invocation", target: executable) {
+            withCStringArray(invocation.arguments) { argv in
+                withEnvironmentCStringArray(invocationEnvironment) { environment in
+                    executable.withCString {
+                        _ = execve($0, argv, environment)
+                    }
                 }
             }
         }
@@ -219,12 +219,12 @@ extension CMUXCLI {
         client.close()
         let shell = forkCompatibilityShell(environment: legacyEnvironment)
         let arguments = [shell, "-lc", command]
-        CLIChildLaunchSignalDiagnostics.log(context: "fork.legacy-shell", target: shell)
-        let executionError = withCStringArray(arguments) { argv in
-            withEnvironmentCStringArray(legacyEnvironment) { childEnvironment in
-                shell.withCString {
-                    _ = execve($0, argv, childEnvironment)
-                    return errno
+        let executionError = cliExecFailureErrno(context: "fork.legacy-shell", target: shell) {
+            withCStringArray(arguments) { argv in
+                withEnvironmentCStringArray(legacyEnvironment) { childEnvironment in
+                    shell.withCString {
+                        _ = execve($0, argv, childEnvironment)
+                    }
                 }
             }
         }
