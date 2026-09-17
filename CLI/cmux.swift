@@ -15142,16 +15142,18 @@ struct CMUXCLI {
             }
         }
 
-        let filtersReconnectInput = requireExisting && command == nil && isatty(STDIN_FILENO) == 1
-        var terminalInputMode: SSHPTYTerminalInputMode?
-        if filtersReconnectInput {
-            terminalInputMode = SSHPTYTerminalInputMode(phase: .disconnected)
-        }
+        let isTerminalInput = isatty(STDIN_FILENO) == 1
+        let filtersReconnectInput = requireExisting && command == nil && isTerminalInput
+        // Capture once. Admission and network setup must not mutate this snapshot.
+        let terminalInputMode = isTerminalInput ? SSHPTYTerminalInputMode(fileDescriptor: STDIN_FILENO) : nil
+        var signalMonitor: SSHPTYAttachSignalMonitor?
+        var discardDisconnectedInput = filtersReconnectInput
         defer {
             if let terminalInputMode,
-               !terminalInputMode.restore(flushInput: filtersReconnectInput) {
+               !terminalInputMode.restore(flushInput: discardDisconnectedInput) {
                 cliDebugLog("ssh.pty.attach.terminal.restore_failed")
             }
+            signalMonitor?.cancel()
         }
 
         let bridge: [String: Any]
@@ -15174,17 +15176,9 @@ struct CMUXCLI {
                 responseTimeout: waitForReady ? 185 : nil
             )
         } catch {
-            // Prefer the structured v2 error code over description matching so a
-            // message-format change cannot silently turn a retryable failure fatal.
-            let exitCode: SSHPTYAttachExitCode
-            if let cliError = error as? CLIError, let code = cliError.v2Code {
-                exitCode = SSHPTYAttachExitCode.classifyBridgeEstablishmentFailure(
-                    code: code,
-                    message: cliError.message
-                )
-            } else {
-                exitCode = SSHPTYAttachExitCode.classifyBridgeEstablishmentFailure(String(describing: error))
-            }
+            let exitCode = sshPTYBridgeEstablishmentExitCode(error)
+            // A parked session may still own a running remote PTY: keep it for Reconnect.
+            if sshPTYBridgeErrorIsParkedSession(error) { preserveLifecycleForRecovery = true }
             let closedGeneration = (error as? CLIError)?.v2Code == "pty_lifecycle_closed"
             if !closedGeneration, sshPTYAttachWrapperWillRetry(exitCode) {
                 wrapperWillRetrySameSurface = true
@@ -15219,6 +15213,18 @@ struct CMUXCLI {
                 exitCode: exitCode
             )
         }
+        // After endpoint establishment, only remote reconciliation can retire the lifecycle.
+        preserveLifecycleForRecovery = true
+        do {
+            try validateSSHPTYDaemonVersion(
+                bridge["daemon_version"] as? String,
+                clientVersion: remoteDaemonVersionString(from: resolvedVersionInfo())
+            )
+        } catch {
+            discardDisconnectedInput = false
+            throw error
+        }
+        if isTerminalInput, terminalInputMode == nil { throw sshPTYTerminalModeError() }
         var connectedFD: Int32?
         var bridgeHandshakeSize = Self.currentCLITerminalSize()
         var bridgeReadyUptime: TimeInterval = 0
@@ -15234,6 +15240,10 @@ struct CMUXCLI {
 
             connectedFD = try connectLoopbackTCP(host: host, port: port)
             let fd = connectedFD!
+            signalMonitor = try SSHPTYAttachSignalMonitor(bridgeFD: fd)
+            if filtersReconnectInput, terminalInputMode?.beginDisconnected() != true {
+                throw sshPTYTerminalModeError()
+            }
             let size = Self.currentCLITerminalSize()
             bridgeHandshakeSize = size
             var handshakeData = try JSONSerialization.data(withJSONObject: [
@@ -15271,6 +15281,8 @@ struct CMUXCLI {
                 )
             }
         } catch {
+            if let connectedFD { Darwin.close(connectedFD) }
+            try checkSSHPTYCancellation(signalMonitor)
             let sessionNotFound = requireExisting &&
                 (error as? CLIError)?.exitCode == SSHPTYAttachExitCode.sessionNotFound.rawValue
             if sessionNotFound {
@@ -15283,7 +15295,6 @@ struct CMUXCLI {
                sshPTYAttachWrapperWillRetry(preReadyExitCode) {
                 wrapperWillRetrySameSurface = true
             }
-            if let connectedFD { Darwin.close(connectedFD) }
             if !sessionNotFound, preReadyRetryable,
                try reconcileBridgeEnd(intentionalOnly: true) {
                 attachFinished = true
@@ -15294,18 +15305,11 @@ struct CMUXCLI {
         let fd = connectedFD!
         defer { Darwin.close(fd) }
 
-        if filtersReconnectInput {
-            guard terminalInputMode?.beginForwarding() == true else {
-                throw CLIError(
-                    message: String(
-                        localized: "cli.sshPtyAttach.terminalInputTransitionFailed",
-                        defaultValue: "SSH terminal input could not enter reconnect mode."
-                    ),
-                    exitCode: SSHPTYAttachExitCode.retryableTransient
-                )
-            }
-        } else {
-            terminalInputMode = SSHPTYTerminalInputMode(phase: .forwarding)
+        let outputWriter = try SSHPTYOutputWriter(fileDescriptor: STDOUT_FILENO)
+        // Fresh output may contain live terminal queries, so raw mode precedes it.
+        // A reconnect keeps signal keys live until its historical replay is drained.
+        if isTerminalInput, !filtersReconnectInput, terminalInputMode?.beginForwarding() != true {
+            throw sshPTYTerminalModeError()
         }
         let resizeMonitor = SSHPTYResizeMonitor(
             socketPath: client.socketPath,
@@ -15382,41 +15386,28 @@ struct CMUXCLI {
         var replayOutputFilter = SSHPTYReplayOutputFilter(
             replayBytes: filtersReplayOutput ? bridgeReplayBytes : 0
         )
-        func writeReplayFilteredOutput(_ data: Data) {
+        func writeReplayFilteredOutput(_ data: Data) throws {
             guard !data.isEmpty else { return }
             let filtered = replayOutputFilter.filter(data)
-            if !filtered.isEmpty {
-                cliWriteStdout(filtered)
-            }
-        }
-        func finishReplayFiltering() {
-            let trailingReplay = replayOutputFilter.finish()
-            if !trailingReplay.isEmpty {
-                cliWriteStdout(trailingReplay)
+            if !filtered.isEmpty,
+               !outputWriter.write(filtered, cancellation: signalMonitor!) {
+                // Local output failure unwinds termios while preserving the remote PTY.
+                preserveLifecycleForRecovery = true
+                try checkSSHPTYCancellation(signalMonitor)
+                throw CLIError(message: "", exitCode: 0)
             }
         }
         defer {
             let pendingReplay = outputProgress.finishPendingReplay(
                 discarding: sshPTYAttachWrapperRetryPending()
             )
-            writeReplayFilteredOutput(pendingReplay)
-            finishReplayFiltering()
+            try? writeReplayFilteredOutput(pendingReplay)
+            _ = outputWriter.write(replayOutputFilter.finish(), cancellation: signalMonitor!)
         }
         func startInputForwardingAfterReplay() throws {
             guard !inputPumpStarted, outputProgress.replayBytesRemaining == 0 else { return }
-            if filtersReconnectInput {
-                guard terminalInputMode?.beginForwarding() == true else {
-                    throw CLIError(
-                        message: String(
-                            localized: "cli.sshPtyAttach.terminalInputTransitionFailed",
-                            defaultValue: "SSH reattach stopped because queued terminal input could not be discarded safely.",
-                            bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
-                        ),
-                        exitCode: SSHPTYAttachExitCode.retryableTransient
-                    )
-                }
-            } else {
-                terminalInputMode = SSHPTYTerminalInputMode(phase: .forwarding)
+            if filtersReconnectInput, terminalInputMode?.beginForwarding() != true {
+                throw sshPTYTerminalModeError()
             }
             do {
                 reconnectInputFilterControl = try SSHPTYAttachReconnectInputFilter.startStdinPump(
@@ -15449,6 +15440,7 @@ struct CMUXCLI {
         var outputBuffer = [UInt8](repeating: 0, count: 32768)
         while true {
             let count = Darwin.read(fd, &outputBuffer, outputBuffer.count)
+            try checkSSHPTYCancellation(signalMonitor)
             if count > 0 {
                 let output = outputProgress.terminalOutput(
                     from: Data(outputBuffer.prefix(count)),
@@ -15458,7 +15450,7 @@ struct CMUXCLI {
                     if inputPumpStarted {
                         reconnectInputFilterControl?.stopFilteringBeforeFirstOutput(unlessAlreadyRequested: &reconnectInputFilterStopRequested)
                     }
-                    writeReplayFilteredOutput(output)
+                    try writeReplayFilteredOutput(output)
                 }
                 if !replayStateStored, outputProgress.replayBytesRemaining == 0 {
                     replayState.storeSnapshot(
@@ -15620,7 +15612,7 @@ struct CMUXCLI {
         let downloadCommand = "gh release download \(releaseTag) --repo manaflow-ai/cmux --pattern \(assetName)"
         let downloadChecksumsCommand = "gh release download \(releaseTag) --repo manaflow-ai/cmux --pattern \(checksumsAssetName)"
         let checksumVerifyCommand = "shasum -a 256 -c \(checksumsAssetName) --ignore-missing"
-        let signerWorkflow = releaseTag == "nightly"
+        let signerWorkflow = releaseTag == "nightly" || releaseTag == "rc"
             ? "manaflow-ai/cmux/.github/workflows/nightly.yml"
             : "manaflow-ai/cmux/.github/workflows/release.yml"
         let verifyCommand = "gh attestation verify ./\(assetName) --repo manaflow-ai/cmux --signer-workflow \(signerWorkflow)"

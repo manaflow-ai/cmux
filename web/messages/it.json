@@ -380,6 +380,13 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "Condividi con il team",
+      "makePrivate": "Rendi privato",
+      "privateImportHint": "I nuovi account sono privati. Condividi un account per renderlo disponibile alle VM Cloud di questo team.",
+      "description": "Gli account condivisi sono disponibili per le VM Cloud di questo team. Gli account privati restano accessibili solo alla persona che li ha aggiunti.",
+      "cancelAction": "Annulla"
     }
   },
   "community": {
@@ -1003,10 +1010,10 @@
       "targetTitle": "Finestra errata o clic bloccato",
       "targetBody": "Esamina nuovamente l’app e scegli un elemento aggiornato. Se un’altra finestra copre il bersaglio, rendilo visibile ed esaminalo prima di riprovare. Non riutilizzare coordinate o indici obsoleti.",
       "productLink": "Panoramica di cmux Computer Use",
-    "copyTitle": "Copia un prompt Computer Use",
-    "copyPrompt": "Copia prompt",
-    "copiedPrompt": "Copiato",
-    "installPrompt": "Usa la competenza $cmux-cua. Se manca, installala con il normale installatore. Se mancano permessi, chiedimi di aprire Impostazioni cmux → Computer Use. Esamina prima di agire e verifica ogni modifica.\n\nAttività: [descrivi qui l’attività]"
+      "copyTitle": "Copia un prompt Computer Use",
+      "copyPrompt": "Copia prompt",
+      "copiedPrompt": "Copiato",
+      "installPrompt": "Usa la competenza $cmux-cua. Se manca, installala con il normale installatore. Se mancano permessi, chiedimi di aprire Impostazioni cmux → Computer Use. Esamina prima di agire e verifica ogni modifica.\n\nAttività: [descrivi qui l’attività]"
     },
     "remoteTmux": {
       "moshContrast": "Per passare da una rete all’altra usa cmux mosh-tmux. Apre un terminale Mosh pienamente integrato collegato a una sessione tmux denominata; non sostituisce il mirror nativo di workspace, schede e suddivisioni offerto dalla modalità di controllo tmux via SSH."

@@ -1,6 +1,124 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cli.sshPtyAttach.incompatibleDaemon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH attach stopped because the remote daemon version does not match this cmux client. Install a cmux release with its matching remote daemon, then reconnect the workspace. Do not substitute a daemon from an older release."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートデーモンのバージョンがこの cmux クライアントと一致しないため、SSH 接続を停止しました。対応するリモートデーモンを含む cmux リリースをインストールしてから、ワークスペースに再接続してください。古いリリースのデーモンで代用しないでください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der SSH-Verbindungsaufbau wurde gestoppt, weil die Version des Remote-Daemons nicht zu diesem cmux-Client passt. Installiere eine cmux-Version mit dem zugehörigen Remote-Daemon und verbinde den Arbeitsbereich erneut. Verwende keinen Daemon einer älteren Version."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion SSH a été interrompue car la version du démon distant ne correspond pas à ce client cmux. Installez une version de cmux avec le démon distant correspondant, puis reconnectez l’espace de travail. Ne le remplacez pas par le démon d’une ancienne version."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إيقاف اتصال SSH لأن إصدار البرنامج الخفي البعيد لا يطابق عميل cmux هذا. ثبّت إصدار cmux مع البرنامج الخفي البعيد المطابق له، ثم أعد توصيل مساحة العمل. لا تستخدم برنامجًا خفيًا من إصدار أقدم."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La conexión SSH se detuvo porque la versión del demonio remoto no coincide con este cliente cmux. Instala una versión de cmux con su demonio remoto correspondiente y vuelve a conectar el espacio de trabajo. No uses un demonio de una versión anterior."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 連線已停止，因為遠端常駐程式版本與此 cmux 用戶端不符。請安裝包含對應遠端常駐程式的 cmux 版本，再重新連線工作區。請勿使用舊版本的常駐程式替代。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 连接已停止，因为远程守护进程版本与此 cmux 客户端不匹配。请安装包含对应远程守护进程的 cmux 版本，然后重新连接工作区。请勿使用旧版本的守护进程替代。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 데몬 버전이 이 cmux 클라이언트와 일치하지 않아 SSH 연결을 중단했습니다. 해당 원격 데몬이 포함된 cmux 릴리스를 설치한 후 작업 공간에 다시 연결하세요. 이전 릴리스의 데몬으로 대체하지 마세요."
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.terminalModeFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH attach stopped because terminal input could not be placed in raw forwarding mode. Reconnect the workspace to try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル入力を raw 転送モードに切り替えられなかったため、SSH 接続を停止しました。ワークスペースに再接続して再試行してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der SSH-Verbindungsaufbau wurde gestoppt, weil die Terminaleingabe nicht in den Raw-Weiterleitungsmodus wechseln konnte. Verbinde den Arbeitsbereich erneut, um es noch einmal zu versuchen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion SSH a été interrompue car la saisie du terminal n’a pas pu passer en mode de transmission brute. Reconnectez l’espace de travail pour réessayer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إيقاف اتصال SSH لتعذر وضع إدخال الطرفية في وضع التمرير الخام. أعد توصيل مساحة العمل للمحاولة مجددًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La conexión SSH se detuvo porque la entrada del terminal no pudo pasar al modo de reenvío sin procesar. Vuelve a conectar el espacio de trabajo para intentarlo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 連線已停止，因為無法將終端機輸入切換為原始轉送模式。請重新連線工作區再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 连接已停止，因为无法将终端输入切换为原始转发模式。请重新连接工作区再试一次。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 입력을 원시 전달 모드로 전환할 수 없어 SSH 연결을 중단했습니다. 작업 공간에 다시 연결하여 재시도하세요."
+          }
+        }
+      }
+    },
     "cloud.portAccess.desktopDisconnected": {
       "extractionState": "manual",
       "localizations": {
@@ -259926,6 +260044,65 @@
         }
       }
     },
+    "mobile.pairing.error.preparationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر إكمال الاقتران. تحقق من الاتصال وحاول مرة أخرى."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Kopplung konnte nicht abgeschlossen werden. Überprüfe deine Verbindung und versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pairing could not finish. Check your connection and try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se ha podido completar el enlace. Comprueba tu conexión e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le jumelage n’a pas pu être terminé. Vérifiez votre connexion et réessayez."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリングを完了できませんでした。接続を確認して、もう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "페어링을 완료하지 못했습니다. 연결을 확인하고 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法完成配对。请检查连接后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法完成配對。請檢查連線後再試一次。"
+          }
+        }
+      }
+    },
     "mobile.pairing.error.noTicket": {
       "extractionState": "manual",
       "localizations": {
@@ -279133,6 +279310,301 @@
           "stringUnit": {
             "state": "translated",
             "value": "부트스트랩을 진행할 수 없어 자동 재연결이 일시 중지되었습니다. 보고된 원격 오류를 해결한 후 '다시 연결'을 사용하여 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "remoteDaemon.bootstrap.noDaemonForPlatform": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This cmux build has no remote daemon for the remote host's platform"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この cmux ビルドには、リモートホストのプラットフォーム用のリモートデーモンが含まれていません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 cmux 版本不包含适用于远程主机平台的远程守护进程"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser cmux-Build enthält keinen Remote-Daemon für die Plattform des Remote-Hosts"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette version de cmux ne contient aucun démon distant pour la plateforme de l’hôte distant"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يتضمن إصدار cmux هذا برنامجًا خفيًا بعيدًا لمنصة المضيف البعيد"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta compilación de cmux no incluye un demonio remoto para la plataforma del host remoto"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 cmux 版本不包含適用於遠端主機平台的遠端背景服務"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 cmux 빌드에는 원격 호스트 플랫폼용 원격 데몬이 포함되어 있지 않습니다."
+          }
+        }
+      }
+    },
+    "remoteSession.parked.relayNotReady": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cmux relay on %@ did not become ready (the host may not allow SSH remote port forwarding). Automatic reconnect paused; use Reconnect to try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 上の cmux リレーが準備完了になりませんでした（ホストが SSH リモートポート転送を許可していない可能性があります）。自動再接続を一時停止しました。「再接続」で再試行してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 上的 cmux 中继未能就绪（该主机可能不允许 SSH 远程端口转发）。自动重连已暂停；请用「重新连接」再试。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das cmux-Relay auf %@ ist nicht bereit geworden (der Host erlaubt möglicherweise keine SSH-Remote-Portweiterleitung). Automatische Wiederverbindung pausiert; verwenden Sie „Wieder verbinden“, um es erneut zu versuchen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le relais cmux sur %@ n’est pas devenu prêt (l’hôte n’autorise peut-être pas la redirection de port distante SSH). Reconnexion automatique en pause ; utilisez Reconnecter pour réessayer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يصبح مرحّل cmux على %@ جاهزًا (قد لا يسمح المضيف بإعادة توجيه المنافذ البعيدة عبر SSH). تم إيقاف إعادة الاتصال التلقائي مؤقتًا؛ استخدم \"أعد الاتصال\" للمحاولة مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El relé de cmux en %@ no llegó a estar listo (es posible que el host no permita el reenvío remoto de puertos por SSH). Reconexión automática pausada; usa Reconectar para volver a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 上的 cmux 中繼未能就緒（該主機可能不允許 SSH 遠端連接埠轉送）。自動重新連線已暫停；請使用「重新連接」重試。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 cmux 릴레이가 준비되지 않았습니다(호스트가 SSH 원격 포트 포워딩을 허용하지 않을 수 있습니다). 자동 재연결이 일시 중지되었습니다. '재연결'을 사용하여 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "remoteSession.parked.proxyNotReady": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cmux proxy tunnel to %@ did not become ready. Automatic reconnect paused; use Reconnect to try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ への cmux プロキシトンネルが準備完了になりませんでした。自動再接続を一時停止しました。「再接続」で再試行してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "到 %@ 的 cmux 代理隧道未能就绪。自动重连已暂停；请用「重新连接」再试。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der cmux-Proxy-Tunnel zu %@ ist nicht bereit geworden. Automatische Wiederverbindung pausiert; verwenden Sie „Wieder verbinden“, um es erneut zu versuchen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le tunnel proxy cmux vers %@ n’est pas devenu prêt. Reconnexion automatique en pause ; utilisez Reconnecter pour réessayer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يصبح نفق وكيل cmux إلى %@ جاهزًا. تم إيقاف إعادة الاتصال التلقائي مؤقتًا؛ استخدم \"أعد الاتصال\" للمحاولة مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El túnel proxy de cmux hacia %@ no llegó a estar listo. Reconexión automática pausada; usa Reconectar para volver a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通往 %@ 的 cmux 代理通道未能就緒。自動重新連線已暫停；請使用「重新連接」重試。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 대한 cmux 프록시 터널이 준비되지 않았습니다. 자동 재연결이 일시 중지되었습니다. '재연결'을 사용하여 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "remoteSession.parked.notActive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH connection is not active. Use Reconnect to try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 接続はアクティブではありません。「再接続」で再試行してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 连接未处于活动状态。请用「重新连接」再试。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die SSH-Verbindung ist nicht aktiv. Verwenden Sie „Wieder verbinden“, um es erneut zu versuchen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion SSH n’est pas active. Utilisez Reconnecter pour réessayer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اتصال SSH غير نشط. استخدم \"أعد الاتصال\" للمحاولة مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La conexión SSH no está activa. Usa Reconectar para volver a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 連線未處於作用中狀態。請使用「重新連接」重試。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 연결이 활성 상태가 아닙니다. '재연결'을 사용하여 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "remoteSession.parked.cleanupBlocked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not clean up the previous SSH connection to %@. Check that the host is reachable, then use Reconnect to try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は %@ への以前の SSH 接続をクリーンアップできませんでした。ホストに到達できることを確認してから、「再接続」で再試行してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法清理之前到 %@ 的 SSH 连接。请确认主机可以访问，然后用「重新连接」再试。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte die vorherige SSH-Verbindung zu %@ nicht bereinigen. Prüfen Sie, ob der Host erreichbar ist, und verwenden Sie dann „Wieder verbinden“, um es erneut zu versuchen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu nettoyer la connexion SSH précédente à %@. Vérifiez que l’hôte est joignable, puis utilisez Reconnecter pour réessayer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر على cmux تنظيف اتصال SSH السابق بـ %@. تحقق من إمكانية الوصول إلى المضيف، ثم استخدم \"أعد الاتصال\" للمحاولة مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo limpiar la conexión SSH anterior con %@. Comprueba que el host sea accesible y luego usa Reconectar para volver a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法清理先前與 %@ 的 SSH 連線。請確認主機可以連線，然後使用「重新連接」重試。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 %@에 대한 이전 SSH 연결을 정리하지 못했습니다. 호스트에 연결할 수 있는지 확인한 후 '재연결'을 사용하여 다시 시도하세요."
           }
         }
       }
@@ -518599,6 +519071,20 @@
             "value": "Cloud リソースは利用できなくなりました。マシン一覧を更新してください。"
           }
         }
+      }
+    },
+    "cloud.operation.failure.placement": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The Cloud terminal placement is unavailable. Refresh the machine, then retry."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Die Cloud-Terminalplatzierung ist nicht verfügbar. Aktualisieren Sie die Maschine und versuchen Sie es erneut."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "L’emplacement du terminal Cloud n’est pas disponible. Actualisez la machine, puis réessayez."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "موضع طرفية Cloud غير متاح. حدّث الجهاز ثم أعد المحاولة."}},
+        "es": {"stringUnit": {"state": "translated", "value": "La ubicación del terminal de Cloud no está disponible. Actualiza la máquina y vuelve a intentarlo."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Cloud 終端機位置無法使用。請重新整理機器後再試一次。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Cloud 终端位置不可用。请刷新机器后重试。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Cloud 터미널 배치를 사용할 수 없습니다. 머신을 새로 고친 후 다시 시도하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Cloud ターミナルの配置を利用できません。マシンを更新して、もう一度お試しください。"}}
       }
     },
     "cloud.operation.failure.unsupported": {
