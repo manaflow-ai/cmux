@@ -7,6 +7,7 @@ public enum MobileReleaseGateUIProbe {
     public enum EventKind: String, Sendable {
         case appRootVisible
         case workspaceListVisible
+        case workspaceSelectionTapped
         case workspaceDetailVisible
         case terminalFramePresented
     }
@@ -42,11 +43,13 @@ public enum MobileReleaseGateUIProbe {
         var result = [
             "app_root_to_workspace_list_visible": seconds(list.uptimeNanoseconds - root),
         ]
-        if let detail = events.first(where: {
-            $0.kind == .workspaceDetailVisible && $0.uptimeNanoseconds >= list.uptimeNanoseconds
+        if let tap = events.first(where: {
+            $0.kind == .workspaceSelectionTapped && $0.uptimeNanoseconds >= list.uptimeNanoseconds
+        }), let detail = events.first(where: {
+            $0.kind == .workspaceDetailVisible && $0.uptimeNanoseconds >= tap.uptimeNanoseconds
         }) {
-            result["workspace_list_to_detail_visible"] = seconds(
-                detail.uptimeNanoseconds - list.uptimeNanoseconds
+            result["workspace_tap_to_detail_visible"] = seconds(
+                detail.uptimeNanoseconds - tap.uptimeNanoseconds
             )
             if let terminal = events.first(where: {
                 $0.kind == .terminalFramePresented && $0.uptimeNanoseconds >= detail.uptimeNanoseconds

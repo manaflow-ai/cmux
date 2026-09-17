@@ -8,6 +8,7 @@ struct MobileReleaseGateUIProbeTests {
         MobileReleaseGateUIProbe.reset()
         MobileReleaseGateUIProbe.record(.appRootVisible)
         MobileReleaseGateUIProbe.record(.workspaceListVisible)
+        MobileReleaseGateUIProbe.record(.workspaceSelectionTapped)
         MobileReleaseGateUIProbe.record(.workspaceDetailVisible)
         MobileReleaseGateUIProbe.record(.terminalFramePresented)
 
@@ -15,7 +16,7 @@ struct MobileReleaseGateUIProbeTests {
         #expect(latencies.keys.sorted() == [
             "app_root_to_workspace_list_visible",
             "workspace_detail_to_terminal_text_visible",
-            "workspace_list_to_detail_visible",
+            "workspace_tap_to_detail_visible",
         ])
         #expect(latencies.values.allSatisfy { $0 >= 0 })
     }
@@ -24,6 +25,7 @@ struct MobileReleaseGateUIProbeTests {
         MobileReleaseGateUIProbe.reset()
         MobileReleaseGateUIProbe.record(.appRootVisible)
         MobileReleaseGateUIProbe.record(.workspaceListVisible)
+        MobileReleaseGateUIProbe.record(.workspaceSelectionTapped)
         MobileReleaseGateUIProbe.record(.workspaceDetailVisible)
 
         let latencies = MobileReleaseGateUIProbe.latencies()
