@@ -372,6 +372,7 @@ extension CmuxWebView {
                 return false
             }
             BrowserScreenshotFlash.show(over: self)
+            onScreenshotCopied?()
             return true
         } catch {
             #if DEBUG
@@ -391,6 +392,10 @@ extension CmuxWebView {
 
     @objc func contextMenuScreenshotSection(_ sender: Any?) {
         _ = sender
+        beginScreenshotSectionSelection()
+    }
+
+    func beginScreenshotSectionSelectionFromBrowserChrome() {
         beginScreenshotSectionSelection()
     }
 
@@ -417,6 +422,7 @@ extension CmuxWebView {
                         return
                     }
                     BrowserScreenshotFlash.show(over: self)
+                    onScreenshotCopied?()
                 } catch {
                     #if DEBUG
                     cmuxDebugLog("browser.screenshot.section.failed error=\(error.localizedDescription)")
@@ -439,5 +445,10 @@ extension BrowserPanel {
             return false
         }
         return await webView.captureScreenshotPageToClipboard()
+    }
+
+    func beginScreenshotSectionSelectionFromBrowserChrome() {
+        guard let webView = webView as? CmuxWebView else { return }
+        webView.beginScreenshotSectionSelectionFromBrowserChrome()
     }
 }

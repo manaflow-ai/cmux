@@ -20,8 +20,8 @@ final class MobileTerminalRenderObserver {
     private var isEmitFlushScheduled = false
     private var renderGridStatesBySurfaceID:
         [UUID: [MobileTerminalRenderGridFrame.Anchor: MobileTerminalRenderGridEmissionState]] = [:]
-    private var terminalThemesBySurfaceID: [UUID: TerminalTheme] = [:]
-    private var terminalConfigThemesBySurfaceID: [UUID: TerminalTheme] = [:]
+    var terminalThemesBySurfaceID: [UUID: TerminalTheme] = [:]
+    var terminalConfigThemesBySurfaceID: [UUID: TerminalTheme] = [:]
     private var runtimeSurfaceGenerationsBySurfaceID: [UUID: UInt64] = [:]
     private var reconciledSurfaceTopologyGeneration: UInt64?
     private var cachedTerminalTheme: TerminalTheme = .monokai
@@ -424,8 +424,9 @@ final class MobileTerminalRenderObserver {
             themedFrame.terminalTheme = resolvedTheme.theme
             themedFrame.terminalThemeRevision = resolvedTheme.revision
 
+            let previousEmissionState = renderGridStatesBySurfaceID[surfaceID]?[anchor]
             guard let emission = try? themedFrame.renderGridEmission(
-                comparedTo: renderGridStatesBySurfaceID[surfaceID]?[anchor],
+                comparedTo: previousEmissionState,
                 fullScrollbackTarget: fullScrollbackTarget,
                 allowScrollbackRequest: allowScrollbackRequest
             ) else { return nil }
@@ -464,6 +465,12 @@ final class MobileTerminalRenderObserver {
     func adoptReplayBaseline(_ frame: MobileTerminalRenderGridFrame, surfaceID: UUID) {
         guard frame.anchor == .screen else { return }
         renderGridStatesBySurfaceID[surfaceID, default: [:]][.screen] = frame.emissionState
+        // Replay uses the same decorated theme/config state as the phone. Keep
+        // the resolver caches in that state as well, otherwise the next live
+        // capture resolves missing theme fields from a different source and
+        // promotes the delta to a full frame.
+        terminalThemesBySurfaceID[surfaceID] = frame.terminalTheme
+        terminalConfigThemesBySurfaceID[surfaceID] = frame.terminalConfigTheme
     }
 
     func decorateReplayFrame(_ frame: MobileTerminalRenderGridFrame) -> MobileTerminalRenderGridFrame {

@@ -25,12 +25,12 @@ struct CmxIrohSettingsSnapshotTests {
         #expect(CmxIrohPathPreference.stored(in: defaults) == .automatic)
     }
 
-    @Test func pathPreferenceMapsToTransportVerificationMode() {
+    @Test func retiredPathPreferencesNormalizeToAutomaticTransport() {
         #expect(
             CmxIrohPathPreference.automatic.transportVerificationMode == .automatic
         )
         #expect(
-            CmxIrohPathPreference.relayOnly.transportVerificationMode == .relayOnly
+            CmxIrohPathPreference.relayOnly.transportVerificationMode == .automatic
         )
         #expect(
             CmxIrohPathPreference.neverUseRelays.transportVerificationMode == .directOnly
@@ -150,6 +150,25 @@ struct CmxIrohSettingsSnapshotTests {
             #expect(snapshot.debugTransportVerificationMode == mode)
             #expect(snapshot.debugRelayOnlyEnabled == (mode == .relayOnly))
         }
+    }
+
+    @Test func privateNetworkMacIdentityIncludesTheBuildTag() {
+        let deviceID = "123E4567-E89B-42D3-A456-426614174004"
+        let stable = CmxIrohSettingsSnapshot.PrivateNetworkMac(
+            macDeviceID: deviceID,
+            instanceTag: " stable ",
+            displayName: "MacBook Pro"
+        )
+        let nightly = CmxIrohSettingsSnapshot.PrivateNetworkMac(
+            macDeviceID: deviceID,
+            instanceTag: "nightly",
+            displayName: "MacBook Pro"
+        )
+
+        #expect(stable.macDeviceID == deviceID.lowercased())
+        #expect(stable.instanceTag == "stable")
+        #expect(stable.id != nightly.id)
+        #expect(Set([stable.id, nightly.id]).count == 2)
     }
 
     @Test func managedPreferenceRequiresOneToSixteenSafeRelayIdentifiers() throws {

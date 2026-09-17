@@ -80,9 +80,16 @@ import {
 import {
   destroyVm,
   listUserVms,
+  deletePrivateNetworkingForAccountDeletion,
   revokeUserIdentityLeasesForAccountDeletion,
   runVmWorkflow,
+  type VmModelPlaneRevoker,
 } from "../../../services/vms/workflows";
+import {
+  deleteVmPublicationRowsForAccountDeletion,
+  deleteVmPublicationsForAccountDeletion,
+} from "../../../services/vm-publications/accountDeletion";
+import { vmModelPlaneRevoker } from "../../../services/vms/modelPlaneGateway";
 
 
 const VAULT_OBJECT_DELETE_BATCH_SIZE = 100;
@@ -281,6 +288,24 @@ export async function DELETE(request: Request): Promise<Response> {
     }
     await refreshAccountDeletionTombstoneLease(userId);
     try {
+      const publications = await deleteVmPublicationsForAccountDeletion({
+        ownerUserId: userId,
+        beforePublicationTeardown: () => {
+          destructiveCleanupStarted = true;
+        },
+        afterPublicationTeardown: async () => {
+          await refreshAccountDeletionTombstoneLease(userId);
+        },
+      });
+      if (publications.publications > 0 || publications.providerRules > 0) {
+        destructiveCleanupStarted = true;
+      }
+    } catch (error) {
+      logAccountDeleteError("account.delete.vm_publication_cleanup_failed", error);
+      throw error;
+    }
+    await refreshAccountDeletionTombstoneLease(userId);
+    try {
       destroyedVms = await destroyPersonalCloudVms(userId, accountScope.teamIds, {
         afterVmDestroy: async () => {
           await refreshAccountDeletionTombstoneLease(userId);
@@ -294,6 +319,17 @@ export async function DELETE(request: Request): Promise<Response> {
       }
       throw error;
     }
+    // After the machines: the provider refuses to delete a network that
+    // still has attached VMs, so this must follow destroyPersonalCloudVms.
+    // Tunnel deletion revokes every enrolled computer's WireGuard access.
+    try {
+      const networking = await runVmWorkflow(deletePrivateNetworkingForAccountDeletion(userId));
+      if (networking.tunnels > 0 || networking.networks > 0) destructiveCleanupStarted = true;
+    } catch (error) {
+      logAccountDeleteError("account.delete.private_network_cleanup_failed", error);
+      throw error;
+    }
+    await refreshAccountDeletionTombstoneLease(userId);
     await deleteVaultRowsAndObjectsForAccount(userId, {
       beforeObjectDeletion: () => {
         destructiveCleanupStarted = true;
@@ -882,6 +918,8 @@ async function destroyPersonalCloudVms(
         providerVmId: string;
         provider: ProviderId;
         afterProviderDestroy: () => void;
+        modelPlane: VmModelPlaneRevoker;
+        source: "account_deletion";
       } = {
         userId,
         teamIds: accountTeamIds,
@@ -890,6 +928,8 @@ async function destroyPersonalCloudVms(
         afterProviderDestroy: () => {
           destructiveCleanupStarted = true;
         },
+        modelPlane: vmModelPlaneRevoker(),
+        source: "account_deletion",
       };
       if (vm.billingTeamId) destroyInput.billingTeamId = vm.billingTeamId;
       const destroyProgram = destroyVm(destroyInput);
@@ -1064,6 +1104,7 @@ async function finishPostStackAccountCleanup(
   if (options.deletePostHogPerson !== false) {
     await deletePostHogPersonForAccountDeletion(userId);
   }
+  await deleteVmPublicationsForAccountDeletion({ ownerUserId: userId });
   await deleteCmuxOwnedAccountRows(userId, accountTeamIds);
 }
 
@@ -1562,6 +1603,7 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
         ? or(eq(cloudVmSessions.userId, userId), inArray(cloudVmSessions.vmId, personalVmIds))
         : eq(cloudVmSessions.userId, userId),
     );
+    await deleteVmPublicationRowsForAccountDeletion(tx, userId);
     if (personalVmRows.length > 0) {
       await tx.delete(cloudVms).where(inArray(cloudVms.id, personalVmRows.map((vm) => vm.id)));
     }

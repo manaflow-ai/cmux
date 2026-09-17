@@ -55,9 +55,19 @@ jobs:
         run: ./scripts/ci/run-iroh-tailscale-compatibility-gate.sh
 
   simulator-e2e:
-    needs: tailscale-version-skew
+    env:
+      # The app gates compile optimized Swift for both endpoints. Xcode 26's
+      # AArch64 GlobalISel path is not reliable for that exact build shape, so
+      # use the same supported workaround as tagged cloud reloads and streamed
+      # validation instead of allowing a compiler failure to masquerade as a
+      # transport verdict.
+      CMUX_SWIFT_FRONTEND_WORKAROUND: "1"
     strategy:
       fail-fast: false
+      # The three app-backed modes share one staging account. Serial execution
+      # prevents one mode's zero-touch registration from replacing another
+      # mode's active Mac route while its authenticated RPC probe is running.
+      max-parallel: 1
       matrix:
         mode: ${{ fromJSON(inputs.mode == 'all' && '["automatic","relay-only","relay-expiry","direct-only","private-path"]' || format('["{0}"]', inputs.mode)) }}
     runs-on: ${{ vars.MACOS_RUNNER_STREAMED_VALIDATION || 'warp-macos-15-arm64-6x' }}
@@ -120,6 +130,8 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: iroh-release-gate-${{ matrix.mode }}
-          path: ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}.json
+          path: |
+            ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}.json
+            ${{ runner.temp }}/iroh-release-gate-${{ matrix.mode }}-mac.cmuxdiag
           if-no-files-found: warn
           retention-days: 7

@@ -126,7 +126,7 @@ struct IrohConnectionCheckCard: View {
     }
 
     private var safeRelayOrigins: [String] {
-        CmxIrohRelayOrigin.canonicalOrigins(from: activeRelayURLs)
+        activeRelayURLs.cmxIrohCanonicalRelayOrigins()
     }
 
     private func supportReportText(_ report: CmxIrohConnectionCheckReport) -> String {

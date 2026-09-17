@@ -222,10 +222,22 @@ extension MobilePairingScannerSheet {
         L10n.string(
             "mobile.tailscalePairing.instructions",
             defaultValue: """
-            Install Tailscale on both devices and use the same Tailscale network. On cmux 0.64.17, \
-            choose Connect iPhone/iPad and scan the Pair iPhone code. On newer versions, open \
-            Tailscale Pairing and scan its code here.
+            Install Tailscale on both devices and use the same Tailscale network. Open Tailscale \
+            Pairing on the Mac and scan its QR here, or enter the Mac's numeric Tailscale IP and port.
             """
         )
+    }
+
+    /// Tailscale setup guidance for an empty computer list, including the route back to Auto-Connect.
+    static var emptyStateGuidanceText: String {
+        let guidance = L10n.string(
+            "mobile.tailscalePairing.emptyDescription",
+            defaultValue: """
+            Install Tailscale on both devices and use the same Tailscale network. Open Tailscale \
+            Pairing on the Mac and scan its QR here, or enter the Mac's numeric Tailscale IP and port. \
+            To use Auto-Connect instead, open Settings, tap Connection Method, and choose Auto-Connect.
+            """
+        )
+        return "\(guidance) \(MobilePairingCopy().emptyWorkspaceMessage)"
     }
 }

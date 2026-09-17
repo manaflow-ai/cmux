@@ -12,6 +12,7 @@ public struct ChatArtifactInlineViewer: View {
     private struct LoadIdentity: Hashable {
         let path: String
         let retryGeneration: Int
+        let sourceIdentity: String?
     }
 
     private let path: String
@@ -78,7 +79,11 @@ public struct ChatArtifactInlineViewer: View {
             Text(fileActionFailurePresentation.message)
         }
         #endif
-        .task(id: LoadIdentity(path: path, retryGeneration: snapshot.retryGeneration)) {
+        .task(id: LoadIdentity(
+            path: path,
+            retryGeneration: snapshot.retryGeneration,
+            sourceIdentity: loader.sourceIdentity
+        )) {
             let activeModel = model(for: path)
             await activeModel.load(
                 loader: loader,
@@ -160,6 +165,8 @@ public struct ChatArtifactInlineViewer: View {
             .chat
         case .terminal:
             .terminal
+        case .panel:
+            .panel
         case .workspaceChanges:
             .workspaceChanges
         case .unsupported:

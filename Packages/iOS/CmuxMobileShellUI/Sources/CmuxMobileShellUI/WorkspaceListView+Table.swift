@@ -20,25 +20,34 @@ extension WorkspaceListView {
             items.append(.chrome(.recoveryBanner))
         case .macStatusRow:
             items.append(.chrome(.macStatusRow))
-        case .tailscalePairingRequired, .statusLine, .none:
+        case .statusLine, .none:
             // The status line renders under the computers picker in the
             // toolbar, not as a list row; content stays uncovered.
             break
         }
 
         if rendersGroupedSections {
-            items.append(contentsOf: groupedItems.map { item in
-                switch item {
-                case .groupHeader(let group, _):
-                    .groupHeader(group.id)
-                case .groupFooter(let groupID):
-                    .groupFooter(groupID)
-                case .workspace(let workspace, let indented):
-                    .workspace(workspace.id, indented: indented)
-                }
-            })
+            if groupedItems.isEmpty
+                && trimmedQuery.isEmpty
+                && !activeFilter.isActive
+                && workspaces.isEmpty {
+                items.append(.emptyWorkspaceList)
+            } else {
+                items.append(contentsOf: groupedItems.map { item in
+                    switch item {
+                    case .groupHeader(let group, _):
+                        .groupHeader(group.id)
+                    case .groupFooter(let groupID):
+                        .groupFooter(groupID)
+                    case .workspace(let workspace, let indented):
+                        .workspace(workspace.id, indented: indented)
+                    }
+                })
+            }
         } else if showsWorkspaceTableFilterEmptyRow {
             items.append(.filterEmpty)
+        } else if trimmedQuery.isEmpty && !activeFilter.isActive && workspaces.isEmpty {
+            items.append(.emptyWorkspaceList)
         } else {
             items.append(contentsOf: displayedFlatWorkspaces.map {
                 .workspace($0.id, indented: false)
@@ -47,13 +56,13 @@ extension WorkspaceListView {
         return items
     }
 
-    func workspaceTableGroupHasUnreadByID(
+    func workspaceTableGroupUnreadByID(
         groupedItems: [MobileWorkspaceListItem]
-    ) -> [MobileWorkspaceGroupPreview.ID: Bool] {
-        var result: [MobileWorkspaceGroupPreview.ID: Bool] = [:]
+    ) -> [MobileWorkspaceGroupPreview.ID: MobileWorkspaceUnreadState] {
+        var result: [MobileWorkspaceGroupPreview.ID: MobileWorkspaceUnreadState] = [:]
         for item in groupedItems {
-            if case .groupHeader(let group, let hasUnread) = item {
-                result[group.id] = hasUnread
+            if case .groupHeader(let group, let unread) = item {
+                result[group.id] = unread
             }
         }
         return result
@@ -78,7 +87,7 @@ extension WorkspaceListView {
             items: workspaceTableItems(groupedItems: groupedItems),
             workspacesByID: workspacesByID,
             groupsByID: groupsByID,
-            groupHasUnreadByID: workspaceTableGroupHasUnreadByID(
+            groupUnreadByID: workspaceTableGroupUnreadByID(
                 groupedItems: groupedItems
             ),
             filter: activeFilter,
@@ -87,6 +96,7 @@ extension WorkspaceListView {
             wrapWorkspaceTitles: wrapWorkspaceTitles,
             previewLineLimit: previewLineLimit,
             unreadIndicatorLeftShift: unreadIndicatorLeftShift,
+            unreadBadgeDiameter: unreadBadgeDiameter,
             connectionStatus: connectionStatus,
             workspaceChangesCapable: workspaceChangesCapable,
             workspaceChangeChipsByWorkspaceID: workspaceChangeChipsByWorkspaceID,

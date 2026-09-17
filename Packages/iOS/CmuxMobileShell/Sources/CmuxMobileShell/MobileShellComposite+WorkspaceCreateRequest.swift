@@ -29,11 +29,18 @@ extension MobileShellComposite {
         pinnedContext context: WorkspaceCreatePinnedContext,
         willStartCreate: (@MainActor () -> Void)? = nil
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
-        guard groupID == nil || allowsMacScopedWorkspaceMutations(targetClient: context.client) else {
+        guard groupID == nil
+            || spec?.workspaceGroupID == nil
+            || groupID == spec?.workspaceGroupID else {
+            return .failure(.rejected(hostDisplayName: context.hostDisplayName))
+        }
+        let requestedGroupID = groupID ?? spec?.workspaceGroupID
+        guard requestedGroupID == nil
+            || allowsMacScopedWorkspaceMutations(targetClient: context.client) else {
             return .failure(.authorizationFailed(hostDisplayName: context.hostDisplayName))
         }
         if let createWorkspaceTask {
-            guard spec == nil, createWorkspaceTaskSpec == nil, createWorkspaceTaskGroupID == groupID else {
+            guard spec == nil, createWorkspaceTaskSpec == nil, createWorkspaceTaskGroupID == requestedGroupID else {
                 return .failure(.busy(hostDisplayName: context.hostDisplayName))
             }
             return await createWorkspaceTask.value
@@ -48,14 +55,14 @@ extension MobileShellComposite {
             defer { self?.clearCreateWorkspaceTask(id: taskID) }
             guard let self else { return .success(()) }
             return await self.createRemoteWorkspace(
-                inGroup: groupID,
+                inGroup: requestedGroupID,
                 appliesOperationalError: false,
                 spec: spec,
                 pinnedContext: context
             )
         }
         createWorkspaceTask = task
-        createWorkspaceTaskGroupID = groupID
+        createWorkspaceTaskGroupID = requestedGroupID
         createWorkspaceTaskSpec = spec
         return await task.value
     }

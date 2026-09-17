@@ -1,5 +1,3 @@
-import { env } from "../../../env";
-import { hasActiveCoderouterSubscription } from "../../../../services/billing/pro";
 import { issueCoderouterHandoffLease } from "../../../../services/coderouter/repository";
 import { resolveCodeRouterRequestContext } from "../../../../services/coderouter/requestContext";
 import {
@@ -35,9 +33,10 @@ type HandoffMintDependencies = Omit<
 
 const defaultDependencies: HandoffMintDependencies = {
   resolveContext: resolveCodeRouterRequestContext,
-  hasActiveEntitlement: hasActiveCoderouterSubscription,
+  hasActiveEntitlement: async () => true,
   issueLease: issueCoderouterHandoffLease,
-  hostedProRequired: () => env.CODEROUTER_HOSTED_PRO_REQUIRED === "1",
+  // CodeRouter access follows the current membership-only control-plane policy.
+  hostedProRequired: () => false,
   rateLimit: defaultCoderouterHandoffRateLimiter,
   now: () => new Date(),
 };

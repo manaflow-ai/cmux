@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import Foundation
 import WebKit
 
@@ -78,7 +79,8 @@ final class BrowserPrewarmedWebViewPool: NSObject {
     func prewarm(url: URL, profileID: UUID) {
         guard let scheme = url.scheme?.lowercased(),
               scheme == "https" || scheme == "http",
-              !browserShouldBlockInsecureHTTPURL(url) else {
+              !browserShouldBlockInsecureHTTPURL(url),
+              BrowserURLAllowlistPolicy(defaults: .standard).allows(url) else {
             return
         }
         if hasEntry(url: url, profileID: profileID) {
@@ -109,6 +111,10 @@ final class BrowserPrewarmedWebViewPool: NSObject {
     /// consumed either way: once a matching panel is being created, a
     /// still-loading or failed entry is useless and would otherwise linger.
     func claim(url: URL, profileID: UUID, websiteDataStore: WKWebsiteDataStore) -> CmuxWebView? {
+        guard BrowserURLAllowlistPolicy(defaults: .standard).allows(url) else {
+            discard(reason: "url-allowlist")
+            return nil
+        }
         guard let entry,
               entry.url.absoluteString == url.absoluteString,
               entry.profileID == profileID else {
@@ -204,6 +210,46 @@ final class BrowserPrewarmedWebViewPool: NSObject {
 }
 
 extension BrowserPrewarmedWebViewPool: WKNavigationDelegate {
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) {
+        let decisionHandler = BrowserNavigationActionDecisionHandler(
+            decisionHandler,
+            fallbackPolicy: WKNavigationActionPolicy.cancel,
+            label: "BrowserPrewarmedWebViewPool.navigationAction"
+        ).closure
+
+        if let url = navigationAction.request.url,
+           !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
+            decisionHandler(.cancel)
+            discard(reason: "url-allowlist")
+            return
+        }
+        decisionHandler(.allow)
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationResponse: WKNavigationResponse,
+        decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
+    ) {
+        let decisionHandler = BrowserNavigationResponseDecisionHandler(
+            decisionHandler,
+            fallbackPolicy: WKNavigationResponsePolicy.cancel,
+            label: "BrowserPrewarmedWebViewPool.navigationResponse"
+        ).closure
+
+        if let url = navigationResponse.response.url,
+           !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
+            decisionHandler(.cancel)
+            discard(reason: "url-allowlist")
+            return
+        }
+        decisionHandler(.allow)
+    }
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         updateLoadState(for: webView, to: .finished)
     }

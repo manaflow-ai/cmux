@@ -149,28 +149,43 @@ impl TerminalExit {
 ///
 /// cmux-pty's Unix backend returns `std::process::Child`, so failure to downcast
 /// is an alternate backend and becomes an explicit unknown outcome.
+#[cfg(test)]
 pub(crate) fn wait_for_native_child_status(
     child: &mut (dyn cmux_pty::Child + Send + Sync),
 ) -> TerminalExit {
+    wait_for_native_child_status_with_reap_result(child).0
+}
+
+/// Wait for a PTY child and report whether the wait reaped it successfully.
+///
+/// Callers that retain an owning guard can use the boolean to avoid issuing a
+/// second kill against a PID that may already have been reused after a
+/// successful wait.
+pub(crate) fn wait_for_native_child_status_with_reap_result(
+    child: &mut (dyn cmux_pty::Child + Send + Sync),
+) -> (TerminalExit, bool) {
     let child: &mut dyn cmux_pty::Child = child;
     if let Some(child) = child.downcast_mut::<std::process::Child>() {
         return match child.wait() {
-            Ok(status) => TerminalExit::from_exit_status(&status),
-            Err(error) => TerminalExit::unknown(format!("wait failed: {error}")),
+            Ok(status) => (TerminalExit::from_exit_status(&status), true),
+            Err(error) => (TerminalExit::unknown(format!("wait failed: {error}")), false),
         };
     }
     match child.wait() {
         Ok(status) if status.signal().is_some() => {
-            TerminalExit::unknown(format!("numeric signal status unavailable: {status}"))
+            (TerminalExit::unknown(format!("numeric signal status unavailable: {status}")), true)
         }
         Ok(status) => match i32::try_from(status.exit_code()) {
-            Ok(code) => TerminalExit::now(TerminalExitOutcome::Exit { code }),
-            Err(_) => TerminalExit::unknown(format!(
-                "portable exit code exceeds signed 32-bit range: {}",
-                status.exit_code()
-            )),
+            Ok(code) => (TerminalExit::now(TerminalExitOutcome::Exit { code }), true),
+            Err(_) => (
+                TerminalExit::unknown(format!(
+                    "portable exit code exceeds signed 32-bit range: {}",
+                    status.exit_code()
+                )),
+                true,
+            ),
         },
-        Err(error) => TerminalExit::unknown(format!("wait failed: {error}")),
+        Err(error) => (TerminalExit::unknown(format!("wait failed: {error}")), false),
     }
 }
 
@@ -391,6 +406,8 @@ pub enum MessageKind {
     /// host. Every live frame admitted before this receipt is queued before it,
     /// and this client is removed from live publication before the receipt.
     DetachAck = 22,
+    /// Targeted confirmation that `Input` reached the authoritative PTY writer.
+    InputAck = 23,
     Input = 100,
     Paste = 101,
     ViewerSize = 102,
@@ -447,6 +464,7 @@ impl TryFrom<u16> for MessageKind {
             20 => Ok(Self::LaunchFailed),
             21 => Ok(Self::TerminateAck),
             22 => Ok(Self::DetachAck),
+            23 => Ok(Self::InputAck),
             100 => Ok(Self::Input),
             101 => Ok(Self::Paste),
             102 => Ok(Self::ViewerSize),
@@ -792,6 +810,37 @@ impl FrameDecoder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, Mutex, mpsc};
+
+    /// Test-only stand-in for a direct pipe reader. The bounded queue models
+    /// the byte pump, while the mutex is the single parser owner.
+    struct PipeBytePump {
+        tx: Option<mpsc::SyncSender<Vec<u8>>>,
+        rx: mpsc::Receiver<Vec<u8>>,
+        decoder: Arc<Mutex<FrameDecoder>>,
+    }
+
+    impl PipeBytePump {
+        fn new(capacity: usize) -> Self {
+            let (tx, rx) = mpsc::sync_channel(capacity);
+            Self {
+                tx: Some(tx),
+                rx,
+                decoder: Arc::new(Mutex::new(FrameDecoder::new(MAX_FRAME_PAYLOAD))),
+            }
+        }
+
+        fn close(&mut self) {
+            self.tx.take();
+        }
+
+        fn parse_next(&self) -> Result<Option<Vec<Frame>>, ProtocolError> {
+            match self.rx.recv() {
+                Ok(bytes) => self.decoder.lock().unwrap().push(&bytes).map(Some),
+                Err(_) => self.decoder.lock().unwrap().finish().map(|()| None),
+            }
+        }
+    }
 
     fn sample_frame() -> Frame {
         Frame {
@@ -846,6 +895,38 @@ mod tests {
     }
 
     #[test]
+    fn direct_pipe_pump_handles_split_ansi_and_utf8_then_eof() {
+        let mut frame = Frame::new(MessageKind::Output, b"\x1b[31mCafe ".to_vec());
+        frame.payload.extend_from_slice("é\x1b[0m".as_bytes());
+        let encoded = encode_frame(&frame).unwrap();
+        let mut pump = PipeBytePump::new(3);
+        let tx = pump.tx.as_ref().unwrap();
+        tx.send(encoded[..3].to_vec()).unwrap();
+        tx.send(encoded[3..HEADER_LEN + 1].to_vec()).unwrap();
+        tx.send(encoded[HEADER_LEN + 1..].to_vec()).unwrap();
+
+        assert!(pump.parse_next().unwrap().unwrap().is_empty());
+        assert!(pump.parse_next().unwrap().unwrap().is_empty());
+        assert_eq!(pump.parse_next().unwrap().unwrap(), vec![frame]);
+        pump.close();
+        assert_eq!(pump.parse_next().unwrap(), None);
+    }
+
+    #[test]
+    fn direct_pipe_pump_queue_is_bounded_and_parser_access_is_serialized() {
+        let pump = PipeBytePump::new(1);
+        pump.tx.as_ref().unwrap().try_send(vec![1]).unwrap();
+        assert!(pump.tx.as_ref().unwrap().try_send(vec![2]).is_err());
+
+        let decoder = Arc::clone(&pump.decoder);
+        let first = std::thread::spawn(move || decoder.lock().unwrap().buffered_len());
+        let decoder = Arc::clone(&pump.decoder);
+        let second = std::thread::spawn(move || decoder.lock().unwrap().buffered_len());
+        assert_eq!(first.join().unwrap(), 0);
+        assert_eq!(second.join().unwrap(), 0);
+    }
+
+    #[test]
     fn clear_history_has_a_stable_additive_message_kind() {
         assert_eq!(MessageKind::ClearHistoryAck as u16, 17);
         assert_eq!(MessageKind::try_from(17).unwrap(), MessageKind::ClearHistoryAck);
@@ -867,6 +948,8 @@ mod tests {
         assert_eq!(MessageKind::try_from(21).unwrap(), MessageKind::TerminateAck);
         assert_eq!(MessageKind::DetachAck as u16, 22);
         assert_eq!(MessageKind::try_from(22).unwrap(), MessageKind::DetachAck);
+        assert_eq!(MessageKind::InputAck as u16, 23);
+        assert_eq!(MessageKind::try_from(23).unwrap(), MessageKind::InputAck);
         assert_eq!(MessageKind::Terminate as u16, 104);
         assert_eq!(MessageKind::try_from(104).unwrap(), MessageKind::Terminate);
     }

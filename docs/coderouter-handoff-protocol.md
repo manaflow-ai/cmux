@@ -26,10 +26,10 @@ Cookies, user-agent strings, `X-Cmux-Native`-style assertions, and route tokens
 are not authorization for minting. A malformed native pair never falls back to
 an ambient browser cookie.
 
-The server reuses the CodeRouter request-context checks: Stack identity,
-team membership/allowlisting, the `use` permission, and the existing hosted
-Pro-or-Team entitlement gate when hosted billing is enabled. A successful
-response is `Cache-Control: no-store` and has this shape:
+The server reuses the current CodeRouter request-context checks: verified Stack
+identity and membership in the selected team. CodeRouter has no hosted plan,
+permission, or team allow-list gate. A successful response is
+`Cache-Control: no-store` and has this shape:
 
 ```json
 {
@@ -57,13 +57,8 @@ subprocess that does not have the Stack refresh token. Browser-cookie requests
 are rejected; cookies never add authority. If a caller supplies either Stack
 header, it must be a complete valid native pair; when present, the pair is
 additionally required to resolve to the lease's same user and team and the
-current permission/entitlement checks are rerun. This optional confirmation is
+current identity and team membership checks are rerun. This optional confirmation is
 method-specific and is not a replacement for the lease.
-
-When hosted billing is enabled, exchange also rechecks the stored lease
-principal's current Pro-or-Team entitlement immediately before the atomic
-claim. This server-side check does not require the recipient to possess Stack
-credentials.
 
 The response is the existing CodeRouter route-session shape:
 
@@ -99,10 +94,9 @@ the lease expires.
 
 The existing route-token table stores only `SHA-256(token)`. Billing
 revocation marks outstanding handoff leases consumed before revoking route
-tokens, using the same principal locks as mint and exchange. Hosted mint and
-exchange recheck entitlement through their transaction-bound database
-connection after acquiring those locks, so cancellation cannot race either
-operation into new authority. Account-deletion startup uses its deletion lock
+tokens, using the same principal locks as mint and exchange. Repository callers
+can supply a transaction-bound authorizer when a policy requires one; the
+membership-only hosted routes do not add a billing gate. Account-deletion startup uses its deletion lock
 to invalidate outstanding leases and route tokens; later mint and exchange
 check the same durable tombstone while holding that lock. Normal route-token
 authentication remains authoritative after exchange.
@@ -129,7 +123,8 @@ authentication remains authoritative after exchange.
   cleanup worker. Cleanup runs in its own transaction, so a maintenance
   failure cannot abort lease issuance.
 
-Telemetry receives only fixed operation/outcome labels. Lease and route-token
+Handoff telemetry adds only fixed operation/outcome labels to the current
+CodeRouter user/team analytics identity. Lease and route-token
 values are not passed to CodeRouter analytics, breadcrumbs, error context, or
 Sentry; Sentry also scrubs both `crh_` and `crt_` patterns as defense in
 depth.

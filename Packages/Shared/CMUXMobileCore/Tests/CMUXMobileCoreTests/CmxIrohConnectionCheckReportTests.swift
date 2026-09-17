@@ -135,7 +135,7 @@ struct CmxIrohConnectionCheckReportTests {
 
     @Test
     func relayAllowlistOriginsRejectCredentialsAndNonRootURLs() {
-        #expect(CmxIrohRelayOrigin.canonicalOrigins(from: [
+        #expect([
             "https://relay.example.test/",
             "https://relay.example.test",
             "https://relay.example.test:443",
@@ -143,7 +143,7 @@ struct CmxIrohConnectionCheckReportTests {
             "https://relay.example.test/private",
             "https://relay.example.test?token=secret",
             "http://relay.example.test",
-        ]) == [
+        ].cmxIrohCanonicalRelayOrigins() == [
             "https://relay.example.test",
             "https://relay.example.test:443",
         ])
@@ -173,7 +173,9 @@ struct CmxIrohConnectionCheckReportTests {
             preference: .automatic,
             managedRelays: [],
             customRelays: [],
-            privateNetworkMacs: hasMac ? [.init(id: "mac", displayName: "Mac")] : [],
+            privateNetworkMacs: hasMac
+                ? [.init(macDeviceID: "mac", displayName: "Mac")]
+                : [],
             policySource: .server
         )
     }

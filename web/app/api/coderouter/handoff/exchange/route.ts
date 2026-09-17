@@ -1,5 +1,4 @@
 import { env } from "../../../../env";
-import { hasActiveCoderouterSubscription } from "../../../../../services/billing/pro";
 import {
   exchangeCoderouterHandoffLease,
 } from "../../../../../services/coderouter/repository";
@@ -38,8 +37,9 @@ type HandoffExchangeDependencies = Omit<
 const defaultDependencies: HandoffExchangeDependencies = {
   exchangeLease: exchangeCoderouterHandoffLease,
   resolveContext: resolveCodeRouterRequestContext,
-  hasActiveEntitlement: hasActiveCoderouterSubscription,
-  hostedProRequired: () => env.CODEROUTER_HOSTED_PRO_REQUIRED === "1",
+  hasActiveEntitlement: async () => true,
+  // CodeRouter access follows the current membership-only control-plane policy.
+  hostedProRequired: () => false,
   rateLimit: defaultCoderouterHandoffRateLimiter,
   publicOrigin: () => env.CMUX_CODEROUTER_PUBLIC_ORIGIN,
   now: () => new Date(),

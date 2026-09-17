@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxSettings
 import SwiftUI
 
 /// Iroh relay policy, custom relay, and private-path diagnostics.
@@ -8,6 +9,23 @@ public struct IrohNetworkingSection: View {
     @State private var showsCustomEditor = false
     @State private var editedCustomRelayID: String?
     @State private var pendingCustomRemovalID: String?
+
+    /// Whether an MDM configuration profile disables iOS remote control,
+    /// which this networking stack exists to serve. Refreshed from
+    /// ``ManagedDevicePolicy/changeSignals(notificationCenter:)`` so a
+    /// profile pushed while the Settings window stays open re-renders it.
+    @State private var remoteControlManagedByPolicy =
+        ManagedDevicePolicy().isEnforced(.disableRemoteControl)
+
+    /// Whether a profile disables cmux-managed Iroh networking outright. This
+    /// is the broader control: it turns the transport off, not just the Mac's
+    /// role as an iOS remote-control host.
+    @State private var irohNetworkingManagedByPolicy =
+        ManagedDevicePolicy().isEnforced(.disableIrohNetworking)
+
+    private var networkingManagedByPolicy: Bool {
+        remoteControlManagedByPolicy || irohNetworkingManagedByPolicy
+    }
 
     public init(hostActions: SettingsHostActions) {
         _model = State(initialValue: IrohSettingsModel(controller: hostActions.irohSettingsController()))
@@ -19,13 +37,38 @@ public struct IrohNetworkingSection: View {
                 String(localized: "settings.section.networking", defaultValue: "Networking"),
                 section: .networking
             )
-            relayPolicyCard
-            customRelayCard
-            privateNetworkCard
-            connectionCheckCard
+            if networkingManagedByPolicy {
+                SettingsCard {
+                    SettingsCardNote(
+                        irohNetworkingManagedByPolicy
+                            ? String(
+                                localized: "managedPolicy.irohNetworking.disabled",
+                                defaultValue: "cmux relay networking is disabled by your organization."
+                            )
+                            : String(
+                                localized: "settings.mobile.managedByOrganization",
+                                defaultValue: "Remote control from the iOS app is disabled by your organization."
+                            )
+                    )
+                }
+            }
+            Group {
+                relayPolicyCard
+                customRelayCard
+                privateNetworkCard
+                connectionCheckCard
+            }
+            .disabled(networkingManagedByPolicy)
             diagnosticsCard
         }
         .task { await model.observe() }
+        .task {
+            for await _ in ManagedDevicePolicy.changeSignals() {
+                let policy = ManagedDevicePolicy()
+                remoteControlManagedByPolicy = policy.isEnforced(.disableRemoteControl)
+                irohNetworkingManagedByPolicy = policy.isEnforced(.disableIrohNetworking)
+            }
+        }
         .onDisappear { model.cancelConnectionCheck() }
         .sheet(isPresented: $showsCustomEditor) {
             NavigationStack {
@@ -226,18 +269,6 @@ public struct IrohNetworkingSection: View {
                 Image(systemName: policySymbol)
                     .foregroundStyle(model.snapshot.policySource == .unavailable ? .orange : .secondary)
             }
-            SettingsCardDivider()
-            IrohRelayOnlyRow(
-                isEnabled: model.snapshot.pathPreference == .relayOnly,
-                isMutating: model.isMutating,
-                setEnabled: { model.setPathPreference($0 ? .relayOnly : .automatic) }
-            )
-            SettingsCardDivider()
-            IrohNeverUseRelaysRow(
-                isEnabled: model.snapshot.pathPreference == .neverUseRelays,
-                isMutating: model.isMutating,
-                setEnabled: { model.setPathPreference($0 ? .neverUseRelays : .automatic) }
-            )
             IrohDiagnosticsReportRows(
                 report: model.diagnosticReport,
                 exportText: model.diagnosticExportText,
@@ -620,11 +651,6 @@ private struct IrohDiagnosticsReportRows: View {
                 localized: "settings.networking.diagnostics.failure.superseded",
                 defaultValue: "Replaced by a Newer Attempt"
             )
-        case .some(.routeGated):
-            String(
-                localized: "settings.networking.diagnostics.failure.routeGated",
-                defaultValue: "Connection Attempt Held"
-            )
         case .some(.payloadTooLarge):
             DiagnosticEventPresentation().displayName(.payloadTooLarge)
         case .some(.resourceLimitReached):
@@ -639,70 +665,6 @@ private struct IrohDiagnosticsReportRows: View {
             String(localized: "settings.networking.diagnostics.failure.cancelled", defaultValue: "Cancelled")
         case .some(.unknown):
             String(localized: "settings.networking.diagnostics.failure.unknown", defaultValue: "Unknown")
-        }
-    }
-}
-
-private struct IrohRelayOnlyRow: View {
-    let isEnabled: Bool
-    let isMutating: Bool
-    let setEnabled: @MainActor @Sendable (Bool) -> Void
-
-    var body: some View {
-        SettingsCardRow(
-            configurationReview: .settingsOnly,
-            searchAnchorID: "setting:networking:relayOnly",
-            String(
-                localized: "settings.networking.relayOnly",
-                defaultValue: "Relay Only"
-            ),
-            subtitle: String(
-                localized: "settings.networking.relayOnly.subtitle",
-                defaultValue: "Keeps Iroh connections to this Mac on cmux relays instead of direct or local-network paths. Applies on the next reconnect."
-            )
-        ) {
-            Toggle(
-                "",
-                isOn: Binding(
-                    get: { isEnabled },
-                    set: { newValue in setEnabled(newValue) }
-                )
-            )
-            .labelsHidden()
-            .disabled(isMutating)
-            .accessibilityIdentifier("SettingsIrohRelayOnly")
-        }
-    }
-}
-
-private struct IrohNeverUseRelaysRow: View {
-    let isEnabled: Bool
-    let isMutating: Bool
-    let setEnabled: @MainActor @Sendable (Bool) -> Void
-
-    var body: some View {
-        SettingsCardRow(
-            configurationReview: .settingsOnly,
-            searchAnchorID: "setting:networking:neverUseRelays",
-            String(
-                localized: "settings.networking.neverUseRelays",
-                defaultValue: "Never Use Relays"
-            ),
-            subtitle: String(
-                localized: "settings.networking.neverUseRelays.subtitle",
-                defaultValue: "Requires a reachable direct, local-network, or private-network path. Applies on the next reconnect."
-            )
-        ) {
-            Toggle(
-                "",
-                isOn: Binding(
-                    get: { isEnabled },
-                    set: { newValue in setEnabled(newValue) }
-                )
-            )
-            .labelsHidden()
-            .disabled(isMutating)
-            .accessibilityIdentifier("SettingsIrohNeverUseRelays")
         }
     }
 }

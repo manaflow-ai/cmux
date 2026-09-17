@@ -6,7 +6,6 @@ import * as Layer from "effect/Layer";
 import {
   AccountDeletionMutationBlockedError,
 } from "../account/deletionLock";
-import type { hasActiveCoderouterSubscription } from "../billing/pro";
 import { captureCoderouterEvent } from "./analytics";
 import { CodeRouterHandoffEntitlementDenied } from "./repository";
 import type {
@@ -129,7 +128,7 @@ export type HandoffWorkflowError =
 export type HandoffMintDependencies = {
   readonly protocol: HandoffProtocol;
   readonly resolveContext: typeof resolveCodeRouterRequestContext;
-  readonly hasActiveEntitlement: typeof hasActiveCoderouterSubscription;
+  readonly hasActiveEntitlement: (userId: string, teamId: string, db?: CodeRouterHandoffEntitlementDb) => Promise<boolean>;
   readonly issueLease: typeof issueCoderouterHandoffLease;
   readonly hostedProRequired: () => boolean;
   readonly now?: () => Date;
@@ -139,7 +138,7 @@ export type HandoffExchangeDependencies = {
   readonly protocol: HandoffProtocol;
   readonly exchangeLease: typeof exchangeCoderouterHandoffLease;
   readonly resolveContext: typeof resolveCodeRouterRequestContext;
-  readonly hasActiveEntitlement: typeof hasActiveCoderouterSubscription;
+  readonly hasActiveEntitlement: (userId: string, teamId: string, db?: CodeRouterHandoffEntitlementDb) => Promise<boolean>;
   readonly hostedProRequired: () => boolean;
   readonly publicOrigin?: () => string | undefined;
   readonly now?: () => Date;
@@ -231,7 +230,7 @@ function resolveContext(
   HandoffAuthorizationUnavailableError | HandoffResponseError
 > {
   return tryPromise(
-    () => dependencies.resolveContext(request, "use"),
+    () => dependencies.resolveContext(request),
     () => new HandoffAuthorizationUnavailableError({}),
   ).pipe(
     Effect.flatMap((resolved) =>

@@ -58,6 +58,7 @@ public:
     [[nodiscard]] Result<EmptyResult> browser_wheel_guarded(const BrowserWheelGuardedRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> clear_history(const ClearHistoryRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> clear_window_title(const ClearWindowTitleRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<ClientFocusResult> client_focus(const ClientFocusRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> close_pane(const ClosePaneRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ProviderWorkspaceMutationResult> close_provider_managed_workspace(const CloseProviderManagedWorkspaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> close_screen(const CloseScreenRequest& request, RequestOptions options = {});
@@ -83,6 +84,8 @@ public:
     [[nodiscard]] Result<ListClientsResult> list_clients(const ListClientsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ListTerminalsResult> list_terminals(const ListTerminalsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<Tree> list_workspaces(const ListWorkspacesRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<MachineListeningTcpResult> machine_listening_tcp(const MachineListeningTcpRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<MachineUsageResult> machine_usage(const MachineUsageRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> mark_workspaces_provider_managed(const MarkWorkspacesProviderManagedRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<MintTerminalRendererResult> mint_terminal_renderer(const MintTerminalRendererRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<MintTerminalRendererResult> mint_terminal_renderer_by_terminal(const MintTerminalRendererByTerminalRequest& request, RequestOptions options = {});
@@ -98,6 +101,7 @@ public:
     [[nodiscard]] Result<NotifyResult> notify(const NotifyRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> pairing_response(const PairingResponseRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<PaneNeighborResult> pane_neighbor(const PaneNeighborRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<PasteImageResult> paste_image(const PasteImageRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<PingResult> ping(const PingRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ProcessInfoResult> process_info(const ProcessInfoRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<FrontendProjection> put_frontend_projection(const PutFrontendProjectionRequest& request, RequestOptions options = {});
@@ -113,6 +117,7 @@ public:
     [[nodiscard]] Result<EmptyResult> rename_surface(const RenameSurfaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<WorkspaceMutationResult> rename_workspace(const RenameWorkspaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ReportAgentResult> report_agent(const ReportAgentRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<EmptyResult> report_focus(const ReportFocusRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<AttachedViewResizeResult> resize_attached_view(const ResizeAttachedViewRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ResizeSurfaceResult> resize_surface(const ResizeSurfaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ResolveTerminalResult> resolve_terminal(const ResolveTerminalRequest& request, RequestOptions options = {});
@@ -123,6 +128,7 @@ public:
     [[nodiscard]] Result<EmptyResult> select_workspace(const SelectWorkspaceRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> send(const SendRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> send_key(const SendKeyRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<ServerStatsResult> server_stats(const ServerStatsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<SetCellPixelsResult> set_cell_pixels(const SetCellPixelsRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> set_client_info(const SetClientInfoRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> set_client_sizing(const SetClientSizingRequest& request, RequestOptions options = {});

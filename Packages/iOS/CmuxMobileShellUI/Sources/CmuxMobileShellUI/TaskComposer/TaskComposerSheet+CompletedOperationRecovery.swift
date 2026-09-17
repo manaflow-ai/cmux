@@ -86,6 +86,7 @@ extension TaskComposerSheet {
     func completeSubmission(_ snapshot: MobileTaskSubmissionSnapshot) {
         _ = store.completeTaskComposerSubmission(
             snapshot,
+            draftID: draftID,
             ifSessionGeneration: sessionGeneration
         )
         // Remote success is authoritative. A stale signed-in session may stop
@@ -108,6 +109,7 @@ extension TaskComposerSheet {
             workingDirectory: snapshot.trimmedDirectory.isEmpty ? nil : snapshot.trimmedDirectory,
             initialCommand: composition.initialCommand,
             initialEnv: composition.initialEnv.isEmpty ? nil : composition.initialEnv,
+            workspaceGroupID: snapshot.workspaceGroupID,
             operationID: snapshot.operationID
         )
     }

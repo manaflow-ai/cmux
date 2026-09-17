@@ -13,6 +13,14 @@ struct MobileRootPresentationStateTests {
         #expect(approval.analyticsEntry == "version_approval")
     }
 
+    @Test func tailscaleReplacementStartsScannerWithReplacementAnalytics() {
+        let replacement = PairingPresentation.tailscaleReplacement
+
+        #expect(replacement.showsScanner)
+        #expect(replacement.showsManualPairingControls)
+        #expect(replacement.analyticsEntry == "tailscale_replacement")
+    }
+
     @Test func introductionStartsTailscaleScannerWithoutAUsableAuthorization() {
         var state = MobileRootPresentationState()
 
@@ -51,35 +59,30 @@ struct MobileRootPresentationStateTests {
         #expect(state.isIdle)
     }
 
-    @Test func tailscalePromptLatchesMigrationRequirementAcrossShellLoading() {
+    @Test func tailscaleRequirementLatchesAcrossShellLoading() {
         var state = MobileTailscaleSetupPromptState()
 
         state.apply(.selectedTailscale(requiresPairing: true))
-        #expect(state.showsBanner)
+        #expect(state.requiresPairing)
 
         state.apply(.shellStatusChanged(.loadingAuthorization))
-        #expect(state.showsBanner)
-
-        state.apply(.dismiss)
-        #expect(!state.showsBanner)
-        #expect(state.presentation == .dismissed)
+        #expect(state.requiresPairing)
 
         state.apply(.shellStatusChanged(.pairingRequired))
-        #expect(!state.showsBanner)
-        #expect(state.presentation == .dismissed)
+        #expect(state.requiresPairing)
     }
 
-    @Test func tailscalePromptFollowsDurableReadinessAcrossLaunches() {
+    @Test func tailscaleRequirementFollowsDurableReadinessAcrossLaunches() {
         var state = MobileTailscaleSetupPromptState()
 
         state.apply(.shellStatusChanged(.loadingAuthorization))
-        #expect(!state.showsBanner)
+        #expect(!state.requiresPairing)
 
         state.apply(.shellStatusChanged(.pairingRequired))
-        #expect(state.showsBanner)
+        #expect(state.requiresPairing)
 
         state.apply(.shellStatusChanged(.authorized))
-        #expect(!state.showsBanner)
+        #expect(!state.requiresPairing)
         #expect(state.presentation == .followsShell)
     }
 
@@ -137,6 +140,40 @@ struct MobileRootPresentationStateTests {
         let pairing = PairingPresentation.manual
         #expect(state.apply(.presentPairing(pairing)) == .none)
         #expect(state.presentation == .pairing(pairing))
+        #expect(state.isRootSheetPresented)
+    }
+
+    @Test func settingsCanHandItsSheetToComputersInPlace() {
+        var state = MobileRootPresentationState()
+        state.apply(.presentSettings)
+
+        #expect(state.apply(.presentComputers) == .none)
+        #expect(state.presentation == .computers)
+        #expect(state.isRootSheetPresented)
+
+        #expect(state.apply(.dismissComputers) == .retryAutoConnectMigration)
+        #expect(state.isIdle)
+    }
+
+    @Test func computersNeverReplacesAPairingPresentation() {
+        var state = MobileRootPresentationState()
+        let pairing = PairingPresentation.manual
+        state.apply(.presentPairing(pairing))
+
+        #expect(state.apply(.presentComputers) == .none)
+        #expect(state.presentation == .pairing(pairing))
+    }
+
+    /// A child Settings dismissal can re-present the migration introduction
+    /// (its retry effect) before the queued Computers follow-up runs; the
+    /// user's explicit Computers request must still win the slot.
+    @Test func computersPreemptsTheMigrationIntroduction() {
+        var state = MobileRootPresentationState()
+        state.apply(.presentAutoConnectMigrationIfIdle)
+        #expect(state.presentation == .autoConnectMigrationIntroduction)
+
+        #expect(state.apply(.presentComputers) == .none)
+        #expect(state.presentation == .computers)
         #expect(state.isRootSheetPresented)
     }
 

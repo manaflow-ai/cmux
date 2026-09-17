@@ -5,7 +5,7 @@ internal import Foundation
 extension MobileShellComposite {
     static func normalizedPairingURL(_ rawValue: String) -> String {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard CmxPairingURLScheme.hasPairingScheme(trimmed) else {
+        guard CmxPairingURLScheme(urlString: trimmed) != nil else {
             return trimmed
         }
         let scalars = trimmed.unicodeScalars.filter {
@@ -30,7 +30,9 @@ extension MobileShellComposite {
             supportsCloseActions: supportedHostCapabilities.contains("workspace.close.v1"),
             supportsMoveActions: supportedHostCapabilities.contains("workspace.move.v1") && allowsMacScopedMutations,
             supportsGroupActions: supportedHostCapabilities.contains("workspace.group_actions.v1") && allowsMacScopedMutations,
-            supportsGroupCreate: supportedHostCapabilities.contains("workspace.group_create.v1") && allowsMacScopedMutations
+            supportsGroupCreate: supportedHostCapabilities.contains("workspace.group_create.v1") && allowsMacScopedMutations,
+            supportsWorkspaceCreateInGroup: supportedHostCapabilities.contains("workspace.create_in_group.v1")
+                && allowsMacScopedMutations
         )
     }
 
