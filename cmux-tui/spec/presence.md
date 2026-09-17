@@ -28,6 +28,22 @@ talking. It is not focus, not selection, and not input.
 7. Limits: 240 updates per second per connection, 256 connections holding
    presence, and a 60 second idle drop for pointers without a `pin` highlight.
 
+## State ownership
+
+| State | Owner | Lifetime and responsibility |
+| --- | --- | --- |
+| Current pointer, highlight, generation, color | Daemon presence hub | One latest entry per connection; coalesces delivery and clears on disconnect, surface exit, or explicit clear. Never journaled. |
+| Local desired pointer and pending publication | `CloudPresenceLink` | One presence-only connection per cloud machine. Sends at most 30 pointer updates per second, flushes the final position, reconnects, and republishes desired state. |
+| Local pane to remote surface mapping and received entries | `CloudPresenceStore` | Registers cloud panes, owns their machine links, filters entries by surface, and drops cached entries when the connection ends. |
+| Cell size, padding, visible rows, scroll offset | Ghostty terminal surface | Authoritative renderer metrics in logical points. The terminal view uses the same geometry for publishing cells and placing overlays. |
+| Cursor pixels, name pill, highlight fading | `CloudPresenceOverlayView` | Click-through view above the terminal. Uses the shared Computer Use cursor artwork; it never owns terminal input or selection. |
+| Display name | Connection's `set-client-info` label | Self-asserted presentation metadata, not authenticated identity or access control. |
+
+`CloudPresenceLink` is the Mac's transport adapter to the daemon presence hub.
+It does not attach a terminal or stream terminal output. The store owns its
+lifetime: the first pane on a machine creates the link and the last pane closing
+stops it.
+
 ## Wire
 
 | Item | Name |
