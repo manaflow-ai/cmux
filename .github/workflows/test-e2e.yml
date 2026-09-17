@@ -181,12 +181,15 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Download pre-built GhosttyKit.xcframework
+      - name: Build exact unmerged Ghostty scroll fix
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          ./scripts/download-prebuilt-ghosttykit.sh
+          git -C ghostty fetch origin 7d6da421349e70ddb8a770383c4f8d13042e2245
+          git -C ghostty checkout 7d6da421349e70ddb8a770383c4f8d13042e2245
+          ./scripts/install-zig-ci.sh
+          ./scripts/ensure-ghosttykit.sh
 
       - name: Install zig
         run: |
