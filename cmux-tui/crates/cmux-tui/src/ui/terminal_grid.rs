@@ -144,14 +144,17 @@ fn draw_render_frame_with_catalog(
 /// Return whether a grid cell is selected, treating both columns of a wide
 /// grapheme as one selectable unit. Selection ranges are normally normalized
 /// to the lead cell, but checking the paired coordinate also keeps rendering
-/// correct for callers that still provide a raw spacer-tail endpoint.
+/// correct for callers that still provide a raw spacer-tail endpoint. A
+/// wrapped grapheme's spacer head is a non-text continuation cell, so it must
+/// never receive independent selection styling.
 fn selected_cell(
     cells: &[VtCell],
     source_col: usize,
     row: usize,
     selected: &impl Fn(u16, u16) -> bool,
 ) -> bool {
-    let selected_here = selected(source_col as u16, row as u16);
+    let selected_here =
+        cells[source_col].width != CellWidth::SpacerHead && selected(source_col as u16, row as u16);
     let paired_col = match cells[source_col].width {
         CellWidth::Wide
             if cells
@@ -869,9 +872,11 @@ mod tests {
                 columns,
                 "Ghostty width {width:?} must remain authoritative"
             );
-            let expected_diff_option = forced
-                .then(|| CellDiffOption::ForcedWidth(NonZeroU16::new(columns).unwrap()))
-                .unwrap_or(CellDiffOption::None);
+            let expected_diff_option = if forced {
+                CellDiffOption::ForcedWidth(NonZeroU16::new(columns).unwrap())
+            } else {
+                CellDiffOption::None
+            };
             assert_eq!(target.diff_option, expected_diff_option);
         }
     }
@@ -892,7 +897,7 @@ mod tests {
             palette_overridden: std::array::from_fn(|idx| state.palette_overridden(idx as u8)),
         };
         let mut output = RatatuiTerminal::new(TestBackend::new(4, 1)).unwrap();
-        output
+        let completed = output
             .draw(|frame| {
                 draw_render_frame_with_catalog(
                     frame,
@@ -910,8 +915,50 @@ mod tests {
             .unwrap();
 
         let expected_bg = Theme::default().selection_bg;
-        assert_eq!(output.backend().buffer()[(1, 0)].bg, expected_bg);
-        assert_eq!(output.backend().buffer()[(2, 0)].bg, expected_bg);
+        assert_eq!(completed.buffer[(1, 0)].bg, expected_bg);
+        assert_eq!(completed.buffer[(2, 0)].bg, expected_bg);
+    }
+
+    #[test]
+    fn wrapped_wide_selection_keeps_the_spacer_head_unselected() {
+        let mut terminal = Terminal::new(4, 3, 0, Callbacks::default()).unwrap();
+        terminal.vt_write("ABC橋D".as_bytes());
+        let mut state = RenderState::new().unwrap();
+        state.update(&mut terminal).unwrap();
+        let render = SurfaceRenderFrame {
+            frame: state.build_frame().unwrap(),
+            content_generation: 1,
+            scrollback_rows: 0,
+            history_epoch: terminal.history_epoch(),
+            pointer_semantics: terminal.pointer_semantic_snapshot(),
+            palette_colors: std::array::from_fn(|idx| state.palette_color(idx as u8)),
+            palette_overridden: std::array::from_fn(|idx| state.palette_overridden(idx as u8)),
+        };
+        let mut output = RatatuiTerminal::new(TestBackend::new(4, 3)).unwrap();
+        let completed = output
+            .draw(|frame| {
+                draw_render_frame_with_catalog(
+                    frame,
+                    HorizontalViewport {
+                        rect: Rect { x: 0, y: 0, width: 4, height: 3 },
+                        source_x: 0,
+                    },
+                    &render,
+                    &Theme::default(),
+                    &ChromeTheme::dark(),
+                    crate::localization::catalog_for_locale("en_US.UTF-8"),
+                    // A row-major range can include the physical spacer head,
+                    // but only the wrapped glyph's lead row is selectable.
+                    |col, row| (col == 3 && row == 0) || (col <= 1 && row == 1),
+                );
+            })
+            .unwrap();
+
+        let buffer = completed.buffer;
+        let selection_bg = Theme::default().selection_bg;
+        assert_ne!(buffer[(3, 0)].bg, selection_bg);
+        assert_eq!(buffer[(0, 1)].bg, selection_bg);
+        assert_eq!(buffer[(1, 1)].bg, selection_bg);
     }
 
     #[test]

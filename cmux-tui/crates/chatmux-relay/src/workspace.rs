@@ -2499,13 +2499,22 @@ fn ok_frame(request_id: &str, body: wire::WorkspaceResultBody) -> String {
 }
 
 fn error_frame(request_id: &str, refusal: &Refusal) -> String {
+    // Path checks may include host paths for local diagnostics. Never expose
+    // those details to a remote client, which could learn HOME or configured
+    // allowed roots from a refusal.
+    let message = match refusal.code {
+        wire::WorkspaceErrorCode::PathForbidden => {
+            Some("path is forbidden by the workspace policy".to_owned())
+        }
+        _ => Some(refusal.message.clone()),
+    };
     let frame = wire::RelayWorkspaceResultError {
         version: WORKSPACE_FRAME_VERSION,
         r#type: wire::TagWorkspaceResult::WorkspaceResult,
         request_id: request_id.to_owned(),
         ok: wire::ConstFalse,
         code: refusal.code,
-        message: Some(refusal.message.clone()),
+        message,
         current_sha256: refusal.current_sha256.clone(),
     };
     serde_json::to_string(&frame).unwrap_or_else(|_| String::new())
@@ -3566,5 +3575,21 @@ mod tests {
         assert_eq!(clamp_i64(0, MIN_TIMEOUT_MS, MAX_TIMEOUT_MS), MIN_TIMEOUT_MS);
         assert_eq!(clamp_i64(999_999, MIN_TIMEOUT_MS, MAX_TIMEOUT_MS), MAX_TIMEOUT_MS);
         let _ = root;
+    }
+
+    #[test]
+    fn path_forbidden_errors_do_not_serialize_host_paths() {
+        let home = home_dir().display().to_string();
+        let allowed = format!("{home}/private-project");
+        let refusal = Refusal::path_forbidden(format!(
+            "path {allowed}/secret.txt is outside this machine's allowed roots"
+        ));
+        let frame = error_frame("req-path", &refusal);
+        assert!(!frame.contains(&home));
+        assert!(!frame.contains(&allowed));
+        assert_eq!(
+            serde_json::from_str::<Value>(&frame).unwrap()["message"],
+            "path is forbidden by the workspace policy"
+        );
     }
 }

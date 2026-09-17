@@ -214,6 +214,7 @@ pub(crate) enum RemoteRequestError {
     /// The peer closed the transport. This is retryable for pipe-IO startup,
     /// unlike a local shutdown initiated by this process.
     RemoteShutdown,
+    DaemonShutdown,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -281,6 +282,7 @@ impl std::fmt::Display for RemoteRequestError {
             Self::RemoteShutdown => {
                 write!(formatter, "remote response wait canceled after peer disconnect")
             }
+            Self::DaemonShutdown => write!(formatter, "remote daemon shut down by request"),
         }
     }
 }
@@ -1143,14 +1145,17 @@ impl PendingRemoteRequests {
         progressed
     }
 
+    #[cfg(test)]
     fn is_empty(&self) -> bool {
         self.requests.is_empty()
     }
 
+    #[cfg(test)]
     fn len(&self) -> usize {
         self.requests.len()
     }
 
+    #[cfg(test)]
     fn values(&self) -> impl Iterator<Item = &PendingRemoteRequest> {
         self.requests.values()
     }
@@ -1763,6 +1768,7 @@ enum DisconnectState {
     #[default]
     Active,
     LocalShutdown,
+    ExpectedRemoteShutdown,
     Remote(String),
 }
 
@@ -2841,6 +2847,19 @@ impl RemoteSession {
                     self.emit(MuxEvent::SurfaceOutput(id));
                 }
             }
+            Some(cmux_tui_core::server::DAEMON_SHUTDOWN_EVENT) => {
+                let mut state = self.disconnect_state.lock().unwrap();
+                if matches!(&*state, DisconnectState::Active) {
+                    *state = DisconnectState::ExpectedRemoteShutdown;
+                }
+                drop(state);
+                // Wake every request that was already admitted before the
+                // daemon announced its shutdown. The synthetic response is
+                // classified with the expected-remote state, so callers get
+                // DaemonShutdown instead of a timeout when EOF follows.
+                self.begin_shutdown();
+                self.emit(MuxEvent::Empty);
+            }
             Some("tree-changed") => {
                 self.tree_stale.store(true, Ordering::Release);
                 self.emit(MuxEvent::TreeChanged);
@@ -2982,6 +3001,9 @@ impl RemoteSession {
                 if let Some(status) = parse_graphics_status(&value) {
                     self.emit(MuxEvent::GraphicsStatus(status));
                 }
+            }
+            Some("machine-usage-changed") => {
+                self.emit(MuxEvent::MachineUsageChanged(super::parse_machine_usage(&value)));
             }
             Some("config-reload-requested") => self.emit(MuxEvent::ConfigReloadRequested),
             Some("window-title-requested") => {
@@ -3125,14 +3147,6 @@ impl RemoteSession {
         self.request_with_deadline(cmd, RequestDeadline::Standard)
     }
 
-    fn shutdown_request_error(&self) -> RemoteRequestError {
-        if matches!(&*self.disconnect_state.lock().unwrap(), DisconnectState::Remote(_)) {
-            RemoteRequestError::RemoteShutdown
-        } else {
-            RemoteRequestError::Shutdown
-        }
-    }
-
     /// Fire-and-forget command: enqueued in order with interactive traffic,
     /// never awaited. Used for best-effort reporting such as client focus.
     pub(crate) fn notify(&self, cmd: Value) -> anyhow::Result<()> {
@@ -3144,6 +3158,9 @@ impl RemoteSession {
         mut cmd: Value,
         deadline: RequestDeadline,
     ) -> anyhow::Result<Value> {
+        if let Some(error) = self.request_shutdown_error() {
+            return Err(error.into());
+        }
         // A shared deadline must cover enqueueing, the ordered write, and the
         // response wait. Check it before creating a pending request so an
         // expired reconnect probe cannot add work to the relay.
@@ -3174,7 +3191,7 @@ impl RemoteSession {
             Ok(sequence) => sequence,
             Err(error) => {
                 self.pending.lock().unwrap().remove(&id);
-                return Err(RemoteRequestError::Transport(error).into());
+                return Err(self.classify_transport_error(error).into());
             }
         };
         let write_timeout = match deadline.remaining() {
@@ -3186,12 +3203,12 @@ impl RemoteSession {
         };
         if let Err(error) = self.wait_for_ordered_write_with_timeout(sequence, write_timeout) {
             self.pending.lock().unwrap().remove(&id);
-            return Err(RemoteRequestError::Transport(error).into());
+            return Err(self.classify_transport_error(error).into());
         }
 
         if self.shutdown.load(Ordering::Acquire) {
             self.pending.lock().unwrap().remove(&id);
-            return Err(self.shutdown_request_error().into());
+            return Err(self.shutdown_error().into());
         }
 
         let response = match self.wait_for_response(rx, deadline, progress, attach_progress) {
@@ -3205,7 +3222,7 @@ impl RemoteSession {
             }
         };
         if response.get("shutdown").and_then(Value::as_bool) == Some(true) {
-            return Err(RemoteRequestError::Shutdown.into());
+            return Err(self.shutdown_error().into());
         }
         if response.get("ok").and_then(|v| v.as_bool()) == Some(true) {
             Ok(response.get("data").cloned().unwrap_or(Value::Null))
@@ -3236,7 +3253,7 @@ impl RemoteSession {
                 Ok(response) => Ok(response),
                 Err(RecvTimeoutError::Timeout) => Err(RemoteRequestError::Timeout),
                 Err(RecvTimeoutError::Disconnected) if self.shutdown.load(Ordering::Acquire) => {
-                    Err(self.shutdown_request_error())
+                    Err(self.shutdown_error())
                 }
                 Err(RecvTimeoutError::Disconnected) => Err(RemoteRequestError::Timeout),
             };
@@ -3262,13 +3279,13 @@ impl RemoteSession {
             match rx.recv_timeout(wait) {
                 Ok(response) => return Ok(response),
                 Err(RecvTimeoutError::Disconnected) if self.shutdown.load(Ordering::Acquire) => {
-                    return Err(self.shutdown_request_error());
+                    return Err(self.shutdown_error());
                 }
                 Err(RecvTimeoutError::Disconnected) => return Err(RemoteRequestError::Timeout),
                 Err(RecvTimeoutError::Timeout) => {}
             }
             if self.shutdown.load(Ordering::Acquire) {
-                return Err(self.shutdown_request_error());
+                return Err(self.shutdown_error());
             }
         }
     }
@@ -3278,6 +3295,9 @@ impl RemoteSession {
     /// its unknown request id is intentionally ignored. Reliable remote
     /// sessions replay this write after carrier reconnect.
     fn request_no_wait(&self, mut cmd: Value) -> anyhow::Result<()> {
+        if let Some(error) = self.request_shutdown_error() {
+            return Err(error.into());
+        }
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         cmd["id"] = json!(id);
         // The local remote bridge replaces eligible sends with compact binary
@@ -3290,10 +3310,11 @@ impl RemoteSession {
         let sequence = self
             .interactive_writer
             .enqueue(message, true)
-            .map_err(RemoteRequestError::Transport)?;
+            .map_err(|error| self.classify_transport_error(error))?;
         if self.shutdown.load(Ordering::Acquire) {
-            self.wait_for_ordered_write(sequence).map_err(RemoteRequestError::Transport)?;
-            return Err(self.shutdown_request_error().into());
+            self.wait_for_ordered_write(sequence)
+                .map_err(|error| self.classify_transport_error(error))?;
+            return Err(self.shutdown_error().into());
         }
         Ok(())
     }
@@ -3432,6 +3453,32 @@ impl RemoteSession {
 
     pub fn is_shut_down(&self) -> bool {
         self.shutdown.load(Ordering::Acquire)
+    }
+
+    pub fn daemon_shutdown_requested(&self) -> bool {
+        matches!(&*self.disconnect_state.lock().unwrap(), DisconnectState::ExpectedRemoteShutdown)
+    }
+
+    fn request_shutdown_error(&self) -> Option<RemoteRequestError> {
+        match &*self.disconnect_state.lock().unwrap() {
+            DisconnectState::LocalShutdown => Some(RemoteRequestError::Shutdown),
+            DisconnectState::ExpectedRemoteShutdown => Some(RemoteRequestError::DaemonShutdown),
+            DisconnectState::Active | DisconnectState::Remote(_) => None,
+        }
+    }
+
+    fn shutdown_error(&self) -> RemoteRequestError {
+        match &*self.disconnect_state.lock().unwrap() {
+            DisconnectState::ExpectedRemoteShutdown => RemoteRequestError::DaemonShutdown,
+            DisconnectState::Remote(_) => RemoteRequestError::RemoteShutdown,
+            DisconnectState::Active | DisconnectState::LocalShutdown => {
+                RemoteRequestError::Shutdown
+            }
+        }
+    }
+
+    fn classify_transport_error(&self, error: io::Error) -> RemoteRequestError {
+        self.request_shutdown_error().unwrap_or(RemoteRequestError::Transport(error))
     }
 
     pub fn begin_shutdown(&self) {
@@ -3654,7 +3701,9 @@ impl RemoteSession {
     pub fn transport_disconnect_reason(&self) -> Option<String> {
         match &*self.disconnect_state.lock().unwrap() {
             DisconnectState::Remote(reason) => Some(reason.clone()),
-            DisconnectState::Active | DisconnectState::LocalShutdown => None,
+            DisconnectState::Active
+            | DisconnectState::LocalShutdown
+            | DisconnectState::ExpectedRemoteShutdown => None,
         }
     }
 
@@ -7502,6 +7551,60 @@ mod tests {
         session.disconnect_transport_with_reason(Some("peer reset".into()));
 
         assert_eq!(session.transport_disconnect_reason(), None);
+    }
+
+    #[test]
+    fn daemon_shutdown_event_marks_the_following_eof_as_expected() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+
+        session.handle_line(json!({
+            "event": cmux_tui_core::server::DAEMON_SHUTDOWN_EVENT,
+        }));
+        session.disconnect_transport_with_reason(Some("the daemon closed the connection".into()));
+
+        assert!(session.daemon_shutdown_requested());
+        assert_eq!(session.transport_disconnect_reason(), None);
+        assert!(matches!(
+            session
+                .request(json!({"cmd": "identify"}))
+                .unwrap_err()
+                .downcast_ref::<RemoteRequestError>(),
+            Some(RemoteRequestError::DaemonShutdown)
+        ));
+    }
+
+    #[test]
+    fn daemon_shutdown_event_cancels_an_inflight_request_as_expected() {
+        let session = test_session(Box::new(SilentWriter));
+        let request_session = session.clone();
+        let worker = std::thread::spawn(move || {
+            request_session.request_with_deadline(
+                json!({"cmd": "identify"}),
+                RequestDeadline::Fixed(Duration::from_secs(2)),
+            )
+        });
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while session.pending.lock().unwrap().is_empty() {
+            assert!(Instant::now() < deadline, "request did not become pending");
+            std::thread::yield_now();
+        }
+        session.handle_line(json!({
+            "event": cmux_tui_core::server::DAEMON_SHUTDOWN_EVENT,
+        }));
+
+        let error = worker
+            .join()
+            .expect("request worker panicked")
+            .expect_err("in-flight request unexpectedly succeeded");
+        assert!(matches!(
+            error.downcast_ref::<RemoteRequestError>(),
+            Some(RemoteRequestError::DaemonShutdown)
+        ));
+        assert!(session.shutdown.load(Ordering::Acquire));
+        assert!(session.pending.lock().unwrap().is_empty());
     }
 
     #[test]

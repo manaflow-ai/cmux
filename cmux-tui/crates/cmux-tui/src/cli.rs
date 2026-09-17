@@ -48,6 +48,7 @@ const REMOTE_COMMANDS: &[&str] = &[
     "remote-sidecar",
     "remote-stop",
     "install-self",
+    "wg",
 ];
 
 /// Maps the actions accepted after the `remote` noun to their direct command
@@ -75,13 +76,21 @@ pub(super) fn is_remote_invocation(args: &[String]) -> bool {
     while index < args.len() {
         match args[index].as_str() {
             "--" => return false,
-            "--socket" | "--session" | "--machine" => index += 2,
+            "--socket" | "--session" | "--machine" => {
+                if args.get(index + 1).is_none_or(|value| value.starts_with("--")) {
+                    return false;
+                }
+                index += 2;
+            }
             "--json" | "--jsonl" | "--quiet" => index += 1,
             value
                 if value.starts_with("--socket=")
                     || value.starts_with("--session=")
                     || value.starts_with("--machine=") =>
             {
+                if value.split_once('=').is_some_and(|(_, value)| value.is_empty()) {
+                    return false;
+                }
                 index += 1;
             }
             value if value.starts_with('-') => return false,
@@ -229,7 +238,10 @@ fn parse_command(
             .collect::<Vec<_>>();
         let topic = match words.as_slice() {
             ["server", action, ..]
-                if matches!(*action, "start" | "ensure" | "status" | "stop" | "reload-config") =>
+                if matches!(
+                    *action,
+                    "start" | "ensure" | "status" | "stats" | "stop" | "reload-config"
+                ) =>
             {
                 Some(format!("server {action}"))
             }
@@ -362,7 +374,10 @@ fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), (UsageErr
 }
 
 fn global_value(args: &[String], index: usize, flag: &str) -> Result<String, UsageError> {
-    args.get(index + 1).cloned().ok_or_else(|| UsageError::new(format!("{flag} needs a value")))
+    match args.get(index + 1) {
+        Some(value) if !value.starts_with("--") => Ok(value.clone()),
+        _ => Err(UsageError::new(format!("{flag} needs a value"))),
+    }
 }
 
 fn set_output_mode(
@@ -399,6 +414,7 @@ fn scope_help_for(
         "server start" => Cow::Borrowed(catalog.local_server.start_help),
         "server ensure" => Cow::Borrowed(catalog.local_server.ensure_help),
         "server status" => Cow::Borrowed(catalog.local_server.status_help),
+        "server stats" => Cow::Borrowed(catalog.local_server.stats_help),
         "server stop" => Cow::Borrowed(catalog.local_server.stop_help),
         "server reload-config" => Cow::Borrowed(catalog.local_server.reload_config_help),
         "machine" => Cow::Borrowed(MACHINE_HELP),
@@ -428,6 +444,7 @@ USAGE
   cmux [START OPTIONS]
   cmux attach [START OPTIONS]
   cmux relay [ROUTING OPTIONS]
+  cmux wg hub --config <wg-quick file> --socket <unix socket>
 ";
 
 const ROOT_HELP_PROCESS_SUFFIX: &str = "\
@@ -450,6 +467,7 @@ PROCESS HELP
   cmux help start
   cmux attach --help
   cmux relay --help
+  cmux wg hub --help
   cmux machine-agent --help
 
 RESOURCE SCOPES
@@ -732,6 +750,22 @@ mod tests {
     }
 
     #[test]
+    fn global_value_options_reject_following_option() {
+        let error =
+            parse_globals(&strings(&["--session", "--json", "workspace", "list"])).unwrap_err();
+        assert!(error.0.0.contains("--session needs a value"));
+    }
+
+    #[test]
+    fn global_value_options_accept_hyphen_prefixed_values() {
+        let (global, command) =
+            parse_globals(&strings(&["--session", "-1", "--socket", "-tmp/socket"])).unwrap();
+        assert_eq!(global.session.as_deref(), Some("-1"));
+        assert_eq!(global.socket, Some(PathBuf::from("-tmp/socket")));
+        assert!(command.is_empty());
+    }
+
+    #[test]
     fn server_lifecycle_routing_flags_follow_action() {
         let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } =
             parse(&strings(&["server", "status", "--session", "review-session"])).unwrap()
@@ -771,6 +805,31 @@ mod tests {
     }
 
     #[test]
+    fn server_stats_parses_with_routing_options() {
+        let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } =
+            parse(&strings(&["server", "stats", "--session", "review-session"])).unwrap()
+        else {
+            panic!("server stats must produce a server plan");
+        };
+        assert_eq!(global.session.as_deref(), Some("review-session"));
+        assert!(matches!(plan.action, lifecycle::ServerAction::Stats));
+        assert!(
+            scope_help_for("server stats", crate::localization::catalog()).contains("server stats")
+        );
+    }
+
+    #[test]
+    fn server_stats_help_routes_to_the_stats_topic() {
+        let ParsedCommand::Help(Some(topic)) =
+            parse(&strings(&["server", "stats", "--help"])).unwrap()
+        else {
+            panic!("server stats help must produce a scoped help topic");
+        };
+        assert_eq!(topic, "server stats");
+        assert!(scope_help_for(&topic, crate::localization::catalog()).contains("--json"));
+    }
+
+    #[test]
     fn every_scope_has_dedicated_help() {
         let english_catalog = crate::localization::catalog_for_locale("en_US.UTF-8");
         for scope in PUBLIC_SCOPES {
@@ -807,6 +866,9 @@ mod tests {
     fn remote_invocation_allows_leading_global_options() {
         assert!(is_remote_invocation(&strings(&["remote", "connect"])));
         assert!(is_remote_invocation(&strings(&["--json", "remote", "connect"])));
+        assert!(is_remote_invocation(&strings(&["--session", "-1", "remote", "connect"])));
+        assert!(is_remote_invocation(&strings(&["--socket", "-tmp/socket", "remote", "connect"])));
+        assert!(is_remote_invocation(&strings(&["--session=dev", "remote", "connect"])));
         assert!(is_remote_invocation(&strings(&[
             "--session",
             "dev",
@@ -822,6 +884,16 @@ mod tests {
     fn remote_invocation_rejects_missing_global_option_values_and_terminator() {
         assert!(!is_remote_invocation(&strings(&["--session"])));
         assert!(!is_remote_invocation(&strings(&["--socket"])));
+        assert!(!is_remote_invocation(&strings(&["--session", "--json", "remote", "connect",])));
+        assert!(!is_remote_invocation(&strings(&[
+            "--socket",
+            "--session=dev",
+            "remote",
+            "connect",
+        ])));
+        assert!(!is_remote_invocation(&strings(&["--session=", "remote", "connect",])));
+        assert!(!is_remote_invocation(&strings(&["--session", "--", "remote", "connect",])));
+        assert!(!is_remote_invocation(&strings(&["--session", "dev", "--", "remote", "connect",])));
         assert!(!is_remote_invocation(&strings(&["--", "remote", "connect"])));
     }
 }

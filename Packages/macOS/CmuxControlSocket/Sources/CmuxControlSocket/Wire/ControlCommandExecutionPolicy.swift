@@ -16,12 +16,13 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     /// from the main thread.
     case socketWorker(mainThreadCallable: Bool)
 
-    /// Classifies a method: every `vm.`-, `remotes.`-, and
-    /// `aiAccounts.`-prefixed method and the fixed socket-worker set run on the
+    /// Classifies a method: every `vm.`-, `remotes.`-, `aiAccounts.`-, and
+    /// `coderouter.`-prefixed method and the fixed socket-worker set run on the
     /// worker; everything else runs on the main actor.
     ///
-    /// `remotes.*` (the `cmux remotes` device-registry verbs) and
-    /// `aiAccounts.*` (the team's subrouter AI-account verbs) make blocking,
+    /// `remotes.*` (the `cmux remotes` device-registry verbs), `aiAccounts.*`
+    /// (the team's subrouter AI-account verbs), and `coderouter.*` (the team's
+    /// coderouter Claude upstream and per-machine usage) make blocking,
     /// authenticated web API calls just like `vm.*`, so they must stay off the
     /// main actor; prefix matches keep each verb family in lockstep without
     /// listing each method.
@@ -38,7 +39,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         }
 #endif
         if method.hasPrefix("vm.") || method.hasPrefix("remotes.") || method.hasPrefix("aiAccounts.")
-            || Self.socketWorkerMethods.contains(method) {
+            || method.hasPrefix("coderouter.") || Self.socketWorkerMethods.contains(method) {
             self = .socketWorker(
                 mainThreadCallable: Self.mainThreadCallableSocketWorkerMethods.contains(method)
             )
@@ -90,7 +91,16 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "feed.permission.reply",
         "feed.question.reply",
         "feed.exit_plan.reply",
-        "browser.download.wait",
+        // Admission only appends an immutable event to the actor-owned queue;
+        // all downstream process/socket work happens after the reply.
+        "agent.hook.enqueue",
+        "agent.hook.barrier",
+        // Performs a fresh off-main process scan before one agent exec. Only
+        // the final target revalidation and launch claim hop to MainActor.
+        "agent.restore.admit",
+        // Releases only the tokenized claim owned by a failed restore exec.
+        "agent.restore.release",
+        "browser.download.list", "browser.download.wait",
         "browser.profiles.list",
         "browser.profiles.create",
         "browser.profiles.rename",
@@ -120,6 +130,17 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "mobile.panel.artifact.thumbnail",
         "system.top",
         "system.memory",
+        // vault.* scans agent transcript stores on disk (~/.claude/projects,
+        // ~/.codex/sessions, OpenCode SQLite). That is unbounded-latency file
+        // I/O; on the main actor it would stall the run loop, so the whole
+        // family runs on the socket worker. `vault.fork` streams a multi-MB
+        // transcript here and takes exactly one v2MainSync hop when asked to
+        // open the forked session. None are mainThreadCallable.
+        "vault.sessions",
+        "vault.search",
+        "vault.checkpoints",
+        "vault.checkpoint",
+        "vault.fork",
         // `surface.read_text` reads a terminal's visible or full-scrollback
         // text and formats it (line tailing, candidate scoring, base64
         // encoding). On the main actor that formatting stalls the run loop
@@ -187,6 +208,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // connection-owned shutdown path, which awaits asynchronous writers.
         // Keep that wait off the main actor.
         "debug.mobile.transport.disconnect",
+        "debug.mobile.transport.reconnect_loop",
         // Presents the Cloud tree style gallery window: one v2MainSync hop for
         // the presentation, like debug.window.screenshot's capture wait.
         "debug.cloudtree.gallery",
@@ -287,6 +309,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "notification.create_for_target",
         "notification.create_for_caller",
         "workspace.set_auto_title",
+        "surface.sync_codex_native_title",
         // The v2 resolution reads (tranche D of issue #5757) — the implicit
         // handle-normalization reads nearly every CLI invocation pays 1-3 of.
         // Their nonisolated coordinator bodies
@@ -357,7 +380,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "pane.list",
         "pane.surfaces",
         "system.identify",
-        "system.tree",
+        "system.tree", "browser.download.list",
         // The v2 send lane (tranche E): one narrow, non-blocking hop each
         // (resolve target + inject input + forceRefresh), so an inline
         // main-thread run is exactly the legacy main-lane dispatch.

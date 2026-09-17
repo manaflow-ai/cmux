@@ -11,6 +11,12 @@ fi
 
 export CMUX_DB_TEST=1
 
+db_test_timeout_ms="${CMUX_DB_TEST_TIMEOUT_MS:-30000}"
+if [[ ! "$db_test_timeout_ms" =~ ^[1-9][0-9]*$ ]]; then
+  echo "CMUX_DB_TEST_TIMEOUT_MS must be a positive integer, got: $db_test_timeout_ms" >&2
+  exit 2
+fi
+
 test_files=()
 while IFS= read -r test_file; do
   if grep -q "process\\.env\\.CMUX_DB_TEST" "$test_file"; then
@@ -36,7 +42,7 @@ for test_file in "${test_files[@]}"; do
   # intra-file concurrency runs those tests in parallel, allowing one test's
   # truncate or env override to change another test's outcome. Keep each DB
   # file deterministic while retaining the file-level loop above.
-  bun test --max-concurrency=1 "$test_file" 2>&1 | tee "$output_file"
+  bun test --timeout="$db_test_timeout_ms" --max-concurrency=1 "$test_file" 2>&1 | tee "$output_file"
   test_status=${PIPESTATUS[0]}
   set -e
 
