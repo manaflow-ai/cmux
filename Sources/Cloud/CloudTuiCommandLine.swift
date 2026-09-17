@@ -60,13 +60,25 @@ struct CloudTuiCommandLine: Sendable {
     /// `workspace <ws_id> run -- <argv…>`: a new terminal in that cmux-tui workspace
     /// running the exact argv. Result: `MutationResult<CreatedTerminalPath>`
     /// (`spec/resource-operations-v2.json` → `workspace.run`).
-    static func runArguments(socketPath: String, workspaceID: String, command: [String]) -> [String] {
-        ["--socket", socketPath, "--json", "workspace", workspaceID, "run", "--"] + command
+    static func runArguments(socketPath: String, workspaceID: String, command: [String], onExit: String? = nil, idempotencyKey: String? = nil, correlationKey: String? = nil) -> [String] {
+        var arguments = ["--socket", socketPath, "--json", "workspace", workspaceID, "run"]
+        if let idempotencyKey { arguments += ["--idempotency-key", idempotencyKey] }
+        if let correlationKey { arguments += ["--correlation-key", correlationKey] }
+        // `--on-exit keep` retains the tab and the final screen after the process exits
+        // (spec `workspace.run`): what a sender needs when the process's last lines ARE
+        // the result (`CloudEnvDelivery`). The default (`close`) detaches every view.
+        if let onExit, !onExit.isEmpty { arguments += ["--on-exit", onExit] }
+        return arguments + ["--"] + command
     }
 
-    /// `workspace create --name <name>`: a workspace with one terminal.
-    static func createWorkspaceArguments(socketPath: String, name: String) -> [String] {
-        ["--socket", socketPath, "--json", "workspace", "create", "--name", name]
+    /// `workspace create [--name <name>]`: the daemon owns auto-naming.
+    static func createWorkspaceArguments(socketPath: String, name: String? = nil, empty: Bool = false) -> [String] {
+        var arguments = ["--socket", socketPath, "--json", "workspace", "create"]
+        if let name, !name.isEmpty {
+            arguments += ["--name", name]
+        }
+        if empty { arguments.append("--empty") }
+        return arguments
     }
 
     /// `terminal <term_id> close`: end that remote terminal (spec `terminal.close`).
@@ -129,10 +141,31 @@ struct CloudTuiCommandLine: Sendable {
         return arguments
     }
 
+    /// `notification ack --client <id> <notification-id>…` (spec `notification.ack`):
+    /// records this Mac's reads on the machine. The idempotency key is minted once
+    /// per batch by the sync and reused on every retry, so a retried ack replays the
+    /// committed result instead of a second revision.
+    static func notificationAckArguments(
+        socketPath: String,
+        clientID: String,
+        notificationIDs: [String],
+        idempotencyKey: String
+    ) -> [String] {
+        ["--socket", socketPath, "--json", "--idempotency-key", idempotencyKey,
+         "notification", "ack", "--client", clientID] + notificationIDs
+    }
+
     /// `terminal <term_id> write --text <text>` (spec `terminal.input.write`): the bytes
     /// land on the PTY as typed; no newline is added, send `keys enter` for that.
     static func writeArguments(socketPath: String, terminalID: String, text: String) -> [String] {
         ["--socket", socketPath, "--json", "terminal", terminalID, "write", "--text", text]
+    }
+
+    /// `terminal <term_id> write` reads the UTF-8 receiver wire from stdin.
+    /// Keeping payloads out of argv prevents local process inspection from
+    /// exposing file or environment secrets before they enter the link.
+    static func writeBytesArguments(socketPath: String, terminalID: String) -> [String] {
+        ["--socket", socketPath, "--json", "terminal", terminalID, "write"]
     }
 
     /// `terminal <term_id> keys <key>…` (spec `terminal.input.keys`): named keys such as
@@ -154,6 +187,47 @@ struct CloudTuiCommandLine: Sendable {
         var arguments = ["--socket", socketPath, "--json", "terminal", terminalID, "screen", "wait", "--pattern", pattern]
         if let timeoutMs, timeoutMs > 0 {
             arguments += ["--timeout-ms", String(timeoutMs)]
+        }
+        return arguments
+    }
+
+    /// `terminal <term_id> process wait [--timeout-ms <n>]` (spec `terminal.wait_exit`): blocks
+    /// until the terminal's process exits or the timeout elapses —
+    /// `{state: "exited", outcome: {kind: exit|signal|unknown, …}, exited_at}` or `{state: "pending", …}`.
+    /// The complement of `screen wait`: an exit is a fact, a prompt regex is a guess.
+    static func processWaitArguments(socketPath: String, terminalID: String, timeoutMs: Int?) -> [String] {
+        var arguments = ["--socket", socketPath, "--json", "terminal", terminalID, "process", "wait"]
+        if let timeoutMs, timeoutMs > 0 {
+            arguments += ["--timeout-ms", String(timeoutMs)]
+        }
+        return arguments
+    }
+
+    /// `terminal <term_id> process show` (spec `terminal.process.get`): reads
+    /// the foreground process cwd live from the PTY's controlling terminal.
+    static func processInfoArguments(socketPath: String, terminalID: String) -> [String] {
+        ["--socket", socketPath, "--json", "terminal", terminalID, "process", "show"]
+    }
+
+    /// Extracts the live foreground cwd. The sibling `cwd` field is the spawn
+    /// directory and is stale after the shell changes directory.
+    static func foregroundWorkingDirectory(fromProcessInfo result: [String: Any]) -> String? {
+        guard let cwd = result["foreground_cwd"] as? String else { return nil }
+        let trimmed = cwd.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// `terminal <term_id> output read [--after <offset>] [--max-bytes <n>]` (spec
+    /// `terminal.output_read`): the terminal's retained OUTPUT as text — the whole build log,
+    /// not the 24 rows currently on screen — with `{text, start_offset, next_offset, complete}`;
+    /// `next_offset` fed back as `after` reads only what arrived since.
+    static func outputReadArguments(socketPath: String, terminalID: String, after: Int?, maxBytes: Int?) -> [String] {
+        var arguments = ["--socket", socketPath, "--json", "terminal", terminalID, "output", "read"]
+        if let after, after >= 0 {
+            arguments += ["--after", String(after)]
+        }
+        if let maxBytes, maxBytes > 0 {
+            arguments += ["--max-bytes", String(maxBytes)]
         }
         return arguments
     }
@@ -202,8 +276,11 @@ struct CloudTuiCommandLine: Sendable {
     /// Resolves a stable terminal resource ID to the current generation's
     /// numeric surface handle. This is preferred over walking the legacy tree
     /// because it also works while a terminal has no visible tab placement.
-    /// The private command accepts the 32-character payload without the
-    /// public `term_` prefix.
+    ///
+    /// The full public `term_…` id is sent. A current daemon maps it through
+    /// its registry; a daemon that only knows UUIDv4 host ids rejects both
+    /// spellings the same way (`invalid_terminal_id`), and the resolver then
+    /// reads the authoritative snapshot instead.
     static func resolveTerminalArguments(socketPath: String, terminalID: String) -> [String]? {
         let payload = terminalID.hasPrefix("term_")
             ? String(terminalID.dropFirst("term_".count))
@@ -217,7 +294,7 @@ struct CloudTuiCommandLine: Sendable {
         let request: [String: Any] = [
             "id": 1,
             "cmd": "resolve-terminal",
-            "terminal_id": payload,
+            "terminal_id": "term_" + payload,
         ]
         return rawCommandArguments(socketPath: socketPath, request: request)
     }

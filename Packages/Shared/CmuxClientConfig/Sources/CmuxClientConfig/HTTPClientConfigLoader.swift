@@ -1,3 +1,4 @@
+import CMUXMobileCore
 public import Foundation
 
 /// A URLSession-backed loader for the cmux `/api/client-config` route.
@@ -6,6 +7,7 @@ public struct HTTPClientConfigLoader: ClientConfigLoading {
     private let session: URLSession
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let retryAfterGate = CmxRetryAfterGate()
 
     /// Creates an HTTP loader.
     ///
@@ -28,6 +30,7 @@ public struct HTTPClientConfigLoader: ClientConfigLoading {
 
     /// POSTs the request to `/api/client-config` and decodes the typed response.
     public func load(_ request: ClientConfigRequest) async throws -> ClientConfig {
+        try await retryAfterGate.wait()
         guard let url = URL(string: apiBaseURL + "/api/client-config") else {
             throw ClientConfigError.invalidBaseURL
         }
@@ -41,6 +44,14 @@ public struct HTTPClientConfigLoader: ClientConfigLoading {
         let (data, response) = try await session.data(for: urlRequest)
         guard let http = response as? HTTPURLResponse else {
             throw ClientConfigError.invalidResponse
+        }
+        if http.statusCode == 429 {
+            let seconds = CmxRetryAfterPolicy.seconds(
+                from: http,
+                defaultSeconds: CmxRetryAfterPolicy.defaultRateLimitSeconds
+            ) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+            await retryAfterGate.extend(by: seconds)
+            throw ClientConfigError.rateLimited(retryAfterSeconds: seconds)
         }
         guard (200...299).contains(http.statusCode) else {
             throw ClientConfigError.httpStatus(http.statusCode)

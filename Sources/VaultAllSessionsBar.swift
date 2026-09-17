@@ -14,135 +14,70 @@ struct VaultAllSessionsBar: View {
     /// Cmd+Enter — resume the top search result.
     let onResumeTopResult: () -> Void
 
-    @FocusState private var searchFieldFocused: Bool
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
+    @State private var viewMenuPresenter = VaultSessionViewMenuPresenter()
 
     private var searchFieldHeight: CGFloat {
         _ = globalFontPercent
-        // A native NSSearchField sits at roughly 22 points on macOS. Keep
-        // that comfortable baseline while allowing the app-wide text scale
-        // to grow the control instead of clipping its editor.
-        return max(22, RightSidebarChromeMetrics.controlHeight + 2)
-    }
-
-    private var searchBarHeight: CGFloat {
-        max(RightSidebarChromeMetrics.secondaryBarHeight, searchFieldHeight + 6)
+        return SidebarSearchField.visibleHeight
     }
 
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: RightSidebarChromeMetrics.headerControlSpacing) {
             searchField
-            overflowMenu
+            viewMenuButton
         }
-        // Keep the same 28-point rhythm and 4/6-point outer insets as the
-        // mode bar, but let this toolbar flow into the session list without a
-        // second separator line. The field itself is two points taller than
-        // the compact icon controls, so use three-point vertical insets here.
-        .padding(.leading, 4)
-        .padding(.trailing, 0)
-        .padding(.vertical, 3)
-        .frame(height: searchBarHeight)
+        .frame(height: searchFieldHeight)
+        // The grouping row already supplies the gap below Recent. Do not add
+        // another top inset or center the editor inside a taller menu button.
+        // The outer insets are the mode bar's and the grouping pills', so the
+        // field's bezel and the view control sit on the chrome's columns.
+        .padding(.leading, SidebarSearchField.leadingPadding)
+        .padding(.trailing, RightSidebarChromeMetrics.headerTrailingPadding)
+        .padding(.top, SidebarSearchField.topPadding)
+        .padding(.bottom, RightSidebarChromeMetrics.barVerticalPadding)
     }
 
     private var searchField: some View {
-        HStack(spacing: 7) {
-            Image(systemName: "magnifyingglass")
-                .cmuxFont(size: 12, weight: .regular)
-                .foregroundColor(.secondary)
-            TextField(
-                String(localized: "sessionIndex.allSessions.searchPlaceholder",
-                       defaultValue: "Search sessions…"),
-                text: $searchText
-            )
-            .textFieldStyle(.plain)
-            .cmuxFont(size: 13)
-            .focused($searchFieldFocused)
-            .onSubmit { onPeekTopResult() }
-            .onKeyPress(.return, phases: .down) { press in
-                guard press.modifiers.contains(.command) else { return .ignored }
-                onResumeTopResult()
-                return .handled
-            }
-            .onKeyPress(.escape) {
-                guard !searchText.isEmpty else { return .ignored }
-                searchText = ""
-                return .handled
-            }
-            .accessibilityIdentifier("VaultAllSessionsSearchField")
-            if !searchText.isEmpty {
-                Button {
-                    searchText = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .cmuxFont(size: 12)
-                        .foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(Text(String(localized: "sessionIndex.allSessions.clearSearch",
-                                                defaultValue: "Clear search")))
-            }
-        }
-        // A plain editor inside one low-contrast, borderless control fill
-        // keeps the behavior of a normal macOS search field without adding a
-        // second outline to the chrome.
-        .padding(.horizontal, 9)
-        .frame(height: searchFieldHeight)
-        .background(
-            RoundedRectangle(
-                cornerRadius: 7,
-                style: .continuous
-            )
-                .fill(Color.primary.opacity(0.06))
+        SidebarSearchFieldView(
+            text: $searchText,
+            placeholder: String(localized: "sessionIndex.allSessions.searchPlaceholder",
+                                defaultValue: "Search sessions…"),
+            accessibilityIdentifier: "VaultAllSessionsSearchField",
+            onSubmit: onPeekTopResult,
+            onCommandSubmit: onResumeTopResult
         )
-        // The field owns the flexible width; the utility controls keep their
-        // standard 20-point targets at the trailing edge.
+        .frame(height: searchFieldHeight)
+        // The field owns the flexible width; the view control keeps its
+        // standard 20-point target at the trailing edge.
         .frame(maxWidth: .infinity, alignment: .leading)
-        .layoutPriority(1)
         .titlebarInteractiveControl()
     }
 
-    private var overflowMenu: some View {
-        Menu {
-            Picker(
-                String(localized: "sessionIndex.view.title", defaultValue: "Session view"),
-                selection: $isCompactView
-            ) {
-                Text(String(localized: "sessionIndex.view.default", defaultValue: "Default view"))
-                    .tag(false)
-                Text(String(localized: "sessionIndex.view.compact", defaultValue: "Compact view"))
-                    .tag(true)
-            }
-            .pickerStyle(.inline)
+    /// Same control family as the mode bar's close and open-as-pane buttons:
+    /// a 20-point target drawing a 10-point symbol, with the shared hover
+    /// treatment. The Default / Compact picker opens as a native menu below it.
+    private var viewMenuButton: some View {
+        Button {
+            viewMenuPresenter.present(isCompactView: isCompactView) { isCompactView = $0 }
         } label: {
-            Text("⋮")
-                .font(.system(size: 18, weight: .bold, design: .rounded))
-                .foregroundStyle(Color.secondary.opacity(0.72))
-                .frame(width: 24, height: 28)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(Color.primary.opacity(0.10))
-                )
-                .contentShape(Rectangle())
+            HeaderChromeIconStyle.symbol("ellipsis")
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .contentShape(Rectangle())
+        .buttonStyle(RightSidebarHeaderIconButtonStyle(iconGeometryKeyPrefix: "rightSidebarVaultViewMenuIcon"))
+        .frame(
+            width: RightSidebarChromeMetrics.headerControlSize,
+            height: RightSidebarChromeMetrics.headerControlSize
+        )
+        .background(VaultSessionViewMenuAnchor(presenter: viewMenuPresenter))
+        .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
+            keyPrefix: "rightSidebarVaultViewMenu",
+            isVisible: true
+        )
         .help(String(localized: "sessionIndex.view.tooltip", defaultValue: "Choose session view"))
-        .accessibilityLabel(Text(String(localized: "sessionIndex.view.title", defaultValue: "Session view")))
+        .accessibilityLabel(Text(VaultSessionViewMenuPresenter.title))
         .accessibilityHint(Text(String(localized: "sessionIndex.view.tooltip", defaultValue: "Choose session view")))
-        .accessibilityValue(viewSelectionLabel)
+        .accessibilityValue(VaultSessionViewOption(isCompact: isCompactView).label)
         .accessibilityIdentifier("VaultSessionOptionsMenu")
-        .frame(width: 24, height: 28)
-        .layoutPriority(2)
         .titlebarInteractiveControl()
     }
-
-    private var viewSelectionLabel: String {
-        if isCompactView {
-            return String(localized: "sessionIndex.view.compact", defaultValue: "Compact view")
-        }
-        return String(localized: "sessionIndex.view.default", defaultValue: "Default view")
-    }
-
 }

@@ -17,7 +17,7 @@ enum PhonePushRetryPolicy {
         // Retry-After is the provider's lower bound, not a suggestion that the
         // client may shorten. The event TTL remains the upper bound: if the
         // requested delay would make this event stale, expire it instead.
-        let delay = max(retryAfterSeconds ?? fallback, 0)
+        let delay = max(fallback, retryAfterSeconds ?? 0)
         let (retryEpochSeconds, overflowed) = nowEpochSeconds
             .addingReportingOverflow(delay)
         guard !overflowed, retryEpochSeconds < expirationEpochSeconds else {

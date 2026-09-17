@@ -6,7 +6,7 @@ import Foundation
 /// The legacy static parsing entry points remain available for file-backed test
 /// fixtures. This instance owns the resolved branch context used by production
 /// reftable reads, so `includeIf.onbranch` never consults the sentinel `HEAD`.
-nonisolated struct GitConfigBranchTraversal: Sendable {
+struct GitConfigBranchTraversal: Sendable {
     private static let maximumIncludedFileCount = 256
     private static let maximumTotalConfigByteCount = 8 * 1_024 * 1_024
 

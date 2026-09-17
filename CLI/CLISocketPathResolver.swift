@@ -134,6 +134,7 @@ struct CLISocketPathResolver {
     static let legacyDefaultSocketPath = "/tmp/cmux.sock"
     private static let fallbackSocketPath = "/tmp/cmux-debug.sock"
     private static let nightlySocketPath = "/tmp/cmux-nightly.sock"
+    private static let rcSocketPath = "/tmp/cmux-rc.sock"
     private static let stagingSocketPath = "/tmp/cmux-staging.sock"
 
     private let environment: [String: String]
@@ -161,9 +162,7 @@ struct CLISocketPathResolver {
         self.currentUserID = currentUserID
         self.inspectSocketPathEntry = inspectSocketPathEntry
         self.socketAcceptsConnections = socketAcceptsConnections
-        self.stateDirectory = stateDirectory ?? CmuxStateDirectory.url(
-            homeDirectory: fileManager.homeDirectoryForCurrentUser
-        )
+        self.stateDirectory = stateDirectory ?? CmuxStateDirectory.url(homeDirectory: fileManager.homeDirectoryForCurrentUser)
     }
 
     static func defaultSocketPath(
@@ -177,14 +176,13 @@ struct CLISocketPathResolver {
             stableSocketPath: stableDefaultSocketPath,
             debugSocketPath: fallbackSocketPath,
             nightlySocketPath: nightlySocketPath,
+            rcSocketPath: rcSocketPath,
             stagingSocketPath: stagingSocketPath
         )
     }
 
     private static var stableDefaultSocketPath: String {
-        let stablePath: String? = stableSocketDirectoryURL()?
-            .appendingPathComponent(stableSocketFileName, isDirectory: false)
-            .path
+        let stablePath: String? = stableSocketDirectoryURL()?.appendingPathComponent(stableSocketFileName, isDirectory: false).path
         return stablePath ?? legacyDefaultSocketPath
     }
 
@@ -200,6 +198,7 @@ struct CLISocketPathResolver {
             stableSocketPath: resolvedStableDefaultSocketPath,
             debugSocketPath: Self.fallbackSocketPath,
             nightlySocketPath: Self.nightlySocketPath,
+            rcSocketPath: Self.rcSocketPath,
             stagingSocketPath: Self.stagingSocketPath
         )
     }
@@ -340,7 +339,7 @@ struct CLISocketPathResolver {
         switch variant {
         case .stable:
             return true
-        case .nightly, .staging, .dev:
+        case .nightly, .rc, .staging, .dev:
             return Self.pathsMatch(requestedPath, defaultPath)
                 || !Self.containsPath(resolvedStableImplicitDefaultPaths(), requestedPath)
         }
@@ -348,7 +347,7 @@ struct CLISocketPathResolver {
 
     private func implicitFallbackCandidatePaths(for variant: SocketPathVariant) -> [String] {
         switch variant {
-        case .stable, .nightly, .staging, .dev:
+        case .stable, .nightly, .rc, .staging, .dev:
             return resolvedStableImplicitDefaultPaths()
         }
     }

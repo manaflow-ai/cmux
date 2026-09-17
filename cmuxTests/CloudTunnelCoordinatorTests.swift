@@ -26,7 +26,10 @@ struct CloudTunnelCoordinatorTests {
         let clock: SidebarTestManualClock
         let timing: CloudTunnelTiming
 
-        init(backend: CloudTunnelBackend = CloudTunnelCoordinatorTests.networkExtension) {
+        init(
+            backend: CloudTunnelBackend = CloudTunnelCoordinatorTests.networkExtension,
+            isDisabledByPolicy: @escaping @Sendable () -> Bool = { false }
+        ) {
             let controller = FakeTunnelController()
             let enroller = FakeTunnelEnroller()
             let consumers = FakeTunnelConsumers()
@@ -49,7 +52,8 @@ struct CloudTunnelCoordinatorTests {
                 enroller: enroller,
                 consumers: consumers,
                 clock: clock,
-                timing: timing
+                timing: timing,
+                isDisabledByPolicy: isDisabledByPolicy
             )
         }
 
@@ -89,6 +93,28 @@ struct CloudTunnelCoordinatorTests {
             }
             return await predicate()
         }
+    }
+
+    @Test("revocation cleans an install that completes after approval and orders a replacement start")
+    func revocationDuringInstall() async throws {
+        let harness = Harness()
+        harness.controller.holdInstallForApproval = true
+        await harness.coordinator.beginUp(pin: true)
+        try #require(await harness.awaitState(.awaitingApproval) == .awaitingApproval)
+        try await harness.coordinator.revoke()
+        #expect(harness.controller.installedConfigurations.isEmpty)
+
+        harness.controller.holdInstallForApproval = false
+        await harness.coordinator.beginUp(pin: true)
+        harness.controller.approve()
+        try #require(await harness.awaitState(.up) == .up)
+        #expect(harness.controller.installedConfigurations.count == 1)
+        let calls = harness.controller.calls
+        let secondInstall = try #require(calls.lastIndex(of: "install"))
+        let lastRemoval = try #require(calls.lastIndex(of: "remove"))
+        #expect(lastRemoval < secondInstall)
+        #expect(calls.filter { $0 == "remove" }.count == 2)
+        await harness.coordinator.requestDown()
     }
 
     @Test("the first Cloud use enrolls, installs, starts, and waits for the link")
@@ -417,6 +443,69 @@ struct CloudTunnelCoordinatorTests {
         #expect(harness.controller.calls == ["install", "start", "stop", "remove"])
     }
 
+    @Test("`DisableCloud` refuses every start path without touching NetworkExtension")
+    func managedPolicyRefusesEveryStart() async {
+        let harness = Harness(isDisabledByPolicy: { true })
+
+        await harness.coordinator.prepareForPrivateNetworkUse(Self.use)
+        #expect(await harness.coordinator.state == .off)
+
+        await #expect(throws: CloudTunnelError.disabledByPolicy) {
+            try await harness.coordinator.requirePrivateNetworkUse(Self.use)
+        }
+        await #expect(throws: CloudTunnelError.disabledByPolicy) {
+            try await harness.coordinator.requestUp(pin: true)
+        }
+        await harness.coordinator.beginUp(pin: true)
+
+        #expect(await harness.coordinator.state == .off)
+        #expect(await harness.coordinator.isPinned == false)
+        #expect(harness.controller.calls.isEmpty)
+        #expect(harness.enroller.enrollCount == 0)
+    }
+
+    @Test("a `DisableCloud` push mid-session: revoke removes the configuration and nothing reconnects")
+    func managedPolicyActivationRevokesAndBlocksReconnect() async throws {
+        let policy = ManagedPolicyFlag()
+        let harness = Harness(isDisabledByPolicy: { policy.isEnforced })
+        try await harness.coordinator.requestUp(pin: true)
+        #expect(await harness.coordinator.state == .up)
+        #expect(harness.enroller.enrollCount == 1)
+
+        // The profile lands; the app's enforcement path revokes.
+        policy.isEnforced = true
+        try await harness.coordinator.revoke()
+        #expect(await harness.coordinator.state == .off)
+        #expect(harness.controller.calls == ["install", "start", "stop", "remove"])
+
+        // Later Cloud uses (a restored pane, a browser navigation, `vpn up`)
+        // must not re-enroll or re-install.
+        await harness.coordinator.prepareForPrivateNetworkUse(Self.use)
+        await #expect(throws: CloudTunnelError.disabledByPolicy) {
+            try await harness.coordinator.requirePrivateNetworkUse(Self.use)
+        }
+        await #expect(throws: CloudTunnelError.disabledByPolicy) {
+            try await harness.coordinator.requestUp(pin: true)
+        }
+        #expect(await harness.coordinator.state == .off)
+        #expect(harness.controller.calls == ["install", "start", "stop", "remove"])
+        #expect(harness.enroller.enrollCount == 1)
+    }
+
+    @Test("`vpn down` and `vpn revoke` stay available for cleanup under `DisableCloud`")
+    func managedPolicyKeepsCleanupAvailable() async throws {
+        let policy = ManagedPolicyFlag()
+        let harness = Harness(isDisabledByPolicy: { policy.isEnforced })
+        try await harness.coordinator.requestUp(pin: true)
+
+        policy.isEnforced = true
+        await harness.coordinator.requestDown()
+        #expect(await harness.coordinator.state == .off)
+        #expect(await harness.coordinator.isPinned == false)
+        try await harness.coordinator.revoke()
+        #expect(harness.controller.calls == ["install", "start", "stop", "remove"])
+    }
+
     @Test("quitting stops the tunnel synchronously")
     func terminationStopsSynchronously() async {
         let harness = Harness()
@@ -436,5 +525,17 @@ struct CloudTunnelCoordinatorTests {
         await harness.clock.waitUntilSleeping(for: .seconds(600))
         harness.controller.emit(.connected)
         #expect(await waiter.value == .up)
+    }
+}
+
+/// A managed-policy switch the tests flip mid-scenario, standing in for an
+/// MDM profile pushed while the app runs.
+private final class ManagedPolicyFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var enforced = false
+
+    var isEnforced: Bool {
+        get { lock.withLock { enforced } }
+        set { lock.withLock { enforced = newValue } }
     }
 }
