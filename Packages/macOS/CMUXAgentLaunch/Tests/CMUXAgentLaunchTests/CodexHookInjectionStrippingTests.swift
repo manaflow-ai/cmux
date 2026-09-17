@@ -39,6 +39,22 @@ struct CodexHookInjectionStrippingTests {
         )
     }
 
+    @Test("Strips the legacy synchronous Codex child hook block")
+    func stripsLegacySynchronousCodexChildHookBlock() {
+        let arguments = ["codex"] + hookArguments(
+            events: legacySynchronousChildHookEvents
+        ) { subcommand in
+            "/Users/u/.cmux/hooks/cmux-codex-hook-\(subcommand).sh"
+        } + ["--model", "gpt-5.5"]
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                arguments,
+                launcher: "",
+                fallbackKind: "codex"
+            ) == ["codex", "--model", "gpt-5.5"]
+        )
+    }
+
     @Test("Strips the legacy alias Codex hook block")
     func stripsLegacyAliasCodexHookBlock() {
         let arguments = ["codex"] + hookArguments(
@@ -60,6 +76,26 @@ struct CodexHookInjectionStrippingTests {
     func stripsInlineCmuxCodexHookSnippets() {
         let arguments = ["codex"] + codexWrapperHookArguments { subcommand in
             "payload=$(mktemp -t cmux-codex-hook.XXXXXX); sh -c 'echo ok' cmux-codex-hook \"$payload\" \"$cmux_cli\" hooks codex \(subcommand)"
+        } + ["--model", "gpt-5.5"]
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                arguments,
+                launcher: "",
+                fallbackKind: "codex"
+            ) == ["codex", "--model", "gpt-5.5"]
+        )
+    }
+
+    @Test("Strips the inline queued hook fallback")
+    func stripsInlineQueuedHookFallback() {
+        // If ~/.cmux/hooks cannot be written, the wrapper embeds this marked
+        // shell body directly in Codex argv. Resume capture must still remove
+        // it so the wrapper does not inject a second hook set.
+        let arguments = ["codex"] + codexWrapperHookArguments { subcommand in
+            if subcommand == "notification" {
+                return ": cmux-codex-hook; cmux hooks codex notification"
+            }
+            return ": cmux-codex-hook; cmux hooks enqueue codex \(subcommand)"
         } + ["--model", "gpt-5.5"]
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
@@ -593,6 +629,21 @@ struct CodexHookInjectionStrippingTests {
             ("PostToolUse", "post-tool-use", 10000),
             ("Notification", "notification", 10000),
             ("Stop", "stop", 10000),
+        ]
+    }
+
+    private var legacySynchronousChildHookEvents: [
+        (agentEvent: String, cmuxSubcommand: String, timeoutMs: Int)
+    ] {
+        [
+            ("SessionStart", "session-start", 10000),
+            ("UserPromptSubmit", "prompt-submit", 10000),
+            ("Stop", "stop", 10000),
+            ("PreToolUse", "pre-tool-use", 120000),
+            ("PostToolUse", "post-tool-use", 10000),
+            ("PermissionRequest", "notification", 120000),
+            ("SubagentStart", "subagent-start", 10000),
+            ("SubagentStop", "subagent-stop", 10000),
         ]
     }
 

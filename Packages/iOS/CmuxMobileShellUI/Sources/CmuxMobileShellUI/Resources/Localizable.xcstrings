@@ -5118,6 +5118,17 @@
         }
       }
     },
+    "mobile.connections.direct.addMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A numeric IP and port where this computer is reachable, like 192.168.1.20:64000 or [fd00::5]:64000. A port is required."
+          }
+        }
+      }
+    },
     "mobile.connections.route.remove": {
       "extractionState": "manual",
       "localizations": {
@@ -5173,6 +5184,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "경로 삭제"
+          }
+        }
+      }
+    },
+    "mobile.connections.tailscale.replace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replace Tailscale Connection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale接続を置換"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale-Verbindung ersetzen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remplacer la connexion Tailscale"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استبدال اتصال Tailscale"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reemplazar conexión de Tailscale"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取代 Tailscale 連線"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "替换 Tailscale 连接"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale 연결 교체"
           }
         }
       }
@@ -8074,55 +8144,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clear Report"
+            "value": "Clear Logs"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "レポートを消去"
+            "value": "ログを消去"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Klarer Bericht"
+            "value": "Protokolle löschen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Effacer le rapport"
+            "value": "Effacer les journaux"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مسح التقرير"
+            "value": "مسح السجلات"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Borrar informe"
+            "value": "Borrar registros"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "清晰的報告"
+            "value": "清除日誌"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "清晰的报告"
+            "value": "清除日志"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "보고서 지우기"
+            "value": "로그 지우기"
           }
         }
       }
@@ -8133,55 +8203,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clear this diagnostic report?"
+            "value": "Clear all diagnostic logs?"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この診断レポートを消去しますか？"
+            "value": "すべての診断ログを消去しますか？"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diesen Diagnosebericht löschen?"
+            "value": "Alle Diagnoseprotokolle löschen?"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Effacer ce rapport de diagnostic ?"
+            "value": "Effacer tous les journaux de diagnostic ?"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "هل تريد مسح هذا التقرير التشخيصي؟"
+            "value": "هل تريد مسح جميع سجلات التشخيص؟"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "¿Borrar este informe de diagnóstico?"
+            "value": "¿Borrar todos los registros de diagnóstico?"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "清除這份診斷報告嗎？"
+            "value": "要清除所有診斷日誌嗎？"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "清除这份诊断报告吗？"
+            "value": "要清除所有诊断日志吗？"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 진단 보고서를 삭제하시겠습니까?"
+            "value": "모든 진단 로그를 삭제하시겠습니까?"
           }
         }
       }
@@ -8192,55 +8262,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This permanently removes the connection timeline stored on this device."
+            "value": "This permanently removes the app, networking, verbose, and connection logs stored on this device."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このデバイスに保存された接続タイムラインを完全に削除します。"
+            "value": "このデバイスに保存されたアプリ、ネットワーク、詳細、接続ログを完全に削除します。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dadurch wird die auf diesem Gerät gespeicherte Verbindungszeitleiste dauerhaft entfernt."
+            "value": "Dadurch werden die auf diesem Gerät gespeicherten App-, Netzwerk-, ausführlichen und Verbindungsprotokolle dauerhaft entfernt."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cela supprime définitivement la chronologie de connexion stockée sur cet appareil."
+            "value": "Cela supprime définitivement les journaux d’app, réseau, détaillés et de connexion stockés sur cet appareil."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يؤدي هذا إلى إزالة المخطط الزمني للاتصال المخزن على هذا الجهاز بشكل دائم."
+            "value": "يؤدي هذا إلى إزالة سجلات التطبيق والشبكة والسجلات المطولة والاتصال المخزنة على هذا الجهاز بشكل دائم."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esto elimina permanentemente la línea de tiempo de conexión almacenada en este dispositivo."
+            "value": "Esto elimina permanentemente los registros de la aplicación, la red, los detalles y la conexión almacenados en este dispositivo."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "這將永久刪除儲存在該裝置上的連接時間軸。"
+            "value": "這將永久刪除儲存在該裝置上的應用程式、網路、詳細和連線日誌。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "这将永久删除存储在该设备上的连接时间线。"
+            "value": "这将永久删除存储在该设备上的应用程序、网络、详细和连接日志。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 장치에 저장된 연결 타임라인이 영구적으로 제거됩니다."
+            "value": "이 기기에 저장된 앱, 네트워크, 상세 및 연결 로그가 영구적으로 제거됩니다."
           }
         }
       }
@@ -12493,6 +12563,124 @@
         }
       }
     },
+    "mobile.settings.taskComposerFullLiquidGlass": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task Composer Liquid Glass"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスク作成の Liquid Glass"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liquid Glass im Task Composer"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liquid Glass du compositeur de tâches"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liquid Glass لمنشئ المهام"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liquid Glass del compositor de tareas"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任務編輯器 Liquid Glass"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任务编辑器 Liquid Glass"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 작성기 Liquid Glass"
+          }
+        }
+      }
+    },
+    "mobile.settings.taskComposerFullLiquidGlassCaption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Liquid Glass controls and a transparent bar in New Task."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「新規タスク」で Liquid Glass のコントロールと透明なバーを使用します。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liquid-Glass-Steuerelemente und eine transparente Leiste in „Neue Aufgabe“ verwenden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser les commandes Liquid Glass et une barre transparente dans Nouvelle tâche."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدام عناصر تحكم Liquid Glass وشريط شفاف في مهمة جديدة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa controles Liquid Glass y una barra transparente en Nueva tarea."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在「新增任務」中使用 Liquid Glass 控制項和透明橫條。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在“新建任务”中使用 Liquid Glass 控件和透明横条。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 작업에서 Liquid Glass 컨트롤과 투명한 막대를 사용합니다."
+          }
+        }
+      }
+    },
     "mobile.iroh.diagnostics.failure.unknown": {
       "extractionState": "manual",
       "localizations": {
@@ -12548,6 +12736,1681 @@
           "stringUnit": {
             "state": "translated",
             "value": "알려지지 않은"
+          }
+        }
+      }
+    },
+    "mobile.settings.diagnostics.export": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export Logs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ログを書き出す"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protokolle exportieren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exporter les journaux"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تصدير السجلات"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exportar registros"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯出記錄"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导出日志"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그 내보내기"
+          }
+        }
+      }
+    },
+    "mobile.settings.diagnostics.export.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t export logs. Check available storage and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ログを書き出せませんでした。空き容量を確認してからもう一度お試しください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protokolle konnten nicht exportiert werden. Prüfen Sie den verfügbaren Speicherplatz und versuchen Sie es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’exporter les journaux. Vérifiez l’espace de stockage disponible et réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر تصدير السجلات. تحقق من مساحة التخزين المتاحة وحاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron exportar los registros. Comprueba el almacenamiento disponible y vuelve a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法匯出記錄。請檢查可用儲存空間後再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法导出日志。请检查可用存储空间后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그를 내보낼 수 없습니다. 사용 가능한 저장 공간을 확인한 후 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "mobile.settings.diagnostics.clear.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t clear logs. Check available storage and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ログを消去できませんでした。空き容量を確認してからもう一度お試しください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protokolle konnten nicht gelöscht werden. Prüfen Sie den verfügbaren Speicherplatz und versuchen Sie es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’effacer les journaux. Vérifiez l’espace de stockage disponible et réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر مسح السجلات. تحقق من مساحة التخزين المتاحة وحاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron borrar los registros. Comprueba el almacenamiento disponible y vuelve a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法清除記錄。請檢查可用儲存空間後再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法清除日志。请检查可用存储空间后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그를 지울 수 없습니다. 사용 가능한 저장 공간을 확인한 후 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "mobile.onboarding.v2.connect.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On your Mac, turn on Enable iOS pairing in cmux Settings. Select the same team on both devices, then keep cmux running."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktiviere auf deinem Mac „iOS-Kopplung aktivieren“ in den cmux-Einstellungen. Wähle auf beiden Geräten dasselbe Team und lasse cmux geöffnet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur votre Mac, activez « Activer le jumelage iOS » dans les réglages de cmux. Sélectionnez la même équipe sur les deux appareils et laissez cmux ouvert."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "على جهاز Mac، شغّل «تمكين الاقتران مع iOS» في إعدادات cmux. اختر الفريق نفسه على الجهازين، ثم أبقِ cmux قيد التشغيل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En tu Mac, activa «Activar enlace con iOS» en los ajustes de cmux. Selecciona el mismo equipo en ambos dispositivos y mantén cmux abierto."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Mac 的 cmux 設定中開啟「啟用 iOS 配對」。在兩部裝置上選擇相同的團隊，並保持 cmux 運行。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Mac 的 cmux 设置中打开“启用 iOS 配对”。在两台设备上选择相同的团队，并保持 cmux 运行。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac의 cmux 설정에서 ‘iOS 페어링 활성화’를 켜세요. 두 기기에서 같은 팀을 선택하고 cmux를 계속 실행해 두세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macのcmux設定で「iOSペアリングを有効にする」をオンにしてください。両方のデバイスで同じチームを選び、cmuxを起動したままにしてください。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.v2.connect.bodyWithMinVersionFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On your Mac, turn on Enable iOS pairing in cmux Settings. Select the same team on both devices. Requires cmux %1$@ or newer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktiviere auf deinem Mac „iOS-Kopplung aktivieren“ in den cmux-Einstellungen. Wähle auf beiden Geräten dasselbe Team. Erfordert cmux %1$@ oder neuer."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur votre Mac, activez « Activer le jumelage iOS » dans les réglages de cmux. Sélectionnez la même équipe sur les deux appareils. Nécessite cmux %1$@ ou une version ultérieure."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "على جهاز Mac، شغّل «تمكين الاقتران مع iOS» في إعدادات cmux. اختر الفريق نفسه على الجهازين. يتطلب cmux %1$@ أو أحدث."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En tu Mac, activa «Activar enlace con iOS» en los ajustes de cmux. Selecciona el mismo equipo en ambos dispositivos. Requiere cmux %1$@ o posterior."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Mac 的 cmux 設定中開啟「啟用 iOS 配對」。在兩部裝置上選擇相同的團隊。需要 cmux %1$@ 或更新版本。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Mac 的 cmux 设置中打开“启用 iOS 配对”。在两台设备上选择相同的团队。需要 cmux %1$@ 或更新版本。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac의 cmux 설정에서 ‘iOS 페어링 활성화’를 켜세요. 두 기기에서 같은 팀을 선택하세요. cmux %1$@ 이상이 필요합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macのcmux設定で「iOSペアリングを有効にする」をオンにしてください。両方のデバイスで同じチームを選んでください。cmux %1$@以降が必要です。"
+          }
+        }
+      }
+    },
+    "mobile.v2.devices.emptyDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On your Mac, turn on Enable iOS pairing in cmux Settings. Select the same team on both devices and keep cmux running. Only Macs you own or have permission to connect to appear here."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktiviere auf deinem Mac „iOS-Kopplung aktivieren“ in den cmux-Einstellungen. Wähle auf beiden Geräten dasselbe Team und lasse cmux geöffnet. Hier erscheinen nur deine Macs oder Macs, für die du eine Verbindungsberechtigung hast."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur votre Mac, activez « Activer le jumelage iOS » dans les réglages de cmux. Sélectionnez la même équipe sur les deux appareils et laissez cmux ouvert. Seuls vos Mac et ceux auxquels vous avez le droit de vous connecter apparaissent ici."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "على جهاز Mac، شغّل «تمكين الاقتران مع iOS» في إعدادات cmux. اختر الفريق نفسه على الجهازين وأبقِ cmux قيد التشغيل. تظهر هنا فقط أجهزة Mac التي تملكها أو لديك إذن بالاتصال بها."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En tu Mac, activa «Activar enlace con iOS» en los ajustes de cmux. Selecciona el mismo equipo en ambos dispositivos y mantén cmux abierto. Aquí solo aparecen los Mac que te pertenecen o a los que tienes permiso para conectarte."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Mac 的 cmux 設定中開啟「啟用 iOS 配對」。在兩部裝置上選擇相同的團隊，並保持 cmux 運行。這裡只會顯示你擁有或獲准連線的 Mac。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Mac 的 cmux 设置中打开“启用 iOS 配对”。在两台设备上选择相同的团队，并保持 cmux 运行。这里只会显示你拥有或获准连接的 Mac。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac의 cmux 설정에서 ‘iOS 페어링 활성화’를 켜세요. 두 기기에서 같은 팀을 선택하고 cmux를 계속 실행해 두세요. 소유하거나 연결 권한이 있는 Mac만 여기에 표시됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macのcmux設定で「iOSペアリングを有効にする」をオンにしてください。両方のデバイスで同じチームを選び、cmuxを起動したままにしてください。所有するMacまたは接続を許可されたMacのみが表示されます。"
+          }
+        }
+      }
+    },
+    "mobile.iroh.v2.private.addresses": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP Addresses and Ports"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP-Adressen und Ports"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adresses IP et ports"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عناوين IP والمنافذ"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Direcciones IP y puertos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP 位址與連接埠"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP 地址和端口"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP 주소 및 포트"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IPアドレスとポート"
+          }
+        }
+      }
+    },
+    "mobile.iroh.v2.private.addresses.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter one address and port per line, such as 192.168.1.5:58470 or [fd00::5]:58470. These addresses stay on this iPhone."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib pro Zeile eine Adresse mit Port ein, etwa 192.168.1.5:58470 oder [fd00::5]:58470. Diese Adressen bleiben auf diesem iPhone."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisissez une adresse et un port par ligne, par exemple 192.168.1.5:58470 ou [fd00::5]:58470. Ces adresses restent sur cet iPhone."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أدخل عنوانًا ومنفذًا واحدًا في كل سطر، مثل 192.168.1.5:58470 أو [fd00::5]:58470. تبقى هذه العناوين على هذا الـ iPhone."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Introduce una dirección y un puerto por línea, como 192.168.1.5:58470 o [fd00::5]:58470. Estas direcciones se guardan solo en este iPhone."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每行輸入一組位址與連接埠，例如 192.168.1.5:58470 或 [fd00::5]:58470。這些位址只會儲存在這部 iPhone 上。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每行输入一组地址和端口，例如 192.168.1.5:58470 或 [fd00::5]:58470。这些地址只会保存在这台 iPhone 上。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "한 줄에 주소와 포트를 하나씩 입력하세요. 예: 192.168.1.5:58470 또는 [fd00::5]:58470. 이 주소는 이 iPhone에만 저장됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1行にアドレスとポートを1つずつ入力してください。例：192.168.1.5:58470、[fd00::5]:58470。これらのアドレスはこのiPhoneにのみ保存されます。"
+          }
+        }
+      }
+    },
+    "mobile.v2.connections.direct.addPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "192.168.1.5:58470 or [fd00::5]:58470"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "192.168.1.5:58470 oder [fd00::5]:58470"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "192.168.1.5:58470 ou [fd00::5]:58470"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "192.168.1.5:58470 أو [fd00::5]:58470"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "192.168.1.5:58470 o [fd00::5]:58470"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "192.168.1.5:58470 或 [fd00::5]:58470"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "192.168.1.5:58470 或 [fd00::5]:58470"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "192.168.1.5:58470 또는 [fd00::5]:58470"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "192.168.1.5:58470 または [fd00::5]:58470"
+          }
+        }
+      }
+    },
+    "mobile.v2.connections.direct.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter each address with its port. These routes stay on this iPhone. The encrypted connection verifies the Mac’s identity."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib jede Adresse mit ihrem Port ein. Diese Routen bleiben auf diesem iPhone. Die verschlüsselte Verbindung überprüft die Identität des Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisissez chaque adresse avec son port. Ces routes restent sur cet iPhone. La connexion chiffrée vérifie l’identité du Mac."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أدخل كل عنوان مع منفذه. تبقى هذه المسارات على هذا الـ iPhone. يتحقق الاتصال المشفّر من هوية جهاز Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Introduce cada dirección con su puerto. Estas rutas se guardan solo en este iPhone. La conexión cifrada verifica la identidad del Mac."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輸入每個位址及其連接埠。這些路徑只會儲存在這部 iPhone 上。加密連線會驗證 Mac 的身分。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入每个地址及其端口。这些路径只会保存在这台 iPhone 上。加密连接会验证 Mac 的身份。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 주소와 포트를 입력하세요. 이 경로는 이 iPhone에만 저장됩니다. 암호화된 연결이 Mac의 신원을 확인합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各アドレスをポートとともに入力してください。これらの経路はこのiPhoneにのみ保存されます。暗号化された接続がMacの識別情報を検証します。"
+          }
+        }
+      }
+    },
+    "mobile.v2.connections.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On your Mac, turn on Enable iOS pairing in cmux Settings. Select the same team on both devices and keep cmux running. Only Macs you own or have permission to connect to appear here."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktiviere auf deinem Mac „iOS-Kopplung aktivieren“ in den cmux-Einstellungen. Wähle auf beiden Geräten dasselbe Team und lasse cmux geöffnet. Hier erscheinen nur deine Macs oder Macs, für die du eine Verbindungsberechtigung hast."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur votre Mac, activez « Activer le jumelage iOS » dans les réglages de cmux. Sélectionnez la même équipe sur les deux appareils et laissez cmux ouvert. Seuls vos Mac et ceux auxquels vous avez le droit de vous connecter apparaissent ici."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "على جهاز Mac، شغّل «تمكين الاقتران مع iOS» في إعدادات cmux. اختر الفريق نفسه على الجهازين وأبقِ cmux قيد التشغيل. تظهر هنا فقط أجهزة Mac التي تملكها أو لديك إذن بالاتصال بها."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En tu Mac, activa «Activar enlace con iOS» en los ajustes de cmux. Selecciona el mismo equipo en ambos dispositivos y mantén cmux abierto. Aquí solo aparecen los Mac que te pertenecen o a los que tienes permiso para conectarte."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Mac 的 cmux 設定中開啟「啟用 iOS 配對」。在兩部裝置上選擇相同的團隊，並保持 cmux 運行。這裡只會顯示你擁有或獲准連線的 Mac。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Mac 的 cmux 设置中打开“启用 iOS 配对”。在两台设备上选择相同的团队，并保持 cmux 运行。这里只会显示你拥有或获准连接的 Mac。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac의 cmux 설정에서 ‘iOS 페어링 활성화’를 켜세요. 두 기기에서 같은 팀을 선택하고 cmux를 계속 실행해 두세요. 소유하거나 연결 권한이 있는 Mac만 여기에 표시됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macのcmux設定で「iOSペアリングを有効にする」をオンにしてください。両方のデバイスで同じチームを選び、cmuxを起動したままにしてください。所有するMacまたは接続を許可されたMacのみが表示されます。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.enableOnMac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Before pairing, open cmux Settings > Mobile on the Mac and turn on Enable iOS pairing. This Mac stays hidden from iOS while it is off."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリングする前に、Mac の cmux で「設定」>「Mobile」を開き、「iOS ペアリングを有効にする」をオンにしてください。オフの間、この Mac は iOS から非表示になります。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öffnen Sie vor dem Koppeln auf dem Mac in cmux „Einstellungen“ > „Mobile“ und aktivieren Sie „iOS-Kopplung aktivieren“. Solange die Option deaktiviert ist, bleibt dieser Mac für iOS unsichtbar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avant le jumelage, ouvrez « Réglages » > « Mobile » dans cmux sur le Mac et activez « Activer le jumelage iOS ». Ce Mac reste masqué pour iOS tant que l’option est désactivée."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قبل الاقتران، افتح في cmux على الـ Mac «الإعدادات» > «الهاتف المحمول» وفعّل «تمكين اقتران iOS». يظل هذا الـ Mac مخفيًا عن iOS أثناء إيقاف الخيار."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antes de enlazar, abre en cmux del Mac «Ajustes» > «Móvil» y activa «Activar el enlace con iOS». Este Mac permanece oculto para iOS mientras la opción esté desactivada."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配對前，請在 Mac 上的 cmux 開啟「設定」>「行動裝置」，並啟用「啟用 iOS 配對」。關閉此選項時，iOS 不會顯示這部 Mac。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配对前，请在 Mac 上的 cmux 打开“设置”>“移动”，并启用“启用 iOS 配对”。关闭此选项时，iOS 不会显示这台 Mac。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "페어링하기 전에 Mac의 cmux에서 “설정” > “모바일”을 열고 “iOS 페어링 활성화”를 켜세요. 이 옵션이 꺼져 있으면 이 Mac은 iOS에 표시되지 않습니다."
+          }
+        }
+      }
+    },
+    "mobile.pairing.enableOnMac.short": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Enable iOS pairing in cmux Settings > Mobile on your Mac."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Mac の cmux「設定」>「Mobile」で iOS ペアリングを有効にしてください。"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Aktivieren Sie auf dem Mac in cmux „Einstellungen“ > „Mobile“ die iOS-Kopplung."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Activez le jumelage iOS dans cmux, sous « Réglages » > « Mobile » sur le Mac."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "فعّل اقتران iOS في cmux على الـ Mac من «الإعدادات» > «الهاتف المحمول»."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Activa el enlace con iOS en cmux, en «Ajustes» > «Móvil» del Mac."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "請在 Mac 上的 cmux「設定」>「行動裝置」中啟用 iOS 配對。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "请在 Mac 上的 cmux“设置”>“移动”中启用 iOS 配对。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Mac의 cmux “설정” > “모바일”에서 iOS 페어링을 활성화하세요."}}
+      }
+    },
+    "mobile.onboarding.pairing.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable iOS pairing on your Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac で iOS ペアリングを有効にする"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS-Kopplung auf Ihrem Mac aktivieren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activez le jumelage iOS sur votre Mac"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فعّل اقتران iOS على جهاز Mac"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activa el enlace con iOS en tu Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Mac 上啟用 iOS 配對"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Mac 上启用 iOS 配对"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac에서 iOS 페어링 활성화"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.pairing.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This step is required before any Mac can appear on your iPhone. In cmux Settings > Mobile on your Mac, turn on Enable iOS pairing. Until you do, cmux keeps the Mac hidden and does not start iOS pairing networking."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この手順は、iPhone に Mac を表示するために必要です。Mac の cmux で「設定」>「Mobile」を開き、「iOS ペアリングを有効にする」をオンにしてください。オンにするまで Mac は非表示になり、iOS ペアリングのネットワーク通信は開始されません。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Schritt ist erforderlich, damit Ihr Mac auf dem iPhone angezeigt wird. Aktivieren Sie auf dem Mac in cmux „Einstellungen“ > „Mobile“ die iOS-Kopplung. Bis dahin bleibt der Mac verborgen und cmux startet keine iOS-Kopplungsnetzwerke."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette étape est requise pour que votre Mac apparaisse sur l’iPhone. Dans cmux sur le Mac, ouvrez « Réglages » > « Mobile » et activez le jumelage iOS. Tant que vous ne l’avez pas fait, le Mac reste masqué et cmux ne démarre aucun réseau de jumelage iOS."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذه الخطوة مطلوبة ليظهر جهاز Mac على iPhone. في cmux على جهاز Mac، افتح «الإعدادات» > «الهاتف المحمول» وفعّل اقتران iOS. حتى تفعل ذلك، يظل جهاز Mac مخفيًا ولا يبدأ cmux أي شبكة لاقتران iOS."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este paso es necesario para que tu Mac aparezca en el iPhone. En cmux del Mac, abre «Ajustes» > «Móvil» y activa el enlace con iOS. Hasta entonces, el Mac permanece oculto y cmux no inicia ninguna red de enlace con iOS."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "若要讓 Mac 顯示在 iPhone 上，必須完成這個步驟。請在 Mac 上的 cmux 開啟「設定」>「行動裝置」，並啟用 iOS 配對。在啟用前，Mac 會保持隱藏，cmux 不會啟動 iOS 配對網路。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要让 Mac 显示在 iPhone 上，必须完成此步骤。请在 Mac 上的 cmux 打开“设置”>“移动”，并启用 iOS 配对。在启用之前，Mac 会保持隐藏，cmux 不会启动 iOS 配对网络。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone에 Mac을 표시하려면 이 단계가 필요합니다. Mac의 cmux에서 “설정” > “모바일”로 이동해 iOS 페어링을 켜세요. 켜기 전에는 Mac이 숨겨지고 cmux가 iOS 페어링 네트워크를 시작하지 않습니다."
+          }
+        }
+      }
+    },
+    "mobile.onboarding.pairing.primary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "I've enabled iOS pairing"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "iOS ペアリングを有効にしました"}},
+        "de": {"stringUnit": {"state": "translated", "value": "iOS-Kopplung ist aktiviert"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "J’ai activé le jumelage iOS"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "فعّلت اقتران iOS"}},
+        "es": {"stringUnit": {"state": "translated", "value": "He activado el enlace con iOS"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "我已啟用 iOS 配對"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "我已启用 iOS 配对"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "iOS 페어링을 활성화했습니다"}}
+      }
+    },
+    "mobile.onboarding.pairing.required": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Required for Mac discovery"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Mac の検出に必要"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Für die Mac-Erkennung erforderlich"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Requis pour détecter le Mac"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "مطلوب لاكتشاف جهاز Mac"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Necesario para detectar el Mac"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Mac 偵測所需"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Mac 检测所需"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Mac 검색에 필요"}}
+      }
+    },
+    "mobile.onboarding.pairing.macLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "On your Mac"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Mac で"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Auf dem Mac"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Sur votre Mac"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "على جهاز Mac"}},
+        "es": {"stringUnit": {"state": "translated", "value": "En tu Mac"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在 Mac 上"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在 Mac 上"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Mac에서"}}
+      }
+    },
+    "mobile.onboarding.pairing.macDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Settings > Mobile > Enable iOS pairing"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "設定 > Mobile > iOS ペアリングを有効にする"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Einstellungen > Mobile > iOS-Kopplung aktivieren"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Réglages > Mobile > Activer le jumelage iOS"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "الإعدادات > الهاتف المحمول > تمكين اقتران iOS"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Ajustes > Móvil > Activar el enlace con iOS"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "設定 > 行動裝置 > 啟用 iOS 配對"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "设置 > 移动 > 启用 iOS 配对"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "설정 > 모바일 > iOS 페어링 활성화"}}
+      }
+    },
+    "mobile.onboarding.pairing.phoneLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "On this iPhone"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "この iPhone で"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Auf diesem iPhone"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Sur cet iPhone"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "على هذا الـ iPhone"}},
+        "es": {"stringUnit": {"state": "translated", "value": "En este iPhone"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在此 iPhone 上"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在此 iPhone 上"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이 iPhone에서"}}
+      }
+    },
+    "mobile.onboarding.pairing.phoneDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Sign in to the same cmux account"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "同じ cmux アカウントでサインイン"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Mit demselben cmux-Konto anmelden"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Connectez-vous au même compte cmux"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "سجّل الدخول إلى حساب cmux نفسه"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Inicia sesión en la misma cuenta de cmux"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "登入相同的 cmux 帳戶"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "登录相同的 cmux 帐户"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "같은 cmux 계정으로 로그인"}}
+      }
+    },
+    "mobile.connectionsUpdate.tailscale.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Tailscale, on your terms"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Tailscaleは自分のペースで"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Tailscale, zu Ihren Bedingungen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Tailscale, selon vos conditions"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "Tailscale ، وفقًا لشروطك"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Tailscale, según tus condiciones"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Tailscale，依照您的條件"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Tailscale，按照您的条件"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Tailscale, 원하는 대로"}}
+      }
+    },
+    "mobile.connectionsUpdate.tailscale.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Choosing Tailscale Only shows exactly what's missing and offers the pairing-code scan right there. Nothing opens on its own."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "「Tailscaleのみ」を選ぶと、足りない設定とペアリングコードのスキャンをその場で案内します。勝手に画面が開くことはありません。"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Wenn Sie sich für „Nur Tailscale“ entscheiden, wird genau angezeigt, was fehlt, und der Pairing-Code-Scan wird direkt dort angeboten. Nichts öffnet sich von alleine."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Choisir Tailscale Only montre exactement ce qui manque et propose l'analyse du code d'appariement directement sur place. Rien ne s'ouvre tout seul."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يؤدي اختيار Tailscale فقط إلى عرض ما هو مفقود بالضبط ويوفر فحص رمز الاقتران هناك. لا شيء يفتح من تلقاء نفسه."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Elegir Tailscale Only muestra exactamente lo que falta y ofrece el escaneo del código de emparejamiento allí mismo. Nada se abre por sí solo."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "選擇“Tailscale Only”會準確顯示缺少的內容，並在此處提供配對碼掃描。没有什么是可以自行打开的。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "选择“Tailscale Only”会准确显示缺少的内容，并在此处提供配对码扫描。没有什么是可以自行打开的。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Tailscale Only를 선택하면 누락된 내용이 정확히 표시되고 바로 페어링 코드 스캔이 제공됩니다. 저절로 열리는 것은 없습니다."}}
+      }
+    },
+    "mobile.pairingOptInUpdate.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Required: Enable iOS pairing on Mac"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "必須: Mac で iOS ペアリングを有効にする"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Erforderlich: iOS-Kopplung auf dem Mac aktivieren"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Requis : activez le jumelage iOS sur le Mac"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "مطلوب: فعّل اقتران iOS على Mac"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Obligatorio: activa el enlace con iOS en el Mac"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "必要：在 Mac 上開啟 iOS 配對"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "必需：在 Mac 上开启 iOS 配对"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "필수: Mac에서 iOS 페어링 켜기"}}
+      }
+    },
+    "mobile.pairingOptInUpdate.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Before this iPhone can find a cmux Mac, open Settings > Mobile on that Mac and turn on Enable iOS pairing. While it is off, the Mac stays hidden and starts no iOS pairing networking."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "この iPhone で cmux Mac を見つけるには、その Mac で「設定」>「Mobile」を開き、「iOS ペアリングを有効にする」をオンにしてください。オフの間、その Mac は非表示になり、iOS ペアリングのネットワーク通信を開始しません。"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Damit dieses iPhone einen cmux Mac findet, öffnen Sie auf dem Mac „Einstellungen“ > „Mobile“ und aktivieren Sie die iOS-Kopplung. Solange sie deaktiviert ist, bleibt der Mac verborgen und startet kein iOS-Kopplungsnetzwerk."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Pour que cet iPhone trouve un Mac cmux, ouvrez Réglages > Mobile sur ce Mac et activez le jumelage iOS. Tant qu’il est désactivé, le Mac reste masqué et ne démarre aucun réseau de jumelage iOS."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "لكي يعثر هذا الـ iPhone على Mac يعمل بتطبيق cmux، افتح الإعدادات > الهاتف المحمول على جهاز Mac هذا وفعّل اقتران iOS. أثناء إيقافه، سيبقى Mac مخفيًا ولن يبدأ أي اتصال شبكي لاقتران iOS."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Para que este iPhone encuentre un Mac con cmux, abre Ajustes > Móvil en ese Mac y activa el enlace con iOS. Mientras esté desactivado, el Mac permanece oculto y no inicia la red de enlace con iOS."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "若要讓此 iPhone 找到 cmux Mac，請在該 Mac 上開啟「設定」>「行動裝置」，然後開啟 iOS 配對。關閉時，該 Mac 會保持隱藏，且不會啟動 iOS 配對網路。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "要让此 iPhone 找到 cmux Mac，请在该 Mac 上打开“设置”>“移动”，然后开启 iOS 配对。关闭时，该 Mac 会保持隐藏，也不会启动 iOS 配对网络。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이 iPhone에서 cmux Mac을 찾으려면 해당 Mac에서 설정 > 모바일을 열고 iOS 페어링을 켜세요. 꺼져 있는 동안 Mac은 숨겨지고 iOS 페어링 네트워크를 시작하지 않습니다."}}
+      }
+    },
+    "mobile.pairingOptInUpdate.requirement": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Open cmux Settings > Mobile on your Mac and turn on Enable iOS pairing before connecting."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "接続する前に必須: iPhone で使う各 cmux Mac で「設定」>「Mobile」を開き、「iOS ペアリングを有効にする」をオンにしてください。"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Vor dem Verbinden erforderlich: Öffnen Sie auf jedem cmux Mac, den Sie mit dem iPhone verwenden möchten, „Einstellungen“ > „Mobile“ und aktivieren Sie die iOS-Kopplung."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Requis avant la connexion : sur chaque Mac cmux que vous voulez utiliser avec l’iPhone, ouvrez Réglages > Mobile et activez le jumelage iOS."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "مطلوب قبل الاتصال: على كل Mac يعمل بتطبيق cmux وتريد استخدامه مع iPhone، افتح الإعدادات > الهاتف المحمول وفعّل اقتران iOS."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Obligatorio antes de conectar: en cada Mac con cmux que quieras usar con iPhone, abre Ajustes > Móvil y activa el enlace con iOS."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "連線前必須完成：在每個要搭配 iPhone 使用的 cmux Mac 上，開啟「設定」>「行動裝置」，然後開啟 iOS 配對。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "连接前必须完成：在每个要搭配 iPhone 使用的 cmux Mac 上，打开“设置”>“移动”，然后开启 iOS 配对。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "연결하기 전에 필수: iPhone과 함께 사용할 각 cmux Mac에서 설정 > 모바일을 열고 iOS 페어링을 켜세요."}}
+      }
+    },
+    "mobile.pairingOptInUpdate.releaseLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "1.0.4 · September 2026"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "1.0.4 · 2026年9月"}},
+        "de": {"stringUnit": {"state": "translated", "value": "1.0.4 · September 2026"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "1.0.4 · septembre 2026"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "1.0.4 · سبتمبر 2026"}},
+        "es": {"stringUnit": {"state": "translated", "value": "1.0.4 · septiembre de 2026"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "1.0.4 · 2026 年 9 月"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "1.0.4 · 2026 年 9 月"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "1.0.4 · 2026년 9월"}}
+      }
+    },
+    "mobile.whatsNew.pairing.pageTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Action Required: Enable iOS pairing on your Mac"}},
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktion erforderlich: Aktivieren Sie die iOS-Kopplung auf Ihrem Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Action requise : activez le jumelage iOS sur votre Mac"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إجراء مطلوب: فعِّل اقتران iOS على جهاز Mac الخاص بك"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acción necesaria: activa el emparejamiento de iOS en tu Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要採取行動：在 Mac 上啟用 iOS 配對"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要操作：在 Mac 上启用 iOS 配对"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "조치 필요: Mac에서 iOS 페어링을 활성화하세요"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対応が必要です：Mac で iOS ペアリングを有効にしてください"
+          }
+        }
+      }
+    },
+    "mobile.whatsNew.pairing.macSettingsLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Mac Settings"}},
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac-Einstellungen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paramètres du Mac"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعدادات Mac"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuración de Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 設定"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 设置"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 설정"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac の設定"
+          }
+        }
+      }
+    },
+    "mobile.whatsNew.pairing.compatibilityTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Mac version required"}},
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erforderliche Mac-Version"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Version Mac requise"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إصدار Mac المطلوب"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Versión de Mac requerida"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所需的 Mac 版本"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所需的 Mac 版本"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "필요한 Mac 버전"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "必要な Mac のバージョン"
+          }
+        }
+      }
+    },
+    "mobile.whatsNew.pairing.screenshotLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "cmux Mac Settings, Mobile section, showing Enable iOS pairing."}},
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-Einstellungen auf dem Mac, Bereich „Mobil“, mit der Option „iOS-Kopplung“."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paramètres de cmux sur Mac, section « Mobile », affichant l’option « Jumelage iOS »."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعدادات cmux على Mac، قسم «المحمول»، ويظهر فيها خيار «اقتران iOS»."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuración de cmux en Mac, sección «Móvil», que muestra la opción «Emparejamiento de iOS»."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 上的 cmux 設定，「行動裝置」區段，顯示「iOS 配對」選項。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 上的 cmux 设置，“移动端”部分，显示“iOS 配对”选项。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac의 cmux 설정, ‘모바일’ 섹션에 ‘iOS 페어링’ 옵션이 표시된 화면."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac の cmux 設定の「モバイル」セクション。「iOS ペアリングを有効にする」が表示されています。"
+          }
+        }
+      }
+    },
+    "mobile.whatsNew.pairing.stableLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Stable Mac"}},
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac mit stabiler Version"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac en version stable"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac بالإصدار المستقر"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac con versión estable"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "穩定版 Mac"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "稳定版 Mac"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "안정 버전 Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安定版 Mac"
+          }
+        }
+      }
+    },
+    "mobile.whatsNew.pairing.nightlyLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Nightly Mac"}},
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac mit Nightly-Version"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac en version Nightly"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac بإصدار Nightly"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac con versión Nightly"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly 版 Mac"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly 版 Mac"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly 버전 Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ナイトリー版 Mac"
+          }
+        }
+      }
+    },
+    "mobile.whatsNew.pairing.macVersionFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "cmux %@ or later"}},
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux %@ oder höher"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux %@ ou version ultérieure"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux %@ أو أحدث"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux %@ o posterior"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux %@ 或更高版本"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux %@ 或更高版本"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux %@ 이상"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux %@ 以降"
+          }
+        }
+      }
+    },
+    "mobile.whatsNew.pairing.nightlyVersionFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "cmux NIGHTLY %@ or later"}},
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux NIGHTLY %@ oder höher"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux NIGHTLY %@ ou version ultérieure"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux NIGHTLY %@ أو أحدث"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux NIGHTLY %@ o posterior"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux NIGHTLY %@ 或更高版本"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux NIGHTLY %@ 或更高版本"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux NIGHTLY %@ 이상"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux NIGHTLY %@ 以降"
+          }
+        }
+      }
+    },
+    "mobile.whatsNew.pairing.noStableMinimum": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "No stable minimum listed"}},
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine stabile Mindestversion angegeben"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune version stable minimale indiquée"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يُحدَّد حد أدنى للإصدار المستقر"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se indica una versión estable mínima"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未列出穩定版最低版本"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未列出稳定版最低版本"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "안정 버전의 최소 요구 버전 없음"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安定版の最小バージョンの記載なし"
+          }
+        }
+      }
+    },
+    "mobile.whatsNew.pairing.noNightlyMinimum": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "No separate minimum"}},
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine separate Mindestversion"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas de version minimale distincte"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد حد أدنى منفصل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin versión mínima aparte"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有另外的最低版本"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有单独的最低版本"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "별도의 최소 버전 없음"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "個別の最小バージョンなし"
+          }
+        }
+      }
+    },
+    "mobile.whatsNew.pairing.connectionChoicesTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Connection choices"}},
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindungsoptionen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Options de connexion"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خيارات الاتصال"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opciones de conexión"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線選項"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接选项"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결 옵션"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続方法の選択肢"
+          }
+        }
+      }
+    },
+    "mobile.workspaces.empty.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "No workspaces yet"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ワークスペースはまだありません"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Noch keine Arbeitsbereiche"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Aucun espace de travail pour le moment"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "لا توجد مساحات عمل بعد"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Aún no hay espacios de trabajo"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "目前沒有工作區"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "还没有工作区"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "아직 워크스페이스가 없습니다"}}
+      }
+    },
+    "mobile.workspaces.empty.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable iOS pairing in cmux Settings > Mobile on your Mac, sign in to the same cmux account on both devices, and keep cmux running. Your Mac and its workspaces will appear here after pairing is enabled."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac の cmux で「設定」>「Mobile」から iOS ペアリングを有効にし、両方のデバイスで同じ cmux アカウントにサインインして、cmux を起動したままにしてください。ペアリングを有効にすると、Mac とそのワークスペースがここに表示されます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktivieren Sie auf dem Mac in cmux „Einstellungen“ > „Mobile“ die iOS-Kopplung, melden Sie sich auf beiden Geräten mit demselben cmux-Konto an und lassen Sie cmux geöffnet. Nach der Aktivierung werden der Mac und seine Arbeitsbereiche hier angezeigt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activez le jumelage iOS dans cmux, sous « Réglages » > « Mobile » sur le Mac, connectez-vous au même compte cmux sur les deux appareils et laissez cmux ouvert. Le Mac et ses espaces de travail apparaîtront ici une fois le jumelage activé."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فعّل اقتران iOS في cmux على الـ Mac من «الإعدادات» > «الهاتف المحمول»، وسجّل الدخول إلى حساب cmux نفسه على الجهازين، واترك cmux قيد التشغيل. سيظهر الـ Mac ومساحات العمل الخاصة به هنا بعد تفعيل الاقتران."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activa el enlace con iOS en cmux, en «Ajustes» > «Móvil» del Mac, inicia sesión con la misma cuenta de cmux en ambos dispositivos y deja cmux abierto. El Mac y sus espacios de trabajo aparecerán aquí cuando se active el enlace."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請在 Mac 上的 cmux「設定」>「行動裝置」中啟用 iOS 配對，並在兩部裝置上登入相同的 cmux 帳戶，讓 cmux 保持執行。啟用配對後，Mac 和其工作區會顯示在這裡。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在 Mac 上的 cmux“设置”>“移动”中启用 iOS 配对，并在两台设备上登录相同的 cmux 帐户，让 cmux 保持运行。启用配对后，Mac 及其工作区会显示在这里。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac의 cmux에서 “설정” > “모바일”로 이동해 iOS 페어링을 켜고, 두 기기에서 같은 cmux 계정으로 로그인한 뒤 cmux를 실행 상태로 두세요. 페어링을 켜면 Mac과 워크스페이스가 여기에 표시됩니다."
           }
         }
       }
