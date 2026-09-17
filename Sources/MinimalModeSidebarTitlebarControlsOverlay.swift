@@ -12,6 +12,7 @@ struct MinimalModeSidebarTitlebarControlsOverlay: View {
     let onNewTab: () -> Void
     let onFocusHistoryBack: () -> Void
     let onFocusHistoryForward: () -> Void
+    let onCaptureScreenshot: () -> Void
 
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
@@ -29,7 +30,8 @@ struct MinimalModeSidebarTitlebarControlsOverlay: View {
                 onToggleNotifications: onToggleNotifications,
                 onNewTab: onNewTab,
                 onFocusHistoryBack: onFocusHistoryBack,
-                onFocusHistoryForward: onFocusHistoryForward
+                onFocusHistoryForward: onFocusHistoryForward,
+                onCaptureScreenshot: onCaptureScreenshot
             )
             .padding(.leading, leadingInset)
             .padding(.top, topPadding)
