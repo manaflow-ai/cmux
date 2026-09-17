@@ -1,24 +1,20 @@
 import { unauthorized, verifyRequest, type AuthedUser } from "../../../../services/vms/auth";
 import { assertVmCreateEnabled } from "../../../../services/vms/config";
-import { defaultProviderId } from "../../../../services/vms/drivers";
+import { defaultProviderId, vmCapabilitiesFor } from "../../../../services/vms/drivers";
 import { isVmCreateDisabledError } from "../../../../services/vms/errors";
 import { captureVmProvisionOutcome } from "../../../../services/vms/observability";
+import { vmModelPlaneGatewayFor } from "../../../../services/vms/modelPlaneGateway";
 import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
-  vmBillingTeamErrorResponse,
-  vmCreateLikeErrorResponse,
+  vmCreateLikeErrorResponders,
   vmErrorResponse,
   withAuthedVmApiRoute,
-  vmRequiresProResponse,
+  resolveVmProvisioningAccountScope,
 } from "../../../../services/vms/routeHelpers";
+import { runVmRoute } from "../../../../services/vms/routeWorkflow";
 import { setSpanAttributes } from "../../../../services/telemetry";
-import {
-  isVmBillingTeamResolutionError,
-  isVmProGateBlocked,
-  resolveVmEntitlements,
-} from "../../../../services/vms/entitlements";
-import { restoreVm, runVmWorkflow } from "../../../../services/vms/workflows";
+import { restoreVm } from "../../../../services/vms/workflows";
 import { VmTimingRecorder } from "../../../../services/vms/timings";
 import { authProviderErrorResponse } from "../../../../services/vms/authErrors";
 import {
@@ -71,10 +67,26 @@ export async function POST(request: Request): Promise<Response> {
       }
       const providerResult = providerField(body);
       if (!providerResult.ok) return providerResult.response;
+      let user: AuthedUser = initialUser;
+      const requestedBillingTeamId = stringField(body, "billingTeamId") ?? stringField(body, "teamId") ?? requestedVmTeamIdFromRequest(request);
+      if (requestedBillingTeamId && !user.teamIds.includes(requestedBillingTeamId)) {
+        let refreshedUser: AuthedUser | null;
+        try {
+          refreshedUser = await verifyRequest(request, { requestedTeamId: requestedBillingTeamId });
+        } catch (error) {
+          return authProviderErrorResponse(error, "/api/vm.restore.team-auth");
+        }
+        if (!refreshedUser) return unauthorized();
+        user = refreshedUser;
+      }
+      const account = await resolveVmProvisioningAccountScope(user, request, { requestedBillingTeamId });
+      if (!account.ok) return account.response;
+      const entitlements = account.entitlements;
+
+      // Restore provisions a brand-new machine on `provider`; check the
+      // environment kill switch only after the paid-plan boundary so a free
+      // caller cannot be diverted into provider/config work first.
       const provider = providerResult.provider ?? defaultProviderId();
-      // Kill-switch parity with POST /api/vm: restore provisions a brand-new
-      // machine on `provider`, so it must refuse before any team refresh or
-      // workflow work when creation is disabled.
       try {
         assertVmCreateEnabled(provider);
       } catch (err) {
@@ -91,65 +103,46 @@ export async function POST(request: Request): Promise<Response> {
         }
         throw err;
       }
-      let user: AuthedUser = initialUser;
-      const requestedBillingTeamId = stringField(body, "billingTeamId") ?? stringField(body, "teamId") ?? requestedVmTeamIdFromRequest(request);
-      if (requestedBillingTeamId && !user.teamIds.includes(requestedBillingTeamId)) {
-        let refreshedUser: AuthedUser | null;
-        try {
-          refreshedUser = await verifyRequest(request, { requestedTeamId: requestedBillingTeamId });
-        } catch (error) {
-          return authProviderErrorResponse(error, "/api/vm.restore.team-auth");
-        }
-        if (!refreshedUser) return unauthorized();
-        user = refreshedUser;
-      }
-      let entitlements;
-      try {
-        entitlements = resolveVmEntitlements(user, process.env, {
-          requestedBillingTeamId,
-        });
-      } catch (err) {
-        if (isVmBillingTeamResolutionError(err)) return vmBillingTeamErrorResponse(err);
-        throw err;
-      }
-      if (isVmProGateBlocked(entitlements)) {
-        return vmRequiresProResponse();
-      }
       const idempotencyKey = idempotencyKeyFromRequest(request);
       setSpanAttributes(span, {
         "cmux.snapshot.id": snapshotId,
         "cmux.vm.provider": provider,
         "cmux.idempotency_key_set": !!idempotencyKey,
       });
-      try {
-        const restored = await runVmWorkflow(restoreVm({
-          userId: user.id,
-          billingCustomerType: entitlements.billingCustomerType,
-          billingTeamId: entitlements.billingTeamId,
-          billingPlanId: entitlements.planId,
-          maxActiveVms: entitlements.maxActiveVms,
-          provider,
-          snapshotId,
-          idempotencyKey,
-          timing,
-        }));
-        return jsonResponse({
-          id: restored.providerVmId,
-          provider: restored.provider,
-          image: restored.image,
-          imageVersion: restored.imageVersion,
-          status: restored.status,
-          createdAt: restored.createdAt,
-        });
-      } catch (err) {
-        const response = vmCreateLikeErrorResponse(err, {
+      const run = await runVmRoute(restoreVm({
+        userId: user.id,
+        billingCustomerType: entitlements.billingCustomerType,
+        billingTeamId: entitlements.billingTeamId,
+        billingPlanId: entitlements.planId,
+        maxActiveVms: entitlements.maxActiveVms,
+        provider,
+        snapshotId,
+        idempotencyKey,
+        // The restored machine is a new row: it gets its own token and edge rule.
+        modelPlane: vmModelPlaneGatewayFor({
+          teamId: entitlements.billingTeamId,
+          stackUserId: user.id,
+        }),
+        timing,
+      }), {
+        request,
+        onError: vmCreateLikeErrorResponders({
           operation: "restore",
           planId: entitlements.planId,
           retryAction: "Run `cmux vm ls`, then delete an active VM with `cmux vm rm <id>` before restoring another.",
-        });
-        if (response) return response;
-        throw err;
-      }
+        }),
+      });
+      if (!run.ok) return run.response;
+      const restored = run.value;
+      return jsonResponse({
+        id: restored.providerVmId,
+        provider: restored.provider,
+        image: restored.image,
+        imageVersion: restored.imageVersion,
+        status: restored.status,
+        createdAt: restored.createdAt,
+        capabilities: vmCapabilitiesFor(restored.provider),
+      });
     },
   );
 }

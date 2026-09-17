@@ -237,7 +237,7 @@ enum FeedPreviewFixtures {
         return WorkstreamEvent(
             sessionId: item.workstreamId,
             hookEventName: eventName,
-            source: item.source.rawValue,
+            source: item.sourceID ?? item.source.rawValue,
             cwd: item.cwd,
             toolName: item.title,
             toolInputJSON: nil,

@@ -33,7 +33,7 @@ extension TerminalNotificationSocketActionTests {
         let result = try XCTUnwrap(response["result"] as? [String: Any])
         XCTAssertEqual(result["workspace_id"] as? String, fixture.workspace.id.uuidString)
         XCTAssertTrue(result["surface_id"] is NSNull)
-        XCTAssertTrue(fixture.store.hasUnreadNotification(forTabId: fixture.workspace.id))
+        XCTAssertTrue(fixture.store.hasUnreadNotification(forTabId: fixture.workspace.id, surfaceId: nil))
         XCTAssertFalse(fixture.store.hasUnreadNotification(forTabId: foreignWorkspace.id, surfaceId: foreignSurfaceId))
     }
 
@@ -123,13 +123,18 @@ extension TerminalNotificationSocketActionTests {
             )
         )
         // Keep a real, session-valid TTY name for PortScanner freshness, but
-        // detach its panel so no live runtime candidate owns that name. The
-        // two remaining panels then exercise the reported-TTY ambiguity tier.
+        // capture it before detaching the panel. A detached headless panel is
+        // no longer guaranteed to retain a live Ghostty runtime, so waiting for
+        // its TTY after the detach makes this fixture race runtime teardown.
+        temporaryPanel.surface.requestBackgroundSurfaceStartIfNeeded()
+        let ambiguousTTY = try await TerminalControllingTTYWaiter().wait(for: temporaryPanel)
+
+        // Detach its panel so no live runtime candidate owns that name. The two
+        // remaining panels then exercise the reported-TTY ambiguity tier.
         let temporaryTransfer = try XCTUnwrap(
             fixture.workspace.detachSurface(panelId: temporaryPanel.id)
         )
-        let temporaryTerminal = try XCTUnwrap(temporaryTransfer.panel as? TerminalPanel)
-        let ambiguousTTY = try await TerminalControllingTTYWaiter().wait(for: temporaryTerminal)
+        XCTAssertTrue(temporaryTransfer.panel is TerminalPanel)
         fixture.workspace.registerReportedSurfaceTTYName(ambiguousTTY, panelId: focusedSurfaceId)
         fixture.workspace.registerReportedSurfaceTTYName(ambiguousTTY, panelId: siblingPanel.id)
         PortScanner.shared.registerTTY(
@@ -178,6 +183,10 @@ extension TerminalNotificationSocketActionTests {
         let foreignTerminal = try XCTUnwrap(
             foreignWorkspace.panels[foreignSurfaceId] as? TerminalPanel
         )
+        // The headless socket fixture has no ContentView to consume the
+        // TabManager's pending background-workspace mount. Request the runtime
+        // directly so the foreign TTY is established deterministically.
+        foreignTerminal.surface.requestBackgroundSurfaceStartIfNeeded()
         let foreignTTY = try await TerminalControllingTTYWaiter().wait(for: foreignTerminal)
 
         let response = try await sendV2RequestAsync(
@@ -198,7 +207,7 @@ extension TerminalNotificationSocketActionTests {
         let result = try XCTUnwrap(response["result"] as? [String: Any])
         XCTAssertEqual(result["workspace_id"] as? String, fixture.workspace.id.uuidString)
         XCTAssertTrue(result["surface_id"] is NSNull)
-        XCTAssertTrue(fixture.store.hasUnreadNotification(forTabId: fixture.workspace.id))
+        XCTAssertTrue(fixture.store.hasUnreadNotification(forTabId: fixture.workspace.id, surfaceId: nil))
         XCTAssertFalse(
             fixture.store.hasUnreadNotification(
                 forTabId: foreignWorkspace.id,

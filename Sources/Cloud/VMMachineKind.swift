@@ -4,8 +4,8 @@ import Foundation
 /// plane happens to deploy for it today.
 ///
 /// Clients request machines by kind and let the backend map the kind to the
-/// image its environment supports (`BLAXEL_SANDBOX_DESKTOP_IMAGE`,
-/// `BLAXEL_SANDBOX_IMAGE`, or the deployed manifest default). Pinning an
+/// image its environment supports (the provider's `_DESKTOP_IMAGE` selector,
+/// its base image selector, or the deployed manifest default). Pinning an
 /// image id on the client broke every build whose id drifted from the web
 /// deploy's manifest (`vm_image_config_error`), so the id is never sent unless
 /// a person passes `--image` explicitly.
@@ -16,11 +16,16 @@ enum VMMachineKind: String, CaseIterable, Sendable, Equatable {
     case base
 
     /// The kind an image id implies when the backend did not say. Older
-    /// control planes omit `kind`; their desktop images carry a recognizable
+    /// control planes omit `kind`; a desktop image carries a recognizable
     /// name, everything else is a shell box.
+    ///
+    /// Only VNC markers count. `devbox` used to imply a desktop because one
+    /// provider's devbox image bundled xfce + noVNC; historical devbox images
+    /// could also be shell-only, so matching it here published a Desktop
+    /// surface for machines with no screen. Current images report their kind.
     static func inferred(fromImage image: String) -> VMMachineKind {
         let lowered = image.lowercased()
-        return lowered.contains("xfce") || lowered.contains("devbox") ? .desktop : .base
+        return lowered.contains("xfce") || lowered.contains("vnc") ? .desktop : .base
     }
 
     /// The kind a backend payload describes: its explicit `kind` field when
@@ -30,6 +35,20 @@ enum VMMachineKind: String, CaseIterable, Sendable, Equatable {
             return kind
         }
         return inferred(fromImage: (image as? String) ?? "")
+    }
+
+    /// The product default: every create path that does not ask for a kind
+    /// (the New Machine sheet, bare `cmux vm new`, `vm base open` / `vm base
+    /// reset`) gets the devbox with a screen. Base remains for historical machines.
+    static let defaultKind: VMMachineKind = .desktop
+
+    /// The `cmux vm new` / `vm base open` / `vm base reset` flag that requests
+    /// this kind. Always sent, so the create never depends on a server default.
+    var cliFlag: String {
+        switch self {
+        case .desktop: return "--desktop"
+        case .base: return "--base"
+        }
     }
 
     var hasDesktop: Bool { self == .desktop }
@@ -43,21 +62,7 @@ enum VMMachineKind: String, CaseIterable, Sendable, Equatable {
         }
     }
 
-    /// One line on what the kind gives you, for the New Machine sheet.
-    var summary: String {
-        switch self {
-        case .desktop:
-            return String(
-                localized: "machines.new.kind.desktop.summary",
-                defaultValue: "Terminal plus a screen you can watch and control. Best for browsers and GUI apps."
-            )
-        case .base:
-            return String(
-                localized: "machines.new.kind.base.summary",
-                defaultValue: "Terminal only. Boots faster and uses less memory."
-            )
-        }
-    }
+
 }
 
 /// Which image the backend will provision for a kind, as `GET /api/vm`
