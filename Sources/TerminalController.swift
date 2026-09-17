@@ -4408,6 +4408,17 @@ class TerminalController {
             localized: "socket.cloudVM.requestFailed",
             defaultValue: "The Cloud VM request failed. Retry, or check the machine's status with `cmux vm ls`."
         )
+        if let catalogError = error as? SurfaceCatalogError {
+            switch catalogError {
+            case .unknownResource, .noProvider, .ambiguousRemotePlacement:
+                // These messages are app-owned copy with routing identifiers,
+                // not provider-supplied failure diagnostics.
+                let safe = CloudVMActionLauncher.sanitizedCloudVMStartOutput(catalogError.localizedDescription)
+                return safe.isEmpty || safe == CloudVMActionLauncher.hiddenOutputPlaceholder ? fallback : safe
+            default:
+                break
+            }
+        }
         guard case let VMClientError.httpStatus(_, body) = error,
               let data = body.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return fallback }
