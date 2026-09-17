@@ -49,12 +49,17 @@ struct RestoreHarness {
                     : "'\(executable)' resume \(sessionID)"
                 let recordMode = mode == "legacy-noncanonical" ? "resumeAgent " : "resumeAgent"
                 let recordKind = mode == "legacy-noncanonical" ? " codex " : "codex"
+                let record = CMUXCLI.RestoreRecord(
+                    mode: recordMode, kind: recordKind, checkpointID: sessionID,
+                    workingDirectory: directory, launchCommand: nil
+                )
+#if HAS_CODEX_WRITER_PREFLIGHT
+                _ = try cli.applyRestoreWorkingDirectory(directory)
+                try cli.guardLegacyCodexWriter(command: command, record: record, environment: environment)
+#endif
                 try cli.execLegacyRestoreRecord(
                     command,
-                    record: CMUXCLI.RestoreRecord(
-                        mode: recordMode, kind: recordKind, checkpointID: sessionID,
-                        workingDirectory: directory, launchCommand: nil
-                    ),
+                    record: record,
                     environment: environment, client: SocketClient()
                 )
             } else {
@@ -74,6 +79,14 @@ struct RestoreHarness {
                     .invocation(for: request, ambientEnvironment: environment) else {
                     throw CMUXCLI.RestoreError(description: "fixture planning failed")
                 }
+#if HAS_CODEX_WRITER_PREFLIGHT
+                if mode != "exec-only" {
+                    try cli.guardCodexWriterBeforeRestore(
+                        sessionID: invocation.codexResumeSessionID,
+                        arguments: invocation.arguments, environment: invocation.environment
+                    )
+                }
+#endif
                 try cli.execRestoreInvocation(invocation, appliedWorkingDirectory: applied)
             }
             exit(90)

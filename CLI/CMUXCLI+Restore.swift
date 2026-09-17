@@ -10,34 +10,6 @@ extension CMUXCLI {
         )
     }
 
-    func controlAgentLaunchCommandPayload(
-        _ command: AgentLaunchCommand
-    ) -> [String: Any] {
-        var payload: [String: Any] = ["arguments": command.arguments]
-        if let launcher = command.launcher {
-            payload["launcher"] = launcher
-        }
-        if let executablePath = command.executablePath {
-            payload["executable_path"] = executablePath
-        }
-        if let workingDirectory = command.workingDirectory {
-            payload["working_directory"] = workingDirectory
-        }
-        if let environment = command.environment {
-            payload["environment"] = environment
-        }
-        if let verificationHome = command.verificationHome {
-            payload["verification_home"] = verificationHome
-        }
-        if let capturedAt = command.capturedAt {
-            payload["captured_at"] = capturedAt
-        }
-        if let source = command.source {
-            payload["source"] = source
-        }
-        return payload
-    }
-
     func runRestoreCommand(
         commandArgs: [String],
         client: SocketClient,
@@ -131,7 +103,8 @@ extension CMUXCLI {
         if record.launchCommand == nil,
            record.preparedArguments == nil,
            let legacyCommand = record.legacyCommand {
-            let admissionClaim = try requireRestoreLaunchAdmission(
+            let admissionClaim = try requireLegacyRestoreLaunchAdmission(
+                command: legacyCommand, environment: environment,
                 record: record,
                 recordSessionID: surfaceRecordCheckpointID,
                 restorePayload: payload,
@@ -211,7 +184,8 @@ extension CMUXCLI {
             ambientEnvironment: processEnvironment
         ) else {
             if let legacyCommand = record.legacyCommand {
-                let admissionClaim = try requireRestoreLaunchAdmission(
+                let admissionClaim = try requireLegacyRestoreLaunchAdmission(
+                    command: legacyCommand, environment: environment,
                     record: record,
                     recordSessionID: surfaceRecordCheckpointID,
                     restorePayload: payload,
@@ -259,6 +233,11 @@ extension CMUXCLI {
             )
         }
 
+        try guardCodexWriterBeforeRestore(
+            sessionID: invocation.codexResumeSessionID,
+            arguments: invocation.arguments,
+            environment: invocation.environment
+        )
         let admissionClaim = try requireRestoreLaunchAdmission(
             record: record,
             recordSessionID: surfaceRecordCheckpointID,

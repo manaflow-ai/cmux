@@ -844,6 +844,8 @@ jobs:
           for suite in \
             SurfaceResumeAgentHookDowngradeTests \
             RestoredAgentShellActivityLivenessTests \
+            AgentQuitProcessCleanupTests \
+            SessionEntryCodexHomeTests \
             RestoreAdmissionRetryPolicyTests \
             LiveAgentIndexRelevantChurnTests
           do

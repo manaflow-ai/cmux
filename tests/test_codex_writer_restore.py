@@ -8,9 +8,11 @@ The exported source is a disposable package fixture, never a git worktree.
 import fcntl
 import json
 import os
+import select
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 import unittest
@@ -39,16 +41,17 @@ class CodexWriterRestoreTests(unittest.TestCase):
         target = build / "Sources" / "RestoreHarness"
         target.mkdir(parents=True)
         shutil.copy(ROOT / "tests/fixtures/codex_writer_restore/Harness.swift", target)
-        for filename in ["CLI/CMUXCLI+RestoreExecution.swift", "CLI/CMUXCLI+CodexWriterRestore.swift", "Sources/CodexWriterRestoreMessage.swift"]:
+        for filename in ["CLI/CMUXCLI+RestoreExecution.swift", "CLI/CMUXCLI+CodexWriterRestore.swift", "CLI/CodexWriterRestoreMessage.swift"]:
             if (source / filename).exists():
                 shutil.copy(source / filename, target)
         package = source / "Packages/macOS/CMUXAgentLaunch"
+        define = '.define("HAS_CODEX_WRITER_PREFLIGHT")' if (source / "CLI/CMUXCLI+CodexWriterRestore.swift").exists() else ''
         (build / "Package.swift").write_text(f'''// swift-tools-version: 6.0
 import PackageDescription
 let package = Package(name: "RestoreHarness", platforms: [.macOS(.v14)],
     dependencies: [.package(path: {json.dumps(str(package))})],
     targets: [.executableTarget(name: "RestoreHarness", dependencies: [
-        .product(name: "CMUXAgentLaunch", package: "CMUXAgentLaunch")])])
+        .product(name: "CMUXAgentLaunch", package: "CMUXAgentLaunch")], swiftSettings: [{define}])])
 ''')
         compiled = subprocess.run(["swift", "build", "--package-path", str(build), "--jobs", "4"], capture_output=True, text=True)
         if compiled.returncode:
@@ -70,11 +73,15 @@ let package = Package(name: "RestoreHarness", platforms: [.macOS(.v14)],
         self.lock = self.home / "thread-writer-locks" / f"{SESSION}.lock"
         self.agent = self.root / "codex"
         # An executable fixture records what actually reached execve.
-        self.agent.write_text('''#!/usr/bin/python3
+        self.agent.write_text(f'#!{sys.executable}\n' + '''
 import json, os, sys
 print(json.dumps({"argv": sys.argv, "cwd": os.getcwd(), "home": os.environ.get("CODEX_HOME"), "marker": os.environ.get("CMUX_TEST_MARKER")}))
 ''')
         self.agent.chmod(0o700)
+        # Exercise the literal shell command without depending on host login profiles.
+        self.shell = self.root / "fixture-shell"
+        self.shell.write_text('#!/bin/sh\nexec /bin/sh -c "$2"\n')
+        self.shell.chmod(0o700)
 
     def hold_lock(self):
         handle = self.lock.open("w+")
@@ -83,7 +90,7 @@ print(json.dumps({"argv": sys.argv, "cwd": os.getcwd(), "home": os.environ.get("
         return handle
 
     def restore(self, mode="structured", saved_home=None, ambient_home=None):
-        env = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": str(self.root), "SHELL": "/bin/sh",
+        env = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": str(self.root), "SHELL": str(self.shell),
                "CODEX_HOME": str(ambient_home or self.home), "SAVED_CODEX_HOME": str(saved_home or self.home),
                "CMUX_TEST_MARKER": "kept verbatim"}
         return subprocess.run([str(self.harness), mode, str(self.agent), str(self.cwd), SESSION],
@@ -104,6 +111,25 @@ print(json.dumps({"argv": sys.argv, "cwd": os.getcwd(), "home": os.environ.get("
                 fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
         self.assertFalse(handle.closed)
 
+    def test_release_during_cli_retry_reaches_agent_exec(self):
+        handle = self.hold_lock()
+        env = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": str(self.root),
+               "CODEX_HOME": str(self.home), "SAVED_CODEX_HOME": str(self.home)}
+        with subprocess.Popen([str(self.harness), "structured", str(self.agent), str(self.cwd), SESSION],
+                              env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as process:
+            try:
+                # The production preflight announces contention before its first retry.
+                self.assertTrue(select.select([process.stderr], [], [], 15)[0], "writer wait was not announced")
+                self.assertIn("waiting", process.stderr.readline())
+                fcntl.flock(handle, fcntl.LOCK_UN)
+                stdout, stderr = process.communicate(timeout=15)
+                self.assertEqual(process.returncode, 0, stderr)
+                self.assertIn(SESSION, json.loads(stdout)["argv"])
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                    process.wait()
+
     def test_unlocked_and_released_files_allow_exact_launch(self):
         handle = self.hold_lock()
         fcntl.flock(handle, fcntl.LOCK_UN)
@@ -117,6 +143,13 @@ print(json.dumps({"argv": sys.argv, "cwd": os.getcwd(), "home": os.environ.get("
         self.assertIn("test='quoted value'", launch["argv"])
         self.assertIn(SESSION, launch["argv"])
         self.assertTrue(self.lock.exists())
+
+    def test_final_exec_guard_needs_no_app_capability_or_admission_rpc(self):
+        self.hold_lock()
+        result = self.restore(mode="exec-only")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("active writer", result.stderr)
+        self.assertEqual(result.stdout, "")
 
     def test_saved_account_wins_over_ambient(self):
         self.hold_lock()

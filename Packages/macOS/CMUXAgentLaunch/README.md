@@ -55,3 +55,26 @@ let results = CodexSessionResumeVerifier().verifyBatch(
     fileManager: fixtureFileManager
 )
 ```
+
+## Testing Codex writer ownership
+
+`CodexWriterLockInspector` probes an injected account path and exact thread UUID.
+Tests create disposable lock files and hold `flock` from an independent descriptor;
+no Codex process, app, or real account is required. The probe coordinates with
+Codex's `.coordination.lock` when present and never creates or removes provider files.
+
+```swift
+let preflight = CodexWriterRestorePreflight()
+try preflight.waitUntilAvailable(
+    delays: [0.1, 0.2],
+    sleep: { _ in /* release the fixture lock here */ },
+    inspect: {
+        CodexWriterLockInspector().inspect(sessionID: fixtureThreadID, codexHome: fixtureHome)
+    }
+)
+```
+
+The CLI waits before claiming a binding and checks again without waiting at exec.
+The probe is advisory: Codex remains the final atomic authority. An active lock
+never authorizes process termination. Process descriptor inspection supplies
+best-effort diagnostic candidates only, not proof of flock ownership.

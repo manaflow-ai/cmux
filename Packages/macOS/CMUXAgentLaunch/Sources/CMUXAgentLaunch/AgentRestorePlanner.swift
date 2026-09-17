@@ -107,7 +107,8 @@ public struct AgentRestorePlanner: Sendable {
             arguments: routedArguments,
             workingDirectory: workingDirectory,
             environment: environment,
-            preflightInvocations: preflights
+            preflightInvocations: preflights,
+            codexResumeSessionID: kind == "codex" && request.mode == .resumeAgent ? normalized(request.checkpointID) : nil
         )
     }
 
@@ -191,6 +192,15 @@ public struct AgentRestorePlanner: Sendable {
     ) -> [String: String] {
         var captured = request.launchCommand?.environment ?? [:]
         captured.merge(request.environment) { _, binding in binding }
+        if kind == "codex", request.mode == .resumeAgent,
+           normalized(captured["CODEX_HOME"]) == nil,
+           let home = normalized(request.launchCommand?.verificationHome) {
+            // Verification and the eventual writer must use the same account.
+            captured["CODEX_HOME"] = CodexHomeResolver().resolve(
+                launchVerificationHome: home,
+                ambientEnvironment: [:]
+            )
+        }
         if kind == "codex",
            let rawCodexHome = normalized(captured["CODEX_HOME"]),
            let launchWorkingDirectory = normalized(request.launchCommand?.workingDirectory)
