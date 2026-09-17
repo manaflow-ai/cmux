@@ -254,6 +254,9 @@ CMUX_OPENCODE_CONFIG
 # The installed executable wrapper also covers exec/direct agent launches.
 # This function retains the lazy path when this file is updated independently.
 opencode() {
+  if [ "$#" -eq 1 ]; then
+    case "$1" in --version|-v|--help|-h) command opencode "$@"; return $? ;; esac
+  fi
   cmux_ensure_opencode_config || return $?
   command opencode "$@"
 }
