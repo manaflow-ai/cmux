@@ -48,24 +48,49 @@ final class CloudTuiPersistentResourceConnection: @unchecked Sendable {
         guard let line = try? JSONSerialization.data(withJSONObject: envelope).appending(Data([0x0A])) else {
             throw CloudTuiPersistentResourceError.encoding
         }
-        return try await withThrowingTaskGroup(of: Data.self) { group in
-            group.addTask { [weak self] in
-                guard let self else { throw CloudTuiPersistentResourceError.disconnected }
-                return try await withCheckedThrowingContinuation { continuation in
-                    self.queue.async {
-                        self.pending[requestID] = continuation
-                        self.connection.send(line: line)
+        enum Outcome: Sendable {
+            case response(Result<Data, Error>)
+            case timeout
+        }
+        return try await withTaskCancellationHandler(operation: {
+            let outcome = await withTaskGroup(of: Outcome.self) { group -> Outcome in
+                group.addTask { [weak self] in
+                    guard let self else { return .response(.failure(CloudTuiPersistentResourceError.disconnected)) }
+                    do {
+                        let data = try await withCheckedThrowingContinuation { continuation in
+                            self.queue.async {
+                                self.pending[requestID] = continuation
+                                self.connection.send(line: line)
+                            }
+                        }
+                        return .response(.success(data))
+                    } catch {
+                        return .response(.failure(error))
                     }
                 }
+                group.addTask {
+                    do {
+                        try await Task.sleep(for: timeout)
+                        return .timeout
+                    } catch {
+                        return .response(.failure(CancellationError()))
+                    }
+                }
+                let first = await group.next() ?? .response(.failure(CloudTuiPersistentResourceError.disconnected))
+                group.cancelAll()
+                return first
             }
-            group.addTask {
-                try await Task.sleep(for: timeout)
+            if case .timeout = outcome {
+                removePending(requestID, error: CloudTuiPersistentResourceError.timeout)
                 throw CloudTuiPersistentResourceError.timeout
             }
-            let result = try await group.next()!
-            group.cancelAll()
-            return result
-        }
+            guard case let .response(result) = outcome else {
+                throw CloudTuiPersistentResourceError.disconnected
+            }
+            return try result.get()
+        }, onCancel: { [weak self] in
+            self?.removePending(requestID, error: CancellationError())
+        })
     }
 
     private func handle(_ frame: CloudTuiManualIOFrame) {
@@ -85,6 +110,13 @@ final class CloudTuiPersistentResourceConnection: @unchecked Sendable {
             let continuations = self.pending.values
             self.pending.removeAll()
             for continuation in continuations { continuation.resume(throwing: error) }
+        }
+    }
+
+    private func removePending(_ requestID: String, error: Error) {
+        queue.async {
+            guard let continuation = self.pending.removeValue(forKey: requestID) else { return }
+            continuation.resume(throwing: error)
         }
     }
 }

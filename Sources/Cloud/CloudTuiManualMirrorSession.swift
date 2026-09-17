@@ -614,6 +614,11 @@ final class CloudTuiManualMirrorSession {
                 accepted: accepted,
                 error: error
             )
+        case .resourceResponse:
+            // Resource responses belong to the per-machine command
+            // multiplexer. A manual attachment may share a socket during the
+            // migration, but must never consume another request's result.
+            break
         }
     }
 

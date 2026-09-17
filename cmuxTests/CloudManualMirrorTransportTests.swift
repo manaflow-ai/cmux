@@ -269,6 +269,27 @@ struct CloudManualMirrorTransportTests {
     }
 
     @Test
+    func resourceResponseDecoderPreservesStringIDAndTypedResult() throws {
+        let line = try Self.line([
+            "protocol": "cmux.protocol/2",
+            "type": "response",
+            "id": "cloud-request-7",
+            "ok": true,
+            "result": ["value": ["terminal_id": "term_test"], "revision": "4"],
+        ])
+        let frame = try #require(CloudTuiManualIOFrameDecoder().decode(line))
+        guard case let .resourceResponse(requestID, ok, result, error) = frame else {
+            Issue.record("expected a resource response frame")
+            return
+        }
+        #expect(requestID == "cloud-request-7")
+        #expect(ok)
+        #expect(error == nil)
+        let object = try #require(JSONSerialization.jsonObject(with: try #require(result)) as? [String: Any])
+        #expect((object["revision"] as? String) == "4")
+    }
+
+    @Test
     func frameDecoderRejectsBooleanAndFractionalIdentifiers() throws {
         let decoder = CloudTuiManualIOFrameDecoder()
         let eventLines = [
