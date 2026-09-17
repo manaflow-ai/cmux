@@ -260,8 +260,7 @@ extension TerminalSurface {
     /// The visible viewport text, or nil without a live surface.
     @MainActor
     public func visibleText() -> String? {
-        guard let surface = liveSurfaceForGhosttyAccess(reason: "visibleText") else { return nil }
-        return Self.readText(surface: surface, pointTag: GHOSTTY_POINT_VIEWPORT)
+        readText(region: .viewport)
     }
 
     /// Send text with control characters (Return, Tab, etc.) delivered as key
@@ -686,43 +685,6 @@ extension TerminalSurface {
         let buffered = pendingRemoteOutput
         pendingRemoteOutput = Data()
         remoteOutputLane.enqueue(buffered, to: surface)
-    }
-
-    static func readText(
-        surface: ghostty_surface_t,
-        pointTag: ghostty_point_tag_e
-    ) -> String? {
-        let topLeft = ghostty_point_s(
-            tag: pointTag,
-            coord: GHOSTTY_POINT_COORD_TOP_LEFT,
-            x: 0,
-            y: 0
-        )
-        let bottomRight = ghostty_point_s(
-            tag: pointTag,
-            coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
-            x: 0,
-            y: 0
-        )
-        let selection = ghostty_selection_s(
-            top_left: topLeft,
-            bottom_right: bottomRight,
-            rectangle: false
-        )
-
-        var text = ghostty_text_s()
-        guard ghostty_surface_read_text(surface, selection, &text) else {
-            return nil
-        }
-        defer {
-            ghostty_surface_free_text(surface, &text)
-        }
-
-        guard let ptr = text.text, text.text_len > 0 else {
-            return ""
-        }
-        let rawData = Data(bytes: ptr, count: Int(text.text_len))
-        return String(decoding: rawData, as: UTF8.self)
     }
 
     private func keycodeForLetter(_ letter: Character) -> UInt32? {

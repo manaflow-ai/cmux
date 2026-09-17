@@ -55,8 +55,8 @@ use tokio::sync::{Semaphore, mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
 use crate::pty::{
-    FrameContext, PTY_PROTOCOL_VERSION, PtyManager, TransportKind, random_hex, session_name_ok,
-    surface_ref_ok,
+    FrameContext, OpenCancellation, PTY_PROTOCOL_VERSION, PtyManager, TransportKind, random_hex,
+    session_name_ok, surface_ref_ok,
 };
 
 /// Loopback port the gateway's spliced streams dial. The chatmux Worker
@@ -339,8 +339,60 @@ struct Connection {
     open_sent: AtomicBool,
     /// The manager answered pty_opened (clears the open deadline).
     opened_seen: AtomicBool,
+    /// Cancels and identifies an in-flight open on timeout, disconnect, or
+    /// protocol error. The capability is created before the open task is
+    /// spawned, so a task that has not been polled cannot recreate a
+    /// transport after its owner ends or collide with a reused pty id.
+    open_cancellation: OpenCancellation,
     finished: AtomicBool,
     done: CancellationToken,
+}
+
+/// Keep an in-flight open task owned by the connection. Dropping a Tokio
+/// `JoinHandle` detaches the task, which would let it retain the manager's
+/// open permit after the protocol deadline. Aborting and joining gives the
+/// cancellation token and resource guards a defined cleanup boundary.
+struct AbortOnDrop<T> {
+    handle: Option<tokio::task::JoinHandle<T>>,
+}
+
+impl<T> AbortOnDrop<T> {
+    fn new(handle: tokio::task::JoinHandle<T>) -> Self {
+        Self { handle: Some(handle) }
+    }
+
+    fn abort(&self) {
+        if let Some(handle) = &self.handle {
+            handle.abort();
+        }
+    }
+}
+
+impl<T> Unpin for AbortOnDrop<T> {}
+
+impl<T> Future for AbortOnDrop<T> {
+    type Output = Result<T, tokio::task::JoinError>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let result = {
+            let handle = self.handle.as_mut().expect("open task polled after completion");
+            Pin::new(handle).poll(cx)
+        };
+        if let Poll::Ready(result) = result {
+            self.handle = None;
+            Poll::Ready(result)
+        } else {
+            result
+        }
+    }
+}
+
+impl<T> Drop for AbortOnDrop<T> {
+    fn drop(&mut self) {
+        if let Some(handle) = &self.handle {
+            handle.abort();
+        }
+    }
 }
 
 impl Connection {
@@ -413,6 +465,7 @@ impl Connection {
         if self.finished.swap(true, Ordering::SeqCst) {
             return;
         }
+        self.open_cancellation.cancel();
         if let Some(permit) = self.end_permit.lock().expect("tunnel end permit lock").take() {
             permit.send(WriterMessage::End);
         }
@@ -539,6 +592,7 @@ impl Connection {
             local_roots: auth.local_roots,
             owner_user_id: auth.owner_user_id,
             transport_id: Some(self.pty_id.clone()),
+            cancellation: self.done.clone(),
             transport_kind: TransportKind::Tunnel,
             auth_generation: Some(self.auth_generation),
         }
@@ -559,58 +613,7 @@ fn queue_limit(control: bool) -> u64 {
     }
 }
 
-/// A spawned open task remains owned by the connection until it is joined.
-/// Dropping a Tokio `JoinHandle` detaches the task, which would let a cancelled
-/// tunnel finish opening and retain its PTY callbacks after the socket exits.
-struct AbortOnDrop<T> {
-    handle: Option<tokio::task::JoinHandle<T>>,
-}
-
-impl<T> AbortOnDrop<T> {
-    fn new(handle: tokio::task::JoinHandle<T>) -> Self {
-        Self { handle: Some(handle) }
-    }
-
-    fn abort(&self) {
-        if let Some(handle) = &self.handle {
-            handle.abort();
-        }
-    }
-}
-
-impl<T> Unpin for AbortOnDrop<T> {}
-
-impl<T> Future for AbortOnDrop<T> {
-    type Output = Result<T, tokio::task::JoinError>;
-
-    fn poll(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
-        let result = {
-            let handle = self.handle.as_mut().expect("open task polled after completion");
-            Pin::new(handle).poll(context)
-        };
-        match result {
-            Poll::Ready(result) => {
-                self.handle = None;
-                Poll::Ready(result)
-            }
-            Poll::Pending => Poll::Pending,
-        }
-    }
-}
-
-impl<T> Drop for AbortOnDrop<T> {
-    fn drop(&mut self) {
-        if let Some(handle) = &self.handle {
-            handle.abort();
-        }
-    }
-}
-
-async fn handle_client_frame(
-    connection: &Arc<Connection>,
-    frame: TunnelFrame,
-    authority_changes: &mut watch::Receiver<u64>,
-) {
+async fn handle_client_frame(connection: &Arc<Connection>, frame: TunnelFrame) {
     if connection.finished.load(Ordering::SeqCst) {
         return;
     }
@@ -674,38 +677,37 @@ async fn handle_client_frame(
             if let Some(surface) = surface {
                 open["surface"] = Value::from(surface);
             }
-            // Run the open in its own task. Dropping an in-flight
-            // `handle_frame` future from `timeout` can abandon work while it
-            // owns manager resources. An explicit abort, followed by the
-            // normal close path, gives cancellation a defined cleanup point.
+            // Keep the manager future owned through the protocol deadline.
+            // The cancellation capability fences a task that has not reached
+            // the reservation yet and names this exact attempt if the pty id
+            // is reused. Provider guards reclaim resources when it is aborted.
             let mut open_task = AbortOnDrop::new(tokio::spawn({
                 let manager = Arc::clone(&connection.manager);
-                async move { manager.handle_frame(&open, &context).await }
-            }));
-            let deadline = tokio::time::sleep(OPEN_TIMEOUT);
-            tokio::pin!(deadline);
-            tokio::select! {
-                result = &mut open_task => {
-                    if result.is_err() {
-                        connection.protocol_error("failed");
-                    }
+                let open = open.clone();
+                let context = context.clone();
+                let cancellation = connection.open_cancellation.clone();
+                async move {
+                    manager
+                        .handle_frame_with_open_cancellation(&open, &context, Some(cancellation))
+                        .await;
                 }
-                _ = &mut deadline => {
+            }));
+            match tokio::time::timeout(OPEN_TIMEOUT, &mut open_task).await {
+                Ok(Ok(())) => {}
+                Ok(Err(_)) => connection.protocol_error("failed"),
+                Err(_) => {
+                    // Fence the exact attempt, then abort and join the task.
+                    // Provider implementations receive the same token and
+                    // own guards for any child, control socket, or PTY they
+                    // create, so no permit or process survives the deadline.
+                    connection.manager.cancel_open(
+                        &connection.pty_id,
+                        &context,
+                        &connection.open_cancellation,
+                    );
                     open_task.abort();
                     let _ = (&mut open_task).await;
                     connection.protocol_error("failed");
-                }
-                changed = authority_changes.changed() => {
-                    let revoked = matches!(changed, Ok(()) if *authority_changes.borrow_and_update() != connection.auth_generation);
-                    if revoked {
-                        open_task.abort();
-                        let _ = (&mut open_task).await;
-                        connection.protocol_error("trust_revoked");
-                    } else if changed.is_err() {
-                        open_task.abort();
-                        let _ = (&mut open_task).await;
-                        connection.finish();
-                    }
                 }
             }
         }
@@ -758,6 +760,11 @@ async fn serve_connection(
     };
     let auth_generation =
         auth_state.read().map(|authority| authority.generation).unwrap_or_default();
+    let done = CancellationToken::new();
+    let Some(open_cancellation) = manager.new_open_cancellation_with_parent(&done) else {
+        let _ = write_half.shutdown().await;
+        return;
+    };
     let connection = Arc::new(Connection {
         pty_id,
         manager: Arc::clone(&manager),
@@ -771,9 +778,16 @@ async fn serve_connection(
         paused: AtomicBool::new(false),
         open_sent: AtomicBool::new(false),
         opened_seen: AtomicBool::new(false),
+        open_cancellation,
         finished: AtomicBool::new(false),
-        done: CancellationToken::new(),
+        done,
     });
+    // Identified tunnel transports must be admitted before their first
+    // manager frame. The active snapshot itself is the disconnect fence, so
+    // no historical per-connection tombstone is needed.
+    if connection.authority_current() {
+        manager.update_transport_auth(&connection.frame_context());
+    }
     // Writer: the only task that touches the write half. Applies the flow
     // water marks as the queue drains.
     let mut writer = {
@@ -871,7 +885,7 @@ async fn serve_connection(
                 match decoder.push(&buffer[..count]) {
                     Ok(frames) => {
                         for frame in frames {
-                            handle_client_frame(&connection, frame, &mut authority_changes).await;
+                            handle_client_frame(&connection, frame).await;
                         }
                     }
                     Err(_) => {
@@ -1052,7 +1066,12 @@ mod tests {
 
     #[async_trait]
     impl PtyDeps for FakeDeps {
-        async fn spawn_pty(&self, _spec: SpawnSpec) -> PtyHandle {
+        async fn spawn_pty(
+            &self,
+            _spec: SpawnSpec,
+            _cancellation: CancellationToken,
+            _permit: crate::pty::OpenPermit,
+        ) -> PtyHandle {
             let pty = FakePty { state: Arc::new(StdMutex::new(FakeState::default())) };
             self.spawned.lock().unwrap().push(pty.clone());
             PtyHandle {
@@ -1061,7 +1080,7 @@ mod tests {
                 banner: self.banner.clone(),
             }
         }
-        async fn resolve_cmux_tui(&self) -> Option<CmuxTui> {
+        async fn resolve_cmux_tui(&self, _cancellation: CancellationToken) -> Option<CmuxTui> {
             None
         }
         async fn ensure_daemon(
@@ -1071,12 +1090,14 @@ mod tests {
             _socket_dir: &Path,
             _cwd: &Path,
             _env: &HashMap<String, String>,
+            _cancellation: CancellationToken,
         ) -> Result<EnsureDaemon, String> {
             Err("no daemon in tunnel tests".to_owned())
         }
         async fn connect_control(
             &self,
             _socket_path: &Path,
+            _cancellation: CancellationToken,
         ) -> Result<Arc<dyn crate::control::ControlHandle>, String> {
             Err("no control in tunnel tests".to_owned())
         }
@@ -1189,7 +1210,7 @@ mod tests {
     fn control_reservation_accepts_reserved_tail() {
         let data_limit = queue_limit(false);
         assert!(data_limit + TUNNEL_CONTROL_QUEUE_RESERVE_BYTES <= queue_limit(true));
-        assert!(TUNNEL_CONTROL_QUEUE_RESERVE_BYTES > 0);
+        const { assert!(TUNNEL_CONTROL_QUEUE_RESERVE_BYTES > 0) };
     }
 
     #[test]
@@ -1229,6 +1250,7 @@ mod tests {
         let (writer_tx, writer_rx) = mpsc::channel::<WriterMessage>(TUNNEL_WRITER_QUEUE_ITEMS);
         let end_permit = writer_tx.clone().reserve_owned().await.expect("reserve End slot");
         let (flow_tx, _) = watch::channel(false);
+        let open_cancellation = manager.new_open_cancellation().expect("open attempt token");
         (
             Connection {
                 pty_id: "queue-test".to_owned(),
@@ -1243,6 +1265,7 @@ mod tests {
                 paused: AtomicBool::new(false),
                 open_sent: AtomicBool::new(false),
                 opened_seen: AtomicBool::new(false),
+                open_cancellation,
                 finished: AtomicBool::new(false),
                 done: CancellationToken::new(),
             },
@@ -1284,7 +1307,7 @@ mod tests {
         while let Some(message) = writer_rx.recv().await {
             match message {
                 WriterMessage::Frame(frame)
-                    if frame.len() > 1 && frame[1] == FRAME_KIND_CONTROL =>
+                    if frame.len() > HEADER_BYTES && frame[4] == FRAME_KIND_CONTROL =>
                 {
                     let payload = &frame[5..];
                     let value: Value = serde_json::from_slice(payload).expect("error frame");

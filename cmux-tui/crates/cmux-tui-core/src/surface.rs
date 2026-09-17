@@ -49,6 +49,9 @@ use crate::terminal_host_protocol::{
 };
 use cmux_tui_cdp::BrowserMode;
 
+/// Ghostty's default maximum retained scrollback backing storage.
+pub const DEFAULT_SCROLLBACK_LIMIT_BYTES: usize = 50_000_000;
+
 /// Result of encoding terminal mouse input against a previously observed
 /// pointer snapshot without blocking on terminal parsing.
 #[derive(Debug)]
@@ -103,6 +106,8 @@ pub struct SurfaceOptions {
     pub term: String,
     pub cols: u16,
     pub rows: u16,
+    /// Maximum retained scrollback storage in bytes, matching Ghostty's
+    /// `max_scrollback` API. This is not a line count.
     pub scrollback: usize,
     /// Extra environment for children (e.g. CMUX_TUI_SOCKET).
     pub extra_env: Vec<(String, String)>,
@@ -167,7 +172,7 @@ impl Default for SurfaceOptions {
                 .unwrap_or_else(|_| default_child_term()),
             cols: 80,
             rows: 24,
-            scrollback: 10_000,
+            scrollback: DEFAULT_SCROLLBACK_LIMIT_BYTES,
             extra_env: Vec::new(),
             chrome_binary: None,
             cdp_url: None,

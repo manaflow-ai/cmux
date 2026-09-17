@@ -217,6 +217,30 @@ public protocol SettingsHostActions: AnyObject {
     /// language selection.
     func applyLanguageOverride(_ language: AppLanguage)
 
+    /// Gives the host a chance to refresh computer-use permission state.
+    func refreshComputerUsePermissions() async
+
+    /// Whether the Computer Use helper currently has Accessibility permission.
+    func computerUseAccessibilityGranted() -> Bool
+
+    /// Whether the Computer Use helper currently has Screen Recording permission.
+    func computerUseScreenRecordingGranted() -> Bool
+
+    /// Whether the displayed Computer Use permission values are authoritative.
+    func computerUsePermissionStatusIsKnown() -> Bool
+
+    /// Starts the helper-owned Accessibility permission flow.
+    func requestComputerUseAccessibility()
+
+    /// Starts the helper-owned Screen Recording permission flow.
+    func requestComputerUseScreenRecording()
+
+    /// Opens the Accessibility pane in System Settings.
+    func openComputerUseAccessibilitySettings()
+
+    /// Opens the Screen Recording pane in System Settings.
+    func openComputerUseScreenRecordingSettings()
+
     /// Whether the host exposes Cloud Machines (persistent cloud VMs). When
     /// false the Cloud Machines settings section renders nothing.
     var isCloudMachinesAvailable: Bool { get }
@@ -280,6 +304,22 @@ public extension SettingsHostActions {
     /// Default no-op for package previews and tests without app-language ownership.
     func applyLanguageOverride(_ language: AppLanguage) {}
 
+    /// Default no-op for hosts without Computer Use permission reporting.
+    func refreshComputerUsePermissions() async {}
+    /// Default denied Accessibility status for hosts without Computer Use.
+    func computerUseAccessibilityGranted() -> Bool { false }
+    /// Default denied Screen Recording status for hosts without Computer Use.
+    func computerUseScreenRecordingGranted() -> Bool { false }
+    /// Default unknown status for hosts without Computer Use permission reporting.
+    func computerUsePermissionStatusIsKnown() -> Bool { false }
+    /// Default no-op for hosts that cannot request Computer Use Accessibility.
+    func requestComputerUseAccessibility() {}
+    /// Default no-op for hosts that cannot request Computer Use Screen Recording.
+    func requestComputerUseScreenRecording() {}
+    /// Default no-op for hosts without a Computer Use Accessibility settings route.
+    func openComputerUseAccessibilitySettings() {}
+    /// Default no-op for hosts without a Computer Use Screen Recording settings route.
+    func openComputerUseScreenRecordingSettings() {}
     func openMobilePairingWindow() {}
 
     /// Default no-op preview action for hosts without a Sleepy Mode overlay.

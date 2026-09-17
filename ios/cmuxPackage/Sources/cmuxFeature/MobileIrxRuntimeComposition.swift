@@ -64,7 +64,7 @@ public actor MobileIrxRuntimeComposition {
 
     private let brokerBaseURL: URL?
     private let clientNamespace: String
-    private let tag: String
+    public nonisolated let tag: String
     private let stateDirectory: URL
 
     private weak var auth: AuthCoordinator?
@@ -320,6 +320,42 @@ public actor MobileIrxRuntimeComposition {
         endpointSupervisor = supervisor
         autopilot = pilot
         return broker
+    }
+
+    // MARK: - First-pair picker surface
+
+    /// Fresh authenticated broker discovery for the first-pair picker.
+    /// Returns nil instead of throwing so the picker degrades to an empty
+    /// candidate list, mirroring the legacy discovery contract.
+    public func freshLiveDiscovery() async -> CmxIrohDiscoveryResponse? {
+        guard let broker = try? await provisionedBroker() else {
+            Self.journal.record(
+                "client-runtime", "picker-discovery", ["bindings": "unprovisioned"])
+            return nil
+        }
+        let discovery = try? await broker.discover(maximumAge: 5)
+        Self.journal.record(
+            "client-runtime", "picker-discovery",
+            ["bindings": discovery.map { String($0.bindings.count) } ?? "unavailable"]
+        )
+        return discovery
+    }
+
+    /// Drops the reusable discovery snapshot after a presence route push.
+    public func invalidateDiscoverySnapshot() async {
+        await broker?.invalidateDiscoverySnapshot()
+    }
+
+    /// Revokes one account-owned binding (forget-computer server leg).
+    public func revokeBinding(_ bindingID: String) async throws {
+        let broker = try await provisionedBroker()
+        try await broker.revoke(bindingID: bindingID)
+    }
+
+    /// The live authenticated account, or nil when signed out.
+    public func authenticatedAccountID() async -> String? {
+        guard let auth else { return nil }
+        return try? await auth.authenticatedSessionSnapshot().accountID
     }
 
     // MARK: - Dialing

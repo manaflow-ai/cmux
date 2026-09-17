@@ -9,26 +9,33 @@
 #![cfg(unix)]
 
 use std::collections::{HashMap, VecDeque};
-use std::ffi::CString;
+use std::fs::File;
 use std::io::{Read, Write};
-use std::mem::{MaybeUninit, offset_of, size_of};
+use std::mem::{offset_of, size_of};
 use std::os::fd::AsRawFd;
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Condvar, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use bytes::Bytes;
 use cmux_pty::{MasterPty, PtySize};
 use sha2::{Digest, Sha256};
+use tokio_util::sync::CancellationToken;
 
 use crate::control::{CONTROL_TIMEOUT_MS, ControlHandle, connect_control};
 use crate::pty::{
-    CmuxTui, DataSink, EnsureDaemon, ExitSink, PtyControl, PtyDeps, PtyHandle, PtyOutput,
-    SpawnSpec, session_name_ok,
+    CmuxTui, DataSink, EnsureDaemon, ExitSink, OpenPermit, PtyControl, PtyDeps, PtyHandle,
+    PtyOutput, SpawnSpec, session_name_ok, spawn_blocking_with_open_permit,
 };
 
 const DAEMON_SOCKET_WAIT_MS: u64 = 5_000;
+const THREAD_OUTPUT_BACKLOG_CAP: usize = 1024 * 1024;
+const THREAD_OUTPUT_OVERFLOW_EXIT: i64 = 75;
+const PIPE_OUTPUT_DRAIN_GRACE: Duration = Duration::from_millis(250);
+const PIPE_READ_POLL_MS: i32 = 100;
 // `lifecycle_ready` was added to the cmux-tui control protocol at version 12.
 // This is distinct from the relay's lower-level CONTROL_MIN_PROTOCOL floor.
 const DAEMON_LIFECYCLE_PROTOCOL_MIN: u64 = 12;
@@ -122,19 +129,46 @@ struct SourceState {
     on_data: Option<DataSink>,
     on_exit: Option<ExitSink>,
     backlog: VecDeque<Bytes>,
+    backlog_bytes: usize,
     // Keep exit behind bytes that arrive before the subscriber drains.
     pending_exit: Option<i64>,
     delivering: bool,
     exited: bool,
+    overflowed: bool,
 }
 
 struct ThreadOutput {
     state: Mutex<SourceState>,
+    overflow_handler: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 impl ThreadOutput {
     fn new() -> Arc<ThreadOutput> {
-        Arc::new(ThreadOutput { state: Mutex::new(SourceState::default()) })
+        Arc::new(ThreadOutput {
+            state: Mutex::new(SourceState::default()),
+            overflow_handler: Mutex::new(None),
+        })
+    }
+
+    /// Install the owner cleanup that must run when the bounded source queue
+    /// overflows. The callback is invoked at most once and never while the
+    /// source mutex is held.
+    fn set_overflow_handler(&self, handler: Arc<dyn Fn() + Send + Sync>) {
+        *self.overflow_handler.lock().expect("overflow handler lock") = Some(handler);
+    }
+
+    /// Bind overflow cleanup without extending the control owner's lifetime.
+    /// The source can outlive its `PtyHandle` while its reader thread drains.
+    fn set_overflow_control<T>(&self, control: &Arc<T>)
+    where
+        T: PtyControl + 'static,
+    {
+        let weak_control = Arc::downgrade(control);
+        self.set_overflow_handler(Arc::new(move || {
+            if let Some(control) = weak_control.upgrade() {
+                control.kill();
+            }
+        }));
     }
 
     /// Mark the queue as owned by a drainer, if a subscriber is ready.
@@ -158,6 +192,7 @@ impl ThreadOutput {
             let next = {
                 let mut state = self.state.lock().expect("source lock");
                 if let Some(chunk) = state.backlog.pop_front() {
+                    state.backlog_bytes = state.backlog_bytes.saturating_sub(chunk.len());
                     (Some(chunk), None, state.on_data.clone(), state.on_exit.clone())
                 } else if let Some(code) = state.pending_exit.take() {
                     (None, Some(code), state.on_data.clone(), state.on_exit.clone())
@@ -176,11 +211,34 @@ impl ThreadOutput {
     }
 
     fn push_data(&self, chunk: Bytes) {
-        let should_drain = {
+        // Empty reads carry no output and must not consume an unbounded queue
+        // entry while a subscriber is late.
+        if chunk.is_empty() {
+            return;
+        }
+        let (should_drain, overflowed) = {
             let mut state = self.state.lock().expect("source lock");
-            state.backlog.push_back(chunk);
-            Self::start_delivery(&mut state)
+            if state.exited || state.overflowed {
+                return;
+            }
+            let mut overflowed = false;
+            if chunk.len() > THREAD_OUTPUT_BACKLOG_CAP.saturating_sub(state.backlog_bytes) {
+                state.overflowed = true;
+                state.exited = true;
+                state.pending_exit = Some(THREAD_OUTPUT_OVERFLOW_EXIT);
+                overflowed = true;
+            } else {
+                state.backlog_bytes += chunk.len();
+                state.backlog.push_back(chunk);
+            }
+            (Self::start_delivery(&mut state), overflowed)
         };
+        if overflowed
+            && let Some(handler) =
+                self.overflow_handler.lock().expect("overflow handler lock").clone()
+        {
+            handler();
+        }
         if should_drain {
             self.drain();
         }
@@ -216,45 +274,196 @@ impl PtyOutput for ThreadOutput {
     }
 }
 
+/// Orders the process exit notification after every reader has reached EOF.
+/// A child can exit while bytes remain buffered in a pipe or PTY master. The
+/// wait thread records the exit code, and the final reader publishes it only
+/// after its last `push_data` call. Both paths use a bounded grace period; the
+/// PTY reader has an explicit poll cancellation wake for inherited slave
+/// descriptors. The output callback runs outside this coordinator's mutex.
+struct ProcessOutputCompletion {
+    state: Mutex<ProcessOutputCompletionState>,
+    wake: Condvar,
+    output: Arc<ThreadOutput>,
+    post_exit_grace: Option<Duration>,
+    cancelled: AtomicBool,
+    cancel_wake: Option<Arc<CancellationWake>>,
+}
+
+struct ProcessOutputCompletionState {
+    readers_remaining: usize,
+    child_exit: Option<i64>,
+}
+
+/// Wakes a PTY reader that is waiting in `poll` when completion reaches its
+/// bounded grace deadline. A socket pair avoids closing a descriptor from a
+/// different thread, which can race with descriptor reuse.
+struct CancellationWake {
+    writer: Mutex<UnixStream>,
+}
+
+impl CancellationWake {
+    fn new() -> std::io::Result<(Arc<Self>, UnixStream)> {
+        let (reader, writer) = UnixStream::pair()?;
+        writer.set_nonblocking(true)?;
+        Ok((Arc::new(Self { writer: Mutex::new(writer) }), reader))
+    }
+
+    fn signal(&self) {
+        let Ok(mut writer) = self.writer.lock() else { return };
+        loop {
+            match writer.write(&[1]) {
+                Ok(_) => break,
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(_) => break,
+            }
+        }
+    }
+}
+
+impl ProcessOutputCompletion {
+    fn new(readers_remaining: usize, output: Arc<ThreadOutput>) -> Arc<Self> {
+        Self::with_post_exit_grace(readers_remaining, output, Some(PIPE_OUTPUT_DRAIN_GRACE))
+    }
+
+    fn with_post_exit_grace(
+        readers_remaining: usize,
+        output: Arc<ThreadOutput>,
+        post_exit_grace: Option<Duration>,
+    ) -> Arc<Self> {
+        Self::with_post_exit_grace_and_cancel(readers_remaining, output, post_exit_grace, None)
+    }
+
+    fn with_pty_cancellation(
+        readers_remaining: usize,
+        output: Arc<ThreadOutput>,
+    ) -> std::io::Result<(Arc<Self>, UnixStream)> {
+        let (cancel_wake, cancel_reader) = CancellationWake::new()?;
+        let completion = Self::with_post_exit_grace_and_cancel(
+            readers_remaining,
+            output,
+            Some(PIPE_OUTPUT_DRAIN_GRACE),
+            Some(cancel_wake),
+        );
+        Ok((completion, cancel_reader))
+    }
+
+    fn with_post_exit_grace_and_cancel(
+        readers_remaining: usize,
+        output: Arc<ThreadOutput>,
+        post_exit_grace: Option<Duration>,
+        cancel_wake: Option<Arc<CancellationWake>>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            state: Mutex::new(ProcessOutputCompletionState { readers_remaining, child_exit: None }),
+            wake: Condvar::new(),
+            output,
+            post_exit_grace,
+            cancelled: AtomicBool::new(false),
+            cancel_wake,
+        })
+    }
+
+    fn child_exited(self: &Arc<Self>, code: i64) {
+        let should_watch = {
+            let mut state = self.state.lock().expect("process output completion lock");
+            if state.child_exit.is_some() {
+                return;
+            }
+            state.child_exit = Some(code);
+            state.readers_remaining != 0 && self.post_exit_grace.is_some()
+        };
+        if should_watch {
+            let completion = Arc::clone(self);
+            std::thread::spawn(move || completion.wait_for_readers());
+        } else {
+            self.emit_if_ready();
+        }
+    }
+
+    fn reader_finished(&self) {
+        {
+            let mut state = self.state.lock().expect("process output completion lock");
+            if state.readers_remaining == 0 {
+                return;
+            }
+            state.readers_remaining -= 1;
+        }
+        self.wake.notify_all();
+        self.emit_if_ready();
+    }
+
+    fn wait_for_readers(self: Arc<Self>) {
+        let grace = self.post_exit_grace.expect("bounded completion grace");
+        let deadline = Instant::now() + grace;
+        let mut state = self.state.lock().expect("process output completion lock");
+        while state.readers_remaining != 0 && state.child_exit.is_some() {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else { break };
+            let (next, timeout) =
+                self.wake.wait_timeout(state, remaining).expect("process output completion lock");
+            state = next;
+            if timeout.timed_out() {
+                break;
+            }
+        }
+        if state.readers_remaining == 0 || state.child_exit.is_none() {
+            return;
+        }
+        let code = state.child_exit.take();
+        self.cancelled.store(true, Ordering::Release);
+        if let Some(cancel_wake) = &self.cancel_wake {
+            cancel_wake.signal();
+        }
+        drop(state);
+        if let Some(code) = code {
+            // End the source after the bounded grace period. The PTY reader's
+            // poll set includes the cancellation wake, so inherited
+            // descriptors cannot retain a reader thread after this point.
+            self.output.push_exit(code);
+        }
+    }
+
+    fn cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Acquire)
+    }
+
+    fn emit_if_ready(&self) {
+        let code = {
+            let mut state = self.state.lock().expect("process output completion lock");
+            (state.readers_remaining == 0).then(|| state.child_exit.take()).flatten()
+        };
+        if let Some(code) = code {
+            self.output.push_exit(code);
+        }
+    }
+}
+
 pub struct RealPtyDeps {
     env: HashMap<String, String>,
     uid: u32,
     shell: String,
 }
 
-struct CancelOnDrop {
-    handoff: Arc<SpawnHandoff>,
-    armed: bool,
-}
-
-/// Own the process control until the async `spawn_blocking` result is
-/// consumed. Tokio cannot abort a blocking closure after it starts, so the
-/// cancellation guard must have a control object it can signal while the
-/// worker is finishing its thread handoff.
+/// Own the handoff between a cancellable async open and a blocking PTY
+/// worker. Tokio cannot stop a `spawn_blocking` closure after it starts, so
+/// cancellation must be able to take and kill a control handle created by
+/// that worker before the handle is published to the manager.
 struct SpawnHandoff {
-    cancelled: std::sync::atomic::AtomicBool,
+    cancelled: AtomicBool,
     control: Mutex<Option<Arc<dyn PtyControl>>>,
 }
 
 impl SpawnHandoff {
     fn new() -> Arc<Self> {
-        Arc::new(Self {
-            cancelled: std::sync::atomic::AtomicBool::new(false),
-            control: Mutex::new(None),
-        })
+        Arc::new(Self { cancelled: AtomicBool::new(false), control: Mutex::new(None) })
     }
 
     fn is_cancelled(&self) -> bool {
-        self.cancelled.load(std::sync::atomic::Ordering::Acquire)
+        self.cancelled.load(Ordering::Acquire)
     }
 
-    /// Install the process control while holding the same lock used by
-    /// cancellation. A cancellation that wins the race either takes and
-    /// kills this control, or is observed before installation and kills it
-    /// directly.
     fn install(&self, control: Arc<dyn PtyControl>) -> bool {
         let mut slot = self.control.lock().expect("spawn handoff lock");
-        if self.cancelled.load(std::sync::atomic::Ordering::Acquire) {
+        if self.cancelled.load(Ordering::Acquire) {
             drop(slot);
             control.kill();
             return false;
@@ -263,48 +472,22 @@ impl SpawnHandoff {
         true
     }
 
-    /// Cancel and take the temporary owner. Dropping the owner after `kill`
-    /// is intentional: it closes the PTY/control resources as well as
-    /// signalling the child.
     fn cancel(&self) {
-        self.cancelled.store(true, std::sync::atomic::Ordering::Release);
+        self.cancelled.store(true, Ordering::Release);
         let control = self.control.lock().expect("spawn handoff lock").take();
         if let Some(control) = control {
             control.kill();
         }
     }
 
-    /// Release the temporary owner after the caller has received the
-    /// `PtyHandle`. The handle's own control Arc owns the process from this
-    /// point onward.
     fn disarm(&self) {
         let _ = self.control.lock().expect("spawn handoff lock").take();
     }
 }
 
-/// Keep a control probe owned until its async handshake finishes. The
-/// `ControlHandle` trait deliberately exposes an explicit `end()` operation
-/// instead of relying on `Drop`, so cancellation must close the socket here.
-struct ControlEndGuard {
-    control: Option<Arc<dyn ControlHandle>>,
-}
-
-impl ControlEndGuard {
-    fn new(control: Arc<dyn ControlHandle>) -> Self {
-        Self { control: Some(control) }
-    }
-
-    fn disarm(&mut self) {
-        self.control = None;
-    }
-}
-
-impl Drop for ControlEndGuard {
-    fn drop(&mut self) {
-        if let Some(control) = self.control.take() {
-            control.end();
-        }
-    }
+struct CancelOnDrop {
+    handoff: Arc<SpawnHandoff>,
+    armed: bool,
 }
 
 impl CancelOnDrop {
@@ -335,59 +518,171 @@ impl RealPtyDeps {
     }
 }
 
-/// Process ownership state shared by a control handle and its wait guard.
-///
-/// A plain `AtomicBool` is not enough here. The wait thread can reap a child
-/// while a close callback concurrently asks the control to kill it. The
-/// mutex serializes those transitions, so a signal is sent only while the
-/// child is still owned by its wait guard. Once `wait` returns, a recycled PID
-/// can never be signalled by a late control drop.
+/// Owns a spawned child until the PTY setup has transferred it to the wait
+/// thread. Any setup error must terminate and reap the child before the
+/// caller can choose pipe mode, otherwise one failed PTY attempt leaks a
+/// process outside the relay's lifecycle.
+struct SpawnedChildCleanup {
+    child: Option<Box<dyn cmux_pty::Child + Send + Sync>>,
+}
+
+impl SpawnedChildCleanup {
+    fn new(child: Box<dyn cmux_pty::Child + Send + Sync>) -> Self {
+        Self { child: Some(child) }
+    }
+
+    fn child(&self) -> &(dyn cmux_pty::Child + Send + Sync) {
+        self.child.as_deref().expect("spawned child cleanup owns a child")
+    }
+
+    fn take(&mut self) -> Box<dyn cmux_pty::Child + Send + Sync> {
+        self.child.take().expect("spawned child cleanup owns a child")
+    }
+
+    fn child_mut(&mut self) -> &mut dyn cmux_pty::Child {
+        self.child.as_deref_mut().expect("spawned child cleanup owns a child")
+    }
+
+    fn wait(&mut self) -> anyhow::Result<cmux_pty::ExitStatus> {
+        Ok(self.child_mut().wait()?)
+    }
+
+    fn disarm(&mut self) {
+        let _ = self.child.take();
+    }
+}
+
+impl Drop for SpawnedChildCleanup {
+    fn drop(&mut self) {
+        let Some(mut child) = self.child.take() else { return };
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+}
+
+/// Keep a pipe-mode child owned until its wait thread accepts it. Returning
+/// from setup without killing and reaping this child would leak a process.
+struct PipeChildGuard {
+    child: Option<std::process::Child>,
+}
+
+impl PipeChildGuard {
+    fn new(child: std::process::Child) -> Self {
+        Self { child: Some(child) }
+    }
+
+    fn child_mut(&mut self) -> &mut std::process::Child {
+        self.child.as_mut().expect("pipe child guard is armed")
+    }
+
+    fn take(&mut self) -> std::process::Child {
+        self.child.take().expect("pipe child guard is armed")
+    }
+}
+
+impl Drop for PipeChildGuard {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+type PipeWaitTask = Box<dyn FnOnce() + Send + 'static>;
+
+fn spawn_pipe_wait_thread_with<F>(
+    child_guard: PipeChildGuard,
+    command_rx: mpsc::Receiver<PipeChildCommand>,
+    completion: Arc<ProcessOutputCompletion>,
+    spawn: F,
+) -> std::io::Result<std::thread::JoinHandle<()>>
+where
+    F: FnOnce(PipeWaitTask) -> std::io::Result<std::thread::JoinHandle<()>>,
+{
+    let wait_task: PipeWaitTask = Box::new(move || {
+        // Keep the guard inside the task closure until the child has been
+        // accepted by a live wait thread. If spawning fails, dropping this
+        // closure invokes PipeChildGuard::drop, which kills and reaps it.
+        let mut child_guard = child_guard;
+        let mut exit_ready = false;
+        while !exit_ready {
+            match command_rx.recv() {
+                Ok(PipeChildCommand::ExitReady) => exit_ready = true,
+                Ok(PipeChildCommand::Kill) => {
+                    let _ = child_guard.child_mut().kill();
+                }
+                Err(_) => exit_ready = true,
+            }
+        }
+        let mut child = child_guard.take();
+        let code = child.wait().map(|status| status.code().unwrap_or(0) as i64).unwrap_or(0);
+        completion.child_exited(code);
+    });
+    spawn(wait_task)
+}
+
+fn spawn_pipe_wait_thread(
+    child_guard: PipeChildGuard,
+    command_rx: mpsc::Receiver<PipeChildCommand>,
+    completion: Arc<ProcessOutputCompletion>,
+) -> std::io::Result<std::thread::JoinHandle<()>> {
+    spawn_pipe_wait_thread_with(child_guard, command_rx, completion, |task| {
+        std::thread::Builder::new().name("cmux-pipe-wait".to_owned()).spawn(task)
+    })
+}
+
+/// Serialize process termination with the wait owner. A raw PID can be
+/// reused after the child exits, so a late control drop must not signal an
+/// unrelated process.
 struct ChildLifecycle {
     pid: Option<u32>,
     exited: bool,
     termination_started: bool,
+    reaping: bool,
 }
 
 type ChildLifecycleHandle = Arc<Mutex<ChildLifecycle>>;
 
 impl ChildLifecycle {
     fn new(pid: Option<u32>) -> ChildLifecycleHandle {
-        Arc::new(Mutex::new(Self { pid, exited: false, termination_started: false }))
+        Arc::new(Mutex::new(Self {
+            pid,
+            exited: false,
+            termination_started: false,
+            reaping: false,
+        }))
     }
 
-    /// Reserve the one process-group termination and run the signal operation
-    /// while the lifecycle lock is held. Keeping the lock through the syscall
-    /// closes the handoff window where the wait thread could reap the child,
-    /// the PID could be reused, and a late close would signal that new group.
-    fn terminate(lifecycle: &ChildLifecycleHandle, signal: impl FnOnce(Option<u32>)) -> bool {
-        let mut state = lifecycle.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        if state.exited || state.termination_started {
+    fn terminate(
+        lifecycle: &ChildLifecycleHandle,
+        signal: impl FnOnce(Option<u32>) -> std::io::Result<()>,
+    ) -> bool {
+        let mut state = lifecycle.lock().expect("child lifecycle lock");
+        if state.exited || state.termination_started || state.reaping {
             return false;
         }
         state.termination_started = true;
-        signal(state.pid);
-        true
-    }
-
-    /// Reserve termination from the wait owner. The caller must perform the
-    /// kill after this returns. Setting the flag first prevents a concurrent
-    /// control drop from sending a second signal while the wait owner is
-    /// converting an unexpected poll error into a bounded reap.
-    fn begin_termination(lifecycle: &ChildLifecycleHandle) -> bool {
-        let mut state = lifecycle.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        if state.exited || state.termination_started {
+        if signal(state.pid).is_err() {
+            // A failed signal request did not establish termination. Keep the
+            // lifecycle open for a later close/cancellation/drop attempt.
+            state.termination_started = false;
             return false;
         }
-        state.termination_started = true;
         true
     }
 
-    /// Mark the child terminal immediately after `wait` has returned. A
-    /// successful wait has reaped the PID; an error still leaves the guard in
-    /// charge of the child, and its bounded Drop cleanup remains responsible
-    /// for the final reap.
-    fn mark_exited(lifecycle: &ChildLifecycleHandle) {
-        lifecycle.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).exited = true;
+    /// Claim the wait owner transition before a fallback reap. This fence
+    /// remains set even when the child kill request reports an error, so a
+    /// late control drop cannot signal a PID after `Child::wait` reaps it.
+    fn begin_reaping(lifecycle: &ChildLifecycleHandle) -> bool {
+        let mut state = lifecycle.lock().expect("child lifecycle lock");
+        if state.exited || state.reaping {
+            return false;
+        }
+        state.reaping = true;
+        state.termination_started = true;
+        true
     }
 }
 
@@ -401,26 +696,18 @@ struct MasterControl {
 
 impl Drop for MasterControl {
     fn drop(&mut self) {
-        // `portable_pty::Child` does not kill on drop. The wait thread owns
-        // the child, so use the cloned signal handle here for the case where
-        // the PTY handle is abandoned before it is installed in an
-        // attachment.
         self.terminate();
     }
 }
 
 impl MasterControl {
     fn terminate(&self) {
-        ChildLifecycle::terminate(&self.lifecycle, |pid| {
-            let mut killer = match self.killer.lock() {
-                Ok(killer) => killer,
-                Err(poisoned) => poisoned.into_inner(),
-            };
-            let _ = killer.kill();
-            // `portable-pty`'s Unix killer sends SIGHUP to only the direct
-            // child. The PTY child is a session leader, so also force its
-            // process group down to cover helpers it may have spawned.
-            signal_process_group(pid);
+        let _ = ChildLifecycle::terminate(&self.lifecycle, |_| {
+            let mut killer = self
+                .killer
+                .lock()
+                .map_err(|_| std::io::Error::other("child killer lock poisoned"))?;
+            killer.kill()
         });
     }
 }
@@ -444,12 +731,29 @@ impl PtyControl for MasterControl {
     }
 }
 
-/// A degraded pipe-mode shell (no TTY) used when PTY allocation fails. The
-/// child is owned by its wait thread; kill signals it by pid.
+/// A command sent to the thread that owns a degraded pipe-mode child.
+///
+/// Keeping the child in one thread gives overflow cleanup an owned process
+/// handle. A numeric PID is never retained by the output callback, so a late
+/// callback cannot signal a process that reused the old PID.
+enum PipeChildCommand {
+    Kill,
+    ExitReady,
+}
+
+/// A degraded pipe-mode shell (no TTY) used when PTY allocation fails.
+/// The child itself remains owned by the wait thread. The control only sends
+/// commands to that owner and retains the child's stdin for input.
 struct PipeControl {
     stdin: Mutex<Option<std::process::ChildStdin>>,
-    pid: u32,
-    lifecycle: ChildLifecycleHandle,
+    command_tx: mpsc::Sender<PipeChildCommand>,
+    kill_requested: AtomicBool,
+}
+
+impl Drop for PipeControl {
+    fn drop(&mut self) {
+        self.kill();
+    }
 }
 
 impl PtyControl for PipeControl {
@@ -465,119 +769,36 @@ impl PtyControl for PipeControl {
     fn pause(&self) {}
     fn resume(&self) {}
     fn kill(&self) {
-        // SAFETY: signalling a child pid this handle spawned; harmless if gone.
-        ChildLifecycle::terminate(&self.lifecycle, |_| signal_process_group(Some(self.pid)));
+        if self.kill_requested.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let _ = self.command_tx.send(PipeChildCommand::Kill);
     }
 }
 
-impl Drop for PipeControl {
-    fn drop(&mut self) {
-        self.kill();
-    }
-}
-
-const CHILD_REAP_TIMEOUT: Duration = Duration::from_millis(500);
-const CHILD_REAP_POLL: Duration = Duration::from_millis(10);
-
-fn signal_process_group(pid: Option<u32>) {
-    signal_process_group_with(pid, libc::SIGKILL);
-}
-
-/// Reap a portable-pty child without allowing cancellation cleanup to pin a
-/// Tokio blocking worker. The process group receives SIGKILL first, then the
-/// child is polled for a bounded interval. A tiny detached reaper handles the
-/// kernel's rare delayed-exit case after the bound expires.
-fn reap_portable_child(mut child: Box<dyn cmux_pty::Child + Send + Sync>, pid: Option<u32>) {
-    signal_process_group(pid);
-    let deadline = Instant::now() + CHILD_REAP_TIMEOUT;
+/// Observe a child becoming waitable without reaping it. `WNOWAIT` keeps the
+/// child's PID reserved until the owner thread handles the event and calls
+/// `Child::wait`, which closes the PID-reuse window around overflow cleanup.
+fn wait_for_child_exit_without_reaping(pid: libc::pid_t) -> std::io::Result<()> {
     loop {
-        match child.try_wait() {
-            Ok(Some(_)) | Err(_) => return,
-            Ok(None) if Instant::now() >= deadline => break,
-            Ok(None) => std::thread::sleep(CHILD_REAP_POLL),
+        let mut status = std::mem::MaybeUninit::<libc::siginfo_t>::zeroed();
+        // SAFETY: status points to writable siginfo storage. WNOWAIT observes
+        // this child without releasing its PID for reuse.
+        let result = unsafe {
+            libc::waitid(
+                libc::P_PID,
+                pid as libc::id_t,
+                status.as_mut_ptr(),
+                libc::WEXITED | libc::WNOWAIT,
+            )
+        };
+        if result == 0 {
+            return Ok(());
         }
-    }
-    let _ = std::thread::Builder::new().name("cmux-relay-pty-reaper".to_owned()).spawn(move || {
-        let _ = child.wait();
-    });
-}
-
-struct PtyChildGuard {
-    child: Option<Box<dyn cmux_pty::Child + Send + Sync>>,
-    pid: Option<u32>,
-}
-
-impl PtyChildGuard {
-    fn new(child: Box<dyn cmux_pty::Child + Send + Sync>) -> Self {
-        let pid = child.process_id();
-        Self { child: Some(child), pid }
-    }
-
-    fn child(&self) -> &dyn cmux_pty::Child {
-        self.child.as_deref().expect("PTY child guard is armed")
-    }
-
-    fn child_mut(&mut self) -> &mut dyn cmux_pty::Child {
-        self.child.as_deref_mut().expect("PTY child guard is armed")
-    }
-
-    fn take(&mut self) -> Box<dyn cmux_pty::Child + Send + Sync> {
-        self.child.take().expect("PTY child guard is armed")
-    }
-
-    fn disarm(&mut self) {
-        let _ = self.child.take();
-    }
-}
-
-impl Drop for PtyChildGuard {
-    fn drop(&mut self) {
-        let Some(child) = self.child.take() else { return };
-        reap_portable_child(child, self.pid);
-    }
-}
-
-struct PipeChildGuard {
-    child: Option<std::process::Child>,
-    pid: Option<u32>,
-}
-
-impl PipeChildGuard {
-    fn new(child: std::process::Child) -> Self {
-        let pid = Some(child.id());
-        Self { child: Some(child), pid }
-    }
-
-    fn child_mut(&mut self) -> &mut std::process::Child {
-        self.child.as_mut().expect("pipe child guard is armed")
-    }
-
-    fn take(&mut self) -> std::process::Child {
-        self.child.take().expect("pipe child guard is armed")
-    }
-
-    fn disarm(&mut self) {
-        let _ = self.child.take();
-    }
-}
-
-impl Drop for PipeChildGuard {
-    fn drop(&mut self) {
-        let Some(mut child) = self.child.take() else { return };
-        signal_process_group(self.pid);
-        let deadline = Instant::now() + CHILD_REAP_TIMEOUT;
-        loop {
-            match child.try_wait() {
-                Ok(Some(_)) | Err(_) => return,
-                Ok(None) if Instant::now() >= deadline => break,
-                Ok(None) => std::thread::sleep(CHILD_REAP_POLL),
-            }
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::Interrupted {
+            return Err(error);
         }
-        let _ = std::thread::Builder::new().name("cmux-relay-pipe-reaper".to_owned()).spawn(
-            move || {
-                let _ = child.wait();
-            },
-        );
     }
 }
 
@@ -591,6 +812,7 @@ fn spawn_real_pty(spec: &SpawnSpec, handoff: &SpawnHandoff) -> anyhow::Result<Pt
         pixel_width: 0,
         pixel_height: 0,
     })?;
+    let reader = File::from(pair.try_clone_reader_descriptor()?);
     let mut command = cmux_pty::PtyCommand::new(spec.file.clone());
     command.args(spec.args.clone());
     command.cwd(&spec.cwd);
@@ -598,133 +820,139 @@ fn spawn_real_pty(spec: &SpawnSpec, handoff: &SpawnHandoff) -> anyhow::Result<Pt
     for (key, value) in &spec.env {
         command.env(key, value);
     }
-    let spawned = pair.spawn(command)?;
-    let cmux_pty::SpawnedPty { master, child } = spawned;
-    let mut child_guard = PtyChildGuard::new(child);
-    // `spawn_blocking` cannot be aborted after it starts. If its async
-    // handoff was cancelled while the child was being created, terminate the
-    // child before handing any PTY resources to detached reader threads.
-    if handoff.is_cancelled() {
-        return Err(anyhow::anyhow!("PTY spawn cancelled"));
-    }
-    let reader = master.try_clone_reader()?;
-    let writer = master.take_writer()?;
-    if handoff.is_cancelled() {
-        return Err(anyhow::anyhow!("PTY spawn cancelled"));
-    }
-    let killer = child_guard.child().clone_killer();
+    // Set up every fallible cancellation primitive before spawning. This
+    // keeps descriptor exhaustion on the no-child side of the boundary.
     let output = ThreadOutput::new();
-    let lifecycle = ChildLifecycle::new(child_guard.child().process_id());
+    let (completion, cancel_reader) =
+        ProcessOutputCompletion::with_pty_cancellation(1, Arc::clone(&output))?;
+    let spawned = pair.spawn(command)?;
+    let cmux_pty::SpawnedPty { mut master, child } = spawned;
+    let mut child_cleanup = SpawnedChildCleanup::new(child);
+    if handoff.is_cancelled() {
+        return Err(anyhow::anyhow!("PTY spawn cancelled"));
+    }
+    let writer = master.take_writer()?;
+    let killer = child_cleanup.child().clone_killer();
+    let lifecycle = ChildLifecycle::new(child_cleanup.child().process_id());
     let control = Arc::new(MasterControl {
         master: Mutex::new(master),
         writer: Mutex::new(writer),
         killer: Mutex::new(killer),
         lifecycle: Arc::clone(&lifecycle),
     });
-    if !handoff.install(Arc::clone(&control) as Arc<dyn PtyControl>) {
+    let handoff_control: Arc<dyn PtyControl> = control.clone();
+    if !handoff.install(handoff_control) {
         return Err(anyhow::anyhow!("PTY spawn cancelled"));
     }
-
+    output.set_overflow_control(&control);
+    // Use the same bounded post-exit grace as pipe fallback. A background
+    // descendant can inherit the PTY slave, so waiting for terminal EOF here
+    // would otherwise delay the primary child exit without a bound.
     // Blocking reader thread -> output sink.
     let data_output = Arc::clone(&output);
-    if let Err(error) =
-        std::thread::Builder::new().name("cmux-relay-pty-reader".to_owned()).spawn(move || {
-            let mut reader = reader;
-            let mut buffer = [0_u8; 32_768];
-            loop {
-                match reader.read(&mut buffer) {
-                    Ok(0) | Err(_) => break,
-                    Ok(count) => data_output.push_data(Bytes::copy_from_slice(&buffer[..count])),
-                }
-            }
+    let data_completion = Arc::clone(&completion);
+    if std::thread::Builder::new()
+        .name("cmux-relay-pty-reader".to_owned())
+        .spawn(move || {
+            pump_pty(reader, cancel_reader, data_output, data_completion);
         })
+        .is_err()
     {
-        handoff.disarm();
-        return Err(anyhow::anyhow!("PTY reader thread spawn failed: {error}"));
+        control.kill();
+        return Err(anyhow::anyhow!("PTY reader thread spawn failed"));
     }
-
-    // Keep a bounded cleanup guard in the thread closure too. If creating the
-    // wait thread fails, `Builder::spawn` drops the closure and this guard
-    // kills/reaps the child instead of leaving it detached.
-    let wait_guard = PtyChildGuard::new(child_guard.take());
-    let exit_output = Arc::clone(&output);
+    // Blocking wait thread -> exit.
+    let mut child_cleanup = child_cleanup;
+    let exit_completion = Arc::clone(&completion);
     let wait_lifecycle = Arc::clone(&lifecycle);
-    if let Err(error) =
-        std::thread::Builder::new().name("cmux-relay-pty-wait".to_owned()).spawn(move || {
-            let mut wait_guard = wait_guard;
-            loop {
-                enum Poll {
-                    Running,
-                    Exited(i64),
-                    Failed,
+    if std::thread::Builder::new()
+        .name("cmux-relay-pty-wait".to_owned())
+        .spawn(move || {
+            // `waitid(WNOWAIT)` blocks until the child exits while keeping its
+            // PID reserved. Mark the lifecycle exited before the owner calls
+            // `wait`, so a late control drop cannot signal a reused PID.
+            let pid = wait_lifecycle.lock().expect("child lifecycle lock").pid;
+            let wait_result = match pid {
+                Some(pid) if wait_for_child_exit_without_reaping(pid as libc::pid_t).is_ok() => {
+                    wait_lifecycle.lock().expect("child lifecycle lock").exited = true;
+                    child_cleanup.wait()
                 }
-                let poll = {
-                    let mut lifecycle =
-                        wait_lifecycle.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-                    match wait_guard.child_mut().try_wait() {
-                        Ok(Some(status)) => {
-                            // `try_wait` reaps the child on success. Mark it
-                            // while the lifecycle lock is held, before a
-                            // control drop can attempt a late PID signal.
-                            lifecycle.exited = true;
-                            Poll::Exited(status.exit_code() as i64)
-                        }
-                        Ok(None) => Poll::Running,
-                        Err(_) => Poll::Failed,
+                _ => {
+                    // A failed waitid may leave the child live, while the
+                    // fallback wait can reap it. Claim termination before
+                    // reaping so MasterControl::drop cannot signal this PID
+                    // after the kernel makes it available for reuse.
+                    if ChildLifecycle::begin_reaping(&wait_lifecycle) {
+                        let _ = child_cleanup.child_mut().kill();
                     }
-                };
-                match poll {
-                    Poll::Exited(code) => {
-                        wait_guard.disarm();
-                        exit_output.push_exit(code);
-                        return;
-                    }
-                    Poll::Running => std::thread::sleep(CHILD_REAP_POLL),
-                    Poll::Failed => {
-                        // An unexpected poll error must not leave the child
-                        // owner ambiguous. Reserve termination before the
-                        // fallback blocking wait, so a late control drop can
-                        // never signal a recycled PID after this wait owner
-                        // has finished reaping.
-                        if ChildLifecycle::begin_termination(&wait_lifecycle) {
-                            let _ = wait_guard.child_mut().kill();
-                            signal_process_group(wait_guard.pid);
-                        }
-                        let status = wait_guard.child_mut().wait();
-                        let code =
-                            status.as_ref().map(|status| status.exit_code() as i64).unwrap_or(0);
-                        if status.is_ok() {
-                            ChildLifecycle::mark_exited(&wait_lifecycle);
-                            wait_guard.disarm();
-                        }
-                        exit_output.push_exit(code);
-                        return;
-                    }
+                    child_cleanup.wait()
                 }
-            }
+            };
+            let wait_result = wait_result.or_else(|_| {
+                // Keep the old error path: a failed wait requests termination
+                // through the lifecycle gate, then retries the blocking reap.
+                let _ = ChildLifecycle::terminate(&wait_lifecycle, |_| {
+                    child_cleanup.child_mut().kill()
+                });
+                child_cleanup.wait()
+            });
+            let code = wait_result.map(|status| i64::from(status.exit_code() as i32)).unwrap_or(0);
+            wait_lifecycle.lock().expect("child lifecycle lock").exited = true;
+            child_cleanup.disarm();
+            exit_completion.child_exited(code);
         })
+        .is_err()
     {
-        handoff.disarm();
-        return Err(anyhow::anyhow!("PTY wait thread spawn failed: {error}"));
-    }
-
-    // The cancellation owner remains installed until the async caller has
-    // consumed the returned `PtyHandle`. This final check closes the narrow
-    // interval after thread creation and before the handle is published.
-    if handoff.is_cancelled() {
-        handoff.disarm();
-        return Err(anyhow::anyhow!("PTY spawn cancelled"));
+        control.kill();
+        return Err(anyhow::anyhow!("PTY wait thread spawn failed"));
     }
 
     Ok(PtyHandle { control, output, banner: None })
 }
 
-fn dead_handle(output: Arc<ThreadOutput>, banner: Option<Vec<u8>>) -> PtyHandle {
-    output.push_exit(1);
-    PtyHandle { control: Arc::new(DeadControl), output, banner }
+/// Read a PTY with an owned descriptor and an explicit cancellation wake.
+/// `Read::read` is called only after the descriptor reports readiness, so a
+/// descendant-held PTY slave cannot leave this thread blocked past the grace
+/// deadline.
+fn pump_pty(
+    mut reader: impl Read + AsRawFd,
+    cancel_reader: UnixStream,
+    output: Arc<ThreadOutput>,
+    completion: Arc<ProcessOutputCompletion>,
+) {
+    let reader_fd = reader.as_raw_fd();
+    let cancel_fd = cancel_reader.as_raw_fd();
+    let mut buffer = [0_u8; 32_768];
+    loop {
+        let mut poll_fds = [
+            libc::pollfd { fd: reader_fd, events: libc::POLLIN, revents: 0 },
+            libc::pollfd { fd: cancel_fd, events: libc::POLLIN, revents: 0 },
+        ];
+        let poll_result = unsafe { libc::poll(poll_fds.as_mut_ptr(), poll_fds.len() as _, -1) };
+        if poll_result < 0 {
+            if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            break;
+        }
+        if completion.cancelled() || poll_fds[1].revents != 0 {
+            break;
+        }
+        if poll_fds[0].revents == 0 {
+            continue;
+        }
+        match reader.read(&mut buffer) {
+            Ok(0) => break,
+            Err(error) if error.raw_os_error() == Some(libc::EIO) => break,
+            Err(_) => break,
+            Ok(count) => output.push_data(Bytes::copy_from_slice(&buffer[..count])),
+        }
+    }
+    completion.reader_finished();
 }
 
-fn spawn_pipe_mode(spec: &SpawnSpec, _reason: &str, handoff: &SpawnHandoff) -> PtyHandle {
+fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str, handoff: &SpawnHandoff) -> PtyHandle {
+    let _ = reason;
     let output = ThreadOutput::new();
     let mut command = std::process::Command::new(&spec.file);
     command.args(&spec.args).current_dir(&spec.cwd).env_clear();
@@ -735,126 +963,68 @@ fn spawn_pipe_mode(spec: &SpawnSpec, _reason: &str, handoff: &SpawnHandoff) -> P
     command.stdin(std::process::Stdio::piped());
     command.stdout(std::process::Stdio::piped());
     command.stderr(std::process::Stdio::piped());
-    // Keep fallback shells and their descendants under one owner so dropping
-    // a cancelled handoff cannot leave a helper process behind.
-    use std::os::unix::process::CommandExt as _;
-    command.process_group(0);
-    // The allocation error can contain local paths, usernames, or provider
-    // response text. This banner crosses the relay boundary, so keep it
-    // stable and do not disclose the internal reason.
-    // Do not put the remotely supplied executable path on the terminal. It
-    // can contain control characters or local path details, and this banner
-    // crosses the relay boundary.
+    // Allocation errors and executable paths can contain local details. This
+    // banner crosses the relay boundary, so keep it stable and generic.
     let banner = b"[cmux-relay] PTY allocation failed; running without a TTY.\r\n".to_vec();
     match command.spawn() {
-        Ok(child) => {
+        Ok(mut child) => {
+            if handoff.is_cancelled() {
+                let _ = child.kill();
+                let _ = child.wait();
+                output.push_exit(1);
+                return PtyHandle { control: Arc::new(DeadControl), output, banner: None };
+            }
             let mut child_guard = PipeChildGuard::new(child);
-            if handoff.is_cancelled() {
-                drop(child_guard);
-                return dead_handle(output, None);
+            let stdin = child_guard.child_mut().stdin.take();
+            let pid = child_guard.child_mut().id() as libc::pid_t;
+            let (command_tx, command_rx) = mpsc::channel();
+            let control = Arc::new(PipeControl {
+                stdin: Mutex::new(stdin),
+                command_tx: command_tx.clone(),
+                kill_requested: AtomicBool::new(false),
+            });
+            let handoff_control: Arc<dyn PtyControl> = control.clone();
+            if !handoff.install(handoff_control) {
+                control.kill();
+                output.push_exit(1);
+                return PtyHandle { control: Arc::new(DeadControl), output, banner: None };
             }
-            let (stdin, stdout, stderr, pid) = {
-                let child = child_guard.child_mut();
-                (child.stdin.take(), child.stdout.take(), child.stderr.take(), child.id())
-            };
-            let lifecycle = ChildLifecycle::new(Some(pid));
-            let wait_lifecycle = Arc::clone(&lifecycle);
-            let control = Arc::new(PipeControl { stdin: Mutex::new(stdin), pid, lifecycle });
-            if !handoff.install(Arc::clone(&control) as Arc<dyn PtyControl>) {
-                drop(child_guard);
-                return dead_handle(output, None);
-            }
-            if let Some(stdout) = stdout {
+            output.set_overflow_control(&control);
+            let reader_count = child_guard.child_mut().stdout.is_some() as usize
+                + child_guard.child_mut().stderr.is_some() as usize;
+            let completion = ProcessOutputCompletion::new(reader_count, Arc::clone(&output));
+            if let Some(stdout) = child_guard.child_mut().stdout.take() {
                 let out = Arc::clone(&output);
-                if let Err(error) = std::thread::Builder::new()
-                    .name("cmux-relay-pipe-stdout".to_owned())
-                    .spawn(move || pump_pipe(stdout, out))
-                {
-                    let _ = error;
-                    handoff.disarm();
-                    return dead_handle(output, None);
-                }
+                let done = Arc::clone(&completion);
+                std::thread::spawn(move || pump_pipe(stdout, out, done));
             }
-            if let Some(stderr) = stderr {
+            if let Some(stderr) = child_guard.child_mut().stderr.take() {
                 let out = Arc::clone(&output);
-                if let Err(error) = std::thread::Builder::new()
-                    .name("cmux-relay-pipe-stderr".to_owned())
-                    .spawn(move || pump_pipe(stderr, out))
-                {
-                    let _ = error;
-                    handoff.disarm();
-                    return dead_handle(output, None);
-                }
+                let done = Arc::clone(&completion);
+                std::thread::spawn(move || pump_pipe(stderr, out, done));
             }
-            // The wait would need its own thread; the shell exits when its
-            // pipes close, and the manager treats a data EOF plus process
-            // teardown as the end. Report exit when both pipes close.
-            let wait_guard = PipeChildGuard::new(child_guard.take());
-            let wait_output = Arc::clone(&output);
-            if let Err(error) = std::thread::Builder::new()
-                .name("cmux-relay-pipe-wait".to_owned())
-                .spawn(move || {
-                    let mut wait_guard = wait_guard;
-                    loop {
-                        enum Poll {
-                            Running,
-                            Exited(i64),
-                            Failed,
-                        }
-                        let poll = {
-                            let mut lifecycle = wait_lifecycle
-                                .lock()
-                                .unwrap_or_else(|poisoned| poisoned.into_inner());
-                            match wait_guard.child_mut().try_wait() {
-                                Ok(Some(status)) => {
-                                    lifecycle.exited = true;
-                                    Poll::Exited(status.code().unwrap_or(0) as i64)
-                                }
-                                Ok(None) => Poll::Running,
-                                Err(_) => Poll::Failed,
-                            }
-                        };
-                        match poll {
-                            Poll::Exited(code) => {
-                                wait_guard.disarm();
-                                wait_output.push_exit(code);
-                                return;
-                            }
-                            Poll::Running => std::thread::sleep(CHILD_REAP_POLL),
-                            Poll::Failed => {
-                                if ChildLifecycle::begin_termination(&wait_lifecycle) {
-                                    let _ = wait_guard.child_mut().kill();
-                                    signal_process_group(wait_guard.pid);
-                                }
-                                let status = wait_guard.child_mut().wait();
-                                let code = status
-                                    .as_ref()
-                                    .map(|status| status.code().unwrap_or(0) as i64)
-                                    .unwrap_or(0);
-                                if status.is_ok() {
-                                    ChildLifecycle::mark_exited(&wait_lifecycle);
-                                    wait_guard.disarm();
-                                }
-                                wait_output.push_exit(code);
-                                return;
-                            }
-                        }
-                    }
-                })
-            {
-                let _ = error;
-                handoff.disarm();
-                return dead_handle(output, None);
-            }
-            if handoff.is_cancelled() {
-                handoff.disarm();
-                return dead_handle(output, None);
+            // Observe exit without reaping. The owner thread handles both
+            // overflow kill requests and the final wait, so all process
+            // signals use the still-owned Child handle.
+            let observer_tx = command_tx;
+            std::thread::spawn(move || {
+                let _ = wait_for_child_exit_without_reaping(pid);
+                let _ = observer_tx.send(PipeChildCommand::ExitReady);
+            });
+            let wait_completion = Arc::clone(&completion);
+            if spawn_pipe_wait_thread(child_guard, command_rx, wait_completion).is_err() {
+                // The failed spawn drops its task closure, which still owns
+                // PipeChildGuard and therefore kills and reaps the child.
+                handoff.cancel();
+                completion.child_exited(1);
+                return PtyHandle { control: Arc::new(DeadControl), output, banner: Some(banner) };
             }
             PtyHandle { control, output, banner: Some(banner) }
         }
         Err(error) => {
             let _ = error;
-            dead_handle(output, Some(banner))
+            output.push_exit(1);
+            PtyHandle { control: Arc::new(DeadControl), output, banner: Some(banner) }
         }
     }
 }
@@ -868,14 +1038,38 @@ impl PtyControl for DeadControl {
     fn kill(&self) {}
 }
 
-fn pump_pipe(mut stream: impl Read, output: Arc<ThreadOutput>) {
+fn pump_pipe(
+    mut stream: impl Read + AsRawFd,
+    output: Arc<ThreadOutput>,
+    completion: Arc<ProcessOutputCompletion>,
+) {
+    let fd = stream.as_raw_fd();
     let mut buffer = [0_u8; 32_768];
     loop {
+        if completion.cancelled() {
+            break;
+        }
+        let mut poll_fd = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
+        let poll_result = unsafe { libc::poll(&mut poll_fd, 1, PIPE_READ_POLL_MS) };
+        if poll_result < 0 {
+            if std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
+                continue;
+            }
+            break;
+        }
+        if poll_result == 0 {
+            continue;
+        }
+        if poll_fd.revents & libc::POLLNVAL != 0 {
+            break;
+        }
         match stream.read(&mut buffer) {
-            Ok(0) | Err(_) => break,
+            Ok(0) => break,
+            Err(_) => break,
             Ok(count) => output.push_data(Bytes::copy_from_slice(&buffer[..count])),
         }
     }
+    completion.reader_finished();
 }
 
 async fn socket_exists(path: &Path) -> bool {
@@ -1200,21 +1394,93 @@ impl Drop for DaemonProcessGuard {
     }
 }
 
+/// `ControlHandle` has an explicit end operation. Keep probes owned across
+/// every async request so cancellation cannot leave a socket task alive.
+struct ControlEndGuard {
+    control: Option<Arc<dyn ControlHandle>>,
+}
+
+impl ControlEndGuard {
+    fn new(control: Arc<dyn ControlHandle>) -> Self {
+        Self { control: Some(control) }
+    }
+
+    fn disarm(&mut self) {
+        self.control = None;
+    }
+}
+
+impl Drop for ControlEndGuard {
+    fn drop(&mut self) {
+        if let Some(control) = self.control.take() {
+            control.end();
+        }
+    }
+}
+
+/// Own a daemon child until readiness has been proven. If an async open is
+/// cancelled, `Drop` starts termination and schedules a reaper, so the child
+/// cannot survive after its PTY-open permit is released.
+struct DaemonProcessGuard {
+    child: Option<tokio::process::Child>,
+}
+
+impl DaemonProcessGuard {
+    fn new(child: tokio::process::Child) -> Self {
+        Self { child: Some(child) }
+    }
+
+    fn disarm(&mut self) {
+        self.child = None;
+    }
+
+    async fn cleanup(&mut self) {
+        if let Some(child) = self.child.take() {
+            cleanup_daemon(child).await;
+        }
+    }
+}
+
+impl Drop for DaemonProcessGuard {
+    fn drop(&mut self) {
+        let Some(mut child) = self.child.take() else { return };
+        if let Some(pid) = child.id() {
+            // SAFETY: this is the process group of the child spawned by this
+            // guard. The child handle remains owned until the reaper waits.
+            unsafe {
+                let _ = libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
+            }
+        }
+        let _ = child.start_kill();
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.spawn(async move {
+                let _ = child.wait().await;
+            });
+        }
+    }
+}
+
 #[async_trait]
 impl PtyDeps for RealPtyDeps {
-    async fn spawn_pty(&self, spec: SpawnSpec) -> PtyHandle {
+    async fn spawn_pty(
+        &self,
+        spec: SpawnSpec,
+        cancellation: CancellationToken,
+        permit: OpenPermit,
+    ) -> PtyHandle {
         // PTY allocation and thread setup are blocking; run off the reactor.
         // On PTY allocation failure (ptmx exhaustion et al) degrade to a
         // pipe-mode shell so the terminal still functions, with a banner.
         let output = ThreadOutput::new();
-        let worker_output = Arc::clone(&output);
         let handoff = SpawnHandoff::new();
         let worker_handoff = Arc::clone(&handoff);
+        let worker_output = Arc::clone(&output);
         let mut cancel_guard = CancelOnDrop::new(handoff);
-        let result =
-            tokio::task::spawn_blocking(move || match spawn_real_pty(&spec, &worker_handoff) {
+        let mut worker = spawn_blocking_with_open_permit(permit, move || {
+            match spawn_real_pty(&spec, &worker_handoff) {
                 Ok(handle) => handle,
-                Err(_error) if worker_handoff.is_cancelled() => {
+                Err(error) if worker_handoff.is_cancelled() => {
+                    let _ = error;
                     worker_output.push_exit(1);
                     PtyHandle {
                         control: Arc::new(DeadControl),
@@ -1223,8 +1489,16 @@ impl PtyDeps for RealPtyDeps {
                     }
                 }
                 Err(error) => spawn_pipe_mode(&spec, &error.to_string(), &worker_handoff),
-            })
-            .await;
+            }
+        });
+        let result = tokio::select! {
+            result = &mut worker => result,
+            _ = cancellation.cancelled() => {
+                cancel_guard.handoff.cancel();
+                worker.abort();
+                return PtyHandle { control: Arc::new(DeadControl), output, banner: None };
+            }
+        };
         cancel_guard.disarm();
         result.unwrap_or_else(|_| {
             output.push_exit(1);
@@ -1232,12 +1506,15 @@ impl PtyDeps for RealPtyDeps {
         })
     }
 
-    async fn resolve_cmux_tui(&self) -> Option<CmuxTui> {
+    async fn resolve_cmux_tui(&self, cancellation: CancellationToken) -> Option<CmuxTui> {
         if let Some(override_path) =
             self.env.get("CHATMUX_RELAY_CMUX_TUI").filter(|value| !value.trim().is_empty())
         {
             let path = override_path.trim();
-            return if is_executable(Path::new(path)).await {
+            return if tokio::select! {
+                _ = cancellation.cancelled() => false,
+                result = is_executable(Path::new(path)) => result,
+            } {
                 Some(CmuxTui { file: path.to_owned(), prefix: Vec::new() })
             } else {
                 None
@@ -1245,11 +1522,17 @@ impl PtyDeps for RealPtyDeps {
         }
         // Never a bare `cmux` on PATH — that name is ambiguous; only cmux-tui.
         for dir in self.env.get("PATH").map(String::as_str).unwrap_or("").split(':') {
+            if cancellation.is_cancelled() {
+                return None;
+            }
             if dir.is_empty() {
                 continue;
             }
             let candidate = Path::new(dir).join("cmux-tui");
-            if is_executable(&candidate).await {
+            if tokio::select! {
+                _ = cancellation.cancelled() => false,
+                result = is_executable(&candidate) => result,
+            } {
                 return Some(CmuxTui {
                     file: candidate.to_string_lossy().into_owned(),
                     prefix: Vec::new(),
@@ -1266,36 +1549,50 @@ impl PtyDeps for RealPtyDeps {
         socket_dir: &Path,
         cwd: &Path,
         env: &HashMap<String, String>,
+        cancellation: CancellationToken,
     ) -> Result<EnsureDaemon, String> {
         use std::os::unix::fs::{MetadataExt, PermissionsExt};
-        tokio::fs::create_dir_all(socket_dir)
-            .await
-            .map_err(|error| format!("control socket directory create failed: {error}"))?;
-        let metadata = tokio::fs::symlink_metadata(socket_dir)
-            .await
-            .map_err(|error| format!("control socket directory stat failed: {error}"))?;
-        if metadata.file_type().is_symlink() || !metadata.is_dir() || metadata.uid() != self.uid {
+        let created = tokio::select! {
+            _ = cancellation.cancelled() => return Err("terminal open cancelled".to_owned()),
+            result = tokio::fs::create_dir_all(socket_dir) => result,
+        };
+        created.map_err(|error| format!("control socket directory create failed: {error}"))?;
+        let metadata = tokio::select! {
+            _ = cancellation.cancelled() => return Err("terminal open cancelled".to_owned()),
+            result = tokio::fs::metadata(socket_dir) => result,
+        }
+        .map_err(|error| format!("control socket directory stat failed: {error}"))?;
+        if cancellation.is_cancelled() {
+            return Err("terminal open cancelled".to_owned());
+        }
+        if !metadata.is_dir() || metadata.uid() != self.uid {
             return Err(format!("control socket directory is not owned by uid {}", self.uid));
         }
-        let permissions = std::fs::Permissions::from_mode(0o700);
-        tokio::fs::set_permissions(socket_dir, permissions)
-            .await
-            .map_err(|error| format!("control socket directory permissions failed: {error}"))?;
+        let mut permissions = metadata.permissions();
+        permissions.set_mode(0o700);
+        tokio::select! {
+            _ = cancellation.cancelled() => return Err("terminal open cancelled".to_owned()),
+            result = tokio::fs::set_permissions(socket_dir, permissions) => result,
+        }
+        .map_err(|error| format!("control socket directory permissions failed: {error}"))?;
         let socket_path = session_socket_path(socket_dir, self.uid, session)?;
-
-        // Match cmux-tui-core's startup lock. Hold it through the initial
-        // probe and child spawn, then release it before polling because the
-        // child must acquire the same lock while binding its listener.
-        let start_lock_deadline = Instant::now() + Duration::from_millis(DAEMON_SOCKET_WAIT_MS);
-        let start_lock =
-            acquire_daemon_start_lock(&socket_path, self.uid, start_lock_deadline).await?;
-        if socket_exists(&socket_path).await {
-            let ready = match connect_control(&socket_path, CONTROL_TIMEOUT_MS).await {
+        let socket_present = tokio::select! {
+            _ = cancellation.cancelled() => return Err("terminal open cancelled".to_owned()),
+            present = socket_exists(&socket_path) => present,
+        };
+        if socket_present {
+            let ready = match tokio::select! {
+                _ = cancellation.cancelled() => return Err("terminal open cancelled".to_owned()),
+                result = connect_control(&socket_path, CONTROL_TIMEOUT_MS) => result,
+            } {
                 Ok(control) => {
-                    let mut control_guard = ControlEndGuard::new(Arc::clone(&control));
-                    let ready = control_ready(&control, session).await;
+                    let mut guard = ControlEndGuard::new(Arc::clone(&control));
+                    let ready = tokio::select! {
+                        _ = cancellation.cancelled() => return Err("terminal open cancelled".to_owned()),
+                        result = control_ready(&control, session) => result,
+                    };
                     control.end();
-                    control_guard.disarm();
+                    guard.disarm();
                     ready
                 }
                 Err(_) => false,
@@ -1326,61 +1623,92 @@ impl PtyDeps for RealPtyDeps {
         command.stdout(std::process::Stdio::null());
         command.stderr(std::process::Stdio::null());
         command.process_group(0);
+        if cancellation.is_cancelled() {
+            return Err("terminal open cancelled".to_owned());
+        }
         let child =
             command.spawn().map_err(|error| format!("cmux-tui daemon spawn failed: {error}"))?;
-        // `serve_paused` takes the same lock before probing and binding. Do
-        // not hold it during readiness polling, or the child would deadlock.
-        drop(start_lock);
-        let mut process_guard = DaemonProcessGuard::new(child, socket_path.clone());
+        let mut process_guard = DaemonProcessGuard::new(child);
 
         let deadline = Instant::now() + Duration::from_millis(DAEMON_SOCKET_WAIT_MS);
         while Instant::now() < deadline {
-            if socket_exists(&socket_path).await {
+            if cancellation.is_cancelled() {
+                process_guard.cleanup().await;
+                return Err("terminal open cancelled".to_owned());
+            }
+            let socket_present = tokio::select! {
+                _ = cancellation.cancelled() => {
+                    process_guard.cleanup().await;
+                    return Err("terminal open cancelled".to_owned());
+                }
+                present = socket_exists(&socket_path) => present,
+            };
+            if socket_present {
                 // Probe a control round-trip before declaring readiness.
                 while Instant::now() < deadline {
-                    match connect_control(&socket_path, CONTROL_TIMEOUT_MS).await {
-                        Ok(control) => {
-                            let mut control_guard = ControlEndGuard::new(Arc::clone(&control));
-                            let identity = control_identity(&control, session).await;
-                            control.end();
-                            control_guard.disarm();
-                            if let Some(identity) = identity {
-                                if identity.pid == process_guard.pid().unwrap_or_default() {
-                                    // The child handle still owns this PID, so
-                                    // it cannot have been recycled between the
-                                    // identity response and this check.
-                                    if process_guard.child_running() {
-                                        process_guard.claim_socket();
-                                        if identity.lifecycle_ready {
-                                            process_guard.detach();
-                                            return Ok(EnsureDaemon { created: true, socket_path });
-                                        }
-                                    }
-                                } else if identity.lifecycle_ready {
-                                    // A concurrent starter won the bind race.
-                                    // Reap our redundant child, then use the
-                                    // already-ready daemon as an existing one.
-                                    process_guard.cleanup().await;
-                                    return Ok(EnsureDaemon { created: false, socket_path });
-                                }
-                            }
+                    if cancellation.is_cancelled() {
+                        process_guard.cleanup().await;
+                        return Err("terminal open cancelled".to_owned());
+                    }
+                    if let Ok(control) = tokio::select! {
+                        _ = cancellation.cancelled() => {
+                            process_guard.cleanup().await;
+                            return Err("terminal open cancelled".to_owned());
                         }
-                        _ => tokio::time::sleep(Duration::from_millis(50)).await,
+                        result = connect_control(&socket_path, CONTROL_TIMEOUT_MS) => result,
+                    } {
+                        let mut guard = ControlEndGuard::new(Arc::clone(&control));
+                        let ready = tokio::select! {
+                            _ = cancellation.cancelled() => {
+                                process_guard.cleanup().await;
+                                return Err("terminal open cancelled".to_owned());
+                            }
+                            result = control_ready(&control, session) => result,
+                        };
+                        control.end();
+                        guard.disarm();
+                        if ready {
+                            process_guard.disarm();
+                            return Ok(EnsureDaemon { created: true, socket_path });
+                        }
+                    }
+                    tokio::select! {
+                        _ = cancellation.cancelled() => {
+                            process_guard.cleanup().await;
+                            return Err("terminal open cancelled".to_owned());
+                        }
+                        _ = tokio::time::sleep(Duration::from_millis(50)) => {}
                     }
                 }
+                // Do not unlink the path here. Another daemon may have won
+                // the socket race after our initial absence check; ownership
+                // of a pathname cannot be proven after the fact.
                 process_guard.cleanup().await;
                 return Err(format!(
                     "cmux-tui daemon for \"{session}\" did not become control-ready"
                 ));
             }
-            tokio::time::sleep(Duration::from_millis(50)).await;
+            tokio::select! {
+                _ = cancellation.cancelled() => {
+                    process_guard.cleanup().await;
+                    return Err("terminal open cancelled".to_owned());
+                }
+                _ = tokio::time::sleep(Duration::from_millis(50)) => {}
+            }
         }
         process_guard.cleanup().await;
         Err(format!("cmux-tui daemon for \"{session}\" never created {}", socket_path.display()))
     }
 
-    async fn connect_control(&self, socket_path: &Path) -> Result<Arc<dyn ControlHandle>, String> {
-        connect_control(socket_path, CONTROL_TIMEOUT_MS).await
+    async fn connect_control(
+        &self,
+        socket_path: &Path,
+        cancellation: CancellationToken,
+    ) -> Result<Arc<dyn ControlHandle>, String> {
+        tokio::select! {
+            _ = cancellation.cancelled() => Err("terminal open cancelled".to_owned()),
+            result = connect_control(socket_path, CONTROL_TIMEOUT_MS) => result,
+        }
     }
 
     async fn read_dir(&self, path: &Path) -> Result<Vec<String>, ()> {
@@ -1424,9 +1752,127 @@ pub fn valid_session(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::net::UnixStream;
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
-    use std::sync::{Arc as TestArc, Barrier, Mutex as TestMutex};
+    use std::sync::{Arc as TestArc, Barrier, Mutex as TestMutex, mpsc};
     use std::thread;
+
+    struct TestControl {
+        kills: TestArc<AtomicUsize>,
+        drops: TestArc<AtomicUsize>,
+    }
+
+    impl Drop for TestControl {
+        fn drop(&mut self) {
+            self.drops.fetch_add(1, AtomicOrdering::Relaxed);
+        }
+    }
+
+    impl PtyControl for TestControl {
+        fn write(&self, _data: &[u8]) {}
+        fn resize(&self, _cols: u16, _rows: u16) {}
+        fn pause(&self) {}
+        fn resume(&self) {}
+        fn kill(&self) {
+            self.kills.fetch_add(1, AtomicOrdering::Relaxed);
+        }
+    }
+
+    #[derive(Debug)]
+    struct TestChildKiller {
+        kills: TestArc<AtomicUsize>,
+    }
+
+    impl cmux_pty::ChildKiller for TestChildKiller {
+        fn kill(&mut self) -> std::io::Result<()> {
+            self.kills.fetch_add(1, AtomicOrdering::Relaxed);
+            Ok(())
+        }
+
+        fn clone_killer(&self) -> Box<dyn cmux_pty::ChildKiller + Send + Sync> {
+            Box::new(Self { kills: TestArc::clone(&self.kills) })
+        }
+    }
+
+    #[derive(Debug)]
+    struct TestMaster;
+
+    impl MasterPty for TestMaster {
+        fn resize(&self, _size: PtySize) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        fn get_size(&self) -> anyhow::Result<PtySize> {
+            Ok(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
+        }
+
+        fn try_clone_reader(&self) -> anyhow::Result<Box<dyn Read + Send>> {
+            Ok(Box::new(std::io::empty()))
+        }
+
+        fn take_writer(&self) -> anyhow::Result<Box<dyn Write + Send>> {
+            Ok(Box::new(std::io::sink()))
+        }
+
+        fn process_group_leader(&self) -> Option<libc::pid_t> {
+            None
+        }
+
+        fn as_raw_fd(&self) -> Option<std::os::unix::io::RawFd> {
+            None
+        }
+
+        fn tty_name(&self) -> Option<PathBuf> {
+            None
+        }
+    }
+
+    #[test]
+    fn master_control_kill_does_not_signal_reaped_pid() {
+        let kills = TestArc::new(AtomicUsize::new(0));
+        let lifecycle = ChildLifecycle::new(Some(42));
+        lifecycle.lock().expect("lifecycle lock").exited = true;
+        let control = MasterControl {
+            master: Mutex::new(Box::new(TestMaster)),
+            writer: Mutex::new(Box::new(std::io::sink())),
+            killer: Mutex::new(Box::new(TestChildKiller { kills: TestArc::clone(&kills) })),
+            lifecycle,
+        };
+
+        control.kill();
+
+        assert_eq!(kills.load(AtomicOrdering::Relaxed), 0);
+    }
+
+    #[test]
+    fn failed_child_termination_can_be_retried() {
+        let lifecycle = ChildLifecycle::new(Some(42));
+        let attempts = AtomicUsize::new(0);
+
+        assert!(!ChildLifecycle::terminate(&lifecycle, |_| {
+            attempts.fetch_add(1, AtomicOrdering::Relaxed);
+            Err(std::io::Error::other("transient kill failure"))
+        }));
+        assert!(ChildLifecycle::terminate(&lifecycle, |_| {
+            attempts.fetch_add(1, AtomicOrdering::Relaxed);
+            Ok(())
+        }));
+        assert!(!ChildLifecycle::terminate(&lifecycle, |_| {
+            attempts.fetch_add(1, AtomicOrdering::Relaxed);
+            Ok(())
+        }));
+        assert_eq!(attempts.load(AtomicOrdering::Relaxed), 2);
+    }
+
+    #[test]
+    fn reaping_fence_blocks_late_termination_attempts() {
+        let lifecycle = ChildLifecycle::new(Some(42));
+        assert!(ChildLifecycle::begin_reaping(&lifecycle));
+        assert!(!ChildLifecycle::terminate(&lifecycle, |_| Ok(())));
+        let state = lifecycle.lock().expect("lifecycle lock");
+        assert!(state.reaping);
+        assert!(state.termination_started);
+    }
 
     #[test]
     fn session_socket_path_matches_core_fallback_order() {
@@ -1495,80 +1941,200 @@ mod tests {
         );
     }
 
-    struct CountingControl(TestArc<AtomicUsize>);
-
-    impl PtyControl for CountingControl {
-        fn write(&self, _data: &[u8]) {}
-        fn resize(&self, _cols: u16, _rows: u16) {}
-        fn pause(&self) {}
-        fn resume(&self) {}
-        fn kill(&self) {
-            self.0.fetch_add(1, AtomicOrdering::SeqCst);
-        }
-    }
-
     #[test]
-    fn cancellation_takes_and_kills_the_temporary_handoff_owner() {
-        let handoff = SpawnHandoff::new();
+    fn backlog_overflow_preserves_prefix_and_emits_terminal_exit_once() {
+        let output = ThreadOutput::new();
         let kills = TestArc::new(AtomicUsize::new(0));
-        assert!(handoff.install(Arc::new(CountingControl(TestArc::clone(&kills)))));
-
-        handoff.cancel();
-        handoff.disarm();
-
-        assert_eq!(kills.load(AtomicOrdering::SeqCst), 1);
-        assert!(handoff.is_cancelled());
-    }
-
-    #[test]
-    fn disarming_after_async_handoff_does_not_kill_the_live_owner() {
-        let handoff = SpawnHandoff::new();
-        let kills = TestArc::new(AtomicUsize::new(0));
-        let control: Arc<dyn PtyControl> = Arc::new(CountingControl(TestArc::clone(&kills)));
-        assert!(handoff.install(Arc::clone(&control)));
-
-        handoff.disarm();
-
-        assert_eq!(kills.load(AtomicOrdering::SeqCst), 0);
-        drop(control);
-    }
-
-    #[test]
-    fn child_lifecycle_serializes_termination_and_reap() {
-        let lifecycle = ChildLifecycle::new(Some(4242));
-        let signals = TestArc::new(AtomicUsize::new(0));
-        let first_signalled = ChildLifecycle::terminate(&lifecycle, |pid| {
-            assert_eq!(pid, Some(4242));
-            signals.fetch_add(1, AtomicOrdering::SeqCst);
-        });
-        let second_signalled = ChildLifecycle::terminate(&lifecycle, |_| {
-            signals.fetch_add(1, AtomicOrdering::SeqCst);
-        });
-        assert!(first_signalled);
-        assert!(!second_signalled);
-        ChildLifecycle::mark_exited(&lifecycle);
-        assert!(!ChildLifecycle::terminate(&lifecycle, |_| {
-            signals.fetch_add(1, AtomicOrdering::SeqCst);
+        let kill_counter = TestArc::clone(&kills);
+        output.set_overflow_handler(TestArc::new(move || {
+            kill_counter.fetch_add(1, AtomicOrdering::Relaxed);
         }));
-        assert_eq!(signals.load(AtomicOrdering::SeqCst), 1);
+        output.push_data(Bytes::from(vec![b'x'; THREAD_OUTPUT_BACKLOG_CAP]));
+        output.push_data(Bytes::from_static(b"overflow"));
+        output.push_exit(0);
+        let seen = TestArc::new(TestMutex::new(Vec::new()));
+        let data_seen = TestArc::clone(&seen);
+        let exit_seen = TestArc::clone(&seen);
+        output.subscribe(
+            TestArc::new(move |chunk| {
+                data_seen.lock().expect("seen lock").push(format!("data:{}", chunk.len()))
+            }),
+            TestArc::new(move |code| {
+                exit_seen.lock().expect("seen lock").push(format!("exit:{code}"))
+            }),
+        );
+        assert_eq!(
+            *seen.lock().expect("seen lock"),
+            vec![format!("data:{THREAD_OUTPUT_BACKLOG_CAP}"), "exit:75".to_owned()]
+        );
+        output.push_data(Bytes::from_static(b"another overflow"));
+        assert_eq!(kills.load(AtomicOrdering::Relaxed), 1);
     }
 
     #[test]
-    fn socket_cleanup_requires_the_observed_inode() {
-        use std::os::unix::net::UnixListener;
+    fn overflow_control_kills_live_owner_without_retaining_it() {
+        let output = ThreadOutput::new();
+        let kills = TestArc::new(AtomicUsize::new(0));
+        let drops = TestArc::new(AtomicUsize::new(0));
+        let control = TestArc::new(TestControl {
+            kills: TestArc::clone(&kills),
+            drops: TestArc::clone(&drops),
+        });
+        let weak_control = TestArc::downgrade(&control);
+        output.set_overflow_control(&control);
 
-        static NEXT_FIXTURE: AtomicUsize = AtomicUsize::new(0);
-        let path = std::env::temp_dir().join(format!(
-            "cmux-relay-socket-fingerprint-{}-{}",
-            std::process::id(),
-            NEXT_FIXTURE.fetch_add(1, AtomicOrdering::Relaxed)
-        ));
-        let _listener = UnixListener::bind(&path).expect("create fingerprint fixture");
-        let observed = socket_fingerprint(&path).expect("fixture fingerprint");
-        let wrong = SocketFingerprint { device: observed.device, inode: observed.inode + 1 };
-        remove_socket_if_owned(&path, Some(wrong));
-        assert!(path.exists(), "mismatched inode must remain untouched");
-        remove_socket_if_owned(&path, Some(observed));
-        assert!(!path.exists(), "matching inode must be cleaned");
+        output.push_data(Bytes::from(vec![b'x'; THREAD_OUTPUT_BACKLOG_CAP]));
+        output.push_data(Bytes::from_static(b"overflow"));
+        assert_eq!(kills.load(AtomicOrdering::Relaxed), 1);
+
+        drop(control);
+        assert!(weak_control.upgrade().is_none());
+        assert_eq!(drops.load(AtomicOrdering::Relaxed), 1);
+    }
+
+    #[test]
+    fn pipe_control_sends_one_kill_request_to_owned_child() {
+        let (command_tx, command_rx) = mpsc::channel();
+        let control = PipeControl {
+            stdin: Mutex::new(None),
+            command_tx,
+            kill_requested: AtomicBool::new(false),
+        };
+
+        control.kill();
+        control.kill();
+
+        assert!(matches!(command_rx.recv(), Ok(PipeChildCommand::Kill)));
+        assert!(command_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn child_exit_observer_leaves_child_owned_for_wait() {
+        let mut child = std::process::Command::new("/bin/sh")
+            .args(["-c", "exit 23"])
+            .spawn()
+            .expect("spawn child");
+        wait_for_child_exit_without_reaping(child.id() as libc::pid_t).expect("observe child");
+        assert_eq!(child.wait().expect("reap child").code(), Some(23));
+    }
+
+    #[test]
+    fn failed_pipe_wait_thread_spawn_reaps_child() {
+        let child = std::process::Command::new("/bin/sh")
+            .args(["-c", "while :; do :; done"])
+            .spawn()
+            .expect("spawn child");
+        let pid = child.id() as libc::pid_t;
+        let output = ThreadOutput::new();
+        let completion = ProcessOutputCompletion::with_post_exit_grace(0, output, None);
+        let (_command_tx, command_rx) = mpsc::channel();
+        let result = spawn_pipe_wait_thread_with(
+            PipeChildGuard::new(child),
+            command_rx,
+            completion,
+            |_task| Err(std::io::Error::other("injected thread creation failure")),
+        );
+
+        assert!(result.is_err());
+        // PipeChildGuard must kill and reap the child before the failed open
+        // returns. A zero signal only probes existence, so it does not alter
+        // any unrelated process.
+        let probe = unsafe { libc::kill(pid, 0) };
+        assert_eq!(probe, -1, "failed wait-thread setup must not leak child {pid}");
+    }
+
+    #[test]
+    fn empty_chunks_do_not_bypass_backlog_cap() {
+        let output = ThreadOutput::new();
+        for _ in 0..10_000 {
+            output.push_data(Bytes::new());
+        }
+
+        let state = output.state.lock().expect("source lock");
+        assert!(state.backlog.is_empty());
+        assert_eq!(state.backlog_bytes, 0);
+    }
+
+    #[test]
+    fn pipe_exit_waits_for_reader_eof_before_delivering_late_bytes() {
+        let output = ThreadOutput::new();
+        let completion = ProcessOutputCompletion::new(1, TestArc::clone(&output));
+        completion.child_exited(23);
+        output.push_data(Bytes::from_static(b"tail"));
+        completion.reader_finished();
+
+        let seen = TestArc::new(TestMutex::new(Vec::<String>::new()));
+        let data_seen = TestArc::clone(&seen);
+        let exit_seen = TestArc::clone(&seen);
+        output.subscribe(
+            TestArc::new(move |chunk| {
+                data_seen
+                    .lock()
+                    .expect("seen lock")
+                    .push(String::from_utf8_lossy(&chunk).into_owned())
+            }),
+            TestArc::new(move |code| {
+                exit_seen.lock().expect("seen lock").push(format!("exit:{code}"))
+            }),
+        );
+
+        assert_eq!(*seen.lock().expect("seen lock"), vec!["tail".to_owned(), "exit:23".to_owned()]);
+    }
+
+    #[test]
+    fn inherited_pty_descriptor_cannot_hold_exit_forever() {
+        // The PTY completion path uses the same bounded grace coordinator as
+        // pipe fallback. An open stream models a background descendant that
+        // inherited the PTY slave and keeps the reader from reaching EOF.
+        let output = ThreadOutput::new();
+        let completion = ProcessOutputCompletion::new(1, TestArc::clone(&output));
+        let (reader, _writer) = UnixStream::pair().expect("pipe pair");
+        let (exit_tx, exit_rx) = mpsc::channel();
+        let (reader_done_tx, reader_done_rx) = mpsc::channel();
+        let pump_output = TestArc::clone(&output);
+        let pump_completion = TestArc::clone(&completion);
+        thread::spawn(move || {
+            pump_pipe(reader, pump_output, pump_completion);
+            reader_done_tx.send(()).expect("reader completion");
+        });
+        output.subscribe(
+            TestArc::new(|_| {}),
+            TestArc::new(move |code| exit_tx.send(code).expect("exit delivery")),
+        );
+
+        completion.child_exited(41);
+
+        assert_eq!(
+            exit_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("inherited descriptors must not suppress exit"),
+            41
+        );
+        reader_done_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("reader must stop after bounded post-exit recovery");
+    }
+
+    #[test]
+    fn pty_reader_cancellation_wakes_a_blocked_poll() {
+        let output = ThreadOutput::new();
+        let (completion, cancel_reader) =
+            ProcessOutputCompletion::with_pty_cancellation(1, TestArc::clone(&output))
+                .expect("cancellation wake");
+        let (reader_stream, _writer_stream) = UnixStream::pair().expect("PTY-like stream pair");
+        let reader = reader_stream;
+        let (reader_done_tx, reader_done_rx) = mpsc::channel();
+        let pump_output = TestArc::clone(&output);
+        let pump_completion = TestArc::clone(&completion);
+        thread::spawn(move || {
+            pump_pty(reader, cancel_reader, pump_output, pump_completion);
+            reader_done_tx.send(()).expect("reader completion");
+        });
+
+        completion.child_exited(41);
+
+        reader_done_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("cancellation must wake a blocked PTY poll");
     }
 }

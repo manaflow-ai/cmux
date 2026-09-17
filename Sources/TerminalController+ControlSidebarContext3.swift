@@ -381,8 +381,9 @@ extension TerminalController {
         // (resets cached metrics so the Metal layer drawable resizes correctly)
         var refreshedCount = 0
         for panel in tab.panels.values {
-            if let terminalPanel = panel as? TerminalPanel {
-                terminalPanel.surface.forceRefresh(reason: "terminalController.refreshAllTerminalPanels")
+            if panel is TerminalPanel,
+               let target = tab.controlSocketTerminalTarget(for: panel.id) {
+                target.forceRefresh(reason: "terminalController.refreshAllTerminalPanels")
                 refreshedCount += 1
             }
         }

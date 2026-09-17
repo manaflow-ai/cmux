@@ -63,6 +63,7 @@ const MAX_PTY_INGRESS_FRAMES: usize = 64;
 // Keep room for the workspace fs_write 2 MiB payload plus its JSON envelope.
 const MAX_INBOUND_FRAME_BYTES: usize = 4 << 20;
 const CONNECTION_TASK_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
+const CONNECTION_TASK_ABORT_TIMEOUT: Duration = Duration::from_secs(1);
 /// One suspend/read-liveness sample per period while a socket is open.
 const LIVENESS_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 /// Wall clock moving more than this relative to the monotonic clock between
@@ -113,14 +114,16 @@ impl OutboundFrame {
 async fn send_socket_message<S>(
     socket: &Arc<AsyncMutex<S>>,
     message: Message,
-    cancellation: &CancellationToken,
+    process_cancellation: &CancellationToken,
+    connection_cancellation: &CancellationToken,
 ) -> Result<(), ()>
 where
     S: futures_util::Sink<Message> + Unpin,
 {
     tokio::select! {
         biased;
-        _ = cancellation.cancelled() => Err(()),
+        _ = process_cancellation.cancelled() => Err(()),
+        _ = connection_cancellation.cancelled() => Err(()),
         result = async {
             socket.lock().await.send(message).await
         } => result.map_err(|_| ()),
@@ -130,12 +133,19 @@ where
 async fn send_socket_text<S>(
     socket: &Arc<AsyncMutex<S>>,
     text: String,
-    cancellation: &CancellationToken,
+    process_cancellation: &CancellationToken,
+    connection_cancellation: &CancellationToken,
 ) -> Result<(), ()>
 where
     S: futures_util::Sink<Message> + Unpin,
 {
-    send_socket_message(socket, Message::Text(text.into()), cancellation).await
+    send_socket_message(
+        socket,
+        Message::Text(text.into()),
+        process_cancellation,
+        connection_cancellation,
+    )
+    .await
 }
 
 /// One socket's bounded outbound capacity. Critical request responses wait
@@ -358,19 +368,23 @@ impl Default for SessionRuntime {
 
 #[cfg(unix)]
 fn reconcile_tunnel_authority(runtime: &SessionRuntime, auth: Option<TunnelAuth>) -> u64 {
-    // Publish or revoke the generation while holding the authority lock, then
-    // advance the PTY generation floor and detach old tunnel attachments
-    // before releasing it. Trust changes therefore have the same atomic
-    // boundary as hello reconciliation and disconnect cleanup.
-    let mut authority = runtime.tunnel_auth.write().expect("tunnel auth lock");
-    *authority = match auth {
-        Some(auth) => TunnelAuthority::published(authority.generation, auth),
-        None => TunnelAuthority::revoked(authority.generation),
+    // Publish or revoke the generation while holding the authority lock, and
+    // remove old tunnel ownership before releasing it. The returned controls
+    // are killed only after the lock is released, so platform cleanup cannot
+    // block trust readers or a later reconciliation.
+    let (generation, retired) = {
+        let mut authority = runtime.tunnel_auth.write().expect("tunnel auth lock");
+        *authority = match auth {
+            Some(auth) => TunnelAuthority::published(authority.generation, auth),
+            None => TunnelAuthority::revoked(authority.generation),
+        };
+        let generation = authority.generation;
+        runtime.pty.set_tunnel_authority_generation(generation);
+        let _ = runtime.tunnel_generation.send(generation);
+        let retired = runtime.pty.detach_tunnel_transports_deferred();
+        (generation, retired)
     };
-    let generation = authority.generation;
-    runtime.pty.set_tunnel_authority_generation(generation);
-    let _ = runtime.tunnel_generation.send(generation);
-    runtime.pty.detach_tunnel_transports();
+    retired.retire();
     generation
 }
 
@@ -421,15 +435,40 @@ async fn wait_for_reconnect(cancellation: &CancellationToken, delay: Duration) -
     }
 }
 
-/// Cancel and await all work admitted by one physical socket. The timeout is
-/// a final guard for provider code that does not reach an async cancellation
-/// point; dropping the JoinSet after the timeout aborts the remaining handles.
+/// Observe every task result while a connection shuts down. `JoinSet::shutdown`
+/// would abort first and intentionally discard panic results, so keep the
+/// join loop explicit to preserve diagnostics for a task that fails while
+/// releasing its connection-owned resources.
+async fn observe_connection_tasks(connection_tasks: &mut JoinSet<()>) {
+    while let Some(joined) = connection_tasks.join_next().await {
+        if let Err(error) = joined
+            && error.is_panic()
+        {
+            eprintln!("Relay cleanup encountered an internal error.");
+        }
+    }
+}
+
+/// Cancel and await all work admitted by one physical socket. Give handlers
+/// a cooperative window first, then abort and observe the remaining handles
+/// within a shorter final window. A started blocking provider may still outlive
+/// its async wrapper, so the JoinSet is dropped when the bounded cleanup ends.
 async fn shutdown_connection_tasks(
     connection_tasks: &mut JoinSet<()>,
     cancellation: &CancellationToken,
 ) -> bool {
     cancellation.cancel();
-    timeout(CONNECTION_TASK_SHUTDOWN_TIMEOUT, connection_tasks.shutdown()).await.is_ok()
+    if timeout(CONNECTION_TASK_SHUTDOWN_TIMEOUT, observe_connection_tasks(connection_tasks))
+        .await
+        .is_ok()
+    {
+        return true;
+    }
+
+    connection_tasks.abort_all();
+    let _ =
+        timeout(CONNECTION_TASK_ABORT_TIMEOUT, observe_connection_tasks(connection_tasks)).await;
+    false
 }
 
 /// Keep the machine online until the process cancellation token is raised.
@@ -541,6 +580,7 @@ fn make_context(
     pending: &Arc<AtomicU64>,
     auth: &AuthSnapshot,
     transport_id: &str,
+    cancellation: &CancellationToken,
 ) -> FrameContext {
     let sender = out.clone();
     let pending_send = Arc::clone(pending);
@@ -573,6 +613,7 @@ fn make_context(
         local_roots: auth.roots.clone(),
         owner_user_id: auth.owner.clone(),
         transport_id: Some(transport_id.to_owned()),
+        cancellation: cancellation.clone(),
         transport_kind: TransportKind::Relay,
         auth_generation: None,
     }
@@ -617,7 +658,7 @@ async fn relay_session(
     };
     let hello_text =
         serde_json::to_string(&hello).map_err(|error| RelayError::transient(error.to_string()))?;
-    if send_socket_text(&socket, hello_text, cancellation).await.is_err() {
+    if send_socket_text(&socket, hello_text, cancellation, cancellation).await.is_err() {
         return Ok(false);
     }
 
@@ -655,23 +696,24 @@ async fn relay_session(
         let out = out_tx.clone();
         let pending = Arc::clone(&pending);
         let auth = Arc::clone(&auth);
-        let cancellation = connection_cancellation.clone();
+        let connection_token = connection_cancellation.clone();
         let transport = transport_id.clone();
         connection_tasks.spawn(async move {
             loop {
                 let frame = tokio::select! {
                     biased;
-                    _ = cancellation.cancelled() => break,
+                    _ = connection_token.cancelled() => break,
                     frame = pty_rx.recv() => {
                         let Some(frame) = frame else { break };
                         frame
                     }
                 };
                 let snapshot = auth.lock().expect("auth lock").clone();
-                let context = make_context(&out, &pending, &snapshot, &transport);
+                let context =
+                    make_context(&out, &pending, &snapshot, &transport, &connection_token);
                 tokio::select! {
                     biased;
-                    _ = cancellation.cancelled() => break,
+                    _ = connection_token.cancelled() => break,
                     _ = manager.handle_frame(&frame, &context) => {}
                 }
             }
@@ -730,6 +772,10 @@ async fn relay_session(
             if critical_burst >= 8 {
                 critical_burst = 0;
                 tokio::select! {
+                    // This arm is intentionally unbiased after each critical
+                    // burst. Keep cancellation as an explicit wake source so
+                    // it competes fairly with ready queues and timers.
+                    _ = cancellation.cancelled() => Wake::Shutdown,
                     frame = critical_rx.recv() => Wake::Outbound(true, frame),
                     frame = watch_rx.recv() => Wake::Outbound(false, frame),
                     _ = async {
@@ -739,12 +785,15 @@ async fn relay_session(
                         }
                     }, if heartbeat.is_some() => Wake::Heartbeat,
                     _ = liveness.tick() => Wake::Liveness,
-                    _ = cancellation.cancelled() => Wake::Shutdown,
                     incoming = guard.next() => Wake::Incoming(incoming),
                 }
             } else {
                 tokio::select! {
                     biased;
+                    // `biased` polls in source order. Cancellation must be
+                    // first or a continuously-ready queue/heartbeat can
+                    // starve process shutdown indefinitely.
+                    _ = cancellation.cancelled() => Wake::Shutdown,
                     frame = critical_rx.recv() => Wake::Outbound(true, frame),
                     frame = watch_rx.recv() => Wake::Outbound(false, frame),
                     _ = async {
@@ -754,7 +803,6 @@ async fn relay_session(
                         }
                     }, if heartbeat.is_some() => Wake::Heartbeat,
                     _ = liveness.tick() => Wake::Liveness,
-                    _ = cancellation.cancelled() => Wake::Shutdown,
                     incoming = guard.next() => Wake::Incoming(incoming),
                 }
             }
@@ -764,7 +812,10 @@ async fn relay_session(
             Wake::Heartbeat => {
                 critical_burst = 0;
                 let frame = heartbeat_frame(now_ms()).to_string();
-                if send_socket_text(&socket, frame, cancellation).await.is_err() {
+                if send_socket_text(&socket, frame, cancellation, &connection_cancellation)
+                    .await
+                    .is_err()
+                {
                     break Ok(connected);
                 }
             }
@@ -807,7 +858,8 @@ async fn relay_session(
                 }
                 let text = frame.text;
                 let size = text.len() as u64;
-                let sent = send_socket_text(&socket, text, cancellation).await;
+                let sent =
+                    send_socket_text(&socket, text, cancellation, &connection_cancellation).await;
                 pending.fetch_sub(size.min(pending.load(Ordering::SeqCst)), Ordering::SeqCst);
                 if sent.is_err() {
                     break Ok(connected);
@@ -832,8 +884,13 @@ async fn relay_session(
                 let text = match message {
                     Message::Text(text) => text,
                     Message::Ping(payload) => {
-                        let _ = send_socket_message(&socket, Message::Pong(payload), cancellation)
-                            .await;
+                        let _ = send_socket_message(
+                            &socket,
+                            Message::Pong(payload),
+                            cancellation,
+                            &connection_cancellation,
+                        )
+                        .await;
                         continue;
                     }
                     Message::Close(_) => break Ok(connected),
@@ -915,7 +972,15 @@ async fn relay_session(
                                 || local_trust == Trust::Autonomous)
                         {
                             let frame = set_trust_frame(local_trust.as_str()).to_string();
-                            if send_socket_text(&socket, frame, cancellation).await.is_err() {
+                            if send_socket_text(
+                                &socket,
+                                frame,
+                                cancellation,
+                                &connection_cancellation,
+                            )
+                            .await
+                            .is_err()
+                            {
                                 break Ok(connected);
                             }
                         } else if !state.managed {
@@ -964,7 +1029,13 @@ async fn relay_session(
                             // frame context, but it cannot publish that stale
                             // authority back into the manager.
                             let snapshot = auth.lock().expect("auth lock").clone();
-                            let context = make_context(&out_tx, &pending, &snapshot, &transport_id);
+                            let context = make_context(
+                                &out_tx,
+                                &pending,
+                                &snapshot,
+                                &transport_id,
+                                &connection_cancellation,
+                            );
                             runtime.pty.update_transport_auth(&context);
                         }
                         let cadence = Duration::from_millis(hello.heartbeat_interval_ms);
@@ -1002,7 +1073,13 @@ async fn relay_session(
                                 save(config, config_path);
                             }
                             let frame = set_trust_frame(DEFAULT_RELAY_TRUST.as_str()).to_string();
-                            let _ = send_socket_text(&socket, frame, cancellation).await;
+                            let _ = send_socket_text(
+                                &socket,
+                                frame,
+                                cancellation,
+                                &connection_cancellation,
+                            )
+                            .await;
                             workspace.set_local_observe(DEFAULT_RELAY_TRUST == Trust::Observe);
                             eprintln!(
                                 "Refused an autonomous trust acknowledgement without this \
@@ -1030,7 +1107,13 @@ async fn relay_session(
                                     owner_user_id: snapshot.owner.clone(),
                                 }),
                             );
-                            let context = make_context(&out_tx, &pending, &snapshot, &transport_id);
+                            let context = make_context(
+                                &out_tx,
+                                &pending,
+                                &snapshot,
+                                &transport_id,
+                                &connection_cancellation,
+                            );
                             runtime.pty.update_transport_auth(&context);
                         }
                         workspace.set_local_observe(ack == Trust::Observe);
@@ -1142,8 +1225,13 @@ async fn relay_session(
                                 // bounded work queue is saturated. The manager close path is
                                 // synchronous and short, so this cannot create an unbounded wait.
                                 let snapshot = auth_direct.lock().expect("auth lock").clone();
-                                let context =
-                                    make_context(&out_tx, &pending, &snapshot, &transport_id);
+                                let context = make_context(
+                                    &out_tx,
+                                    &pending,
+                                    &snapshot,
+                                    &transport_id,
+                                    &connection_cancellation,
+                                );
                                 tokio::select! {
                                     biased;
                                     _ = cancellation.cancelled() => break Ok(connected),
@@ -1181,11 +1269,13 @@ async fn relay_session(
                                         // outbound queue cannot block this loop and stop socket
                                         // ingress from being drained.
                                         let text = reply.to_string();
-                                        let sent = socket
-                                            .lock()
-                                            .await
-                                            .send(Message::Text(text.into()))
-                                            .await;
+                                        let sent = send_socket_text(
+                                            &socket,
+                                            text,
+                                            cancellation,
+                                            &connection_cancellation,
+                                        )
+                                        .await;
                                         if sent.is_err() {
                                             break Ok(connected);
                                         }
@@ -1267,9 +1357,7 @@ async fn relay_session(
     // deadline for the final await instead of letting reconnect or process
     // shutdown wait forever.
     if !shutdown_connection_tasks(&mut connection_tasks, &connection_cancellation).await {
-        eprintln!(
-            "Relay connection task shutdown exceeded {CONNECTION_TASK_SHUTDOWN_TIMEOUT:?}; abandoning remaining handlers."
-        );
+        eprintln!("Relay cleanup did not finish before its safety deadline.");
     }
 
     // This socket's attachments die with it; sessions persist, and the
@@ -1366,11 +1454,52 @@ mod liveness_tests {
 
 #[cfg(test)]
 mod cancellation_tests {
-    use super::{shutdown_connection_tasks, wait_for_reconnect};
+    use super::{send_socket_text, shutdown_connection_tasks, wait_for_reconnect};
+    use futures_util::Sink;
+    use std::pin::Pin;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::task::{Context, Poll};
     use std::time::Duration;
 
+    use tokio::sync::{Mutex as AsyncMutex, Notify};
     use tokio::task::JoinSet;
+    use tokio_tungstenite::tungstenite::Message;
     use tokio_util::sync::CancellationToken;
+
+    struct PendingSink {
+        started: Arc<Notify>,
+    }
+
+    impl Sink<Message> for PendingSink {
+        type Error = ();
+
+        fn poll_ready(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Result<(), Self::Error>> {
+            self.started.notify_one();
+            Poll::Pending
+        }
+
+        fn start_send(self: Pin<&mut Self>, _item: Message) -> Result<(), Self::Error> {
+            Ok(())
+        }
+
+        fn poll_flush(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_close(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+    }
 
     #[tokio::test]
     async fn reconnect_backoff_stops_when_process_is_cancelled() {
@@ -1397,6 +1526,76 @@ mod cancellation_tests {
         assert!(shutdown_connection_tasks(&mut tasks, &cancellation).await);
         assert!(cancellation.is_cancelled());
         assert!(tasks.is_empty());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn connection_shutdown_allows_cooperative_tasks_to_finish() {
+        let cancellation = CancellationToken::new();
+        let worker_cancellation = cancellation.clone();
+        let completed = Arc::new(AtomicBool::new(false));
+        let worker_completed = Arc::clone(&completed);
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let mut tasks = JoinSet::new();
+        tasks.spawn(async move {
+            started_tx.send(()).expect("test receiver is waiting");
+            worker_cancellation.cancelled().await;
+            worker_completed.store(true, Ordering::Release);
+        });
+        started_rx.await.expect("worker started");
+
+        assert!(shutdown_connection_tasks(&mut tasks, &cancellation).await);
+        assert!(completed.load(Ordering::Acquire));
+        assert!(tasks.is_empty());
+    }
+
+    #[tokio::test]
+    async fn cancellation_unblocks_a_send_waiting_on_the_socket() {
+        let started = Arc::new(Notify::new());
+        let socket = Arc::new(AsyncMutex::new(PendingSink { started: Arc::clone(&started) }));
+        let process_cancellation = CancellationToken::new();
+        let connection_cancellation = CancellationToken::new();
+        let task_socket = Arc::clone(&socket);
+        let task_process_cancellation = process_cancellation.clone();
+        let task_connection_cancellation = connection_cancellation.clone();
+        let send = tokio::spawn(async move {
+            send_socket_text(
+                &task_socket,
+                "blocked".to_owned(),
+                &task_process_cancellation,
+                &task_connection_cancellation,
+            )
+            .await
+        });
+
+        started.notified().await;
+        process_cancellation.cancel();
+        assert!(send.await.expect("send task joined").is_err());
+        assert!(!connection_cancellation.is_cancelled());
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tunnel_authority_tests {
+    use super::{SessionRuntime, TunnelAuth, reconcile_tunnel_authority};
+
+    #[test]
+    fn trust_downgrade_revokes_old_tunnel_authority() {
+        let runtime = SessionRuntime::new();
+        let published = reconcile_tunnel_authority(
+            &runtime,
+            Some(TunnelAuth {
+                trust: "autonomous".to_owned(),
+                local_roots: None,
+                owner_user_id: None,
+            }),
+        );
+        assert!(runtime.tunnel_auth.read().expect("authority lock").auth.is_some());
+
+        let revoked = reconcile_tunnel_authority(&runtime, None);
+        let authority = runtime.tunnel_auth.read().expect("authority lock");
+        assert_eq!(revoked, published + 1);
+        assert!(authority.auth.is_none(), "a trust downgrade must revoke tunnel access");
+        assert_eq!(authority.generation, revoked);
     }
 }
 
