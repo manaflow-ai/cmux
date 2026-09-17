@@ -8,7 +8,7 @@
 // registration can never cross teams; within a team, cache integrity relies on
 // member trust, the same boundary as sharing snapshot ids or repo access.
 
-import { type ProviderId } from "../../../../../services/vms/drivers";
+import { isProviderId, type ProviderId } from "../../../../../services/vms/drivers";
 import {
   jsonResponse,
   resolveVmRouteAccountScope,
@@ -39,12 +39,12 @@ export async function POST(request: Request): Promise<Response> {
         return envBadRequest("Cloud VM env layer registration expected a JSON object body.");
       }
       const candidate = body as Record<string, unknown>;
-      if (candidate.provider !== undefined && !isKnownProvider(candidate.provider)) {
-        return envBadRequest("`provider` must be one of e2b, freestyle, daytona.");
+      if (candidate.provider !== undefined && !isProviderId(candidate.provider)) {
+        return envBadRequest("`provider` must be freestyle.");
       }
       // Env layers are Freestyle-only; never inherit a non-Freestyle
       // deployment default for a provider-less registration.
-      const provider: ProviderId = isKnownProvider(candidate.provider)
+      const provider: ProviderId = isProviderId(candidate.provider)
         ? candidate.provider
         : "freestyle";
       const baseImageId = requiredString(candidate.baseImageId);
@@ -58,24 +58,14 @@ export async function POST(request: Request): Promise<Response> {
       if (!baseImageId || !chainHash || !specDigest || !snapshotId) {
         return envBadRequest("`baseImageId`, `chainHash`, `specDigest`, and `snapshotId` are required strings.");
       }
-      if (typeof stepIndex !== "number" || !Number.isInteger(stepIndex) || stepIndex < 0 || stepIndex > 255) {
-        return envBadRequest("`stepIndex` must be an integer between 0 and 255.");
-      }
-      // These are stored (and some indexed) verbatim; reject junk and cap
-      // lengths so a client with one owned snapshot cannot grow rows or
-      // usage-event metadata without bound.
-      if (!SHA256_HEX.test(chainHash) || !SHA256_HEX.test(specDigest)) {
-        return envBadRequest("`chainHash` and `specDigest` must be lowercase sha-256 hex digests.");
-      }
-      if (baseImageId.length > 512 || snapshotId.length > 256 || (stepName !== null && stepName.length > 200)) {
-        return envBadRequest("`baseImageId` (512), `snapshotId` (256), and `stepName` (200) exceed their maximum lengths.");
-      }
+      const validationError = validateLayerFields({ baseImageId, chainHash, specDigest, snapshotId, stepIndex, stepName });
+      if (validationError) return envBadRequest(validationError);
 
       const account = resolveVmRouteAccountScope(user, request);
       if (!account.ok) return account.response;
       setSpanAttributes(span, {
         "cmux.vm.provider": provider,
-        "cmux.env.step_index": stepIndex,
+        "cmux.env.step_index": stepIndex as number,
       });
 
       const layer = await runVmWorkflow(recordEnvLayer({
@@ -85,7 +75,7 @@ export async function POST(request: Request): Promise<Response> {
         provider,
         baseImageId,
         chainHash,
-        stepIndex,
+        stepIndex: stepIndex as number,
         stepName,
         specDigest,
         snapshotId,
@@ -115,8 +105,8 @@ export async function GET(request: Request): Promise<Response> {
     async ({ user, span }) => {
       const url = new URL(request.url);
       const rawProvider = url.searchParams.get("provider") ?? undefined;
-      if (rawProvider !== undefined && !isKnownProvider(rawProvider)) {
-        return envBadRequest("`provider` must be one of e2b, freestyle, daytona.");
+      if (rawProvider !== undefined && !isProviderId(rawProvider)) {
+        return envBadRequest("`provider` must be freestyle.");
       }
       const specDigest = url.searchParams.get("specDigest") ?? undefined;
 
@@ -148,8 +138,25 @@ export async function GET(request: Request): Promise<Response> {
   );
 }
 
-function isKnownProvider(value: unknown): value is ProviderId {
-  return value === "e2b" || value === "freestyle" || value === "daytona";
+function validateLayerFields(input: {
+  baseImageId: string;
+  chainHash: string;
+  specDigest: string;
+  snapshotId: string;
+  stepIndex: unknown;
+  stepName: string | null;
+}): string | null {
+  const { baseImageId, chainHash, specDigest, snapshotId, stepIndex, stepName } = input;
+  if (typeof stepIndex !== "number" || !Number.isInteger(stepIndex) || stepIndex < 0 || stepIndex > 255) {
+    return "`stepIndex` must be an integer between 0 and 255.";
+  }
+  if (!SHA256_HEX.test(chainHash) || !SHA256_HEX.test(specDigest)) {
+    return "`chainHash` and `specDigest` must be lowercase sha-256 hex digests.";
+  }
+  if (baseImageId.length > 512 || snapshotId.length > 256 || (stepName !== null && stepName.length > 200)) {
+    return "`baseImageId` (512), `snapshotId` (256), and `stepName` (200) exceed their maximum lengths.";
+  }
+  return null;
 }
 
 function requiredString(value: unknown): string | null {

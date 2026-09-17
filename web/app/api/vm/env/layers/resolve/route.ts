@@ -2,7 +2,8 @@
 // the base image the deployed backend would boot so the CLI hashes against the
 // same image id the server will use for layer-0 creates.
 
-import { type ProviderId } from "../../../../../../services/vms/drivers";
+import { isProviderId, type ProviderId } from "../../../../../../services/vms/drivers";
+import { defaultMemoryMbForPlan } from "../../../../../../services/vms/entitlements";
 import { resolveVmImage } from "../../../../../../services/vms/images/resolver";
 import {
   jsonResponse,
@@ -37,13 +38,11 @@ export async function POST(request: Request): Promise<Response> {
         provider?: unknown;
         chainHashes?: unknown;
       };
-      if (rawProvider !== undefined && !isKnownProvider(rawProvider)) {
-        return envBadRequest("`provider` must be one of e2b, freestyle, daytona.");
+      if (rawProvider !== undefined && !isProviderId(rawProvider)) {
+        return envBadRequest("`provider` must be freestyle.");
       }
-      // Env layers are Freestyle-only (requireEnvLayerProvider rejects the
-      // rest), so a provider-less probe must not inherit a deployment default
-      // like e2b/daytona that would brick `cmux vm env` before hashing.
-      const provider: ProviderId = isKnownProvider(rawProvider) ? rawProvider : "freestyle";
+      // Match the only supported Cloud VM provider for provider-less probes.
+      const provider: ProviderId = isProviderId(rawProvider) ? rawProvider : "freestyle";
       if (!Array.isArray(rawChainHashes) || rawChainHashes.some((hash) => typeof hash !== "string" || !hash.trim())) {
         return envBadRequest("`chainHashes` must be an array of non-empty strings.");
       }
@@ -60,7 +59,9 @@ export async function POST(request: Request): Promise<Response> {
         "cmux.env.chain_count": chainHashes.length,
       });
 
-      const image = resolveVmImage(provider, undefined, process.env);
+      const image = resolveVmImage(provider, undefined, process.env, {
+        memoryMb: defaultMemoryMbForPlan(account.entitlements.planId, process.env),
+      });
       const layer = await runVmWorkflow(resolveEnvLayers({
         billingTeamId,
         provider,
@@ -86,10 +87,6 @@ export async function POST(request: Request): Promise<Response> {
       });
     },
   );
-}
-
-function isKnownProvider(value: unknown): value is ProviderId {
-  return value === "e2b" || value === "freestyle" || value === "daytona";
 }
 
 function envBadRequest(message: string): Response {

@@ -37,15 +37,31 @@ import Testing
         return try #require(URLComponents(url: parsed, resolvingAgainstBaseURL: false))
     }
 
+    private func encodeLegacy(_ ticket: CmxAttachTicket) -> String? {
+        CmxPairingQRCode().encode(
+            ticket,
+            routeDisclosureMode: .legacyPrivateNetworkCompatibility
+        )
+    }
+
+    private func canEncodeLegacy(_ ticket: CmxAttachTicket) -> Bool {
+        CmxPairingQRCode().canEncode(
+            ticket,
+            routeDisclosureMode: .legacyPrivateNetworkCompatibility
+        )
+    }
+
     @Test func roundTripsSingleRoute() throws {
         let ticket = try pairingTicket(routes: [
             try tailscaleRoute(index: 0, host: "100.64.0.5"),
         ])
-        let url = try #require(CmxPairingQRCode().encode(ticket))
-        // The scheme is channel-specific: a release Mac emits cmux-ios, a dev
-        // Mac emits cmux-ios-dev, so the system camera routes each channel's QR
-        // to its build. The rest of the URL is identical across channels.
-        #expect(url == "\(CmxPairingURLScheme.current)://attach?v=2&r=100.64.0.5:58465")
+        let url = try #require(encodeLegacy(ticket))
+        // The scheme is bundle-specific, so the system camera routes the QR to
+        // the matching installed iOS build. The rest of the URL is unchanged.
+        let scheme = try #require(
+            CmxPairingURLSchemeResolver().resolved?.rawValue
+        )
+        #expect(url == "\(scheme)://attach?v=2&r=100.64.0.5:58465")
 
         let decoded = try CmxPairingQRCode().decode(try components(url))
         #expect(decoded.routes == ticket.routes)
@@ -65,7 +81,7 @@ import Testing
             try tailscaleRoute(index: 1, host: "100.64.0.5"),
         ]
         let ticket = try pairingTicket(routes: routes)
-        let url = try #require(CmxPairingQRCode().encode(ticket))
+        let url = try #require(encodeLegacy(ticket))
 
         let decoded = try CmxPairingQRCode().decode(try components(url))
         #expect(decoded.routes == routes)
@@ -75,7 +91,7 @@ import Testing
         #expect(decoded.routes.map(\.priority) == [10, 20])
     }
 
-    @Test func roundTripsUserIDAndBuildMetadataWithoutExposingEmail() throws {
+    @Test func encodesOnlyAccountBindingAndCompatibilityLevelFromMetadata() throws {
         let ticket = try CmxAttachTicket(
             workspaceID: "",
             terminalID: nil,
@@ -93,27 +109,44 @@ import Testing
             authToken: "minted-but-never-in-the-qr"
         )
 
-        let url = try #require(CmxPairingQRCode().encode(ticket))
+        let url = try #require(encodeLegacy(ticket))
+        // `ub` survives (the account preflight's wrong-account fast-fail) and
+        // `pc` survives (fielded decoders default a missing `pc` to 0, which
+        // would spuriously fire the cross-version pairing warning). Email is
+        // never written, and app version/build only ever decorated that
+        // warning's message, so they are no longer written either.
         #expect(url.contains("ub=user_mac_123"))
+        #expect(url.contains("pc=1"))
         #expect(!url.contains("Lawrence@Example.com"))
         #expect(!url.lowercased().contains("lawrence@example.com"))
-        #expect(url.contains("pc=1"))
-        #expect(url.contains("av=0.64.15"))
-        #expect(url.contains("ab=42"))
+        #expect(!url.contains("av="))
+        #expect(!url.contains("ab="))
 
         let decoded = try CmxPairingQRCode().decode(try components(url))
         #expect(decoded.macUserEmail == nil)
         #expect(decoded.macUserID == "user_mac_123")
         #expect(decoded.macPairingCompatibilityVersion == 1)
+        #expect(decoded.macAppVersion == nil)
+        #expect(decoded.macAppBuild == nil)
+        #expect(decoded.routes == ticket.routes)
+    }
+
+    @Test func decodeStillReadsBuildMetadataFromOlderMacsCodes() throws {
+        // Macs that predate the av/ab removal still stamp both fields; the
+        // decoder keeps reading them so the cross-version warning can name
+        // the older Mac's version.
+        let url = "cmux-ios://attach?v=2&ub=user_mac_123&pc=1&av=0.64.15&ab=42&r=100.64.0.5:58465"
+        let decoded = try CmxPairingQRCode().decode(try components(url))
+        #expect(decoded.macUserID == "user_mac_123")
+        #expect(decoded.macPairingCompatibilityVersion == 1)
         #expect(decoded.macAppVersion == "0.64.15")
         #expect(decoded.macAppBuild == "42")
-        #expect(decoded.routes == ticket.routes)
     }
 
     @Test func roundTripsIPv6LiteralThroughRealURLParsing() throws {
         let route = try tailscaleRoute(index: 0, host: "fd7a:115c:a1e0::1")
         let ticket = try pairingTicket(routes: [route])
-        let url = try #require(CmxPairingQRCode().encode(ticket))
+        let url = try #require(encodeLegacy(ticket))
 
         let decoded = try CmxPairingQRCode().decode(try components(url))
         #expect(decoded.routes == [route])
@@ -133,8 +166,11 @@ import Testing
         let tailscale = try tailscaleRoute(index: 0, host: "100.64.0.5")
         let ticket = try pairingTicket(routes: [loopback, tailscale])
 
-        let url = try #require(CmxPairingQRCode().encode(ticket))
-        #expect(url == "\(CmxPairingURLScheme.current)://attach?v=2&r=100.64.0.5:58465")
+        let url = try #require(encodeLegacy(ticket))
+        let scheme = try #require(
+            CmxPairingURLSchemeResolver().resolved?.rawValue
+        )
+        #expect(url == "\(scheme)://attach?v=2&r=100.64.0.5:58465")
         let decoded = try CmxPairingQRCode().decode(try components(url))
         #expect(decoded.routes == [tailscale])
     }
@@ -149,8 +185,8 @@ import Testing
             macDisplayName: nil,
             routes: [tailscale]
         )
-        #expect(CmxPairingQRCode().encode(scoped) == nil)
-        #expect(!CmxPairingQRCode().canEncode(scoped))
+        #expect(encodeLegacy(scoped) == nil)
+        #expect(!canEncodeLegacy(scoped))
 
         // Loopback-only dev tickets have nothing a phone could dial.
         let loopbackOnly = try CmxAttachTicket(
@@ -166,7 +202,7 @@ import Testing
                 ),
             ]
         )
-        #expect(CmxPairingQRCode().encode(loopbackOnly) == nil)
+        #expect(encodeLegacy(loopbackOnly) == nil)
 
         // Custom route ids cannot be resynthesized by the decoder.
         let customID = try pairingTicket(routes: [
@@ -177,7 +213,7 @@ import Testing
                 priority: 10
             ),
         ])
-        #expect(CmxPairingQRCode().encode(customID) == nil)
+        #expect(encodeLegacy(customID) == nil)
 
         // A Tailscale-kind route that somehow names a loopback host is a
         // weak QR and must not encode.
@@ -189,7 +225,7 @@ import Testing
                 priority: 10
             ),
         ])
-        #expect(CmxPairingQRCode().encode(loopbackTailscale) == nil)
+        #expect(encodeLegacy(loopbackTailscale) == nil)
 
         // A non-Tailscale fallback route the bare host:port grammar cannot
         // express (an iroh peer) must NOT be silently dropped: the ticket
@@ -200,12 +236,17 @@ import Testing
             try CmxAttachRoute(
                 id: "iroh",
                 kind: .iroh,
-                endpoint: .peer(id: "peer-1", relayHint: nil, directAddrs: [], relayURL: nil),
+                endpoint: .peer(
+                    id: String(repeating: "d", count: 64),
+                    relayHint: nil,
+                    directAddrs: [],
+                    relayURL: nil
+                ),
                 priority: 20
             ),
         ])
-        #expect(CmxPairingQRCode().encode(withIrohFallback) == nil)
-        #expect(!CmxPairingQRCode().canEncode(withIrohFallback))
+        #expect(encodeLegacy(withIrohFallback) == nil)
+        #expect(!canEncodeLegacy(withIrohFallback))
     }
 
     @Test(arguments: [
@@ -261,6 +302,20 @@ import Testing
         }
     }
 
+    @Test(arguments: [
+        "cmux-ios://attach?v=3",
+        "cmux-ios://attach?v=3&i=",
+        "cmux-ios://attach?v=3&i=abc",
+        "cmux-ios://attach?v=3&i=\(String(repeating: "C", count: 64))",
+        "cmux-ios://attach?v=3&i=\(String(repeating: "c", count: 64))&i=\(String(repeating: "d", count: 64))",
+        "cmux-ios://attach?v=3&i=\(String(repeating: "c", count: 64))&ub=user",
+    ])
+    func decodeRejectsMalformedOrBloatedIrohCodes(url: String) throws {
+        #expect(throws: MobileSyncPairingPayloadError.invalidURL) {
+            try CmxPairingQRCode().decode(try components(url))
+        }
+    }
+
     @Test func decodeCapsHostileRouteCounts() throws {
         let routes = (0..<(CmxPairingQRCode.maximumRouteCount + 1))
             .map { "r=100.64.0.\($0 + 1):58465" }
@@ -272,6 +327,9 @@ import Testing
 
     @Test func versionedURLDetectionDistinguishesGrammars() throws {
         #expect(CmxPairingQRCode().isPairingCodeURLString("cmux-ios://attach?v=2&r=100.64.0.5:58465"))
+        #expect(CmxPairingQRCode().isPairingCodeURLString(
+            "cmux-ios://attach?v=3&i=\(String(repeating: "c", count: 64))"
+        ))
         #expect(!CmxPairingQRCode().isPairingCodeURLString("cmux-ios://attach?v=1&payload=abc"))
         #expect(!CmxPairingQRCode().isPairingCodeURLString("cmux-ios://pair?v=1&payload=abc"))
         #expect(!CmxPairingQRCode().isPairingCodeURLString("https://example.com?v=2"))
@@ -317,13 +375,16 @@ import Testing
         ])
 
         for (label, ticket) in [("1-route", oneRoute), ("2-route", twoRoutes)] {
-            let compactPayload = try CmxAttachTicketCompactCoder().encode(ticket)
+            let compactPayload = try CmxAttachTicketCompactCoder().encode(
+                ticket,
+                routeDisclosureMode: .legacyPrivateNetworkCompatibility
+            )
             let base64 = compactPayload.base64EncodedString()
                 .replacingOccurrences(of: "+", with: "-")
                 .replacingOccurrences(of: "/", with: "_")
                 .replacingOccurrences(of: "=", with: "")
             let before = "cmux-ios://attach?v=1&payload=\(base64)"
-            let after = try #require(CmxPairingQRCode().encode(ticket))
+            let after = try #require(encodeLegacy(ticket))
 
             let beforeBytes = before.utf8.count
             let afterBytes = after.utf8.count

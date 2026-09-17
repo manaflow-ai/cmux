@@ -22,9 +22,16 @@ extension CMUXCLI {
         windowId: String?,
         idFormat: CLIIDFormat
     ) throws {
+        if commandArgs.isEmpty || commandArgs.contains("--help") || commandArgs.contains("-h") {
+            print(Self.vmEnvUsage)
+            print("cmux vm env <build|up|init|layers|logs> [--spec <path>]")
+            return
+        }
         let sub = commandArgs.first?.lowercased() ?? "help"
         let rest = Array(commandArgs.dropFirst())
         switch sub {
+        case "ls", "list", "set", "add", "rm", "remove", "unset", "path":
+            try runVMEnvCommand(rest: commandArgs, client: client, jsonOutput: jsonOutput)
         case "build":
             try runVMEnvBuild(args: rest, client: client, jsonOutput: jsonOutput)
         case "up":
@@ -146,13 +153,10 @@ extension CMUXCLI {
             throw CLIError(message: "vm env build: backend did not return a provider/base image. Update the cmux app and try again.")
         }
         let baseImageId: String
-        let usesCustomBase: Bool
         if let base = spec.base, !base.isEmpty, base.lowercased() != "default" {
             baseImageId = base
-            usesCustomBase = true
         } else {
             baseImageId = defaultBaseImage
-            usesCustomBase = false
         }
 
         let chainHashes = VMEnvSpecCodec.chainHashes(provider: provider, baseImageId: baseImageId, spec: spec)
@@ -215,11 +219,11 @@ extension CMUXCLI {
             }
             vmId = id
         } else {
-            var params: [String: Any] = [
+            let params: [String: Any] = [
                 "provider": provider,
+                "image": baseImageId,
                 "idempotency_key": UUID().uuidString.lowercased(),
             ]
-            if usesCustomBase { params["image"] = baseImageId }
             let response = try client.sendV2(
                 method: "vm.create",
                 params: params,

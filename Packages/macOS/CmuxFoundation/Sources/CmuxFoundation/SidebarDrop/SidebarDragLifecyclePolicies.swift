@@ -1,4 +1,3 @@
-public import AppKit
 public import Foundation
 
 /// Decides whether a sidebar row's shortcut-hint visibility should use the
@@ -19,35 +18,27 @@ public struct SidebarShortcutHintFreezePolicy {
     }
 }
 
-/// Whether an in-flight sidebar drag should be reset when a drop lands outside
-/// the sidebar.
-public struct SidebarOutsideDropResetPolicy {
+/// Decides whether a live native sidebar session may be mirrored across windows.
+public struct SidebarWorkspaceDragActivationPolicy: Sendable {
     public init() {}
 
-    public func shouldResetDrag(draggedTabId: UUID?, hasSidebarDragPayload: Bool) -> Bool {
-        draggedTabId != nil && hasSidebarDragPayload
-    }
-}
-
-/// Failsafe rules for clearing a stuck sidebar drag (mouse released outside a
-/// drop target, app resigned active, escape pressed).
-public struct SidebarDragFailsafePolicy {
-    public static let clearDelay: TimeInterval = 0.15
-
-    public init() {}
-
-    public func shouldRequestClear(isDragActive: Bool, isLeftMouseButtonDown: Bool) -> Bool {
-        isDragActive && !isLeftMouseButtonDown
+    /// Group anchors cannot move across windows because moving only the anchor
+    /// would dissolve the source group and strand its members.
+    public func shouldRejectRecovery(
+        isLocalWorkspace: Bool,
+        isSourceGroupAnchor: Bool
+    ) -> Bool {
+        !isLocalWorkspace && isSourceGroupAnchor
     }
 
-    public func shouldRequestClearWhenMonitoringStarts(isLeftMouseButtonDown: Bool) -> Bool {
-        shouldRequestClear(
-            isDragActive: true,
-            isLeftMouseButtonDown: isLeftMouseButtonDown
+    /// Alias retained for call sites that describe the operation as mirroring.
+    public func shouldRejectMirroring(
+        isLocalWorkspace: Bool,
+        isSourceGroupAnchor: Bool
+    ) -> Bool {
+        shouldRejectRecovery(
+            isLocalWorkspace: isLocalWorkspace,
+            isSourceGroupAnchor: isSourceGroupAnchor
         )
-    }
-
-    public func shouldRequestClear(forMouseEventType eventType: NSEvent.EventType) -> Bool {
-        eventType == .leftMouseUp
     }
 }

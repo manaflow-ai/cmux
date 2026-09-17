@@ -225,6 +225,44 @@ struct HermesAgentHookConfigTests {
         #expect(approvals.contains { $0["command"] as? String == events[0].command })
     }
 
+    @Test("Allowlist ownership preserves embedded text and removes legacy cmux invocations")
+    func allowlistOwnershipRequiresCmuxInvocation() throws {
+        let userMarker = "echo cmux-hermes-agent-hook-v2"
+        let userMarkerSuffix = "echo cmux-hermes-agent-hook-v2-user"
+        let userLifecycle = "printf '%s' 'hooks hermes-agent prompt-submit'"
+        let pinned = "sh -c ': cmux-hermes-agent-hook-v2; cmux hooks hermes-agent session-start'"
+        let legacyLifecycle = #"sh -c 'cmux_cli=cmux; "$cmux_cli" hooks hermes-agent prompt-submit'"#
+        let legacyFeed = "sh -c 'cmux hooks feed --source hermes-agent --event pre_tool_call'"
+        let commands = [
+            userMarker,
+            userMarkerSuffix,
+            userLifecycle,
+            pinned,
+            legacyLifecycle,
+            legacyFeed,
+        ]
+        let approvals: [[String: String]] = commands.enumerated().map {
+            ["event": "event-\($0.offset)", "command": $0.element]
+        }
+        let existing = try JSONSerialization.data(
+            withJSONObject: ["approvals": approvals],
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        let noEvents: [HermesAgentHookConfig.Event] = []
+
+        let uninstalled = try HermesAgentHookAllowlist.uninstalling(
+            events: noEvents,
+            from: existing
+        )
+        let object = try #require(
+            JSONSerialization.jsonObject(with: uninstalled) as? [String: Any]
+        )
+        let remaining = try #require(object["approvals"] as? [[String: Any]])
+        let remainingCommands = Set(remaining.compactMap { $0["command"] as? String })
+
+        #expect(remainingCommands == Set([userMarker, userMarkerSuffix, userLifecycle]))
+    }
+
     @Test("Allowlist install rejects non-object JSON roots")
     func allowlistInstallRejectsNonObjectJSONRoots() throws {
         let existing = #"[]"#.data(using: .utf8)
