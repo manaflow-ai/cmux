@@ -17,6 +17,8 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         case theme(MobileTerminalRenderGridFrame)
     }
 
+    let receivedAtNanos = DispatchTime.now().uptimeNanoseconds
+
     private var payload: Payload
     var replacementScope: ReplacementScope?
     var viewportPolicy: MobileTerminalOutputViewportPolicy?
@@ -80,6 +82,12 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         self.viewportPolicy = viewportPolicy
         self.endSequence = frame.stateSeq
         self.requiresVerifiedReplay = requiresVerifiedReplay
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.payload == rhs.payload && lhs.replacementScope == rhs.replacementScope
+            && lhs.viewportPolicy == rhs.viewportPolicy && lhs.endSequence == rhs.endSequence
+            && lhs.requiresVerifiedReplay == rhs.requiresVerifiedReplay
     }
 
     var bytes: Data {

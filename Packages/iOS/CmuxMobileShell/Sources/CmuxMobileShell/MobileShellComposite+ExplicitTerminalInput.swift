@@ -60,6 +60,7 @@ extension MobileShellComposite {
                         "surface_id": terminalID.rawValue,
                         "text": text,
                         "client_id": clientID,
+                        "input_sequence": String(inputSequence),
                     ]
                 )
             )

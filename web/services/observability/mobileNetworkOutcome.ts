@@ -39,6 +39,7 @@ const allowedPropertyKeys = new Set([
   "input_to_output_p50_ms", "input_to_output_p95_ms", "input_to_output_p99_ms",
   "input_to_visible_p50_ms", "input_to_visible_p95_ms", "input_to_visible_p99_ms",
   "render_p50_ms", "render_p95_ms", "render_p99_ms",
+  "input_failed_count", "histogram_version", "input_to_output_histogram", "input_to_visible_histogram", "render_histogram",
   "duration_ms", "threshold_ms", "stage",
 ]);
 
@@ -63,6 +64,8 @@ export type MobileNetworkOutcome = {
 export type MobileTerminalLatencyWindow = {
   readonly timestamp: string;
   readonly windowMs: number;
+  readonly inputFailedCount?: number;
+  readonly histograms?: Readonly<Record<string, string>>;
   readonly inputCount: number;
   readonly outputCount: number;
   readonly presentedCount: number;
@@ -132,8 +135,24 @@ export function parseMobileTerminalLatencyWindow(candidate: unknown): MobileTerm
     "render_p99_ms",
   ] as const;
   if (!metadata || numericKeys.some((key) => unsignedInteger(properties[key]) === null)) return null;
+  const histograms: Record<string, string> = {};
+  if (properties.histogram_version !== undefined) {
+    if (properties.histogram_version !== 1) return null;
+    for (const name of ["input_to_output", "input_to_visible", "render"]) {
+      const raw = properties[`${name}_histogram`];
+      if (typeof raw !== "string" || raw.length > 512) return null;
+      try {
+        const counts: unknown = JSON.parse(raw);
+        if (!Array.isArray(counts) || counts.length !== 17 || counts.some((n) => unsignedInteger(n) === null)) return null;
+        histograms[name] = JSON.stringify(counts);
+      } catch { return null; }
+    }
+  } else if (["input_to_output", "input_to_visible", "render"].some((name) => properties[`${name}_histogram`] !== undefined)) return null;
+  if (properties.input_failed_count !== undefined && unsignedInteger(properties.input_failed_count) === null) return null;
   return {
     timestamp: candidate.timestamp,
+    inputFailedCount: unsignedInteger(properties.input_failed_count) ?? undefined,
+    ...(Object.keys(histograms).length ? { histograms } : {}),
     windowMs: unsignedInteger(properties.window_ms)!,
     inputCount: unsignedInteger(properties.input_count)!,
     outputCount: unsignedInteger(properties.output_count)!,
@@ -290,6 +309,9 @@ export async function emitMobileObservabilityEvents(
           "cmux.user_id": userId,
           "cmux.mobile.terminal.event": "window",
           "cmux.mobile.terminal.window_ms": observation.windowMs,
+          "cmux.mobile.terminal.input_failed_count": observation.inputFailedCount,
+          "cmux.mobile.terminal.histogram_version": observation.histograms ? 1 : undefined,
+          ...Object.fromEntries(Object.entries(observation.histograms ?? {}).map(([name, counts]) => [`cmux.mobile.terminal.${name}_histogram`, counts])),
           "cmux.mobile.terminal.input_count": observation.inputCount,
           "cmux.mobile.terminal.output_count": observation.outputCount,
           "cmux.mobile.terminal.presented_count": observation.presentedCount,

@@ -525,21 +525,24 @@ extension MobileShellComposite {
             )
         }
         if let immediate {
+            let immediateBytes = immediate.bytes
             terminalLatencyObserver.outputReceived(
                 surfaceID: surfaceID,
                 appliedInputSequence: immediate.sourceRenderGridFrame?.appliedInputSequence,
-                byteCount: immediate.bytes.count,
-                queueDepth: pendingCount
+                byteCount: immediateBytes.count,
+                queueDepth: pendingCount,
+                receivedAtNanos: immediate.receivedAtNanos
             )
             continuation.yield(
                 MobileTerminalOutputChunk(
-                    data: immediate.bytes,
+                    data: immediateBytes,
                     streamToken: streamToken,
                     viewportPolicy: immediate.viewportPolicy,
                     sourceRenderGridFrame: immediate.sourceRenderGridFrame,
                     endSequence: immediate.endSequence,
                     requiresVerifiedReplay: immediate.requiresVerifiedReplay,
-                    terminalConfigTheme: immediate.terminalConfigTheme
+                    terminalConfigTheme: immediate.terminalConfigTheme,
+                    receivedAtNanos: immediate.receivedAtNanos
                 )
             )
         }
@@ -585,7 +588,7 @@ extension MobileShellComposite {
     public func terminalOutputDidProcess(surfaceID: String, streamToken: UUID) {
         guard terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken,
               var queue = terminalOutputQueuesBySurfaceID[surfaceID] else { return }
-        terminalLatencyObserver.outputPresented(surfaceID: surfaceID)
+        terminalLatencyObserver.outputApplied(surfaceID: surfaceID)
         let next = queue.completeInFlight()
         terminalOutputQueuesBySurfaceID[surfaceID] = queue
         if terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == streamToken {
@@ -667,7 +670,8 @@ extension MobileShellComposite {
             surfaceID: surfaceID,
             appliedInputSequence: next.sourceRenderGridFrame?.appliedInputSequence,
             byteCount: nextBytes.count,
-            queueDepth: queue.pendingCount
+            queueDepth: queue.pendingCount,
+            receivedAtNanos: next.receivedAtNanos
         )
         continuation.yield(MobileTerminalOutputChunk(
             data: nextBytes,
@@ -676,8 +680,14 @@ extension MobileShellComposite {
             sourceRenderGridFrame: next.sourceRenderGridFrame,
             endSequence: next.endSequence,
             requiresVerifiedReplay: next.requiresVerifiedReplay,
-            terminalConfigTheme: next.terminalConfigTheme
+            terminalConfigTheme: next.terminalConfigTheme,
+            receivedAtNanos: next.receivedAtNanos
         ))
+    }
+
+    public func terminalOutputDidPresent(surfaceID: String, streamToken: UUID, inputSequence: UInt64?, receivedAtNanos: UInt64) {
+        guard terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken else { return }
+        terminalLatencyObserver.framePresented(surfaceID: surfaceID, inputSequence: inputSequence, receivedAtNanos: receivedAtNanos)
     }
 
     /// Abandon the current yielded terminal-output chunk after the local render

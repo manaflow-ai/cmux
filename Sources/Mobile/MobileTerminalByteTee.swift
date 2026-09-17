@@ -51,8 +51,8 @@ final class MobileTerminalByteTee {
         /// Producer capture order, independent of byte sequence. Geometry-only
         /// captures advance this even when `seq` is unchanged.
         var renderRevision: UInt64 = 0
-        /// Monotonic count of input frames received for this surface.
-        var inputSequence: UInt64 = 0
+        /// Opaque marker of the latest accepted input, not proof of output causality.
+        var inputSequence: UInt64?
     }
 
     private var statesBySurfaceID: [UUID: SurfaceState] = [:]
@@ -117,27 +117,13 @@ final class MobileTerminalByteTee {
         statesBySurfaceID[surfaceID]?.seq
     }
 
-    /// Records one input frame received from the ordered mobile input lane.
-    /// The count is carried on later render-grid frames so iOS can correlate
-    /// output without copying input text into telemetry or changing framing.
-    @discardableResult
-    func markInputReceived(surfaceID: UUID) -> UInt64 {
+    /// Echoes the client's opaque marker only after terminal input is accepted.
+    /// A legacy input clears the watermark instead of inventing a correlation.
+    func recordAcceptedInput(surfaceID: UUID, sequence: UInt64?, result: TerminalSurface.InputSendResult) {
+        guard result.accepted else { return }
         var state = statesBySurfaceID[surfaceID] ?? SurfaceState()
-        state.inputSequence &+= 1
+        state.inputSequence = sequence
         statesBySurfaceID[surfaceID] = state
-        return state.inputSequence
-    }
-
-    /// Records a mobile input only after the canonical terminal send accepts it.
-    /// All mobile host transports call this helper with their send result, so
-    /// rejected requests never advance the render-frame correlation sequence.
-    @discardableResult
-    func recordAcceptedInput(
-        surfaceID: UUID,
-        result: TerminalSurface.InputSendResult
-    ) -> UInt64? {
-        guard result.accepted else { return nil }
-        return markInputReceived(surfaceID: surfaceID)
     }
 
     func currentInputSequence(surfaceID: UUID) -> UInt64? {

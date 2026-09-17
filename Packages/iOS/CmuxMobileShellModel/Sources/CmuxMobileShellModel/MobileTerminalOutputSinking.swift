@@ -22,6 +22,7 @@ public enum MobileTerminalOutputViewportPolicy: Equatable, Sendable {
 }
 
 public struct MobileTerminalOutputChunk: Sendable {
+    public let receivedAtNanos: UInt64
     public let data: Data
     public let streamToken: UUID
     public let viewportPolicy: MobileTerminalOutputViewportPolicy?
@@ -51,8 +52,10 @@ public struct MobileTerminalOutputChunk: Sendable {
         sourceRenderGridFrame: MobileTerminalRenderGridFrame? = nil,
         endSequence: UInt64? = nil,
         requiresVerifiedReplay: Bool = false,
-        terminalConfigTheme: TerminalTheme? = nil
+        terminalConfigTheme: TerminalTheme? = nil,
+        receivedAtNanos: UInt64 = DispatchTime.now().uptimeNanoseconds
     ) {
+        self.receivedAtNanos = receivedAtNanos
         self.data = data
         self.streamToken = streamToken
         self.viewportPolicy = viewportPolicy
@@ -77,6 +80,9 @@ public protocol MobileTerminalOutputSinking: Sendable {
     /// - Parameter streamToken: The token carried by the yielded chunk.
     @MainActor func terminalOutputDidProcess(surfaceID: String, streamToken: UUID)
 
+    /// Records a confirmed GPU presentation for the current stream.
+    @MainActor func terminalOutputDidPresent(surfaceID: String, streamToken: UUID, inputSequence: UInt64?, receivedAtNanos: UInt64)
+
     /// Abandon the current yielded chunk after the local renderer was reset.
     ///
     /// The sink must drop stale pending output, invalidate the old stream token,
@@ -88,4 +94,8 @@ public protocol MobileTerminalOutputSinking: Sendable {
     /// Request an authoritative replay without an abandoned in-flight chunk.
     /// - Parameter surfaceID: The terminal surface identifier.
     @MainActor func terminalOutputNeedsReplay(surfaceID: String)
+}
+
+extension MobileTerminalOutputSinking {
+    @MainActor public func terminalOutputDidPresent(surfaceID: String, streamToken: UUID, inputSequence: UInt64?, receivedAtNanos: UInt64) {}
 }

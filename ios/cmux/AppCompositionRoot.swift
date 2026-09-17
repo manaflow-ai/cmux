@@ -174,7 +174,10 @@ final class AppCompositionRoot {
         }
         self.featureFlags = MobileFeatureFlags(
             loader: analytics.clientConfig,
-            request: analytics.anonymousClientConfigRequest
+            request: analytics.anonymousClientConfigRequest,
+            onTerminalLatencyChanged: { [reporter = analytics.terminalLatencyReporter] enabled in
+                reporter.setEnabled(enabled)
+            }
         )
         #if DEBUG
         let pushNotificationSettings:

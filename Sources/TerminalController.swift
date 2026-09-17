@@ -15998,9 +15998,13 @@ class TerminalController {
         let sendStart = ProcessInfo.processInfo.systemUptime
         #endif
         let sendResult = terminalTarget.sendInputResult(text)
+        MobileTerminalByteTee.shared.recordAcceptedInput(
+            surfaceID: surfaceId,
+            sequence: (params["input_sequence"] as? String).flatMap(UInt64.init),
+            result: sendResult
+        )
         switch sendResult {
         case .sent:
-            _ = MobileTerminalByteTee.shared.recordAcceptedInput(surfaceID: surfaceId, result: .sent)
             // PTY output is already observed by MobileTerminalByteTee, which
             // schedules the post-parser render-grid tick. Forcing a refresh
             // here emits a full frame before the echoed bytes arrive, sending
@@ -16008,7 +16012,6 @@ class TerminalController {
             // every keystroke.
             break
         case .queued:
-            _ = MobileTerminalByteTee.shared.recordAcceptedInput(surfaceID: surfaceId, result: .queued)
             break
         case .inputQueueFull:
             return .err(code: "input_queue_full", message: Self.terminalInputQueueFullMessage, data: ["surface_id": surfaceId.uuidString])

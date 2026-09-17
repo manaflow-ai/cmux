@@ -12791,6 +12791,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             surfaceID: terminalID.rawValue,
             byteCount: text.utf8.count
         )
+        let marker = inputSequence != 0 && supportedHostCapabilities.contains(MobileTerminalInputFrame.capability) ? inputSequence : nil
         let generation = connectionGeneration
         if let terminalLaneCoordinator {
             let laneResult: MobileTerminalLaneCoordinator.InputResult
@@ -12843,7 +12844,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     } else {
                         laneResult = await terminalLaneCoordinator.sendInput(
                             text,
-                            surfaceID: terminalID.rawValue
+                            surfaceID: terminalID.rawValue,
+                            sequence: marker
                         )
                     }
                 } else {
@@ -12852,7 +12854,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             } else {
                 laneResult = await terminalLaneCoordinator.sendInput(
                     text,
-                    surfaceID: terminalID.rawValue
+                    surfaceID: terminalID.rawValue,
+                    sequence: marker
                 )
             }
             switch laneResult {
@@ -12887,11 +12890,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 break
             }
         }
-        let params = terminalInputParameters(
+        var params = terminalInputParameters(
             text: text,
             workspaceID: workspaceID,
             terminalID: terminalID
         )
+        params["input_sequence"] = marker.map(String.init)
         let directInputSequence = inputSequence
         if activeRoute?.kind == .iroh,
            supportedHostCapabilities.contains(

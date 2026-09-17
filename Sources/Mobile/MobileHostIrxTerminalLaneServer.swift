@@ -221,8 +221,7 @@ enum MobileHostIrxTerminalLaneServer {
                     await reject(stream, errorCode: ErrorCode.invalidInput)
                     return true
                 }
-                for input in try MobileHostIrohApplicationLaneRouter
-                    .decodeTerminalInputFrames(from: &buffer)
+                for input in try MobileTerminalInputFrame.decode(from: &buffer)
                 {
                     guard await deliverInput(
                         input,
@@ -247,7 +246,7 @@ enum MobileHostIrxTerminalLaneServer {
     }
 
     private static func deliverInput(
-        _ input: String,
+        _ input: MobileTerminalInputFrame,
         surfaceID: UUID
     ) async -> Bool {
         await MainActor.run {
@@ -255,16 +254,16 @@ enum MobileHostIrxTerminalLaneServer {
                 let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(
                     id: surfaceID)
             else { return false }
-            switch surface.sendInputResult(input) {
+            let result = surface.sendInputResult(input.text)
+            MobileTerminalByteTee.shared.recordAcceptedInput(surfaceID: surfaceID, sequence: input.sequence, result: result)
+            switch result {
             case .sent:
-                _ = MobileTerminalByteTee.shared.recordAcceptedInput(surfaceID: surfaceID, result: .sent)
                 // PTY output is observed by MobileTerminalByteTee, which
                 // schedules the normal render tick. A refresh here would
                 // emit a duplicate full frame before the echo and make every
                 // key compete with the output lane's replay fence.
                 return true
             case .queued:
-                _ = MobileTerminalByteTee.shared.recordAcceptedInput(surfaceID: surfaceID, result: .queued)
                 return true
             case .inputQueueFull, .surfaceUnavailable, .processExited:
                 return false

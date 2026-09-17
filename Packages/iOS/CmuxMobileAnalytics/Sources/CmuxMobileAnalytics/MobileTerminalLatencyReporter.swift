@@ -1,348 +1,246 @@
 public import CMUXMobileCore
 import Foundation
 
-/// Aggregates terminal timing locally and emits one bounded event per window.
-///
-/// The reporter is main-actor isolated because every terminal observation is
-/// delivered by the shell's main-actor state machine. This keeps the hot path
-/// free of a contended mutex. State is capped per surface, and Axiom receives
-/// only ten-second summaries plus rate-limited anomalies. Terminal contents and
-/// surface IDs do not leave the device.
+/// Bounded counters on the shell actor; one aggregate per active ten-second window.
+/// Input markers are opaque, session-randomized values carried over the wire. They
+/// identify post-acceptance output, not proof that a command caused that output.
 @MainActor
 public final class MobileTerminalLatencyReporter: MobileTerminalLatencyObserving {
     nonisolated public static let windowEventName = "ios_terminal_latency_window"
     nonisolated public static let anomalyEventName = "ios_terminal_latency_anomaly"
+    // Shared histogram schema v1. The last bucket includes values >= 32768ms.
+    nonisolated static let bucketBoundsMs = (0..<16).map { 1 << $0 } + [60_000]
 
-    private struct InputStart: Sendable {
-        let startedAt: UInt64
-        let byteCount: Int
-    }
-
-    private struct OutputStart: Sendable {
-        let receivedAt: UInt64
-        let inputStartedAt: UInt64?
-    }
-
-    private struct SurfaceState: Sendable {
-        var nextInputSequence: UInt64 = 0
-        var windowStartedAt: UInt64
-        var inputStarts: [UInt64: InputStart] = [:]
-        var outputs: [OutputStart] = []
+    private struct Window: Sendable {
         var inputCount = 0
+        var failedCount = 0
         var outputCount = 0
+        var appliedCount = 0
         var presentedCount = 0
         var droppedCount = 0
         var outputBytes = 0
         var maxQueueDepth = 0
-        var inputToOutput: [UInt64] = []
-        var inputToVisible: [UInt64] = []
-        var render: [UInt64] = []
-        var lastAnomalyAt: UInt64?
-
-        init(windowStartedAt: UInt64) {
-            self.windowStartedAt = windowStartedAt
-        }
+        var inputToOutput = Array(repeating: 0, count: 17)
+        var inputToVisible = Array(repeating: 0, count: 17)
+        var render = Array(repeating: 0, count: 17)
+        var hasActivity: Bool { inputCount > 0 || failedCount > 0 || outputCount > 0 || presentedCount > 0 || droppedCount > 0 }
     }
 
-    private struct WindowSnapshot: Sendable {
+    private final class SurfaceState {
+        var window = Window()
+        var windowStartedAt: UInt64
+        var lastActivityAt: UInt64
+        var inputStarts: [UInt64: UInt64] = [:]
+        var presentationStarts: [UInt64: UInt64] = [:]
+        var lastPresentedReceipt: UInt64 = 0
+        var lastAnomalyAt: [String: UInt64] = [:]
+        var consecutiveSlowFrames = 0
+        init(now: UInt64) { windowStartedAt = now; lastActivityAt = now }
+    }
+
+    private struct Snapshot: Sendable {
+        let window: Window
         let elapsedNanos: UInt64
-        let inputCount: Int
-        let outputCount: Int
-        let presentedCount: Int
-        let correlatedOutputCount: Int
-        let droppedCount: Int
-        let outputBytes: Int
-        let maxQueueDepth: Int
-        let inputToOutput: [UInt64]
-        let inputToVisible: [UInt64]
-        let render: [UInt64]
-    }
-
-    private struct Emission: Sendable {
-        let event: String
-        let properties: [String: AnalyticsValue]
     }
 
     private let emitter: any AnalyticsEmitting
-    private let now: @Sendable () -> UInt64
-    private let windowNanos: UInt64
-    private var states: [String: SurfaceState] = [:]
+    private let now: @MainActor @Sendable () -> UInt64
+    private let window: Duration
+    private let consent: any AnalyticsConsentProviding
     private let onAnomaly: (@Sendable (UInt32) -> Void)?
-
-    nonisolated private static let maxSurfaces = 16
-    nonisolated private static let maxSamples = 256
-    nonisolated private static let maxInputStarts = 512
-    nonisolated private static let maxOutputStarts = 128
-    nonisolated private static let anomalyCooldownNanos: UInt64 = 60 * 1_000_000_000
-    nonisolated private static let visibleAnomalyNanos: UInt64 = 1_000 * 1_000_000
-    nonisolated private static let renderAnomalyNanos: UInt64 = 250 * 1_000_000
+    private var states: [String: SurfaceState] = [:]
+    private var nextSequence = UInt64.random(in: 1...(UInt64.max / 2))
+    private var enabled = true
+    private var cadenceTask: Task<Void, Never>?
 
     public init(
         emitter: any AnalyticsEmitting,
         window: Duration = .seconds(10),
-        now: (@Sendable () -> UInt64)? = nil,
+        now: (@MainActor @Sendable () -> UInt64)? = nil,
+        consent: any AnalyticsConsentProviding = EnabledTerminalLatencyConsent(),
         onAnomaly: (@Sendable (UInt32) -> Void)? = nil
     ) {
         self.emitter = emitter
+        self.window = max(.milliseconds(1), window)
         self.now = now ?? { DispatchTime.now().uptimeNanoseconds }
-        self.windowNanos = max(
-            1,
-            UInt64(window.components.seconds) * 1_000_000_000
-                + UInt64(window.components.attoseconds / 1_000_000_000)
-        )
+        self.consent = consent
         self.onAnomaly = onAnomaly
     }
 
-    public func inputStarted(surfaceID: String, byteCount: Int) -> UInt64 {
-        let timestamp = now()
-        guard var surface = state(for: surfaceID, now: timestamp) else { return 0 }
-        surface.nextInputSequence &+= 1
-        let sequence = surface.nextInputSequence
-        surface.inputStarts[sequence] = InputStart(
-            startedAt: timestamp,
-            byteCount: max(0, byteCount)
-        )
-        trim(&surface.inputStarts, to: Self.maxInputStarts)
-        emit(rolloverIfNeeded(state: &surface, now: timestamp))
-        states[surfaceID] = surface
-        return sequence
+    deinit { cadenceTask?.cancel() }
+
+    /// Disabling stops both sampling and scheduled work immediately.
+    public func setEnabled(_ enabled: Bool) {
+        self.enabled = enabled
+        if !enabled {
+            states.removeAll()
+            cadenceTask?.cancel()
+            cadenceTask = nil
+        }
     }
 
-    public func inputSent(surfaceID: String, sequence: UInt64) {
-        let timestamp = now()
-        guard var surface = states[surfaceID], surface.inputStarts[sequence] != nil else {
-            return
-        }
-        surface.inputCount += 1
-        emit(rolloverIfNeeded(state: &surface, now: timestamp))
-        states[surfaceID] = surface
+    public func inputStarted(surfaceID: String, byteCount: Int) -> UInt64 {
+        guard let surface = state(for: surfaceID) else { return 0 }
+        nextSequence &+= 1
+        surface.window.inputCount += 1
+        surface.inputStarts[nextSequence] = now()
+        trim(&surface.inputStarts)
+        return nextSequence
     }
+
+    public func inputSent(surfaceID: String, sequence: UInt64) {}
 
     public func inputFailed(surfaceID: String, sequence: UInt64) {
-        let timestamp = now()
-        guard var surface = states[surfaceID] else { return }
-        surface.inputStarts.removeValue(forKey: sequence)
-        emit(rolloverIfNeeded(state: &surface, now: timestamp))
-        states[surfaceID] = surface
+        guard let surface = states[surfaceID] else { return }
+        surface.inputStarts[sequence] = nil
+        surface.presentationStarts[sequence] = nil
+        surface.window.failedCount += 1
     }
 
-    public func outputReceived(
-        surfaceID: String,
-        appliedInputSequence: UInt64?,
-        byteCount: Int,
-        queueDepth: Int
-    ) {
-        let timestamp = now()
-        guard var surface = state(for: surfaceID, now: timestamp) else { return }
-        surface.outputCount += 1
-        surface.outputBytes += max(0, byteCount)
-        surface.maxQueueDepth = max(surface.maxQueueDepth, max(0, queueDepth))
-        let inputStartedAt = appliedInputSequence.flatMap {
-            surface.inputStarts[$0]?.startedAt
+    public func outputReceived(surfaceID: String, appliedInputSequence: UInt64?, byteCount: Int, queueDepth: Int, receivedAtNanos: UInt64? = nil) {
+        guard let surface = state(for: surfaceID) else { return }
+        let timestamp = receivedAtNanos ?? now()
+        surface.window.outputCount += 1
+        surface.window.outputBytes += max(0, byteCount)
+        surface.window.maxQueueDepth = max(surface.window.maxQueueDepth, queueDepth)
+        // Consume once. A later frame with the same watermark is ordinary output.
+        if let sequence = appliedInputSequence,
+           let start = surface.inputStarts.removeValue(forKey: sequence), timestamp >= start {
+            Self.record(timestamp - start, in: &surface.window.inputToOutput)
+            surface.presentationStarts[sequence] = start
+            trim(&surface.presentationStarts)
+            emitAnomaly(timestamp - start, thresholdMs: 1_000, stage: "input_to_output", surface: surface)
         }
-        if let inputStartedAt, timestamp >= inputStartedAt {
-            appendSample(timestamp - inputStartedAt, to: &surface.inputToOutput)
-        }
-        surface.outputs.append(OutputStart(
-            receivedAt: timestamp,
-            inputStartedAt: inputStartedAt
-        ))
-        if surface.outputs.count > Self.maxOutputStarts {
-            surface.outputs.removeFirst(surface.outputs.count - Self.maxOutputStarts)
-            surface.droppedCount += 1
-        }
-        let anomaly = inputStartedAt.flatMap { start -> UInt32? in
-            guard timestamp >= start,
-                  timestamp - start >= Self.visibleAnomalyNanos,
-                  Self.cooldownElapsed(since: surface.lastAnomalyAt, now: timestamp) else {
-                return nil
-            }
-            surface.lastAnomalyAt = timestamp
-            return Self.durationMilliseconds(timestamp - start)
-        }
-        emit(rolloverIfNeeded(state: &surface, now: timestamp))
-        states[surfaceID] = surface
-        emitAnomaly(anomaly, thresholdMs: 1_000, stage: "input_to_output")
     }
 
-    public func outputPresented(surfaceID: String) {
+    /// The output queue acknowledgment records application, not GPU presentation.
+    public func outputApplied(surfaceID: String) {
+        states[surfaceID]?.window.appliedCount += 1
+    }
+
+    public func framePresented(surfaceID: String, inputSequence: UInt64?, receivedAtNanos: UInt64) {
+        guard let surface = state(for: surfaceID), receivedAtNanos > surface.lastPresentedReceipt else { return }
         let timestamp = now()
-        guard var surface = states[surfaceID], !surface.outputs.isEmpty else { return }
-        let output = surface.outputs.removeFirst()
-        surface.presentedCount += 1
-        var anomalyDuration: UInt32?
-        if timestamp >= output.receivedAt {
-            let renderDuration = timestamp - output.receivedAt
-            appendSample(renderDuration, to: &surface.render)
-            if renderDuration >= Self.renderAnomalyNanos,
-               Self.cooldownElapsed(since: surface.lastAnomalyAt, now: timestamp) {
-                surface.lastAnomalyAt = timestamp
-                anomalyDuration = Self.durationMilliseconds(renderDuration)
-            }
+        guard timestamp >= receivedAtNanos else { return }
+        surface.lastPresentedReceipt = receivedAtNanos
+        surface.window.presentedCount += 1
+        let duration = timestamp - receivedAtNanos
+        Self.record(duration, in: &surface.window.render)
+        if let sequence = inputSequence, let start = surface.presentationStarts.removeValue(forKey: sequence), timestamp >= start {
+            Self.record(timestamp - start, in: &surface.window.inputToVisible)
         }
-        if let inputStartedAt = output.inputStartedAt, timestamp >= inputStartedAt {
-            appendSample(timestamp - inputStartedAt, to: &surface.inputToVisible)
-        }
-        emit(rolloverIfNeeded(state: &surface, now: timestamp))
-        states[surfaceID] = surface
-        emitAnomaly(anomalyDuration, thresholdMs: 250, stage: "render")
+        surface.consecutiveSlowFrames = duration >= 250_000_000 ? surface.consecutiveSlowFrames + 1 : 0
+        emitAnomaly(duration, thresholdMs: 250, stage: "render", surface: surface)
     }
 
     public func outputDropped(surfaceID: String) {
-        let timestamp = now()
-        guard var surface = states[surfaceID] else { return }
-        surface.droppedCount += surface.outputs.count
-        surface.outputs.removeAll(keepingCapacity: true)
-        emit(rolloverIfNeeded(state: &surface, now: timestamp))
-        states[surfaceID] = surface
+        guard let surface = states[surfaceID] else { return }
+        surface.window.droppedCount += 1
+        surface.inputStarts.removeAll(keepingCapacity: true)
+        surface.presentationStarts.removeAll(keepingCapacity: true)
     }
 
-    /// Snapshots state on the main actor, then sorts samples off the main actor.
-    /// The only awaited work on the terminal lifecycle path is the existing
-    /// analytics emitter barrier.
+    /// Copies small histograms on main, builds event dictionaries off main.
     public func flush() async {
-        let snapshots = takeWindowSnapshots(now: now(), force: true)
-        let emitter = self.emitter
-        let emissions = await Task.detached(priority: nil) {
-            snapshots.map(Self.makeEmission)
-        }.value
-        emit(emissions)
-        await emitter.flush()
-    }
-
-    private func state(for surfaceID: String, now: UInt64) -> SurfaceState? {
-        if let surface = states[surfaceID] { return surface }
-        guard states.count < Self.maxSurfaces else { return nil }
-        return SurfaceState(windowStartedAt: now)
-    }
-
-    private func takeWindowSnapshots(now: UInt64, force: Bool) -> [WindowSnapshot] {
-        let surfaceIDs = Array(states.keys)
-        var snapshots: [WindowSnapshot] = []
-        snapshots.reserveCapacity(surfaceIDs.count)
-        for surfaceID in surfaceIDs {
-            guard var surface = states[surfaceID] else { continue }
-            guard force || windowHasElapsed(since: surface.windowStartedAt, now: now) else {
-                continue
+        let timestamp = now()
+        guard enabled, consent.isTelemetryEnabled else {
+            states.removeAll()
+            return
+        }
+        var snapshots: [Snapshot] = []
+        for surface in states.values {
+            if surface.window.hasActivity {
+                snapshots.append(Snapshot(window: surface.window, elapsedNanos: timestamp >= surface.windowStartedAt ? timestamp - surface.windowStartedAt : 0))
+                surface.window = Window()
             }
-            snapshots.append(makeSnapshot(state: &surface, now: now))
+            surface.windowStartedAt = timestamp
+            // No output is normal for some inputs. Expiry is missing coverage,
+            // never an invented slow response or Sentry incident.
+            surface.inputStarts = surface.inputStarts.filter { timestamp >= $0.value && timestamp - $0.value < 30_000_000_000 }
+            surface.presentationStarts = surface.presentationStarts.filter { timestamp >= $0.value && timestamp - $0.value < 30_000_000_000 }
+        }
+        states = states.filter { timestamp >= $0.value.lastActivityAt && timestamp - $0.value.lastActivityAt < 60_000_000_000 }
+        let emitter = self.emitter
+        await Task.detached(priority: .utility) {
+            for snapshot in snapshots { emitter.capture(Self.windowEventName, Self.properties(snapshot)) }
+            await emitter.flush()
+        }.value
+    }
+
+    private func state(for surfaceID: String) -> SurfaceState? {
+        guard enabled, consent.isTelemetryEnabled else { states.removeAll(); return nil }
+        let timestamp = now()
+        let surface: SurfaceState
+        if let existing = states[surfaceID] { surface = existing }
+        else {
+            if states.count == 16, let oldest = states.min(by: { $0.value.lastActivityAt < $1.value.lastActivityAt })?.key { states[oldest] = nil }
+            surface = SurfaceState(now: timestamp)
             states[surfaceID] = surface
         }
-        return snapshots
-    }
-
-    private func rolloverIfNeeded(
-        state: inout SurfaceState,
-        now: UInt64,
-        force: Bool = false
-    ) -> [Emission] {
-        guard force || windowHasElapsed(since: state.windowStartedAt, now: now) else {
-            return []
+        surface.lastActivityAt = timestamp
+        if cadenceTask == nil {
+            let interval = window
+            cadenceTask = Task { @MainActor [weak self] in
+                while !Task.isCancelled {
+                    do { try await Task.sleep(for: interval) } catch { return }
+                    guard let self else { return }
+                    await self.flush()
+                    if self.states.isEmpty { self.cadenceTask = nil; return }
+                }
+            }
         }
-        let snapshot = makeSnapshot(state: &state, now: now)
-        return [Self.makeEmission(snapshot)]
+        return surface
     }
 
-    private func makeSnapshot(state: inout SurfaceState, now: UInt64) -> WindowSnapshot {
-        let elapsed = max(1, now >= state.windowStartedAt ? now - state.windowStartedAt : 1)
-        let snapshot = WindowSnapshot(
-            elapsedNanos: elapsed,
-            inputCount: state.inputCount,
-            outputCount: state.outputCount,
-            presentedCount: state.presentedCount,
-            correlatedOutputCount: state.inputToOutput.count,
-            droppedCount: state.droppedCount,
-            outputBytes: state.outputBytes,
-            maxQueueDepth: state.maxQueueDepth,
-            inputToOutput: state.inputToOutput,
-            inputToVisible: state.inputToVisible,
-            render: state.render
-        )
-        state.windowStartedAt = now
-        state.inputCount = 0
-        state.outputCount = 0
-        state.presentedCount = 0
-        state.droppedCount = 0
-        state.outputBytes = 0
-        state.maxQueueDepth = 0
-        state.inputToOutput.removeAll(keepingCapacity: true)
-        state.inputToVisible.removeAll(keepingCapacity: true)
-        state.render.removeAll(keepingCapacity: true)
-        return snapshot
+    private func trim(_ values: inout [UInt64: UInt64]) {
+        if values.count > 512, let oldest = values.min(by: { $0.value < $1.value })?.key { values[oldest] = nil }
     }
 
-    nonisolated private static func makeEmission(_ snapshot: WindowSnapshot) -> Emission {
-        let properties: [String: AnalyticsValue] = [
-            "window_ms": .int(milliseconds(snapshot.elapsedNanos)),
-            "input_count": .int(snapshot.inputCount),
-            "output_count": .int(snapshot.outputCount),
-            "presented_count": .int(snapshot.presentedCount),
-            "correlated_output_count": .int(snapshot.correlatedOutputCount),
-            "dropped_count": .int(snapshot.droppedCount),
-            "output_bytes": .int(snapshot.outputBytes),
-            "max_queue_depth": .int(snapshot.maxQueueDepth),
-            "input_to_output_p50_ms": .int(percentile(snapshot.inputToOutput, 0.50)),
-            "input_to_output_p95_ms": .int(percentile(snapshot.inputToOutput, 0.95)),
-            "input_to_output_p99_ms": .int(percentile(snapshot.inputToOutput, 0.99)),
-            "input_to_visible_p50_ms": .int(percentile(snapshot.inputToVisible, 0.50)),
-            "input_to_visible_p95_ms": .int(percentile(snapshot.inputToVisible, 0.95)),
-            "input_to_visible_p99_ms": .int(percentile(snapshot.inputToVisible, 0.99)),
-            "render_p50_ms": .int(percentile(snapshot.render, 0.50)),
-            "render_p95_ms": .int(percentile(snapshot.render, 0.95)),
-            "render_p99_ms": .int(percentile(snapshot.render, 0.99)),
+    private func emitAnomaly(_ duration: UInt64, thresholdMs: Int, stage: String, surface: SurfaceState) {
+        guard duration / 1_000_000 >= thresholdMs else { return }
+        let timestamp = now()
+        guard surface.lastAnomalyAt[stage].map({ timestamp >= $0 && timestamp - $0 >= 60_000_000_000 }) ?? true else { return }
+        // Sentry requires repeated slow presentations. Individual slow responses
+        // remain Axiom observations because shell/program execution may be slow.
+        if stage == "render", surface.consecutiveSlowFrames < 3 { return }
+        surface.lastAnomalyAt[stage] = timestamp
+        let ms = Int(min(duration / 1_000_000, UInt64(UInt32.max)))
+        emitter.capture(Self.anomalyEventName, ["duration_ms": .int(ms), "threshold_ms": .int(thresholdMs), "stage": .string(stage)])
+        if stage == "render" { onAnomaly?(UInt32(ms)) }
+    }
+
+    nonisolated private static func record(_ nanos: UInt64, in histogram: inout [Int]) {
+        let ms = (nanos + 999_999) / 1_000_000
+        let bucket = bucketBoundsMs.firstIndex { ms <= $0 } ?? 16
+        histogram[bucket] += 1
+    }
+
+    nonisolated private static func properties(_ snapshot: Snapshot) -> [String: AnalyticsValue] {
+        let w = snapshot.window
+        var values: [String: AnalyticsValue] = [
+            "window_ms": .int(Int(snapshot.elapsedNanos / 1_000_000)),
+            "input_count": .int(w.inputCount), "input_failed_count": .int(w.failedCount),
+            "output_count": .int(w.outputCount), "presented_count": .int(w.presentedCount),
+            "correlated_output_count": .int(w.inputToOutput.reduce(0, +)),
+            "dropped_count": .int(w.droppedCount), "output_bytes": .int(w.outputBytes),
+            "max_queue_depth": .int(w.maxQueueDepth), "histogram_version": .int(1),
         ]
-        return Emission(event: Self.windowEventName, properties: properties)
-    }
-
-    private func emit(_ emissions: [Emission]) {
-        for emission in emissions {
-            emitter.capture(emission.event, emission.properties)
+        for (name, histogram) in [("input_to_output", w.inputToOutput), ("input_to_visible", w.inputToVisible), ("render", w.render)] {
+            values["\(name)_histogram"] = .string("[" + histogram.map(String.init).joined(separator: ",") + "]")
+            let count = histogram.reduce(0, +)
+            for percentile in [50, 95, 99] {
+                var cumulative = 0
+                let rank = max(1, (count * percentile + 99) / 100)
+                let index = histogram.indices.first { cumulative += histogram[$0]; return cumulative >= rank }
+                values["\(name)_p\(percentile)_ms"] = .int(index.map { bucketBoundsMs[$0] } ?? 0)
+            }
         }
+        return values
     }
+}
 
-    private func emitAnomaly(_ duration: UInt32?, thresholdMs: Int, stage: String) {
-        guard let duration else { return }
-        emitter.capture(Self.anomalyEventName, [
-            "duration_ms": .int(Int(duration)),
-            "threshold_ms": .int(thresholdMs),
-            "stage": .string(stage),
-        ])
-        onAnomaly?(duration)
-    }
-
-    nonisolated private static func cooldownElapsed(since last: UInt64?, now: UInt64) -> Bool {
-        guard let last else { return true }
-        return now >= last && now - last >= Self.anomalyCooldownNanos
-    }
-
-    private func windowHasElapsed(since start: UInt64, now: UInt64) -> Bool {
-        now >= start && now - start >= windowNanos
-    }
-
-    nonisolated private static func milliseconds(_ nanos: UInt64) -> Int {
-        Int(min(nanos / 1_000_000, UInt64(Int.max)))
-    }
-
-    nonisolated private static func durationMilliseconds(_ nanos: UInt64) -> UInt32 {
-        UInt32(min(nanos / 1_000_000, UInt64(UInt32.max)))
-    }
-
-    private func appendSample(_ value: UInt64, to samples: inout [UInt64]) {
-        if samples.count == Self.maxSamples {
-            samples.removeFirst()
-        }
-        samples.append(value)
-    }
-
-    private func trim<Value>(_ dictionary: inout [UInt64: Value], to limit: Int) {
-        guard dictionary.count > limit else { return }
-        dictionary.remove(at: dictionary.startIndex)
-    }
-
-    nonisolated private static func percentile(_ values: [UInt64], _ fraction: Double) -> Int {
-        guard !values.isEmpty else { return 0 }
-        let sorted = values.sorted()
-        let index = min(sorted.count - 1, Int(Double(sorted.count - 1) * fraction))
-        return milliseconds(sorted[index])
-    }
+/// Default for callers that already gate observations upstream.
+public struct EnabledTerminalLatencyConsent: AnalyticsConsentProviding {
+    public init() {}
+    public var isTelemetryEnabled: Bool { true }
 }

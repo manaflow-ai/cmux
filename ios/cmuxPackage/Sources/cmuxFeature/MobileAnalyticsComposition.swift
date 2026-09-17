@@ -121,6 +121,7 @@ public struct MobileAnalyticsComposition {
         self.networkOutcomeReporter = MobileNetworkOutcomeReporter(emitter: networkOutcomeEmitter)
         self.terminalLatencyReporter = MobileTerminalLatencyReporter(
             emitter: networkOutcomeEmitter,
+            consent: consent,
             onAnomaly: { [weak diagnosticLog] durationMilliseconds in
                 diagnosticLog?.recordAppEvent(
                     .terminalRenderLagDetected,
