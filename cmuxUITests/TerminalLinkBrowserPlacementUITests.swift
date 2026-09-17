@@ -7,6 +7,7 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
     private var fixture: URL!
     private var socketPath = ""
     private var launchTag = ""
+    private var socketProbeResults: [String: String] = [:]
 
     override func setUp() {
         super.setUp()
@@ -73,14 +74,17 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
             pingReturnsPong: {
                 for candidate in self.socketCandidates() {
                     guard FileManager.default.fileExists(atPath: candidate) else { continue }
-                    if ControlSocketUITestClient(path: candidate, responseTimeout: 1).sendLine("ping") == "PONG" {
+                    let client = ControlSocketUITestClient(path: candidate, responseTimeout: 1)
+                    let response = client.sendJSON(["id": "ready", "method": "system.ping", "params": [:]])
+                    self.socketProbeResults[candidate] = response.map { String(describing: $0) } ?? client.lastFailure ?? "No reply"
+                    if response?["ok"] as? Bool == true {
                         self.socketPath = candidate
                         return true
                     }
                 }
                 return false
             }
-        ), "Socket diagnostics: \(readState(fixture.appendingPathComponent("socket.json")))")
+        ), "Probes: \(socketProbeResults). Socket diagnostics: \(readState(fixture.appendingPathComponent("socket.json")))")
         let source = try XCTUnwrap(readState(stateURL)["surfaceId"] as? String)
         let workspace = try XCTUnwrap(rpc("workspace.current")["workspace_id"] as? String)
         let initial = try surfaces(workspace)

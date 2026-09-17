@@ -5,6 +5,7 @@ import Foundation
 final class ControlSocketUITestClient {
     private let path: String
     private let responseTimeout: TimeInterval
+    private(set) var lastFailure: String?
 
     init(path: String, responseTimeout: TimeInterval) {
         self.path = path
@@ -23,8 +24,9 @@ final class ControlSocketUITestClient {
     }
 
     func sendLine(_ line: String) -> String? {
+        lastFailure = nil
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else { return nil }
+        guard fd >= 0 else { return failed("socket", code: errno) }
         defer { close(fd) }
 
         var timeout = timeval(
@@ -52,26 +54,34 @@ final class ControlSocketUITestClient {
 
         let pathOffset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 0
         let addrLen = socklen_t(pathOffset + pathBytes.count)
+        addr.sun_len = UInt8(addrLen)
         let connected = withUnsafePointer(to: &addr) { ptr in
             ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
                 Darwin.connect(fd, sockaddrPtr, addrLen)
             }
         }
-        guard connected == 0 else { return nil }
+        guard connected == 0 else { return failed("connect", code: errno) }
 
         let payload = Array((line + "\n").utf8)
         let wrote = payload.withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.baseAddress else { return true }
             return Darwin.write(fd, baseAddress, rawBuffer.count) == rawBuffer.count
         }
-        guard wrote else { return nil }
+        guard wrote else { return failed("write", code: errno) }
 
         var buffer = [UInt8](repeating: 0, count: 4096)
         var accumulator = ""
         let deadline = Date().addingTimeInterval(responseTimeout)
         while Date() < deadline {
             let count = Darwin.read(fd, &buffer, buffer.count)
-            guard count > 0 else { break }
+            if count < 0 {
+                if errno == EINTR { continue }
+                return failed("read", code: errno)
+            }
+            guard count > 0 else {
+                lastFailure = "EOF before a complete reply"
+                break
+            }
             if let chunk = String(bytes: buffer[0..<count], encoding: .utf8) {
                 accumulator.append(chunk)
                 if let newline = accumulator.firstIndex(of: "\n") {
@@ -81,4 +91,10 @@ final class ControlSocketUITestClient {
         }
         return accumulator.isEmpty ? nil : accumulator.trimmingCharacters(in: .whitespacesAndNewlines)
     }
+
+    private func failed(_ operation: String, code: Int32) -> String? {
+        lastFailure = "\(operation): \(String(cString: strerror(code))) (\(code))"
+        return nil
+    }
+
 }
