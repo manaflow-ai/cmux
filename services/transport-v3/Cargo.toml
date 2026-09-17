@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/grants", "crates/authority", "crates/transport", "crates/relay-server"]
+members = ["crates/grants", "crates/authority", "crates/transport", "crates/relay-server", "crates/control-server"]
 resolver = "2"
 
 [workspace.package]
@@ -11,6 +11,7 @@ publish = false
 [workspace.dependencies]
 anyhow = "1"
 axum = "0.8"
+base64 = "0.22"
 cedar-policy = { version = "4.12", default-features = false }
 clap = { version = "4", features = ["derive", "env"] }
 ed25519-dalek = { version = "2.2", features = ["pkcs8", "rand_core"] }
@@ -27,3 +28,5 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "sync"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 prometheus-client = "0.23"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "json", "uuid", "migrate", "macros"] }

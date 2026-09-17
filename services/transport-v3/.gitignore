@@ -1,2 +1,3 @@
 /target/
 /interop/node_modules/
+__pycache__/

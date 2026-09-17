@@ -1,0 +1,36 @@
+import importlib.util
+import subprocess
+import tempfile
+import types
+import unittest
+from pathlib import Path
+
+path=Path(__file__).resolve().parents[1]/'azure'/'deploy.py'
+spec=importlib.util.spec_from_file_location('deploy',path)
+deploy=importlib.util.module_from_spec(spec)
+spec.loader.exec_module(deploy)
+deploy.ARGS=types.SimpleNamespace(registry='testregistry')
+
+class DeployTests(unittest.TestCase):
+    def test_install_script_is_fail_closed_and_preserves_old_generation(self):
+        script=deploy.install_script('registry.azurecr.io/relay@sha256:123','registry.azurecr.io/caddy@sha256:456','node.eastus.cloudapp.azure.com','203.0.113.1',{'test':'aa'*32},'test-identity')
+        with tempfile.NamedTemporaryFile('w') as f:
+            f.write(script);f.flush()
+            subprocess.run(['bash','-n',f.name],check=True)
+        self.assertIn('Existing node must not be replaced',script)
+        self.assertNotIn('docker stop',script)
+        self.assertNotIn('docker rm',script)
+        self.assertIn('--restart on-failure',script)
+        self.assertIn('--read-only --cap-drop ALL',script)
+        self.assertIn('/etc/cmux-v3:/run/cmux-v3:ro',script)
+        self.assertIn('--username test-identity',script)
+        self.assertIn('exit 1',script)
+        self.assertNotIn('SIGNER_SEED',script)
+    def test_remote_script_values_cannot_inject_shell(self):
+        with self.assertRaises(ValueError):
+            deploy.install_script('image;bad','proxy','host','ip',{},'identity')
+    def test_labels_reject_shell_and_resource_scope_injection(self):
+        for value in ['foo/bar','x;bad','../old','A','x'*26]:
+            with self.assertRaises(Exception): deploy.label(value)
+
+if __name__=='__main__': unittest.main()

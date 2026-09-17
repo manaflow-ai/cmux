@@ -23,6 +23,20 @@ jobs:
   protocol:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: v3test
+          POSTGRES_PASSWORD: v3-disposable-test
+          POSTGRES_DB: v3test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U v3test -d v3test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     defaults:
       run:
         working-directory: services/transport-v3
@@ -36,12 +50,17 @@ jobs:
       - name: Install Rust
         run: rustup toolchain install 1.98.1 --profile minimal --component clippy --component rustfmt
       - run: cargo fmt --all --check
+      - run: python3 -m unittest discover -s ops/tests -v
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
+      - name: PostgreSQL authorization and revocation
+        env:
+          CMUX_V3_TEST_DATABASE_URL: postgres://v3test:v3-disposable-test@127.0.0.1:5432/v3test
+        run: cargo test -p cmux-v3-control-server --test database --locked -- --ignored
       - name: Audit dependency vulnerabilities
         run: |
           cargo install cargo-audit --version 0.22.2 --locked
-          cargo audit
+          python3 ops/audit.py
       - run: cargo build -p cmux-v3-transport --example browser_fixture --locked
       - name: Browser interoperability
         working-directory: services/transport-v3/interop

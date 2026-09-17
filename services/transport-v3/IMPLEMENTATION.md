@@ -65,6 +65,34 @@ seamless upgrades, observability, security audit, and real end-to-end proof.
 - [ ] Security audit of code and deployed configuration; address findings.
 - [ ] Final requirement-by-requirement evidence audit.
 
+## Control service checkpoint
+
+- Rust HTTP control service now verifies Stack users, team membership, and live
+  administrator permission. Member checks cache for 20 seconds per region;
+  original verification time bounds finite grants. Admin mutations bypass caches.
+- Enrollment derives the PeerId from a domain-separated device proof. Proofs bind
+  deployment, Stack user, endpoint, payload, timestamp and one-use UUID. Postgres
+  consumes nonces atomically across regions. Clients cannot assign tags or leases.
+- Team rows serialize authorization, policy changes, device policy and revocation.
+  Optimistic revision checks reject concurrent lost updates. Revocation disables
+  the device and records a revision/event in the same transaction. Destination
+  owner membership is checked before authorizing that device as a target.
+- 24 Rust tests pass plus an explicit disposable-Postgres test covering replay,
+  cross-team access, takeover, admin restrictions, concurrent updates and revocation.
+  Three Azure script tests pass. iOS device/simulator transport checks pass on
+  Rust 1.98.1 after explicitly installing those targets for that toolchain.
+- No production/staging database migration was run. The only database used is
+  the task-specific temporary PostgreSQL container on the shared dev VM.
+- SQLx locks an optional, disabled MySQL/RSA dependency with RUSTSEC-2023-0071.
+  ops/audit.py proves RSA is absent from all selected target dependency graphs
+  before allowing that one advisory. The paste maintenance warning applies to
+  Linux build-time netlink dependencies; the earlier non-runtime-tree statement
+  was only true for macOS and is superseded here.
+- Azure generation provisioning script creates new nodes instead of restarting
+  old ones, uses registry managed identity and immutable image digests, exposes
+  no public management/SSH, and mounts private node keys read-only. Deployment,
+  client handover, public TLS proof, metrics collection/alerts remain unverified.
+
 ## Dependency audit checkpoint
 
 - Added the dependency-audit gate in separate failing commit 2dbb3cef290.

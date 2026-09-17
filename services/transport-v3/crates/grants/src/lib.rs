@@ -30,6 +30,12 @@ pub enum OfflineAccess {
     UntilRevoked {},
 }
 
+impl Default for OfflineAccess {
+    fn default() -> Self {
+        Self::Bounded { seconds: 300 }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct LeasePolicy {
