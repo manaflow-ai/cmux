@@ -655,9 +655,9 @@ final class SavingTextView: NSTextView {
                 { [weak self] in self?.performPreviewFontZoomShortcutAction(action) }
             ))
         }
+        candidates += filePreviewWordWrapShortcutCandidates()
         return candidates
     }
-
     private func previewFontZoomShortcutWhenClauseAllows(
         action: KeyboardShortcutSettings.Action,
         event: NSEvent
@@ -669,7 +669,7 @@ final class SavingTextView: NSTextView {
             .evaluate(Self.filePreviewTextEditorShortcutContext)
     }
 
-    private static var filePreviewTextEditorShortcutContext: ShortcutContext {
+    static var filePreviewTextEditorShortcutContext: ShortcutContext {
         ShortcutFocusState(
             browser: false,
             markdown: false,

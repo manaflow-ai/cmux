@@ -16155,7 +16155,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if matchConfiguredShortcut(event: event, action: .browserZoomOut) { return performBrowserOrTextPreviewZoomShortcut(event: event, action: .browserZoomOut) }
 
         if matchConfiguredShortcut(event: event, action: .browserZoomReset) { return performBrowserOrTextPreviewZoomShortcut(event: event, action: .browserZoomReset) }
-
+        if matchConfiguredShortcut(event: event, action: .toggleFileEditorWordWrap) { return (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?.toggleFocusedTextFilePreviewWordWrap() ?? false }
         if matchConfiguredShortcut(event: event, action: .markdownZoomIn) {
             return shortcutEventMarkdownPanel(event)?.zoomIn() ?? false
         }

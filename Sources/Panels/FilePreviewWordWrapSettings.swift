@@ -21,4 +21,9 @@ enum FilePreviewWordWrapSettings {
     static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: key) == nil ? defaultEnabled : defaults.bool(forKey: key)
     }
+
+    /// Persists the current toggle state for the file editor.
+    static func setEnabled(_ enabled: Bool, defaults: UserDefaults = .standard) {
+        defaults.set(enabled, forKey: key)
+    }
 }

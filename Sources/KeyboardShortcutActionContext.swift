@@ -50,6 +50,7 @@ extension KeyboardShortcutSettings.Action {
         case browserPanel
         case viewerPanel
         case browserOrFilePreviewTextEditor
+        case filePreviewTextEditor
         case markdownPanel
         case simulatorPanel
         case rightSidebarFocus
@@ -83,6 +84,7 @@ extension KeyboardShortcutSettings.Action {
             case .browserPanel: return focusedBrowserPanel
             case .viewerPanel: return focusedBrowserPanel || focusedMarkdownPanel
             case .browserOrFilePreviewTextEditor: return focusedBrowserPanel || focusedFilePreviewTextEditor
+            case .filePreviewTextEditor: return focusedFilePreviewTextEditor
             case .markdownPanel: return focusedMarkdownPanel
             case .simulatorPanel: return focusedSimulatorPanel
             case .rightSidebarFocus: return rightSidebarFocused
@@ -131,6 +133,8 @@ extension KeyboardShortcutSettings.Action {
             case .viewerPanel: return .or(.atom(.browserFocus), .atom(.markdownFocus))
             case .browserOrFilePreviewTextEditor:
                 return .or(.atom(.browserFocus), .atom(.filePreviewTextEditorFocus))
+            case .filePreviewTextEditor:
+                return .atom(.filePreviewTextEditorFocus)
             case .markdownPanel: return .atom(.markdownFocus)
             case .simulatorPanel: return .atom(.simulatorFocus)
             case .rightSidebarFocus: return .atom(.sidebarFocus)
@@ -176,7 +180,16 @@ extension KeyboardShortcutSettings.Action {
             if self == .browserOrFilePreviewTextEditor || other == .browserOrFilePreviewTextEditor {
                 let paired = self == .browserOrFilePreviewTextEditor ? other : self
                 switch paired {
-                case .browserPanel, .nonBrowserPanel, .canvasLayout:
+                case .browserPanel, .nonBrowserPanel, .filePreviewTextEditor, .canvasLayout:
+                    return true
+                default:
+                    return false
+                }
+            }
+            if self == .filePreviewTextEditor || other == .filePreviewTextEditor {
+                let paired = self == .filePreviewTextEditor ? other : self
+                switch paired {
+                case .nonBrowserPanel, .filePreviewTextEditor, .canvasLayout:
                     return true
                 default:
                     return false
@@ -190,6 +203,8 @@ extension KeyboardShortcutSettings.Action {
                     && other != .browserPanel
                     && self != .browserOrFilePreviewTextEditor
                     && other != .browserOrFilePreviewTextEditor
+                    && self != .filePreviewTextEditor
+                    && other != .filePreviewTextEditor
                     && self != .markdownPanel
                     && other != .markdownPanel
                     && self != .viewerPanel
@@ -242,6 +257,8 @@ extension KeyboardShortcutSettings.Action {
             return .browserPanel
         case .browserZoomIn, .browserZoomOut, .browserZoomReset:
             return .browserOrFilePreviewTextEditor
+        case .toggleFileEditorWordWrap:
+            return .filePreviewTextEditor
         case .markdownZoomIn, .markdownZoomOut, .markdownZoomReset:
             return .markdownPanel
         case .simulatorHome, .simulatorRotateLeft, .simulatorRotateRight,

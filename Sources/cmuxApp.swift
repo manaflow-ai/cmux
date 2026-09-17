@@ -1117,7 +1117,7 @@ struct cmuxApp: App {
                     _ = activeTabManager.resetZoomFocusedBrowserOrTextFilePreview()
                 }
             }
-
+            splitCommandButton(title: String(localized: "menu.view.toggleFileEditorWordWrap", defaultValue: "Toggle File Editor Word Wrap"), shortcut: menuShortcut(for: .toggleFileEditorWordWrap)) { _ = activeTabManager.toggleFocusedTextFilePreviewWordWrap() }
             Button(String(localized: "menu.view.clearBrowserHistory", defaultValue: "Clear Browser History")) {
                 BrowserHistoryStore.shared.clearHistory()
             }

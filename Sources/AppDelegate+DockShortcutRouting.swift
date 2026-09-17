@@ -46,6 +46,7 @@ extension KeyboardShortcutSettings.Action {
              .fileExplorerOpenSelection,
              .fileExplorerOpenSelectionFinderAlias,
              .saveFilePreview,
+             .toggleFileEditorWordWrap,
              .browserBack, .browserForward,
              .browserReload, .browserHardReload,
              .browserZoomIn, .browserZoomOut, .browserZoomReset,

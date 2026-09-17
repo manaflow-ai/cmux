@@ -331,6 +331,12 @@ export const shortcutCategories: ShortcutCategory[] = [
         description: { en: "Save file preview", ja: "ファイルプレビューを保存" },
         note: { en: "focused text preview", ja: "フォーカス中のテキストプレビュー" },
       },
+      {
+        id: "toggleFileEditorWordWrap",
+        combos: [["⌥", "Z"]],
+        description: { en: "Toggle file editor word wrap", ja: "ファイルエディタの行折り返しを切り替え" },
+        note: { en: "focused text preview", ja: "フォーカス中のテキストプレビュー" },
+      },
     ],
   },
   {

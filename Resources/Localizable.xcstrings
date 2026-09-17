@@ -253630,6 +253630,20 @@
         }
       }
     },
+    "menu.view.toggleFileEditorWordWrap": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Toggle File Editor Word Wrap" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルエディタの行折り返しを切り替え" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Zeilenumbruch im Dateieditor umschalten" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Activer ou désactiver le retour à la ligne de l’éditeur de fichiers" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "تبديل التفاف الكلمات في محرر الملفات" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Alternar el ajuste de línea del editor de archivos" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "切換檔案編輯器自動換行" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "切换文件编辑器自动换行" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "파일 편집기 자동 줄 바꿈 전환" } }
+      }
+    },
     "menu.view.clearBrowserHistory": {
       "extractionState": "manual",
       "localizations": {
@@ -390438,6 +390452,20 @@
             "value": "顯示側邊欄保險箱"
           }
         }
+      }
+    },
+    "shortcut.toggleFileEditorWordWrap.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Toggle File Editor Word Wrap" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルエディタの行折り返しを切り替え" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Zeilenumbruch im Dateieditor umschalten" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Activer ou désactiver le retour à la ligne de l’éditeur de fichiers" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "تبديل التفاف الكلمات في محرر الملفات" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Alternar el ajuste de línea del editor de archivos" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "切換檔案編輯器自動換行" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "切换文件编辑器自动换行" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "파일 편집기 자동 줄 바꿈 전환" } }
       }
     },
     "shortcut.toggleBrowserDesignMode.label": {
