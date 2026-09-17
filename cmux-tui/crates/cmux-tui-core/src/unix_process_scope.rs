@@ -1509,6 +1509,29 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
+    fn close_on_exec_marker_does_not_claim_an_unrelated_process() {
+        let scope = UnixProcessScope::prepare().unwrap();
+        // A fork sees every parent's descriptor before exec closes CLOEXEC
+        // entries. Model that ownership scan with the live test process and
+        // an earlier, absent root; no tracker is registered and no PID is killed.
+        let registration = ScopeRegistration {
+            marker: scope.marker.clone(),
+            file_marker: scope.file_marker,
+            root: ProcessIdentity { pid: u32::MAX, started: 0 },
+            tracked: scope.tracked.clone(),
+            track_before_finalization: true,
+            final_scan_gate: None,
+        };
+        let current = process_identity(std::process::id()).unwrap();
+        let scanned = scan_registered_processes(&[registration], ProcessScanCursor::default());
+        assert!(
+            !scanned.matches.contains(&(0, current)),
+            "a close-on-exec marker is incidental fork inheritance, not scope membership"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
     fn linux_process_identity_uses_start_time_after_a_parenthesized_name() {
         let stat = "12 (name with ) marker) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 4242";
         assert_eq!(
