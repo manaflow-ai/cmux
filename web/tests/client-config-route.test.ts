@@ -441,14 +441,14 @@ describe("client config", () => {
     mutableEnv.VERCEL_ENV = "production";
     process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID = "cmux-client-config-test";
     checkRateLimit.mockResolvedValue({ rateLimited: false, error: null });
-    let fetchStarted!: () => void;
-    const started = new Promise<void>((resolve) => { fetchStarted = resolve; });
     let releaseFetch!: () => void;
     const fetchGate = new Promise<void>((resolve) => {
       releaseFetch = resolve;
     });
+    let signalFetchStarted!: () => void;
+    const fetchStarted = new Promise<void>((resolve) => { signalFetchStarted = resolve; });
     const fetchMock = mock(async () => {
-      fetchStarted();
+      signalFetchStarted();
       await fetchGate;
       return new Response(
         JSON.stringify({
@@ -469,8 +469,15 @@ describe("client config", () => {
     });
 
     const firstPromise = POST(request());
+    await fetchStarted;
+    let signalSecondAdmission!: () => void;
+    const secondAdmission = new Promise<void>((resolve) => { signalSecondAdmission = resolve; });
+    checkRateLimit.mockImplementation(async () => {
+      signalSecondAdmission();
+      return { rateLimited: false, error: null };
+    });
     const secondPromise = POST(request());
-    await started;
+    await secondAdmission;
 
     releaseFetch();
     const [first, second] = await Promise.all([firstPromise, secondPromise]);
@@ -486,12 +493,12 @@ describe("client config", () => {
     mutableEnv.NODE_ENV = "production";
     process.env.VERCEL = "1";
     process.env.VERCEL_ENV = "production";
-    let fetchStarted!: () => void;
-    const started = new Promise<void>((resolve) => { fetchStarted = resolve; });
     let releaseFetch!: () => void;
     const gate = new Promise<void>((resolve) => { releaseFetch = resolve; });
+    let signalFetchStarted!: () => void;
+    const fetchStarted = new Promise<void>((resolve) => { signalFetchStarted = resolve; });
     const fetchMock = mock(async () => {
-      fetchStarted();
+      signalFetchStarted();
       await gate;
       return Response.json({ errorsWhileComputingFlags: false, featureFlags: {}, featureFlagPayloads: {} });
     });
@@ -502,7 +509,7 @@ describe("client config", () => {
     });
 
     const allowed = POST(request());
-    await started;
+    await fetchStarted;
     checkRateLimit.mockResolvedValue({ rateLimited: true, error: null });
     const blockedResponse = await POST(request());
     releaseFetch();
