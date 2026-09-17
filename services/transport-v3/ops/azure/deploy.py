@@ -47,12 +47,13 @@ def install_script(image, proxy, hostname, address, keys, identity_client):
     public = base64.b64encode(json.dumps(keys).encode()).decode()
     return f'''#!/bin/bash
 set -euo pipefail
-cloud_status=0
-cloud-init status --wait >/dev/null || cloud_status=$?
-# A prior package warning may return 2. Required binaries and readiness below
-# remain mandatory; fatal cloud-init status still aborts installation.
-case "$cloud_status" in 0|2) ;; *) exit "$cloud_status";; esac
+# Wait for package-manager ownership to leave cloud-init. Its persistent error
+# report is historical; reconcile our actual dependencies before claiming ready.
+cloud-init status --wait >/var/log/cmux-v3-cloud-init-status.log || true
+apt-get update -qq
+DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io ca-certificates curl openssl gnupg >/var/log/cmux-v3-runtime-install.log
 command -v docker >/dev/null
+systemctl enable --now docker
 install -d -m 700 /etc/cmux-v3
 if [ -e /etc/cmux-v3/installed ]; then
   if [ "$(cat /etc/cmux-v3/installed)" != '{image}' ]; then
