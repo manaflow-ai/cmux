@@ -194,7 +194,7 @@ extension TerminalSurface {
     /// - Returns: Whether a runtime size or scale change was applied.
     @discardableResult
     @MainActor
-    public func updateSize(
+    func updateSize(
         width: CGFloat,
         height: CGFloat,
         xScale: CGFloat,
@@ -391,9 +391,12 @@ extension TerminalSurface {
         // must still report, because a hidden mirror's one-time size claim
         // (see RemoteTmuxWindowMirror.updateClientSize) is triggered by its
         // surfaces' first applied resize — the LISTENER owns the policy of
-        // what a hidden report may do.
+        // what a hidden report may do. A hidden bootstrap window is not a
+        // real pane window and must never become sizing truth.
         if ioMode.usesManualIO, let report = onManualSizeApplied {
-            if let attachedView, attachedView.window != nil {
+            if let attachedView,
+               let realWindow = uiWindow,
+               attachedView.window === realWindow {
                 manualSizeReportPendingWindowAttach = false
                 let applied = ghostty_surface_size(surface)
                 let cols = Int(applied.columns)
@@ -466,14 +469,14 @@ extension TerminalSurface {
     public func flushPendingManualSizeReportIfAttached() {
         guard manualSizeReportPendingWindowAttach,
               let report = onManualSizeApplied,
-              attachedView?.window != nil,
+              let realWindow = uiWindow,
+              attachedView?.window === realWindow,
               let sample = rawSizingSample(),
               sample.columns > 1, sample.rows > 1
         else { return }
         manualSizeReportPendingWindowAttach = false
         report(sample)
     }
-
     /// Which of ``renderedGridCells()``'s nil conditions currently hold —
     /// lets sizing diagnostics name the mechanism (view detached from its
     /// window vs surface not live vs no real grid) instead of a bare nil.
@@ -484,7 +487,6 @@ extension TerminalSurface {
             surfaceLive: liveSurfaceForGhosttyAccess(reason: "renderedGridDiagnostics") != nil
         )
     }
-
     /// The on-screen rendered grid, or nil while the runtime surface is not
     /// live, is not in a window, or has no real grid yet.
     @MainActor

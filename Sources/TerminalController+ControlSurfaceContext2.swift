@@ -67,21 +67,9 @@ extension TerminalController {
 
     // MARK: - split
 
-    /// The ``ControlSurfaceContext`` requirement (socket dispatch): a
-    /// defaulted extra parameter cannot satisfy the protocol, so the exact
-    /// two-parameter shape forwards with no attach descriptor.
     func controlSurfaceSplit(
         routing: ControlRoutingSelectors,
         inputs: ControlSurfaceSplitInputs
-    ) -> ControlSurfaceSplitResolution {
-        controlSurfaceSplit(routing: routing, inputs: inputs, cloudTuiManualIOAttach: nil)
-    }
-
-    /// `cloudTuiManualIOAttach`: see ``controlSurfaceCreate(routing:inputs:cloudTuiManualIOAttach:)``.
-    func controlSurfaceSplit(
-        routing: ControlRoutingSelectors,
-        inputs: ControlSurfaceSplitInputs,
-        cloudTuiManualIOAttach: CloudTuiManualIOAttach?
     ) -> ControlSurfaceSplitResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -129,12 +117,20 @@ extension TerminalController {
         guard let targetSurfaceId, ws.panels[targetSurfaceId] != nil else {
             return .noFocusedSurface
         }
+        guard remoteRelayTargetIsCurrent(
+            routing: routing,
+            workspace: ws,
+            surfaceID: targetSurfaceId
+        ) else {
+            return .requestedSurfaceNotFound(targetSurfaceId)
+        }
 
         if ws.isRemoteTmuxMirror, panelType == .terminal {
             let unsupported = mirrorRoutedUnsupportedOptions(
                 insertFirst: direction.insertFirst,
                 workingDirectory: inputs.workingDirectory,
                 initialCommand: inputs.initialCommand,
+                initialInput: inputs.initialInput,
                 tmuxStartCommand: inputs.tmuxStartCommand,
                 startupEnvironment: inputs.startupEnvironment,
                 initialDividerPosition: inputs.initialDividerPosition,
@@ -182,13 +178,13 @@ extension TerminalController {
                 focus: focus,
                 workingDirectory: inputs.workingDirectory,
                 initialCommand: inputs.initialCommand,
+                initialInput: inputs.initialInput,
                 tmuxStartCommand: inputs.tmuxStartCommand,
                 startupEnvironment: inputs.startupEnvironment,
                 initialDividerPosition: dividerPosition,
                 remotePTYSessionID: inputs.remotePTYSessionID,
                 suppressWorkspaceRemoteStartupCommand: useLocalContext,
-                allowTextBoxFocusDefault: false,
-                cloudTuiManualIOAttach: cloudTuiManualIOAttach
+                allowTextBoxFocusDefault: false
             ) {
             case .created(let panel):
                 newId = panel.id
@@ -267,6 +263,20 @@ extension TerminalController {
         guard ws.terminalPanel(for: surfaceId) != nil else {
             return .surfaceNotTerminal(surfaceId)
         }
+        guard remoteRelayTargetIsCurrent(
+            routing: routing,
+            workspace: ws,
+            surfaceID: surfaceId
+        ) else {
+            return .surfaceNotFoundForID(surfaceId)
+        }
+
+        let remoteRespawnRouting = ws.remotePTYRespawnRouting(panelId: surfaceId)
+        if remoteRespawnRouting == .unsupportedRemote {
+            // A remote-owned pane must never fall through to a local Ghostty
+            // exec when its transport cannot provide the persistent PTY bridge.
+            return .respawnFailed(surfaceId)
+        }
 
         v2MaybeFocusWindow(for: tabManager)
         v2MaybeSelectWorkspace(tabManager, workspace: ws)
@@ -274,14 +284,36 @@ extension TerminalController {
         let focus: Bool? = inputs.hasFocusParam
             ? v2FocusAllowed(requested: inputs.requestedFocus)
             : nil
-        guard let replacementPanel = ws.respawnTerminalSurface(
-            panelId: surfaceId,
-            command: inputs.command,
-            workingDirectory: inputs.workingDirectory,
-            tmuxStartCommand: inputs.tmuxStartCommand,
-            focus: focus,
-            allowTextBoxFocusDefault: focus == true
-        ) else {
+        let replacementPanel: TerminalPanel?
+        switch remoteRespawnRouting {
+        case .persistentSSH:
+            guard let plan = ws.remotePTYRespawnPlan(
+                panelId: surfaceId,
+                rawCommand: inputs.command,
+                remoteWorkingDirectory: inputs.workingDirectory
+            ) else {
+                return .respawnFailed(surfaceId)
+            }
+            replacementPanel = ws.respawnRemotePTYSurface(
+                panelId: surfaceId,
+                plan: plan,
+                rawStartCommand: inputs.tmuxStartCommand,
+                focus: focus,
+                allowTextBoxFocusDefault: focus == true
+            )
+        case .local:
+            replacementPanel = ws.respawnTerminalSurface(
+                panelId: surfaceId,
+                command: inputs.command,
+                workingDirectory: inputs.workingDirectory,
+                tmuxStartCommand: inputs.tmuxStartCommand,
+                focus: focus,
+                allowTextBoxFocusDefault: focus == true
+            )
+        case .unsupportedRemote:
+            return .respawnFailed(surfaceId)
+        }
+        guard let replacementPanel else {
             return .respawnFailed(surfaceId)
         }
         return .respawned(
@@ -294,23 +326,9 @@ extension TerminalController {
 
     // MARK: - create
 
-    /// The ``ControlSurfaceContext`` requirement (socket dispatch); see the
-    /// split wrapper above for why the exact shape must exist.
     func controlSurfaceCreate(
         routing: ControlRoutingSelectors,
         inputs: ControlSurfaceCreateInputs
-    ) -> ControlSurfaceCreateResolution {
-        controlSurfaceCreate(routing: routing, inputs: inputs, cloudTuiManualIOAttach: nil)
-    }
-
-    /// `cloudTuiManualIOAttach` is app-internal (never parsed from socket
-    /// params): when set, the terminal pane is a manual-mirror surface fed by
-    /// that relay descriptor instead of a spawned process. Only
-    /// ``SurfacePaneFactory`` passes it, for cloud machine terminals.
-    func controlSurfaceCreate(
-        routing: ControlRoutingSelectors,
-        inputs: ControlSurfaceCreateInputs,
-        cloudTuiManualIOAttach: CloudTuiManualIOAttach?
     ) -> ControlSurfaceCreateResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -391,6 +409,7 @@ extension TerminalController {
             let unsupported = mirrorRoutedUnsupportedOptions(
                 workingDirectory: inputs.workingDirectory,
                 initialCommand: inputs.initialCommand,
+                initialInput: inputs.initialInput,
                 tmuxStartCommand: inputs.tmuxStartCommand,
                 startupEnvironment: inputs.startupEnvironment,
                 remotePTYSessionID: inputs.remotePTYSessionID
@@ -431,12 +450,12 @@ extension TerminalController {
                 workingDirectory: inputs.workingDirectory,
                 initialCommand: inputs.initialCommand,
                 tmuxStartCommand: inputs.tmuxStartCommand,
+                initialInput: inputs.initialInput,
                 startupEnvironment: inputs.startupEnvironment,
                 remotePTYSessionID: inputs.remotePTYSessionID,
                 suppressWorkspaceRemoteStartupCommand: useLocalContext,
                 inheritWorkingDirectoryFallback: true,
-                allowTextBoxFocusDefault: false,
-                cloudTuiManualIOAttach: cloudTuiManualIOAttach
+                allowTextBoxFocusDefault: false
             ) {
             case .created(let panel):
                 newPanelId = panel.id
@@ -494,6 +513,13 @@ extension TerminalController {
             fallbackWorkspace: ws
         ) else {
             return .noFocusedSurface
+        }
+        guard remoteRelayTargetIsCurrent(
+            routing: routing,
+            workspace: ws,
+            surfaceID: surfaceId
+        ) else {
+            return .surfaceNotFound(surfaceId)
         }
         if let remote = controlRemoteTmuxSurfaceClose(
             workspace: ws,

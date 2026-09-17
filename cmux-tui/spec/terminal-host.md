@@ -129,7 +129,8 @@ indexes are fatal.
 | 20 | `LaunchFailed` | host to parent | private pipe | versioned launch failure |
 | 21 | `TerminateAck` | host to client | response | empty; confirms the authoritative host received `Terminate` |
 | 22 | `DetachAck` | host to client | response | empty; final source-ordered frame for this client |
-| 100 | `Input` | client to host | `INPUT` | raw PTY bytes |
+| 23 | `InputAck` | host to client | response | empty; confirms the authoritative PTY writer accepted and flushed `Input` |
+| 100 | `Input` | client to host | `INPUT` | raw PTY bytes; a nonzero request id asks a supporting host for `InputAck` |
 | 101 | `Paste` | client to host | `INPUT` | raw bytes; host applies DEC 2004 wrapping |
 | 102 | `ViewerSize` | client to host | `RESIZE` | `cols:u16, rows:u16` |
 | 103 | `ReleaseViewer` | client to host | `RESIZE` | empty |
@@ -383,7 +384,10 @@ again, and consumes a fresh `Snapshot` plus same-boundary `Colors`.
 Discovery records use JSON `record_version:4`. Terminal and incarnation are
 32-character lowercase UUIDv4 hex, owner token and process nonce are
 64-character lowercase hex, the Unix-socket path is canonical, and the host
-PID is nonzero. Record directories are mode `0700`; records and sockets are
+PID is nonzero. `supports_input_ack` is an additive boolean capability; a
+missing or false value means receipted API input must fail before sending while
+legacy fire-and-forget input remains available. Record directories are mode
+`0700`; records and sockets are
 mode `0600`.
 
 ## Durability boundary
@@ -404,6 +408,17 @@ across an unplanned no-tap interval until a durable host spool exists.
 Protocol v1 carries the base snapshot and legacy replay stream. Protocol v2
 adds Kitty image aliases and cell-pixel metrics. Protocol v3 adds Kitty replay
 state, Kitty quota controls, and the smart raw-byte stream. Protocol v4 adds
-the launch activation barrier. A v4 client may negotiate v1 or v2 only in
-legacy mode; smart renderers require v3 and restart their handshake on any gap
-or `ResyncRequired` frame.
+the launch activation barrier. The daemon's adoption path can still connect
+to legacy host records at an older version; smart renderers require v3 and
+restart their handshake on any gap or `ResyncRequired` frame. This document
+specifies the daemon-side v4 framing; renderer interoperability remains
+partial. Newly launched daemon hosts enforce v4-only renderer handshakes by
+passing `PROTOCOL_VERSION..=PROTOCOL_VERSION` to `CapabilityStore::accept`;
+the one-use token minted by
+`CapabilityStore::mint` carries no protocol version. The higher-level legacy
+renderer-grant response reports the selected host version, but no grant API
+offers mutually supported downgrade negotiation. The current cross-language
+renderer accepts only v1-v3 and pins its `ClientHello` to the selected version.
+This spec therefore does not advertise renderer attach to newly launched
+hosts; renderer v4 support or explicit mutually supported version negotiation
+remains future work.
