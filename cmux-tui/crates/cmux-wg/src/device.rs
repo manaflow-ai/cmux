@@ -7,7 +7,7 @@
 
 use std::collections::VecDeque;
 
-use smoltcp::phy::{self, Device, DeviceCapabilities, Medium};
+use smoltcp::phy::{self, Checksum, Device, DeviceCapabilities, Medium};
 use smoltcp::time::Instant;
 
 /// Packets smoltcp may queue before the driver drains them. Backpressure past
@@ -67,6 +67,19 @@ impl Device for VirtualDevice {
         let mut capabilities = DeviceCapabilities::default();
         capabilities.medium = Medium::Ip;
         capabilities.max_transmission_unit = self.mtu;
+        // Every packet that reaches this device was authenticated by
+        // WireGuard's AEAD, so IP and transport checksums add no integrity.
+        // Linux treats decrypted WireGuard packets the same way
+        // (`CHECKSUM_UNNECESSARY`). Verifying them here is worse than useless:
+        // a router in the private network that rewrites IPv4 headers without
+        // fixing the header checksum makes IPv6 work and IPv4 time out, which
+        // is exactly what a kernel peer would never notice. Checksums are
+        // still computed on transmit so the far side can verify them.
+        capabilities.checksum.ipv4 = Checksum::Tx;
+        capabilities.checksum.tcp = Checksum::Tx;
+        capabilities.checksum.udp = Checksum::Tx;
+        capabilities.checksum.icmpv4 = Checksum::Tx;
+        capabilities.checksum.icmpv6 = Checksum::Tx;
         capabilities
     }
 }
