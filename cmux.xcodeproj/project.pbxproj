@@ -1125,8 +1125,8 @@
 		C05555010000000000000005 /* CMUXCLI+PiExtensionSourcePart1.swift in Sources */ = {isa = PBXBuildFile; fileRef = C05555010000000000000006 /* CMUXCLI+PiExtensionSourcePart1.swift */; };
 		C05555010000000000000007 /* CMUXCLI+PiExtensionSourcePart2.swift in Sources */ = {isa = PBXBuildFile; fileRef = C05555010000000000000008 /* CMUXCLI+PiExtensionSourcePart2.swift */; };
 		B9000054A1B2C3D4E5F60719 /* CMUXCLI+Process.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000055A1B2C3D4E5F60719 /* CMUXCLI+Process.swift */; };
-		839600000000000000000002 /* CMUXCLI+RemoteHookBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 839600000000000000000001 /* CMUXCLI+RemoteHookBridge.swift */; };
 		126810B60000000000000002 /* CMUXCLI+ProcessSignalState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 126810B60000000000000001 /* CMUXCLI+ProcessSignalState.swift */; };
+		839600000000000000000002 /* CMUXCLI+RemoteHookBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 839600000000000000000001 /* CMUXCLI+RemoteHookBridge.swift */; };
 		C73660010000000000000001 /* CMUXCLI+RemotePTYErrors.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73660010000000000000002 /* CMUXCLI+RemotePTYErrors.swift */; };
 		REE0CA0000000000000000C2 /* CMUXCLI+Remotes.swift in Sources */ = {isa = PBXBuildFile; fileRef = REE0CA0000000000000000C1 /* CMUXCLI+Remotes.swift */; };
 		D7AB12048000000000000001 /* CMUXCLI+RemoteWorkingDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB12048000000000000002 /* CMUXCLI+RemoteWorkingDirectory.swift */; };
@@ -5048,8 +5048,8 @@
 		C05555010000000000000006 /* CMUXCLI+PiExtensionSourcePart1.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+PiExtensionSourcePart1.swift"; sourceTree = "<group>"; };
 		C05555010000000000000008 /* CMUXCLI+PiExtensionSourcePart2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+PiExtensionSourcePart2.swift"; sourceTree = "<group>"; };
 		B9000055A1B2C3D4E5F60719 /* CMUXCLI+Process.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Process.swift"; sourceTree = "<group>"; };
-		839600000000000000000001 /* CMUXCLI+RemoteHookBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RemoteHookBridge.swift"; sourceTree = "<group>"; };
 		126810B60000000000000001 /* CMUXCLI+ProcessSignalState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+ProcessSignalState.swift"; sourceTree = "<group>"; };
+		839600000000000000000001 /* CMUXCLI+RemoteHookBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RemoteHookBridge.swift"; sourceTree = "<group>"; };
 		C73660010000000000000002 /* CMUXCLI+RemotePTYErrors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RemotePTYErrors.swift"; sourceTree = "<group>"; };
 		REE0CA0000000000000000C1 /* CMUXCLI+Remotes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Remotes.swift"; sourceTree = "<group>"; };
 		D7AB12048000000000000002 /* CMUXCLI+RemoteWorkingDirectory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RemoteWorkingDirectory.swift"; sourceTree = "<group>"; };
@@ -14846,10 +14846,9 @@
 				C08672010000000000000001 /* CMUXCLI+PiExtensionSourceDispatch.swift in Sources */,
 						C05555010000000000000005 /* CMUXCLI+PiExtensionSourcePart1.swift in Sources */,
 						C05555010000000000000007 /* CMUXCLI+PiExtensionSourcePart2.swift in Sources */,
-						B9000054A1B2C3D4E5F60719 /* CMUXCLI+Process.swift in Sources */,
-				839600000000000000000002 /* CMUXCLI+RemoteHookBridge.swift in Sources */,
 					B9000054A1B2C3D4E5F60719 /* CMUXCLI+Process.swift in Sources */,
 					126810B60000000000000002 /* CMUXCLI+ProcessSignalState.swift in Sources */,
+				839600000000000000000002 /* CMUXCLI+RemoteHookBridge.swift in Sources */,
 				C73660010000000000000001 /* CMUXCLI+RemotePTYErrors.swift in Sources */,
 					REE0CA0000000000000000C2 /* CMUXCLI+Remotes.swift in Sources */,
 				D7AB12048000000000000001 /* CMUXCLI+RemoteWorkingDirectory.swift in Sources */,
@@ -14929,11 +14928,6 @@
 				A5FB1308 /* JSONCObjectEditor+Remove.swift in Sources */,
 				A5FB1312 /* JSONCObjectEditor+Set.swift in Sources */,
 				C0DEF0B10000000000000003 /* JSONCParser.swift in Sources */,
-				839610000000000000000002 /* RemoteHookDescriptor.swift in Sources */,
-				839610000000000000000008 /* RemoteHookMutation.swift in Sources */,
-				83961000000000000000000A /* RemoteHookPlan.swift in Sources */,
-				839610000000000000000004 /* RemoteHookSnapshot.swift in Sources */,
-				839610000000000000000006 /* RemoteHookSnapshotEntry.swift in Sources */,
 				C0DE10651000000000000002 /* LocalTmuxCommandBuilder.swift in Sources */,
 				C0DE10651000000000000004 /* LocalTmuxInvocation.swift in Sources */,
 				C0DE10651000000000000003 /* LocalTmuxProcessRunner.swift in Sources */,
@@ -14945,6 +14939,11 @@
 				C0DE10651000000000000001 /* LocalTmuxSessionRegistry.swift in Sources */,
 					A10240060000000000000001 /* OwnedProcessSupervisor.swift in Sources */,
 						C08672010000000000000007 /* PiCompactedFeedEventExpander.swift in Sources */,
+				839610000000000000000002 /* RemoteHookDescriptor.swift in Sources */,
+				839610000000000000000008 /* RemoteHookMutation.swift in Sources */,
+				83961000000000000000000A /* RemoteHookPlan.swift in Sources */,
+				839610000000000000000004 /* RemoteHookSnapshot.swift in Sources */,
+				839610000000000000000006 /* RemoteHookSnapshotEntry.swift in Sources */,
 				835000000000000000000002 /* RemoteInitialCommandBootstrap.swift in Sources */,
 				D7AB12048000000000000005 /* RemoteInteractiveShellBootstrapBuilder+WorkingDirectory.swift in Sources */,
 				B9000028A1B2C3D4E5F60719 /* RemoteInteractiveShellBootstrapBuilder.swift in Sources */,
