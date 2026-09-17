@@ -1,3 +1,4 @@
+import { accountAccessForIdentity, type CoderouterAccountAccess } from "./accountAccess";
 import { lookup as dnsLookup } from "node:dns/promises";
 import { isIP } from "node:net";
 
@@ -14,6 +15,7 @@ import {
   recordRouteEvent,
   recordUsageEvent,
 } from "./usageLedger";
+import { usageOriginFromHeaders } from "./usageOrigin";
 import {
   currentCoderouterRequestId,
   recordCoderouterOutcome,
@@ -28,6 +30,7 @@ import {
   withCoderouterOperationDeadline,
 } from "./upstreamFetch";
 import {
+  authenticateCoderouterCredential,
   authenticateRequestRouteToken,
   VM_PLACEHOLDER_API_KEY,
   type RouteTokenAuthFailure,
@@ -59,7 +62,7 @@ type OpenCodeProxyRuntime = {
 };
 
 const defaultDependencies: OpenCodeDependencies = {
-  authenticate: authenticateRouteToken,
+  authenticate: authenticateCoderouterCredential,
   select: selectAccountForRequest,
   credential: freshCredential,
   remoteConfig,
@@ -95,7 +98,7 @@ export async function openCodeClientConfig(
       request.signal,
       upstreamHeaderDeadlineAt,
       runtime.now,
-      (signal) => openCodeAccount(auth.identity.teamId, dependencies, signal),
+      (signal) => openCodeAccount(auth.identity.teamId, dependencies, signal, accountAccessForIdentity(auth.identity)),
     );
   } catch (error) {
     if (request.signal.aborted) throw error;
@@ -195,7 +198,7 @@ export async function proxyOpenCodeRequest(
       request.signal,
       upstreamHeaderDeadlineAt,
       runtime.now,
-      (signal) => openCodeAccount(auth.teamId, dependencies, signal),
+      (signal) => openCodeAccount(auth.teamId, dependencies, signal, accountAccessForIdentity(auth)),
     );
   } catch (error) {
     if (request.signal.aborted) throw error;
@@ -456,10 +459,12 @@ export async function proxyOpenCodeRequest(
       requestId,
       teamId: auth.teamId,
       stackUserId: auth.stackUserId,
+      apiKeyId: auth.apiKeyId,
       vmId: auth.vmId,
       provider: "opencode-go",
       agent: "opencode",
       model: usage.model,
+      ...usageOriginFromHeaders(request.headers),
       inputTokens: usage.inputTokens,
       cachedInputTokens: usage.cachedInputTokens,
       outputTokens: usage.outputTokens,
@@ -477,11 +482,12 @@ async function openCodeAccount(
   teamId: string,
   dependencies: Pick<OpenCodeDependencies, "select" | "credential"> = defaultDependencies,
   signal?: AbortSignal,
+  access?: CoderouterAccountAccess,
 ) {
   const attempted: string[] = [];
   for (let attempt = 0; attempt < 8; attempt++) {
     throwIfAborted(signal);
-    const account = await dependencies.select(teamId, "opencode-go", attempted, signal);
+    const account = await dependencies.select(teamId, "opencode-go", attempted, signal, access);
     throwIfAborted(signal);
     if (!account) return null;
     attempted.push(account.id);
@@ -632,7 +638,7 @@ function vmIdProperty(vmId: string | null): { vm_id?: string } {
 
 function captureOpenCodeHealth(input: {
   readonly requestId: string;
-  readonly identity?: Pick<RouteTokenIdentity, "teamId" | "stackUserId" | "vmId">;
+  readonly identity?: Pick<RouteTokenIdentity, "teamId" | "stackUserId" | "vmId" | "apiKeyId">;
   readonly startedAt: number;
   readonly status: number;
   readonly outcome:
@@ -668,6 +674,7 @@ function captureOpenCodeHealth(input: {
     requestId: input.requestId,
     teamId: input.identity?.teamId,
     stackUserId: input.identity?.stackUserId,
+    apiKeyId: input.identity?.apiKeyId,
     vmId: input.identity?.vmId ?? null,
     provider: "opencode-go",
     agent: "opencode",

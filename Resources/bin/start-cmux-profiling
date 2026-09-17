@@ -418,6 +418,9 @@ channel_for_bundle() {
     com.cmuxterm.app.nightly|com.cmuxterm.app.nightly.*)
       printf 'nightly'
       ;;
+    com.cmuxterm.app.rc|com.cmuxterm.app.rc.*)
+      printf 'rc'
+      ;;
     com.cmuxterm.app.staging|com.cmuxterm.app.staging.*)
       printf 'staging'
       ;;
@@ -501,9 +504,11 @@ tag_matches() {
   esac
   [ "$display_name" = "cmux DEV ${path_tag}" ] && return 0
   [ "$display_name" = "cmux NIGHTLY ${path_tag}" ] && return 0
+  [ "$display_name" = "cmux RC ${path_tag}" ] && return 0
   [ "$display_name" = "cmux STAGING ${path_tag}" ] && return 0
   [ "$app_base" = "cmux DEV ${path_tag}" ] && return 0
   [ "$app_base" = "cmux NIGHTLY ${path_tag}" ] && return 0
+  [ "$app_base" = "cmux RC ${path_tag}" ] && return 0
   [ "$app_base" = "cmux STAGING ${path_tag}" ] && return 0
   return 1
 }

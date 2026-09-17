@@ -21,15 +21,21 @@ export type RetentionPolicy =
 
 const IROH_RETENTION = "/api/internal/iroh/retention";
 const LEASE_RETENTION = "/api/internal/vm/leases/revoke-expired";
+const DIAGNOSTIC_RETENTION = "/api/cron/cloud-diagnostics";
 
 /** Keyed by SQL table name. Keep alphabetical. */
 export const TABLE_RETENTION: Readonly<Record<string, RetentionPolicy>> = {
   account_analytics_forward_leases: { kind: "drain", column: "expires_at", days: 7 },
   account_deletion_tombstones: { kind: "permanent", reason: "deleted accounts must stay deleted" },
   account_mutation_leases: { kind: "bounded", by: "user" },
+  admin_audit_log: { kind: "permanent", reason: "operator mutation audit trail" },
+  admin_members: { kind: "bounded", by: "admin email" },
   admin_plan_grants: { kind: "bounded", by: "grant" },
   billing_email_claims: { kind: "bounded", by: "user" },
   billing_email_verification_deliveries: { kind: "drain", column: "created_at", days: 365 },
+  cloud_diagnostic_budgets: { kind: "drain", route: DIAGNOSTIC_RETENTION },
+  cloud_diagnostic_events: { kind: "drain", route: DIAGNOSTIC_RETENTION },
+  cloud_operation_steps: { kind: "drain", route: DIAGNOSTIC_RETENTION },
   cloud_organizations: { kind: "bounded", by: "organization" },
   cloud_vm_access_grant_sessions: { kind: "bounded", by: "access grant" },
   cloud_vm_access_grants: { kind: "bounded", by: "user device" },
@@ -49,14 +55,18 @@ export const TABLE_RETENTION: Readonly<Record<string, RetentionPolicy>> = {
   cloud_vm_publication_sessions: { kind: "drain", column: "expires_at", days: 30 },
   cloud_vm_publication_vm_guards: { kind: "bounded", by: "vm" },
   cloud_vm_publications: { kind: "bounded", by: "vm hostname" },
+  cloud_vm_runtime_intervals: { kind: "permanent", reason: "transactional billing runtime history, removed only with its VM" },
   cloud_vm_sessions: { kind: "drain", column: "closed_at", days: 90 },
   cloud_vm_tunnel_enrollment_locks: { kind: "drain", column: "expires_at", days: 7 },
   cloud_vm_tunnels: { kind: "bounded", by: "user device purpose" },
   cloud_vm_usage_events: { kind: "drain", column: "created_at", days: 365 },
   cloud_vms: { kind: "bounded", by: "user (destroyed rows kept as the billing trail)" },
   coderouter_accounts: { kind: "bounded", by: "team provider" },
+  coderouter_api_keys: { kind: "bounded", by: "user-created API key" },
   coderouter_claude_accounts: { kind: "bounded", by: "team" },
   coderouter_credentials: { kind: "bounded", by: "account" },
+  coderouter_pool_accounts: { kind: "bounded", by: "pool account grant (cascade)" },
+  coderouter_pools: { kind: "bounded", by: "team pool" },
   coderouter_route_tokens: { kind: "drain", column: "expires_at", days: 30 },
   coderouter_session_accounts: { kind: "bounded", by: "team session" },
   coderouter_vault_leases: { kind: "drain", column: "expires_at", days: 7 },

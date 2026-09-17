@@ -28,7 +28,7 @@ struct MemoryPressureStateTracker: Sendable {
         )
         // Aggregate pressure is a distinct signal lane. Keep the legacy
         // system/footprint severity here so aggregate pressure cannot trigger
-        // unrelated resource shedding or the persistent-critical callback.
+        // unrelated resource shedding or persistent-critical diagnostics.
         // The monitor dispatches the aggregate snapshot explicitly to the
         // aggregate responder after this evaluation.
         let nextSeverity = max(systemSeverity ?? .normal, footprintSeverity)
