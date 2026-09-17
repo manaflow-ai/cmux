@@ -84,7 +84,6 @@ struct RemoteSessionReadinessParkingTests {
         // The wrapper's retry re-attaches with `--wait`. Nothing can make a
         // parked session ready, so parking this request until its timeout is
         // the hang; it must be refused with the reason instead.
-        let started = ContinuousClock.now
         let outcome = Result {
             try coordinator.startPTYBridge(
                 sessionID: "ssh-workspace-surface",
@@ -96,7 +95,8 @@ struct RemoteSessionReadinessParkingTests {
                 timeout: 5
             )
         }
-        #expect(ContinuousClock.now - started < .seconds(2))
+        // The timeout path reports "timed out waiting for remote PTY
+        // operation", so matching the parked detail proves it was not taken.
         #expect(throws: (any Error).self) { try outcome.get() }
         #expect(Self.failureDescription(of: outcome) == parkedDetail)
 
@@ -284,6 +284,74 @@ struct RemoteSessionReadinessParkingTests {
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
     }
 
+    @Test("An explicitly closed generation ends cleanly even when its session is parked")
+    func explicitCleanupOutranksTheParkedVerdict() async throws {
+        let provider = IntentionalCleanupTestTunnelProvider()
+        let broker = RemoteProxyBroker(tunnelProvider: provider)
+        let fixture = try await Self.makeCoordinator(
+            host: ReadinessRecordingHost(),
+            runner: ReadinessScriptedProcessRunner(daemon: .missing),
+            proxyBroker: broker,
+            relayPort: nil,
+            clock: ManualBrokerClock()
+        )
+        let coordinator = fixture.coordinator
+        defer { fixture.cleanUp(); provider.tunnel.stop() }
+        let lease = broker.acquire(
+            configuration: coordinator.configuration,
+            remotePath: "/remote/cmuxd"
+        ) { _ in }
+        coordinator.queue.sync {
+            coordinator.proxyLease = lease
+            coordinator.proxyEndpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: 42_424)
+            coordinator.daemonReady = true
+        }
+
+        // The user closes one session; a second generation stays active.
+        _ = try coordinator.startPTYBridge(
+            sessionID: "closed-session",
+            lifecycleID: "closed-generation",
+            attachmentID: "surface-a",
+            command: nil,
+            requireExisting: false
+        )
+        try coordinator.closePTYSession(sessionID: "closed-session")
+
+        // Then the session loses readiness and parks, keeping its broker entry.
+        coordinator.queue.sync {
+            coordinator.daemonReady = false
+            coordinator.parkedState = RemoteSessionParkedState(
+                cause: .readinessTimedOut,
+                detail: "parked for test"
+            )
+        }
+
+        #expect(throws: RemotePTYLifecycleError.intentionallyClosed) {
+            try coordinator.startPTYBridge(
+                sessionID: "closed-session",
+                lifecycleID: "closed-generation",
+                attachmentID: "surface-a",
+                command: nil,
+                requireExisting: true,
+                waitForReady: true,
+                timeout: 5
+            )
+        }
+        #expect(throws: RemoteSessionParkedError(detail: "parked for test")) {
+            try coordinator.startPTYBridge(
+                sessionID: "open-session",
+                lifecycleID: "open-generation",
+                attachmentID: "surface-b",
+                command: nil,
+                requireExisting: true,
+                waitForReady: true,
+                timeout: 5
+            )
+        }
+
+        _ = await coordinator.stopAndWait(cleanupScope: .transport)
+    }
+
     @Test("A managed Cloud VM session, whose broker redials while the machine wakes, carries no deadline")
     func cloudVMSessionsAreNotDeadlined() async throws {
         let fixture = try await Self.makeCoordinator(
@@ -304,123 +372,5 @@ struct RemoteSessionReadinessParkingTests {
         #expect(token == nil)
 
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
-    }
-
-    // MARK: - Fixtures
-
-    private static let requiredCapabilities = [
-        RemoteDaemonRPCClient.requiredProxyStreamCapability,
-    ]
-
-    /// Awaits `operation`, giving up after `limit`.
-    ///
-    /// The fake clock hands out sleep requests through a continuation that
-    /// cancellation cannot interrupt, so a request that never comes (the bug
-    /// these tests pin) would hang the run past any time limit. Racing two
-    /// unstructured tasks keeps that failure a prompt, ordinary expectation
-    /// failure; the first writer wins the slot and resumes the caller once.
-    private static func value<Value: Sendable>(
-        within limit: Duration,
-        _ operation: @escaping @Sendable () async -> Value
-    ) async -> Value? {
-        let slot = LockedResult<Value?>()
-        return await withCheckedContinuation { continuation in
-            Task {
-                let value = await operation()
-                if slot.setIfEmpty(.success(value)) { continuation.resume(returning: value) }
-            }
-            Task {
-                try? await Task.sleep(for: limit)
-                if slot.setIfEmpty(.success(nil)) { continuation.resume(returning: nil) }
-            }
-        }
-    }
-
-    private static func failureDescription<Success>(
-        of result: Result<Success, any Error>
-    ) -> String? {
-        guard case .failure(let error) = result else { return nil }
-        return error.localizedDescription
-    }
-
-    @MainActor
-    private static func makeCoordinator(
-        host: any RemoteSessionHosting,
-        runner: any RemoteSessionProcessRunning,
-        proxyBroker: any RemoteProxyBrokering = SSHOverrideUnusedRemoteProxyBroker(),
-        reverseRelayLauncher: any RemoteReverseRelayLaunching = RecordingReverseRelayLauncher(),
-        relayPort: Int? = 64_044,
-        skipDaemonBootstrap: Bool = false,
-        clock: any RemoteProxyRetryClock
-    ) throws -> ReadinessCoordinatorFixture {
-        let scratchDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-readiness-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(
-            at: scratchDirectory,
-            withIntermediateDirectories: true
-        )
-        let effectiveRunner = ResolvedControlPathProcessRunner(base: runner)
-        let connectionBroker = NativeSSHConnectionBroker(
-            sharingOptions: SSHConnectionSharingOptions(),
-            clock: RecordingImmediateClock(),
-            jitterMilliseconds: { 200 },
-            cleanupLauncher: { _ in },
-            inheritedMasterReapRunner: effectiveRunner,
-            controlMasterOwnershipRegistry: PermissiveNativeSSHControlMasterOwnershipRegistry()
-        )
-        let configuration = connectionBroker.retainWorkspace(
-            WorkspaceRemoteConfiguration(
-                destination: "user@example.test",
-                port: nil,
-                identityFile: nil,
-                sshOptions: ["StrictHostKeyChecking=accept-new"],
-                localProxyPort: nil,
-                relayPort: relayPort,
-                relayID: relayPort == nil ? nil : "relay-readiness",
-                relayToken: relayPort == nil ? nil : String(repeating: "a", count: 64),
-                localSocketPath: relayPort == nil
-                    ? nil
-                    : scratchDirectory.appendingPathComponent("relay.sock").path,
-                ownerWorkspaceID: UUID(),
-                terminalStartupCommand: nil,
-                preserveAfterTerminalExit: false,
-                persistentDaemonSlot: nil,
-                skipDaemonBootstrap: skipDaemonBootstrap
-            )
-        )
-        let coordinator = RemoteSessionCoordinator(
-            host: host,
-            configuration: configuration,
-            proxyBroker: proxyBroker,
-            connectionBroker: connectionBroker,
-            manifestRepository: RemoteDaemonManifestRepository(homeDirectory: scratchDirectory),
-            processRunner: effectiveRunner,
-            reverseRelayLauncher: reverseRelayLauncher,
-            reachabilityProbe: SSHOverrideNoopReachabilityProbe(),
-            relayCommandRewriter: SSHOverridePassthroughRelayCommandRewriter(),
-            buildInfo: SSHOverrideStubBuildInfo(),
-            daemonStrings: RemoteDaemonStrings(
-                missingPersistentPTYCapability: "",
-                missingRequiredFunctionality: "",
-                cloudNotificationClearWorkspaceInvalid: "",
-                cloudNotificationClearWorkspaceDenied: "",
-                cloudNotificationClearSurfaceInvalid: ""
-            ),
-            strings: RemoteSessionStrings(
-                connectedVMNoProxyFormat: "%@",
-                suspendedDetailFormat: "%@",
-                reverseRelayUnavailableRetrying: "test relay unavailable",
-                reverseRelayPortUnavailableRetrying: "test relay port unavailable",
-                controlMasterOwnershipUnavailable: "test control master unavailable"
-            ),
-            clock: clock
-        )
-        // Port discovery is off (the sidebar-ports-hidden configuration), so the
-        // bootstrap-TTY retry never requests sleeps on the clock under test.
-        coordinator.queue.sync { coordinator.remotePortScanningEnabled = false }
-        return ReadinessCoordinatorFixture(
-            coordinator: coordinator,
-            scratchDirectory: scratchDirectory
-        )
     }
 }

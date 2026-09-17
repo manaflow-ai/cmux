@@ -163,19 +163,18 @@ struct RemoteSessionParkedReconnectTests {
         let line = try #require(
             String(data: JSONSerialization.data(withJSONObject: request), encoding: .utf8)
         )
-        let started = ContinuousClock.now
         let response = await Task.detached {
             TerminalController.shared.handleSocketLine(line)
         }.value
-        let elapsed = ContinuousClock.now - started
 
         let payload = try #require(
             JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any]
         )
         let error = try #require(payload["error"] as? [String: Any])
+        // Waiting out the controller deadline answers `remote_pty_error`
+        // ("remote connection is not active"), so this code proves it did not.
         #expect(error["code"] as? String == "remote_session_parked")
         #expect((error["message"] as? String)?.isEmpty == false)
-        #expect(elapsed < .seconds(5))
     }
 
     private static func configuration() -> WorkspaceRemoteConfiguration {

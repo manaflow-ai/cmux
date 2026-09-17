@@ -39,7 +39,14 @@ extension RemoteSessionCoordinator {
         parkedState = RemoteSessionParkedState(cause: cause, detail: detail)
         publishDaemonStatus(daemonState, detail: detail)
         publishState(.suspended, detail: detail)
-        failPendingPTYBridgeStartsLocked(error: RemoteSessionParkedError(detail: detail))
+        guard let parkedState else { return }
+        failPendingPTYBridgeStartsLocked { request in
+            self.parkedBridgeStartErrorLocked(
+                parkedState,
+                sessionID: request.sessionID,
+                lifecycleID: request.lifecycleID
+            )
+        }
     }
 
     /// Ends the current readiness seek: the session became ready, stopped, or
