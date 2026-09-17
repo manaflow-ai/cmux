@@ -279320,55 +279320,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The SSH connection to %@ is not active. Use Reconnect to try again."
+            "value": "The SSH connection is not active. Use Reconnect to try again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ への SSH 接続はアクティブではありません。「再接続」で再試行してください。"
+            "value": "SSH 接続はアクティブではありません。「再接続」で再試行してください。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "到 %@ 的 SSH 连接未处于活动状态。请用「重新连接」再试。"
+            "value": "SSH 连接未处于活动状态。请用「重新连接」再试。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die SSH-Verbindung zu %@ ist nicht aktiv. Verwenden Sie „Wiederverbinden“, um es erneut zu versuchen."
+            "value": "Die SSH-Verbindung ist nicht aktiv. Verwenden Sie „Wiederverbinden“, um es erneut zu versuchen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La connexion SSH à %@ n’est pas active. Utilisez Reconnecter pour réessayer."
+            "value": "La connexion SSH n’est pas active. Utilisez Reconnecter pour réessayer."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اتصال SSH بـ %@ غير نشط. استخدم \"إعادة الاتصال\" للمحاولة مرة أخرى."
+            "value": "اتصال SSH غير نشط. استخدم \"إعادة الاتصال\" للمحاولة مرة أخرى."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La conexión SSH con %@ no está activa. Usa Reconectar para volver a intentarlo."
+            "value": "La conexión SSH no está activa. Usa Reconectar para volver a intentarlo."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "與 %@ 的 SSH 連線未處於作用中狀態。請使用「重新連線」重試。"
+            "value": "SSH 連線未處於作用中狀態。請使用「重新連線」重試。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@에 대한 SSH 연결이 활성 상태가 아닙니다. '다시 연결'을 사용하여 다시 시도하세요."
+            "value": "SSH 연결이 활성 상태가 아닙니다. '다시 연결'을 사용하여 다시 시도하세요."
           }
         }
       }

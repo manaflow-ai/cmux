@@ -21,21 +21,22 @@ extension Workspace {
     /// `workspace.remote.pty_bridge` asks the workspace instead of waiting out
     /// its controller deadline.
     var remoteSessionParkedDetailWithoutController: String? {
-        guard remoteConfiguration != nil,
-              remoteSessionController == nil,
+        // A rejected ControlMaster adoption fails `configureRemoteConnection`
+        // before any configuration or controller state is recorded; only the
+        // presented state says `.error`. Without a controller, that is just
+        // as final as a parked controller state.
+        guard remoteSessionController == nil,
               remoteSessionTransitionTask == nil,
-              remoteControllerIsParked else {
+              remoteControllerIsParked || remoteConnectionState == .error else {
             return nil
         }
-        let detail = remoteControllerConnectionDetail?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if let detail, !detail.isEmpty { return detail }
+        for candidate in [remoteControllerConnectionDetail, remoteConnectionDetail] {
+            let detail = candidate?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let detail, !detail.isEmpty { return detail }
+        }
         return String(
-            format: String(
-                localized: "remoteSession.parked.notActive",
-                defaultValue: "The SSH connection to %@ is not active. Use Reconnect to try again."
-            ),
-            remoteDisplayTarget ?? ""
+            localized: "remoteSession.parked.notActive",
+            defaultValue: "The SSH connection is not active. Use Reconnect to try again."
         )
     }
 
