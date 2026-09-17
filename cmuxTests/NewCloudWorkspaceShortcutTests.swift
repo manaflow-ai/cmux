@@ -380,7 +380,7 @@ final class NewCloudWorkspaceShortcutTests {
         ))
         #expect(appDelegate.debugHandleCustomShortcut(event: event))
         await appDelegate.cloudWorkspaceOperationController?.waitForPendingOperations()
-        #expect(presenter.presentCount == 0)
+        #expect(presenter.presentCount == 1, "Without a selected Cloud machine, provision instead of choosing an implicit default")
 #else
         Issue.record("Shortcut routing seam is DEBUG-only"); return
 #endif
@@ -464,7 +464,7 @@ final class NewCloudWorkspaceShortcutTests {
 
         #expect(appDelegate.debugHandleCustomShortcut(event: try keyEvent("K", [.command, .shift], 40)))
         await appDelegate.cloudWorkspaceOperationController?.waitForPendingOperations()
-        #expect(presenter.presentCount == 0)
+        #expect(presenter.presentCount == 1)
 #else
         Issue.record("Shortcut routing seam is DEBUG-only"); return
 #endif
