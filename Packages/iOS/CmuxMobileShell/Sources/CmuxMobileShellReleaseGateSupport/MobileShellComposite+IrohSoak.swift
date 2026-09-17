@@ -83,9 +83,18 @@ extension MobileShellComposite {
                 return ["terminal_after_refresh"]
             }
             let before = await irohSoakConnectionID()
-            guard await retryActiveMacReconnect(stackUserID: nil, force: true),
-                  let after = await irohSoakConnectionID(), before != after else {
-                throw MobileIrohReleaseGateProbeFailure.unauthenticatedIrohSession
+            // A retry on a healthy session deliberately reuses that session.
+            // Exercise recovery by tearing down the test connection while
+            // preserving its pairing, then invoke the shared retry action.
+            disconnectLiveConnection()
+            guard await retryActiveMacReconnect(stackUserID: nil, force: true) else {
+                throw MobileIrohReleaseGateProbeFailure.soakReconnectFailed
+            }
+            guard let before, let after = await irohSoakConnectionID() else {
+                throw MobileIrohReleaseGateProbeFailure.continuityEvidenceUnavailable
+            }
+            guard before != after else {
+                throw MobileIrohReleaseGateProbeFailure.soakConnectionNotReplaced
             }
             _ = try await runIrohReleaseGateProbe(marker: marker + "_RECONNECTED")
             return ["forced_reconnect", "terminal_after_reconnect"]

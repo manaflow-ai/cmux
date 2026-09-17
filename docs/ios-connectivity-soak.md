@@ -12,7 +12,9 @@ Each cycle runs the basic transactions and the next step of a fixed four-step
 sequence: workspace navigation and refresh; 128 lines of Unicode output;
 create, open, use and close a scratch workspace; then refresh and use the
 terminal again. Every 120th cycle replaces the fourth step with an explicit
-reconnect followed by another complete transaction set. Unexpected connection
+disconnect and reconnect followed by another complete transaction set. The
+disconnect preserves the saved pairing; retrying an already healthy session
+alone does not establish reconnect coverage. Unexpected connection
 replacement fails either workload. A cycle exceeding 30 seconds fails.
 
 These are app-action and transport checks in an isolated Simulator. They do
