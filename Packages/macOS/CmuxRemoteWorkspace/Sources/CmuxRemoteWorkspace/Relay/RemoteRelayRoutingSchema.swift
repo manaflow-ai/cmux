@@ -9,6 +9,10 @@ struct RemoteRelayRoutingSchema {
         let terminal = surface.union(["terminal_id"])
         switch method {
         case "system.ping", "system.capabilities": return []
+        // Only named Cloud open actions cross the relay. The Mac owns attach
+        // credentials and argv; all credential-returning vm.* methods stay denied.
+        case "vm.base_open": return ["kind"]
+        case "vm.open_local": return ["id", "force_ssh"]
         case "workspace.current", "workspace.remote.status", "surface.list", "surface.current":
             return workspace
         case "workspace.remote.reconnect": return surface

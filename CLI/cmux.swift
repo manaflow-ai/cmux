@@ -4154,7 +4154,8 @@ struct CMUXCLI {
     // Internal (not private): `vm run` in CMUXCLI+VMTransfer.swift provisions
     // pool machines with the same create timeout.
     static let vmCreateResponseTimeoutSeconds: TimeInterval = 16 * 60
-    private static let vmAttachResponseTimeoutSeconds: TimeInterval = 16 * 60
+    // Shared with the Mac-hosted relay attach delegate.
+    static let vmAttachResponseTimeoutSeconds: TimeInterval = 16 * 60
     private static let sshPTYTerminalConnectedResponseTimeoutSeconds: TimeInterval = 0.5
     private static let sshPTYTerminalConnectedRetryDelaySeconds: TimeInterval = 0.1
     private static let sshPTYTerminalConnectedMaximumRetryDelaySeconds: TimeInterval = 2
@@ -4167,7 +4168,8 @@ struct CMUXCLI {
     // reconnect, session restore, and mobile attach targets the same provider VM once
     // creation succeeds. Do not rotate it without a migration.
     private static let persistentCloudVMSlotID = "cmux-default-freestyle-sshd-v1"
-    private static let persistentCloudVMWorkspaceName = "sshd"
+    // Shared with the Mac-hosted relay attach delegate.
+    static let persistentCloudVMWorkspaceName = "sshd"
     // Machines are requested by kind (`desktop` / `base`, VMMachineKind); the
     // backend maps the kind to whichever image its deployment supports. The CLI
     // never pins an image id unless the person passes `--image`: a pinned id
@@ -12887,6 +12889,20 @@ struct CMUXCLI {
         jsonOutput: Bool,
         idFormat: CLIIDFormat
     ) throws -> VMOpenedWorkspace? {
+        // The cmux-tui attach needs the Mac's bundled client and socket paths.
+        // A relayed CLI runs on the remote host, so ask the app to run this
+        // shared attach path on the Mac instead of exporting remote paths.
+        if client.isRelayBacked {
+            try openCloudVMOnHostApp(
+                id: id,
+                workspaceName: workspaceName,
+                forceSSH: forceSSH,
+                client: client,
+                jsonOutput: jsonOutput
+            )
+            return nil
+        }
+
         if forceSSH {
             do {
                 let sshInfoStartedAt = Date()
