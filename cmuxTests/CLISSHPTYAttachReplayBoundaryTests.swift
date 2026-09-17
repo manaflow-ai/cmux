@@ -96,6 +96,7 @@ struct CLISSHPTYAttachReplayBoundaryTests {
     func incompatibleDaemonLeavesCallerInputUntouched(version: String) throws {
         let requestSeen = DispatchSemaphore(value: 0)
         let releaseResponse = DispatchSemaphore(value: 0)
+        let retired = ForwardedInput()
         defer { releaseResponse.signal() }
         try withSSHPTYAttach(
             requireExisting: true,
@@ -103,6 +104,11 @@ struct CLISSHPTYAttachReplayBoundaryTests {
             beforeBridgeResponse: {
                 requestSeen.signal()
                 _ = releaseResponse.wait(timeout: .now() + 5)
+            },
+            onRequest: { method, params in
+                if params["acknowledge_lifecycle"] as? Bool == true || method == "workspace.remote.pty_attach_end" {
+                    retired.append(Data(method.utf8))
+                }
             }
         ) { bridge in
             Issue.record("Incompatible daemon must be rejected before connecting the PTY bridge")
@@ -115,6 +121,7 @@ struct CLISSHPTYAttachReplayBoundaryTests {
             try #require(attach.waitForExit())
             #expect(attach.process.terminationStatus == 1)
             #expect(attach.stderrText.contains("matching remote daemon"))
+            #expect(retired.text.isEmpty)
             #expect(TerminalFlags(fd: attach.slaveFD) == attach.initialFlags)
             var queued = [UInt8](repeating: 0, count: 128)
             _ = fcntl(attach.slaveFD, F_SETFL, O_NONBLOCK)
