@@ -27,18 +27,27 @@ extension WorkspaceListView {
         }
 
         if rendersGroupedSections {
-            items.append(contentsOf: groupedItems.map { item in
-                switch item {
-                case .groupHeader(let group, _):
-                    .groupHeader(group.id)
-                case .groupFooter(let groupID):
-                    .groupFooter(groupID)
-                case .workspace(let workspace, let indented):
-                    .workspace(workspace.id, indented: indented)
-                }
-            })
+            if groupedItems.isEmpty
+                && trimmedQuery.isEmpty
+                && !activeFilter.isActive
+                && workspaces.isEmpty {
+                items.append(.emptyWorkspaceList)
+            } else {
+                items.append(contentsOf: groupedItems.map { item in
+                    switch item {
+                    case .groupHeader(let group, _):
+                        .groupHeader(group.id)
+                    case .groupFooter(let groupID):
+                        .groupFooter(groupID)
+                    case .workspace(let workspace, let indented):
+                        .workspace(workspace.id, indented: indented)
+                    }
+                })
+            }
         } else if showsWorkspaceTableFilterEmptyRow {
             items.append(.filterEmpty)
+        } else if trimmedQuery.isEmpty && !activeFilter.isActive && workspaces.isEmpty {
+            items.append(.emptyWorkspaceList)
         } else {
             items.append(contentsOf: displayedFlatWorkspaces.map {
                 .workspace($0.id, indented: false)

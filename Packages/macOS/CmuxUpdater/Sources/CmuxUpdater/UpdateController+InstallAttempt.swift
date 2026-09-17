@@ -65,7 +65,7 @@ extension UpdateController {
         // Sparkle may synchronously emit its identity-free dismissal while the reply/cancellation
         // runs; because the error is already visible and that callback is diagnostic-only, there
         // is no empty-pill window and no unresolved session left behind.
-        model.replaceActiveState(with: errorState)
+        driver.replaceActiveState(with: errorState)
     }
 
     func performAttemptAction(_ action: AttemptUpdateCoordinator.Action) {

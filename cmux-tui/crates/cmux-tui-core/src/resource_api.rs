@@ -142,7 +142,7 @@ impl ResourceMachineService for LocalResourceMachineService {
             }
             ResourceOperation::SessionOpen => self.open_local_session(request, &context),
             operation => Err(ResourceError::operation_failed(
-                resource_operation_name(operation),
+                operation.wire_name().to_owned(),
                 "operation was routed to the wrong machine service",
                 json!({}),
             )),
@@ -385,14 +385,6 @@ pub(crate) fn operation_failed(error: anyhow::Error) -> ResourceError {
     ResourceError::operation_failed("resource.runtime", error.to_string(), json!({}))
 }
 
-fn resource_operation_name(operation: ResourceOperation) -> String {
-    serde_json::to_value(operation)
-        .expect("resource operation serializes")
-        .as_str()
-        .expect("resource operation serializes as a string")
-        .to_string()
-}
-
 pub(crate) fn terminal_tab_ids_in_canonical_order(
     tabs: impl IntoIterator<Item = (TerminalPublicId, PanePublicId, usize, TabPublicId)>,
 ) -> HashMap<TerminalPublicId, Vec<TabPublicId>> {
@@ -595,19 +587,8 @@ pub(crate) fn public_session_snapshot_with_journal_head(
                 let pane = panes_by_id
                     .get(&tab.pane_id)
                     .ok_or_else(|| anyhow::anyhow!("tab references a missing pane"))?;
-                let content_kind = match tab.content_id {
-                    ContentPublicId::Terminal(_) => "terminal",
-                    ContentPublicId::Browser(_) => "browser",
-                };
-                Ok(json!({
-                    "id": tab.public_id,
-                    "pane_id": tab.pane_id,
-                    "name": tab.name,
-                    "index": checked_index(tab.position)?,
-                    "focused": pane.active_tab.as_ref() == Some(&tab.public_id),
-                    "content_kind": content_kind,
-                    "content_id": tab.content_id.as_str(),
-                }))
+                checked_index(tab.position)?;
+                Ok(tab.public_value(pane.active_tab.as_ref() == Some(&tab.public_id)))
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
 
@@ -722,9 +703,13 @@ pub(crate) fn public_session_snapshot_with_journal_head(
                         .as_ref()
                         .and_then(|terminal_id| mux.terminal_notification(terminal_id))
                         .is_some_and(|notification| notification.unread),
+                    "read_by": notification.read_by,
                 });
                 if let Some(terminal_id) = notification.terminal_id {
                     snapshot["terminal_id"] = json!(terminal_id);
+                }
+                if let Some(subtitle) = notification.subtitle {
+                    snapshot["subtitle"] = json!(subtitle);
                 }
                 snapshot
             })
@@ -732,6 +717,22 @@ pub(crate) fn public_session_snapshot_with_journal_head(
         let mut agents = public_projections
             .agents
             .into_iter()
+            .filter(|agent| {
+                (agent.source != "hook" || agent.state != "done")
+                    && !agent
+                        .source_session
+                        .as_deref()
+                        .is_some_and(|value| value.starts_with("cmux-hook-ended:"))
+            })
+            .map(|mut agent| {
+                if agent.source_session.as_deref().is_some_and(|value| {
+                    value.starts_with("cmux-hook-sequence:")
+                        || value.starts_with("cmux-hook-ended:")
+                }) {
+                    agent.source_session = None;
+                }
+                agent
+            })
             .map(|agent| agent.into_public_snapshot(&topology.session_id))
             .collect::<Vec<_>>();
         agents.sort_by(|left, right| {
@@ -1111,7 +1112,7 @@ mod tests {
                 "machine":"current",
                 "session":"current",
                 "terminal_id":terminal_id,
-                "state":"done",
+                "state":"blocked",
                 "source":"hook",
                 "source_session":"after",
             }),
@@ -1261,6 +1262,8 @@ mod tests {
             },
         ];
         let tabs = vec![RegistryTab {
+            name_source: Default::default(),
+            name_revision: 0,
             public_id: tab_a.clone(),
             pane_id: pane_a,
             position: 0,

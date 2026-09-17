@@ -30,9 +30,6 @@ actor MobileCoreRPCSession {
     static let defaultAbandonedConnectCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000
     static let defaultLateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000
     static let defaultCancelledWriteCompletionGraceNanoseconds: UInt64 = 250_000_000
-    static let maximumReceiveBufferByteCount =
-        MobileSyncFrameCodec.defaultMaximumFrameByteCount
-        + MobileSyncFrameCodec.headerByteCount
     static let maximumDecodedFrameCountPerRead = 256
 
     struct EventSubscription {
@@ -96,6 +93,11 @@ actor MobileCoreRPCSession {
     private var recordedConnectCancellationAttemptIDs: Set<Int> = []
     private var installedConnectionID: UUID?
     private var readerTask: Task<Void, Never>?
+    /// Watches the complete native connection, separately from the control
+    /// lane reader. IROH can close the shared QUIC session without making a
+    /// blocked application-lane read return, so relying on `readLoop` alone
+    /// leaves event listeners attached to a dead generation.
+    private var transportClosureTask: Task<Void, Never>?
     var independentEventPreparation: IndependentEventPreparation?
     var independentEventReader: IndependentEventReader?
     /// Subscription stream IDs that already made their one optional-lane
@@ -204,6 +206,7 @@ actor MobileCoreRPCSession {
             }
         }
         readerTask?.cancel()
+        transportClosureTask?.cancel()
         independentEventPreparation?.task.cancel()
         independentEventReader?.task.cancel()
         activeWrite?.task.cancel()
@@ -339,6 +342,17 @@ actor MobileCoreRPCSession {
         listeners.removeValue(forKey: id)
     }
 
+    /// Snapshot whether the complete native transport has closed. A control
+    /// request can stall while an Iroh session and its terminal lane continue
+    /// to carry traffic, so replacement logic must consult this before
+    /// discarding a still-live session.
+    public func isTransportClosed() async -> Bool? {
+        guard let transport = transport as? any CmxByteTransportLivenessObserving else {
+            return nil
+        }
+        return await transport.isTransportClosed()
+    }
+
     func updateTransportSessionPurpose(
         _ purpose: CmxTransportSessionPurpose
     ) async {
@@ -430,6 +444,8 @@ actor MobileCoreRPCSession {
         transport = nil
         readerTask?.cancel()
         readerTask = nil
+        transportClosureTask?.cancel()
+        transportClosureTask = nil
         independentEventPreparation?.task.cancel()
         independentEventPreparation = nil
         independentEventReader?.task.cancel()
@@ -795,6 +811,34 @@ actor MobileCoreRPCSession {
                 frames: stream
             )
         }
+        let nextTransportClosureTask = Task { [weak self] in
+            var waitedForClosureReadiness = false
+            while !Task.isCancelled {
+                if let observation = await (
+                    candidate as? any CmxByteTransportClosureObserving
+                )?.transportClosureObservation() {
+                    await observation.waitUntilClosed()
+                    guard !Task.isCancelled else { return }
+                    await self?.transportDidClose(connectionID: connectionID)
+                    return
+                }
+                guard let readiness = candidate as?
+                    any CmxByteTransportClosureObservationReadiness else {
+                    return
+                }
+                // Allow exactly one activation transition. If an activated
+                // transport still cannot produce an observation, terminate
+                // this generation instead of actor-hopping forever.
+                guard !waitedForClosureReadiness else { return }
+                waitedForClosureReadiness = true
+                // Deferred transports signal activation once. This avoids a
+                // permanent 100 ms polling task for transports that never
+                // expose native closure observation.
+                guard await readiness.waitUntilTransportClosureObservationIsReady() else {
+                    return
+                }
+            }
+        }
 
         // Publish one coherent installed generation without suspending. Readers
         // use `transport` as the fast-path readiness flag, so it must become
@@ -804,6 +848,7 @@ actor MobileCoreRPCSession {
         readerTask = nextReaderTask
         writeQueue = continuation
         writerTask = nextWriterTask
+        transportClosureTask = nextTransportClosureTask
         transport = candidate
         installedConnectLease = connectLease
 
@@ -991,29 +1036,22 @@ actor MobileCoreRPCSession {
                   installedConnectionID == connectionID else {
                 return
             }
-            guard chunk.count <= Self.maximumReceiveBufferByteCount - buffer.count else {
-                await tearDownIfInstalled(
-                    connectionID: connectionID,
-                    error: .invalidResponse
-                )
-                return
-            }
+            // Enforce size per decoded frame. A chunk can finish one valid
+            // maximum-size frame and also contain bytes from the next frame.
             buffer.append(chunk)
-            let frames: [Data]
             do {
-                frames = try MobileSyncFrameCodec.decodeFrames(
-                    from: &buffer,
-                    maximumDecodedFrameCount: Self.maximumDecodedFrameCountPerRead
-                )
+                while !Task.isCancelled, installedConnectionID == connectionID {
+                    let frames = try MobileSyncFrameCodec.decodeFrames(
+                        from: &buffer,
+                        maximumDecodedFrameCount: Self.maximumDecodedFrameCountPerRead
+                    )
+                    for frame in frames { dispatch(frame: frame) }
+                    guard frames.count == Self.maximumDecodedFrameCountPerRead else { break }
+                    await Task.yield()
+                }
             } catch {
-                await tearDownIfInstalled(
-                    connectionID: connectionID,
-                    error: .invalidResponse
-                )
+                await tearDownIfInstalled(connectionID: connectionID, error: .invalidResponse)
                 return
-            }
-            for frame in frames {
-                dispatch(frame: frame)
             }
         }
     }
@@ -1187,7 +1225,10 @@ actor MobileCoreRPCSession {
     /// the wedged transport installed (their timeout cannot recycle a write
     /// owned by another request ID).
     private func startQueuedDemandRecovery(requestID: String) {
-        guard !queuedWriteIDs.isEmpty else { return }
+        // Native connection observation owns Iroh's lifetime. Queued demand
+        // has its own request deadline and cannot condemn an unfinished frame.
+        guard !(transport is any CmxByteTransportLivenessObserving),
+              !queuedWriteIDs.isEmpty else { return }
         Task { [self, taskTimeout, cancelledWriteCompletionGraceNanoseconds] in
             let waitTask = Task<Void, any Error> {
                 await self.awaitCancelledWriteResolution()
@@ -1218,6 +1259,10 @@ actor MobileCoreRPCSession {
     private func waitForCancelledActiveWriteResolution(
         deadlineUptimeNanoseconds: UInt64
     ) async throws {
+        // Preserve serialization until the native write completes or fails.
+        // Cancelling writeAll can leave a frame prefix on the control stream.
+        // Later requests may queue and expire without cancelling that write.
+        if transport is any CmxByteTransportLivenessObserving { return }
         while let write = activeWrite,
               write.cancelledRequestResolutionTask != nil {
             try Task.checkCancellation()
@@ -1319,7 +1364,12 @@ actor MobileCoreRPCSession {
     }
 
     private func recycleTransportIfActiveWrite(requestID: String) async -> Bool {
-        guard activeWrite?.requestID == requestID else { return false }
+        guard let write = activeWrite, write.requestID == requestID else { return false }
+        if let observing = transport as? any CmxByteTransportLivenessObserving {
+            guard await observing.isTransportClosed() else { return false }
+            guard activeWrite?.connectionID == write.connectionID,
+                  activeWrite?.requestID == requestID else { return false }
+        }
         activeWrite?.task.cancel()
         activeWrite?.cancelledRequestResolutionTask?.cancel()
         activeWrite = nil
@@ -1334,6 +1384,11 @@ actor MobileCoreRPCSession {
     ) async {
         guard installedConnectionID == connectionID else { return }
         await tearDown(error: error)
+    }
+
+    private func transportDidClose(connectionID: UUID) async {
+        guard installedConnectionID == connectionID else { return }
+        await tearDown(error: .connectionClosed)
     }
 
     /// Detaches one installed transport close from session request handling and
