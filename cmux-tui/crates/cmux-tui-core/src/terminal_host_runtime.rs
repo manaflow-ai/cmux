@@ -17,8 +17,9 @@ use crate::surface::{
     CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR, CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR,
     CLEAR_HISTORY_PRESERVATION_ERROR, CLEAR_HISTORY_STREAM_TIMEOUT_ERROR,
     CLEAR_HISTORY_STREAM_WAIT_TIMEOUT, ClearHistoryDelivery, ClearHistoryFailure,
-    ClearHistoryTransition, DefaultColors, SurfaceOptions, TerminalStreamProgress,
-    apply_clear_history_transition, replace_ghostty_cursor_defaults, write_clear_history_fallback,
+    ClearHistoryTransition, ConfirmedInputFailure, DefaultColors, SurfaceOptions,
+    TerminalStreamProgress, apply_clear_history_transition, replace_ghostty_cursor_defaults,
+    write_clear_history_fallback,
 };
 use crate::terminal_host::{
     CapabilityRights, CapabilityStore, CapabilityToken, ClientHello, ClientRole, HostBootstrap,
@@ -33,8 +34,8 @@ use crate::terminal_host_protocol::{
     KITTY_IMAGE_ALIAS_COUNT_LEN, KITTY_IMAGE_ALIAS_ENCODED_LEN, LAUNCH_ACTIVATION_PROTOCOL_VERSION,
     MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind, PROTOCOL_VERSION,
     RESIZE_ACK_CANONICAL_CHANGED, TerminalExit, decode_host_launch_failure, decode_terminal_exit,
-    encode_host_launch_failure, encode_terminal_exit, read_frame, wait_for_native_child_status,
-    write_frame,
+    encode_host_launch_failure, encode_terminal_exit, read_frame,
+    wait_for_native_child_status_with_reap_result, write_frame,
 };
 
 const HOST_RECORD_VERSION: u32 = 4;
@@ -153,6 +154,10 @@ pub struct TerminalHostRecord {
     /// hosts whose fire-and-forget Terminate command has no receipt.
     #[serde(default)]
     pub supports_terminate_ack: bool,
+    /// Additive control capability. Missing/false records belong to hosts that
+    /// accept fire-and-forget input but cannot confirm PTY delivery.
+    #[serde(default)]
+    pub supports_input_ack: bool,
 }
 
 impl std::fmt::Debug for TerminalHostRecord {
@@ -169,13 +174,14 @@ impl std::fmt::Debug for TerminalHostRecord {
             .field("supports_set_defaults", &self.supports_set_defaults)
             .field("supports_clear_history", &self.supports_clear_history)
             .field("supports_terminate_ack", &self.supports_terminate_ack)
+            .field("supports_input_ack", &self.supports_input_ack)
             .finish()
     }
 }
 
 impl TerminalHostRecord {
     pub fn record_path(&self, root: &Path) -> PathBuf {
-        root.join(format!("{}.json", self.terminal_id))
+        crate::platform::normalize_filesystem_path(root.join(format!("{}.json", self.terminal_id)))
     }
 }
 
@@ -204,7 +210,7 @@ impl TerminalHostExitRecord {
     }
 
     pub fn record_path(&self, root: &Path) -> PathBuf {
-        root.join(format!("{}.exit", self.terminal_id))
+        crate::platform::normalize_filesystem_path(root.join(format!("{}.exit", self.terminal_id)))
     }
 }
 
@@ -434,6 +440,14 @@ mod unix {
 
     static RECORD_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
     const HOST_TERMINATE_GRACE: Duration = Duration::from_millis(250);
+    // Match the remote PTY bridge's bounded outstanding-write precedent.
+    // This protects the local control-response waiter table from an unbounded
+    // burst of durable API input without serializing every receipt.
+    const MAX_PENDING_INPUT_ACKS: usize = 256;
+    // Keep the total outstanding receipted payload bounded too. Using the
+    // existing frame-payload ceiling preserves admission for one maximum-sized
+    // legal Input while preventing 256 such frames from accumulating.
+    const MAX_PENDING_INPUT_ACK_BYTES: usize = MAX_FRAME_PAYLOAD;
     const HOST_KILL_WAIT: Duration = Duration::from_secs(2);
     const HOST_PTY_DRAIN_GRACE: Duration = Duration::from_millis(250);
     const HOST_FORCED_DRAIN_WINDOW: Duration = Duration::from_millis(100);
@@ -508,6 +522,98 @@ mod unix {
         fn drop(&mut self) {
             if let Some(child) = self.child.as_mut() {
                 let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
+
+    /// Own a PTY child until the host's reaper thread has taken responsibility
+    /// for it.  Every fallible setup step after `pty.spawn` keeps this guard
+    /// alive, so a failed reader, writer, callback, or thread setup cannot
+    /// leave the interactive child detached from its parent.
+    struct SpawnedPtyChild {
+        child: Option<Box<dyn cmux_pty::Child + Send + Sync>>,
+        process_groups: [Option<libc::pid_t>; 2],
+    }
+
+    fn validated_process_groups(
+        groups: impl IntoIterator<Item = Option<libc::pid_t>>,
+        host_group: libc::pid_t,
+    ) -> Vec<libc::pid_t> {
+        let mut valid = Vec::new();
+        for group in groups.into_iter().flatten() {
+            if group > 0 && group != host_group && !valid.contains(&group) {
+                valid.push(group);
+            }
+        }
+        valid
+    }
+
+    fn signal_validated_process_groups(
+        groups: impl IntoIterator<Item = Option<libc::pid_t>>,
+        host_group: libc::pid_t,
+        signal: libc::c_int,
+        mut send: impl FnMut(libc::pid_t, libc::c_int) -> bool,
+    ) -> bool {
+        let mut all_succeeded = true;
+        for group in validated_process_groups(groups, host_group) {
+            all_succeeded &= send(group, signal);
+        }
+        all_succeeded
+    }
+
+    impl SpawnedPtyChild {
+        fn new(
+            child: Box<dyn cmux_pty::Child + Send + Sync>,
+            process_group_leader: Option<libc::pid_t>,
+        ) -> Self {
+            let child_pid = child.process_id().and_then(|pid| libc::pid_t::try_from(pid).ok());
+            Self { child: Some(child), process_groups: [child_pid, process_group_leader] }
+        }
+
+        fn child(&self) -> &dyn cmux_pty::Child {
+            self.child.as_deref().expect("PTY child is present")
+        }
+
+        fn child_mut(&mut self) -> &mut (dyn cmux_pty::Child + Send + Sync) {
+            self.child.as_deref_mut().expect("PTY child is present")
+        }
+
+        fn wait_and_disarm(&mut self) -> TerminalExit {
+            let (exit, reaped) = wait_for_native_child_status_with_reap_result(self.child_mut());
+            if reaped {
+                self.disarm();
+            }
+            exit
+        }
+
+        fn disarm(&mut self) {
+            let _ = self.child.take();
+            self.process_groups = [None, None];
+        }
+    }
+
+    impl Drop for SpawnedPtyChild {
+        fn drop(&mut self) {
+            let host_group = unsafe { libc::getpgrp() };
+            let groups = validated_process_groups(self.process_groups, host_group);
+            let groups_signaled = signal_validated_process_groups(
+                groups.iter().copied().map(Some),
+                host_group,
+                libc::SIGKILL,
+                |group, signal| {
+                    // SAFETY: the group was returned by the PTY or child, is
+                    // positive, and is not the terminal-host process group.
+                    unsafe { libc::killpg(group, signal) == 0 }
+                },
+            );
+            if let Some(child) = self.child.as_deref_mut() {
+                // A valid process group already includes the child. Avoid a
+                // second direct PID signal unless group signaling failed, which
+                // could leave the child running while the guard waits below.
+                if groups.is_empty() || !groups_signaled {
+                    let _ = child.kill();
+                }
                 let _ = child.wait();
             }
         }
@@ -734,10 +840,18 @@ mod unix {
     pub(crate) type DeferredCellPixelHandler =
         Arc<dyn Fn(u64, (u16, u16), DeferredCellPixelResolution) + Send + Sync + 'static>;
 
+    #[derive(Default)]
+    struct PendingInputAckWindow {
+        writes: usize,
+        bytes: usize,
+    }
+
     pub(crate) struct ControlResponses {
         waiters: Mutex<HashMap<u64, ControlResponseWaiter>>,
         deferred_cell_pixel_handler: Mutex<Option<DeferredCellPixelHandler>>,
         latest_cell_pixel_ack: AtomicU64,
+        pending_input_acks: Mutex<PendingInputAckWindow>,
+        input_ack_shutdown: Mutex<Option<Arc<UnixStream>>>,
     }
 
     impl ControlResponses {
@@ -746,6 +860,8 @@ mod unix {
                 waiters: Mutex::new(HashMap::new()),
                 deferred_cell_pixel_handler: Mutex::new(None),
                 latest_cell_pixel_ack: AtomicU64::new(0),
+                pending_input_acks: Mutex::new(PendingInputAckWindow::default()),
+                input_ack_shutdown: Mutex::new(None),
             }
         }
 
@@ -805,6 +921,48 @@ mod unix {
             }
         }
 
+        fn input_ack_shutdown_handle(
+            &self,
+            writer: &Mutex<UnixStream>,
+        ) -> std::io::Result<Arc<UnixStream>> {
+            let mut cached = self.input_ack_shutdown.lock().unwrap();
+            if let Some(shutdown) = cached.as_ref() {
+                return Ok(shutdown.clone());
+            }
+            let shutdown = Arc::new(writer.lock().unwrap().try_clone()?);
+            *cached = Some(shutdown.clone());
+            Ok(shutdown)
+        }
+
+        fn try_reserve_input_ack(&self, bytes: usize) -> bool {
+            if bytes > MAX_PENDING_INPUT_ACK_BYTES {
+                return false;
+            }
+            let mut pending = self.pending_input_acks.lock().unwrap();
+            if pending.writes >= MAX_PENDING_INPUT_ACKS
+                || bytes > MAX_PENDING_INPUT_ACK_BYTES.saturating_sub(pending.bytes)
+            {
+                return false;
+            }
+            pending.writes += 1;
+            pending.bytes += bytes;
+            true
+        }
+
+        fn release_input_ack(&self, bytes: usize) {
+            let mut pending = self.pending_input_acks.lock().unwrap();
+            debug_assert!(pending.writes > 0, "terminal input ACK reservation underflow");
+            debug_assert!(pending.bytes >= bytes, "terminal input ACK byte reservation underflow");
+            pending.writes = pending.writes.saturating_sub(1);
+            pending.bytes = pending.bytes.saturating_sub(bytes);
+        }
+
+        #[cfg(test)]
+        fn pending_input_acks_for_test(&self) -> (usize, usize) {
+            let pending = self.pending_input_acks.lock().unwrap();
+            (pending.writes, pending.bytes)
+        }
+
         fn defer_cell_pixel(&self, request_id: u64, expected: (u16, u16)) -> bool {
             let mut waiters = self.waiters.lock().unwrap();
             let Some(waiter) = waiters.get_mut(&request_id) else { return false };
@@ -845,6 +1003,68 @@ mod unix {
 
         pub(crate) fn latest_cell_pixel_ack(&self) -> u64 {
             self.latest_cell_pixel_ack.load(Ordering::Acquire)
+        }
+    }
+
+    pub(crate) struct InputAckReceipt {
+        request_id: u64,
+        receiver: Receiver<Frame>,
+        control_responses: Arc<ControlResponses>,
+        shutdown: Arc<UnixStream>,
+        bytes: usize,
+    }
+
+    impl InputAckReceipt {
+        fn abort_connection(&self) {
+            let _ = self.shutdown.shutdown(std::net::Shutdown::Both);
+        }
+
+        pub(crate) fn wait(self) -> std::io::Result<()> {
+            self.wait_for(CONTROL_RESPONSE_TIMEOUT)
+        }
+
+        fn wait_for(self, timeout: Duration) -> std::io::Result<()> {
+            match self.receiver.recv_timeout(timeout) {
+                Ok(frame) => {
+                    if !frame.payload.is_empty() {
+                        self.abort_connection();
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "terminal host returned a malformed input acknowledgement",
+                        ));
+                    }
+                    Ok(())
+                }
+                Err(error) => {
+                    self.control_responses.waiters.lock().unwrap().remove(&self.request_id);
+                    // Shutdown uses a separately cloned socket handle. A timed-out
+                    // receipt therefore does not wait behind another frame writer
+                    // before it can abort the broken attachment.
+                    self.abort_connection();
+                    let kind = match error {
+                        RecvTimeoutError::Timeout => std::io::ErrorKind::TimedOut,
+                        RecvTimeoutError::Disconnected => std::io::ErrorKind::ConnectionAborted,
+                    };
+                    Err(std::io::Error::new(
+                        kind,
+                        format!("terminal host did not acknowledge receipted input: {error}"),
+                    ))
+                }
+            }
+        }
+    }
+
+    impl Drop for InputAckReceipt {
+        fn drop(&mut self) {
+            let abandoned =
+                self.control_responses.waiters.lock().unwrap().remove(&self.request_id).is_some();
+            self.control_responses.release_input_ack(self.bytes);
+            if abandoned {
+                // A submitted request whose confirmation is abandoned can still
+                // produce a late targeted ACK. Close this attachment now rather
+                // than letting that late frame fail the production reader later.
+                self.abort_connection();
+            }
         }
     }
 
@@ -955,6 +1175,87 @@ mod unix {
                 let _ = writer.shutdown(std::net::Shutdown::Both);
             }
             result
+        }
+
+        pub(crate) fn begin_input_confirmed(
+            &self,
+            payload: &[u8],
+        ) -> Result<InputAckReceipt, ConfirmedInputFailure> {
+            // InputAck responses require protocol v4 even when the record advertises support.
+            if !self.record.supports_input_ack || self.protocol_version < PROTOCOL_VERSION {
+                return Err(ConfirmedInputFailure::Known(std::io::Error::new(
+                    std::io::ErrorKind::Unsupported,
+                    "terminal host cannot acknowledge receipted input",
+                )));
+            }
+            if payload.len() > MAX_PENDING_INPUT_ACK_BYTES {
+                return Err(ConfirmedInputFailure::Known(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "terminal input is too large to confirm in one write",
+                )));
+            }
+            if !self.control_responses.try_reserve_input_ack(payload.len()) {
+                return Err(ConfirmedInputFailure::Known(std::io::Error::new(
+                    std::io::ErrorKind::WouldBlock,
+                    "terminal host receipted-input window is full",
+                )));
+            }
+
+            let shutdown = self.control_responses.input_ack_shutdown_handle(&self.writer).map_err(
+                |error| {
+                    self.control_responses.release_input_ack(payload.len());
+                    ConfirmedInputFailure::Known(error)
+                },
+            )?;
+
+            let request_id = self.next_request.fetch_add(1, Ordering::Relaxed);
+            if request_id == 0 {
+                self.control_responses.release_input_ack(payload.len());
+                return Err(ConfirmedInputFailure::Known(std::io::Error::new(
+                    std::io::ErrorKind::WouldBlock,
+                    "terminal host input request id exhausted",
+                )));
+            }
+            let (sender, receiver) = sync_channel(1);
+            {
+                let mut waiters = self.control_responses.waiters.lock().unwrap();
+                if waiters.contains_key(&request_id) {
+                    self.control_responses.release_input_ack(payload.len());
+                    return Err(ConfirmedInputFailure::Known(std::io::Error::new(
+                        std::io::ErrorKind::WouldBlock,
+                        "terminal host input request id collision",
+                    )));
+                }
+                waiters.insert(
+                    request_id,
+                    ControlResponseWaiter::Blocking { kind: MessageKind::InputAck, sender },
+                );
+            }
+
+            let mut frame = Frame::new(MessageKind::Input, payload.to_vec());
+            frame.version = self.protocol_version;
+            frame.request_id = request_id;
+            let write_result = {
+                let mut writer = self.writer.lock().unwrap();
+                let result = write_frame(&mut *writer, &frame).map_err(protocol_io_error);
+                if result.is_err() {
+                    let _ = writer.shutdown(std::net::Shutdown::Both);
+                }
+                result
+            };
+            if let Err(error) = write_result {
+                self.control_responses.waiters.lock().unwrap().remove(&request_id);
+                self.control_responses.release_input_ack(payload.len());
+                return Err(ConfirmedInputFailure::Indeterminate(error));
+            }
+
+            Ok(InputAckReceipt {
+                request_id,
+                receiver,
+                control_responses: self.control_responses.clone(),
+                shutdown,
+                bytes: payload.len(),
+            })
         }
 
         /// Update the authoritative parser defaults on a feature-advertising
@@ -1688,7 +1989,9 @@ mod unix {
     }
 
     pub fn terminal_host_root(state_root: &Path, session: &str) -> PathBuf {
-        state_root.join(format!("terminal-hosts-{}", stable_token(session)))
+        crate::platform::normalize_filesystem_path(
+            state_root.join(format!("terminal-hosts-{}", stable_token(session))),
+        )
     }
 
     /// Strip every descriptor except the private bootstrap stdio before the
@@ -1778,7 +2081,8 @@ mod unix {
         let endpoint_root = PathBuf::from("/tmp").join(format!("cmux-th-{uid}"));
         prepare_private_dir(&endpoint_root)?;
         let endpoint = endpoint_root.join(format!("{terminal_hex}.sock"));
-        let record_path = root.join(format!("{terminal_hex}.json"));
+        let record_path =
+            crate::platform::normalize_filesystem_path(root.join(format!("{terminal_hex}.json")));
         if record_path.exists() || endpoint.exists() {
             anyhow::bail!("terminal host identity already exists");
         }
@@ -1980,12 +2284,16 @@ mod unix {
                 || record.supports_set_defaults
                 || record.supports_clear_history
                 || record.supports_terminate_ack
+                || record.supports_input_ack
             {
                 anyhow::bail!("legacy terminal-host record has unexpected liveness fields");
             }
         } else {
             if record.record_version == 2 && record.supports_terminate_ack {
                 anyhow::bail!("version 2 terminal-host record advertises terminate receipts");
+            }
+            if record.record_version < HOST_RECORD_VERSION && record.supports_input_ack {
+                anyhow::bail!("pre-v4 terminal-host record advertises input receipts");
             }
             let nonce = decode_lower_hex_array::<HOST_START_NONCE_LEN>(
                 &record.host_start_nonce,
@@ -3352,8 +3660,31 @@ mod unix {
         frames
     }
 
-    fn snapshot_cwd(term: &Terminal, spawn_cwd: Option<&str>) -> Option<String> {
-        term.pwd().or_else(|| spawn_cwd.map(str::to_owned))
+    /// Persist a local spawn path with host-authenticated provenance. A host
+    /// can outlive its daemon, so a raw OSC 7 URL here would become the next
+    /// surface's inherited spawn directory after reattachment.
+    fn snapshot_cwd(
+        term: &Terminal,
+        spawn_cwd: Option<&str>,
+        owner_token: &CapabilityToken,
+        protocol_version: u16,
+    ) -> Option<String> {
+        // OSC 7 is terminal-controlled metadata and cannot prove that a path
+        // belongs to this host. Use only the authenticated spawn fallback.
+        let _ = term;
+        let path = spawn_cwd.and_then(crate::platform::spawn_cwd_to_local_path)?;
+        // Only the negotiated current protocol understands authenticated
+        // provenance markers. Treat legacy and unknown values as legacy wire
+        // format so peers never receive a marker they cannot decode.
+        if protocol_version != PROTOCOL_VERSION {
+            return Some(path.to_string_lossy().into_owned());
+        }
+        Some(format!(
+            "{}{}:{}",
+            crate::platform::SNAPSHOT_SPAWN_CWD_PREFIX,
+            encode_hex(owner_token.as_bytes()),
+            path.to_string_lossy()
+        ))
     }
 
     impl HostShared {
@@ -3635,6 +3966,25 @@ mod unix {
                 },
                 |desired| self.apply_viewer_minimum(desired, false, None).map(|_| ()),
             );
+        }
+
+        fn write_input(&self, payload: &[u8], request_id: u64, target: &HostTap) -> bool {
+            let delivered = {
+                let mut writer = self.writer.lock().unwrap();
+                writer.write_all(payload).and_then(|()| writer.flush()).is_ok()
+            };
+            // Interactive input has always been best-effort. Only a nonzero
+            // request id asks the authoritative host to certify delivery.
+            if request_id == 0 {
+                return true;
+            }
+            if !delivered {
+                return false;
+            }
+            let mut response = Frame::new(MessageKind::InputAck, Vec::new());
+            response.request_id = request_id;
+            let _broadcast = self.broadcast_lock.lock().unwrap();
+            target.try_send(response)
         }
 
         fn fence_client_detach(&self, client: u64, request_id: u64, target: &HostTap) -> bool {
@@ -4388,6 +4738,10 @@ mod unix {
         }
     }
 
+    fn input_request_is_supported(selected_version: u16, request_id: u64) -> bool {
+        request_id == 0 || selected_version >= PROTOCOL_VERSION
+    }
+
     fn persist_and_claim_host_exit_after_drain(
         child_exited: &Mutex<Option<TerminalExit>>,
         pty_drained: &AtomicBool,
@@ -4568,7 +4922,7 @@ mod unix {
     }
 
     fn terminal_host_publication_lock_path(root: &Path) -> PathBuf {
-        root.join(TERMINAL_HOST_PUBLICATION_LOCK_FILE)
+        crate::platform::normalize_filesystem_path(root.join(TERMINAL_HOST_PUBLICATION_LOCK_FILE))
     }
 
     fn validate_terminal_host_publication_lock(
@@ -4755,6 +5109,7 @@ mod unix {
             supports_set_defaults: true,
             supports_clear_history: true,
             supports_terminate_ack: true,
+            supports_input_ack: true,
         };
         let record_root = Path::new(&launch.record_path)
             .parent()
@@ -4877,9 +5232,11 @@ mod unix {
         if let Some(cwd) = launch.cwd.as_deref() {
             command.cwd(cwd);
         }
-        let cmux_pty::SpawnedPty { master, mut child } = pty.spawn(command)?;
-        let pid = child.process_id();
-        let killer = child.clone_killer();
+        let cmux_pty::SpawnedPty { master, child } = pty.spawn(command)?;
+        let process_group_leader = master.process_group_leader();
+        let mut child = SpawnedPtyChild::new(child, process_group_leader);
+        let pid = child.child().process_id();
+        let killer = child.child().clone_killer();
         let pty_poll_fd = master.as_raw_fd().context("open terminal-host PTY poll fd")?;
         let mut pty_reader = master.try_clone_reader()?;
         let pty_writer = master.take_writer()?;
@@ -5141,7 +5498,7 @@ mod unix {
                         child_host.termination_started.load(Ordering::Acquire);
                     let pty_drained = child_host.pty_drained.load(Ordering::Acquire);
                     if escalation_complete || (!termination_started && pty_drained) {
-                        let exit = wait_for_native_child_status(child.as_mut());
+                        let exit = child.wait_and_disarm();
                         child_host.child_reaped.store(true, Ordering::Release);
                         drop(signal);
                         *child_host.child_exit.0.lock().unwrap() = Some(exit);
@@ -5164,7 +5521,7 @@ mod unix {
             } else {
                 // Native Unix PTYs always expose a PID and support waitid;
                 // retain a conservative fallback for alternate backends.
-                let exit = wait_for_native_child_status(child.as_mut());
+                let exit = child.wait_and_disarm();
                 child_host.child_reaped.store(true, Ordering::Release);
                 child_host.mark_child_waitable();
                 let mut exited = child_host.child_exit.0.lock().unwrap();
@@ -5353,7 +5710,12 @@ mod unix {
                     colors: colors.clone(),
                     pid: host.pid,
                     command: host.command.clone(),
-                    cwd: snapshot_cwd(&term, host.cwd.as_deref()),
+                    cwd: snapshot_cwd(
+                        &term,
+                        host.cwd.as_deref(),
+                        &host.owner_token,
+                        selected_version,
+                    ),
                 },
                 colors,
                 snapshot_sequence,
@@ -5409,12 +5771,16 @@ mod unix {
                         command_host.mark_launch_owner_stream_ready();
                     }
                     MessageKind::Input => {
-                        if !granted_rights.contains(CapabilityRights::INPUT) {
+                        if !granted_rights.contains(CapabilityRights::INPUT)
+                            || !input_request_is_supported(selected_version, frame.request_id)
+                            || !command_host.write_input(
+                                &frame.payload,
+                                frame.request_id,
+                                &command_sender,
+                            )
+                        {
                             break;
                         }
-                        let mut writer = command_host.writer.lock().unwrap();
-                        let _ = writer.write_all(&frame.payload);
-                        let _ = writer.flush();
                     }
                     MessageKind::Paste => {
                         if !granted_rights.contains(CapabilityRights::INPUT) {
@@ -6157,8 +6523,12 @@ mod unix {
     }
 
     #[cfg(test)]
+    pub(crate) use tests::input_ack_surface_fixture;
+
+    #[cfg(test)]
     mod tests {
         use super::*;
+        use cmux_pty::Child;
 
         fn test_kitty_state() -> KittyReplayState {
             KittyReplayState {
@@ -6220,6 +6590,75 @@ mod unix {
             fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
                 Box::new(Self)
             }
+        }
+
+        #[derive(Debug)]
+        struct GuardTestChild {
+            kills: Arc<AtomicUsize>,
+        }
+
+        impl ChildKiller for GuardTestChild {
+            fn kill(&mut self) -> std::io::Result<()> {
+                self.kills.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            }
+
+            fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
+                Box::new(Self { kills: Arc::clone(&self.kills) })
+            }
+        }
+
+        impl Child for GuardTestChild {
+            fn try_wait(&mut self) -> std::io::Result<Option<cmux_pty::ExitStatus>> {
+                Ok(Some(cmux_pty::ExitStatus::with_exit_code(0)))
+            }
+
+            fn wait(&mut self) -> std::io::Result<cmux_pty::ExitStatus> {
+                Ok(cmux_pty::ExitStatus::with_exit_code(0))
+            }
+
+            fn process_id(&self) -> Option<u32> {
+                Some(42)
+            }
+        }
+
+        #[test]
+        fn spawned_pty_child_disarm_prevents_late_kill() {
+            let kills = Arc::new(AtomicUsize::new(0));
+            let child = GuardTestChild { kills: Arc::clone(&kills) };
+            let mut guard = SpawnedPtyChild::new(Box::new(child), Some(123));
+            let _ = guard.wait_and_disarm();
+            assert_eq!(guard.process_groups, [None, None]);
+            drop(guard);
+            assert_eq!(kills.load(Ordering::Relaxed), 0);
+        }
+
+        #[test]
+        fn startup_child_cleanup_excludes_host_process_group() {
+            let host_group = unsafe { libc::getpgrp() };
+            let mut signaled = Vec::new();
+            signal_validated_process_groups(
+                [Some(host_group), Some(host_group + 1), Some(0), Some(-1)],
+                host_group,
+                libc::SIGKILL,
+                |group, signal| {
+                    signaled.push((group, signal));
+                    true
+                },
+            );
+            assert_eq!(signaled, vec![(host_group + 1, libc::SIGKILL)]);
+        }
+
+        #[test]
+        fn startup_child_cleanup_reports_group_signal_failure() {
+            let host_group = unsafe { libc::getpgrp() };
+            let all_succeeded = signal_validated_process_groups(
+                [Some(host_group + 1)],
+                host_group,
+                libc::SIGKILL,
+                |_group, _signal| false,
+            );
+            assert!(!all_succeeded);
         }
 
         fn exited_host_fixture_with_parser_at(
@@ -6404,11 +6843,67 @@ mod unix {
                 supports_set_defaults: true,
                 supports_clear_history: true,
                 supports_terminate_ack: true,
+                supports_input_ack: true,
             };
             let record_path = record.record_path(&root);
             let lease = HostLivenessLease::acquire(liveness_path(&record_path, &record)).unwrap();
             write_record(&record_path, &record).unwrap();
             (record_path, record, lease)
+        }
+
+        pub(crate) fn input_ack_surface_fixture() -> (HostAttachment, UnixStream) {
+            let terminal_id = TerminalId::random().unwrap();
+            let incarnation = HostIncarnation::random().unwrap();
+            let owner = CapabilityToken::random().unwrap();
+            let nonce = CapabilityToken::random().unwrap();
+            let record = TerminalHostRecord {
+                record_version: HOST_RECORD_VERSION,
+                terminal_id: terminal_id.to_hex(),
+                incarnation: incarnation.to_hex(),
+                endpoint: "/tmp/cmux-input-ack-surface-test.sock".into(),
+                owner_token: encode_hex(owner.as_bytes()),
+                host_pid: std::process::id(),
+                host_start_nonce: encode_hex(nonce.as_bytes()),
+                workspace_key: String::new(),
+                supports_set_defaults: false,
+                supports_clear_history: false,
+                supports_terminate_ack: false,
+                supports_input_ack: true,
+            };
+            let record_path = std::env::temp_dir().join(format!(
+                "cmux-input-ack-surface-{}-{}.json",
+                std::process::id(),
+                RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            let (client, host) = UnixStream::pair().unwrap();
+            let reader = client.try_clone().unwrap();
+            let attachment = HostAttachment {
+                record,
+                record_path,
+                snapshot: HostSnapshot {
+                    cols: 80,
+                    rows: 24,
+                    cell_pixels: DEFAULT_CELL_PIXELS,
+                    replay: Vec::new(),
+                    kitty_image_aliases: Vec::new(),
+                    kitty_state: test_kitty_state(),
+                    sequence_boundary: 0,
+                    colors: TerminalColorOverrides::default(),
+                    pid: None,
+                    command: Vec::new(),
+                    cwd: None,
+                },
+                protocol_version: PROTOCOL_VERSION,
+                smart_renderer: false,
+                reader: Some(reader),
+                writer: Arc::new(Mutex::new(client)),
+                control_responses: Arc::new(ControlResponses::new()),
+                next_request: AtomicU64::new(2),
+                viewer_size: Mutex::new(None),
+                launch_process: None,
+                launch_activation_pending: false,
+            };
+            (attachment, host)
         }
 
         #[test]
@@ -6860,6 +7355,274 @@ mod unix {
         }
 
         #[test]
+        fn receipted_input_never_reaches_a_legacy_host_without_ack_support() {
+            let (record_path, mut record, lease) = record_fixture("input-ack-legacy");
+            let root = record_path.parent().unwrap().to_path_buf();
+            record.supports_input_ack = false;
+            let (client, mut host) = UnixStream::pair().unwrap();
+            host.set_read_timeout(Some(Duration::from_millis(20))).unwrap();
+            let attachment = HostAttachment {
+                record,
+                record_path,
+                snapshot: HostSnapshot {
+                    cols: 80,
+                    rows: 24,
+                    cell_pixels: DEFAULT_CELL_PIXELS,
+                    replay: Vec::new(),
+                    kitty_image_aliases: Vec::new(),
+                    kitty_state: test_kitty_state(),
+                    sequence_boundary: 0,
+                    colors: TerminalColorOverrides::default(),
+                    pid: None,
+                    command: Vec::new(),
+                    cwd: None,
+                },
+                protocol_version: PROTOCOL_VERSION,
+                smart_renderer: true,
+                reader: None,
+                writer: Arc::new(Mutex::new(client)),
+                control_responses: Arc::new(ControlResponses::new()),
+                next_request: AtomicU64::new(2),
+                viewer_size: Mutex::new(None),
+                launch_process: None,
+                launch_activation_pending: false,
+            };
+
+            let error = match attachment.begin_input_confirmed(b"must-not-send") {
+                Ok(_) => panic!("legacy host accepted a receipted input request"),
+                Err(ConfirmedInputFailure::Known(error)) => error,
+                Err(ConfirmedInputFailure::Indeterminate(error)) => {
+                    panic!("legacy-host rejection became indeterminate: {error}")
+                }
+            };
+            assert_eq!(error.kind(), std::io::ErrorKind::Unsupported);
+            let mut byte = [0u8; 1];
+            let read_error = host.read(&mut byte).unwrap_err();
+            assert!(matches!(
+                read_error.kind(),
+                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+            ));
+
+            drop(attachment);
+            drop(lease);
+            let _ = fs::remove_dir_all(root);
+        }
+
+        #[test]
+        fn receipted_input_rejects_lower_negotiated_protocols_before_sending() {
+            for version in 1..4 {
+                let (mut attachment, mut host) = input_ack_surface_fixture();
+                attachment.protocol_version = version;
+                host.set_nonblocking(true).unwrap();
+                let result = attachment.begin_input_confirmed(b"must-not-send");
+                let Err(ConfirmedInputFailure::Known(error)) = result else {
+                    panic!("protocol {version} must reject confirmed input before delivery");
+                };
+                assert_eq!(error.kind(), std::io::ErrorKind::Unsupported);
+                assert_eq!(attachment.control_responses.pending_input_acks_for_test(), (0, 0));
+                let mut byte = [0];
+                assert_eq!(
+                    host.read(&mut byte).unwrap_err().kind(),
+                    std::io::ErrorKind::WouldBlock
+                );
+            }
+        }
+
+        #[test]
+        fn host_command_path_rejects_receipted_input_on_older_protocols() {
+            assert!(!input_request_is_supported(PROTOCOL_VERSION - 1, 1));
+            assert!(input_request_is_supported(PROTOCOL_VERSION - 1, 0));
+            assert!(input_request_is_supported(PROTOCOL_VERSION, 1));
+        }
+
+        #[test]
+        fn receipted_input_distinguishes_oversize_from_full_window() {
+            let (attachment, mut host) = input_ack_surface_fixture();
+            host.set_nonblocking(true).unwrap();
+            let oversized = vec![0; MAX_PENDING_INPUT_ACK_BYTES + 1];
+            let Err(ConfirmedInputFailure::Known(error)) =
+                attachment.begin_input_confirmed(&oversized)
+            else {
+                panic!("oversized input must fail before delivery");
+            };
+            assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+            assert_eq!(attachment.control_responses.pending_input_acks_for_test(), (0, 0));
+            assert!(
+                attachment.control_responses.try_reserve_input_ack(MAX_PENDING_INPUT_ACK_BYTES)
+            );
+            let result = attachment.begin_input_confirmed(b"x");
+            attachment.control_responses.release_input_ack(MAX_PENDING_INPUT_ACK_BYTES);
+            let Err(ConfirmedInputFailure::Known(error)) = result else {
+                panic!("full receipt window must reject admission");
+            };
+            assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
+            assert_eq!(attachment.control_responses.pending_input_acks_for_test(), (0, 0));
+            let mut byte = [0];
+            assert_eq!(host.read(&mut byte).unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+        }
+
+        #[test]
+        fn receipted_input_timeout_can_abort_while_writer_mutex_is_held() {
+            let (attachment, mut host) = input_ack_surface_fixture();
+            host.set_read_timeout(Some(Duration::from_millis(250))).unwrap();
+            let receipt = attachment.begin_input_confirmed(b"timeout").unwrap();
+            let request = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+            assert_eq!(request.kind, MessageKind::Input);
+            assert_ne!(request.request_id, 0);
+
+            let writer_guard = attachment.writer.lock().unwrap();
+            let (result_tx, result_rx) = sync_channel(1);
+            let waiter = thread::spawn(move || {
+                result_tx.send(receipt.wait_for(Duration::from_millis(20))).unwrap();
+            });
+            let error = result_rx
+                .recv_timeout(Duration::from_millis(250))
+                .expect("input ACK timeout blocked behind the socket writer mutex")
+                .unwrap_err();
+            assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+            assert!(
+                read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().is_none(),
+                "timeout shutdown did not reach the peer while the socket writer mutex was held"
+            );
+            drop(writer_guard);
+            waiter.join().unwrap();
+        }
+
+        #[test]
+        fn receipted_input_window_is_bounded() {
+            let responses = ControlResponses::new();
+            for _ in 0..MAX_PENDING_INPUT_ACKS {
+                assert!(responses.try_reserve_input_ack(1));
+            }
+            assert!(!responses.try_reserve_input_ack(1));
+            assert_eq!(
+                responses.pending_input_acks_for_test(),
+                (MAX_PENDING_INPUT_ACKS, MAX_PENDING_INPUT_ACKS)
+            );
+            responses.release_input_ack(1);
+            assert!(responses.try_reserve_input_ack(1));
+            for _ in 0..MAX_PENDING_INPUT_ACKS {
+                responses.release_input_ack(1);
+            }
+            assert_eq!(responses.pending_input_acks_for_test(), (0, 0));
+
+            assert!(responses.try_reserve_input_ack(MAX_PENDING_INPUT_ACK_BYTES));
+            assert!(!responses.try_reserve_input_ack(1));
+            responses.release_input_ack(MAX_PENDING_INPUT_ACK_BYTES);
+            assert_eq!(responses.pending_input_acks_for_test(), (0, 0));
+            assert!(!responses.try_reserve_input_ack(MAX_PENDING_INPUT_ACK_BYTES + 1));
+        }
+
+        #[test]
+        fn interactive_input_keeps_fire_and_forget_semantics() {
+            let host = test_host_shared();
+            let (pty_writer, mut pty_reader) = UnixStream::pair().unwrap();
+            *host.writer.lock().unwrap() = Box::new(pty_writer);
+            let (target_socket, _target_peer) = UnixStream::pair().unwrap();
+            let (target_tx, target_rx) = mpsc_channel();
+            let target = HostTap::new(target_tx, Arc::new(target_socket), usize::MAX);
+
+            assert!(host.write_input(b"x", 0, &target));
+            let mut byte = [0u8; 1];
+            pty_reader.read_exact(&mut byte).unwrap();
+            assert_eq!(&byte, b"x");
+            assert!(target_rx.recv_timeout(Duration::from_millis(20)).is_err());
+        }
+
+        struct GatedInputWriter {
+            write_started: SyncSender<()>,
+            write_release: Receiver<()>,
+            flush_started: SyncSender<()>,
+            flush_release: Receiver<()>,
+            fail_flush: bool,
+        }
+
+        impl Write for GatedInputWriter {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.write_started.send(()).unwrap();
+                self.write_release.recv().unwrap();
+                Ok(bytes.len())
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                self.flush_started.send(()).unwrap();
+                self.flush_release.recv().unwrap();
+                if self.fail_flush {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::BrokenPipe,
+                        "synthetic flush failure",
+                    ));
+                }
+                Ok(())
+            }
+        }
+
+        #[test]
+        fn host_input_receipt_follows_pty_write_and_flush() {
+            let host = test_host_shared();
+            let (write_started_tx, write_started_rx) = sync_channel(0);
+            let (write_release_tx, write_release_rx) = sync_channel(0);
+            let (flush_started_tx, flush_started_rx) = sync_channel(0);
+            let (flush_release_tx, flush_release_rx) = sync_channel(0);
+            *host.writer.lock().unwrap() = Box::new(GatedInputWriter {
+                write_started: write_started_tx,
+                write_release: write_release_rx,
+                flush_started: flush_started_tx,
+                flush_release: flush_release_rx,
+                fail_flush: false,
+            });
+            let (target_socket, _target_peer) = UnixStream::pair().unwrap();
+            let (target_tx, target_rx) = mpsc_channel();
+            let target = HostTap::new(target_tx, Arc::new(target_socket), usize::MAX);
+            let worker = thread::spawn(move || {
+                assert!(host.write_input(b"x", 42, &target));
+            });
+
+            write_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert!(target_rx.recv_timeout(Duration::from_millis(20)).is_err());
+            write_release_tx.send(()).unwrap();
+            flush_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert!(target_rx.recv_timeout(Duration::from_millis(20)).is_err());
+            flush_release_tx.send(()).unwrap();
+
+            let ack = target_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(ack.kind, MessageKind::InputAck);
+            assert_eq!(ack.request_id, 42);
+            assert!(ack.payload.is_empty());
+            worker.join().unwrap();
+        }
+
+        #[test]
+        fn host_input_receipt_requires_successful_flush() {
+            let host = test_host_shared();
+            let (write_started_tx, write_started_rx) = sync_channel(0);
+            let (write_release_tx, write_release_rx) = sync_channel(0);
+            let (flush_started_tx, flush_started_rx) = sync_channel(0);
+            let (flush_release_tx, flush_release_rx) = sync_channel(0);
+            *host.writer.lock().unwrap() = Box::new(GatedInputWriter {
+                write_started: write_started_tx,
+                write_release: write_release_rx,
+                flush_started: flush_started_tx,
+                flush_release: flush_release_rx,
+                fail_flush: true,
+            });
+            let (target_socket, _target_peer) = UnixStream::pair().unwrap();
+            let (target_tx, target_rx) = mpsc_channel();
+            let target = HostTap::new(target_tx, Arc::new(target_socket), usize::MAX);
+            let worker = thread::spawn(move || host.write_input(b"x", 42, &target));
+
+            write_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert!(target_rx.recv_timeout(Duration::from_millis(20)).is_err());
+            write_release_tx.send(()).unwrap();
+            flush_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert!(target_rx.recv_timeout(Duration::from_millis(20)).is_err());
+            flush_release_tx.send(()).unwrap();
+
+            assert!(!worker.join().unwrap());
+            assert!(target_rx.recv_timeout(Duration::from_millis(20)).is_err());
+        }
+
+        #[test]
         fn terminate_waits_for_the_authoritative_host_receipt() {
             let (record_path, record, lease) = record_fixture("terminate-ack");
             let root = record_path.parent().unwrap().to_path_buf();
@@ -7220,6 +7983,27 @@ mod unix {
         }
 
         #[test]
+        fn input_ack_capability_requires_version_4_record() {
+            let (record_path, record, lease) = record_fixture("input-ack-version");
+            validate_terminal_host_record(&record_path, &record).unwrap();
+            for version in [2, 3] {
+                let mut legacy = record.clone();
+                legacy.record_version = version;
+                legacy.supports_terminate_ack = version >= 3;
+                legacy.supports_input_ack = false;
+                validate_terminal_host_record(&record_path, &legacy).unwrap();
+                legacy.supports_input_ack = true;
+                assert!(
+                    validate_terminal_host_record(&record_path, &legacy).is_err(),
+                    "version {version} must reject input acknowledgements"
+                );
+            }
+            drop(lease);
+            assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+            fs::remove_dir_all(record_path.parent().unwrap()).unwrap();
+        }
+
+        #[test]
         fn legacy_record_is_adoptable_shape_but_never_unsafely_reaped() {
             let (v2_path, v2, lease) = record_fixture("legacy");
             let root = v2_path.parent().unwrap();
@@ -7234,6 +8018,7 @@ mod unix {
             legacy.supports_set_defaults = false;
             legacy.supports_clear_history = false;
             legacy.supports_terminate_ack = false;
+            legacy.supports_input_ack = false;
             let legacy_path = legacy.record_path(root);
             write_record(&legacy_path, &legacy).unwrap();
 
@@ -7249,6 +8034,10 @@ mod unix {
                     .any(|(_, record)| record.terminal_id == terminal_id)
             );
             assert!(!remove_stale_terminal_host_record(&legacy_path, &legacy).unwrap());
+
+            let mut invalid = legacy.clone();
+            invalid.supports_input_ack = true;
+            assert!(validate_terminal_host_record(&legacy_path, &invalid).is_err());
 
             fs::remove_file(&legacy_path).unwrap();
             drop(lease);
@@ -9079,13 +9868,48 @@ mod unix {
         #[test]
         fn late_snapshot_prefers_current_terminal_pwd_then_spawn_fallback() {
             let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
-            assert_eq!(snapshot_cwd(&term, Some("/spawn")), Some("/spawn".into()));
+            let owner_token =
+                CapabilityToken::from_bytes([7; crate::terminal_host::CAPABILITY_TOKEN_LEN]);
+            let marker = format!(
+                "{}{}:/spawn",
+                crate::platform::SNAPSHOT_SPAWN_CWD_PREFIX,
+                encode_hex(owner_token.as_bytes())
+            );
+            assert_eq!(
+                snapshot_cwd(&term, Some("/spawn"), &owner_token, PROTOCOL_VERSION),
+                Some(marker.clone())
+            );
 
             term.vt_write(b"\x1b]7;file:///live\x1b\\");
-            assert_eq!(snapshot_cwd(&term, Some("/spawn")), Some("file:///live".into()));
+            assert_eq!(
+                snapshot_cwd(&term, Some("/spawn"), &owner_token, PROTOCOL_VERSION),
+                Some(marker.clone())
+            );
 
             term.vt_write(b"\x1b]7;\x1b\\");
-            assert_eq!(snapshot_cwd(&term, Some("/spawn")), Some("/spawn".into()));
+            assert_eq!(
+                snapshot_cwd(&term, Some("/spawn"), &owner_token, PROTOCOL_VERSION),
+                Some(marker)
+            );
+            assert_eq!(
+                snapshot_cwd(&term, Some("file:///spawn"), &owner_token, PROTOCOL_VERSION),
+                None
+            );
+        }
+
+        #[test]
+        fn snapshot_cwd_uses_legacy_path_for_old_and_unknown_protocols() {
+            let term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+            let owner_token =
+                CapabilityToken::from_bytes([7; crate::terminal_host::CAPABILITY_TOKEN_LEN]);
+            for protocol_version in [LEGACY_PROTOCOL_VERSION, PROTOCOL_VERSION + 1] {
+                let snapshot = snapshot_cwd(&term, Some("/spawn"), &owner_token, protocol_version);
+                assert_eq!(snapshot, Some("/spawn".into()));
+                assert_eq!(
+                    crate::platform::snapshot_cwd_to_local_path(snapshot.as_deref().unwrap(), None),
+                    Some(PathBuf::from("/spawn"))
+                );
+            }
         }
 
         #[test]
@@ -9155,12 +9979,13 @@ pub use unix::{
 };
 #[cfg(all(unix, test))]
 pub(crate) use unix::{
-    acquire_terminal_host_publication_lock, prepare_terminal_host_publication_lock,
+    acquire_terminal_host_publication_lock, input_ack_surface_fixture,
+    prepare_terminal_host_publication_lock,
 };
 
 #[cfg(not(unix))]
 pub fn terminal_host_root(state_root: &Path, session: &str) -> PathBuf {
-    state_root.join(format!("{session}.terminal-hosts"))
+    crate::platform::normalize_filesystem_path(state_root.join(format!("{session}.terminal-hosts")))
 }
 
 #[cfg(not(unix))]

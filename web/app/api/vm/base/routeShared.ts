@@ -1,23 +1,15 @@
 import type { AuthedUser } from "../../../../services/vms/auth";
+import { defaultMemoryMbForPlan } from "../../../../services/vms/entitlements";
 import { assertVmCreateEnabled } from "../../../../services/vms/config";
-import { defaultProviderId, isProviderId, type ProviderId } from "../../../../services/vms/drivers";
+import { defaultProviderId, isProviderId, vmCapabilitiesFor, type ProviderId } from "../../../../services/vms/drivers";
 import {
-  isVmBillingTeamResolutionError,
-  isVmProGateBlocked,
-  resolveVmEntitlements,
-} from "../../../../services/vms/entitlements";
-import {
-  isVmCreateCreditsInsufficientError,
   isVmCreateDisabledError,
-  isVmCreateFailedError,
-  isVmCreateInProgressError,
   isVmImageConfigError,
-  isVmLimitExceededError,
 } from "../../../../services/vms/errors";
 import {
-  imageUsesBakedFreestyleSignedAdmin,
   inferVmProviderForImage,
   resolveVmImage,
+  vmImageKindFor,
 } from "../../../../services/vms/images/resolver";
 import {
   reportVmImageConfigError,
@@ -28,20 +20,17 @@ import {
 import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
-  vmBillingTeamErrorResponse,
   vmActiveLimitExceededResponse,
   vmErrorResponse,
-  vmWorkflowErrorResponse,
-  vmRequiresProResponse,
+  resolveVmProvisioningAccountScope,
+  type VmWorkflowErrorOverrides,
 } from "../../../../services/vms/routeHelpers";
-import { vmRequestLocale } from "../../../../services/vms/vmErrorMessages";
+import { runVmRoute } from "../../../../services/vms/routeWorkflow";
+import { vmModelPlaneGatewayFor } from "../../../../services/vms/modelPlaneGateway";
 import type { VmTimingRecorder } from "../../../../services/vms/timings";
-import type { Locale } from "../../../../i18n/routing";
 import {
   openBaseVm,
   resetBaseVm,
-  runVmWorkflow,
-  type BaseVmEntry,
 } from "../../../../services/vms/workflows";
 
 type BaseOperation = "open" | "reset";
@@ -56,19 +45,9 @@ export async function runBaseRoute(input: {
   if (!parsed.ok) return parsed.response;
 
   const requestedBillingTeamId = parsed.body.billingTeamId || requestedVmTeamIdFromRequest(input.request);
-  let entitlements;
-  try {
-    entitlements = resolveVmEntitlements(input.user, process.env, {
-      requestedBillingTeamId,
-    });
-  } catch (err) {
-    if (isVmBillingTeamResolutionError(err)) return vmBillingTeamErrorResponse(err);
-    throw err;
-  }
-
-  if (isVmProGateBlocked(entitlements)) {
-    return vmRequiresProResponse();
-  }
+  const account = await resolveVmProvisioningAccountScope(input.user, input.request, { requestedBillingTeamId });
+  if (!account.ok) return account.response;
+  const entitlements = account.entitlements;
 
   // Same provider inference as POST /api/vm: an explicit manifest image
   // names its own provider even when the deployment default disagrees.
@@ -76,7 +55,10 @@ export async function runBaseRoute(input: {
   let imageSelection;
   try {
     assertVmCreateEnabled(provider);
-    imageSelection = resolveVmImage(provider, parsed.body.image, process.env, { kind: parsed.body.kind });
+    imageSelection = resolveVmImage(provider, parsed.body.image, process.env, {
+      kind: parsed.body.kind,
+      memoryMb: defaultMemoryMbForPlan(entitlements.planId, process.env),
+    });
   } catch (err) {
     if (isVmCreateDisabledError(err)) {
       return vmErrorResponse({
@@ -111,45 +93,44 @@ export async function runBaseRoute(input: {
     throw err;
   }
 
-  let entry: BaseVmEntry;
-  try {
-    const programInput = {
-      userId: input.user.id,
-      billingCustomerType: entitlements.billingCustomerType,
-      billingTeamId: entitlements.billingTeamId,
-      billingPlanId: entitlements.planId,
-      maxActiveVms: entitlements.maxActiveVms,
-      provider,
-      image: imageSelection.image,
-      imageVersion: imageSelection.imageVersion,
-      baseName: parsed.body.name,
-      bakedFreestyleSignedAdmin: imageUsesBakedFreestyleSignedAdmin(provider, imageSelection.image),
-      timing: input.timing,
-    };
-    entry = await runVmWorkflow(
-      input.operation === "reset"
-        ? resetBaseVm({ ...programInput, reason: parsed.body.reason })
-        : openBaseVm(programInput),
-    );
-  } catch (err) {
-    const response = await baseWorkflowErrorResponse(
-      err,
-      input.operation,
-      entitlements.planId,
-      vmRequestLocale(input.request),
-    );
-    if (response) return response;
-    throw err;
-  }
+  const programInput = {
+    userId: input.user.id,
+    billingCustomerType: entitlements.billingCustomerType,
+    billingTeamId: entitlements.billingTeamId,
+    billingPlanId: entitlements.planId,
+    maxActiveVms: entitlements.maxActiveVms,
+    provider,
+    image: imageSelection.image,
+    imageVersion: imageSelection.imageVersion,
+    imageSize: imageSelection.size,
+    baseName: parsed.body.name,
+    modelPlane: vmModelPlaneGatewayFor({
+      teamId: entitlements.billingTeamId,
+      stackUserId: input.user.id,
+    }),
+    timing: input.timing,
+  };
+  const run = await runVmRoute(
+    input.operation === "reset"
+      ? resetBaseVm({ ...programInput, reason: parsed.body.reason })
+      : openBaseVm(programInput),
+    {
+      request: input.request,
+      onError: baseWorkflowErrorResponders(input.operation, entitlements.planId),
+    },
+  );
+  if (!run.ok) return run.response;
+  const entry = run.value;
 
   return jsonResponse({
     id: entry.providerVmId,
     provider: entry.provider,
     image: entry.image,
     imageVersion: entry.imageVersion,
-    kind: imageSelection.kind,
+    kind: vmImageKindFor(entry.provider, entry.image),
     status: entry.status,
     createdAt: entry.createdAt,
+    capabilities: vmCapabilitiesFor(entry.provider),
     base: {
       id: entry.baseId,
       name: entry.baseName,
@@ -159,59 +140,52 @@ export async function runBaseRoute(input: {
   });
 }
 
-async function baseWorkflowErrorResponse(
-  err: unknown,
-  operation: BaseOperation,
-  planId: string,
-  locale: Locale,
-): Promise<Response | null> {
-  if (isVmCreateInProgressError(err)) {
-    return vmErrorResponse({
-      error: "vm_base_create_in_progress",
-      status: 409,
-      message: "Base is already opening.",
-      action: "Wait for the existing Base operation to finish. Retrying is safe and will attach to the same Base.",
-      details: { idempotencyKeySet: !!err.idempotencyKey },
-      phase: "create",
-      retryable: true,
-      retryAfterSeconds: 2,
-    });
-  }
-  if (isVmCreateFailedError(err)) {
-    return vmErrorResponse({
-      error: "vm_base_create_failed",
-      status: 500,
-      message: "Base could not be opened.",
-      action: "Retry Base. If it keeps failing, contact support so we can inspect the retained Base state.",
-      details: { idempotencyKeySet: !!err.idempotencyKey },
-      phase: "create",
-      retryable: true,
-    });
-  }
-  if (isVmLimitExceededError(err)) {
-    return vmActiveLimitExceededResponse({
-      limit: err.limit,
-      planId,
-      retryAction: operation === "reset"
-        ? "Delete another active Cloud VM, then retry Base reset. The current Base is still retained."
-        : "Delete another active Cloud VM, then retry opening Base.",
-      phase: "create",
-    });
-  }
-  if (isVmCreateCreditsInsufficientError(err)) {
-    return vmErrorResponse({
-      error: "vm_create_credits_insufficient",
-      status: 402,
-      message: "This team has no Cloud VM create credits left.",
-      action: operation === "reset"
-        ? "Upgrade the team's plan or ask an admin for more create credits before resetting Base. The current Base is unchanged."
-        : "Upgrade the team's plan or ask an admin for more create credits, then retry.",
-      extra: { amount: err.amount },
-      details: { amount: err.amount },
-      phase: "billing",
-    });
-  }
-  return vmWorkflowErrorResponse(err, { locale });
+function baseWorkflowErrorResponders(operation: BaseOperation, planId: string): VmWorkflowErrorOverrides {
+  return {
+    VmCreateInProgressError: (error) =>
+      vmErrorResponse({
+        error: "vm_base_create_in_progress",
+        status: 409,
+        message: "Base is already opening.",
+        action: "Wait for the existing Base operation to finish. Retrying is safe and will attach to the same Base.",
+        details: { idempotencyKeySet: !!error.idempotencyKey },
+        phase: "create",
+        retryable: true,
+        retryAfterSeconds: 2,
+      }),
+    VmCreateFailedError: (error) =>
+      vmErrorResponse({
+        error: "vm_base_create_failed",
+        status: 500,
+        message: "Base could not be opened.",
+        action: "Retry Base. If it keeps failing, contact support so we can inspect the retained Base state.",
+        details: { idempotencyKeySet: !!error.idempotencyKey },
+        phase: "create",
+        retryable: true,
+      }),
+    VmLimitExceededError: (error, context) =>
+      vmActiveLimitExceededResponse({
+        locale: context.locale,
+        limit: error.limit,
+        planId,
+        retryAction: operation === "reset"
+          ? "Delete another active Cloud VM, then retry Base reset. The current Base is still retained."
+          : "Delete another active Cloud VM, then retry opening Base.",
+        phase: "create",
+      }),
+    VmCreateCreditsInsufficientError: (error) =>
+      vmErrorResponse({
+        error: "vm_create_credits_insufficient",
+        status: 402,
+        message: "This team has no Cloud VM create credits left.",
+        action: operation === "reset"
+          ? "Upgrade the team's plan or ask an admin for more create credits before resetting Base. The current Base is unchanged."
+          : "Upgrade the team's plan or ask an admin for more create credits, then retry.",
+        extra: { amount: error.amount },
+        details: { amount: error.amount },
+        phase: "billing",
+      }),
+  };
 }
 
 async function parseBaseRequest(

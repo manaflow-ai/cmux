@@ -119,6 +119,8 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         let fakeSSHLog = tempRoot.appendingPathComponent("fake-ssh.jsonl")
         let fakeSSHMasterMarker = tempRoot.appendingPathComponent("fake-ssh-master")
         let fakeSSH = fakeBin.appendingPathComponent("ssh")
+        let fakeCLI = fakeBin.appendingPathComponent("cmux")
+        let fakeAttachLog = tempRoot.appendingPathComponent("pty-attach.log")
 
         try fileManager.createDirectory(at: fakeBin, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: tempRoot) }
@@ -153,6 +155,22 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         try fakeSSHScript.write(to: fakeSSH, atomically: true, encoding: .utf8)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
 
+        // The default shell now attaches a persistent PTY after authentication.
+        // Complete that transport locally while the real CLI reports readiness
+        // to the mock socket, so this test still checks every authentication.
+        let fakeCLIScript = """
+        #!/bin/sh
+        for arg in "$@"; do
+          case "$arg" in
+            ssh-pty-attach) printf '%s\\n' attached >> "$CMUX_TEST_ATTACH_LOG"; exit 0 ;;
+            ssh-session-end|workspace.remote.terminal_session_launching) exit 0 ;;
+          esac
+        done
+        exec "$CMUX_TEST_REAL_CLI" "$@"
+        """
+        try fakeCLIScript.write(to: fakeCLI, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
+
         // Managed SSH startup artifacts pin the system OpenSSH executable. Keep
         // that production security invariant, and substitute the fixture only
         // in the generated test artifact rather than relying on PATH lookup.
@@ -169,8 +187,12 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         startupEnvironment["CMUX_FAKE_SSH_MASTER_MARKER"] = fakeSSHMasterMarker.path
         startupEnvironment["CMUX_TEST_PYTHON3"] = python3Path
         startupEnvironment["CMUX_TEST_LOCAL_SHELL"] = fishExecutable
+        startupEnvironment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        startupEnvironment["CMUX_TEST_REAL_CLI"] = cliPath
+        startupEnvironment["CMUX_TEST_ATTACH_LOG"] = fakeAttachLog.path
         startupEnvironment["CMUX_SOCKET_PATH"] = socketPath
         startupEnvironment["CMUX_WORKSPACE_ID"] = workspaceID
+        startupEnvironment["CMUX_SURFACE_ID"] = surfaceID
         startupEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         startupEnvironment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
@@ -230,6 +252,9 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         }
         let foregroundAuthInvocations = invocations.filter { $0.last == "true" }
         XCTAssertEqual(foregroundAuthInvocations.count, 2)
+        let attachments = try String(contentsOf: fakeAttachLog, encoding: .utf8)
+            .split(separator: "\n")
+        XCTAssertEqual(attachments.count, 2, "Each authenticated startup must reach PTY attachment")
         XCTAssertFalse(
             invocations.contains(where: { invocation in
                 invocation.contains(where: { $0.hasPrefix("LocalCommand=") })
@@ -305,27 +330,10 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
             return startupCommand.replacingOccurrences(of: systemSSHPath, with: fakeSSHPath)
         }
 
-        // Reusable startup commands carry the script as one base64 literal.
-        let encodedPrefix = "(printf %s "
-        let encodedSuffix = " | base64"
-        if let prefixRange = startupCommand.range(of: encodedPrefix),
-           let suffixRange = startupCommand.range(
-               of: encodedSuffix,
-               range: prefixRange.upperBound..<startupCommand.endIndex
-           ) {
-            let encodedRange = prefixRange.upperBound..<suffixRange.lowerBound
-            let encodedScript = String(startupCommand[encodedRange])
-            if let scriptData = Data(base64Encoded: encodedScript),
-               let script = String(data: scriptData, encoding: .utf8),
-               script.contains(systemSSHPath) {
-                var rewrittenCommand = startupCommand
-                rewrittenCommand.replaceSubrange(
-                    encodedRange,
-                    with: Data(script.replacingOccurrences(of: systemSSHPath, with: fakeSSHPath).utf8)
-                        .base64EncodedString()
-                )
-                return rewrittenCommand
-            }
+        if let rewritten = SSHStartupCommandTestSupport.replacingPinnedSSH(
+            in: startupCommand, with: fakeSSHPath
+        ) {
+            return rewritten
         }
 
         throw NSError(

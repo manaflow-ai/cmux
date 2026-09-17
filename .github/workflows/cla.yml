@@ -1,85 +1,86 @@
 name: "CLA Assistant"
+
+# Contributor License Agreement check. The action lives in our fork,
+# manaflow-ai/cla-github-action, and is pinned to a commit. Signers are the
+# pull request opener plus every primary commit author GitHub maps to an
+# account. Co-authored-by trailers (pairing partners, AI agents) and the git
+# committer field never need to sign, and a signature is reused in every
+# later pull request. Maintainer accounts in allowlist-ids never sign.
 on:
   issue_comment:
     types: [created]
   pull_request_target:
-    types: [opened,closed,synchronize]
+    branches: [main]
+    types: [opened, closed, reopened, synchronize]
 
-# Signature updates share one file and must not race.
-concurrency:
-  group: cla-signatures
-  cancel-in-progress: false
-
-# Keep the token scoped to the GitHub API operations used by this action.
-permissions:
-  # The action inspects prior runs; its optional rerun request is best-effort.
-  actions: read
-  contents: write
-  issues: write
-  # GitHub's pull_request_target token denied issue comments for fork PRs with
-  # this set to read, despite the endpoint documentation allowing issues:write.
-  # Keep write until that live behavior changes.
-  pull-requests: write
-  statuses: write
+permissions: {}
 
 jobs:
   CLAAssistant:
     name: "CLA Assistant"
+    # Comment admission is a coarse filter: GitHub appends CRLF to plain
+    # comments, so equality would drop real declarations. The action does the
+    # exact match itself and ignores anything else.
+    if: >-
+      github.event_name == 'pull_request_target' ||
+      (
+        github.event.issue.pull_request &&
+        github.event.comment.user.type == 'User' &&
+        (
+          contains(github.event.comment.body, 'recheck') ||
+          contains(github.event.comment.body, 'I have read the CLA Document v2.2 and I hereby sign the CLA')
+        )
+      )
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    # One run at a time per pull request so two signature events cannot write
+    # the ledger from different snapshots. Independent pull requests proceed.
+    concurrency:
+      group: cla-${{ github.event.pull_request.number || github.event.issue.number }}
+      cancel-in-progress: false
+    permissions:
+      # Signature ledger commits on the cla-signatures branch.
+      contents: write
+      # Bot comment on the pull request. issues:write is needed for reactions
+      # and comments on fork pull requests.
+      issues: write
+      pull-requests: write
+      # Re-run the pull_request_target check after a signature comment.
+      actions: write
     steps:
       - name: "CLA Assistant"
-        # The action handles signing and status updates. Merged pull requests
-        # use the explicit lock step below because the archived action sends
-        # an invalid lock request.
-        if: >-
-          (
-            github.event_name == 'pull_request_target' &&
-            github.event.action != 'closed'
-          ) ||
-          (
-            github.event_name == 'issue_comment' &&
-            github.event.issue.pull_request &&
-            (
-              github.event.comment.body == 'recheck' ||
-              github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA'
-            )
-          )
-        uses: contributor-assistant/github-action@ca4a40a7d1004f18d9960b404b97e5f30a505a08 # v2.6.1
+        id: cla
+        uses: manaflow-ai/cla-github-action@f567430d44e22bc0bb6ecd1e00d383ef22886025
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          path-to-signatures: 'signatures/version1/cla.json'
+          path-to-signatures: 'signatures/version2/cla.json'
           path-to-document: 'https://github.com/manaflow-ai/cmux/blob/main/CLA.md'
-          # The archived action calls the lock endpoint without the required
-          # lock_reason. Disable that broken path and use the explicit step
-          # below, which supplies a valid reason and fails on API errors.
-          lock-pullrequest-aftermerge: 'false'
-          # signatures live on the unprotected cla-signatures branch so required checks on main don't block the bot's signature commits
+          # Signatures live on an unprotected branch so main's checks never
+          # block the bot's ledger commits.
           branch: 'cla-signatures'
-          # Keep this list explicit. A username prefix is not proof that an
-          # account is a GitHub bot and would let a human bypass the CLA.
-          allowlist: lawrencecchen,github-actions[bot],chatmux-connections[bot]
+          required-base-ref: 'main'
+          custom-pr-sign-comment: 'I have read the CLA Document v2.2 and I hereby sign the CLA'
+          lock-pullrequest-aftermerge: 'false'
+          # Numeric GitHub IDs of maintainers who never sign, as opener or as
+          # commit author: @lawrencecchen, @austinywang, @azooz2003-bit.
+          allowlist-ids: '54008264,38676809,67667005'
 
-      - name: "Lock merged pull request"
-        if: >-
-          github.event_name == 'pull_request_target' &&
-          github.event.action == 'closed' &&
-          github.event.pull_request.merged == true
+      # A signature comment runs this workflow from main, so its check run
+      # attaches to main, not to the pull request head. Re-run the failed
+      # pull_request_target run for the head so the pull request turns green
+      # without another push.
+      - name: "Refresh the pull request check after a new signature"
+        if: github.event_name == 'issue_comment' && steps.cla.outputs.signature_recorded == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_NUMBER: ${{ github.event.issue.number }}
         run: |
           set -euo pipefail
-          issue_endpoint="repos/${GH_REPO}/issues/${PR_NUMBER}"
-          lock_endpoint="${issue_endpoint}/lock"
-          if [[ "$(gh api "${issue_endpoint}" --jq '.locked')" == "true" ]]; then
-            echo "Pull request ${PR_NUMBER} is already locked"
+          head="$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json headRefOid --jq .headRefOid)"
+          run_id="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow cla.yml --event pull_request_target --commit "$head" --status failure --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+          if [[ -z "$run_id" ]]; then
+            echo "No failed CLA run for $head; nothing to refresh."
             exit 0
           fi
-          gh api --method PUT \
-            --header 'Accept: application/vnd.github+json' \
-            --header 'X-GitHub-Api-Version: 2022-11-28' \
-            "${lock_endpoint}" \
-            --field lock_reason=resolved
-          [[ "$(gh api "${issue_endpoint}" --jq '.locked')" == "true" ]]
+          gh run rerun "$run_id" --failed --repo "$GITHUB_REPOSITORY"
