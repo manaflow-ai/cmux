@@ -18,4 +18,3 @@ struct SidebarFooter: View {
 #endif
     }
 }
-
