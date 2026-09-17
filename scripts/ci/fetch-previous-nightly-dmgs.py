@@ -24,12 +24,19 @@ def main() -> int:
     parser.add_argument("--repo", required=True)
     parser.add_argument("--release-tag", required=True)
     parser.add_argument("--variant", required=True)
+    parser.add_argument(
+        "--name-prefix",
+        default="cmux-nightly-macos-",
+        help="Immutable DMG name prefix before <variant>-<build>.dmg (e.g. cmux-rc-macos-)",
+    )
     parser.add_argument("--exclude-build", type=int, default=0)
     parser.add_argument("--count", type=int, default=2)
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
 
-    pattern = re.compile(rf"^cmux-nightly-macos-{re.escape(args.variant)}-(?P<build>\d+)\.dmg$")
+    pattern = re.compile(
+        rf"^{re.escape(args.name_prefix)}{re.escape(args.variant)}-(?P<build>\d+)\.dmg$"
+    )
     proc = subprocess.run(
         ["gh", "release", "view", args.release_tag, "--repo", args.repo, "--json", "assets"],
         capture_output=True,

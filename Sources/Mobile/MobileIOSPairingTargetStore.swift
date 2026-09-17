@@ -61,7 +61,7 @@ struct MobileIOSPairingTargetStore {
         switch macInstanceTag
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() {
-        case "default", "nightly":
+        case "default", "nightly", "rc":
             true
         default:
             false
