@@ -13,18 +13,24 @@ struct TerminalPastePreparationWorkerClient: Sendable {
 
     private let executableURL: URL
     private let pasteboardService: TerminalPasteboardService?
+    private let plainTextWorker: TerminalPlainTextPasteWorkerClient?
 
     init(
         executableURL: URL,
-        pasteboardService: TerminalPasteboardService
+        pasteboardService: TerminalPasteboardService,
+        plainTextExecutableURL: URL? = nil
     ) {
         self.executableURL = executableURL
         self.pasteboardService = pasteboardService
+        self.plainTextWorker = plainTextExecutableURL.map(
+            TerminalPlainTextPasteWorkerClient.init(executableURL:)
+        )
     }
 
     private init(executableURL: URL) {
         self.executableURL = executableURL
         pasteboardService = nil
+        plainTextWorker = nil
     }
 
     static func reexecingCurrentBinary(
@@ -34,7 +40,12 @@ struct TerminalPastePreparationWorkerClient: Sendable {
             ?? URL(fileURLWithPath: CommandLine.arguments[0])
         return TerminalPastePreparationWorkerClient(
             executableURL: binary,
-            pasteboardService: pasteboardService
+            pasteboardService: pasteboardService,
+            plainTextExecutableURL: Bundle.main.url(
+                forResource: "cmux-paste-text-worker",
+                withExtension: nil,
+                subdirectory: "bin"
+            )
         )
     }
 
@@ -63,6 +74,23 @@ struct TerminalPastePreparationWorkerClient: Sendable {
     func prepare(
         _ request: TerminalPastePreparationRequest
     ) async throws -> TerminalPastePreparationResult {
+        if let plainTextWorker {
+            do {
+                switch try await plainTextWorker.prepare(request) {
+                case .prepared(let text):
+                    return .terminal(.insertText(text))
+                case .rejected:
+                    return .terminal(.reject)
+                case .fallBackToFullPreparation:
+                    break
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                // A missing or failed lightweight helper must not change paste
+                // behavior. The full worker remains the killable fallback.
+            }
+        }
         let workingDirectory = try makeWorkingDirectory()
         defer {
             try? FileManager.default.removeItem(at: workingDirectory)
