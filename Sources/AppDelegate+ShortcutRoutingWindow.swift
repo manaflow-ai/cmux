@@ -68,17 +68,18 @@ extension AppDelegate {
         return context
     }
 
+    @discardableResult
     func repairFocusedTerminalKeyboardRoutingIfNeeded(
         window: NSWindow,
         event: NSEvent
-    ) {
+    ) -> Bool {
         let firstResponderOverride: NSResponder?
 #if DEBUG
         firstResponderOverride = debugShortcutRoutingFocusedWindowOverrideForTesting.keyRepairFirstResponder
 #else
         firstResponderOverride = nil
 #endif
-        repairFocusedTerminalKeyboardRoutingIfNeeded(
+        return repairFocusedTerminalKeyboardRoutingIfNeeded(
             window: window,
             event: event,
             firstResponderOverride: firstResponderOverride

@@ -6520,16 +6520,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    @discardableResult
     func repairFocusedTerminalKeyboardRoutingIfNeeded(
         window: NSWindow,
         event: NSEvent,
         firstResponderOverride: NSResponder?
-    ) {
-        guard event.type == .keyDown else { return }
+    ) -> Bool {
+        guard event.type == .keyDown else { return false }
         let normalizedFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard isMainTerminalWindow(window) else { return }
-        guard window.attachedSheet == nil else { return }
-        guard !isCommandPaletteEffectivelyVisible(in: window) else { return }
+        guard isMainTerminalWindow(window) else { return false }
+        guard window.attachedSheet == nil else { return false }
+        guard !isCommandPaletteEffectivelyVisible(in: window) else { return false }
         let firstResponder = firstResponderOverride ?? window.firstResponder
         // If the active first responder is owned by a non-terminal interaction surface,
         // never re-route the keystroke to the terminal. Symmetric with
@@ -6538,11 +6539,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            shouldRespectForeignFirstResponder(firstResponder, in: window, isRightSidebarOwner: {
                isRightSidebarFocusResponder($0, in: window)
            }) {
-            return
+            return false
         }
         guard let context = contextForMainWindow(window) ?? contextForMainTerminalWindow(window),
               let workspace = context.tabManager.selectedWorkspace,
-              let inputTarget = workspace.focusedTerminalInputTarget() else { return }
+              let inputTarget = workspace.focusedTerminalInputTarget() else { return false }
         let (panelId, terminalPanel) = inputTarget
         if normalizedFlags.contains(.command) {
             let responderHasViableOwner = firstResponder.map { responderHasViableKeyRoutingOwner($0, in: window) } ?? false
@@ -6555,13 +6556,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 responderHasViableKeyRoutingOwner: responderHasViableOwner,
                 responderMatchesPreferredKeyboardFocus: responderMatchesInputTarget
             )
-            guard commandEquivalentNeedsRepair else { return }
+            guard commandEquivalentNeedsRepair else { return false }
         } else {
             guard responderNeedsFocusedTerminalKeyRepair(
                 firstResponder,
                 in: window,
                 hostedView: terminalPanel.hostedView
-            ) else { return }
+            ) else { return false }
         }
 
 #if DEBUG
@@ -6591,6 +6592,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         terminalPanel.hostedView.ensureFocus(for: workspace.id, surfaceId: panelId)
 
+        // The selected Cloud pane owns input before SwiftUI mounts its portal.
+        // AppKit cannot make that view first responder yet; dispatch to the
+        // same view's normal key path (including its bounded cold-runtime
+        // queue) instead of losing the key at the window responder. Keep
+        // command equivalents and other text-entry owners on their usual path.
+        if !normalizedFlags.contains(.command),
+           terminalPanel.surface.ioMode == .manualMirror,
+           terminalPanel.hostedView.surfaceView.window !== window,
+           case .surface = terminalPanel.hostedView.preferredPanelFocusIntentForActivation() {
+            terminalPanel.hostedView.surfaceView.keyDown(with: event)
+            return true
+        }
+
 #if DEBUG
         let after = window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
         cmuxDebugLog(
@@ -6600,6 +6614,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "fr=\(after)"
         )
 #endif
+        return false
     }
 
     func locateSurface(surfaceId: UUID) -> (windowId: UUID, workspaceId: UUID, tabManager: TabManager)? {
@@ -19339,11 +19354,16 @@ private extension NSWindow {
         }
         let focusRepairStart = event.type == .keyDown ? ProcessInfo.processInfo.systemUptime : 0
 #endif
-        if event.type == .keyDown {
-            AppDelegate.shared?.repairFocusedTerminalKeyboardRoutingIfNeeded(
-                window: self,
-                event: event
-            )
+        defer {
+            cmuxFirstResponderGuardCurrentEventContext = previousContextEvent
+            cmuxFirstResponderGuardHitViewContext = previousContextHitView
+            cmuxFirstResponderGuardContextWindowNumber = previousContextWindowNumber
+        }
+        if event.type == .keyDown,
+           AppDelegate.shared?.repairFocusedTerminalKeyboardRoutingIfNeeded(
+               window: self, event: event
+           ) == true {
+            return
         }
 #if DEBUG
         if event.type == .keyDown {
@@ -19351,12 +19371,6 @@ private extension NSWindow {
         }
         let folderGuardStart = event.type == .keyDown ? ProcessInfo.processInfo.systemUptime : 0
 #endif
-        defer {
-            cmuxFirstResponderGuardCurrentEventContext = previousContextEvent
-            cmuxFirstResponderGuardHitViewContext = previousContextHitView
-            cmuxFirstResponderGuardContextWindowNumber = previousContextWindowNumber
-        }
-
         let suppressionReason = beginOrContinueWindowMoveSuppressionSequenceForEvent(window: self, event: event)
         let hasActiveSuppressionSequence = activeWindowMoveSuppressionSequenceReason(window: self) != nil
         guard suppressionReason != nil || hasActiveSuppressionSequence else {
