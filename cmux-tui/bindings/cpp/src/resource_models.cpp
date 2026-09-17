@@ -197,6 +197,17 @@ std::optional<std::string> required_nullable_string(
     return string_value(value, context);
 }
 
+std::optional<std::string> optional_nullable_string(
+    const Json::Object& object,
+    std::string_view name,
+    std::string_view context) {
+    const auto found = object.find(name);
+    if (found == object.end() || found->second.is_null()) {
+        return std::nullopt;
+    }
+    return string_value(found->second, context);
+}
+
 template <typename Id>
 std::optional<Id> optional_id_value(
     const Json::Object& object,
@@ -1965,7 +1976,7 @@ TerminalCopyResult parse_terminal_copy(const Json& value) {
 ProcessInfoResult parse_process_info(const Json& value) {
     const auto& object = exact_object(
         value,
-        {"pid", "executable", "argv", "cwd", "children"},
+        {"pid", "executable", "argv", "cwd", "foreground_cwd", "children"},
         {"pid", "argv", "children"},
         "process info result");
     return {
@@ -1981,6 +1992,8 @@ ProcessInfoResult parse_process_info(const Json& value) {
                 return string_value(item, "process argv item");
             }),
         optional_string(object, "cwd", "process cwd"),
+        optional_nullable_string(
+            object, "foreground_cwd", "process foreground_cwd"),
         array_value<std::uint32_t>(
             field(object, "children", "process info"),
             "process children",

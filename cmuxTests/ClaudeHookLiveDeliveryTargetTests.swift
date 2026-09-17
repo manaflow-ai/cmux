@@ -86,6 +86,13 @@ struct ClaudeHookLiveDeliveryTargetTests {
             !commands.contains { $0.hasPrefix("set_agent_lifecycle ") || $0.hasPrefix("set_status ") },
             "A subagent completion must not settle the parent lifecycle/status; saw \(commands)"
         )
+        // The journal still records the fact, tagged as a subagent event so
+        // the reducer keeps it off the hosting pane's badge.
+        #expect(
+            AgentJournalAppendCapture.captures(in: commands)
+                .allSatisfy { $0.isSubagent || $0.kind == "agent.state.changed" },
+            "Subagent events must be journaled with the subagent tag; saw \(commands)"
+        )
     }
 
     /// Two Claude agents in two workspaces: the session record for this agent

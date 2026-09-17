@@ -8,8 +8,8 @@ import SwiftUI
 /// Default Search Engine, conditional Custom Search Engine fields,
 /// Show Search Suggestions, Browser Theme, Browser Memory Saver +
 /// Memory Saver Delay, Open Terminal Links / Intercept open,
-/// conditional Hosts / External Patterns text editors, HTTP Hosts
-/// Allowed in Embedded Browser editor, Import Browser Data
+/// conditional Hosts editor and the External Patterns text editor, HTTP Hosts
+/// Allowed in Embedded Browser editor, URL Allowlist editor, Import Browser Data
 /// subsection, React Grab Version, Browsing History.
 @MainActor
 public struct BrowserSection: View {
@@ -32,6 +32,7 @@ public struct BrowserSection: View {
     @State private var hosts: DefaultsValueModel<String>
     @State private var external: DefaultsValueModel<String>
     @State private var httpAllowlist: DefaultsValueModel<String>
+    @State private var urlAllowlist: DefaultsValueModel<String>
     @State private var importHint: DefaultsValueModel<Bool>
     @State private var reactGrab: DefaultsValueModel<String>
 
@@ -39,6 +40,9 @@ public struct BrowserSection: View {
     @State private var httpAllowlistDraft: String = ""
     @State private var httpAllowlistSyncedValue: String = ""
     @State private var httpAllowlistLoaded: Bool = false
+    @State private var urlAllowlistDraft: String = ""
+    @State private var urlAllowlistSyncedValue: String = ""
+    @State private var urlAllowlistLoaded: Bool = false
 
     /// Whether management locks the embedded-browser disable (policy key
     /// enforced, or the user key itself forced). Refreshed from
@@ -49,6 +53,11 @@ public struct BrowserSection: View {
         .isBrowserDisableLocked(
             browserDisabledUserDefaultsKey: BrowserCatalogSection().disabled.userDefaultsKey
         )
+    @State private var browserURLAllowlistManagedByPolicy = BrowserURLAllowlistPolicy().isManaged
+    /// The effective allowlist policy, re-read on
+    /// ``ManagedDevicePolicy/changeSignals(notificationCenter:)`` so the
+    /// managed note tracks `BrowserAllowLocalhost` / `BrowserAllowLocalFiles`.
+    @State private var urlAllowlistPolicy = BrowserURLAllowlistPolicy()
 
     public init(
         defaultsStore: UserDefaultsSettingsStore,
@@ -74,6 +83,7 @@ public struct BrowserSection: View {
         _hosts = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.hostsToOpenInEmbeddedBrowser))
         _external = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.urlsToAlwaysOpenExternally))
         _httpAllowlist = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.insecureHttpHostsAllowedInEmbeddedBrowser))
+        _urlAllowlist = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.urlAllowlist))
         _importHint = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.showImportHintOnBlankTabs))
         _reactGrab = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.reactGrabVersion))
     }
@@ -97,12 +107,24 @@ public struct BrowserSection: View {
             Button(String(localized: "settings.browser.history.clearDialog.cancel", defaultValue: "Cancel"), role: .cancel) {}
         } message: {
             Text(String(localized: "settings.browser.history.clearDialog.message", defaultValue: "This removes visited-page suggestions from the browser omnibar."))
-        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, defaultZoom, discardEnabled, discardDelay, askWhereToSaveDownloads, openTermLinks, interceptOpen, hosts, external, httpAllowlist, importHint, reactGrab]) }
+        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, defaultZoom, discardEnabled, discardDelay, askWhereToSaveDownloads, openTermLinks, interceptOpen, hosts, external, httpAllowlist, urlAllowlist, importHint, reactGrab]) }
         .task {
             for await _ in ManagedDevicePolicy.changeSignals() {
                 browserManagedByPolicy = ManagedDevicePolicy().isBrowserDisableLocked(
                     browserDisabledUserDefaultsKey: catalog.browser.disabled.userDefaultsKey
                 )
+                let policy = BrowserURLAllowlistPolicy()
+                let wasManaged = browserURLAllowlistManagedByPolicy
+                browserURLAllowlistManagedByPolicy = policy.isManaged
+                urlAllowlistPolicy = policy
+                if policy.isManaged || wasManaged {
+                    urlAllowlistDraft = effectiveURLAllowlistText(
+                        for: urlAllowlist,
+                        policy: policy
+                    )
+                    urlAllowlistSyncedValue = urlAllowlistDraft
+                    urlAllowlistLoaded = true
+                }
             }
         }
     }
@@ -306,7 +328,7 @@ public struct BrowserSection: View {
                     .controlSize(.small)
             }
 
-            // Hosts + External Patterns (only when relevant)
+            // Hosts (only when terminal routing is enabled)
             if openTermLinks.current || interceptOpen.current {
                 SettingsCardDivider()
                 hostnameEditor(
@@ -315,19 +337,24 @@ public struct BrowserSection: View {
                     json: "browser.hostsToOpenInEmbeddedBrowser",
                     model: hosts
                 )
-                SettingsCardDivider()
-                hostnameEditor(
-                    title: String(localized: "settings.browser.externalPatterns", defaultValue: "URLs to Always Open Externally"),
-                    subtitle: String(localized: "settings.browser.externalPatterns.subtitle", defaultValue: "Applies to terminal link clicks and intercepted `open https://...` calls. One rule per line. Plain text matches any URL substring, or prefix with `re:` for regex (for example: openai.com/usage, re:^https?://[^/]*\\.example\\.com/(billing|usage))."),
-                    json: "browser.urlsToAlwaysOpenExternally",
-                    model: external
-                )
             }
+            SettingsCardDivider()
+            hostnameEditor(
+                title: String(localized: "settings.browser.externalPatterns", defaultValue: "URLs to Always Open Externally"),
+                subtitle: String(localized: "settings.browser.externalPatterns.subtitle", defaultValue: "Applies to browser-page link clicks, terminal link clicks, and intercepted `open https://...` calls. One rule per line. Plain text matches any URL substring; `*`/`?` are wildcards, and regex rules containing them must use the `re:` prefix (legacy `.*`/`.+` rules remain supported) (for example: example.com, *example.com*, .*example\\.com.*, re:^https?://[^/]*\\.example\\.com/(billing|usage))."),
+                json: "browser.urlsToAlwaysOpenExternally",
+                model: external
+            )
             SettingsCardDivider()
 
             // HTTP Hosts Allowed in Embedded Browser
             httpAllowlistRow(model: httpAllowlist)
                 .settingsSearchAnchors(["setting:browser:http-allowlist"])
+
+            SettingsCardDivider()
+
+            urlAllowlistRow(model: urlAllowlist)
+                .settingsSearchAnchors(["setting:browser:url-allowlist"])
 
             SettingsCardDivider()
 
@@ -404,7 +431,7 @@ public struct BrowserSection: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(String(localized: "settings.browser.httpAllowlist", defaultValue: "HTTP Hosts Allowed in Embedded Browser"))
                 .cmuxFont(size: 13, weight: .semibold)
-            Text(String(localized: "settings.browser.httpAllowlist.description", defaultValue: "Controls which HTTP (non-HTTPS) hosts can open in cmux without a warning prompt. Defaults include localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, and *.localtest.me."))
+            Text(String(localized: "settings.browser.httpAllowlist.description", defaultValue: "Controls which HTTP (non-HTTPS) hosts can open in cmux without a warning prompt. Defaults include localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, and *.localtest.me. Remove entries to block them; reset to restore defaults."))
                 .cmuxFont(.caption)
                 .foregroundStyle(.secondary)
             TextEditor(text: $httpAllowlistDraft)
@@ -422,11 +449,12 @@ public struct BrowserSection: View {
                 .accessibilityIdentifier("SettingsBrowserHTTPAllowlistField")
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .center, spacing: 10) {
-                    Text(String(localized: "settings.browser.httpAllowlist.hint", defaultValue: "One host or wildcard per line (for example: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."))
+                    Text(String(localized: "settings.browser.httpAllowlist.hint", defaultValue: "One host or wildcard per line. Remove entries to block them."))
                         .cmuxFont(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
+                    httpAllowlistResetButton(model: model)
                     Button(String(localized: "settings.browser.httpAllowlist.save", defaultValue: "Save")) {
                         model.set(httpAllowlistDraft)
                         httpAllowlistSyncedValue = httpAllowlistDraft
@@ -438,11 +466,12 @@ public struct BrowserSection: View {
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(String(localized: "settings.browser.httpAllowlist.hint", defaultValue: "One host or wildcard per line (for example: localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, *.localtest.me)."))
+                    Text(String(localized: "settings.browser.httpAllowlist.hint", defaultValue: "One host or wildcard per line. Remove entries to block them."))
                         .cmuxFont(.caption)
                         .foregroundStyle(.secondary)
                     HStack {
                         Spacer(minLength: 0)
+                        httpAllowlistResetButton(model: model)
                         Button(String(localized: "settings.browser.httpAllowlist.save", defaultValue: "Save")) {
                             model.set(httpAllowlistDraft)
                             httpAllowlistSyncedValue = httpAllowlistDraft
@@ -480,6 +509,189 @@ public struct BrowserSection: View {
             }
             httpAllowlistSyncedValue = newValue
         }
+    }
+
+    private func httpAllowlistResetButton(model: DefaultsValueModel<String>) -> some View {
+        Button(String(localized: "settings.browser.httpAllowlist.reset", defaultValue: "Reset to Defaults")) {
+            model.reset()
+            httpAllowlistDraft = catalog.browser.insecureHttpHostsAllowedInEmbeddedBrowser.defaultValue
+            httpAllowlistSyncedValue = httpAllowlistDraft
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .disabled(model.current == catalog.browser.insecureHttpHostsAllowedInEmbeddedBrowser.defaultValue)
+        .accessibilityIdentifier("SettingsBrowserHTTPAllowlistResetButton")
+    }
+
+    @ViewBuilder
+    private func urlAllowlistRow(model: DefaultsValueModel<String>) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(String(localized: "settings.browser.urlAllowlist", defaultValue: "Embedded Browser URL Allowlist"))
+                    .cmuxFont(size: 13, weight: .semibold)
+                if browserURLAllowlistManagedByPolicy {
+                    Text(String(localized: "settings.managedByOrganization", defaultValue: "Managed by your organization"))
+                        .cmuxFont(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Text(String(localized: "settings.browser.urlAllowlist.description", defaultValue: "Restricts embedded-browser navigation to matching hosts or URL patterns. A suggested localhost list is shown; saving it opts into the restriction. Remove entries to block them, or, when no managed policy applies, clear the list to allow all web origins. Invalid-only values fail closed. Internal cmux documents remain available. Under a managed policy, localhost and local files stay available unless your organization turns them off."))
+                .cmuxFont(.caption)
+                .foregroundStyle(.secondary)
+            if browserURLAllowlistManagedByPolicy {
+                Text(managedURLAllowlistNote)
+                    .cmuxFont(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("SettingsBrowserURLAllowlistManagedNote")
+            }
+            TextEditor(text: $urlAllowlistDraft)
+                .cmuxFont(size: 12, weight: .regular, design: .monospaced)
+                .frame(minHeight: 86)
+                .padding(6)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color(nsColor: .textBackgroundColor))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                )
+                .disabled(browserURLAllowlistManagedByPolicy)
+                .accessibilityIdentifier("SettingsBrowserURLAllowlistField")
+            if let validationMessage = urlAllowlistValidationMessage {
+                Text(validationMessage)
+                    .cmuxFont(.caption)
+                    .foregroundStyle(.orange)
+            }
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: 10) {
+                    urlAllowlistHint
+                    Spacer(minLength: 0)
+                    urlAllowlistResetButton(model: model)
+                    urlAllowlistSaveButton(model: model)
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    urlAllowlistHint
+                    HStack {
+                        Spacer(minLength: 0)
+                        urlAllowlistResetButton(model: model)
+                        urlAllowlistSaveButton(model: model)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .task {
+            if !urlAllowlistLoaded {
+                urlAllowlistDraft = effectiveURLAllowlistText(for: model)
+                urlAllowlistSyncedValue = urlAllowlistDraft
+                urlAllowlistLoaded = true
+            }
+        }
+        .onChange(of: model.current) { _, newValue in
+            if browserURLAllowlistManagedByPolicy {
+                urlAllowlistDraft = effectiveURLAllowlistText(for: model)
+                urlAllowlistSyncedValue = urlAllowlistDraft
+                return
+            }
+            if !urlAllowlistLoaded {
+                urlAllowlistDraft = newValue
+                urlAllowlistSyncedValue = newValue
+                urlAllowlistLoaded = true
+                return
+            }
+            if urlAllowlistDraft == urlAllowlistSyncedValue {
+                urlAllowlistDraft = newValue
+            }
+            urlAllowlistSyncedValue = newValue
+        }
+    }
+
+    private func effectiveURLAllowlistText(
+        for model: DefaultsValueModel<String>,
+        policy: BrowserURLAllowlistPolicy = BrowserURLAllowlistPolicy()
+    ) -> String {
+        guard policy.isManaged else { return model.current }
+        return policy.patterns.map(\.rawValue).joined(separator: "\n")
+    }
+
+    /// What a managed list permits beyond its rules, in the admin's own terms:
+    /// localhost and local files are on by default and each can be turned off
+    /// by a profile.
+    private var managedURLAllowlistNote: String {
+        switch (urlAllowlistPolicy.allowsLocalhost, urlAllowlistPolicy.allowsLocalFiles) {
+        case (true, true):
+            return String(
+                localized: "settings.browser.urlAllowlist.managed.localDefaultsOn",
+                defaultValue: "Your organization manages this list. localhost (any port) and local files stay available in addition to the rules above."
+            )
+        case (false, true):
+            return String(
+                localized: "settings.browser.urlAllowlist.managed.localhostOff",
+                defaultValue: "Your organization manages this list and blocks localhost. Local files stay available."
+            )
+        case (true, false):
+            return String(
+                localized: "settings.browser.urlAllowlist.managed.localFilesOff",
+                defaultValue: "Your organization manages this list and blocks local files. localhost (any port) stays available."
+            )
+        case (false, false):
+            return String(
+                localized: "settings.browser.urlAllowlist.managed.localDefaultsOff",
+                defaultValue: "Your organization manages this list and blocks localhost and local files."
+            )
+        }
+    }
+
+    private var urlAllowlistHint: some View {
+        Text(String(localized: "settings.browser.urlAllowlist.hint", defaultValue: "One rule per line: localhost, *.localhost, example.com, https://git.example.com, or http://localhost:3000. Remove entries to block them."))
+            .cmuxFont(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var urlAllowlistValidationMessage: String? {
+        guard !browserURLAllowlistManagedByPolicy else { return nil }
+        let rules = urlAllowlistDraft
+            .components(separatedBy: CharacterSet(charactersIn: ",;\n\r\t"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !rules.isEmpty else { return nil }
+        guard rules.contains(where: { BrowserURLAllowlistPattern($0) == nil }) else { return nil }
+        return String(
+            localized: "settings.browser.urlAllowlist.invalidRule",
+            defaultValue: "One or more rules are invalid. Invalid-only values fail closed; use a host or HTTP(S) URL pattern."
+        )
+    }
+
+    private func urlAllowlistSaveButton(model: DefaultsValueModel<String>) -> some View {
+        Button(String(localized: "settings.browser.urlAllowlist.save", defaultValue: "Save")) {
+            guard !browserURLAllowlistManagedByPolicy else { return }
+            model.set(urlAllowlistDraft)
+            urlAllowlistSyncedValue = urlAllowlistDraft
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .disabled(browserURLAllowlistManagedByPolicy || urlAllowlistDraft == model.current)
+        .accessibilityIdentifier("SettingsBrowserURLAllowlistSaveButton")
+    }
+
+    private func urlAllowlistResetButton(model: DefaultsValueModel<String>) -> some View {
+        Button(String(localized: "settings.browser.urlAllowlist.reset", defaultValue: "Reset to Defaults")) {
+            guard !browserURLAllowlistManagedByPolicy else { return }
+            model.reset()
+            urlAllowlistDraft = BrowserURLAllowlistPolicy.defaultAllowlistText
+            urlAllowlistSyncedValue = urlAllowlistDraft
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .disabled(
+            browserURLAllowlistManagedByPolicy
+                || model.current == BrowserURLAllowlistPolicy.defaultAllowlistText
+        )
+        .accessibilityIdentifier("SettingsBrowserURLAllowlistResetButton")
     }
 
     @ViewBuilder

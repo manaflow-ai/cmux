@@ -52,6 +52,7 @@ public struct MacSurfaceGalleryPreviewView: View {
             TodoSurfaceView(
                 surface: Self.todoSurface,
                 todo: Self.todoSnapshot,
+                allowsMutations: true,
                 mutate: { _ in }
             )
         }
@@ -76,8 +77,7 @@ public struct MacSurfaceGalleryPreviewView: View {
                         selectedID: nil,
                         selectedMacSurfaceID: Self.todoSurface.id,
                         canCreateWorkspace: true,
-                        hasActiveBrowser: false,
-                        isChatMode: false
+                        hasActiveBrowser: false
                     ),
                     actions: TerminalPickerMenuActions(
                         selectTerminal: { _ in },

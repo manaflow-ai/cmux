@@ -9,34 +9,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let timedOut: Bool
     }
 
-    final class MockSocketServerState: @unchecked Sendable {
-        private let lock = NSLock()
-        private(set) var commands: [String] = []
-        private var commandTimestamps: [TimeInterval] = []
 
-        func append(_ command: String) {
-            lock.lock()
-            commands.append(command)
-            commandTimestamps.append(ProcessInfo.processInfo.systemUptime)
-            lock.unlock()
-        }
-
-        func snapshot() -> [String] {
-            lock.lock()
-            let value = commands
-            lock.unlock()
-            return value
-        }
-
-        func timestampedSnapshot() -> [(command: String, timestamp: TimeInterval)] {
-            lock.lock()
-            let value = zip(commands, commandTimestamps).map {
-                (command: $0.0, timestamp: $0.1)
-            }
-            lock.unlock()
-            return value
-        }
-    }
 
     struct LoopbackTCPListener {
         let fd: Int32
@@ -194,7 +167,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         return handled
     }
 
-    func startBridgeReadyThenCloseServer(listenerFD: Int32) -> XCTestExpectation {
+    func startBridgeReadyThenCloseServer(
+        listenerFD: Int32,
+        replay: Data = Data(),
+        liveOutput: Data = Data()
+    ) -> XCTestExpectation {
         let handled = expectation(description: "pty bridge ready close server handled")
         DispatchQueue.global(qos: .userInitiated).async {
             defer { handled.fulfill() }
@@ -221,9 +198,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 pending.append(buffer, count: count)
             }
 
-            let payload: [String: Any] = ["type": "ready", "attachment_token": "attach-token"]
+            let payload: [String: Any] = [
+                "type": "ready",
+                "attachment_token": "attach-token",
+                "replay_bytes": replay.count,
+            ]
             guard var data = try? JSONSerialization.data(withJSONObject: payload, options: []) else { return }
             data.append(0x0A)
+            data.append(contentsOf: replay)
+            data.append(contentsOf: liveOutput)
             data.withUnsafeBytes { rawBuffer in
                 guard let base = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return }
                 var remaining = rawBuffer.count
@@ -433,7 +416,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let stdinPipe = standardInput == nil ? nil : Pipe()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
-        process.environment = isolatedCLIChildEnvironment(environment)
+        process.environment = CLIChildEnvironment(appHostEnvironment: ProcessInfo.processInfo.environment).normalizing(environment)
         process.standardInput = stdinPipe ?? FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
@@ -500,28 +483,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             stderr: stderr,
             timedOut: timedOut
         )
-    }
-
-    /// App-host CI gives XCTest an isolated Core Foundation home. CLI tests
-    /// then supply a narrower HOME for each subprocess. Keep all three user
-    /// configuration roots on that per-test home so the inherited app-host
-    /// redirects cannot make sibling CLI tests share state.
-    private func isolatedCLIChildEnvironment(
-        _ environment: [String: String]
-    ) -> [String: String] {
-        guard environment["CMUX_APP_HOST_ISOLATION_REQUIRED"] == "1",
-              let rawHome = environment["HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !rawHome.isEmpty else {
-            return environment
-        }
-
-        var resolved = environment
-        resolved["CFFIXED_USER_HOME"] = rawHome
-        resolved["XDG_CONFIG_HOME"] = URL(
-            fileURLWithPath: rawHome,
-            isDirectory: true
-        ).appendingPathComponent(".config", isDirectory: true).path
-        return resolved
     }
 
     private static func writeAll(fd: Int32, data: Data) {

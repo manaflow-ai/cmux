@@ -24,7 +24,8 @@ struct SidebarAppKitRowCellTests {
             title: title,
             customDescription: customDescription,
             isPinned: isPinned,
-            customColorHex: nil,
+            isMuted: false,
+            customColorHex: nil, cloudWorkspaceLabel: nil,
             remoteWorkspaceSidebarText: nil,
             remoteConnectionStatusText: "",
             remoteStateHelpText: "",
@@ -55,7 +56,7 @@ struct SidebarAppKitRowCellTests {
         )
     }
 
-    fileprivate static func makeModel(
+    static func makeModel(
         workspaceId: UUID = UUID(),
         isActive: Bool = false,
         isPinned: Bool = false,
@@ -65,7 +66,8 @@ struct SidebarAppKitRowCellTests {
         metadataEntries: [SidebarStatusEntry] = [],
         metadataBlocks: [SidebarMetadataBlock] = [],
         shortcutHintText: String? = nil,
-        isMarkdownExpanded: Bool = false
+        isMarkdownExpanded: Bool = false,
+        colorSchemeIsDark: Bool = true
     ) -> SidebarWorkspaceRowModel {
         let resolvedSettings = settings
             ?? SidebarTabItemSettingsSnapshot(defaults: UserDefaults(suiteName: UUID().uuidString)!)
@@ -95,7 +97,7 @@ struct SidebarAppKitRowCellTests {
             isFirstRow: true,
             shortcutHintText: shortcutHintText,
             showsShortcutHints: shortcutHintText != nil,
-            colorSchemeIsDark: true,
+            colorSchemeIsDark: colorSchemeIsDark,
             globalFontMagnificationPercent: 100,
             isChecklistExpanded: false,
             checklistAddFieldActivationToken: 0,
@@ -134,7 +136,6 @@ struct SidebarAppKitRowCellTests {
             isBeingDragged: false,
             topDropIndicatorVisible: false,
             bottomDropIndicatorVisible: false,
-            isBonsplitWorkspaceDropActive: false,
             settings: settings,
             isChecklistExpanded: false,
             checklistAddFieldActivationToken: 0,
@@ -154,6 +155,7 @@ struct SidebarAppKitRowCellTests {
                 canMarkRead: false,
                 canMarkUnread: false,
                 hasLatestNotification: false,
+                allNotificationsMuted: false,
                 notifications: []
             )
         )
@@ -220,7 +222,7 @@ struct SidebarAppKitRowCellTests {
         )
     }
 
-    fileprivate static func configuredCell(
+    static func configuredCell(
         model: SidebarWorkspaceRowModel,
         tab: Workspace? = nil,
         tabManager: TabManager? = nil,
@@ -244,7 +246,7 @@ struct SidebarAppKitRowCellTests {
         return cell
     }
 
-    fileprivate static func descendants(of view: NSView) -> [NSView] {
+    static func descendants(of view: NSView) -> [NSView] {
         view.subviews + view.subviews.flatMap { descendants(of: $0) }
     }
 
@@ -742,31 +744,6 @@ struct SidebarAppKitRowCellTests {
         #expect(cmuxContrastRatio(foreground: proseGlyph, background: background) >= 3)
         #expect(cmuxContrastRatio(foreground: linkGlyph, background: background) >= 3)
         #expect(Self.distance(proseGlyph, linkGlyph) > 0.15)
-    }
-
-    @Test
-    func rowPaletteSemanticColorsRemainDynamicAcrossAppearances() throws {
-        let lightAppearance = try #require(NSAppearance(named: .aqua))
-        let darkAppearance = try #require(NSAppearance(named: .darkAqua))
-        let semanticColor = NSColor(name: nil) { appearance in
-            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-                ? .white
-                : .black
-        }
-        let palette = SidebarRowPalette(model: Self.makeModel())
-        let colors = [
-            (palette.semantic(semanticColor), CGFloat(1)),
-            (palette.semantic(semanticColor, opacity: 0.6), CGFloat(0.6)),
-        ]
-
-        for (color, expectedAlpha) in colors {
-            let light = try Self.resolvedColor(color, in: lightAppearance)
-            let dark = try Self.resolvedColor(color, in: darkAppearance)
-
-            #expect(Self.distance(light, dark) > 1)
-            #expect(abs(light.alphaComponent - expectedAlpha) < 0.001)
-            #expect(abs(dark.alphaComponent - expectedAlpha) < 0.001)
-        }
     }
 
     @Test
@@ -1422,7 +1399,7 @@ struct SidebarAppKitRowCellTests {
             .first { !$0.isHidden && $0.stringValue == text }
     }
 
-    private static func resolvedColor(
+    static func resolvedColor(
         _ color: @autoclosure () -> NSColor,
         in appearance: NSAppearance
     ) throws -> NSColor {
@@ -1507,7 +1484,7 @@ struct SidebarAppKitRowCellTests {
         return try #require(mostVisible)
     }
 
-    private static func distance(_ lhs: NSColor, _ rhs: NSColor) -> CGFloat {
+    static func distance(_ lhs: NSColor, _ rhs: NSColor) -> CGFloat {
         let dr = lhs.redComponent - rhs.redComponent
         let dg = lhs.greenComponent - rhs.greenComponent
         let db = lhs.blueComponent - rhs.blueComponent

@@ -217,6 +217,12 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
+        let decisionHandler = BrowserNavigationActionDecisionHandler(
+            decisionHandler,
+            fallbackPolicy: WKNavigationActionPolicy.cancel,
+            label: "AgentSessionWebRendererCoordinator.navigationAction"
+        ).closure
+
         guard let url = navigationAction.request.url else {
             decisionHandler(.allow)
             return

@@ -134,11 +134,25 @@ public struct StackAuthClient: AuthClient {
         let email = await user.primaryEmail
         let name = await user.displayName
         let profileImageURL = await user.profileImageUrl
+        let demonstrationContentEnabled = await user.cmuxDemonstrationContentEnabled
         return CMUXAuthUser(
             id: id,
             primaryEmail: email,
             displayName: name,
-            profileImageURL: profileImageURL
+            profileImageURL: profileImageURL,
+            demonstrationContentEnabled: demonstrationContentEnabled
+        )
+    }
+}
+
+extension CurrentUser {
+    /// Resolves the server-written demonstration-content flag inside the
+    /// user actor, so the non-`Sendable` metadata dictionary never crosses an
+    /// isolation boundary. See
+    /// ``CMUXAuthUser/demonstrationContentEnabled(fromClientReadOnlyMetadata:)``.
+    var cmuxDemonstrationContentEnabled: Bool {
+        CMUXAuthUser.demonstrationContentEnabled(
+            fromClientReadOnlyMetadata: clientReadOnlyMetadata
         )
     }
 }

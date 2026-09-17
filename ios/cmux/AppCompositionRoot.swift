@@ -21,7 +21,9 @@ import cmuxFeature
 final class AppCompositionRoot {
     let runtime: CMUXMobileRuntime
     let auth: MobileAuthComposition
-    let iroh: MobileIrohRuntimeComposition
+    let irx: MobileIrxRuntimeComposition
+    let irohSettingsController: any CmxIrohSettingsControlling
+    let irxDiscovery: MobileIrxDiscoveryProvider
     /// One build-compatibility policy shared by discovery, persistence, and
     /// connection validation. Keeping it here prevents composition paths from
     /// admitting different Mac app instances.
@@ -32,6 +34,12 @@ final class AppCompositionRoot {
     let analytics: MobileAnalyticsComposition
     let featureFlags: MobileFeatureFlags
     let displaySettings: MobileDisplaySettings
+    /// App-lifetime keyboard frame record, injected into the view tree via
+    /// `\.mobileKeyboardFrameTracker` so terminal hosts created or reattached
+    /// mid-conversation recover keyboard transitions they were not installed
+    /// for. Constructed here (not lazily in a view) so its record spans every
+    /// host view lifetime.
+    let keyboardFrameTracker = MobileKeyboardFrameTracker()
     private var pushReachabilityTask: Task<Void, Never>? = nil
     /// The user's Auto-Connect vs Tailscale connection-method choice, shared by
     /// the shell store (dial ordering) and the Settings/onboarding UI.
@@ -73,10 +81,16 @@ final class AppCompositionRoot {
     /// (consent revoked or crash reporting disabled for the build).
     private let transportSentryReporter: TransportSentryReporter
 
+    /// Sends the important subset of the same diagnostic stream through the
+    /// authenticated web bridge into Axiom. Held separately from product
+    /// analytics so network outcomes never enter PostHog.
+    private let networkOutcomeReporter: MobileNetworkOutcomeReporter
+
     init(
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
-        iroh: MobileIrohRuntimeComposition,
+        irx: MobileIrxRuntimeComposition,
+        irxDiscovery: MobileIrxDiscoveryProvider,
         buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy,
         reachability: any ReachabilityProviding,
         diagnosticLog: DiagnosticLog
@@ -89,7 +103,9 @@ final class AppCompositionRoot {
 
         self.runtime = runtime
         self.auth = auth
-        self.iroh = iroh
+        self.irx = irx
+        self.irohSettingsController = MobileIrxSettingsController(irx: irx, diagnosticLog: diagnosticLog)
+        self.irxDiscovery = irxDiscovery
         self.buildCompatibilityPolicy = buildCompatibilityPolicy
         self.reachability = reachability
         self.diagnosticLog = diagnosticLog
@@ -111,18 +127,35 @@ final class AppCompositionRoot {
         // revocation (which closes the SDK) without extra plumbing.
         let transportSentryReporter = TransportSentryReporter(
             role: .mobileClient,
-            exportRing: { [diagnosticLog] in await diagnosticLog.export() }
+            exportRing: { [diagnosticLog] in await diagnosticLog.export() },
+            incidentConfiguration: .init(captureIndividualFailures: false),
+            logsPerHour: 0
         )
         self.transportSentryReporter = transportSentryReporter
         let appLog = AppLog(
             appFileURL: AppLog.defaultAppLogFileURL,
             networkFileURL: AppLog.defaultNetworkLogFileURL,
-            buildStamp: MobileDebugLog.buildStamp
+            buildStamp: MobileDebugLog.buildStamp,
+            supplementalAppLogURLs: { MobileDebugLog.logFileURLs },
+            flushSupplementalAppLog: { await MobileDebugLog.shared.flush() },
+            supplementalAppLogSnapshot: {
+                await MobileDebugLog.shared.snapshotPersistedLogData()
+            }
         )
         self.appLog = appLog
+        let analytics = MobileAnalyticsComposition(
+            apiBaseURL: auth.config.apiBaseURL,
+            tokenProvider: auth.coordinator,
+            consent: telemetryConsent,
+            diagnosticLog: diagnosticLog
+        )
+        self.analytics = analytics
+        let networkOutcomeReporter = analytics.networkOutcomeReporter
+        self.networkOutcomeReporter = networkOutcomeReporter
         diagnosticLog.setEventTap { event in
             appLog.ingest(event)
             transportSentryReporter.ingest(event)
+            networkOutcomeReporter.ingest(event)
         }
         self.appLifecycleDiagnostics = MobileAppLifecycleDiagnostics(
             diagnosticLog: diagnosticLog
@@ -135,17 +168,10 @@ final class AppCompositionRoot {
         // opt-in), so this mirror never widens what gets persisted.
         Task {
             let sink = MobileDebugLog.shared.sink
-            for await line in await sink.lines() {
-                appLog.mirrorAppLine(line)
+            await sink.addLineObserver { [weak appLog] line in
+                appLog?.mirrorAppLine(line)
             }
         }
-        let analytics = MobileAnalyticsComposition(
-            apiBaseURL: auth.config.apiBaseURL,
-            tokenProvider: auth.coordinator,
-            consent: telemetryConsent,
-            diagnosticLog: diagnosticLog
-        )
-        self.analytics = analytics
         self.featureFlags = MobileFeatureFlags(
             loader: analytics.clientConfig,
             request: analytics.anonymousClientConfigRequest
@@ -164,17 +190,37 @@ final class AppCompositionRoot {
         let pushNotificationSettings:
             (@MainActor () async -> MobilePushSystemSettings)? = nil
         #endif
+        #if DEBUG
+        // DEV: a devicectl launch with DEVICECTL_CHILD_CMUX_PRESENCE_BASE_URL
+        // persists the isolated-worker override so later env-less cold
+        // launches (push wakes) keep resolving it.
+        PresenceClient.persistEnvironmentOverrideIfPresent()
+        #endif
+        // Inline replies relay through the presence worker when the phone
+        // cannot deliver directly (a backgrounded app never dials). Same
+        // worker origin as the connectivity subscriber, so the account that
+        // subscribes is the account whose inbox the Mac sweeps.
+        let replyRelayBaseURL = PresenceClient.resolvedServiceBaseURL(
+            isDevelopmentAuthChannel: auth.authEnvironment == .development
+        ).flatMap { URL(string: $0) }
+        let replyRelayAccessToken = CMUXMobileRuntime.stackAccessTokenProvider(
+            from: auth.coordinator
+        )
         let pushCoordinator = MobilePushCoordinator(
             registration: auth.pushRegistration,
             analytics: analytics.emitter,
             diagnosticLog: diagnosticLog,
             phoneAPIOrigin: auth.config.apiBaseURL,
-            notificationSettings: pushNotificationSettings
+            notificationSettings: pushNotificationSettings,
+            replyRelay: SystemReplyRelayClient(
+                serviceBaseURL: replyRelayBaseURL,
+                accessToken: { try? await replyRelayAccessToken() }
+            )
         )
         self.pushCoordinator = pushCoordinator
         self.signOutHook = MobileSignOutHook {
             let signingOutAccountID = auth.coordinator.currentUser?.id
-            let preparation = iroh.beginSignOutPreparation()
+            let signingOutScope = auth.coordinator.authenticatedTeamScope
             return { accessToken, refreshToken in
                 await withTaskGroup(of: Void.self) { group in
                     group.addTask {
@@ -184,13 +230,7 @@ final class AppCompositionRoot {
                             refreshToken: refreshToken
                         )
                     }
-                    group.addTask {
-                        await iroh.completeSignOutAfterAuthClear(
-                            preparation,
-                            accessToken: accessToken,
-                            refreshToken: refreshToken
-                        )
-                    }
+                    group.addTask { await irx.handleSignOut(ifCurrent: signingOutScope) }
                 }
                 await diagnosticLog.clear()
             }
@@ -320,6 +360,7 @@ final class AppCompositionRoot {
     /// The most recent scene phase, so a `.active` transition is classified as a
     /// cold first foreground vs. a warm resume.
     private var hasForegrounded = false
+    private var wasBackgrounded = false
     /// When the current session started, for the best-effort `ios_session_ended`
     /// duration emitted on background.
     private var currentSessionStartedAt: Date?
@@ -341,7 +382,9 @@ final class AppCompositionRoot {
         case .active:
             diagnosticLog.recordAppEvent(.appForegrounded)
             connectionMethodStore.recordConfiguredMethodDiagnostic()
-            let isFullForegroundReturn = iroh.didBecomeActive()
+            let isFullForegroundReturn = !hasForegrounded || wasBackgrounded
+            wasBackgrounded = false
+            Task { await irx.didBecomeActive() }
             // A notification-permission prompt is itself a transient inactive
             // edge, so readiness still observes every active transition.
             Task { await pushCoordinator.refreshReadiness() }
@@ -373,10 +416,11 @@ final class AppCompositionRoot {
             diagnosticLog.recordAppEvent(.appBecameInactive)
             // The switcher opened; a swipe-kill from here may skip the
             // background transition entirely, so snapshot diagnostics now.
-            iroh.archiveDiagnostics()
+            break
         case .background:
             diagnosticLog.recordAppEvent(.appBackgrounded)
-            iroh.didEnterBackground()
+            wasBackgrounded = true
+            Task { await irx.didEnterBackground() }
             let now = Date()
             analytics.sessionStore.recordBackgrounded(at: now)
             emitter.capture("ios_app_backgrounded", [:])
@@ -391,7 +435,11 @@ final class AppCompositionRoot {
                 emitter.capture("ios_session_ended", props)
             }
             // Force a flush before the OS may suspend us, so queued events survive.
-            Task { await emitter.flush() }
+            let networkOutcomeReporter = self.networkOutcomeReporter
+            Task {
+                await emitter.flush()
+                await networkOutcomeReporter.flush()
+            }
         @unknown default:
             break
         }

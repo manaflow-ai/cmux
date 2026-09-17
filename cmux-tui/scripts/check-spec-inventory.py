@@ -356,6 +356,7 @@ def strip_rust_comments(source: str) -> str:
 def rust_tokens(source: str) -> list[str]:
     """Tokenize the Rust subset needed to inspect JSON event construction."""
     tokens: list[str] = []
+    identifier_re = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
     index = 0
     while index < len(source):
         if source[index].isspace():
@@ -379,7 +380,10 @@ def rust_tokens(source: str) -> list[str]:
             tokens.append(source[index:end])
             index = end
             continue
-        identifier = re.match(r"[A-Za-z_][A-Za-z0-9_]*", source[index:])
+        # Use the regex position argument. Slicing ``source[index:]`` copies
+        # the remaining source on every byte and makes tokenization quadratic
+        # for the 800KB server source.
+        identifier = identifier_re.match(source, index)
         if identifier:
             token = identifier.group(0)
             tokens.append(token)
@@ -602,6 +606,14 @@ def runtime_event_stream_hints() -> dict[str, set[str]]:
 
     add(function_event_names(server, "subscribed_event_json"), "subscribe")
     add(function_event_names(server, "tree_delta_json"), "subscribe-deltas")
+    if re.search(
+        r"\bfn\s+complete_daemon_shutdown_after_ack(?:\s*<[^>]*>)?\s*\(",
+        server,
+    ):
+        add(
+            function_event_names(server, "complete_daemon_shutdown_after_ack"),
+            "control",
+        )
     add(
         first_function_event_names(server, "render_state_message", "render_state_json"),
         "attach-render",

@@ -371,6 +371,37 @@ private final class LifecyclePushURLProtocol: URLProtocol,
         )
     }
 
+    /// The workspace list is an automatic surface: it must never spend the
+    /// app's one OS permission prompt. Only an explicit opt-in (the onboarding
+    /// push page or the Settings toggle) may ask an undetermined system.
+    @MainActor
+    @Test func workspaceListNeverPromptsAnUndeterminedSystem() async {
+        let registration = LifecyclePushRegistration(enabled: false)
+        let suiteName = "push-coordinator-workspace-noprompt-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        var authorizationRequests = 0
+        let coordinator = MobilePushCoordinator(
+            registration: registration,
+            defaults: defaults,
+            authorizationStatus: { .notDetermined },
+            requestAuthorization: {
+                authorizationRequests += 1
+                return true
+            }
+        )
+
+        await coordinator.workspaceListDidBecomeVisible()
+
+        #expect(authorizationRequests == 0)
+        #expect(!coordinator.isEnabled)
+        #expect(defaults.object(forKey: "cmux.notifications.pushEnabled") == nil)
+
+        #expect(await coordinator.enable(trigger: "onboarding"))
+        #expect(authorizationRequests == 1)
+        #expect(coordinator.isEnabled)
+    }
+
     @MainActor
     @Test func deniedSettingsIntentReconcilesAfterPermissionIsGranted() async {
         let registration = LifecyclePushRegistration(enabled: false)

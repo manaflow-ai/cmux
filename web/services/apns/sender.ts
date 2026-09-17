@@ -345,19 +345,22 @@ export async function sendApnsNotification(
 ): Promise<ApnsSendResult[]> {
   if (targets.length === 0) return [];
   const body = Buffer.from(JSON.stringify(buildApnsPayload(input)));
-  // The collapse-id coalesces repeated updates for the same notification into
-  // one delivered banner (the dismiss lever itself is the `cmux.notificationId`
-  // payload key, which iOS maps to delivered banners; the request identifier
-  // equaling the collapse-id is observed OS behavior, not a contract). APNs
-  // caps it at 64 bytes; a UUID is 36, but guard anyway so an over-long id
-  // degrades to "no collapse" instead of a 400.
+  // The collapse-id coalesces repeated updates for one exact Mac app instance
+  // and notification into one delivered banner. The dismiss lever itself is
+  // the `cmux.notificationId` payload key, which iOS maps to delivered banners;
+  // the request identifier equaling the collapse-id is observed OS behavior,
+  // not a contract. APNs caps it at 64 bytes.
   // Never set on a dismiss push: a collapse would try to REPLACE the delivered
   // banner with the invisible dismiss payload instead of leaving removal to the
   // app's background handler.
   const collapseId =
     input.kind === "dismiss"
       ? undefined
-      : collapseIdFor(input.notificationId ?? input.correlationId);
+      : collapseIdFor(
+          input.notificationId ?? input.correlationId,
+          input.macDeviceId,
+          input.macInstanceTag,
+        );
   const expiration =
     typeof input.expirationEpochSeconds === "number"
       ? String(input.expirationEpochSeconds)
@@ -470,8 +473,9 @@ export async function sendApnsNotification(
  *
  * Successful/permanent targets are removed after each attempt, so a partial
  * APNs result never re-alerts devices that already accepted the event. The
- * opaque correlation id is also the collapse fallback, and every attempt
- * carries one absolute expiry so queued retries cannot become stale alerts.
+ * opaque correlation id is the collapse fallback when no notification id is
+ * available, and every attempt carries one absolute expiry so queued retries
+ * cannot become stale alerts.
  */
 export async function sendApnsNotificationReliably(
   config: ApnsConfig,
@@ -641,10 +645,22 @@ async function defaultRetryDelay(
   });
 }
 
-/** A valid (≤64-byte) apns-collapse-id for the notification id, or undefined. */
-function collapseIdFor(notificationId: string | null | undefined): string | undefined {
+/** A valid (≤64-byte) collapse id, scoped by exact Mac app instance when known. */
+function collapseIdFor(
+  notificationId: string | null | undefined,
+  macDeviceId?: string | null,
+  macInstanceTag?: string | null,
+): string | undefined {
   const id = notificationId?.trim();
   if (!id) return undefined;
+  const device = macDeviceId?.trim();
+  const tag = macInstanceTag?.trim();
+  if (device && tag) {
+    return `cmux-${crypto
+      .createHash("sha256")
+      .update(`v1\0${device.toLowerCase()}\0${tag}\0${id}`)
+      .digest("base64url")}`;
+  }
   return Buffer.byteLength(id, "utf8") <= 64 ? id : undefined;
 }
 
