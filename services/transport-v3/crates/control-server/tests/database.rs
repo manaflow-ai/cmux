@@ -212,7 +212,7 @@ async fn postgres_authorization_and_revocation_are_atomic_and_tenant_scoped() {
         .await
         .unwrap();
     assert!(store
-        .relay_token_valid(&relay.to_string(), feed_token)
+        .relay_token_valid(&relay.to_string(), &feed_token)
         .await
         .unwrap());
     assert!(!store

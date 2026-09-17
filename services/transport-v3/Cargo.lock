@@ -741,6 +741,7 @@ dependencies = [
  "ed25519-dalek",
  "hex",
  "libp2p-identity",
+ "multiaddr",
  "reqwest",
  "serde",
  "serde_json",
