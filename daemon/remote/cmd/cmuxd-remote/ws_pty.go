@@ -202,6 +202,7 @@ type wsPTYSession struct {
 	idleTimer      *time.Timer
 	closed         bool
 	ptyWriteMu     sync.Mutex
+	ptyResizeMu    sync.Mutex
 	ptyFileMu      sync.Mutex
 	closeTTYOnce   sync.Once
 	closePTYOnce   sync.Once
@@ -2122,8 +2123,8 @@ func (h *wsPTYHub) confirmPTYSizeAfterOutput(session *wsPTYSession) {
 }
 
 func (h *wsPTYHub) applyCurrentPTYSize(session *wsPTYSession) bool {
-	session.ptyWriteMu.Lock()
-	defer session.ptyWriteMu.Unlock()
+	session.ptyResizeMu.Lock()
+	defer session.ptyResizeMu.Unlock()
 
 	h.mu.Lock()
 	current := h.sessions[session.key] == session && !session.closed && len(session.attachments) > 0
@@ -2276,7 +2277,7 @@ func (h *wsPTYHub) writeInputChunk(session *wsPTYSession, chunk wsPTYInputChunk)
 		// enqueueInputAck canceled the attachment because its send queue
 		// was saturated; finish the cleanup like the output path does.
 		// Must run outside ptyWriteMu: dropAttachment can resize via
-		// applyCurrentPTYSize, which takes ptyWriteMu.
+		// applyCurrentPTYSize, which takes ptyResizeMu.
 		h.dropAttachment(chunk.attachment)
 	}
 	return written

@@ -2036,6 +2036,30 @@ func TestWebSocketPTYReattachWritesAcceptedOldInputBeforeNew(t *testing.T) {
 	}
 }
 
+func TestWebSocketPTYResizeDoesNotWaitForPTYWriter(t *testing.T) {
+	hub, session, _, readFile, writeFile, done := newTestPTYInputSession(t, "sess-resize-writer", "attachment", false)
+	defer close(done)
+	defer readFile.Close()
+	defer writeFile.Close()
+
+	// A blocking PTY input write must not prevent a resize from reaching the
+	// terminal. The two operations use independent synchronization because the
+	// write can wait indefinitely for the foreground process to read input.
+	session.ptyWriteMu.Lock()
+	resizeDone := make(chan struct{})
+	go func() {
+		hub.applyCurrentPTYSize(session)
+		close(resizeDone)
+	}()
+	select {
+	case <-resizeDone:
+	case <-time.After(5 * time.Second):
+		session.ptyWriteMu.Unlock()
+		t.Fatal("resize blocked behind a stalled PTY writer")
+	}
+	session.ptyWriteMu.Unlock()
+}
+
 func TestWebSocketPTYInputSeqEnforcement(t *testing.T) {
 	hub, session, attachment, readFile, writeFile, done := newTestPTYInputSession(t, "sess-seq", "seq-att", true)
 	defer close(done)
@@ -3238,8 +3262,8 @@ func (h *wsPTYHub) sessionPTYSize(sessionID string) (cols int, rows int, ok bool
 	}
 	h.mu.Unlock()
 
-	session.ptyWriteMu.Lock()
-	defer session.ptyWriteMu.Unlock()
+	session.ptyResizeMu.Lock()
+	defer session.ptyResizeMu.Unlock()
 	var size *pty.Winsize
 	available := session.withPTYFileLocked(func(sizeFile *os.File) {
 		size, err = pty.GetsizeFull(sizeFile)
