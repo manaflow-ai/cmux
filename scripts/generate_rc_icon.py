@@ -10,6 +10,7 @@ positioning as the debug icon, matching how generate_nightly_icon.py produces
 the nightly variant.
 """
 import os
+import sys
 from PIL import Image, ImageDraw, ImageFont
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -129,15 +130,14 @@ def recolor_banner(img: Image.Image) -> Image.Image:
 
 
 def main():
+    missing = [f for f, _ in SIZES if not os.path.exists(os.path.join(SRC_DIR, f))]
+    if missing:
+        sys.exit(f"missing source icons in {SRC_DIR}: {', '.join(missing)}")
     os.makedirs(DST_DIR, exist_ok=True)
 
     for filename, pixel_size in SIZES:
         src_path = os.path.join(SRC_DIR, filename)
         dst_path = os.path.join(DST_DIR, filename)
-
-        if not os.path.exists(src_path):
-            print(f"  SKIP {filename} (source not found)")
-            continue
 
         img = Image.open(src_path)
         if img.size != (pixel_size, pixel_size):

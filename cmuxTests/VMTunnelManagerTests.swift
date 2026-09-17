@@ -241,10 +241,21 @@ struct VMTunnelManagerTests {
             apiBaseURL: productionURL
         )
 
+        let nightlyManager = VMTunnelManager(
+            home: home,
+            bundleIdentifier: "com.cmuxterm.app.nightly",
+            apiBaseURL: productionURL
+        )
+        // RC is a non-legacy channel like nightly: same credential file shape,
+        // keyed by its own interface name, never the stable `private.key`.
+        func rcName(_ nightlyName: String) -> String {
+            nightlyName.replacingOccurrences(of: "cmux-nightly", with: "cmux-rc")
+        }
         #expect(rc.interfaceName == "cmux-rc")
-        #expect(rc.privateKeyURL.lastPathComponent == "cmux-rc.private.key")
-        #expect(rc.deviceIDURL.lastPathComponent == "cmux-rc.device-id")
-        #expect(rc.configURL.lastPathComponent == "cmux-rc.conf")
+        #expect(rc.privateKeyURL.lastPathComponent == rcName(nightlyManager.privateKeyURL.lastPathComponent))
+        #expect(rc.deviceIDURL.lastPathComponent == rcName(nightlyManager.deviceIDURL.lastPathComponent))
+        #expect(rc.configURL.lastPathComponent == rcName(nightlyManager.configURL.lastPathComponent))
+        #expect(rc.privateKeyURL.lastPathComponent != "private.key")
 
         let taggedRC = VMTunnelManager.interfaceName(
             bundleIdentifier: "com.cmuxterm.app.rc.candidate1",
