@@ -69,6 +69,9 @@ is not immediate. Alerts have no notification destinations unless explicitly
 provided with `--action-group`; portal visibility alone is not on-call paging.
 After retiring nodes, regenerate observation receipts and alert queries with the
 active inventory so planned retirements do not become missing-heartbeat alerts.
+`check_queries.py --receipt <observation-receipt>` tests healthy, missing, stale,
+failed, draining and resource-pressure cases in Azure's query engine without
+ingesting test events or firing alerts.
 
 Staging uses a shared thirty-day Log Analytics workspace with a 1 GiB daily
 ingestion cap. Exhausting that cap stops collection until reset; the missing-data
