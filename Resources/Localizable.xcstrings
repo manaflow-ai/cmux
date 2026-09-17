@@ -279397,7 +279397,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Das cmux-Relay auf %@ wurde nicht bereit (der Host erlaubt möglicherweise keine SSH-Remote-Portweiterleitung). Automatische Wiederverbindung pausiert; verwenden Sie „Wiederverbinden“, um es erneut zu versuchen."
+            "value": "Das cmux-Relay auf %@ ist nicht bereit geworden (der Host erlaubt möglicherweise keine SSH-Remote-Portweiterleitung). Automatische Wiederverbindung pausiert; verwenden Sie „Wieder verbinden“, um es erneut zu versuchen."
           }
         },
         "fr": {
@@ -279409,7 +279409,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لم يصبح مرحّل cmux على %@ جاهزًا (قد لا يسمح المضيف بإعادة توجيه المنافذ البعيدة عبر SSH). تم إيقاف إعادة الاتصال التلقائي مؤقتًا؛ استخدم \"إعادة الاتصال\" للمحاولة مرة أخرى."
+            "value": "لم يصبح مرحّل cmux على %@ جاهزًا (قد لا يسمح المضيف بإعادة توجيه المنافذ البعيدة عبر SSH). تم إيقاف إعادة الاتصال التلقائي مؤقتًا؛ استخدم \"أعد الاتصال\" للمحاولة مرة أخرى."
           }
         },
         "es": {
@@ -279421,13 +279421,13 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 上的 cmux 中繼未能就緒（該主機可能不允許 SSH 遠端連接埠轉送）。自動重新連線已暫停；請使用「重新連線」重試。"
+            "value": "%@ 上的 cmux 中繼未能就緒（該主機可能不允許 SSH 遠端連接埠轉送）。自動重新連線已暫停；請使用「重新連接」重試。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@의 cmux 릴레이가 준비되지 않았습니다(호스트가 SSH 원격 포트 포워딩을 허용하지 않을 수 있습니다). 자동 재연결이 일시 중지되었습니다. '다시 연결'을 사용하여 다시 시도하세요."
+            "value": "%@의 cmux 릴레이가 준비되지 않았습니다(호스트가 SSH 원격 포트 포워딩을 허용하지 않을 수 있습니다). 자동 재연결이 일시 중지되었습니다. '재연결'을 사용하여 다시 시도하세요."
           }
         }
       }
@@ -279456,7 +279456,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der cmux-Proxy-Tunnel zu %@ wurde nicht bereit. Automatische Wiederverbindung pausiert; verwenden Sie „Wiederverbinden“, um es erneut zu versuchen."
+            "value": "Der cmux-Proxy-Tunnel zu %@ ist nicht bereit geworden. Automatische Wiederverbindung pausiert; verwenden Sie „Wieder verbinden“, um es erneut zu versuchen."
           }
         },
         "fr": {
@@ -279468,7 +279468,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لم يصبح نفق وكيل cmux إلى %@ جاهزًا. تم إيقاف إعادة الاتصال التلقائي مؤقتًا؛ استخدم \"إعادة الاتصال\" للمحاولة مرة أخرى."
+            "value": "لم يصبح نفق وكيل cmux إلى %@ جاهزًا. تم إيقاف إعادة الاتصال التلقائي مؤقتًا؛ استخدم \"أعد الاتصال\" للمحاولة مرة أخرى."
           }
         },
         "es": {
@@ -279480,13 +279480,13 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "通往 %@ 的 cmux 代理通道未能就緒。自動重新連線已暫停；請使用「重新連線」重試。"
+            "value": "通往 %@ 的 cmux 代理通道未能就緒。自動重新連線已暫停；請使用「重新連接」重試。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@에 대한 cmux 프록시 터널이 준비되지 않았습니다. 자동 재연결이 일시 중지되었습니다. '다시 연결'을 사용하여 다시 시도하세요."
+            "value": "%@에 대한 cmux 프록시 터널이 준비되지 않았습니다. 자동 재연결이 일시 중지되었습니다. '재연결'을 사용하여 다시 시도하세요."
           }
         }
       }
@@ -279515,7 +279515,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die SSH-Verbindung ist nicht aktiv. Verwenden Sie „Wiederverbinden“, um es erneut zu versuchen."
+            "value": "Die SSH-Verbindung ist nicht aktiv. Verwenden Sie „Wieder verbinden“, um es erneut zu versuchen."
           }
         },
         "fr": {
@@ -279527,7 +279527,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اتصال SSH غير نشط. استخدم \"إعادة الاتصال\" للمحاولة مرة أخرى."
+            "value": "اتصال SSH غير نشط. استخدم \"أعد الاتصال\" للمحاولة مرة أخرى."
           }
         },
         "es": {
@@ -279539,13 +279539,13 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH 連線未處於作用中狀態。請使用「重新連線」重試。"
+            "value": "SSH 連線未處於作用中狀態。請使用「重新連接」重試。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH 연결이 활성 상태가 아닙니다. '다시 연결'을 사용하여 다시 시도하세요."
+            "value": "SSH 연결이 활성 상태가 아닙니다. '재연결'을 사용하여 다시 시도하세요."
           }
         }
       }
@@ -279574,7 +279574,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux konnte die vorherige SSH-Verbindung zu %@ nicht bereinigen. Prüfen Sie, ob der Host erreichbar ist, und verwenden Sie dann „Wiederverbinden“, um es erneut zu versuchen."
+            "value": "cmux konnte die vorherige SSH-Verbindung zu %@ nicht bereinigen. Prüfen Sie, ob der Host erreichbar ist, und verwenden Sie dann „Wieder verbinden“, um es erneut zu versuchen."
           }
         },
         "fr": {
@@ -279586,7 +279586,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذر على cmux تنظيف اتصال SSH السابق بـ %@. تحقق من إمكانية الوصول إلى المضيف، ثم استخدم \"إعادة الاتصال\" للمحاولة مرة أخرى."
+            "value": "تعذر على cmux تنظيف اتصال SSH السابق بـ %@. تحقق من إمكانية الوصول إلى المضيف، ثم استخدم \"أعد الاتصال\" للمحاولة مرة أخرى."
           }
         },
         "es": {
@@ -279598,13 +279598,13 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 無法清理先前與 %@ 的 SSH 連線。請確認主機可以連線，然後使用「重新連線」重試。"
+            "value": "cmux 無法清理先前與 %@ 的 SSH 連線。請確認主機可以連線，然後使用「重新連接」重試。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux가 %@에 대한 이전 SSH 연결을 정리하지 못했습니다. 호스트에 연결할 수 있는지 확인한 후 '다시 연결'을 사용하여 다시 시도하세요."
+            "value": "cmux가 %@에 대한 이전 SSH 연결을 정리하지 못했습니다. 호스트에 연결할 수 있는지 확인한 후 '재연결'을 사용하여 다시 시도하세요."
           }
         }
       }
