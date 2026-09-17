@@ -43,23 +43,25 @@ public struct CloudFlowView: View {
 
     public var body: some View {
         NavigationStack(path: $path) {
-            if cloudOnboardingCompleted {
-                CloudSectionView(controller: controller)
-                    .toolbar {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button(L10n.string("mobile.cloud.onboarding.title", defaultValue: "Cloud basics")) {
-                                showsCloudOnboarding = true
+            Group {
+                if cloudOnboardingCompleted {
+                    CloudSectionView(controller: controller)
+                        .toolbar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                Button(L10n.string("mobile.cloud.onboarding.title", defaultValue: "Cloud basics")) {
+                                    showsCloudOnboarding = true
+                                }
+                                .accessibilityIdentifier("CloudBasicsButton")
                             }
-                            .accessibilityIdentifier("CloudBasicsButton")
                         }
-                    }
-            } else {
-                CloudOnboardingView(
-                    controller: controller,
-                    onComplete: { cloudOnboardingCompleted = true },
-                    showsNavigationChrome: false
-                )
-                .accessibilityIdentifier("CloudInlineOnboarding")
+                } else {
+                    CloudOnboardingView(
+                        controller: controller,
+                        onComplete: { cloudOnboardingCompleted = true },
+                        showsNavigationChrome: false
+                    )
+                    .accessibilityIdentifier("CloudInlineOnboarding")
+                }
             }
             .navigationDestination(for: CloudMachine.self) { machine in
                 CloudTerminalCatalogView(machine: machine, controller: controller)
