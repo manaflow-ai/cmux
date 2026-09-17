@@ -6308,6 +6308,39 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
+    func testWindowSendEventPreservesFirstCloudKeyBeforePortalMount() throws {
+        let appDelegate = try XCTUnwrap(AppDelegate.shared)
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+        let window = try XCTUnwrap(window(withId: windowId))
+        let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panel = try XCTUnwrap(workspace.makeRemoteTmuxPanePanel(onInput: { _ in }))
+        _ = try workspace.insertCloudManualMirrorPanel(
+            panel, at: .workspace(id: workspace.id, placement: .tab), focus: true, isLoading: false
+        )
+        focusHostedTerminalForRepairTesting(window: window, hostedView: panel.hostedView)
+        waitUntil(timeout: 2) { panel.surface.hasLiveSurface }
+        XCTAssertTrue(panel.surface.hasLiveSurface, "Manual surface must be live to observe actual key encoding")
+
+        // Reproduce the gap between the optimistic tab selection and its portal
+        // mounting in this window. The selected surface already owns the input.
+        TerminalWindowPortalRegistry.detach(hostedView: panel.hostedView)
+        panel.hostedView.removeFromSuperview()
+        _ = window.makeFirstResponder(nil)
+        XCTAssertFalse(panel.hostedView.surfaceView.window === window)
+        XCTAssertEqual(workspace.focusedTerminalInputTarget()?.0, panel.id)
+#if DEBUG
+        let probe = installFocusedTerminalRepairProbeForTesting(appDelegate: appDelegate, keyCode: 14)
+        defer { probe.restore() }
+        let event = try XCTUnwrap(makeKeyDownEvent(
+            key: "e", modifiers: [], keyCode: 14, windowNumber: window.windowNumber
+        ))
+        window.sendEvent(event)
+        XCTAssertEqual(probe.forwardedKeyDownCount(), 1, "The first key must reach its selected pane exactly once before mount")
+#endif
+    }
+
     func testWindowSendEventRepairsLostFirstResponderForFocusedTerminalTyping() throws {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
