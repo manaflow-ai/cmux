@@ -466,7 +466,10 @@ html { scroll-behavior: smooth; }
 
   function serializeInlineCode(value) {
     var raw = String(value || '').replace(/\r?\n/g, ' ');
-    var fenceLength = longestFence(raw, '`');
+    var runs = raw.match(/`+/g) || [];
+    var longest = 0;
+    runs.forEach(function(run) { longest = Math.max(longest, run.length); });
+    var fenceLength = Math.max(1, longest + 1);
     var fence = new Array(fenceLength + 1).join('`');
     var needsPadding = raw.charAt(0) === '`' || raw.charAt(raw.length - 1) === '`';
     return fence + (needsPadding ? ' ' : '') + raw + (needsPadding ? ' ' : '') + fence;
@@ -561,6 +564,8 @@ html { scroll-behavior: smooth; }
     return rows.join('\n');
   }
 
+  var activeTableCell = null;
+
   function selectionElement() {
     var selection = window.getSelection && window.getSelection();
     if (!selection || !selection.anchorNode) { return null; }
@@ -585,7 +590,12 @@ html { scroll-behavior: smooth; }
 
   function tableCellAtSelection() {
     var cell = selectionElement();
-    return cell && cell.closest('table') ? cell : null;
+    if (cell && cell.closest('table')) {
+      activeTableCell = cell;
+      return cell;
+    }
+    return activeTableCell && contentEl.contains(activeTableCell)
+      && activeTableCell.closest('table') ? activeTableCell : null;
   }
 
   function tableRows(table) {
@@ -605,6 +615,7 @@ html { scroll-behavior: smooth; }
   }
 
   function selectTableCell(cell) {
+    activeTableCell = cell;
     focusEditorNode(cell, true);
     if (cell) { cell.classList.add('cmux-table-cell-active'); }
   }
@@ -863,6 +874,10 @@ html { scroll-behavior: smooth; }
   };
 
   contentEl.addEventListener('input', scheduleMarkdownEditSerialization);
+  contentEl.addEventListener('pointerdown', function(ev) {
+    var cell = ev.target && ev.target.closest && ev.target.closest('td, th');
+    if (cell) { activeTableCell = cell; }
+  }, true);
   contentEl.addEventListener('keydown', function(ev) {
     if (!markdownEditorEnabled) { return; }
     if (ev.key === 'Tab' && tableCellAtSelection()) {

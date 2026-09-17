@@ -59,6 +59,18 @@ test("inline hard breaks remain line breaks when saved", () => {
   expect(page.edits().at(-1)?.markdown).toBe("First  \nSecond\n");
 });
 
+test("inline code keeps the smallest valid Markdown fence", () => {
+  const page = editor("`Original`\n");
+  page.content.querySelector("p")!.textContent = "inline code";
+  page.input();
+  page.frame();
+  expect(page.edits().at(-1)?.markdown).toBe("inline code\n");
+  page.content.querySelector("p")!.innerHTML = "<code>value</code>";
+  page.input();
+  page.frame();
+  expect(page.edits().at(-1)?.markdown).toBe("`value`\n");
+});
+
 test("repeated editing state updates do not consume pending input", () => {
   const page = editor("Before\n");
   page.content.querySelector("p")!.textContent = "Latest edit";
