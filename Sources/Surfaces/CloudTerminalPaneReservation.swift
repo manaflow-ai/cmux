@@ -1,16 +1,27 @@
 import CmuxTerminal
 import Foundation
 
-/// Input typed into an optimistic Cloud pane before its remote PTY exists.
+/// Input typed into an optimistic Cloud pane before its native mirror is ready.
 ///
-/// The pane is inserted the moment the user asks for it; the machine's terminal
-/// arrives later. Keystrokes made in between are queued here and handed to the
-/// attachment's input router once the pane is adopted, so the first characters
-/// a user types into a new pane are not lost.
+/// The pane is inserted the moment the user asks for it; once the stable remote
+/// terminal id arrives, early keystrokes go straight to that PTY. The adopted
+/// native mirror receives only the suffix after that handoff, so the remote
+/// shell remains the source of truth for startup output and echo.
 final class CloudOptimisticInputRelay: @unchecked Sendable {
+    private struct RemoteSink: Sendable {
+        let terminalID: String
+        let sender: any CloudTuiUntrackedCommandSending
+    }
+
     private let lock = NSLock()
     private var router: CloudTuiManualIOInputRouter?
+    private var remoteSink: RemoteSink?
     private var pending: [TerminalManualInput] = []
+    private var remoteTail: Task<Void, Never>?
+    private var remoteEpoch: UInt64 = 0
+    private var remoteGeneration: UInt64 = 0
+    private var remoteQueuedCount = 0
+    private var requestedRouter: CloudTuiManualIOInputRouter?
     private var discarded = false
     /// Bounded like the router's own queue: a runaway paste into a pane that
     /// never attaches must not grow without limit.
@@ -19,7 +30,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
     /// Number of inputs waiting for a router. Diagnostics and tests only.
     var pendingCount: Int {
         lock.lock(); defer { lock.unlock() }
-        return pending.count
+        return pending.count + remoteQueuedCount
     }
 
     /// Callable from Ghostty's I/O thread, like the router it fronts.
@@ -30,20 +41,57 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
             router.send(input)
             return
         }
-        if !discarded, pending.count < pendingLimit { pending.append(input) }
+        guard !discarded else {
+            lock.unlock()
+            return
+        }
+        if let remoteSink {
+            enqueueRemoteLocked(input, sink: remoteSink)
+        } else if pending.count < pendingLimit {
+            pending.append(input)
+        }
+        lock.unlock()
+    }
+
+    /// Starts routing input to the remote terminal as soon as its stable id is
+    /// known, before the local mirror has resolved a numeric surface id.
+    ///
+    /// This keeps early keystrokes in the real remote PTY, so shell startup
+    /// output and echo retain the same order as a local terminal.
+    func bindRemoteTerminal(
+        terminalID: String,
+        sender: any CloudTuiUntrackedCommandSending
+    ) {
+        lock.lock()
+        guard !discarded, router == nil else {
+            lock.unlock()
+            return
+        }
+        if let existing = remoteSink, existing.terminalID == terminalID {
+            promoteRequestedRouterIfReadyLocked()
+            lock.unlock()
+            return
+        }
+        let sink = RemoteSink(terminalID: terminalID, sender: sender)
+        remoteSink = sink
+        remoteEpoch &+= 1
+        let queued = pending
+        pending.removeAll(keepingCapacity: true)
+        for input in queued {
+            enqueueRemoteLocked(input, sink: sink)
+        }
+        promoteRequestedRouterIfReadyLocked()
         lock.unlock()
     }
 
     /// Delivers everything queued so far to `router` and forwards from now on.
     func attach(_ router: CloudTuiManualIOInputRouter) {
         lock.lock()
-        // Enqueue the backlog before publishing the router. send() only queues
-        // work, so holding this lock performs no socket I/O. A concurrent key
-        // cannot overtake earlier input at the handoff boundary.
-        for input in pending { router.send(input) }
-        pending.removeAll()
+        // `discard()` fences the current request; an explicit later attach is
+        // the retry boundary and is allowed to resume forwarding.
         discarded = false
-        self.router = router
+        requestedRouter = router
+        promoteRequestedRouterIfReadyLocked()
         lock.unlock()
     }
 
@@ -52,9 +100,106 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
     func discard() {
         lock.lock()
         pending.removeAll()
+        requestedRouter = nil
+        remoteSink = nil
+        remoteEpoch &+= 1
+        remoteGeneration &+= 1
+        remoteTail?.cancel()
+        remoteTail = nil
+        remoteQueuedCount = 0
         router = nil
         discarded = true
         lock.unlock()
+    }
+
+    private func enqueueRemoteLocked(_ input: TerminalManualInput, sink: RemoteSink) {
+        remoteQueuedCount += 1
+        remoteGeneration &+= 1
+        let epoch = remoteEpoch
+        let generation = remoteGeneration
+        let previous = remoteTail
+        remoteTail = Task { [weak self, previous] in
+            await previous?.value
+            guard !Task.isCancelled else {
+                self?.remoteDeliveryFinished(epoch: epoch, generation: generation, input: nil, error: nil)
+                return
+            }
+            do {
+                guard let self, self.canDeliverRemote(epoch: epoch) else {
+                    self?.remoteDeliveryFinished(
+                        epoch: epoch,
+                        generation: generation,
+                        input: input,
+                        error: CancellationError()
+                    )
+                    return
+                }
+                guard let request = Self.request(for: input, sink: sink) else {
+                    self.remoteDeliveryFinished(epoch: epoch, generation: generation, input: nil, error: nil)
+                    return
+                }
+                try await sink.sender.sendUntrackedTuiCommand(arguments: request)
+                self.remoteDeliveryFinished(epoch: epoch, generation: generation, input: nil, error: nil)
+            } catch {
+                // `sendUntrackedTuiCommand` checks cancellation before writing,
+                // so an error means this event did not reach the channel. Keep it
+                // for the surface handoff or the next authenticated retry.
+                self.remoteDeliveryFinished(epoch: epoch, generation: generation, input: input, error: error)
+            }
+        }
+    }
+
+    private func remoteDeliveryFinished(
+        epoch: UInt64,
+        generation: UInt64,
+        input: TerminalManualInput?,
+        error: Error?
+    ) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !discarded, epoch == remoteEpoch, generation <= remoteGeneration else { return }
+        if let input, error != nil, pending.count < pendingLimit {
+            pending.append(input)
+            // A failed persistent channel is no longer a safe target. A future
+            // retry binds a fresh link and drains this event exactly once.
+            remoteSink = nil
+        }
+        remoteQueuedCount = max(0, remoteQueuedCount - 1)
+        guard generation == remoteGeneration, remoteQueuedCount == 0 else { return }
+        remoteTail = nil
+        promoteRequestedRouterIfReadyLocked()
+    }
+
+    private func canDeliverRemote(epoch: UInt64) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return !discarded && epoch == remoteEpoch && remoteSink != nil
+    }
+
+    private func promoteRequestedRouterIfReadyLocked() {
+        guard router == nil, let requestedRouter,
+              remoteTail == nil, remoteQueuedCount == 0 else { return }
+        self.requestedRouter = nil
+        router = requestedRouter
+        // Enqueue the backlog before publishing the router. `send()` only
+        // queues work, so this lock never performs socket I/O and a concurrent
+        // key cannot overtake earlier input at the handoff boundary.
+        for input in pending { requestedRouter.send(input) }
+        pending.removeAll(keepingCapacity: true)
+    }
+
+    private static func request(
+        for input: TerminalManualInput,
+        sink: RemoteSink
+    ) -> CloudTuiRequest? {
+        switch input {
+        case .bytes(let bytes):
+            guard !bytes.isEmpty else { return nil }
+            return CloudTuiRequests.writeBytes(terminalID: sink.terminalID, data: bytes)
+        case .namedKey(let name):
+            guard let key = CloudTuiManualIOInputRouter.protocolKeyName(for: name) else { return nil }
+            return CloudTuiRequests.keysArguments(socketPath: "", terminalID: sink.terminalID, keys: [key])
+        }
     }
 }
 

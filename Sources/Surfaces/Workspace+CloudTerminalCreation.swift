@@ -324,6 +324,15 @@ extension Workspace {
                 throw CancellationError()
             }
             defer { onFinish() }
+            // The stable terminal id is available before surface attachment.
+            // Route reservation input into that PTY immediately so remote shell
+            // startup owns echo and line discipline just like a local shell.
+            if let cloudProvider = catalog.provider(for: created.machine) as? CmuxTuiSurfaceProvider {
+                await cloudProvider.bindOptimisticTerminalInput(
+                    reservation.inputRelay,
+                    terminalID: created.id.key
+                )
+            }
             let remoteView = try reservation.sourcePlacement.remoteView(of: created)
             // Focus was granted when the pane appeared; adoption must not steal it
             // back from wherever the user has typed since.

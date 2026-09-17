@@ -124,12 +124,25 @@ actor CloudTuiPersistentResourceConnection {
         entry.continuation.resume(throwing: error)
         // Cancellation is request-local, never close siblings' shared socket.
         // A mutation that already committed remains fenced by its original key.
-        if !entry.request.raw { sendUntracked(CloudTuiRequest("request.cancel", ["request_id": id])) }
+        if !entry.request.raw { sendBestEffort(CloudTuiRequest("request.cancel", ["request_id": id])) }
     }
 
-    private func sendUntracked(_ request: CloudTuiRequest) {
+    private func sendBestEffort(_ request: CloudTuiRequest) {
         guard !closed, let data = try? request.envelope(id: nextID()) else { return }
         connection.send(line: data + Data([0x0A]))
+    }
+
+    /// Writes a request on this authenticated channel without waiting for its
+    /// response. The daemon still emits a normal response, which the reader
+    /// safely ignores after the request has been handed to the socket.
+    func sendUntracked(_ request: CloudTuiRequest) async throws {
+        try Task.checkCancellation()
+        try await start()
+        try Task.checkCancellation()
+        guard !closed else { throw Self.protocolFailure }
+        let encoded = try request.envelope(id: nextID())
+        guard encoded.count <= 256 * 1024 - 1 else { throw CloudMachineLink.LinkError.inputTooLarge }
+        connection.send(line: encoded + Data([0x0A]))
     }
 
     /// Open the revisioned event feed on the control connection. One queued
@@ -154,7 +167,7 @@ actor CloudTuiPersistentResourceConnection {
     func cancelStream(_ id: String) {
         guard let stream = subscriptions.removeValue(forKey: id) else { return }
         stream.continuation.finish()
-        sendUntracked(CloudTuiRequest("stream.cancel", ["stream": id]))
+        sendBestEffort(CloudTuiRequest("stream.cancel", ["stream": id]))
     }
 
     private func receive(_ data: Data) {
