@@ -336,6 +336,8 @@ final class MobilePairingModel {
         let clock = preparationClock
         let timeout = preparationTimeout
         let generation = refreshGeneration
+        // This deadline bounds the visible preparing state, including a bound
+        // endpoint whose authenticated registration has not completed.
         preparationTimeoutTask = Task { @MainActor [weak self, clock] in
             do { try await clock.sleep(for: timeout) } catch { return }
             guard !Task.isCancelled, let self, self.refreshGeneration == generation,

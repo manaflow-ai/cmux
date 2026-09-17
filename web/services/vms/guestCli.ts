@@ -31,6 +31,7 @@
 // reaches machines created from any existing snapshot. This driver-installed
 // adapter is the sole source; image bakes keep their promoted CLI until healing.
 
+import { GUEST_CODEROUTER_SHELL } from "./guestCoderouterCli";
 import { GUEST_CMUX_MESSAGE_SHELL } from "./guestCliMessages";
 import { GUEST_CMUX_TOPOLOGY_SHELL } from "./guestTopologyCli";
 import { GUEST_BROWSER_OPENER_PATH, guestBrowserInstallCommand } from "./guestBrowser";
@@ -838,16 +839,19 @@ guest_agent_command() {
   esac
 }
 
+${GUEST_CODEROUTER_SHELL}
 guest_coderouter_command() {
   cmux_coderouter_sub="\${1:-help}"
   [ "\$#" -gt 0 ] && shift
   case "\$cmux_coderouter_sub" in
+    accounts|list|ls) guest_coderouter_accounts "\$@" ;;
+    org|organization|team) guest_coderouter_org "\$@" ;;
     status|auth) guest_auth_status "\$@" ;;
     usage|machines) guest_coderouter_usage "\$@" ;;
     models) guest_coderouter_models "\$@" ;;
     agent|run) guest_coderouter_agent "\$@" ;;
     help|--help|-h) guest_usage ;;
-    claude|accounts|login|logout)
+    claude|login|logout)
       die_message 2 accountHostOnly "\$cmux_coderouter_sub"
       ;;
     *) die_message 2 unknownCodeRouter "\$cmux_coderouter_sub" ;;

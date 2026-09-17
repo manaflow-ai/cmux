@@ -274,7 +274,7 @@ jobs:
           echo "Derived Sparkle public key: $DERIVED_PUBLIC_KEY"
           echo "SPARKLE_PUBLIC_KEY=$DERIVED_PUBLIC_KEY" >> "$GITHUB_ENV"
 
-      - name: Set up Go for the Cloud tunnel extension
+      - name: Set up Go for the Cloud tunnel extension and SSH daemon
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -290,6 +290,25 @@ jobs:
             ARCHS="arm64 x86_64" \
             ONLY_ACTIVE_ARCH=NO \
             CODE_SIGNING_ALLOWED=NO build
+
+      - name: Build and embed verified SSH daemon assets
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          set -euo pipefail
+          app="build-universal/Build/Products/Release/cmux.app"
+          version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")"
+          ./scripts/build_remote_daemon_release_assets.sh \
+            --version "$version" --release-tag "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" --output-dir remote-daemon-assets
+          python3 scripts/verify_remote_daemon_release.py \
+            --manifest remote-daemon-assets/cmuxd-remote-manifest.json \
+            --assets-dir remote-daemon-assets --app "$app" --embed --verify-cli
+
+      - name: Attest SSH daemon release assets
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: remote-daemon-assets/cmuxd-remote-*
 
       - name: Import signing cert
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -497,6 +516,14 @@ jobs:
             cmux.release.entitlements \
             "$APPLE_SIGNING_IDENTITY"
 
+      - name: Verify signed app SSH daemon contract
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          python3 scripts/verify_remote_daemon_release.py \
+            --manifest remote-daemon-assets/cmuxd-remote-manifest.json \
+            --assets-dir remote-daemon-assets \
+            --app "build-universal/Build/Products/Release/cmux.app" --verify-cli
+
       - name: Smoke launch signed app before notarization
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
@@ -605,6 +632,7 @@ jobs:
           path: |
             cmux-macos.dmg
             appcast.xml
+            remote-daemon-assets/cmuxd-remote-*
           if-no-files-found: error
 
       - name: Upload release asset
@@ -614,6 +642,8 @@ jobs:
           files: |
             cmux-macos.dmg
             appcast.xml
+            remote-daemon-assets/cmuxd-remote-*
+          fail_on_unmatched_files: true
           generate_release_notes: true
           overwrite_files: false
 
