@@ -9,6 +9,7 @@ extension Workspace {
     }
 
     func restoreCustomSidebarPanel(from snapshot: SessionPanelSnapshot, inPane paneId: PaneID) -> UUID? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         guard let name = snapshot.customSidebar?.name,
               let customSidebarPanel = newCustomSidebarSurface(inPane: paneId, name: name, focus: false) else {
             return nil
@@ -23,6 +24,7 @@ extension Workspace {
         name rawName: String,
         focus: Bool = true
     ) -> CustomSidebarPanel? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return nil }
         for (existingId, panel) in panels {
@@ -43,6 +45,7 @@ extension Workspace {
         from panelId: UUID,
         name rawName: String
     ) -> CustomSidebarPanel? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return nil }
         for (existingId, panel) in panels {
@@ -74,13 +77,14 @@ extension Workspace {
         focus: Bool? = nil,
         targetIndex: Int? = nil
     ) -> CustomSidebarPanel? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let fileURL = CmuxExtensionSidebarSelection.customSidebarFileURL(forName: name) else {
             return nil
         }
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
-        let previousHostedView = focusedTerminalPanel?.hostedView
+        let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
 
         let customPanel = CustomSidebarPanel(workspace: self, name: name, fileURL: fileURL)
         panels[customPanel.id] = customPanel
@@ -132,6 +136,7 @@ extension Workspace {
         insertFirst: Bool,
         name rawName: String
     ) -> CustomSidebarPanel? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let fileURL = CmuxExtensionSidebarSelection.customSidebarFileURL(forName: name) else {
             return nil
@@ -150,7 +155,7 @@ extension Workspace {
             isPinned: false
         )
         bindSurface(newTab.id, toPanelId: customPanel.id)
-        let previousHostedView = focusedTerminalPanel?.hostedView
+        let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
 
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }

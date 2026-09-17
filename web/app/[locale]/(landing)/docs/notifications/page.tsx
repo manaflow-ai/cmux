@@ -1,6 +1,5 @@
 import { useTranslations } from "next-intl";
-import { getTranslations } from "next-intl/server";
-import { buildAlternates } from "@/i18n/seo";
+import { auditedDocsMetadata } from "../audited-docs-metadata";
 import { DocsSchema } from "../docs-schema";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
 import { Callout } from "@/app/[locale]/components/callout";
@@ -8,12 +7,11 @@ import { DocsHeading } from "@/app/[locale]/components/docs-heading";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "docs.notifications" });
-  return {
-    title: t("metaTitle"),
-    description: t("metaDescription"),
-    alternates: buildAlternates(locale, "/docs/notifications"),
-  };
+  return auditedDocsMetadata({
+    locale,
+    pageKey: "notifications",
+    path: "/docs/notifications",
+  });
 }
 
 export default function NotificationsPage() {
@@ -117,6 +115,12 @@ echo "$CMUX_NOTIFICATION_TITLE: $CMUX_NOTIFICATION_BODY" >> ~/notifications.log`
     "appFocused": false,
     "focusedPanel": false
   },
+  "agent": {
+    "kind": "claude",
+    "category": "turn-complete",
+    "pending": false,
+    "isSubagent": true
+  },
   "effects": {
     "record": true,
     "markUnread": true,
@@ -135,6 +139,32 @@ echo "$CMUX_NOTIFICATION_TITLE: $CMUX_NOTIFICATION_BODY" >> ~/notifications.log`
           desktop: (chunks) => <code>{chunks}</code>,
           hooksMode: (chunks) => <code>{chunks}</code>,
           replace: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
+
+      <DocsHeading level={3} id="agent-event-context">{t("hooksAgentTitle")}</DocsHeading>
+      <p>
+        {t.rich("hooksAgentIntro", {
+          agent: (chunks) => <code>{chunks}</code>,
+          kind: (chunks) => <code>{chunks}</code>,
+          category: (chunks) => <code>{chunks}</code>,
+          pending: (chunks) => <code>{chunks}</code>,
+          isSubagent: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
+      <CodeBlock title={t("hooksAgentExampleTitle")} lang="json">{`{
+  "notifications": {
+    "hooks": [
+      {
+        "id": "mute-subagent-completions",
+        "command": "if [ \\"\${CMUX_NOTIFICATION_AGENT_IS_SUBAGENT-0}\\" = \\"1\\" ] && [ \\"$CMUX_NOTIFICATION_AGENT_CATEGORY\\" = \\"turn-complete\\" ]; then printf '{\\"effects\\":{\\"desktop\\":false,\\"sound\\":false,\\"paneFlash\\":false}}'; fi"
+      }
+    ]
+  }
+}`}</CodeBlock>
+      <p>
+        {t.rich("hooksAgentDetails", {
+          suppressSetting: (chunks) => <code>{chunks}</code>,
         })}
       </p>
 

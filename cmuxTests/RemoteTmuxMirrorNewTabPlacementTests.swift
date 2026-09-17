@@ -11,7 +11,7 @@ import Testing
 /// instead of tmux's bare `new-window`, which fills the lowest free window index
 /// and lands the tab mid-list when the session has gaps from closed windows.
 ///
-/// `RemoteTmuxController.newWindowCommand(afterWindowId:workingDirectory:)` is the
+/// `RemoteTmuxController.newWindowCommand(afterWindowId:workingDirectory:focus:)` is the
 /// pure command builder behind `handleMirrorNewTabRequested`:
 /// - no target window (`.end`, or an unresolved `.current` selection) → append at
 ///   the end (`-a -t '{end}'`).
@@ -23,7 +23,7 @@ import Testing
     @Test func appendsAtEndWhenNoTargetWindow() {
         #expect(
             RemoteTmuxController.newWindowCommand(afterWindowId: nil, workingDirectory: nil)
-                == "new-window -a -t '{end}'"
+                == "new-window -d -a -t '{end}'"
         )
     }
 
@@ -32,7 +32,28 @@ import Testing
     @Test func insertsAfterSelectedWindow() {
         #expect(
             RemoteTmuxController.newWindowCommand(afterWindowId: 7, workingDirectory: nil)
-                == "new-window -a -t @7"
+                == "new-window -d -a -t @7"
+        )
+    }
+
+    /// A background surface request must create the remote tmux window detached,
+    /// otherwise tmux changes its active window before the mirror can reconcile.
+    @Test func backgroundCreationKeepsTmuxSelectionDetached() {
+        let command = RemoteTmuxController.newWindowCommand(
+            afterWindowId: nil,
+            workingDirectory: nil
+        )
+
+        #expect(command.split(separator: " ").contains("-d"))
+    }
+
+    @Test func focusedCreationReturnsStableWindowIdWithoutDetaching() {
+        #expect(
+            RemoteTmuxController.newWindowCommand(
+                afterWindowId: 7,
+                workingDirectory: nil,
+                focus: true
+            ) == "new-window -P -F '#{window_id}' -a -t @7"
         )
     }
 }

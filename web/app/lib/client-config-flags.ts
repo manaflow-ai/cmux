@@ -1,6 +1,9 @@
 "use client";
 
+import { useEffect, useState } from "react";
+
 import { getClientConfig, type ClientConfig, type ClientConfigFlagValue } from "./client-config";
+import { FEATURE_FLAGS } from "./feature-flags";
 
 export type ClientConfigFlagDefinition<Value> = {
   readonly key: string;
@@ -78,10 +81,43 @@ export function rawClientConfigFlagValue(
   return config.featureFlags[key];
 }
 
+export function isClientConfigFlagEnabled(
+  value: ClientConfigFlagValue | undefined,
+  fallback: boolean,
+): boolean {
+  if (value === undefined) return fallback;
+  if (typeof value === "boolean") return value;
+  const normalized = value.trim().toLowerCase();
+  return normalized.length > 0 && normalized !== "false";
+}
+
+export function useClientConfigFlag(key: string): ClientConfigFlagValue | undefined {
+  const [value, setValue] = useState<ClientConfigFlagValue | undefined>(undefined);
+
+  useEffect(() => {
+    // getClientConfig owns the shared TTL cache, including full navigations.
+    let cancelled = false;
+    getClientConfig()
+      .then((config) => {
+        if (!cancelled) setValue(rawClientConfigFlagValue(config, key));
+      })
+      .catch(() => {
+        if (!cancelled) setValue(undefined);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [key]);
+
+  return value;
+}
+
 export const clientConfigFlags = {
   cmuxForWindows: booleanClientConfigFlag("cmux-for-windows"),
   cmuxForLinux: booleanClientConfigFlag("cmux-for-linux"),
   cmuxForAndroid: booleanClientConfigFlag("cmux-for-android"),
   proUpgradeUIEnabledRelease: booleanClientConfigFlag("pro-upgrade-ui-enabled-release"),
   mobileConnectButtonEnabledRelease: booleanClientConfigFlag("mobile-connect-button-enabled-release"),
+  iosArtifactChipEnabledRelease: booleanClientConfigFlag("ios-artifact-chip-enabled-release", true),
+  goPlanEnabledRelease: booleanClientConfigFlag(FEATURE_FLAGS.goPlan.key, false),
 } as const;

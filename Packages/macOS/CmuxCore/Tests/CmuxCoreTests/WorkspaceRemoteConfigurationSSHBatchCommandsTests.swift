@@ -11,7 +11,8 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
             "StrictHostKeyChecking=accept-new",
         ],
         preserveAfterTerminalExit: Bool = false,
-        persistentDaemonSlot: String? = nil
+        persistentDaemonSlot: String? = nil,
+        relayPort: Int? = nil
     ) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
@@ -19,7 +20,7 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
             identityFile: "/Users/test/.ssh/id_ed25519",
             sshOptions: sshOptions,
             localProxyPort: nil,
-            relayPort: nil,
+            relayPort: relayPort,
             relayID: nil,
             relayToken: nil,
             localSocketPath: nil,
@@ -60,14 +61,24 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
     func daemonTransportArgumentsWithSlot() {
         let arguments = configuration(
             preserveAfterTerminalExit: true,
-            persistentDaemonSlot: "ws-1"
+            persistentDaemonSlot: "ws-1",
+            relayPort: 64_007
         ).daemonTransportArguments(remotePath: "/remote/cmuxd-remote")
-        let expectedCommand = #"sh -c 'exec '"'"'/remote/cmuxd-remote'"'"' '"'"'serve'"'"' '"'"'--stdio'"'"' '"'"'--persistent'"'"' '"'"'--slot'"'"' '"'"'ws-1'"'"''"#
+        let expectedCommand = #"sh -c 'exec '"'"'/remote/cmuxd-remote'"'"' '"'"'serve'"'"' '"'"'--stdio'"'"' '"'"'--persistent'"'"' '"'"'--slot'"'"' '"'"'ws-1'"'"' '"'"'--persistent-lease-port'"'"' '"'"'64007'"'"''"#
         #expect(
             arguments == ["-T", "-o", "RemoteCommand=none"]
                 + expectedBatchArguments
                 + ["-o", "RequestTTY=no", "cmux-macmini", expectedCommand]
         )
+    }
+
+    @Test("daemonTransportArguments keeps persistent transport compatible without a relay lease")
+    func daemonTransportArgumentsWithoutPersistentLeasePort() {
+        let arguments = configuration(
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "ws-1"
+        ).daemonTransportArguments(remotePath: "/remote/cmuxd-remote")
+        #expect(arguments.last?.contains("--persistent-lease-port") == false)
     }
 
     @Test("daemonTransportArguments injects accept-new and drops control master options")
@@ -136,47 +147,105 @@ struct WorkspaceRemoteConfigurationSSHBatchCommandsTests {
         )
     }
 
-    @Test("reverseRelayControlMasterArguments full argv with a configured ControlPath")
+    @Test("reverseRelayControlMasterArguments uses the configured ControlPath")
     func reverseRelayControlMasterArguments() throws {
+        let configuration = configuration()
         let arguments = try #require(
-            configuration().reverseRelayControlMasterArguments(
+            configuration.reverseRelayControlMasterArguments(
                 controlCommand: "forward",
-                forwardSpec: "127.0.0.1:64007:127.0.0.1:54321"
+                forwardSpec: "127.0.0.1:64007:127.0.0.1:54321",
+                effectiveSSHOptions: configuration.sshOptions
             )
         )
         #expect(
             arguments == expectedBatchArguments
-                + ["-O", "forward", "-R", "127.0.0.1:64007:127.0.0.1:54321", "cmux-macmini"]
+                + [
+                    "-O", "forward",
+                    "-R", "127.0.0.1:64007:127.0.0.1:54321",
+                    "cmux-macmini",
+                ]
         )
     }
 
-    @Test("reverseRelayControlMasterCancelArguments full argv uses the remote listen port only")
-    func reverseRelayControlMasterCancelArguments() throws {
-        let arguments = try #require(
-            configuration().reverseRelayControlMasterCancelArguments(relayPort: 64007)
-        )
+    @Test("batch command reuses the supplied authenticated ControlPath")
+    func batchCommandUsesEffectiveControlPath() {
+        let effectiveOptions = [
+            "ControlMaster=auto",
+            "ControlPersist=600",
+            "ControlPath=/tmp/cmux-ssh-resolved",
+            "StrictHostKeyChecking=accept-new",
+        ]
+
         #expect(
-            arguments == expectedBatchArguments
-                + ["-O", "cancel", "-R", "127.0.0.1:64007", "cmux-macmini"]
+            configuration().batchSSHCommandArguments(
+                command: "printf relay-metadata",
+                effectiveSSHOptions: effectiveOptions
+            ) == [
+                "-T",
+                "-o", "RemoteCommand=none",
+                "-o", "ConnectTimeout=6",
+                "-o", "ServerAliveInterval=20",
+                "-o", "ServerAliveCountMax=2",
+                "-o", "BatchMode=yes",
+                "-o", "ControlMaster=no",
+                "-p", "2222",
+                "-i", "/Users/test/.ssh/id_ed25519",
+                "-o", "ControlPath=/tmp/cmux-ssh-resolved",
+                "-o", "StrictHostKeyChecking=accept-new",
+                "-o", "RequestTTY=no",
+                "cmux-macmini",
+                "printf relay-metadata",
+            ]
         )
     }
 
-    @Test("reverse relay requires a usable ControlPath")
+    @Test("resolved ControlPath replaces every unresolved option")
+    func resolvedControlPathReplacesTemplates() {
+        let resolved = configuration(
+            sshOptions: [
+                "StrictHostKeyChecking=accept-new",
+                "ControlPath=/tmp/cmux-ssh-%C",
+                "ControlPath=~/.ssh/ignored-%C",
+            ]
+        ).withResolvedSSHControlPath("/tmp/cmux-ssh-resolved")
+
+        #expect(resolved.sshOptions == [
+            "ControlPath=/tmp/cmux-ssh-resolved",
+            "StrictHostKeyChecking=accept-new",
+        ])
+    }
+
+    @Test("reverse relay ControlMaster commands require a usable ControlPath")
     func reverseRelayRequiresControlPath() {
         #expect(
             configuration(sshOptions: ["StrictHostKeyChecking=accept-new"])
                 .reverseRelayControlMasterArguments(
                     controlCommand: "forward",
-                    forwardSpec: "127.0.0.1:64007:127.0.0.1:54321"
+                    forwardSpec: "127.0.0.1:64007:127.0.0.1:54321",
+                    effectiveSSHOptions: ["StrictHostKeyChecking=accept-new"]
                 ) == nil
         )
         #expect(
             configuration(sshOptions: ["ControlPath=None"])
                 .reverseRelayControlMasterArguments(
                     controlCommand: "forward",
-                    forwardSpec: "127.0.0.1:64007:127.0.0.1:54321"
+                    forwardSpec: "127.0.0.1:64007:127.0.0.1:54321",
+                    effectiveSSHOptions: ["ControlPath=None"]
                 ) == nil
         )
-        #expect(configuration().reverseRelayControlMasterCancelArguments(relayPort: 0) == nil)
+        #expect(
+            configuration(sshOptions: [
+                "ControlMaster=no",
+                "ControlPath=~/.ssh/custom-%C",
+            ])
+                .reverseRelayControlMasterArguments(
+                    controlCommand: "forward",
+                    forwardSpec: "127.0.0.1:64007:127.0.0.1:54321",
+                    effectiveSSHOptions: [
+                        "ControlMaster=no",
+                        "ControlPath=~/.ssh/custom-%C",
+                    ]
+                ) == nil
+        )
     }
 }

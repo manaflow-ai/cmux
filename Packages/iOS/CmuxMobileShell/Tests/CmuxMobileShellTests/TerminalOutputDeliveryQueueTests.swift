@@ -42,6 +42,43 @@ import Testing
 }
 
 @MainActor
+@Test func staleStreamTerminationDoesNotUnregisterReplacementStream() async throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal"
+
+    let oldCollector = OutputCollector()
+    oldCollector.mount(store: store, surfaceID: surfaceID)
+    let oldMounted = try await pollUntil {
+        store.terminalOutputStreamTokensBySurfaceID[surfaceID] != nil
+    }
+    #expect(oldMounted)
+    let oldToken = try #require(store.terminalOutputStreamTokensBySurfaceID[surfaceID])
+
+    let currentCollector = OutputCollector()
+    currentCollector.mount(store: store, surfaceID: surfaceID)
+    let replacementMounted = try await pollUntil {
+        guard let token = store.terminalOutputStreamTokensBySurfaceID[surfaceID] else { return false }
+        return token != oldToken
+    }
+    #expect(replacementMounted)
+    let replacementToken = try #require(store.terminalOutputStreamTokensBySurfaceID[surfaceID])
+
+    oldCollector.unmount()
+    for _ in 0..<20 {
+        await Task.yield()
+    }
+
+    #expect(store.terminalOutputStreamTokensBySurfaceID[surfaceID] == replacementToken)
+    store.deliverTerminalBytes(Data("current".utf8), surfaceID: surfaceID)
+    let replacementReceivedOutput = try await pollUntil {
+        currentCollector.lines.contains("current")
+    }
+    #expect(replacementReceivedOutput)
+
+    currentCollector.unmount()
+}
+
+@MainActor
 @Test func terminalReplayBarrierDropsStalledBacklogAndInvalidatesOldAcks() async throws {
     let store = MobileShellComposite.preview()
     let surfaceID = "terminal"
@@ -350,7 +387,7 @@ import Testing
 }
 
 @MainActor
-@Test func terminalReplayBarrierStaysActiveAfterRetryExhaustionWithoutDroppedOutput() async throws {
+@Test func terminalReplayBarrierFailsOpenAfterRetryExhaustionWithoutDroppedOutput() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()
     let clock = TestClock()
@@ -370,30 +407,29 @@ import Testing
     let stalledChunk = try #require(await iterator.next())
     store.terminalOutputDidReset(surfaceID: surfaceID, streamToken: stalledChunk.streamToken)
 
-    let exhaustedRetries = await waitForReplayRequestCount(
-        router,
-        atLeast: replayCountAfterMount + 3
-    )
+    let exhaustedRetries = await waitForReplayRequestCount(router, atLeast: replayCountAfterMount + 3)
     #expect(exhaustedRetries, "reset replay should exhaust the initial request plus two retries")
 
     let failureSettled = await waitForReplayBarrierFailureToSettle {
         !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
     }
     #expect(failureSettled)
-    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil)
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
 
     let replayCountAfterExhaustion = await router.count(of: "mobile.terminal.replay")
-    let acceptedAfterExhaustion = store.deliverTerminalBytes(
+    #expect(store.deliverTerminalBytes(
         Data("live-after-exhausted-replay".utf8),
         surfaceID: surfaceID
-    )
-    #expect(acceptedAfterExhaustion == false)
+    ))
+    let liveChunk = try #require(await iterator.next())
+    #expect(String(data: liveChunk.data, encoding: .utf8) == "live-after-exhausted-replay")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: liveChunk.streamToken)
     #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle == true)
     let replayRestartedAfterExhaustion = await waitForReplayRequestCount(
         router,
         atLeast: replayCountAfterExhaustion + 1
     )
-    #expect(!replayRestartedAfterExhaustion, "dropped live output must not bypass the replay retry cap")
+    #expect(!replayRestartedAfterExhaustion, "fail-open live output must not restart an exhausted barrier replay")
 }
 
 @MainActor
@@ -478,7 +514,7 @@ import Testing
 }
 
 @MainActor
-@Test func genericReplayRequestReusesPreservedBarrierAfterRetryExhaustion() async throws {
+@Test func genericReplayRequestAfterRetryExhaustionUsesFreshUnbarrieredReplay() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()
     let clock = TestClock()
@@ -508,22 +544,19 @@ import Testing
         !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
     }
     #expect(failureSettled)
-    let preservedBarrierToken = try #require(store.terminalReplayBarrierTokensBySurfaceID[surfaceID])
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
 
     let replayCountAfterExhaustion = await router.count(of: "mobile.terminal.replay")
     await router.enqueueReplayTexts(["resync-replay"])
     store.requestTerminalReplay(surfaceID: surfaceID)
 
-    let genericReplayRequested = await waitForReplayRequestCount(
-        router,
-        atLeast: replayCountAfterExhaustion + 1
-    )
-    #expect(genericReplayRequested, "generic resync must not be blocked by a preserved barrier")
+    let genericReplayRequested = await waitForReplayRequestCount(router, atLeast: replayCountAfterExhaustion + 1)
+    #expect(genericReplayRequested, "generic resync must still work after fail-open clears the barrier")
 
     if genericReplayRequested {
         let replayChunk = try #require(await iterator.next())
         #expect(String(data: replayChunk.data, encoding: .utf8) == "resync-replay")
-        #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == preservedBarrierToken)
+        #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
         store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: replayChunk.streamToken)
         #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
     }
@@ -614,6 +647,15 @@ import Testing
         surfaceID: surfaceID
     )
     #expect(postResponseDropAccepted == false)
+    // The replay response has been yielded but its render application has not
+    // acknowledged the stream token yet. Do not launch a second replay while
+    // that queue entry is still in flight; terminalOutputDidProcess owns the
+    // follow-up decision once the exact chunk is visible.
+    let replayCountWhileChunkIsInFlight = await router.count(of: "mobile.terminal.replay")
+    let replayStartedBeforeAcknowledgement = await router.waitForReplayRequestStart(
+        after: replayCountWhileChunkIsInFlight
+    )
+    #expect(!replayStartedBeforeAcknowledgement)
 
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: retryReplayChunk.streamToken)
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: replayCountAfterMount + 3)
@@ -738,6 +780,86 @@ private func waitForReplayRequestCount(
     #expect(!vt.contains("old"))
 }
 
+@Test func terminalOutputQueuePreservesRevisionedRenderGridDeltaBases() throws {
+    var queue = TerminalOutputDeliveryQueue()
+    let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)
+    var first = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal",
+        stateSeq: 1,
+        renderEpoch: "epoch",
+        renderRevision: 2,
+        columns: 12,
+        rows: 2,
+        text: "first\nviewport",
+        full: false,
+        changedRows: [0, 1]
+    )
+    var second = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal",
+        stateSeq: 2,
+        renderEpoch: "epoch",
+        renderRevision: 3,
+        columns: 12,
+        rows: 2,
+        text: "second\nviewport",
+        full: false,
+        changedRows: [0, 1]
+    )
+    first.deltaBaseRenderRevision = 1
+    second.deltaBaseRenderRevision = 2
+
+    #expect(queue.enqueue(inFlight) == inFlight)
+    #expect(queue.enqueue(TerminalOutputDelivery(renderGrid: first, replaceable: true)) == nil)
+    #expect(queue.enqueue(TerminalOutputDelivery(renderGrid: second, replaceable: true)) == nil)
+
+    #expect(queue.pendingCount == 2)
+    #expect(queue.completeInFlight()?.sourceRenderGridFrame?.renderRevision == 2)
+    #expect(queue.completeInFlight()?.sourceRenderGridFrame?.renderRevision == 3)
+}
+
+@Test func terminalOutputQueueRequestsReplayBeforeRevisionedBacklogGrowsUnbounded() throws {
+    var queue = TerminalOutputDeliveryQueue()
+    let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)
+    #expect(queue.enqueue(inFlight) == inFlight)
+
+    for revision in 0...TerminalOutputDeliveryQueue.maxPendingDeliveries {
+        var frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+            surfaceID: "terminal",
+            stateSeq: UInt64(revision),
+            renderEpoch: "epoch",
+            renderRevision: UInt64(revision + 1),
+            columns: 12,
+            rows: 1,
+            text: "revision-\(revision)",
+            full: false,
+            changedRows: [0]
+        )
+        frame.deltaBaseRenderRevision = UInt64(revision)
+        #expect(queue.enqueue(TerminalOutputDelivery(renderGrid: frame, replaceable: true)) == nil)
+    }
+
+    #expect(queue.pendingCount == 0)
+    let overflowed = queue.takeOverflowed()
+    #expect(overflowed)
+    let consumed = queue.takeOverflowed()
+    #expect(!consumed)
+}
+
+@Test func terminalOutputQueueBoundsNonreplaceableBacklog() {
+    var queue = TerminalOutputDeliveryQueue()
+    #expect(queue.enqueue(TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)) != nil)
+
+    for index in 0...TerminalOutputDeliveryQueue.maxPendingDeliveries {
+        #expect(queue.enqueue(
+            TerminalOutputDelivery(bytes: Data("raw-\(index)".utf8), replaceable: false)
+        ) == nil)
+    }
+
+    #expect(queue.pendingCount == 0)
+    let overflowed = queue.takeOverflowed()
+    #expect(overflowed)
+}
+
 @Test func terminalOutputQueueDoesNotReplaceRenderGridSnapshotWithPolicyOnlyDelivery() throws {
     var queue = TerminalOutputDeliveryQueue()
     let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)
@@ -768,6 +890,39 @@ private func waitForReplayRequestCount(
     let vt = try #require(String(data: delivered.bytes, encoding: .utf8))
     #expect(vt.contains("snapshot"))
     #expect(queue.completeInFlight() == policyOnly)
+}
+
+@Test func terminalOutputQueueCoalescesAlternatingThemeAndViewportFrames() throws {
+    var queue = TerminalOutputDeliveryQueue()
+    let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)
+    let oldFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal",
+        stateSeq: 1,
+        columns: 12,
+        rows: 1,
+        text: "old"
+    )
+    let latestFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal",
+        stateSeq: 2,
+        columns: 12,
+        rows: 1,
+        text: "latest"
+    )
+    let latestTheme = TerminalOutputDelivery(theme: latestFrame)
+    let latestViewport = TerminalOutputDelivery(renderGrid: latestFrame, replaceable: true)
+
+    #expect(latestTheme.endSequence == nil)
+    #expect(queue.enqueue(inFlight) == inFlight)
+    #expect(queue.enqueue(TerminalOutputDelivery(theme: oldFrame)) == nil)
+    #expect(queue.enqueue(TerminalOutputDelivery(renderGrid: oldFrame, replaceable: true)) == nil)
+    #expect(queue.enqueue(latestTheme) == nil)
+    #expect(queue.enqueue(latestViewport) == nil)
+
+    #expect(queue.pendingCount == 2)
+    #expect(queue.completeInFlight() == latestTheme)
+    #expect(queue.completeInFlight() == latestViewport)
+    #expect(queue.completeInFlight() == nil)
 }
 
 @Test func terminalOutputQueuePreservesNonreplaceableBarriers() {

@@ -13,7 +13,7 @@ extension AuthCoordinator {
     /// neither restore nor make `shouldStartAutoLogin` skip the DEBUG
     /// auto-login — then run the normal existing-session check.
     func bootstrapSession() async {
-        if launch.clearStaleAuthOnLaunch {
+        if launch.shouldClearStoredSessionBeforePriming {
             await clearPersistedStackSession()
         }
         await checkExistingSession()
@@ -32,7 +32,7 @@ extension AuthCoordinator {
         // continues, so DEBUG auto-login credentials keep working on this
         // same launch. ``AuthCoordinator/start()`` clears the persisted
         // tokens (awaited) before the restore probe.
-        if launch.clearStaleAuthOnLaunch {
+        if launch.shouldClearStoredSessionBeforePriming {
             clearAuthState()
         }
 
@@ -90,18 +90,42 @@ extension AuthCoordinator {
         ))
     }
 
-    func checkExistingSession() async {
+    func checkExistingSession(retryOnStorageAvailable: Bool = true) async {
         if launch.clearAuthRequested { return }
-        // Coalesce overlapping runs (rapid foreground transitions): a second
-        // call while one is in flight would race coordinator-state writes
-        // (one run clearing while another re-validates the same stale token).
-        if isRevalidatingSession { return }
+        // Join overlapping runs so every foreground caller observes the same
+        // completed auth verdict before starting dependent network work.
+        if isRevalidatingSession {
+            await withCheckedContinuation { continuation in
+                guard isRevalidatingSession else {
+                    continuation.resume()
+                    return
+                }
+                sessionRevalidationWaiters.append(continuation)
+            }
+            return
+        }
         isRevalidatingSession = true
-        defer { isRevalidatingSession = false }
+        defer { completeSessionRevalidation() }
+        await checkExistingSessionBody(
+            retryOnStorageAvailable: retryOnStorageAvailable
+        )
+    }
+
+    private func checkExistingSessionBody(
+        retryOnStorageAvailable: Bool
+    ) async {
         let generation = sessionGeneration
         let storeWriteHighWater = tokenStoreWriteHighWater
 
         let cachedUser = loadCachedUser()
+        // The keychain token store (AfterFirstUnlock protection) becomes
+        // readable exactly once per boot, at the first unlock, and never
+        // regresses while this process lives; an unavailable report can only
+        // under-state readability. Snapshot before token reads so a first
+        // unlock that lands while the token probe is suspended cannot make a
+        // nil locked read look like a definitive empty store.
+        let tokenStorageWasAvailable = await isTokenStorageAvailable()
+        guard generation == sessionGeneration else { return }
         // accessToken() may refresh over the network; a sign-out can land
         // while these reads are parked, so bound the probe and re-check the
         // generation after. A timeout preserves the cached identity instead of
@@ -131,6 +155,7 @@ extension AuthCoordinator {
             sessionCache.setHasTokens(true)
             currentUser = fixtureUser
             isAuthenticated = true
+            publishAuthenticatedSessionIdentity()
             return
         }
 
@@ -155,6 +180,24 @@ extension AuthCoordinator {
             return
         }
 
+        if !tokenStorageWasAvailable {
+            authLog.info("Token storage unavailable during session restore; preserving cached session")
+            preserveCachedSessionAfterValidationFailure()
+            if retryOnStorageAvailable {
+                let tokenStorageIsAvailable = await isTokenStorageAvailable()
+                guard generation == sessionGeneration else { return }
+                if tokenStorageIsAvailable {
+                    // A protected-data notification can coalesce into this
+                    // in-flight restore. Retry exactly once when storage came
+                    // online mid-restore; tests may script oscillating
+                    // availability, while real protected data unlocks at most
+                    // once per process.
+                    await checkExistingSessionBody(retryOnStorageAvailable: false)
+                }
+            }
+            return
+        }
+
         if launch.includesDevAuth, let creds = debugCredentials {
             authLog.debug("Auto-login with persisted debug credentials")
             await performAutoLogin(creds, generation: generation, storeWriteHighWater: storeWriteHighWater)
@@ -162,6 +205,13 @@ extension AuthCoordinator {
         }
 
         clearAuthState(preservePendingCode: true)
+    }
+
+    private func completeSessionRevalidation() {
+        isRevalidatingSession = false
+        let waiters = sessionRevalidationWaiters
+        sessionRevalidationWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters { waiter.resume() }
     }
 
     /// Run the launch/dev auto-login, capturing the same staleness context as
@@ -212,7 +262,7 @@ extension AuthCoordinator {
             // republishing a session whose local tokens are already gone.
             guard generation == sessionGeneration else { return }
             if let user {
-                await applySignedInUser(user)
+                await applySignedInUser(user, publication: .revalidation)
                 return
             }
             authLog.info("Cached session validation returned no current user")

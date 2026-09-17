@@ -47,17 +47,25 @@ func browserOmnibarNormalizedModifierFlags(_ flags: NSEvent.ModifierFlags) -> NS
         .subtracting([.numericPad, .function, .capsLock])
 }
 
+/// Policy decisions shared by the window and text-input shortcut routers.
+enum ShortcutRoutingPolicy {
+    /// Returns whether a key-down event has Option as its only primary modifier.
+    /// Shift may still be present; Command and Control opt the event out of the
+    /// Option-text routing policy.
+    static func isOptionOnly(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown else { return false }
+        let normalizedFlags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
+        return normalizedFlags.contains(.option)
+            && !normalizedFlags.contains(.command)
+            && !normalizedFlags.contains(.control)
+    }
+}
+
 func shortcutRoutingShouldBypassForPrintableOptionText(
     event: NSEvent,
     textInputCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.textInputCharacter(forKeyCode:modifierFlags:)
 ) -> Bool {
-    guard event.type == .keyDown else { return false }
-    let normalizedFlags = ShortcutStroke.normalizedModifierFlags(from: event.modifierFlags)
-    guard normalizedFlags.contains(.option),
-          !normalizedFlags.contains(.command),
-          !normalizedFlags.contains(.control) else {
-        return false
-    }
+    guard ShortcutRoutingPolicy.isOptionOnly(event) else { return false }
 
     if shortcutRoutingTextIsPrintable(event.characters) {
         return true
@@ -85,7 +93,7 @@ func browserOmnibarShouldSubmitOnReturn(flags: NSEvent.ModifierFlags) -> Bool {
     return normalizedFlags == [] || normalizedFlags == [.shift]
 }
 
-func browserResponderHasMarkedText(_ responder: NSResponder?) -> Bool {
+func shortcutResponderHasMarkedText(_ responder: NSResponder?) -> Bool {
     guard let responder else { return false }
 
     // During IME composition, Return/Enter belongs to the text system so the
@@ -127,15 +135,16 @@ func shouldDispatchBrowserArrowViaFirstResponderKeyDown(
     guard (123...126).contains(keyCode) else { return false }
 
     let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
-
-    if normalizedFlags.isEmpty {
+    if normalizedFlags.isEmpty || normalizedFlags == [.shift] ||
+        normalizedFlags == [.option] || normalizedFlags == [.option, .shift] {
+        // Selection and word/paragraph navigation need WebKit's native defaults.
         return true
     }
-
-    // Keep modified arrow routing narrow to avoid stealing cmux shortcuts such
-    // as Cmd+Option+Arrow pane focus. Browser document editors own Cmd+Up/Down
-    // as trusted keyDown navigation to the start/end of the document.
-    return normalizedFlags == [.command] && (keyCode == 125 || keyCode == 126)
+    // Cmd+Option+Arrow remains reserved for cmux pane-focus shortcuts.
+    if normalizedFlags == [.command] {
+        return keyCode == 125 || keyCode == 126
+    }
+    return normalizedFlags == [.command, .shift]
 }
 
 func shouldDispatchBrowserOmnibarArrowViaFirstResponderKeyDown(
@@ -500,14 +509,16 @@ func focusedTerminalKeyRepairNeeded(
 func shouldRepairFocusedTerminalCommandEquivalentInputs(
     flags: NSEvent.ModifierFlags,
     responderIsWindow: Bool,
-    responderHasViableKeyRoutingOwner: Bool
+    responderHasViableKeyRoutingOwner: Bool,
+    responderMatchesPreferredKeyboardFocus: Bool
 ) -> Bool {
     let normalizedFlags = flags.intersection(.deviceIndependentFlagsMask)
     guard normalizedFlags.contains(.command) else { return false }
-    // Command shortcuts should only repair genuinely broken responder states.
-    // If another live view already owns first responder, let menu routing use
-    // that responder rather than retargeting to the selected terminal pane.
-    return responderIsWindow || !responderHasViableKeyRoutingOwner
+    // The caller filters foreign controls first. A live terminal responder is
+    // viable only for the pane whose preferred keyboard focus it matches.
+    return responderIsWindow
+        || !responderHasViableKeyRoutingOwner
+        || !responderMatchesPreferredKeyboardFocus
 }
 func shouldRouteTerminalFontZoomShortcutToGhostty(
     firstResponderIsGhostty: Bool,
@@ -541,7 +552,7 @@ func startOrFocusTerminalSearch(
         searchFocusNotifier(terminalSurface)
         return true
     }
-    if terminalSurface.performBindingAction("start_search") {
+    if terminalSurface.performExplicitInputBindingAction("start_search") {
         DispatchQueue.main.async { [weak terminalSurface] in
             guard let terminalSurface else { return }
             if let searchState = terminalSurface.searchState {
@@ -761,21 +772,64 @@ func shouldRouteInlineVSCodeCommandPaletteShortcutThroughWebContentFirst(
     return shortcutForAction(.commandPalette).matches(event: event)
 }
 
-func cmuxOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
+extension NSResponder {
+    /// Strict owner lookup for direct Ghostty responder chains, sidebar ownership,
+    /// and call sites that must not treat hosted surface descendants as Ghostty.
+    func cmuxStrictOwningGhosttyView() -> GhosttyNSView? {
+        cmuxOwningGhosttyView(for: self, includingHostedSurfaceDescendants: false)
+    }
+
+    /// Terminal focus lookup for AppKit responders hosted below
+    /// GhosttySurfaceScrollView, where keyboard focus still belongs to Ghostty.
+    func cmuxTerminalFocusOwningGhosttyView() -> GhosttyNSView? {
+        cmuxOwningGhosttyView(for: self, includingHostedSurfaceDescendants: true)
+    }
+
+    /// Terminal key-equivalent routing lookup; hosted surface descendants should
+    /// count as terminal-owned so app shortcuts can be repaired or forwarded.
+    func cmuxTerminalKeyEquivalentOwningGhosttyView() -> GhosttyNSView? {
+        cmuxTerminalFocusOwningGhosttyView()
+    }
+}
+
+extension Optional where Wrapped: NSResponder {
+    func cmuxStrictOwningGhosttyView() -> GhosttyNSView? {
+        self?.cmuxStrictOwningGhosttyView()
+    }
+
+    func cmuxTerminalFocusOwningGhosttyView() -> GhosttyNSView? {
+        self?.cmuxTerminalFocusOwningGhosttyView()
+    }
+
+    func cmuxTerminalKeyEquivalentOwningGhosttyView() -> GhosttyNSView? {
+        self?.cmuxTerminalKeyEquivalentOwningGhosttyView()
+    }
+}
+
+private func cmuxOwningGhosttyView(
+    for responder: NSResponder?,
+    includingHostedSurfaceDescendants: Bool
+) -> GhosttyNSView? {
     guard let responder else { return nil }
     if let ghosttyView = responder as? GhosttyNSView {
         return ghosttyView
     }
 
     if let view = responder as? NSView,
-       let ghosttyView = cmuxOwningGhosttyView(for: view) {
+       let ghosttyView = cmuxOwningGhosttyView(
+           for: view,
+           includingHostedSurfaceDescendants: includingHostedSurfaceDescendants
+       ) {
         return ghosttyView
     }
 
     if let textView = responder as? NSTextView {
         if textView.isFieldEditor,
            let ownerView = cmuxFieldEditorOwnerView(textView),
-           let ghosttyView = cmuxOwningGhosttyView(for: ownerView) {
+           let ghosttyView = cmuxOwningGhosttyView(
+               for: ownerView,
+               includingHostedSurfaceDescendants: includingHostedSurfaceDescendants
+           ) {
             return ghosttyView
         }
     }
@@ -786,10 +840,36 @@ func cmuxOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
             return ghosttyView
         }
         if let view = next as? NSView,
-           let ghosttyView = cmuxOwningGhosttyView(for: view) {
+           let ghosttyView = cmuxOwningGhosttyView(
+               for: view,
+               includingHostedSurfaceDescendants: includingHostedSurfaceDescendants
+           ) {
             return ghosttyView
         }
         current = next.nextResponder
+    }
+
+    return nil
+}
+
+private func cmuxOwningGhosttyView(
+    for view: NSView,
+    includingHostedSurfaceDescendants: Bool
+) -> GhosttyNSView? {
+    if let ghosttyView = view as? GhosttyNSView {
+        return ghosttyView
+    }
+
+    var current: NSView? = view.superview
+    while let candidate = current {
+        if let ghosttyView = candidate as? GhosttyNSView {
+            return ghosttyView
+        }
+        if includingHostedSurfaceDescendants,
+           let hostedView = candidate as? GhosttySurfaceScrollView {
+            return hostedView.surfaceView
+        }
+        current = candidate.superview
     }
 
     return nil
@@ -807,22 +887,6 @@ func cmuxFieldEditorOwnerView(_ editor: NSTextView) -> NSView? {
     }
 
     return editor.superview
-}
-
-private func cmuxOwningGhosttyView(for view: NSView) -> GhosttyNSView? {
-    if let ghosttyView = view as? GhosttyNSView {
-        return ghosttyView
-    }
-
-    var current: NSView? = view.superview
-    while let candidate = current {
-        if let ghosttyView = candidate as? GhosttyNSView {
-            return ghosttyView
-        }
-        current = candidate.superview
-    }
-
-    return nil
 }
 
 #if DEBUG
@@ -893,8 +957,7 @@ func shouldSuppressWindowMoveForFolderDrag(window: NSWindow, event: NSEvent) -> 
         return false
     }
 
-    let contentPoint = contentView.convert(event.locationInWindow, from: nil)
-    let hitView = contentView.hitTest(contentPoint)
+    let hitView = contentView.cmuxHitTest(windowPoint: event.locationInWindow)
     return shouldSuppressWindowMoveForFolderDrag(hitView: hitView)
 }
 

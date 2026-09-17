@@ -31,7 +31,7 @@ public struct SidebarDropPlanner {
         )
     }
 
-    func indicator(
+    public func indicator(
         draggedTabId: UUID?,
         targetTabId: UUID?,
         tabIds: [UUID],
@@ -60,6 +60,11 @@ public struct SidebarDropPlanner {
         } else {
             insertionPosition = tabIds.count
             proposedIndicator = SidebarDropIndicator(tabId: nil, edge: .bottom)
+        }
+
+        if let legalInsertionRange,
+           !legalInsertionRange.contains(insertionPosition) {
+            return nil
         }
 
         let legalInsertionPosition = legalInsertionPosition(
@@ -104,6 +109,11 @@ public struct SidebarDropPlanner {
             insertionPosition = (edge == .bottom) ? targetTabIndex + 1 : targetTabIndex
         } else {
             insertionPosition = tabIds.count
+        }
+
+        if let legalInsertionRange,
+           !legalInsertionRange.contains(insertionPosition) {
+            return fromIndex
         }
 
         let legalInsertionPosition = legalInsertionPosition(
@@ -217,7 +227,10 @@ public struct SidebarDropPlanner {
         }
     }
 
-    /// Returns whether sidebar rows should publish frame anchors for workspace drop targeting.
+    /// Returns whether the parent sidebar drop overlay should collect row frames.
+    ///
+    /// Row views must remain render-only: this gate feeds one parent-owned drop
+    /// destination rather than installing a validator on every row.
     public func shouldCollectWorkspaceDropTargets(
         draggedTabId: UUID?,
         isBonsplitWorkspaceDropActive: Bool = false

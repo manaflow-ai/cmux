@@ -9,7 +9,7 @@ extension SidebarGitMetadataService {
         panelId: UUID,
         reason: String
     ) {
-        guard host?.isRemoteWorkspace(workspaceId) == false else {
+        guard host?.shouldSkipLocalGitMetadata(workspaceId: workspaceId, panelId: panelId) != true else {
             return
         }
         scheduleWorkspaceGitMetadataRefreshIfPossible(
@@ -27,12 +27,13 @@ extension SidebarGitMetadataService {
         delays: [TimeInterval] = [0]
     ) {
         let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
-        guard sidebarGitMetadataWatchEnabled else {
+        guard let host else { return }
+        guard !host.shouldSkipLocalGitMetadata(workspaceId: workspaceId, panelId: panelId) else { return }
+        guard sidebarGitMetadataActivePollingEnabled else {
             clearWorkspaceGitMetadata(for: key)
             return
         }
-        guard let host,
-              host.panelExists(workspaceId: workspaceId, panelId: panelId),
+        guard host.panelExists(workspaceId: workspaceId, panelId: panelId),
               let directory = host.gitProbeDirectory(workspaceId: workspaceId, panelId: panelId) else {
             return
         }
@@ -281,6 +282,11 @@ extension SidebarGitMetadataService {
             didClearProbe = true
             return
         }
+        if host.shouldSkipLocalGitMetadata(workspaceId: probeKey.workspaceId, panelId: probeKey.panelId) {
+            clearWorkspaceGitProbeTracking(for: probeKey)
+            didClearProbe = true
+            return
+        }
 
         guard let currentDirectory = host.gitProbeDirectory(
             workspaceId: probeKey.workspaceId,
@@ -317,7 +323,6 @@ extension SidebarGitMetadataService {
             workspaceGitTrackedDirectoryByKey.removeValue(forKey: probeKey)
             stopWorkspaceGitMetadataWatcher(for: probeKey)
         }
-        updateWorkspaceGitMetadataFallbackTimer()
 
         let previousBranchState = host.panelGitBranch(
             workspaceId: probeKey.workspaceId,

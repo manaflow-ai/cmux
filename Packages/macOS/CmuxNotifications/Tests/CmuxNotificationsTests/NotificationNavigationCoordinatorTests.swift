@@ -10,13 +10,18 @@ import Testing
 private final class FakeStore: NotificationNavigationStoreReading {
     var orderedNotifications: [NotificationNavSnapshot] = []
     var workspaceUnreadIndicatorIds: Set<UUID> = []
+    var windowDockUnreadTargets: [WindowDockUnreadTarget] = []
     var manualUnreadTabs: Set<UUID> = []
     var restoredUnreadTabs: Set<UUID> = []
     private(set) var markedReadIds: [UUID] = []
+    private(set) var clearedWindowDockTargets: [WindowDockUnreadTarget] = []
 
     func hasManualUnread(forTabId tabId: UUID) -> Bool { manualUnreadTabs.contains(tabId) }
     func hasRestoredUnreadIndicator(forTabId tabId: UUID) -> Bool { restoredUnreadTabs.contains(tabId) }
     func markRead(id: UUID) { markedReadIds.append(id) }
+    func clearWindowDockUnread(_ target: WindowDockUnreadTarget) {
+        clearedWindowDockTargets.append(target)
+    }
 }
 
 /// Scriptable window resolver: an ordered target list for the unread jump.
@@ -54,39 +59,6 @@ private final class FakeUnreadTargeting: UnreadWorkspaceTargeting {
     }
 }
 
-/// Recording open router: scriptable success per window/fallback, plus an
-/// ordered log of which route was taken with what arguments. The log proves the
-/// sidebar-tabs-before-focus ordering is delegated to the app-side seam (the
-/// seam is the single place that write happens) and that the coordinator routes
-/// to the right window.
-@MainActor
-private final class FakeOpenRouting: NotificationOpenRouting {
-    var windowSucceeds = true
-    var fallbackSucceeds = true
-    var routedSucceeds = true
-    var titles: [UUID: String] = [:]
-    private(set) var log: [String] = []
-
-    func openRouted(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
-        log.append("routed(tab=\(short(tabId)),surf=\(short(surfaceId)),notif=\(short(notificationId)))")
-        return routedSucceeds
-    }
-
-    func openInWindow(windowId: UUID, tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
-        log.append("window(\(short(windowId)),tab=\(short(tabId)),surf=\(short(surfaceId)),notif=\(short(notificationId)))")
-        return windowSucceeds
-    }
-
-    func openInActiveWindowFallback(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
-        log.append("fallback(tab=\(short(tabId)),surf=\(short(surfaceId)),notif=\(short(notificationId)))")
-        return fallbackSucceeds
-    }
-
-    func tabTitle(forTabId tabId: UUID) -> String? { titles[tabId] }
-
-    private func short(_ id: UUID?) -> String { id.map { String($0.uuidString.prefix(4)) } ?? "nil" }
-}
-
 /// Recording click router: scriptable success plus a log of performed actions.
 @MainActor
 private final class FakeClickRouting: NotificationClickRouting {
@@ -121,11 +93,27 @@ private func makeCoordinator(
 private func snapshot(
     tabId: UUID,
     surfaceId: UUID? = nil,
+    panelId: UUID? = nil,
+    retargetsToLiveSurfaceOwner: Bool = true,
     isRead: Bool = false,
     clickAction: NotificationNavClickAction? = nil,
+    scrollRow: Int? = nil,
+    scrollTotalRows: Int? = nil,
+    scrollRowSpaceRevision: UInt64? = nil,
     id: UUID = UUID()
 ) -> NotificationNavSnapshot {
-    NotificationNavSnapshot(id: id, tabId: tabId, surfaceId: surfaceId, isRead: isRead, clickAction: clickAction)
+    NotificationNavSnapshot(
+        id: id,
+        tabId: tabId,
+        surfaceId: surfaceId,
+        panelId: panelId,
+        retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
+        isRead: isRead,
+        clickAction: clickAction,
+        scrollRow: scrollRow,
+        scrollTotalRows: scrollTotalRows,
+        scrollRowSpaceRevision: scrollRowSpaceRevision
+    )
 }
 
 // MARK: - Jump selection
@@ -150,7 +138,7 @@ struct NotificationNavigationCoordinatorTests {
         // Only the openable one was routed (the read one is skipped); it routes
         // through the full app-side `openNotification` (openRouted) with the
         // notification id, which marks read on success app-side.
-        #expect(openRouting.log == ["routed(tab=\(short(tabB)),surf=nil,notif=\(short(openable.id)))"])
+        #expect(openRouting.log == ["routed(tab=\(short(tabB)),surf=nil,notif=\(short(openable.id)),row=nil,total=nil)"])
     }
 
     @Test("jumpToLatestUnread skips notifications with a click action in the scan")
@@ -183,6 +171,140 @@ struct NotificationNavigationCoordinatorTests {
         #expect(openedId == next.id)
     }
 
+    // MARK: - Window Dock unread fallback
+
+    @Test("window Dock unread opens before workspace fallback and clears only its surface")
+    func windowDockUnreadOpensBeforeWorkspaceFallback() {
+        let store = FakeStore()
+        let windows = FakeWindows()
+        let unread = FakeUnreadTargeting()
+        let openRouting = FakeOpenRouting()
+        let target = WindowDockUnreadTarget(windowId: UUID(), surfaceId: UUID())
+        let workspaceID = UUID()
+        store.windowDockUnreadTargets = [target]
+        store.workspaceUnreadIndicatorIds = [workspaceID]
+        windows.orderedTargetsForUnreadJump = [
+            MainWindowTarget(windowId: UUID(), workspaceIds: [workspaceID]),
+        ]
+        let coordinator = makeCoordinator(
+            store: store,
+            windows: windows,
+            unreadTargeting: unread,
+            openRouting: openRouting
+        )
+
+        let openedID = coordinator.jumpToLatestUnread()
+
+        #expect(openedID == nil)
+        #expect(store.clearedWindowDockTargets == [target])
+        #expect(unread.clearedJumps.isEmpty)
+        #expect(openRouting.log == [
+            "windowDock(window=\(short(target.windowId)),surf=\(short(target.surfaceId)))",
+        ])
+    }
+
+    @Test("workspace exclusion does not suppress a sibling window Dock surface")
+    func workspaceExclusionDoesNotSuppressSiblingWindowDockSurface() {
+        let store = FakeStore()
+        let openRouting = FakeOpenRouting()
+        let windowID = UUID()
+        let focusedTarget = WindowDockUnreadTarget(
+            windowId: windowID,
+            surfaceId: UUID()
+        )
+        let siblingTarget = WindowDockUnreadTarget(
+            windowId: windowID,
+            surfaceId: UUID()
+        )
+        store.windowDockUnreadTargets = [focusedTarget, siblingTarget]
+        let coordinator = makeCoordinator(store: store, openRouting: openRouting)
+
+        _ = coordinator.jumpToLatestUnread(
+            excludingWorkspaceId: windowID,
+            excludingWindowDockTarget: focusedTarget
+        )
+
+        #expect(store.clearedWindowDockTargets == [siblingTarget])
+        #expect(openRouting.log == [
+            "windowDock(window=\(short(windowID)),surf=\(short(siblingTarget.surfaceId)))",
+        ])
+    }
+
+    @Test("mark-oldest skips both unread forms on the focused Dock surface")
+    func markOldestSkipsNotificationAndManualUnreadForFocusedDockSurface() {
+        let store = FakeStore()
+        let openRouting = FakeOpenRouting()
+        let focusedResolving = FakeFocusedResolving()
+        let windowID = UUID()
+        let focusedTarget = WindowDockUnreadTarget(
+            windowId: windowID,
+            surfaceId: UUID()
+        )
+        let siblingTarget = WindowDockUnreadTarget(
+            windowId: windowID,
+            surfaceId: UUID()
+        )
+        let focusedNotification = snapshot(
+            tabId: windowID,
+            surfaceId: focusedTarget.surfaceId
+        )
+        store.orderedNotifications = [focusedNotification]
+        store.windowDockUnreadTargets = [focusedTarget, siblingTarget]
+        focusedResolving.focusedTargetValue = .windowDock(focusedTarget)
+        focusedResolving.unreadWindowDockTargets = [focusedTarget]
+        focusedResolving.oldestUnreadIdByWindowDockTarget[focusedTarget] =
+            focusedNotification.id
+        let coordinator = makeCoordinator(
+            store: store,
+            openRouting: openRouting,
+            focusedResolving: focusedResolving
+        )
+
+        _ = coordinator.markFocusedNotificationAsOldestUnreadAndJumpToNextLatestUnread()
+
+        #expect(store.markedReadIds.isEmpty)
+        #expect(store.clearedWindowDockTargets == [siblingTarget])
+        #expect(openRouting.log == [
+            "windowDock(window=\(short(windowID)),surf=\(short(siblingTarget.surfaceId)))",
+        ])
+    }
+
+    @Test("failed window Dock unread open falls through without clearing it")
+    func failedWindowDockUnreadFallsThrough() {
+        let store = FakeStore()
+        let windows = FakeWindows()
+        let unread = FakeUnreadTargeting()
+        let openRouting = FakeOpenRouting()
+        let target = WindowDockUnreadTarget(windowId: UUID(), surfaceId: UUID())
+        let workspaceID = UUID()
+        let workspacePanelID = UUID()
+        let workspaceWindowID = UUID()
+        store.windowDockUnreadTargets = [target]
+        store.workspaceUnreadIndicatorIds = [workspaceID]
+        windows.orderedTargetsForUnreadJump = [
+            MainWindowTarget(
+                windowId: workspaceWindowID,
+                workspaceIds: [workspaceID]
+            ),
+        ]
+        unread.preferredPanelByWorkspace[workspaceID] = workspacePanelID
+        openRouting.windowDockSucceeds = false
+        let coordinator = makeCoordinator(
+            store: store,
+            windows: windows,
+            unreadTargeting: unread,
+            openRouting: openRouting
+        )
+
+        _ = coordinator.jumpToLatestUnread()
+
+        #expect(store.clearedWindowDockTargets.isEmpty)
+        #expect(openRouting.log == [
+            "windowDock(window=\(short(target.windowId)),surf=\(short(target.surfaceId)))",
+            "window(\(short(workspaceWindowID)),tab=\(short(workspaceID)),surf=\(short(workspacePanelID)),notif=nil,row=nil,total=nil)",
+        ])
+    }
+
     // MARK: - Workspace-unread fallback + flash/clear
 
     @Test("falls back to unread-workspace jump and clears unread, flashing when manual")
@@ -204,7 +326,7 @@ struct NotificationNavigationCoordinatorTests {
         let openedId = coordinator.jumpToLatestUnread()
 
         #expect(openedId == nil) // workspace-unread fallback returns nil notification id
-        #expect(openRouting.log == ["window(\(short(windowId)),tab=\(short(tab)),surf=\(short(panel)),notif=nil)"])
+        #expect(openRouting.log == ["window(\(short(windowId)),tab=\(short(tab)),surf=\(short(panel)),notif=nil,row=nil,total=nil)"])
         #expect(unread.flashedPanels == [.init(workspaceId: tab, panelId: panel)])
         #expect(unread.clearedJumps.count == 1)
         #expect(unread.clearedJumps.first?.0 == tab)
@@ -320,7 +442,7 @@ struct NotificationNavigationCoordinatorTests {
         let opened = coordinator.open(tabId: tab, surfaceId: surface, notificationId: notifId)
 
         #expect(opened)
-        #expect(openRouting.log == ["routed(tab=\(short(tab)),surf=\(short(surface)),notif=\(short(notifId)))"])
+        #expect(openRouting.log == ["routed(tab=\(short(tab)),surf=\(short(surface)),notif=\(short(notifId)),row=nil,total=nil)"])
     }
 
     @Test("openNotification without a click action routes through the app-side routed open")
@@ -334,7 +456,92 @@ struct NotificationNavigationCoordinatorTests {
 
         #expect(opened)
         #expect(click.performed.isEmpty)
-        #expect(openRouting.log == ["routed(tab=\(short(notif.tabId)),surf=\(short(notif.surfaceId)),notif=\(short(notif.id)))"])
+        #expect(openRouting.log == ["routed(tab=\(short(notif.tabId)),surf=\(short(notif.surfaceId)),notif=\(short(notif.id)),row=nil,total=nil)"])
+    }
+
+    @Test("openNotification routes captured scroll row for terminal notifications")
+    func openNotificationRoutesCapturedScrollRow() {
+        let openRouting = FakeOpenRouting()
+        let panelId = UUID()
+        let notif = snapshot(tabId: UUID(), surfaceId: UUID(), panelId: panelId, scrollRow: 42, scrollTotalRows: 100)
+        let coordinator = makeCoordinator(openRouting: openRouting)
+
+        let opened = coordinator.openNotification(notif)
+
+        #expect(opened)
+        #expect(openRouting.log == ["routed(tab=\(short(notif.tabId)),surf=\(short(notif.surfaceId)),panel=\(short(panelId)),notif=\(short(notif.id)),row=42,total=100)"])
+    }
+
+    @Test("openNotification preserves captured row-space revision")
+    func openNotificationPreservesCapturedRowSpaceRevision() {
+        let openRouting = FakeOpenRouting()
+        let notif = snapshot(
+            tabId: UUID(),
+            surfaceId: UUID(),
+            scrollRow: 42,
+            scrollTotalRows: 100,
+            scrollRowSpaceRevision: 7
+        )
+        let coordinator = makeCoordinator(openRouting: openRouting)
+
+        #expect(coordinator.openNotification(notif))
+        #expect(openRouting.receivedRowSpaceRevisions == [7])
+    }
+
+    @Test("source-confined notification navigation preserves its workspace boundary")
+    func sourceConfinedNotificationDoesNotEnableLiveRetargeting() {
+        let openRouting = FakeOpenRouting()
+        let notification = snapshot(
+            tabId: UUID(),
+            surfaceId: UUID(),
+            retargetsToLiveSurfaceOwner: false
+        )
+        let coordinator = makeCoordinator(openRouting: openRouting)
+
+        #expect(coordinator.openNotification(notification))
+        #expect(openRouting.routedRetargetingValues == [false])
+    }
+
+    @Test("openNotification by id preserves stored panel and scroll context")
+    func openNotificationByIdPreservesStoredContext() {
+        let store = FakeStore()
+        let openRouting = FakeOpenRouting()
+        let fallbackTabId = UUID()
+        let fallbackSurfaceId = UUID()
+        let panelId = UUID()
+        let notif = snapshot(tabId: UUID(), surfaceId: UUID(), panelId: panelId, scrollRow: 42, scrollTotalRows: 100)
+        store.orderedNotifications = [notif]
+        let coordinator = makeCoordinator(store: store, openRouting: openRouting)
+
+        let opened = coordinator.openNotification(
+            id: notif.id,
+            fallbackTabId: fallbackTabId,
+            fallbackSurfaceId: fallbackSurfaceId
+        )
+
+        #expect(opened)
+        #expect(openRouting.log == ["routed(tab=\(short(notif.tabId)),surf=\(short(notif.surfaceId)),panel=\(short(panelId)),notif=\(short(notif.id)),row=42,total=100)"])
+    }
+
+    @Test("openNotification by id falls back when stored notification is missing")
+    func openNotificationByIdFallsBackToUserInfoTarget() {
+        let store = FakeStore()
+        let openRouting = FakeOpenRouting()
+        let fallbackTabId = UUID()
+        let fallbackSurfaceId = UUID()
+        let notificationId = UUID()
+        let coordinator = makeCoordinator(store: store, openRouting: openRouting)
+
+        let opened = coordinator.openNotification(
+            id: notificationId,
+            fallbackTabId: fallbackTabId,
+            fallbackSurfaceId: fallbackSurfaceId,
+            fallbackRetargetsToLiveSurfaceOwner: false
+        )
+
+        #expect(opened)
+        #expect(openRouting.log == ["routed(tab=\(short(fallbackTabId)),surf=\(short(fallbackSurfaceId)),notif=\(short(notificationId)),row=nil,total=nil)"])
+        #expect(openRouting.routedRetargetingValues == [false])
     }
 
     // MARK: - Focus signal (the #if DEBUG recorder hook)

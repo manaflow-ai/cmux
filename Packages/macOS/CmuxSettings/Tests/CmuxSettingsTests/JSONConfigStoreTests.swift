@@ -63,9 +63,9 @@ struct JSONConfigStoreTests {
         let key = JSONKey<String>(id: "automation.socketPassword", defaultValue: "")
         let payload = #"{"automation":{"socketPassword":"injected"}}"#
 
-        // The observer Task owns its own iterator. It reports through a
-        // ready-stream the instant it consumes the initial ("") value, then keeps
-        // collecting until it sees the injected value.
+        // Ready-handshake, used by every observation test here: wait for the
+        // observer to consume the initial value before any external activity,
+        // so the first collected element never races the writer.
         let (ready, readyContinuation) = AsyncStream<Void>.makeStream()
         let observed = Task<[String], Never> {
             var collected: [String] = []
@@ -77,23 +77,11 @@ struct JSONConfigStoreTests {
             return collected
         }
 
-        // Wait for the observer to consume the initial value before any external
-        // write, so the first collected element is deterministically "" rather
-        // than racing a writer that could land "injected" before the initial read.
         await withTimeout(seconds: 8) {
             var it = ready.makeAsyncIterator()
             _ = await it.next()
         }
 
-        // The producer yields that initial value just before it finishes
-        // registering the subscriber on the actor, so the first filesystem event
-        // can still race that registration. Instead of betting a single
-        // wall-clock sleep, run a concurrent writer that re-applies the same
-        // external edit on a loop, bumping the file's modification date each pass.
-        // Each re-touch produces a fresh DispatchSource event that is delivered
-        // once the watcher is armed. The bytes (and thus the asserted value) are
-        // identical every pass, so this only closes the readiness race without
-        // weakening the assertion.
         let writer = Task {
             var bump = Date()
             while !Task.isCancelled {
@@ -175,21 +163,5 @@ struct JSONConfigStoreTests {
         try await store.reset(catalog.app.devWindowDisplay)
         #expect(store.snapshotValue(for: catalog.app.devWindowDisplay) == "")
     }
-}
 
-private func withTimeout<T: Sendable>(seconds: Double, _ work: @escaping @Sendable () async -> T) async -> T {
-    await withTaskGroup(of: T?.self) { group in
-        group.addTask { await work() }
-        group.addTask {
-            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-            return nil
-        }
-        for await result in group {
-            if let result {
-                group.cancelAll()
-                return result
-            }
-        }
-        fatalError("timed out without producing a value")
-    }
 }

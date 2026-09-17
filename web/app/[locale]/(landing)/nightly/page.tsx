@@ -1,6 +1,7 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import { buildAlternates } from "@/i18n/seo";
+import { buildAlternates, openGraphDefaults, twitterSummary } from "@/i18n/seo";
+import { landingPageSeoCopy } from "@/i18n/audited-seo";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 
 export async function generateMetadata({
@@ -10,15 +11,33 @@ export async function generateMetadata({
 }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "nightly" });
+  const siteMeta = await getTranslations({ locale, namespace: "meta" });
+  const alternates = buildAlternates(locale, "/nightly");
+  const { title, description } = landingPageSeoCopy(
+    locale,
+    t,
+    siteMeta,
+    {
+      complete: ["description", "subtitle"],
+      context: ["title"],
+    },
+  );
   return {
-    title: t("metaTitle"),
-    description: t("metaDescription"),
-    alternates: buildAlternates(locale, "/nightly"),
+    title,
+    description,
+    alternates,
+    openGraph: {
+      ...openGraphDefaults(locale, "website"),
+      title,
+      description,
+      url: alternates.canonical,
+    },
+    twitter: twitterSummary(locale, title, description),
   };
 }
 
 const linkClass =
-  "underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors";
+  "underline underline-offset-2 decoration-link-underline hover:decoration-foreground transition-colors";
 
 export default function NightlyPage() {
   const t = useTranslations("nightly");

@@ -26,6 +26,162 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
+  "0.64.25": {
+    title: "SSH Workspaces Connect Again, Steady Agent Layouts, Light Mode Terminals",
+    features: [
+      {
+        title: "SSH Workspaces Connect Again",
+        description:
+          "Released builds ship a checksum-verified cmuxd-remote again, so SSH workspaces bootstrap on macOS and Linux hosts. A session that cannot become ready reports an actionable error within 60 seconds instead of sitting at Last login, terminals keep raw input across reconnects, and new splits open in the remote directory.",
+      },
+      {
+        title: "Steady Agent Layouts",
+        description:
+          "Agents resumed with cmux restore or cmux fork receive terminal resizes again, so their layout no longer garbles after a restore. Images dropped or pasted into a terminal stay on disk long enough for Claude Code and Codex to read them.",
+      },
+      {
+        title: "Light Mode Terminals",
+        description:
+          "A terminal no longer reloads its dark theme after macOS switches to light, and Light applies the light palette when the Ghostty config sets only a font, keybinding, or opacity.",
+      },
+    ],
+  },
+  "0.64.24": {
+    title: "Reliable Codex Resumes, Account Switching, Cloud CLI Compatibility",
+    features: [
+      {
+        title: "Reliable Codex Resumes",
+        description:
+          "Codex --yolo no longer calls a missing helper or replays a restore command after repeated resume cycles, keeping the active session identity attached to the right terminal.",
+      },
+      {
+        title: "Switch CLI Accounts",
+        description:
+          "The CLI authorization page can sign out the current browser account and return to sign-in with the original confirmation code intact.",
+      },
+      {
+        title: "Cloud CLI Compatibility",
+        description:
+          "Cloud terminal sessions accept the workspace-close syntax used by the in-terminal CLI while preserving routing, JSON output, revision fences, and idempotency.",
+      },
+    ],
+  },
+  "0.64.23": {
+    title: "Vault Search and Checkpoints, Inline Notification Replies, Nine Languages",
+    features: [
+      {
+        title: "Vault Search, Checkpoints, and Fork",
+        description:
+          "Every agent session lands in a recency-first Vault with day sections and filters, search with agent:, repo:, ws:, before:, and after: operators, and checkpoints you can fork from for Claude Code, Codex, Pi, and Grok, in the app or through cmux vault and cmux fork.",
+      },
+      {
+        title: "Reply to Agents from Notifications",
+        description:
+          "Answer an agent straight from the macOS banner or the iPhone Lock Screen: type a reply on turn-complete and idle notifications, pick an option on AskUserQuestion banners, or send a revision on exit-plan banners. Automations, agent-event context for notification hooks, and per-agent sounds round out the pipeline.",
+      },
+      {
+        title: "cmux in Nine Languages",
+        description:
+          "The macOS app is fully localized in German, French, Spanish, Arabic, Korean, Simplified and Traditional Chinese, and Japanese alongside English.",
+      },
+      {
+        title: "More Agents, More Shells",
+        description:
+          "Amp and Hermes join Claude Code, Codex, Pi, and Grok as first-class agents with auto-resume, notifications, and Vault history, Cursor approvals show up as Needs input, and Nushell gets shell integration and session resume.",
+      },
+      {
+        title: "Stability and Performance",
+        description:
+          "Workspace switching no longer ghosts or hangs, idle CPU burn from logging and git watchers is gone, terminals in hidden windows release about 40 MB each, persistent SSH reconnects survive sleep and network changes, and Google Sheets no longer pins a core.",
+      },
+      {
+        title: "cmux on iPhone (beta)",
+        description:
+          "Each Computer picks its own connection method with an honest Tailscale Only mode, Simulator panes stream as low-latency video with touch forwarding, the Task Composer keeps drafts and attachments, and workspaces sort, group, and reconnect quietly. Current iOS builds need cmux 0.64.23 on the Mac.",
+      },
+    ],
+  },
+  "0.64.21": {
+    title: "Simulator Panes, Mosh Transport, Idle CPU Reclaimed",
+    features: [
+      {
+        title: "Native Simulator Panes",
+        description:
+          "Run iPhone and iPad Simulators as first-class cmux panes, rendered crisply at real size, with their own commands and automation so an agent can drive the simulator next to the terminal that built it.",
+      },
+      {
+        title: "Mosh for Remote Workspaces",
+        description:
+          "Remote workspaces can use Mosh instead of plain SSH, so a laptop that sleeps, changes networks, or loses Wi-Fi picks the session back up instead of dropping it.",
+      },
+      {
+        title: "Idle CPU and Memory Reclaimed",
+        description:
+          "Leaked openThread loops that burned about 90% of cmux idle CPU are gone, hidden Ghostty renderers release their memory, workspace switching no longer freezes the renderer, and idle background agents hibernate under critical memory pressure.",
+      },
+      {
+        title: "Navigation and Restore",
+        description:
+          "Cmd+Shift+T reopens the last closed item, Cmd+[ and Cmd+] walk global workspace focus history, surfaces move between panes with automatic directional splits, and Dock panes, workspace IDs, and per-tab terminal zoom all survive a restart.",
+      },
+      {
+        title: "cmux on iPhone (beta)",
+        description:
+          "Stream Mac browser panes to the phone interactively, follow a chronological notification feed, launch agent workspaces from the task composer, and scroll terminals locally on screen-anchored render grids over a rebuilt peer-to-peer transport.",
+      },
+    ],
+  },
+  "0.64.20": {
+    title: "Native AppKit Sidebar, Browser Design Mode, TUI Mouse Forwarding",
+    features: [
+      {
+        title: "Native AppKit Sidebar",
+        description:
+          "The workspace sidebar is rebuilt on native AppKit rows and is now on by default: faster scrolling in large workspace lists, precise hover and selection, and full fidelity with your sidebar settings.",
+      },
+      {
+        title: "Browser Design Mode",
+        description:
+          "Visually edit pages inside the browser pane, annotate elements, and hand the annotated changes straight to an agent to implement.",
+      },
+      {
+        title: "Mouse Input for TUI Apps",
+        description:
+          "cmux now forwards mouse input to TUI applications running in the terminal, so tools that own the pointer respond to clicks, drags, and scrolls as expected.",
+      },
+      {
+        title: "Stability and Performance",
+        description:
+          "Codex YOLO mode and Pi sessions survive restore, typing latency from title churn is fixed, sidebar scroll livelocks and popover resize crashes are gone, and remote ssh-tmux panes size and focus correctly.",
+      },
+    ],
+  },
+  "0.64.18": {
+    title:
+      "Saved Workspace Layouts, Fork Conversation, Per-Monitor Window Memory",
+    features: [
+      {
+        title: "Saved Workspace Layouts",
+        description:
+          "Capture the current split arrangement as a named layout, reopen it from the new-workspace menu anytime, and set a default layout that every new workspace starts from.",
+      },
+      {
+        title: "Fork Conversation",
+        description:
+          "Right-click an agent terminal to fork the conversation into a new split, tab, or workspace, so you can explore a tangent without losing the original session.",
+      },
+      {
+        title: "Per-Monitor Window Memory",
+        description:
+          "cmux remembers window position and size per monitor configuration and refits windows when displays change, so docking and undocking a laptop no longer scrambles your setup.",
+      },
+      {
+        title: "Stability and Performance",
+        description:
+          "A coordinated memory-pressure response with automatic scrollback compression, fixes for macOS 27 launch crashes and SSH panes dying after sleep, runaway scrolling with high-resolution mice, and a Sparkle update that no longer kills running agents on macOS 26.",
+      },
+    ],
+  },
   "0.64.17": {
     title:
       "Global Font Magnification, Remote tmux Mirroring, Diff Viewer Branch Picker",
