@@ -1,0 +1,293 @@
+import Testing
+@testable import CmuxMobileSupport
+
+/// Host-testable coverage for the dictation text-merge and the state machine's
+/// pure transitions. The Speech / AVFoundation engine wiring is iOS-only and not
+/// host-compilable, so it is exercised only on device / simulator.
+@Suite struct ComposerDictationTests {
+    private let textMerger = ComposerDictationTextMerger()
+
+    // MARK: - Text merge
+
+    @Test func mergeAppendsTranscriptToEmptyBase() {
+        #expect(textMerger.merged(base: "", transcript: "hello world") == "hello world")
+    }
+
+    @Test func mergeInsertsSeparatingSpaceAfterNonWhitespaceBase() {
+        #expect(textMerger.merged(base: "hello", transcript: "world") == "hello world")
+    }
+
+    @Test func mergePreservesTrailingWhitespaceWithoutDoubling() {
+        // Base already ends in a space; do not add a second one.
+        #expect(textMerger.merged(base: "hello ", transcript: "world") == "hello world")
+    }
+
+    @Test func mergeTrimsLeadingTranscriptWhitespace() {
+        #expect(textMerger.merged(base: "hello", transcript: "   world") == "hello world")
+    }
+
+    @Test func mergeEmptyTranscriptKeepsBaseUnchanged() {
+        // A partial may briefly be empty; the user's pre-typed text must survive.
+        #expect(textMerger.merged(base: "draft ", transcript: "") == "draft ")
+        #expect(textMerger.merged(base: "draft", transcript: "   ") == "draft")
+    }
+
+    @Test func mergePreservesBaseVerbatim() {
+        // The base is appended to, never rewritten: punctuation and casing stay.
+        let base = "TODO: ship it,"
+        #expect(textMerger.merged(base: base, transcript: "then rest") == "TODO: ship it, then rest")
+    }
+
+    @Test func mergeIsIdempotentAcrossGrowingPartials() {
+        // Successive partials always replace the tail, so the base is never
+        // duplicated as the transcript grows.
+        let base = "note: "
+        #expect(textMerger.merged(base: base, transcript: "buy") == "note: buy")
+        #expect(textMerger.merged(base: base, transcript: "buy milk") == "note: buy milk")
+        #expect(textMerger.merged(base: base, transcript: "buy milk today") == "note: buy milk today")
+    }
+
+    @Test func mergeEmptyBaseEmptyTranscriptIsEmpty() {
+        #expect(textMerger.merged(base: "", transcript: "") == "")
+    }
+
+    // MARK: - State machine
+
+    @Test func idleCanStartAndIsNotListening() {
+        let state = ComposerDictationState.idle
+        #expect(state.canStart)
+        #expect(!state.isListening)
+    }
+
+    @Test func listeningIsListeningButCannotStart() {
+        let state = ComposerDictationState.listening
+        #expect(state.isListening)
+        #expect(!state.canStart)
+    }
+
+    @Test func transientStatesRejectStart() {
+        #expect(!ComposerDictationState.requestingPermission.canStart)
+        #expect(!ComposerDictationState.stopping.canStart)
+    }
+
+    @Test func unavailableRejectsStartAndIsNotListening() {
+        let state = ComposerDictationState.unavailable
+        #expect(!state.canStart)
+        #expect(!state.isListening)
+    }
+
+    @Test func onlyRequestingPermissionCanCancelPendingStart() {
+        // A second tap while authorization is resolving cancels the pending start;
+        // every other state ignores cancellation (it has nothing to abort).
+        #expect(ComposerDictationState.requestingPermission.canCancelPendingStart)
+        #expect(!ComposerDictationState.idle.canCancelPendingStart)
+        #expect(!ComposerDictationState.listening.canCancelPendingStart)
+        #expect(!ComposerDictationState.stopping.canCancelPendingStart)
+        #expect(!ComposerDictationState.unavailable.canCancelPendingStart)
+    }
+
+    @Test func cancelAndStartAreMutuallyExclusivePerState() {
+        // A tap resolves to exactly one of start / cancel / neither, never both, so
+        // toggle's branching is unambiguous in every state.
+        for state in [
+            ComposerDictationState.idle,
+            .requestingPermission,
+            .listening,
+            .stopping,
+            .unavailable,
+        ] {
+            #expect(!(state.canStart && state.canCancelPendingStart))
+        }
+    }
+
+    // MARK: - Graceful stop vs hard cancel
+
+    @Test func onlyListeningCanFinalizeGracefully() {
+        // A graceful stop finalizes only a live session; from any other state the
+        // controller hard-cancels instead, so there is no live task to await.
+        #expect(ComposerDictationState.listening.canFinalize)
+        #expect(!ComposerDictationState.idle.canFinalize)
+        #expect(!ComposerDictationState.requestingPermission.canFinalize)
+        #expect(!ComposerDictationState.stopping.canFinalize)
+        #expect(!ComposerDictationState.unavailable.canFinalize)
+    }
+
+    @Test func stoppingIsTheOnlyFinalizingWaitState() {
+        // `.stopping` marks the transient wait for the final result; it is neither
+        // capturing (`isListening`) nor accepting a new start (`canStart`).
+        #expect(ComposerDictationState.stopping.isStopping)
+        #expect(!ComposerDictationState.stopping.isListening)
+        #expect(!ComposerDictationState.stopping.canStart)
+        for state in [
+            ComposerDictationState.idle,
+            .requestingPermission,
+            .listening,
+            .unavailable,
+        ] {
+            #expect(!state.isStopping)
+        }
+    }
+
+    @Test func finalizeAndStartAreMutuallyExclusivePerState() {
+        // A state is never both ready to start a fresh session and ready to
+        // finalize a live one, so the graceful-stop and start paths never collide.
+        for state in [
+            ComposerDictationState.idle,
+            .requestingPermission,
+            .listening,
+            .stopping,
+            .unavailable,
+        ] {
+            #expect(!(state.canStart && state.canFinalize))
+        }
+    }
+
+    // MARK: - Field lock (dictation owns the text)
+
+    @Test func dictationLocksFieldFromRequestingPermissionThroughStopping() {
+        // The field must lock the moment dictation commits to starting — including
+        // `.requestingPermission`, where the engine spins up off-main (~100-300ms,
+        // issue #6284). Locking that window closes the edit-loss race: any text
+        // typed during spin-up would not be in the captured base, so the first
+        // partial (base + transcript) would clobber it. `.listening` (partials
+        // streaming) and `.stopping` (final pending) keep the lock held.
+        #expect(ComposerDictationState.requestingPermission.locksComposerField)
+        #expect(ComposerDictationState.listening.locksComposerField)
+        #expect(ComposerDictationState.stopping.locksComposerField)
+    }
+
+    @Test func dictationLeavesFieldEditableWhenNotActive() {
+        // Idle (no session) and unavailable (denied/unsupported) both leave the
+        // field editable: no callback will overwrite the user's text.
+        #expect(!ComposerDictationState.idle.locksComposerField)
+        #expect(!ComposerDictationState.unavailable.locksComposerField)
+    }
+
+    @Test func fieldLockMatchesDictationOwnership() {
+        // The lock holds for exactly the states where a recognition callback can
+        // (or is imminently about to) rewrite the field: requestingPermission
+        // (engine spinning up), listening (streaming partials), stopping (awaiting
+        // the final). Idle and unavailable leave the field free.
+        for state in [
+            ComposerDictationState.idle,
+            .requestingPermission,
+            .listening,
+            .stopping,
+            .unavailable,
+        ] {
+            let locks = state == .requestingPermission || state == .listening || state == .stopping
+            #expect(state.locksComposerField == locks)
+        }
+    }
+
+    @Test func canStartImpliesFieldUnlocked() {
+        // A startable state is never a locked state: the user can always edit a
+        // field from which dictation can be (re)started, and dictation only locks
+        // once it actually owns the text.
+        for state in [
+            ComposerDictationState.idle,
+            .requestingPermission,
+            .listening,
+            .stopping,
+            .unavailable,
+        ] {
+            if state.canStart {
+                #expect(!state.locksComposerField)
+            }
+        }
+    }
+
+    @Test func gracefulStopFinalizesOnlyFromListening() {
+        // Mirrors the controller's `stop()` branch: a graceful stop finalizes from
+        // `.listening` and otherwise falls back to a hard cancel (which finalizes
+        // from no state). The two paths partition the states with no overlap.
+        for state in [
+            ComposerDictationState.idle,
+            .requestingPermission,
+            .listening,
+            .stopping,
+            .unavailable,
+        ] {
+            let takesGracefulPath = state.canFinalize
+            #expect(takesGracefulPath == (state == .listening))
+        }
+    }
+
+    // MARK: - Async engine-start supersession (issue #6284)
+
+    @Test func startDispositionAppliesForCurrentAttemptWhileRequestingPermission() {
+        // The engine-ready callback for the in-flight attempt, still awaiting the
+        // engine in `.requestingPermission`, applies: create the recognition task
+        // and move to `.listening`.
+        #expect(
+            ComposerDictationState.requestingPermission.startDisposition(
+                callbackToken: 7,
+                currentToken: 7
+            ) == .apply
+        )
+    }
+
+    @Test func startDispositionDiscardsWhenTokenSuperseded() {
+        // A second mic tap, a send, or a navigation during the ~100-300ms off-main
+        // engine spin-up bumps the token. The stale callback must be discarded so
+        // it cannot drive the UI into `.listening` for an abandoned session — and
+        // so it does not double-start the engine.
+        #expect(
+            ComposerDictationState.requestingPermission.startDisposition(
+                callbackToken: 7,
+                currentToken: 8
+            ) == .discardStale
+        )
+    }
+
+    @Test func startDispositionDiscardsWhenNoLongerRequestingPermission() {
+        // Even with a matching token, a state that already left
+        // `.requestingPermission` means the callback is stale: the controller
+        // already moved on (listening, or torn down to idle/unavailable/stopping)
+        // and must not re-apply.
+        for state in [
+            ComposerDictationState.idle,
+            .listening,
+            .stopping,
+            .unavailable,
+        ] {
+            #expect(
+                state.startDisposition(callbackToken: 3, currentToken: 3) == .discardStale
+            )
+        }
+    }
+
+    @Test func startDispositionDiscardsWhenBothTokenAndStateMoved() {
+        // The common abandon case: the token advanced AND the state settled back to
+        // idle. Still stale; the superseding teardown owns the engine cleanup.
+        #expect(
+            ComposerDictationState.idle.startDisposition(
+                callbackToken: 1,
+                currentToken: 2
+            ) == .discardStale
+        )
+    }
+
+    @Test func startDispositionAppliesOnlyForTheSingleCurrentRequestingAttempt() {
+        // Exhaustive partition: across a small token window and every state, the
+        // callback applies for EXACTLY one combination — token matches AND state is
+        // `.requestingPermission` — and is discarded for all others. This is what
+        // guarantees at most one engine-ready callback ever transitions to
+        // listening, no matter how the user taps during spin-up.
+        let allStates: [ComposerDictationState] = [
+            .idle, .requestingPermission, .listening, .stopping, .unavailable,
+        ]
+        for callbackToken in 0...3 {
+            for currentToken in 0...3 {
+                for state in allStates {
+                    let disposition = state.startDisposition(
+                        callbackToken: callbackToken,
+                        currentToken: currentToken
+                    )
+                    let shouldApply = callbackToken == currentToken && state == .requestingPermission
+                    #expect(disposition == (shouldApply ? .apply : .discardStale))
+                }
+            }
+        }
+    }
+}

@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 struct CmuxCLIPathInstaller {
@@ -294,13 +295,15 @@ struct CmuxCLIPathInstaller {
     ) {
         group.enter()
         pipe.fileHandleForReading.readabilityHandler = { fileHandle in
-            let data = fileHandle.availableData
-            guard !data.isEmpty else {
+            switch fileHandle.readAvailableDataOrEndOfFile() {
+            case .data(let data):
+                buffer.append(data)
+            case .wouldBlock:
+                return
+            case .endOfFile:
                 fileHandle.readabilityHandler = nil
                 group.leave()
-                return
             }
-            buffer.append(data)
         }
     }
 

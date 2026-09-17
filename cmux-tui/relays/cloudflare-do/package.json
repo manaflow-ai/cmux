@@ -1,0 +1,16 @@
+{
+  "name": "cmux-cloudflare-relay",
+  "private": true,
+  "scripts": {
+    "build": "worker-build --release --no-panic-recovery",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "4.118.0"
+  },
+  "overrides": {
+    "sharp": "0.35.3",
+    "undici": "7.29.0"
+  }
+}

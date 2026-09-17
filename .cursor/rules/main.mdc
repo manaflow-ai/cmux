@@ -1,0 +1,8 @@
+---
+description: cmux engineering rules — read the full ruleset from CLAUDE.md
+alwaysApply: true
+---
+
+See [CLAUDE.md](mdc:CLAUDE.md) at the repository root for the complete engineering ruleset, including package architecture, file organization, documentation, test framework, and other policies. Apply all guidance from CLAUDE.md when working in this repository.
+
+@CLAUDE.md

@@ -1,4 +1,7 @@
+import CMUXAgentLaunch
+import CmuxTerminal
 import Foundation
+import CmuxCore
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -83,6 +86,10 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         let autoResumeInput = autoResumePanel.surface.debugInitialInputMetadata()
         XCTAssertTrue(autoResumeInput.hasInitialInput)
         XCTAssertGreaterThan(autoResumeInput.byteCount, 0)
+        try assertAgentAutoResumeUsesRestoreVerb(
+            autoResumePanel,
+            sessionID: "codex-auto-resume-disabled-session"
+        )
 
         defaults.set(false, forKey: key)
         let restoredWithoutAutoResume = Workspace()
@@ -92,6 +99,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         let disabledInput = disabledPanel.surface.debugInitialInputMetadata()
         XCTAssertFalse(disabledInput.hasInitialInput)
         XCTAssertEqual(disabledInput.byteCount, 0)
+        XCTAssertNil(disabledPanel.surface.debugInitialCommand())
         XCTAssertEqual(
             restoredWithoutAutoResume.sessionSnapshot(includeScrollback: false)
                 .panels.first?.terminal?.agent?.sessionId,
@@ -142,6 +150,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
 
             XCTAssertFalse(restoredInput.hasInitialInput,
                            "must not auto-resume when agent was already exited at snapshot time")
+            XCTAssertNil(restoredPanel.surface.debugInitialCommand())
             XCTAssertEqual(
                 restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent?.sessionId,
                 "codex-exited-before-snapshot-session",
@@ -178,9 +187,155 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
             let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
             let restoredInput = restoredPanel.surface.debugInitialInputMetadata()
 
-            XCTAssertTrue(restoredInput.hasInitialInput,
-                          "must auto-resume when agent was running at snapshot time and setting is enabled")
+            XCTAssertTrue(restoredInput.hasInitialInput)
             XCTAssertGreaterThan(restoredInput.byteCount, 0)
+            try assertAgentAutoResumeUsesRestoreVerb(
+                restoredPanel,
+                sessionID: "codex-running-at-snapshot-session"
+            )
+            XCTAssertEqual(
+                restored.restoredAgentResumeStatesByPanelId[restoredPanelId],
+                .awaitingAutoResumeCommand
+            )
+
+            restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
+            XCTAssertEqual(
+                restored.restoredAgentResumeStatesByPanelId[restoredPanelId],
+                .autoResumeCommandRunning
+            )
+
+            restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .promptIdle)
+            XCTAssertNil(restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent)
+        }
+    }
+
+    @MainActor
+    func testRemoteWorkspaceAutoResumeKeepsRemoteStartupCommand() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) // autoResumeAgentSessions = true (default)
+
+            let source = Workspace()
+            let remoteCommand = "ssh cmux-macmini"
+            let expectedRestoredRemoteCommand = "/usr/bin/ssh -tt cmux-macmini"
+            source.configureRemoteConnection(
+                WorkspaceRemoteConfiguration(
+                    destination: "cmux-macmini",
+                    port: nil,
+                    identityFile: nil,
+                    sshOptions: [],
+                    localProxyPort: nil,
+                    relayPort: 64000,
+                    relayID: "relay-auto-resume-remote",
+                    relayToken: String(repeating: "a", count: 64),
+                    localSocketPath: "/tmp/cmux-auto-resume-remote.sock",
+                    terminalStartupCommand: remoteCommand
+                ),
+                autoConnect: false
+            )
+            let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+            let remoteWorkingDirectory = "/home/dev/cmux-remote-running"
+            XCTAssertTrue(
+                source.updateRemotePanelDirectory(
+                    panelId: sourcePanelId,
+                    directory: remoteWorkingDirectory
+                )
+            )
+            let sourceIndex = try makeRestorableAgentIndex(
+                workspaceId: source.id,
+                panelId: sourcePanelId,
+                sessionId: "codex-remote-running-session"
+            )
+            source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+            let snapshot = source.sessionSnapshot(includeScrollback: false, restorableAgentIndex: sourceIndex)
+
+            let restored = Workspace()
+            restored.restoreSessionSnapshot(snapshot)
+            let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+            let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+            let restoredInput = restoredPanel.surface.debugInitialInputMetadata()
+            let restoredRemoteCommand = try XCTUnwrap(restored.remoteConfiguration?.terminalStartupCommand)
+
+            XCTAssertEqual(restoredRemoteCommand, expectedRestoredRemoteCommand)
+            XCTAssertEqual(restoredPanel.surface.debugInitialCommand(), expectedRestoredRemoteCommand)
+            XCTAssertTrue(restoredInput.hasInitialInput)
+            XCTAssertGreaterThan(restoredInput.byteCount, 0)
+            let input = try XCTUnwrap(restoredPanel.surface.initialInput)
+            XCTAssertTrue(input.contains("'resume'"), input)
+            XCTAssertTrue(input.contains("codex-remote-running-session"), input)
+            XCTAssertFalse(input.contains("cmux-agent-resume"), input)
+            XCTAssertFalse(input.contains(" cmux restore "), input)
+            let remoteCwdPrefix = try XCTUnwrap(
+                TerminalStartupWorkingDirectoryPrefix.optionalChangeDirectoryPrefix(
+                    for: remoteWorkingDirectory
+                )
+            )
+            XCTAssertTrue(
+                input.contains(remoteCwdPrefix),
+                input
+            )
+            XCTAssertFalse(input.contains("/tmp/repo"), input)
+            XCTAssertEqual(
+                restoredPanel.requestedWorkingDirectory,
+                remoteWorkingDirectory
+            )
+            XCTAssertEqual(
+                restored.restoredAgentResumeStatesByPanelId[restoredPanelId],
+                .awaitingAutoResumeCommand
+            )
+        }
+    }
+
+    @MainActor
+    func testRemoteWorkspaceAutoResumeKeepsLongResumeInputInline() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) // autoResumeAgentSessions = true (default)
+
+            let source = Workspace()
+            let remoteCommand = "ssh cmux-macmini"
+            source.configureRemoteConnection(
+                WorkspaceRemoteConfiguration(
+                    destination: "cmux-macmini",
+                    port: nil,
+                    identityFile: nil,
+                    sshOptions: [],
+                    localProxyPort: nil,
+                    relayPort: 64000,
+                    relayID: "relay-auto-resume-long-remote",
+                    relayToken: String(repeating: "b", count: 64),
+                    localSocketPath: "/tmp/cmux-auto-resume-long-remote.sock",
+                    terminalStartupCommand: remoteCommand
+                ),
+                autoConnect: false
+            )
+            let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+            let longPath = "/Users/cmux/" + String(repeating: "nested-project-", count: 120)
+            let sourceIndex = try makeRestorableAgentIndex(
+                workspaceId: source.id,
+                panelId: sourcePanelId,
+                sessionId: "codex-remote-long-running-session",
+                extraArguments: ["--add-dir", longPath]
+            )
+            source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+            let snapshot = source.sessionSnapshot(includeScrollback: false, restorableAgentIndex: sourceIndex)
+
+            let restored = Workspace()
+            restored.restoreSessionSnapshot(snapshot)
+            let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+            let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+            let restoredInput = try XCTUnwrap(restoredPanel.surface.initialInput)
+
+            XCTAssertEqual(restoredPanel.surface.debugInitialCommand(), restored.remoteConfiguration?.terminalStartupCommand)
+            XCTAssertGreaterThan(restoredInput.utf8.count, 900)
+            XCTAssertTrue(restoredInput.contains("'resume'"), restoredInput)
+            XCTAssertTrue(restoredInput.contains("codex-remote-long-running-session"), restoredInput)
+            XCTAssertTrue(restoredInput.contains(longPath), restoredInput)
+            XCTAssertFalse(restoredInput.contains("cmux-agent-resume"), restoredInput)
+            XCTAssertEqual(
+                restored.restoredAgentResumeStatesByPanelId[restoredPanelId],
+                .awaitingAutoResumeCommand
+            )
         }
     }
 
@@ -209,9 +364,12 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
             let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
             let restoredInput = restoredPanel.surface.debugInitialInputMetadata()
 
-            XCTAssertTrue(restoredInput.hasInitialInput,
-                          "unknown shell state should still auto-resume through the nil back-compat path")
+            XCTAssertTrue(restoredInput.hasInitialInput)
             XCTAssertGreaterThan(restoredInput.byteCount, 0)
+            try assertAgentAutoResumeUsesRestoreVerb(
+                restoredPanel,
+                sessionID: "codex-unknown-shell-state-session"
+            )
         }
     }
 
@@ -257,6 +415,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
 
             XCTAssertFalse(input.hasInitialInput)
             XCTAssertEqual(input.byteCount, 0)
+            XCTAssertNil(restoredPanel.surface.debugInitialCommand())
             XCTAssertEqual(
                 restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent?.sessionId,
                 "codex-exited-binding-session"
@@ -314,6 +473,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
 
         XCTAssertFalse(input.hasInitialInput)
         XCTAssertEqual(input.byteCount, 0)
+        XCTAssertNil(restoredPanel.surface.debugInitialCommand())
         XCTAssertEqual(
             restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding?.source,
             "agent-hook"
@@ -326,7 +486,9 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
         let userCommandSnapshot = restored.sessionSnapshot(includeScrollback: false)
         XCTAssertNil(userCommandSnapshot.panels.first?.terminal?.agent)
-        XCTAssertNil(userCommandSnapshot.panels.first?.terminal?.resumeBinding)
+        let retainedBinding = try XCTUnwrap(userCommandSnapshot.panels.first?.terminal?.resumeBinding)
+        XCTAssertEqual(retainedBinding.checkpointId, "codex-binding-auto-resume-disabled-session")
+        XCTAssertFalse(retainedBinding.allowsAutomaticResume)
     }
 
     @MainActor
@@ -372,6 +534,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
 
         XCTAssertFalse(input.hasInitialInput)
         XCTAssertEqual(input.byteCount, 0)
+        XCTAssertNil(restoredPanel.surface.debugInitialCommand())
         XCTAssertEqual(
             restored.sessionSnapshot(includeScrollback: true).panels.first?.terminal?.scrollback,
             savedScrollback
@@ -379,7 +542,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     }
 
     @MainActor
-    func testAgentHookResumeBindingKeepsRestoredAgentPendingDuringStartupCommand() throws {
+    func testAgentHookResumeBindingBecomesManualAfterStartupCommandCompletes() throws {
         let defaults = UserDefaults.standard
         let key = AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
         let previous = defaults.object(forKey: key)
@@ -411,6 +574,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
                 updatedAt: 1_777_777_777
             ),
         ])
+        source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
         let snapshot = source.sessionSnapshot(
             includeScrollback: false,
             restorableAgentIndex: sourceIndex,
@@ -421,18 +585,30 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         restored.restoreSessionSnapshot(snapshot)
         let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
         let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
-        XCTAssertTrue(restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
+        let input = restoredPanel.surface.debugInitialInputMetadata()
+        XCTAssertTrue(input.hasInitialInput)
+        XCTAssertGreaterThan(input.byteCount, 0)
+        try assertAgentAutoResumeUsesRestoreVerb(
+            restoredPanel,
+            sessionID: "codex-binding-auto-resume-session"
+        )
+        XCTAssertEqual(
+            restored.restoredAgentResumeStatesByPanelId[restoredPanelId],
+            .awaitingAutoResumeCommand
+        )
 
         restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
         XCTAssertEqual(
-            restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent?.sessionId,
-            "codex-binding-auto-resume-session"
+            restored.restoredAgentResumeStatesByPanelId[restoredPanelId],
+            .autoResumeCommandRunning
         )
 
         restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .promptIdle)
         let completedSnapshot = restored.sessionSnapshot(includeScrollback: false)
         XCTAssertNil(completedSnapshot.panels.first?.terminal?.agent)
-        XCTAssertNil(completedSnapshot.panels.first?.terminal?.resumeBinding)
+        let retainedBinding = try XCTUnwrap(completedSnapshot.panels.first?.terminal?.resumeBinding)
+        XCTAssertEqual(retainedBinding.checkpointId, "codex-binding-auto-resume-session")
+        XCTAssertFalse(retainedBinding.allowsAutomaticResume)
     }
 
     @MainActor
@@ -479,11 +655,49 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
         let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
         XCTAssertTrue(restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
+        XCTAssertNil(restoredPanel.surface.debugInitialCommand())
 
         restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
         let runningSnapshot = restored.sessionSnapshot(includeScrollback: false)
         XCTAssertNil(runningSnapshot.panels.first?.terminal?.agent)
         XCTAssertEqual(runningSnapshot.panels.first?.terminal?.resumeBinding?.kind, "tmux")
+    }
+
+    // After a session is restored on reload, the UI fork action must still find it. The action
+    // resolves the conversation via the shared context-menu selection, which reads the
+    // snapshot captured at restore (restoredAgentSnapshotsByPanelId). A restored codex/claude/opencode
+    // session must therefore still expose a valid fork command + launchable fork input.
+    @MainActor
+    func testRestoredSessionRemainsForkable() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let sessionId = "codex-fork-after-restore-session"
+        let sourceIndex = try makeRestorableAgentIndex(
+            workspaceId: source.id,
+            panelId: sourcePanelId,
+            sessionId: sessionId
+        )
+        let snapshot = source.sessionSnapshot(includeScrollback: false, restorableAgentIndex: sourceIndex)
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+
+        let forkable = try XCTUnwrap(
+            restored.forkAgentConversationContextMenuOpenSelection(forPanelId: restoredPanelId).snapshot,
+            "a restored session must remain forkable via the UI"
+        )
+        XCTAssertEqual(forkable.sessionId, sessionId)
+        let forkCommand = try XCTUnwrap(forkable.forkCommand, "restored session must expose a fork command")
+        XCTAssertTrue(forkCommand.contains("'fork'"), "codex fork verb expected; got: \(forkCommand)")
+        XCTAssertTrue(forkCommand.contains(sessionId), "fork must reference the restored session id; got: \(forkCommand)")
+        XCTAssertNotNil(
+            forkable.forkStartupInput(
+                fileManager: .default,
+                temporaryDirectory: FileManager.default.temporaryDirectory
+            ),
+            "restored session must produce launchable fork startup input"
+        )
     }
 
     private func withRestoredDefaults<T>(
@@ -502,10 +716,29 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         return try body()
     }
 
+    @MainActor
+    private func assertAgentAutoResumeUsesRestoreVerb(
+        _ panel: TerminalPanel,
+        kind: String = "codex",
+        sessionID: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        XCTAssertNil(panel.surface.debugInitialCommand(), file: file, line: line)
+        let input = try XCTUnwrap(panel.surface.debugInitialInputForTesting(), file: file, line: line)
+        XCTAssertEqual(
+            input,
+            " \(AgentRestoreLaunch.cliStartupExecutableToken) restore \(kind) \(sessionID)\n",
+            file: file,
+            line: line
+        )
+    }
+
     private func makeRestorableAgentIndex(
         workspaceId: UUID,
         panelId: UUID,
-        sessionId: String
+        sessionId: String,
+        extraArguments: [String] = []
     ) throws -> RestorableAgentSessionIndex {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-auto-resume-\(UUID().uuidString)", isDirectory: true)
@@ -534,7 +767,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
                     "launchCommand": [
                         "launcher": "codex",
                         "executablePath": "/usr/local/bin/codex",
-                        "arguments": ["/usr/local/bin/codex", "--model", "gpt-5.4"],
+                        "arguments": ["/usr/local/bin/codex", "--model", "gpt-5.4"] + extraArguments,
                         "workingDirectory": "/tmp/repo",
                         "environment": ["CODEX_HOME": "/tmp/codex"],
                         "capturedAt": Date().timeIntervalSince1970,
@@ -561,7 +794,10 @@ final class TerminalCopyOnSelectSettingsTests: XCTestCase {
         )
         XCTAssertFalse(TerminalCopyOnSelectSettings.isEnabled(defaults: defaults))
         XCTAssertNil(TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults))
-        XCTAssertNil(TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults))
+        XCTAssertEqual(
+            TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults),
+            "term = \(TerminalSurface.managedTerminalType)"
+        )
 
         let notificationCenter = NotificationCenter()
         var notificationCount = 0
@@ -586,7 +822,7 @@ final class TerminalCopyOnSelectSettingsTests: XCTestCase {
         )
         XCTAssertEqual(
             TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults),
-            "copy-on-select = clipboard"
+            "term = \(TerminalSurface.managedTerminalType)\ncopy-on-select = clipboard"
         )
         XCTAssertEqual(notificationCount, 1)
 
@@ -602,7 +838,7 @@ final class TerminalCopyOnSelectSettingsTests: XCTestCase {
         )
         XCTAssertEqual(
             TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults),
-            "copy-on-select = false"
+            "term = \(TerminalSurface.managedTerminalType)\ncopy-on-select = false"
         )
         XCTAssertEqual(notificationCount, 2)
 
@@ -612,7 +848,10 @@ final class TerminalCopyOnSelectSettingsTests: XCTestCase {
         )
         XCTAssertFalse(TerminalCopyOnSelectSettings.isEnabled(defaults: defaults))
         XCTAssertNil(TerminalCopyOnSelectSettings.ghosttyConfigContents(defaults: defaults))
-        XCTAssertNil(TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults))
+        XCTAssertEqual(
+            TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults),
+            "term = \(TerminalSurface.managedTerminalType)"
+        )
         XCTAssertEqual(notificationCount, 2)
     }
 }

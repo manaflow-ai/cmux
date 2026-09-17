@@ -40,6 +40,18 @@ extension CMUXCLI {
             ]
         ),
         DocsReference(
+            topic: "managed-policies",
+            aliases: ["mdm", "managed", "policy", "policies", "enterprise", "managed-device-policies"],
+            summary: "MDM-enforceable managed policies: disable the embedded browser, iOS remote control, and Cloud on managed Macs.",
+            webURL: "https://cmux.com/docs/managed-policies",
+            rawResources: [
+                DocsResource(label: "managed device policies", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/managed-device-policies.md"),
+            ],
+            commands: [
+                "cmux browser status --json",
+            ]
+        ),
+        DocsReference(
             topic: "shortcuts",
             aliases: ["keyboard", "keybindings", "keys"],
             summary: "cmux-owned keyboard shortcuts and two-step chord syntax.",
@@ -115,6 +127,20 @@ extension CMUXCLI {
                 "python3 -m json.tool .cmux/dock.json",
             ]
         ),
+        DocsReference(
+            topic: "sidebars",
+            aliases: ["sidebar", "custom-sidebar", "custom-sidebars", "vibe-sidebar"],
+            summary: "Vibe-code a custom sidebar: a runtime-interpreted SwiftUI-style file in ~/.config/cmux/sidebars/ (beta).",
+            webURL: "https://cmux.com/docs/custom-sidebars",
+            rawResources: [
+                DocsResource(label: "custom sidebar authoring guide", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/custom-sidebars.md"),
+            ],
+            commands: [
+                "mkdir -p ~/.config/cmux/sidebars",
+                "cat > ~/.config/cmux/sidebars/mine.swift   # write a SwiftUI-style view, then right-click the sidebar button to pick it",
+                "cmux docs api   # discover cmux() action methods/params",
+            ]
+        ),
     ]
 
     func runDocsCommand(commandArgs: [String], jsonOutput: Bool) throws {
@@ -137,7 +163,7 @@ extension CMUXCLI {
         }
 
         guard args.count == 1 else {
-            throw CLIError(message: "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock]")
+            throw CLIError(message: "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies]")
         }
 
         if topic == "list" || topic == "all" {
@@ -162,7 +188,7 @@ extension CMUXCLI {
 
     func docsUsage() -> String {
         return """
-        Usage: cmux docs [settings|shortcuts|api|browser|agents|dock]
+        Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies]
 
         Print the canonical docs URL, raw GitHub resources, and useful commands for a cmux topic.
         This command does not require a running cmux app or socket.
@@ -355,9 +381,10 @@ extension CMUXCLI {
           docs                Print the same output as `cmux docs settings`.
 
         Targets:
-          account, app, terminal, sidebar-appearance, automation, browser,
-          browser-import, global-hotkey, keyboard-shortcuts, shortcuts,
-          workspace-colors, cmux-json, json, reset
+          account, app, terminal, networking, sidebar-appearance,
+          custom-sidebars, automation, browser, browser-import,
+          global-hotkey, keyboard-shortcuts, shortcuts, workspace-colors,
+          cmux-json, json, reset
 
         Config file:
           \(Self.primarySettingsDisplayPath)
@@ -390,10 +417,14 @@ extension CMUXCLI {
             return "terminal"
         case "sidebar", "sidebar-appearance", "sidebarappearance":
             return "sidebarAppearance"
+        case "custom-sidebars", "customsidebars":
+            return "customSidebars"
         case "automation":
             return "automation"
         case "browser":
             return "browser"
+        case "networking", "network", "iroh":
+            return "networking"
         case "browser-import", "browserimport", "import-browser-data":
             return "browserImport"
         case "global-hotkey", "globalhotkey", "hotkey":

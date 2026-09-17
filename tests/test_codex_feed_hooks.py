@@ -26,6 +26,8 @@ CODEX_HOOK_EVENT_LABELS = {
     "PreCompact": "pre_compact",
     "PostCompact": "post_compact",
     "SessionStart": "session_start",
+    "SubagentStart": "subagent_start",
+    "SubagentStop": "subagent_stop",
     "UserPromptSubmit": "user_prompt_submit",
     "Stop": "stop",
 }
@@ -37,6 +39,8 @@ CODEX_HOOK_EVENTS_WITH_MATCHERS = {
     "PreCompact",
     "PostCompact",
     "SessionStart",
+    "SubagentStart",
+    "SubagentStop",
 }
 
 CMUX_CODEX_HOOK_SUBCOMMANDS = (
@@ -48,10 +52,23 @@ CMUX_CODEX_HOOK_SUBCOMMANDS = (
 CMUX_CODEX_FEED_EVENTS = (
     "PreToolUse",
     "PermissionRequest",
+    "PostToolUse",
+    "PreCompact",
+    "PostCompact",
+    "SubagentStart",
+    "SubagentStop",
 )
 
 FAKE_WORKSPACE_ID = "11111111-1111-1111-1111-111111111111"
 FAKE_SURFACE_ID = "22222222-2222-2222-2222-222222222222"
+
+
+def _toml_has_line(content: str, line: str) -> bool:
+    return any(raw.strip() == line for raw in content.splitlines())
+
+
+def _toml_line_count(content: str, line: str) -> int:
+    return sum(1 for raw in content.splitlines() if raw.strip() == line)
 
 
 class FakeCmuxSocket:
@@ -61,14 +78,35 @@ class FakeCmuxSocket:
         decision: dict | None,
         surfaces: list[dict] | None = None,
         drop_first_surface_list: bool = False,
+        feed_response_gate: threading.Event | None = None,
+        feed_response_ok: bool = True,
+        include_feed_item_id: bool = True,
+        raw_response_delay: float = 0,
+        surfaces_by_workspace: dict[str, list[dict]] | None = None,
+        surface_delivery_target: tuple[str, str] | None = None,
+        method_errors: dict[str, tuple[str, str]] | None = None,
+        single_batch_item_id: bool = False,
+        method_delays: dict[str, float] | None = None,
     ):
         self.path = path
         self.decision = decision
         self.surfaces = surfaces if surfaces is not None else [{"id": FAKE_SURFACE_ID}]
         self.drop_first_surface_list = drop_first_surface_list
+        self.feed_response_gate = feed_response_gate
+        self.feed_response_ok = feed_response_ok
+        self.include_feed_item_id = include_feed_item_id
+        self.raw_response_delay = raw_response_delay
+        self.surfaces_by_workspace = surfaces_by_workspace
+        self.surface_delivery_target = surface_delivery_target
+        self.method_errors = method_errors or {}
+        self.single_batch_item_id = single_batch_item_id
+        self.method_delays = method_delays or {}
         self._dropped_surface_list = False
         self.frames: list[dict] = []
+        self.frames_with_connection: list[tuple[int, dict]] = []
+        self._next_connection_id = 0
         self._ready = threading.Event()
+        self.feed_frame_received = threading.Event()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
 
@@ -99,9 +137,26 @@ class FakeCmuxSocket:
                     conn, _ = server.accept()
                 except OSError:
                     continue
-                threading.Thread(target=self._handle_conn, args=(conn,), daemon=True).start()
+                connection_id = self._next_connection_id
+                self._next_connection_id += 1
+                threading.Thread(target=self._handle_conn, args=(conn, connection_id), daemon=True).start()
 
-    def _handle_conn(self, conn: socket.socket) -> None:
+    def _handle_conn(self, conn: socket.socket, connection_id: int) -> None:
+        # A closed peer must not stop the drain: like the real app's
+        # per-connection worker, buffered request lines that were written
+        # before the peer hung up are still read and recorded — only the
+        # replies are skipped.
+        can_reply = True
+
+        def reply(payload: bytes) -> None:
+            nonlocal can_reply
+            if not can_reply:
+                return
+            try:
+                conn.sendall(payload)
+            except OSError:
+                can_reply = False
+
         with conn:
             data = b""
             while not self._stop.is_set():
@@ -118,15 +173,66 @@ class FakeCmuxSocket:
                         frame = json.loads(raw_line)
                     except json.JSONDecodeError:
                         self.frames.append({"raw": raw_line})
-                        conn.sendall(b"OK\n")
+                        if self.raw_response_delay > 0:
+                            time.sleep(self.raw_response_delay)
+                        reply(b"OK\n")
                         continue
                     self.frames.append(frame)
+                    self.frames_with_connection.append((connection_id, frame))
+                    if delay := self.method_delays.get(frame.get("method")):
+                        time.sleep(delay)
+                    if method_error := self.method_errors.get(frame.get("method")):
+                        code, message = method_error
+                        response = {
+                            "id": frame.get("id"),
+                            "ok": False,
+                            "error": {
+                                "code": code,
+                                "message": message,
+                            },
+                        }
+                        reply(json.dumps(response).encode("utf-8") + b"\n")
+                        continue
+                    if frame.get("method") == "feed.push":
+                        self.feed_frame_received.set()
+                        if self.feed_response_gate is not None:
+                            self.feed_response_gate.wait(timeout=3)
                     result: dict = {"status": "acknowledged"}
+                    if frame.get("method") == "feed.push" and self.include_feed_item_id:
+                        events = frame.get("params", {}).get("events")
+                        if isinstance(events, list):
+                            if len(events) == 1 and self.single_batch_item_id:
+                                result["item_id"] = "33333333-3333-3333-3333-333333333333"
+                            else:
+                                result["item_ids"] = [
+                                    f"33333333-3333-3333-3333-{index:012d}"
+                                    for index in range(len(events))
+                                ]
+                        else:
+                            result["item_id"] = "33333333-3333-3333-3333-333333333333"
+                        if self.surface_delivery_target is not None:
+                            result["workspace_id"], result["surface_id"] = self.surface_delivery_target
                     if frame.get("method") == "surface.list":
                         if self.drop_first_surface_list and not self._dropped_surface_list:
                             self._dropped_surface_list = True
                             continue
-                        result = {"surfaces": self.surfaces}
+                        workspace_id = frame.get("params", {}).get("workspace_id")
+                        surfaces = (
+                            self.surfaces_by_workspace.get(workspace_id, [])
+                            if self.surfaces_by_workspace is not None
+                            else self.surfaces
+                        )
+                        result = {"surfaces": surfaces}
+                    elif (
+                        frame.get("method") == "agent.resolve_delivery_target"
+                        and self.surface_delivery_target is not None
+                    ):
+                        workspace_id, surface_id = self.surface_delivery_target
+                        result = {
+                            "source": "surface",
+                            "workspace_id": workspace_id,
+                            "surface_id": surface_id,
+                        }
                     elif self.decision is not None:
                         result = {
                             "status": "resolved",
@@ -134,10 +240,16 @@ class FakeCmuxSocket:
                         }
                     response = {
                         "id": frame.get("id"),
-                        "ok": True,
-                        "result": result,
+                        "ok": self.feed_response_ok,
                     }
-                    conn.sendall(json.dumps(response).encode("utf-8") + b"\n")
+                    if self.feed_response_ok:
+                        response["result"] = result
+                    else:
+                        response["error"] = {
+                            "code": "feed_rejected",
+                            "message": "Feed rejected the event",
+                        }
+                    reply(json.dumps(response).encode("utf-8") + b"\n")
 
 
 def monitor_pids_for_session(session_id: str) -> list[int]:
@@ -246,7 +358,7 @@ def test_codex_stop_reaps_transcript_monitor(cli_path: str, root: Path) -> None:
                     f"hooks codex stop failed exit={result.returncode}\n"
                     f"stdout={result.stdout}\nstderr={result.stderr}"
                 )
-            wait_for_monitor_pids(session_id, present=False, timeout=5)
+            wait_for_monitor_pids(session_id, present=False, timeout=30)
         finally:
             for pid in monitor_pids_for_session(session_id):
                 subprocess.run(["/bin/kill", str(pid)], check=False)
@@ -333,8 +445,9 @@ def test_codex_stop_without_turn_keeps_session_wide_monitor(cli_path: str, root:
 def test_codex_prompt_submit_starts_monitor_when_lease_write_fails(cli_path: str, root: Path) -> None:
     socket_path = root / "cmux-monitor-lease-failure.sock"
     transcript_path = root / "codex-session-lease-failure.jsonl"
-    bad_state_dir = root / "hook-state-file"
-    bad_state_dir.write_text("not a directory", encoding="utf-8")
+    state_dir = root / "hook-state-lease-failure"
+    state_dir.mkdir()
+    (state_dir / "codex-monitor-leases").write_text("not a directory", encoding="utf-8")
     transcript_path.write_text("", encoding="utf-8")
 
     session_id = f"codex-monitor-lease-failure-session-{os.getpid()}"
@@ -343,7 +456,7 @@ def test_codex_prompt_submit_starts_monitor_when_lease_write_fails(cli_path: str
     env["CMUX_SOCKET_PATH"] = str(socket_path)
     env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
     env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
-    env["CMUX_AGENT_HOOK_STATE_DIR"] = str(bad_state_dir)
+    env["CMUX_AGENT_HOOK_STATE_DIR"] = str(state_dir)
 
     with FakeCmuxSocket(socket_path, None):
         try:
@@ -475,11 +588,28 @@ def test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path: str, root:
             raise AssertionError(f"monitor exited before publishing transcript failure: {fake.frames!r}")
 
 
-def run_feed_hook(cli_path: str, socket_path: Path, payload: dict, decision: dict | None, source: str = "codex") -> tuple[dict, dict]:
+def run_feed_hook_optional_frame(
+    cli_path: str,
+    socket_path: Path,
+    payload: dict,
+    decision: dict | None,
+    source: str = "codex",
+) -> tuple[dict, dict | None]:
     env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
     env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
     env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
-    with FakeCmuxSocket(socket_path, decision) as fake:
+    surface_delivery_target = (
+        (FAKE_WORKSPACE_ID, FAKE_SURFACE_ID)
+        if source == "pi"
+        else None
+    )
+    with FakeCmuxSocket(
+        socket_path,
+        decision,
+        surface_delivery_target=surface_delivery_target,
+    ) as fake:
         result = subprocess.run(
             [
                 cli_path,
@@ -503,10 +633,22 @@ def run_feed_hook(cli_path: str, socket_path: Path, payload: dict, decision: dic
             raise AssertionError(
                 f"hooks feed failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
             )
-        if not fake.frames:
-            raise AssertionError("hooks feed did not send feed.push")
         stdout = json.loads(result.stdout.strip() or "{}")
-        return stdout, fake.frames[0]
+        feed_frame = next((frame for frame in fake.frames if frame.get("method") == "feed.push"), None)
+        return stdout, feed_frame
+
+
+def run_feed_hook(
+    cli_path: str,
+    socket_path: Path,
+    payload: dict,
+    decision: dict | None,
+    source: str = "codex",
+) -> tuple[dict, dict]:
+    stdout, frame = run_feed_hook_optional_frame(cli_path, socket_path, payload, decision, source)
+    if frame is None:
+        raise AssertionError("hooks feed did not send feed.push")
+    return stdout, frame
 
 
 def assert_permission_output(stdout: dict, behavior: str) -> None:
@@ -568,13 +710,14 @@ def cmux_codex_hook_command(subcommand: str) -> str:
 
 def cmux_codex_feed_command(agent_event: str) -> str:
     routed_arguments = f"hooks feed --source codex --event {agent_event}"
+    noop_command = "{ cat >/dev/null 2>/dev/null || true; echo '{}'; }"
     return (
         'cmux_cli="${CMUX_BUNDLED_CLI_PATH:-}"; if [ -z "$cmux_cli" ] || [ ! -x "$cmux_cli" ]; '
         'then cmux_cli="$(command -v cmux 2>/dev/null || true)"; fi; if [ -n "$CMUX_SURFACE_ID" ] '
         '&& [ "$CMUX_CODEX_HOOKS_DISABLED" != "1" ] && [ -n "$cmux_cli" ]; then { '
         f'if [ -n "${{CMUX_SOCKET_PATH:-}}" ]; then "$cmux_cli" --socket "$CMUX_SOCKET_PATH" {routed_arguments}; '
         f'else "$cmux_cli" {routed_arguments}; fi; '
-        "} || echo '{}'; else echo '{}'; fi"
+        f"}} || {noop_command}; else {noop_command}; fi"
     )
 
 
@@ -708,18 +851,24 @@ def test_install_adds_codex_permission_request_hook(cli_path: str, root: Path) -
 
     hooks = json.loads((codex_home / "hooks.json").read_text(encoding="utf-8"))
     hook_groups = hooks.get("hooks", {})
-    for event_name in ["PreToolUse", "PermissionRequest"]:
+    for event_name in ["SessionStart", "UserPromptSubmit", "Stop"]:
+        groups = hook_groups.get(event_name)
+        if not groups:
+            raise AssertionError(f"missing {event_name} hook group: {hooks!r}")
+        if groups[-1]["hooks"][0].get("timeout") != 5:
+            raise AssertionError(f"wrong {event_name} timeout: {groups[-1]!r}")
+    for event_name in CMUX_CODEX_FEED_EVENTS:
         groups = hook_groups.get(event_name)
         if not groups:
             raise AssertionError(f"missing {event_name} hook group: {hooks!r}")
         command = groups[-1]["hooks"][0]["command"]
         if command != cmux_codex_feed_command(event_name):
             raise AssertionError(f"wrong {event_name} feed command: {command!r}")
-        if groups[-1]["hooks"][0].get("timeout") != 120_000:
+        if groups[-1]["hooks"][0].get("timeout") != 5:
             raise AssertionError(f"wrong {event_name} timeout: {groups[-1]!r}")
 
     config_toml = (codex_home / "config.toml").read_text(encoding="utf-8")
-    if "hooks = true" not in config_toml:
+    if not _toml_has_line(config_toml, "hooks = true"):
         raise AssertionError(f"hooks feature was not enabled: {config_toml!r}")
     if "codex_hooks" in config_toml:
         raise AssertionError(f"deprecated codex_hooks feature was written: {config_toml!r}")
@@ -904,7 +1053,7 @@ def test_install_collapses_consecutive_codex_hook_positions(cli_path: str, root:
     if result.returncode != 0:
         raise AssertionError(
             f"hooks codex install failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
-        )
+    )
 
     hooks = json.loads((codex_home / "hooks.json").read_text(encoding="utf-8"))
     commands = [group["hooks"][0]["command"] for group in hooks["hooks"]["PreToolUse"]]
@@ -996,7 +1145,7 @@ def test_install_migrates_legacy_codex_hooks_feature(cli_path: str, root: Path) 
     config_toml = (codex_home / "config.toml").read_text(encoding="utf-8")
     if "codex_hooks" in config_toml:
         raise AssertionError(f"deprecated codex_hooks feature was preserved: {config_toml!r}")
-    if "hooks = true" not in config_toml:
+    if not _toml_has_line(config_toml, "hooks = true"):
         raise AssertionError(f"hooks feature was not enabled: {config_toml!r}")
     if "apps = true" not in config_toml:
         raise AssertionError(f"existing feature setting was not preserved: {config_toml!r}")
@@ -1028,7 +1177,7 @@ def test_install_migrates_dotted_codex_hooks_feature(cli_path: str, root: Path) 
     config_toml = (codex_home / "config.toml").read_text(encoding="utf-8")
     if "features.codex_hooks" in config_toml or "[features]" in config_toml:
         raise AssertionError(f"dotted legacy config was rewritten incorrectly: {config_toml!r}")
-    if "features.hooks = true" not in config_toml:
+    if not _toml_has_line(config_toml, "features.hooks = true"):
         raise AssertionError(f"dotted hooks feature was not enabled: {config_toml!r}")
     if "features.apps = true" not in config_toml:
         raise AssertionError(f"existing dotted feature setting was not preserved: {config_toml!r}")
@@ -1059,7 +1208,7 @@ def test_uninstall_preserves_existing_codex_hooks_feature(cli_path: str, root: P
             )
 
     config_toml = (codex_home / "config.toml").read_text(encoding="utf-8")
-    if "hooks = true" not in config_toml:
+    if not _toml_has_line(config_toml, "hooks = true"):
         raise AssertionError(f"pre-existing hooks feature was removed: {config_toml!r}")
     if "apps = true" not in config_toml:
         raise AssertionError(f"existing feature setting was not preserved: {config_toml!r}")
@@ -1099,7 +1248,7 @@ def test_install_codex_hooks_only_edits_real_features_table(cli_path: str, root:
         )
 
     config_toml = config_path.read_text(encoding="utf-8")
-    if config_toml.count("hooks = true") != 1:
+    if _toml_line_count(config_toml, "hooks = true") != 1:
         raise AssertionError(f"hooks should be inserted exactly once: {config_toml!r}")
     if "codex_hooks" in config_toml:
         raise AssertionError(f"deprecated codex_hooks feature was written: {config_toml!r}")
@@ -1139,7 +1288,7 @@ def test_uninstall_codex_hooks_removes_empty_features_table_from_install(cli_pat
         )
 
     installed_config = config_path.read_text(encoding="utf-8")
-    if "[features]" not in installed_config or "hooks = true" not in installed_config:
+    if "[features]" not in installed_config or not _toml_has_line(installed_config, "hooks = true"):
         raise AssertionError(f"install should add the hooks feature table: {installed_config!r}")
     if "codex_hooks" in installed_config:
         raise AssertionError(f"install should not add deprecated codex_hooks: {installed_config!r}")
@@ -1186,9 +1335,9 @@ def test_uninstall_restores_disabled_codex_hooks_feature(cli_path: str, root: Pa
             )
 
     config_toml = (codex_home / "config.toml").read_text(encoding="utf-8")
-    if "hooks = false" not in config_toml:
+    if not _toml_has_line(config_toml, "hooks = false"):
         raise AssertionError(f"pre-existing disabled hooks feature was not restored: {config_toml!r}")
-    if "hooks = true" in config_toml:
+    if _toml_has_line(config_toml, "hooks = true"):
         raise AssertionError(f"cmux-owned hooks feature was not removed: {config_toml!r}")
     if "apps = true" not in config_toml:
         raise AssertionError(f"existing feature setting was not preserved: {config_toml!r}")
@@ -1219,9 +1368,9 @@ def test_uninstall_restores_disabled_dotted_codex_hooks_feature(cli_path: str, r
             )
 
     config_toml = (codex_home / "config.toml").read_text(encoding="utf-8")
-    if "features.hooks = false" not in config_toml:
+    if not _toml_has_line(config_toml, "features.hooks = false"):
         raise AssertionError(f"pre-existing disabled dotted hooks feature was not restored: {config_toml!r}")
-    if "features.hooks = true" in config_toml:
+    if _toml_has_line(config_toml, "features.hooks = true"):
         raise AssertionError(f"cmux-owned dotted hooks feature was not removed: {config_toml!r}")
     if "features.apps = true" not in config_toml:
         raise AssertionError(f"existing dotted feature setting was not preserved: {config_toml!r}")
@@ -1251,11 +1400,11 @@ def test_install_scans_features_past_bracketed_array(cli_path: str, root: Path) 
                 f"hooks codex {action} failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
             )
         config_toml = (codex_home / "config.toml").read_text(encoding="utf-8")
-        if action == "install" and config_toml.count("hooks = true") != 1:
+        if action == "install" and _toml_line_count(config_toml, "hooks = true") != 1:
             raise AssertionError(f"install wrote duplicate hooks settings: {config_toml!r}")
 
     config_toml = (codex_home / "config.toml").read_text(encoding="utf-8")
-    if "hooks = false" not in config_toml or "hooks = true" in config_toml:
+    if not _toml_has_line(config_toml, "hooks = false") or _toml_has_line(config_toml, "hooks = true"):
         raise AssertionError(f"uninstall did not restore hooks after bracketed array: {config_toml!r}")
     if "[1, 2]" not in config_toml:
         raise AssertionError(f"bracketed array content was not preserved: {config_toml!r}")
@@ -1530,7 +1679,7 @@ def test_install_enables_hooks_when_stale_trust_marker_captures_dotted_feature(
         )
 
     config_toml = config_path.read_text(encoding="utf-8")
-    if "hooks = true" not in config_toml and "features.hooks = true" not in config_toml:
+    if not _toml_has_line(config_toml, "hooks = true") and not _toml_has_line(config_toml, "features.hooks = true"):
         raise AssertionError(f"install did not enable Codex hooks: {config_toml!r}")
     if 'trusted_hash = "sha256:stale"' in config_toml:
         raise AssertionError(f"stale cmux hook trust was preserved: {config_toml!r}")
@@ -1962,7 +2111,7 @@ def test_install_codex_hooks_preserves_config_when_toml_read_fails(cli_path: str
         )
 
 
-def test_permission_reply_uses_codex_permission_request_schema(cli_path: str, root: Path) -> None:
+def test_codex_permission_request_is_nonblocking_telemetry(cli_path: str, root: Path) -> None:
     socket_path = root / "cmux.sock"
     payload = {
         "session_id": "codex-session",
@@ -1979,27 +2128,17 @@ def test_permission_reply_uses_codex_permission_request_schema(cli_path: str, ro
         payload,
         {"kind": "permission", "mode": "once"},
     )
-    assert_permission_output(stdout, "allow")
+    if stdout != {}:
+        raise AssertionError(f"Codex PermissionRequest telemetry should not emit a decision: {stdout!r}")
     params = frame["params"]
-    if params.get("wait_timeout_seconds") != 120:
-        raise AssertionError(f"PermissionRequest should block for Feed reply: {frame!r}")
+    if params.get("wait_timeout_seconds") != 0:
+        raise AssertionError(f"Codex PermissionRequest should not wait for Feed reply: {frame!r}")
     event = params["event"]
-    if event.get("hook_event_name") != "PermissionRequest" or event.get("_source") != "codex":
+    if event.get("hook_event_name") != "PreToolUse" or event.get("_source") != "codex":
         raise AssertionError(f"wrong feed event: {event!r}")
 
-    stdout, _ = run_feed_hook(
-        cli_path,
-        root / "cmux-deny.sock",
-        payload,
-        {"kind": "permission", "mode": "deny"},
-    )
-    assert_permission_output(stdout, "deny")
-    message = stdout["hookSpecificOutput"]["decision"].get("message", "")
-    if "denied" not in message:
-        raise AssertionError(f"deny output should include a message: {stdout!r}")
 
-
-def test_codex_persistent_permission_modes_degrade_to_once(cli_path: str, root: Path) -> None:
+def test_codex_permission_decisions_do_not_block_approval_reviewer(cli_path: str, root: Path) -> None:
     payload = {
         "session_id": "codex-session",
         "turn_id": "turn-persistent",
@@ -2009,15 +2148,15 @@ def test_codex_persistent_permission_modes_degrade_to_once(cli_path: str, root: 
         "tool_input": {"command": "printf hi"},
     }
 
-    for mode in ["always", "all", "bypass"]:
+    for mode in ["once", "always", "all", "bypass", "deny"]:
         stdout, _ = run_feed_hook(
             cli_path,
             root / f"cmux-{mode}.sock",
             payload,
             {"kind": "permission", "mode": mode},
         )
-        assert_permission_output(stdout, "allow")
-        assert_codex_allow_has_no_persistent_fields(stdout)
+        if stdout != {}:
+            raise AssertionError(f"Codex PermissionRequest must not answer {mode}: {stdout!r}")
 
 
 def test_codex_pre_tool_use_is_telemetry_not_actionable(cli_path: str, root: Path) -> None:
@@ -2041,6 +2180,1784 @@ def test_codex_pre_tool_use_is_telemetry_not_actionable(cli_path: str, root: Pat
         raise AssertionError(f"Codex PreToolUse should not wait for Feed reply: {frame!r}")
     if params["event"].get("hook_event_name") != "PreToolUse":
         raise AssertionError(f"wrong PreToolUse event: {frame!r}")
+
+
+def test_codex_lifecycle_feed_events_stay_telemetry_and_distinct(cli_path: str, root: Path) -> None:
+    event_payloads = {
+        "PostToolUse": {
+            "session_id": "codex-session",
+            "turn_id": "turn-post-tool",
+            "cwd": "/tmp/project",
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Bash",
+            "tool_input": {"command": "printf hi"},
+            "tool_response": {"exit_code": 0, "stdout": "hi", "stderr": ""},
+        },
+        "PreCompact": {
+            "session_id": "codex-session",
+            "turn_id": "turn-pre-compact",
+            "cwd": "/tmp/project",
+            "hook_event_name": "PreCompact",
+            "trigger": "manual",
+        },
+        "PostCompact": {
+            "session_id": "codex-session",
+            "turn_id": "turn-post-compact",
+            "cwd": "/tmp/project",
+            "hook_event_name": "PostCompact",
+            "trigger": "manual",
+        },
+        "SubagentStart": {
+            "session_id": "codex-session",
+            "turn_id": "turn-subagent-start",
+            "cwd": "/tmp/project",
+            "hook_event_name": "SubagentStart",
+            "agent_id": "agent-1",
+            "agent_type": "general",
+        },
+        "SubagentStop": {
+            "session_id": "codex-session",
+            "turn_id": "turn-subagent-stop",
+            "cwd": "/tmp/project",
+            "hook_event_name": "SubagentStop",
+            "agent_id": "agent-1",
+            "agent_type": "general",
+        },
+    }
+
+    for event_name, payload in event_payloads.items():
+        stdout, frame = run_feed_hook(
+            cli_path,
+            root / f"cmux-codex-{event_name}.sock",
+            payload,
+            None,
+        )
+        if stdout != {}:
+            raise AssertionError(f"Codex {event_name} telemetry should not emit a decision: {stdout!r}")
+        params = frame["params"]
+        if params.get("wait_timeout_seconds") != 0:
+            raise AssertionError(f"Codex {event_name} should not wait for Feed reply: {frame!r}")
+        event = params["event"]
+        if event.get("hook_event_name") != event_name or event.get("_source") != "codex":
+            raise AssertionError(f"Codex {event_name} should stay distinct in Feed, got {event!r}")
+        if event_name == "PostToolUse":
+            tool_input = event.get("tool_input")
+            if not isinstance(tool_input, dict):
+                raise AssertionError(f"Codex PostToolUse should forward tool metadata, got {event!r}")
+            if tool_input.get("exit_code") != payload["tool_response"]["exit_code"]:
+                raise AssertionError(f"Codex PostToolUse should preserve result metadata, got {event!r}")
+            if "stdout" in tool_input or "stderr" in tool_input:
+                raise AssertionError(f"Codex PostToolUse should omit command output, got {event!r}")
+
+
+def test_codex_post_tool_use_redacts_tool_output(cli_path: str, root: Path) -> None:
+    large_stdout = "x" * (80 * 1024)
+    payload = {
+        "session_id": "codex-session",
+        "turn_id": "turn-large-post-tool",
+        "cwd": "/tmp/project",
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Bash",
+        "tool_input": {"command": "python3 noisy.py"},
+        "tool_response": {
+            "exit_code": 42,
+            "status": "failed",
+            "stdout": large_stdout,
+            "stderr": "short stderr",
+            "private_blob": "y" * (80 * 1024),
+        },
+    }
+
+    stdout, frame = run_feed_hook(
+        cli_path,
+        root / "cmux-codex-large-posttool.sock",
+        payload,
+        None,
+    )
+    if stdout != {}:
+        raise AssertionError(f"Codex PostToolUse telemetry should not emit a decision: {stdout!r}")
+    params = frame["params"]
+    if params.get("wait_timeout_seconds") != 0:
+        raise AssertionError(f"Codex PostToolUse should not wait for Feed reply: {frame!r}")
+    event = params["event"]
+    tool_input = event.get("tool_input")
+    if not isinstance(tool_input, dict):
+        raise AssertionError(f"Codex PostToolUse should forward summarized tool_input: {event!r}")
+    if tool_input.get("_cmux_sanitized") is not True:
+        raise AssertionError(f"PostToolUse response was not marked sanitized: {tool_input!r}")
+    if tool_input.get("exit_code") != 42 or tool_input.get("status") != "failed":
+        raise AssertionError(f"large PostToolUse response did not preserve metadata: {tool_input!r}")
+    if "stdout" in tool_input or "stderr" in tool_input or "private_blob" in tool_input:
+        raise AssertionError(f"unrecognized large PostToolUse fields should be omitted: {tool_input!r}")
+    if tool_input.get("stdout_text_omitted") is not True:
+        raise AssertionError(f"stdout omission marker was not recorded: {tool_input!r}")
+    if tool_input.get("stderr_text_omitted") is not True:
+        raise AssertionError(f"stderr omission marker was not recorded: {tool_input!r}")
+
+
+def test_codex_post_tool_use_accepts_native_event_label(cli_path: str, root: Path) -> None:
+    payload = {
+        "session_id": "codex-session",
+        "turn_id": "turn-native-post-tool",
+        "cwd": "/tmp/project",
+        "event": "post_tool_use",
+        "tool_name": "Bash",
+        "tool_input": {"command": "printf hi"},
+        "tool_response": {
+            "exit_code": 7,
+            "stdout": "hi",
+        },
+    }
+
+    stdout, frame = run_feed_hook(
+        cli_path,
+        root / "cmux-codex-native-posttool.sock",
+        payload,
+        None,
+    )
+    if stdout != {}:
+        raise AssertionError(f"native Codex post_tool_use telemetry should not emit a decision: {stdout!r}")
+    event = frame["params"]["event"]
+    if event.get("hook_event_name") != "PostToolUse":
+        raise AssertionError(f"native Codex post_tool_use should classify as PostToolUse: {event!r}")
+    tool_input = event.get("tool_input")
+    if not isinstance(tool_input, dict):
+        raise AssertionError(f"native Codex post_tool_use should forward sanitized metadata: {event!r}")
+    if tool_input.get("exit_code") != 7 or "stdout" in tool_input:
+        raise AssertionError(f"native Codex post_tool_use should omit command output: {event!r}")
+
+
+def test_codex_post_tool_use_oversize_payload_is_dropped_before_decode(cli_path: str, root: Path) -> None:
+    payload = {
+        "session_id": "codex-session",
+        "turn_id": "turn-oversize-post-tool",
+        "cwd": "/tmp/project",
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Bash",
+        "tool_input": {"command": "python3 very_noisy.py"},
+        "tool_response": {
+            "exit_code": 0,
+            "stdout": "x" * (1024 * 1024 + 128),
+        },
+    }
+
+    stdout, frame = run_feed_hook_optional_frame(
+        cli_path,
+        root / "cmux-codex-oversize-posttool.sock",
+        payload,
+        None,
+    )
+    if stdout != {}:
+        raise AssertionError(f"oversize Codex PostToolUse should fall back to empty output: {stdout!r}")
+    if frame is not None:
+        raise AssertionError(f"oversize Codex PostToolUse should not send feed.push: {frame!r}")
+
+
+def test_codex_lifecycle_oversize_payload_is_dropped_before_decode(cli_path: str, root: Path) -> None:
+    payload = {
+        "session_id": "codex-session",
+        "turn_id": "turn-oversize-pre-compact",
+        "cwd": "/tmp/project",
+        "hook_event_name": "PreCompact",
+        "transcript": "x" * (1024 * 1024 + 128),
+    }
+
+    stdout, frame = run_feed_hook_optional_frame(
+        cli_path,
+        root / "cmux-codex-oversize-precompact.sock",
+        payload,
+        None,
+    )
+    if stdout != {}:
+        raise AssertionError(f"oversize Codex PreCompact should fall back to empty output: {stdout!r}")
+    if frame is not None:
+        raise AssertionError(f"oversize Codex PreCompact should not send feed.push: {frame!r}")
+
+
+def test_codex_post_tool_use_keeps_cwd_from_tool_input(cli_path: str, root: Path) -> None:
+    payload = {
+        "session_id": "codex-session",
+        "turn_id": "turn-post-tool-cwd",
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+            "command": "printf hi",
+            "cwd": "/tmp/request-cwd",
+        },
+        "tool_response": {
+            "exit_code": 0,
+            "stdout": "hi",
+        },
+    }
+
+    stdout, frame = run_feed_hook(
+        cli_path,
+        root / "cmux-codex-posttool-cwd.sock",
+        payload,
+        None,
+    )
+    if stdout != {}:
+        raise AssertionError(f"Codex PostToolUse telemetry should not emit a decision: {stdout!r}")
+    event = frame["params"]["event"]
+    if event.get("cwd") != "/tmp/request-cwd":
+        raise AssertionError(f"Codex PostToolUse should keep cwd from tool_input: {event!r}")
+    tool_input = event.get("tool_input")
+    if not isinstance(tool_input, dict):
+        raise AssertionError(f"Codex PostToolUse should forward sanitized tool_response metadata: {event!r}")
+    if tool_input.get("exit_code") != 0 or "stdout" in tool_input:
+        raise AssertionError(f"Codex PostToolUse should forward metadata without stdout: {event!r}")
+
+
+def test_codex_post_tool_use_without_response_keeps_request_input(cli_path: str, root: Path) -> None:
+    payload = {
+        "session_id": "codex-session",
+        "turn_id": "turn-post-tool-request-only",
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+            "command": "printf hi",
+            "cwd": "/tmp/request-cwd",
+        },
+    }
+
+    stdout, frame = run_feed_hook(
+        cli_path,
+        root / "cmux-codex-posttool-request-only.sock",
+        payload,
+        None,
+    )
+    if stdout != {}:
+        raise AssertionError(f"Codex PostToolUse telemetry should not emit a decision: {stdout!r}")
+    event = frame["params"]["event"]
+    tool_input = event.get("tool_input")
+    if tool_input != payload["tool_input"]:
+        raise AssertionError(f"Codex PostToolUse without response should preserve request input: {event!r}")
+    if isinstance(tool_input, dict) and tool_input.get("_cmux_sanitized") is True:
+        raise AssertionError(f"request input fallback should not be sanitized: {event!r}")
+
+
+def test_non_codex_post_tool_use_keeps_request_input(cli_path: str, root: Path) -> None:
+    payload = {
+        "session_id": "antigravity-session",
+        "hook_event_name": "PostToolUse",
+        "tool_name": "run_command",
+        "tool_input": {
+            "command": "cat important.txt",
+            "cwd": "/tmp/antigravity-cwd",
+            "path": "important.txt",
+        },
+        "tool_response": {
+            "stdout": "secret output that must not replace the request input",
+            "exit_code": 0,
+        },
+    }
+
+    stdout, frame = run_feed_hook(
+        cli_path,
+        root / "cmux-antigravity-posttool.sock",
+        payload,
+        None,
+        source="antigravity",
+    )
+    if stdout != {}:
+        raise AssertionError(f"Antigravity PostToolUse telemetry should not emit a decision: {stdout!r}")
+    event = frame["params"]["event"]
+    tool_input = event.get("tool_input")
+    if tool_input != payload["tool_input"]:
+        raise AssertionError(f"non-Codex PostToolUse should preserve request input: {event!r}")
+    if isinstance(tool_input, dict) and tool_input.get("_cmux_sanitized") is True:
+        raise AssertionError(f"non-Codex request input should not be sanitized: {event!r}")
+
+
+def test_pi_post_tool_use_uses_projected_result(cli_path: str, root: Path) -> None:
+    projected_result = {
+        "kind": "object",
+        "key_count": 3,
+        "truncated": True,
+    }
+    payload = {
+        "session_id": "pi-projected-result-session",
+        "hook_event_name": "PostToolUse",
+        "tool_call_id": "pi-projected-result-tool",
+        "tool_name": "bash",
+        "tool_input": {
+            "command": "printf secret-request-input",
+        },
+        "tool_result": projected_result,
+        "is_error": True,
+    }
+
+    stdout, frame = run_feed_hook(
+        cli_path,
+        root / "cmux-pi-projected-result.sock",
+        payload,
+        None,
+        source="pi",
+    )
+    expected_target = {
+        "workspace_id": FAKE_WORKSPACE_ID,
+        "surface_id": FAKE_SURFACE_ID,
+    }
+    if stdout != expected_target:
+        raise AssertionError(f"Pi PostToolUse telemetry reported the wrong acknowledged target: {stdout!r}")
+    event = frame["params"]["event"]
+    tool_input = event.get("tool_input")
+    if not isinstance(tool_input, dict):
+        raise AssertionError(f"Pi PostToolUse dropped its projected tool result: {event!r}")
+    if (
+        tool_input.get("_cmux_sanitized") is not True
+        or tool_input.get("kind") != "object"
+        or tool_input.get("key_count") != 3
+        or tool_input.get("truncated") is not True
+    ):
+        raise AssertionError(f"Pi projected result was not validated at the CLI boundary: {event!r}")
+    if event.get("is_error") is not True:
+        raise AssertionError(f"Pi PostToolUse dropped its failure status: {event!r}")
+
+
+def test_legacy_pi_post_tool_use_redacts_raw_result(cli_path: str, root: Path) -> None:
+    secret = "PRIVATE-KEY-SHOULD-NOT-PERSIST"
+    payload = {
+        "session_id": "pi-legacy-raw-result-session",
+        "hook_event_name": "PostToolUse",
+        "tool_call_id": "pi-legacy-raw-result-tool",
+        "tool_name": "bash",
+        "tool_result": {
+            "stdout": secret,
+            "exit_code": 0,
+            "nested": {"file_contents": secret},
+        },
+    }
+
+    stdout, frame = run_feed_hook(
+        cli_path,
+        root / "cmux-pi-legacy-raw-result.sock",
+        payload,
+        None,
+        source="pi",
+    )
+    expected_target = {
+        "workspace_id": FAKE_WORKSPACE_ID,
+        "surface_id": FAKE_SURFACE_ID,
+    }
+    if stdout != expected_target:
+        raise AssertionError(f"legacy Pi PostToolUse telemetry reported the wrong acknowledged target: {stdout!r}")
+    event = frame["params"]["event"]
+    tool_input = event.get("tool_input")
+    if not isinstance(tool_input, dict) or tool_input.get("_cmux_sanitized") is not True:
+        raise AssertionError(f"legacy Pi result was not sanitized at the CLI boundary: {event!r}")
+    if tool_input.get("kind") != "object" or tool_input.get("key_count") != 3:
+        raise AssertionError(f"legacy Pi result lost bounded structural metadata: {event!r}")
+    if secret in json.dumps(event):
+        raise AssertionError(f"legacy Pi result leaked raw output into Feed: {event!r}")
+
+
+def test_pi_compacted_post_tool_use_sends_one_ordered_batch(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-compacted-posttool.sock"
+    payload = {
+        "session_id": "pi-session",
+        "turn_id": "turn-compact",
+        "cwd": "/tmp/pi-project",
+        "hook_event_name": "PostToolUse",
+        "tool_call_id": "overflow-tool-8",
+        "tool_name": "bash",
+        "tool_result": {"status": "ok", "value": 8},
+        "cmux_compacted_terminal_count": 2,
+        "cmux_compacted_terminal_omitted_count": 0,
+        "cmux_compacted_terminal_events": [
+            {
+                "session_id": "pi-session-a",
+                "turn_id": "turn-compact",
+                "workspace_id": "workspace-a",
+                "cwd": "/tmp/pi-project-a",
+                "tool_call_id": "overflow-tool-8",
+                "tool_name": "bash",
+                "is_error": False,
+                "tool_result": {"kind": "object", "preview": "PRIVATE-KEY-SHOULD-NOT-PERSIST"},
+            },
+            {
+                "session_id": "pi-session-b",
+                "turn_id": "turn-compact",
+                "workspace_id": "workspace-b",
+                "cwd": "/tmp/pi-project-b",
+                "tool_call_id": "overflow-tool-9",
+                "tool_name": "bash",
+                "is_error": True,
+                "tool_result": {"kind": "object", "preview": '{"status":"failed","value":9}'},
+            },
+        ],
+    }
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+
+    with FakeCmuxSocket(socket_path, None) as fake:
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "feed",
+                "--source",
+                "pi",
+                "--event",
+                "PostToolUse",
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            raise AssertionError(
+                f"compacted Pi hooks feed failed exit={result.returncode}\n"
+                f"stdout={result.stdout}\nstderr={result.stderr}"
+            )
+        feed_frames = [frame for frame in fake.frames if frame.get("method") == "feed.push"]
+
+    if len(feed_frames) != 1:
+        raise AssertionError(
+            f"compacted Pi terminal events should produce one Feed batch: feed={feed_frames!r}, all={fake.frames!r}"
+        )
+    events = feed_frames[0]["params"]["events"]
+    if [event.get("tool_call_id") for event in events] != ["overflow-tool-8", "overflow-tool-9"]:
+        raise AssertionError(f"compacted Pi terminal event order changed: {events!r}")
+    expected_routing = [
+        ("pi-pi-session-a", FAKE_WORKSPACE_ID, "/tmp/pi-project-a"),
+        ("pi-pi-session-b", FAKE_WORKSPACE_ID, "/tmp/pi-project-b"),
+    ]
+    actual_routing = [
+        (event.get("session_id"), event.get("workspace_id"), event.get("cwd"))
+        for event in events
+    ]
+    if actual_routing != expected_routing:
+        raise AssertionError(f"compacted Pi terminal events changed routing ownership: {actual_routing!r}")
+    request_ids = [event.get("_opencode_request_id", "") for event in events]
+    if not any("overflow-tool-8" in request_id for request_id in request_ids):
+        raise AssertionError(f"first compacted Pi terminal event was lost: {events!r}")
+    if not any("overflow-tool-9" in request_id for request_id in request_ids):
+        raise AssertionError(f"second compacted Pi terminal event was lost: {events!r}")
+    if any(event.get("hook_event_name") != "PostToolUse" or event.get("_source") != "pi" for event in events):
+        raise AssertionError(f"compacted Pi terminal events changed Feed identity: {events!r}")
+    if "PRIVATE-KEY-SHOULD-NOT-PERSIST" in json.dumps(events):
+        raise AssertionError(f"compacted Pi terminal events leaked tool output into Feed: {events!r}")
+
+
+def test_pi_compacted_feed_sends_bounded_acknowledged_batch(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-compacted-pipeline.sock"
+    event_count = 64
+    payload = {
+        "session_id": "pi-pipeline-session",
+        "hook_event_name": "PostToolUse",
+        "cmux_compacted_terminal_omitted_count": 1,
+        "cmux_compacted_terminal_events": [
+            {
+                "session_id": "pi-pipeline-session",
+                "workspace_id": f"untrusted-workspace-{index}",
+                "tool_call_id": f"pipeline-tool-{index}",
+                "tool_name": "bash",
+            }
+            for index in range(event_count)
+        ],
+    }
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+
+    with FakeCmuxSocket(
+        socket_path,
+        None,
+        surface_delivery_target=(FAKE_WORKSPACE_ID, FAKE_SURFACE_ID),
+    ) as fake:
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "feed",
+                "--source",
+                "pi",
+                "--event",
+                "PostToolUse",
+                "--workspace",
+                FAKE_WORKSPACE_ID,
+                "--surface",
+                FAKE_SURFACE_ID,
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+
+    if result.returncode != 0:
+        raise AssertionError(
+            "compacted Pi feed did not send its acknowledged batch: "
+            f"exit={result.returncode} stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+    feed_frames = [frame for frame in fake.frames if frame.get("method") == "feed.push"]
+    if len(feed_frames) != 1:
+        raise AssertionError(f"compacted Pi feed emitted {len(feed_frames)} requests instead of one")
+    if any(frame.get("method") == "agent.resolve_delivery_target" for frame in fake.frames):
+        raise AssertionError(f"compacted Pi feed redundantly preflighted its exact target: {fake.frames!r}")
+    events = feed_frames[0]["params"]["events"]
+    if len(events) != event_count:
+        raise AssertionError(f"compacted Pi feed exceeded its {event_count}-event bound: {len(events)}")
+    if any(event.get("workspace_id") != FAKE_WORKSPACE_ID for event in events):
+        raise AssertionError(f"compacted Pi feed batch accepted untrusted workspace routing: {events!r}")
+    if not any(event.get("tool_call_id") == f"pipeline-tool-{event_count - 1}" for event in events):
+        raise AssertionError(f"compacted Pi feed overflow displaced its newest retained event: {events!r}")
+    final_event = events[-1]
+    if final_event.get("tool_name") != "cmux_compacted_terminal_overflow":
+        raise AssertionError(f"compacted Pi feed omitted its overflow marker: {final_event!r}")
+    if final_event.get("tool_input", {}).get("omitted_terminal_count") != 2:
+        raise AssertionError(f"compacted Pi feed overflow count did not include the displaced summary: {final_event!r}")
+
+
+def test_pi_compacted_feed_rejects_failed_server_ack(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-compacted-rejected-ack.sock"
+    payload = {
+        "session_id": "pi-compacted-rejected-session",
+        "hook_event_name": "PostToolUse",
+        "cmux_compacted_terminal_events": [
+            {
+                "session_id": "pi-compacted-rejected-session",
+                "tool_call_id": "pi-compacted-rejected-tool",
+                "tool_name": "bash",
+            }
+        ],
+    }
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+
+    with FakeCmuxSocket(socket_path, None, include_feed_item_id=False):
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "feed",
+                "--source",
+                "pi",
+                "--event",
+                "PostToolUse",
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+
+    if result.returncode == 0:
+        raise AssertionError(
+            "compacted Pi feed accepted an acknowledgment without authoritative item IDs: "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+
+
+def test_pi_compacted_feed_sanitizes_not_found_server_error(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-compacted-private-not-found.sock"
+    private_marker = "private resolver detail must not leak"
+    payload = {
+        "session_id": "pi-compacted-private-not-found",
+        "hook_event_name": "PostToolUse",
+        "cmux_compacted_terminal_events": [{"tool_call_id": "private-tool", "tool_name": "bash"}],
+    }
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+
+    with FakeCmuxSocket(
+        socket_path,
+        None,
+        method_errors={"feed.push": ("not_found", private_marker)},
+    ):
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "feed",
+                "--source",
+                "pi",
+                "--event",
+                "PostToolUse",
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+
+    combined_output = result.stdout + result.stderr
+    if (
+        result.returncode != 69
+        or private_marker in combined_output
+        or "No live delivery target" not in combined_output
+    ):
+        raise AssertionError(
+            "Pi feed exposed a private server not_found message: "
+            f"exit={result.returncode} stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+
+
+def test_pi_compacted_feed_allows_brief_auth_delay(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-compacted-auth-delay.sock"
+    payload = {
+        "session_id": "pi-compacted-auth-delay-session",
+        "hook_event_name": "PostToolUse",
+        "cmux_compacted_terminal_events": [
+            {
+                "session_id": "pi-compacted-auth-delay-session",
+                "tool_call_id": "pi-compacted-auth-delay-tool",
+                "tool_name": "bash",
+            }
+        ],
+    }
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+
+    with FakeCmuxSocket(
+        socket_path,
+        None,
+        raw_response_delay=0.15,
+        surface_delivery_target=(FAKE_WORKSPACE_ID, FAKE_SURFACE_ID),
+    ) as fake:
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "--password",
+                "test-password",
+                "hooks",
+                "feed",
+                "--source",
+                "pi",
+                "--event",
+                "PostToolUse",
+                "--workspace",
+                FAKE_WORKSPACE_ID,
+                "--surface",
+                FAKE_SURFACE_ID,
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+
+    if result.returncode != 0:
+        raise AssertionError(
+            "compacted Pi feed rejected a healthy delayed auth response: "
+            f"exit={result.returncode} stdout={result.stdout!r} stderr={result.stderr!r} frames={fake.frames!r}"
+        )
+    feed_frames = [frame for frame in fake.frames if frame.get("method") == "feed.push"]
+    if len(feed_frames) != 1:
+        raise AssertionError(f"delayed auth lost the compacted Pi feed event: {fake.frames!r}")
+
+
+def test_pi_feed_waits_for_server_ack(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-feed-ack.sock"
+    response_gate = threading.Event()
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    payload = {
+        "session_id": "pi-ack-session",
+        "cwd": "/tmp/pi-ack-project",
+        "hook_event_name": "PostToolUse",
+        "tool_call_id": "pi-ack-tool",
+        "tool_name": "bash",
+    }
+
+    with FakeCmuxSocket(socket_path, None, feed_response_gate=response_gate) as fake:
+        process = subprocess.Popen(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "feed",
+                "--source",
+                "pi",
+                "--event",
+                "PostToolUse",
+            ],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+        )
+        assert process.stdin is not None
+        process.stdin.write(json.dumps(payload))
+        process.stdin.close()
+        if not fake.feed_frame_received.wait(timeout=3):
+            process.kill()
+            raise AssertionError("Pi feed request did not reach the fake socket")
+        deadline = time.monotonic() + 0.5
+        while process.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        exited_before_ack = process.poll() is not None
+        response_gate.set()
+        returncode = process.wait(timeout=5)
+        stdout = process.stdout.read() if process.stdout is not None else ""
+        stderr = process.stderr.read() if process.stderr is not None else ""
+
+    if exited_before_ack:
+        raise AssertionError("Pi feed subprocess exited before the server acknowledged ingestion")
+    if returncode != 0:
+        raise AssertionError(f"acknowledged Pi feed failed exit={returncode} stdout={stdout!r} stderr={stderr!r}")
+
+
+def test_pi_feed_rejects_failed_server_ack(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-feed-rejected-ack.sock"
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    payload = {
+        "session_id": "pi-rejected-session",
+        "cwd": "/tmp/pi-rejected-project",
+        "hook_event_name": "PostToolUse",
+        "tool_call_id": "pi-rejected-tool",
+        "tool_name": "bash",
+    }
+
+    with FakeCmuxSocket(socket_path, None, feed_response_ok=False):
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "feed",
+                "--source",
+                "pi",
+                "--event",
+                "PostToolUse",
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+
+    if result.returncode == 0:
+        raise AssertionError(
+            "Pi feed subprocess accepted a failed server acknowledgment: "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+
+
+def test_pi_feed_rejects_unconfirmed_server_ack(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-feed-unconfirmed-ack.sock"
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    payload = {
+        "session_id": "pi-unconfirmed-session",
+        "cwd": "/tmp/pi-unconfirmed-project",
+        "hook_event_name": "PostToolUse",
+        "tool_call_id": "pi-unconfirmed-tool",
+        "tool_name": "bash",
+    }
+
+    with FakeCmuxSocket(socket_path, None, include_feed_item_id=False):
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "feed",
+                "--source",
+                "pi",
+                "--event",
+                "PostToolUse",
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+
+    if result.returncode == 0:
+        raise AssertionError(
+            "Pi feed accepted an acknowledgment without authoritative insertion proof: "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+    combined_output = f"{result.stdout}\n{result.stderr}"
+    expected_error = "cmux did not receive acknowledgment for Pi feed ingestion"
+    if expected_error not in combined_output:
+        raise AssertionError(
+            "Pi feed failed without exercising authoritative item_id validation: "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+
+
+def test_pi_compacted_feed_accepts_single_item_ack(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-single-compacted-ack.sock"
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    payload = {
+        "session_id": "pi-single-compacted-session",
+        "cwd": "/tmp/pi-single-compacted-project",
+        "cmux_compacted_terminal_omitted_count": 0,
+        "cmux_compacted_terminal_events": [
+            {
+                "session_id": "pi-single-compacted-session",
+                "tool_call_id": "pi-single-compacted-tool",
+                "tool_name": "bash",
+            }
+        ],
+    }
+
+    with FakeCmuxSocket(
+        socket_path,
+        None,
+        surface_delivery_target=(FAKE_WORKSPACE_ID, FAKE_SURFACE_ID),
+        single_batch_item_id=True,
+    ) as fake:
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "feed",
+                "--source",
+                "pi",
+                "--event",
+                "PostToolUse",
+                "--workspace",
+                FAKE_WORKSPACE_ID,
+                "--surface",
+                FAKE_SURFACE_ID,
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+
+    if result.returncode != 0:
+        raise AssertionError(
+            "Pi compacted Feed rejected a valid singular acknowledgment for its one-event batch: "
+            f"stdout={result.stdout!r} stderr={result.stderr!r} frames={fake.frames!r}"
+        )
+    feed_frames = [frame for frame in fake.frames if frame.get("method") == "feed.push"]
+    if len(feed_frames) != 1 or len(feed_frames[0].get("params", {}).get("events", [])) != 1:
+        raise AssertionError(f"Pi compacted Feed did not send one batch-shaped event: {fake.frames!r}")
+
+
+def test_pi_feed_rejects_connection_failure(cli_path: str, root: Path) -> None:
+    socket_path = root / "missing-pi-feed.sock"
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    payload = {
+        "session_id": "pi-connection-failure-session",
+        "cwd": "/tmp/pi-connection-failure-project",
+        "hook_event_name": "PostToolUse",
+        "tool_call_id": "pi-connection-failure-tool",
+        "tool_name": "bash",
+    }
+
+    result = subprocess.run(
+        [
+            cli_path,
+            "--socket",
+            str(socket_path),
+            "hooks",
+            "feed",
+            "--source",
+            "pi",
+            "--event",
+            "PostToolUse",
+        ],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=10,
+    )
+
+    if result.returncode == 0:
+        raise AssertionError(
+            "Pi feed subprocess accepted a connection failure: "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+
+
+def test_legacy_pi_feed_rejects_invalid_ambient_surface(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-legacy-invalid-ambient-surface.sock"
+    invalid_surface_id = "33333333-3333-3333-3333-333333333333"
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = invalid_surface_id
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    payload = {
+        "session_id": "pi-legacy-invalid-surface-session",
+        "cwd": "/tmp/pi-legacy-invalid-surface-project",
+        "hook_event_name": "PostToolUse",
+        "tool_call_id": "pi-legacy-invalid-surface-tool",
+        "tool_name": "bash",
+    }
+
+    with FakeCmuxSocket(
+        socket_path,
+        None,
+        method_errors={"feed.push": ("not_found", "No live delivery target")},
+    ) as fake:
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "feed",
+                "--source",
+                "pi",
+                "--event",
+                "PostToolUse",
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+
+    if result.returncode != 69:
+        raise AssertionError(
+            "Legacy Pi feed did not validate its ambient surface before ingestion: "
+            f"stdout={result.stdout!r} stderr={result.stderr!r} frames={fake.frames!r}"
+        )
+    feed_frames = [frame for frame in fake.frames if frame.get("method") == "feed.push"]
+    if len(feed_frames) != 1:
+        raise AssertionError(
+            "Legacy Pi feed did not rely on one authoritative ingestion attempt: "
+            f"{fake.frames!r}"
+        )
+    if any(frame.get("method") == "agent.resolve_delivery_target" for frame in fake.frames):
+        raise AssertionError(f"Legacy Pi feed redundantly preflighted its exact surface: {fake.frames!r}")
+
+
+def test_pi_hook_rejects_invalid_explicit_surface(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-invalid-explicit-surface.sock"
+    invalid_surface_id = "33333333-3333-3333-3333-333333333333"
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = invalid_surface_id
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    payload = {
+        "session_id": "pi-invalid-surface-session",
+        "cwd": "/tmp/pi-invalid-surface-project",
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": "strict target",
+    }
+
+    with FakeCmuxSocket(socket_path, None) as fake:
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "pi",
+                "prompt-submit",
+                "--workspace",
+                FAKE_WORKSPACE_ID,
+                "--surface",
+                invalid_surface_id,
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+
+    if result.returncode != 69:
+        raise AssertionError(
+            "Pi hook did not report the stable unavailable-surface status: "
+            f"stdout={result.stdout!r} stderr={result.stderr!r} frames={fake.frames!r}"
+        )
+    if any(frame.get("method") == "feed.push" for frame in fake.frames):
+        raise AssertionError(f"invalid explicit Pi surface emitted Feed telemetry: {fake.frames!r}")
+
+
+def test_pi_hook_rehomes_restored_surface_alias(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-moved-explicit-surface.sock"
+    moved_workspace_id = "44444444-4444-4444-4444-444444444444"
+    restored_surface_id = "66666666-6666-6666-6666-666666666666"
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    payload = {
+        "session_id": "pi-moved-surface-session",
+        "cwd": "/tmp/pi-moved-surface-project",
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": "moved target",
+    }
+
+    with FakeCmuxSocket(
+        socket_path,
+        None,
+        surfaces_by_workspace={
+            FAKE_WORKSPACE_ID: [],
+            moved_workspace_id: [{"id": restored_surface_id}],
+        },
+        surface_delivery_target=(moved_workspace_id, restored_surface_id),
+    ) as fake:
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "pi",
+                "prompt-submit",
+                "--workspace",
+                FAKE_WORKSPACE_ID,
+                "--surface",
+                FAKE_SURFACE_ID,
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+
+    if result.returncode != 0:
+        raise AssertionError(
+            "Pi hook rejected a live surface after relay alias restoration: "
+            f"exit={result.returncode} stdout={result.stdout!r} stderr={result.stderr!r} frames={fake.frames!r}"
+        )
+    resolver_frames = [
+        frame
+        for frame in fake.frames
+        if frame.get("method") == "agent.resolve_delivery_target"
+    ]
+    if not resolver_frames:
+        raise AssertionError(f"Pi hook did not resolve the moved surface's live owner: {fake.frames!r}")
+    surface_list_frames = [
+        frame
+        for frame in fake.frames
+        if frame.get("method") == "surface.list"
+    ]
+    if surface_list_frames:
+        raise AssertionError(
+            "exact Pi surface UUID resolution enumerated a workspace-wide surface snapshot: "
+            f"{surface_list_frames!r}"
+        )
+    try:
+        hook_result = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise AssertionError(f"Pi hook did not report its resolved live target: {result.stdout!r}") from exc
+    if hook_result != {
+        "workspace_id": moved_workspace_id,
+        "surface_id": restored_surface_id,
+    }:
+        raise AssertionError(f"Pi hook reported the wrong resolved live target: {hook_result!r}")
+
+
+def test_pi_hook_explicit_workspace_ignores_ambient_surface(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-explicit-workspace-no-surface.sock"
+    explicit_workspace_id = "55555555-5555-5555-5555-555555555555"
+    explicit_workspace_surface_id = "66666666-6666-6666-6666-666666666666"
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    payload = {
+        "session_id": "pi-explicit-workspace-no-surface-session",
+        "cwd": "/tmp/pi-explicit-workspace-no-surface-project",
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": "workspace-scoped target",
+    }
+
+    with FakeCmuxSocket(
+        socket_path,
+        None,
+        surfaces_by_workspace={
+            explicit_workspace_id: [
+                {
+                    "id": explicit_workspace_surface_id,
+                    "focused": True,
+                }
+            ],
+        },
+    ) as fake:
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "pi",
+                "prompt-submit",
+                "--workspace",
+                explicit_workspace_id,
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+
+    if result.returncode != 0:
+        raise AssertionError(
+            "Pi hook failed to resolve the explicit workspace's focused surface: "
+            f"exit={result.returncode} stdout={result.stdout!r} stderr={result.stderr!r} frames={fake.frames!r}"
+        )
+    resolver_frames = [
+        frame
+        for frame in fake.frames
+        if frame.get("method") == "agent.resolve_delivery_target"
+    ]
+    if resolver_frames:
+        raise AssertionError(
+            "Pi hook treated the ambient surface as explicit under an explicit workspace: "
+            f"{resolver_frames!r}"
+        )
+    try:
+        hook_result = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise AssertionError(f"Pi hook did not report its workspace-scoped target: {result.stdout!r}") from exc
+    if hook_result != {
+        "workspace_id": explicit_workspace_id,
+        "surface_id": explicit_workspace_surface_id,
+    }:
+        raise AssertionError(f"Pi hook reported the wrong workspace-scoped target: {hook_result!r}")
+
+
+def test_pi_feed_explicit_workspace_ignores_ambient_surface(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-explicit-feed-workspace-no-surface.sock"
+    explicit_workspace_id = "55555555-5555-5555-5555-555555555555"
+    explicit_workspace_surface_id = "66666666-6666-6666-6666-666666666666"
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    payload = {
+        "session_id": "pi-explicit-feed-workspace-no-surface-session",
+        "cwd": "/tmp/pi-explicit-feed-workspace-no-surface-project",
+        "hook_event_name": "PostToolUse",
+        "tool_call_id": "pi-explicit-feed-workspace-no-surface-tool",
+        "tool_name": "bash",
+    }
+
+    with FakeCmuxSocket(
+        socket_path,
+        None,
+        surfaces_by_workspace={
+            explicit_workspace_id: [
+                {
+                    "id": explicit_workspace_surface_id,
+                    "focused": True,
+                }
+            ],
+        },
+        surface_delivery_target=(explicit_workspace_id, explicit_workspace_surface_id),
+    ) as fake:
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "feed",
+                "--source",
+                "pi",
+                "--event",
+                "PostToolUse",
+                "--workspace",
+                explicit_workspace_id,
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+
+    if result.returncode != 0:
+        raise AssertionError(
+            "Pi feed failed to resolve the explicit workspace's focused surface: "
+            f"exit={result.returncode} stdout={result.stdout!r} stderr={result.stderr!r} frames={fake.frames!r}"
+        )
+    feed_frames = [frame for frame in fake.frames if frame.get("method") == "feed.push"]
+    if len(feed_frames) != 1:
+        raise AssertionError(f"Pi feed did not emit one workspace-scoped event: {fake.frames!r}")
+    event = feed_frames[0]["params"]["event"]
+    if event.get("workspace_id") != explicit_workspace_id:
+        raise AssertionError(f"Pi feed dropped its explicit workspace: {event!r}")
+    if event.get("surface_id") != explicit_workspace_surface_id:
+        raise AssertionError(
+            "Pi feed inherited the ambient surface instead of the explicit workspace's focused surface: "
+            f"{event!r}"
+        )
+    if any(frame.get("method") == "agent.resolve_delivery_target" for frame in fake.frames):
+        raise AssertionError(
+            "Pi feed treated the ambient surface as explicit under an explicit workspace: "
+            f"{fake.frames!r}"
+        )
+
+
+def test_pi_feed_uses_resolved_explicit_workspace(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-explicit-feed-workspace.sock"
+    explicit_workspace_id = "55555555-5555-5555-5555-555555555555"
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    payload = {
+        "session_id": "pi-explicit-workspace-session",
+        "cwd": "/tmp/pi-explicit-workspace-project",
+        "hook_event_name": "PostToolUse",
+        "tool_call_id": "pi-explicit-workspace-tool",
+        "tool_name": "bash",
+    }
+
+    with FakeCmuxSocket(
+        socket_path,
+        None,
+        surfaces_by_workspace={
+            explicit_workspace_id: [{"id": FAKE_SURFACE_ID}],
+        },
+        surface_delivery_target=(explicit_workspace_id, FAKE_SURFACE_ID),
+    ) as fake:
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "feed",
+                "--source",
+                "pi",
+                "--event",
+                "PostToolUse",
+                "--workspace",
+                f"  {explicit_workspace_id}  ",
+                "--surface",
+                FAKE_SURFACE_ID,
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+
+    if result.returncode != 0:
+        raise AssertionError(
+            "Pi feed rejected its explicit workspace target: "
+            f"exit={result.returncode} stdout={result.stdout!r} stderr={result.stderr!r} frames={fake.frames!r}"
+        )
+    feed_frames = [frame for frame in fake.frames if frame.get("method") == "feed.push"]
+    if len(feed_frames) != 1:
+        raise AssertionError(f"Pi feed did not emit one explicit-workspace event: {fake.frames!r}")
+    workspace_id = feed_frames[0]["params"]["event"].get("workspace_id")
+    if workspace_id != explicit_workspace_id:
+        raise AssertionError(
+            "Pi feed serialized its ambient workspace instead of its validated explicit target: "
+            f"{feed_frames[0]!r}"
+        )
+    surface_id = feed_frames[0]["params"]["event"].get("surface_id")
+    if surface_id != FAKE_SURFACE_ID:
+        raise AssertionError(
+            "Pi feed dropped its validated explicit surface target: "
+            f"{feed_frames[0]!r}"
+        )
+    if any(frame.get("method") == "agent.resolve_delivery_target" for frame in fake.frames):
+        raise AssertionError(f"Pi feed redundantly preflighted its exact target: {fake.frames!r}")
+    try:
+        feed_result = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise AssertionError(f"Pi feed did not report its authoritative target: {result.stdout!r}") from exc
+    if feed_result != {
+        "workspace_id": explicit_workspace_id,
+        "surface_id": FAKE_SURFACE_ID,
+    }:
+        raise AssertionError(f"Pi feed reported the wrong authoritative target: {feed_result!r}")
+
+
+def test_pi_feed_rejects_missing_explicit_workspace(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-missing-explicit-workspace.sock"
+    missing_workspace = "workspace:404"
+    other_workspace_id = "66666666-6666-6666-6666-666666666666"
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    payload = {
+        "session_id": "pi-missing-workspace-session",
+        "cwd": "/tmp/pi-missing-workspace-project",
+        "hook_event_name": "PostToolUse",
+        "tool_call_id": "pi-missing-workspace-tool",
+        "tool_name": "bash",
+    }
+
+    with FakeCmuxSocket(
+        socket_path,
+        None,
+        surface_delivery_target=(other_workspace_id, FAKE_SURFACE_ID),
+        method_errors={"window.list": ("not_found", "Workspace not found")},
+    ) as fake:
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "feed",
+                "--source",
+                "pi",
+                "--event",
+                "PostToolUse",
+                "--workspace",
+                missing_workspace,
+                "--surface",
+                FAKE_SURFACE_ID,
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+
+    if result.returncode != 69:
+        raise AssertionError(
+            "Pi feed did not report its missing explicit workspace as an unavailable target: "
+            f"stdout={result.stdout!r} stderr={result.stderr!r} frames={fake.frames!r}"
+        )
+    forbidden_methods = {"agent.resolve_delivery_target", "feed.push"}
+    leaked_frames = [frame for frame in fake.frames if frame.get("method") in forbidden_methods]
+    if leaked_frames:
+        raise AssertionError(
+            "Pi feed continued routing after its explicit workspace failed to resolve: "
+            f"{leaked_frames!r}"
+        )
+
+
+def test_pi_feed_treats_blank_ambient_workspace_as_absent(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-blank-ambient-workspace.sock"
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = ""
+    payload = {
+        "session_id": "pi-blank-workspace-session",
+        "cwd": "/tmp/pi-blank-workspace-project",
+        "hook_event_name": "PostToolUse",
+        "tool_call_id": "pi-blank-workspace-tool",
+        "tool_name": "bash",
+    }
+
+    with FakeCmuxSocket(
+        socket_path,
+        None,
+        surface_delivery_target=(FAKE_WORKSPACE_ID, FAKE_SURFACE_ID),
+    ) as fake:
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "feed",
+                "--source",
+                "pi",
+                "--event",
+                "PostToolUse",
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+
+    if result.returncode != 0:
+        raise AssertionError(
+            "Pi feed rejected a valid surface because its ambient workspace was blank: "
+            f"exit={result.returncode} stdout={result.stdout!r} stderr={result.stderr!r} frames={fake.frames!r}"
+        )
+    feed_frames = [frame for frame in fake.frames if frame.get("method") == "feed.push"]
+    if len(feed_frames) != 1:
+        raise AssertionError(f"Pi feed did not emit one surface-only event: {fake.frames!r}")
+    event = feed_frames[0]["params"]["event"]
+    if event.get("surface_id") != FAKE_SURFACE_ID or "workspace_id" in event:
+        raise AssertionError(f"Pi feed did not preserve surface-only routing: {event!r}")
+
+
+def test_pi_compacted_feed_rejects_blank_explicit_workspace(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-blank-explicit-workspace.sock"
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    payload = {
+        "session_id": "pi-blank-explicit-workspace-session",
+        "hook_event_name": "PostToolUse",
+        "cmux_compacted_terminal_events": [
+            {
+                "session_id": "pi-blank-explicit-workspace-session",
+                "tool_call_id": "pi-blank-explicit-workspace-tool",
+                "tool_name": "bash",
+            }
+        ],
+    }
+
+    with FakeCmuxSocket(socket_path, None) as fake:
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "feed",
+                "--source",
+                "pi",
+                "--event",
+                "PostToolUse",
+                "--workspace= \t ",
+                "--surface",
+                FAKE_SURFACE_ID,
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+
+    if result.returncode != 69:
+        raise AssertionError(
+            "Pi compacted feed did not reject its blank explicit workspace as unavailable: "
+            f"stdout={result.stdout!r} stderr={result.stderr!r} frames={fake.frames!r}"
+        )
+    if any(frame.get("method") == "feed.push" for frame in fake.frames):
+        raise AssertionError(
+            "Pi compacted feed widened its blank explicit workspace to surface-only routing: "
+            f"{fake.frames!r}"
+        )
+
+
+def test_pi_compacted_feed_rejects_blank_explicit_surface(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-blank-explicit-surface.sock"
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    payload = {
+        "session_id": "pi-blank-explicit-surface-session",
+        "hook_event_name": "PostToolUse",
+        "cmux_compacted_terminal_events": [
+            {
+                "session_id": "pi-blank-explicit-surface-session",
+                "tool_call_id": "pi-blank-explicit-surface-tool",
+                "tool_name": "bash",
+            }
+        ],
+    }
+
+    with FakeCmuxSocket(socket_path, None) as fake:
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "feed",
+                "--source",
+                "pi",
+                "--event",
+                "PostToolUse",
+                "--surface= \t ",
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+
+    if result.returncode != 69:
+        raise AssertionError(
+            "Pi compacted feed did not reject its blank explicit surface as unavailable: "
+            f"stdout={result.stdout!r} stderr={result.stderr!r} frames={fake.frames!r}"
+        )
+    leaked_frames = [frame for frame in fake.frames if frame.get("method") == "feed.push"]
+    if leaked_frames:
+        raise AssertionError(
+            "Pi compacted feed widened its blank explicit surface to workspace scope: "
+            f"{leaked_frames!r}"
+        )
+
+
+def test_pi_feed_rejects_malformed_compacted_marker(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-malformed-compacted-marker.sock"
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    payload = {
+        "session_id": "pi-malformed-compacted-marker-session",
+        "hook_event_name": "PostToolUse",
+        "tool_call_id": "pi-malformed-compacted-marker-tool",
+        "tool_name": "bash",
+        "cmux_compacted_terminal_events": {
+            "unexpected": "object",
+        },
+    }
+
+    with FakeCmuxSocket(socket_path, None) as fake:
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "feed",
+                "--source",
+                "pi",
+                "--event",
+                "PostToolUse",
+                "--surface",
+                FAKE_SURFACE_ID,
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+
+    if result.returncode == 0:
+        raise AssertionError(
+            "Pi feed accepted a malformed compacted marker through legacy ingestion: "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+    if any(frame.get("method") == "feed.push" for frame in fake.frames):
+        raise AssertionError(
+            "Pi feed sent a malformed compacted marker through ordinary ingestion: "
+            f"{fake.frames!r}"
+        )
+
+
+def test_pi_hook_rejects_malformed_explicit_surface(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-malformed-explicit-surface.sock"
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = "not-a-surface-handle"
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    payload = {
+        "session_id": "pi-malformed-surface-session",
+        "cwd": "/tmp/pi-malformed-surface-project",
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": "strict malformed target",
+    }
+
+    with FakeCmuxSocket(socket_path, None) as fake:
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "pi",
+                "prompt-submit",
+                "--workspace",
+                FAKE_WORKSPACE_ID,
+                "--surface",
+                "not-a-surface-handle",
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+
+    if result.returncode != 69:
+        raise AssertionError(
+            "Pi hook did not reject a malformed surface with the stable unavailable status: "
+            f"stdout={result.stdout!r} stderr={result.stderr!r} frames={fake.frames!r}"
+        )
+
+
+def test_pi_compacted_feed_bounds_untrusted_batch(cli_path: str, root: Path) -> None:
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    oversized_events = [
+        {
+            "session_id": "pi-untrusted-compaction-session",
+            "tool_call_id": f"untrusted-tool-{index}",
+            "tool_name": "bash",
+        }
+        for index in range(65)
+    ]
+    invalid_batches = [
+        ("oversized", oversized_events),
+        ("empty", []),
+        ("unusable", [{"tool_call_id": "missing-session"}]),
+    ]
+
+    for name, compacted_events in invalid_batches:
+        socket_path = root / f"cmux-pi-untrusted-compaction-{name}.sock"
+        payload = {
+            "session_id": "",
+            "hook_event_name": "PostToolUse",
+            "cmux_compacted_terminal_events": compacted_events,
+        }
+        if name == "oversized":
+            payload["session_id"] = "pi-untrusted-compaction-session"
+
+        with FakeCmuxSocket(socket_path, None) as fake:
+            result = subprocess.run(
+                [
+                    cli_path,
+                    "--socket",
+                    str(socket_path),
+                    "hooks",
+                    "feed",
+                    "--source",
+                    "pi",
+                    "--event",
+                    "PostToolUse",
+                ],
+                input=json.dumps(payload),
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+                timeout=10,
+            )
+
+        if result.returncode == 0:
+            raise AssertionError(f"invalid {name} Pi compaction reported success")
+        feed_frames = [frame for frame in fake.frames if frame.get("method") == "feed.push"]
+        if feed_frames:
+            raise AssertionError(f"invalid {name} Pi compaction reached Feed: {feed_frames!r}")
+
+
+def test_pi_feed_rejects_oversized_input(cli_path: str, root: Path) -> None:
+    socket_path = root / "cmux-pi-oversized-feed.sock"
+    env = os.environ.copy()
+    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    payload = {
+        "session_id": "pi-oversized-feed-session",
+        "hook_event_name": "PostToolUse",
+        "padding": "x" * (128 * 1024),
+    }
+
+    with FakeCmuxSocket(socket_path, None) as fake:
+        result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(socket_path),
+                "hooks",
+                "feed",
+                "--source",
+                "pi",
+                "--event",
+                "PostToolUse",
+            ],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+
+    if result.returncode != 0:
+        raise AssertionError(f"oversized Pi feed should fail closed without hook failure: {result.stderr!r}")
+    if any(frame.get("method") == "feed.push" for frame in fake.frames):
+        raise AssertionError(f"oversized Pi feed reached the socket: {fake.frames!r}")
 
 
 def test_claude_subagent_stop_stays_distinct_feed_telemetry(cli_path: str, root: Path) -> None:
@@ -2107,15 +4024,47 @@ def main() -> int:
             test_install_surfaces_invalid_codex_config_encoding(cli_path, root)
             test_uninstall_surfaces_invalid_codex_config_encoding(cli_path, root)
             test_install_codex_hooks_preserves_config_when_toml_read_fails(cli_path, root)
-            test_permission_reply_uses_codex_permission_request_schema(cli_path, root)
-            test_codex_persistent_permission_modes_degrade_to_once(cli_path, root)
+            test_codex_permission_request_is_nonblocking_telemetry(cli_path, root)
+            test_codex_permission_decisions_do_not_block_approval_reviewer(cli_path, root)
             test_codex_pre_tool_use_is_telemetry_not_actionable(cli_path, root)
+            test_codex_lifecycle_feed_events_stay_telemetry_and_distinct(cli_path, root)
+            test_codex_post_tool_use_redacts_tool_output(cli_path, root)
+            test_codex_post_tool_use_accepts_native_event_label(cli_path, root)
+            test_codex_post_tool_use_oversize_payload_is_dropped_before_decode(cli_path, root)
+            test_codex_lifecycle_oversize_payload_is_dropped_before_decode(cli_path, root)
+            test_codex_post_tool_use_keeps_cwd_from_tool_input(cli_path, root)
+            test_codex_post_tool_use_without_response_keeps_request_input(cli_path, root)
+            test_non_codex_post_tool_use_keeps_request_input(cli_path, root)
+            test_pi_post_tool_use_uses_projected_result(cli_path, root)
+            test_legacy_pi_post_tool_use_redacts_raw_result(cli_path, root)
+            test_pi_compacted_post_tool_use_sends_one_ordered_batch(cli_path, root)
+            test_pi_compacted_feed_sends_bounded_acknowledged_batch(cli_path, root)
+            test_pi_compacted_feed_rejects_failed_server_ack(cli_path, root)
+            test_pi_compacted_feed_sanitizes_not_found_server_error(cli_path, root)
+            test_pi_compacted_feed_allows_brief_auth_delay(cli_path, root)
+            test_pi_feed_waits_for_server_ack(cli_path, root)
+            test_pi_feed_rejects_failed_server_ack(cli_path, root)
+            test_pi_feed_rejects_unconfirmed_server_ack(cli_path, root)
+            test_pi_compacted_feed_accepts_single_item_ack(cli_path, root)
+            test_pi_feed_rejects_connection_failure(cli_path, root)
+            test_legacy_pi_feed_rejects_invalid_ambient_surface(cli_path, root)
+            test_pi_hook_rejects_invalid_explicit_surface(cli_path, root)
+            test_pi_hook_rehomes_restored_surface_alias(cli_path, root)
+            test_pi_feed_uses_resolved_explicit_workspace(cli_path, root)
+            test_pi_feed_rejects_missing_explicit_workspace(cli_path, root)
+            test_pi_feed_treats_blank_ambient_workspace_as_absent(cli_path, root)
+            test_pi_compacted_feed_rejects_blank_explicit_workspace(cli_path, root)
+            test_pi_compacted_feed_rejects_blank_explicit_surface(cli_path, root)
+            test_pi_feed_rejects_malformed_compacted_marker(cli_path, root)
+            test_pi_hook_rejects_malformed_explicit_surface(cli_path, root)
+            test_pi_compacted_feed_bounds_untrusted_batch(cli_path, root)
+            test_pi_feed_rejects_oversized_input(cli_path, root)
             test_claude_subagent_stop_stays_distinct_feed_telemetry(cli_path, root)
         except Exception as exc:
             print(f"FAIL: {exc}")
             return 1
 
-    print("PASS: Codex Feed hooks use native permission approvals")
+    print("PASS: Codex Feed hooks leave Codex approvals non-blocking")
     return 0
 
 

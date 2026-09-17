@@ -76,7 +76,7 @@ for target in ${requested_targets}; do
   esac
   seen_targets="${seen_targets} ${target}"
   ensure_rust_target "$target"
-  cargo build --manifest-path "${CRATE_DIR}/Cargo.toml" --release --target "$target"
+  cargo build --locked --manifest-path "${CRATE_DIR}/Cargo.toml" --release --target "$target"
   source_bin="${CRATE_DIR}/target/${target}/release/${BIN_NAME}"
   if [ ! -x "${source_bin}" ]; then
     echo "error: expected cloud CLI at ${source_bin}" >&2

@@ -1,5 +1,5 @@
 import Foundation
-import CMUXWorkstream
+import CMUXAgentLaunch
 
 extension CmuxEventBus {
     func publishWorkspaceCreated(
@@ -291,13 +291,31 @@ extension CmuxEventBus {
     }
 
     func publishNotificationChanges(oldValue: [TerminalNotification], newValue: [TerminalNotification]) {
-        let oldById = Dictionary(uniqueKeysWithValues: oldValue.map { ($0.id, $0) })
+        var oldById: [UUID: TerminalNotification] = [:]
+        for notification in oldValue {
+#if DEBUG
+            if oldById[notification.id] != nil {
+                cmuxDebugLog(
+                    "notification.changes.duplicateOldId function=publishNotificationChanges " +
+                        "id=\(notification.id.uuidString) source=oldById " +
+                        "expectedUniqueBy=TerminalNotificationStore.restoreSessionNotifications.notificationWithUniqueId"
+                )
+            }
+#endif
+            oldById[notification.id] = notification
+        }
         let newIds = Set(newValue.map(\.id))
-        let removed = oldValue.filter { !newIds.contains($0.id) }
+        var removedIds = Set<UUID>()
+        let removed = oldValue.filter { notification in
+            guard !newIds.contains(notification.id) else { return false }
+            return removedIds.insert(notification.id).inserted
+        }
         for notification in removed {
             publishNotificationRemoved(notification)
         }
+        var seenNewIds = Set<UUID>()
         for notification in newValue {
+            guard seenNewIds.insert(notification.id).inserted else { continue }
             if let old = oldById[notification.id] {
                 if !old.isRead, notification.isRead {
                     publishNotificationRead(
@@ -406,6 +424,7 @@ extension CmuxEventBus {
             category: "agent",
             source: event.source,
             workspaceId: event.workspaceId,
+            surfaceId: event.surfaceId,
             payload: payload
         )
 
@@ -414,6 +433,7 @@ extension CmuxEventBus {
             category: "feed",
             source: event.source,
             workspaceId: event.workspaceId,
+            surfaceId: event.surfaceId,
             payload: payload
         )
     }
@@ -424,8 +444,10 @@ extension CmuxEventBus {
             "hook_event_name": event.hookEventName.rawValue,
             "_source": event.source,
             "workspace_id": event.workspaceId ?? NSNull(),
+            "surface_id": event.surfaceId ?? NSNull(),
             "cwd": event.cwd ?? NSNull(),
             "tool_name": event.toolName ?? NSNull(),
+            "is_error": event.isError ?? NSNull(),
             "_opencode_request_id": event.requestId ?? NSNull(),
             "_ppid": event.ppid ?? NSNull(),
             "_received_at": Self.isoTimestamp(event.receivedAt)

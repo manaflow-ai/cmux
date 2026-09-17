@@ -1,4 +1,3 @@
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::env;
 use std::fs;
@@ -6,13 +5,10 @@ use std::io::{ErrorKind, Read, Write};
 use std::os::unix::fs::{FileTypeExt, MetadataExt};
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
-use std::path::{Path, PathBuf};
 use std::process::{self, Command};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const DEFAULT_RESPONSE_TIMEOUT: Duration = Duration::from_secs(15);
-const VM_CREATE_RESPONSE_TIMEOUT: Duration = Duration::from_secs(16 * 60);
-const VM_CREATE_IDEMPOTENCY_TTL: u64 = 10 * 60;
 const CONNECT_RETRY_DEADLINE: Duration = Duration::from_millis(350);
 
 extern "C" {
@@ -51,25 +47,6 @@ struct CloudContext {
     id_format: Option<String>,
     window_override: Option<String>,
     parent_cli: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct VMCreateIdempotencyStore {
-    #[serde(default)]
-    records: std::collections::BTreeMap<String, VMCreateIdempotencyRecord>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct VMCreateIdempotencyRecord {
-    key: String,
-    #[serde(rename = "createdAt")]
-    created_at: f64,
-}
-
-#[derive(Debug)]
-struct ActiveVMCreateIdempotency {
-    signature: String,
-    key: String,
 }
 
 struct SocketClient {
@@ -261,43 +238,21 @@ fn main() {
 fn run() -> CliResult<()> {
     let mut args = env::args().skip(1).collect::<Vec<_>>();
     let json_from_args = take_flag_before_terminator(&mut args, "--json");
-    if take_flag_before_terminator(&mut args, "--help")
-        || take_flag_before_terminator(&mut args, "-h")
-    {
-        println!("{}", usage());
-        return Ok(());
-    }
-
     let ctx = CloudContext::from_env(json_from_args)?;
-    let subcommand = args.first().map(|arg| arg.as_str()).unwrap_or("ls");
-    let rest = if args.is_empty() {
-        Vec::new()
-    } else {
-        args[1..].to_vec()
-    };
-
-    match subcommand {
-        "ls" | "list" => run_list(&ctx),
-        "new" | "create" => run_new(&ctx, &rest),
-        "rm" | "destroy" | "delete" => run_destroy(&ctx, &rest),
-        "exec" => run_exec(&ctx, &rest),
-        "ssh-info" => run_ssh_info(&ctx, &rest),
-        "shell" | "attach" | "ssh" => run_delegated_interactive(&ctx, subcommand, &rest),
-        "ssh-attach" => {
-            let mut vm_args = vec![subcommand.to_string()];
-            vm_args.extend(rest);
-            exec_parent_vm(&ctx, &vm_args)
-        }
-        "help" => {
-            println!("{}", usage());
-            Ok(())
-        }
-        _ => Err(CliError::exit(
-            format!(
-                "Usage: cmux cloud <ls|new|shell|rm|exec|ssh> [args...]\n\nCommon commands:\n  cmux cloud ls\n  cmux cloud new\n  cmux cloud ssh <id>\n  cmux cloud rm <id>"
-            ),
-            2,
-        )),
+    let before_separator = args.split(|arg| arg == "--").next().unwrap_or(&[]);
+    if before_separator.iter().any(|arg| arg == "--help" || arg == "-h") {
+        return exec_parent_vm(&ctx, &args);
+    }
+    let subcommand = args.first().map(|arg| arg.to_ascii_lowercase());
+    let rest = args.get(1..).unwrap_or(&[]);
+    match subcommand.as_deref() {
+        Some("rm" | "destroy" | "delete") => run_destroy(&ctx, rest),
+        Some("exec") => run_exec(&ctx, rest),
+        Some("ssh-info") => run_ssh_info(&ctx, rest),
+        // The current launcher owns creation/idempotency, billing-aware listing,
+        // private interactive transport, and newly added Cloud operations.
+        // Use `vm` so delegation cannot recurse into this helper.
+        _ => exec_parent_vm(&ctx, &args),
     }
 }
 
@@ -342,121 +297,6 @@ impl CloudContext {
     }
 }
 
-fn run_list(ctx: &CloudContext) -> CliResult<()> {
-    let mut client = ctx.connect()?;
-    let response = client.send_v2("vm.list", json!({}), response_timeout())?;
-    if ctx.json_output {
-        println!("{}", Value::Object(response));
-        return Ok(());
-    }
-
-    let vms = response
-        .get("vms")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    if vms.is_empty() {
-        println!("No cloud VMs. Try: cmux cloud new");
-        return Ok(());
-    }
-
-    for vm in vms {
-        let id = value_str(vm.get("id")).unwrap_or("?");
-        let provider = value_str(vm.get("provider")).unwrap_or("?");
-        let image = value_str(vm.get("image")).unwrap_or("?");
-        println!("{id}  [{provider}] {image}");
-    }
-    Ok(())
-}
-
-fn run_new(ctx: &CloudContext, args: &[String]) -> CliResult<()> {
-    let (image_opt, rem0) = parse_option(args, "--image");
-    let (provider_opt, rem1) = parse_option(&rem0, "--provider");
-    let (window_opt, rem2) = parse_option(&rem1, "--window");
-    let detach = rem2.iter().any(|arg| arg == "--detach" || arg == "-d");
-    let remaining = rem2
-        .into_iter()
-        .filter(|arg| arg != "--detach" && arg != "-d")
-        .collect::<Vec<_>>();
-
-    if let Some(unknown) = remaining
-        .iter()
-        .find(|arg| is_unknown_flag_token(arg, &["-d"]))
-    {
-        return Err(CliError::exit(
-            format!(
-                "cloud new: unknown flag '{unknown}'.\n\nKnown flags:\n  --image <image-id>\n  --provider <provider>\n  --detach, -d\n\nTry:\n  cmux cloud new"
-            ),
-            2,
-        ));
-    }
-    if let Some(extra) = remaining.iter().find(|arg| !is_flag_token(arg)) {
-        return Err(CliError::exit(
-            format!(
-                "cloud new: unexpected argument '{extra}'.\n\n`cmux cloud new` does not take a VM name or positional arguments.\n\nTry:\n  cmux cloud new\n  cmux cloud new --detach"
-            ),
-            2,
-        ));
-    }
-
-    let provider = normalized_vm_provider(provider_opt.as_deref())?;
-    let mut client = ctx.connect()?;
-    let effective_window = window_opt.as_ref().or(ctx.window_override.as_ref());
-    let target_window = match effective_window {
-        Some(raw) => validate_window_handle(&mut client, raw)?,
-        None => None,
-    };
-
-    let idempotency = active_vm_create_idempotency(image_opt.as_deref(), provider.as_deref())?;
-    let mut params = Map::new();
-    if let Some(image) = &image_opt {
-        params.insert("image".to_string(), Value::String(image.clone()));
-    }
-    if let Some(provider) = &provider {
-        params.insert("provider".to_string(), Value::String(provider.clone()));
-    }
-    params.insert(
-        "idempotency_key".to_string(),
-        Value::String(idempotency.key.clone()),
-    );
-
-    let response = client.send_v2(
-        "vm.create",
-        Value::Object(params),
-        VM_CREATE_RESPONSE_TIMEOUT,
-    )?;
-    if ctx.json_output {
-        clear_vm_create_idempotency(&idempotency)?;
-        println!("{}", Value::Object(response));
-        return Ok(());
-    }
-
-    let id = response
-        .get("id")
-        .and_then(Value::as_str)
-        .unwrap_or("?")
-        .to_string();
-    let provider_text = value_str(response.get("provider")).unwrap_or("?");
-    let image_text = value_str(response.get("image")).unwrap_or("?");
-    if detach {
-        clear_vm_create_idempotency(&idempotency)?;
-        println!("OK {id}");
-        println!("  provider: {provider_text}");
-        println!("  image:    {image_text}");
-        return Ok(());
-    }
-
-    println!("Created {id}  [{provider_text}]  {image_text}");
-    drop(client);
-
-    let mut vm_args = vec!["shell".to_string(), id];
-    if let Some(window) = target_window {
-        vm_args.push("--window".to_string());
-        vm_args.push(window);
-    }
-    exec_parent_vm_with_idempotency(ctx, &vm_args, &idempotency)
-}
-
 fn run_destroy(ctx: &CloudContext, args: &[String]) -> CliResult<()> {
     let Some(vm_id) = args.first() else {
         return Err(CliError::exit(
@@ -478,8 +318,18 @@ fn run_destroy(ctx: &CloudContext, args: &[String]) -> CliResult<()> {
     Ok(())
 }
 
+fn exec_timeout_seconds(raw: Option<&str>) -> CliResult<u64> {
+    match raw {
+        None => Ok(30),
+        Some(raw) => raw.parse::<u64>().ok().filter(|seconds| (1..=900).contains(seconds))
+            .ok_or_else(|| CliError::exit("cloud exec: --timeout must be a whole number of seconds between 1 and 900", 2)),
+    }
+}
+
 fn run_exec(ctx: &CloudContext, args: &[String]) -> CliResult<()> {
-    let Some(vm_id) = args.first() else {
+    let (timeout_option, args) = parse_option(args, "--timeout");
+    let seconds = exec_timeout_seconds(timeout_option.as_deref())?;
+    let Some(vm_id) = args.first().filter(|id| !id.starts_with('-')) else {
         return Err(CliError::exit(
             "Usage: cmux cloud exec <id> -- <command...>\n\nExamples:\n  cmux cloud ls\n  cmux cloud exec <id> -- pwd",
             2,
@@ -506,8 +356,8 @@ fn run_exec(ctx: &CloudContext, args: &[String]) -> CliResult<()> {
     let mut client = ctx.connect()?;
     let response = client.send_v2(
         "vm.exec",
-        json!({ "id": vm_id, "command": command }),
-        Duration::from_secs(35),
+        json!({ "id": vm_id, "command": command, "timeout_ms": seconds * 1000 }),
+        Duration::from_secs(seconds + 10),
     )?;
     let exit_code = response
         .get("exit_code")
@@ -575,17 +425,13 @@ fn run_ssh_info(ctx: &CloudContext, args: &[String]) -> CliResult<()> {
         .and_then(|cred| cred.get("kind"))
         .and_then(Value::as_str)
         .unwrap_or("?");
-    let cred_value = credential
-        .and_then(|cred| cred.get("value"))
-        .and_then(Value::as_str)
-        .unwrap_or("?");
     if cred_kind == "password" {
         println!("ssh {username}@{host} -p {port}");
         println!();
         println!("  host:      {host}");
         println!("  port:      {port}");
         println!("  username:  {username}");
-        println!("  password:  {cred_value}");
+        println!("  password:  <redacted; run `cmux cloud ssh {vm_id}` to connect>");
         return Ok(());
     }
 
@@ -597,37 +443,8 @@ fn run_ssh_info(ctx: &CloudContext, args: &[String]) -> CliResult<()> {
     Ok(())
 }
 
-fn run_delegated_interactive(
-    ctx: &CloudContext,
-    subcommand: &str,
-    args: &[String],
-) -> CliResult<()> {
-    let (window_opt, vm_args) = parse_option(args, "--window");
-    let Some(vm_id) = vm_args.first() else {
-        return Err(CliError::exit(
-            format!("Usage: cmux cloud {subcommand} <id>\n\nFind an id:\n  cmux cloud ls"),
-            2,
-        ));
-    };
-
-    let mut delegated = vec![subcommand.to_string(), vm_id.clone()];
-    if let Some(window) = window_opt.or_else(|| ctx.window_override.clone()) {
-        delegated.push("--window".to_string());
-        delegated.push(window);
-    }
-    exec_parent_vm(ctx, &delegated)
-}
-
 fn exec_parent_vm(ctx: &CloudContext, vm_args: &[String]) -> CliResult<()> {
     exec_parent_vm_with_extra_env(ctx, vm_args, &[])
-}
-
-fn exec_parent_vm_with_idempotency(
-    ctx: &CloudContext,
-    vm_args: &[String],
-    idempotency: &ActiveVMCreateIdempotency,
-) -> CliResult<()> {
-    exec_parent_vm_with_extra_env(ctx, vm_args, &parent_vm_idempotency_env(idempotency))
 }
 
 fn exec_parent_vm_with_extra_env(
@@ -658,6 +475,10 @@ fn parent_vm_args(ctx: &CloudContext, vm_args: &[String]) -> Vec<String> {
         args.push("--id-format".to_string());
         args.push(id_format.clone());
     }
+    if let Some(window) = &ctx.window_override {
+        args.push("--window".to_string());
+        args.push(window.clone());
+    }
     args.push("vm".to_string());
     args.extend(vm_args.iter().cloned());
     args
@@ -671,37 +492,6 @@ fn parent_vm_env(ctx: &CloudContext) -> Vec<(&'static str, String)> {
         ("CMUX_SOCKET_PASSWORD", password.clone()),
         ("CMUX_CLOUD_SOCKET_PASSWORD", password.clone()),
     ]
-}
-
-fn parent_vm_idempotency_env(
-    idempotency: &ActiveVMCreateIdempotency,
-) -> Vec<(&'static str, String)> {
-    vec![
-        (
-            "CMUX_CLOUD_CLEAR_IDEMPOTENCY_SIGNATURE",
-            idempotency.signature.clone(),
-        ),
-        ("CMUX_CLOUD_CLEAR_IDEMPOTENCY_KEY", idempotency.key.clone()),
-    ]
-}
-
-fn validate_window_handle(client: &mut SocketClient, raw: &str) -> CliResult<Option<String>> {
-    let Some(normalized) = normalize_window_handle(client, raw)? else {
-        return Ok(None);
-    };
-    let listed = client.send_v2("window.list", json!({}), response_timeout())?;
-    let windows = listed
-        .get("windows")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    let found = windows
-        .iter()
-        .any(|item| window_handle_matches(&normalized, item));
-    if !found {
-        return Err(CliError::new(format!("Window not found: {raw}")));
-    }
-    Ok(Some(normalized))
 }
 
 fn normalize_window_handle(client: &mut SocketClient, raw: &str) -> CliResult<Option<String>> {
@@ -872,28 +662,6 @@ fn parse_option(args: &[String], name: &str) -> (Option<String>, Vec<String>) {
     (value, remaining)
 }
 
-fn normalized_vm_provider(provider: Option<&str>) -> CliResult<Option<String>> {
-    let Some(provider) = provider.map(str::trim).filter(|value| !value.is_empty()) else {
-        return Ok(None);
-    };
-    let normalized = provider.to_ascii_lowercase();
-    if normalized == "e2b" || normalized == "freestyle" {
-        return Ok(Some(normalized));
-    }
-    Err(CliError::exit(
-        "cloud new: unsupported Cloud VM service override.\n\nTry:\n  cmux cloud new",
-        2,
-    ))
-}
-
-fn is_flag_token(value: &str) -> bool {
-    value.starts_with('-') && value != "-"
-}
-
-fn is_unknown_flag_token(value: &str, allowed_short_flags: &[&str]) -> bool {
-    is_flag_token(value) && !allowed_short_flags.contains(&value)
-}
-
 fn process_exit_code(exit_code: i64) -> i32 {
     if (0..=255).contains(&exit_code) {
         exit_code as i32
@@ -902,135 +670,11 @@ fn process_exit_code(exit_code: i64) -> i32 {
     }
 }
 
-fn idempotency_signature(image: Option<&str>, provider: Option<&str>) -> String {
-    format!(
-        "image={}\u{1f}provider={}",
-        image.unwrap_or("").trim(),
-        provider.unwrap_or("").trim().to_ascii_lowercase()
-    )
-}
-
-fn vm_create_idempotency_store_url() -> CliResult<PathBuf> {
-    let home = env::var("HOME")
-        .map_err(|_| CliError::new("HOME is not set, cannot store VM idempotency state"))?;
-    Ok(Path::new(&home)
-        .join(".cmuxterm")
-        .join("vm-create-idempotency.json"))
-}
-
-fn load_vm_create_idempotency_store(path: &Path) -> VMCreateIdempotencyStore {
-    fs::read_to_string(path)
-        .ok()
-        .and_then(|raw| serde_json::from_str(&raw).ok())
-        .unwrap_or(VMCreateIdempotencyStore {
-            records: std::collections::BTreeMap::new(),
-        })
-}
-
-fn save_vm_create_idempotency_store(
-    store: &VMCreateIdempotencyStore,
-    path: &Path,
-) -> CliResult<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|error| {
-            CliError::new(format!(
-                "Failed to create VM idempotency state directory: {error}"
-            ))
-        })?;
-    }
-    let data = serde_json::to_vec_pretty(store).map_err(|error| {
-        CliError::new(format!("Failed to encode VM idempotency state: {error}"))
-    })?;
-    fs::write(path, data)
-        .map_err(|error| CliError::new(format!("Failed to write VM idempotency state: {error}")))
-}
-
-fn active_vm_create_idempotency(
-    image: Option<&str>,
-    provider: Option<&str>,
-) -> CliResult<ActiveVMCreateIdempotency> {
-    let path = vm_create_idempotency_store_url()?;
-    let signature = idempotency_signature(image, provider);
-    let now = unix_timestamp_secs();
-    let mut store = load_vm_create_idempotency_store(&path);
-    store.records.retain(|_, record| {
-        !record.key.is_empty()
-            && now.saturating_sub(record.created_at as u64) < VM_CREATE_IDEMPOTENCY_TTL
-    });
-    if let Some(existing) = store.records.get(&signature) {
-        save_vm_create_idempotency_store(&store, &path)?;
-        return Ok(ActiveVMCreateIdempotency {
-            signature,
-            key: existing.key.clone(),
-        });
-    }
-
-    let key = random_uuid_like();
-    store.records.insert(
-        signature.clone(),
-        VMCreateIdempotencyRecord {
-            key: key.clone(),
-            created_at: now as f64,
-        },
-    );
-    save_vm_create_idempotency_store(&store, &path)?;
-    Ok(ActiveVMCreateIdempotency { signature, key })
-}
-
-fn clear_vm_create_idempotency(active: &ActiveVMCreateIdempotency) -> CliResult<()> {
-    let path = vm_create_idempotency_store_url()?;
-    let mut store = load_vm_create_idempotency_store(&path);
-    if store
-        .records
-        .get(&active.signature)
-        .map(|record| record.key.as_str())
-        == Some(active.key.as_str())
-    {
-        store.records.remove(&active.signature);
-        save_vm_create_idempotency_store(&store, &path)?;
-    }
-    Ok(())
-}
-
 fn unix_timestamp_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs())
         .unwrap_or(0)
-}
-
-fn random_uuid_like() -> String {
-    let mut bytes = [0_u8; 16];
-    if fs::File::open("/dev/urandom")
-        .and_then(|mut file| file.read_exact(&mut bytes))
-        .is_err()
-    {
-        let fallback = request_id();
-        for (index, byte) in fallback.as_bytes().iter().take(16).enumerate() {
-            bytes[index] = *byte;
-        }
-    }
-    bytes[6] = (bytes[6] & 0x0f) | 0x40;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    format!(
-        "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-        bytes[0],
-        bytes[1],
-        bytes[2],
-        bytes[3],
-        bytes[4],
-        bytes[5],
-        bytes[6],
-        bytes[7],
-        bytes[8],
-        bytes[9],
-        bytes[10],
-        bytes[11],
-        bytes[12],
-        bytes[13],
-        bytes[14],
-        bytes[15]
-    )
 }
 
 fn shell_quote(value: &str) -> String {
@@ -1166,10 +810,6 @@ fn handles_match(lhs: &str, rhs: &str) -> bool {
     lhs.eq_ignore_ascii_case(rhs)
 }
 
-fn usage() -> &'static str {
-    "Usage: cmux cloud <new|ls|rm|exec|shell|attach|ssh|ssh-info> [args...]\n\nManage cloud VMs. Requires `cmux auth login`.\n\nSubcommands:\n  ls                        List your cloud VMs.\n  new [--image <template>] [--provider <provider>] [--window <id|ref|index>] [--detach|-d]\n                            Create a new VM. By default drops you into a shell on\n                            the VM. Pass --detach/-d to just print the id and exit.\n  shell <id> [--window <id|ref|index>]\n                            Drop into an interactive shell on an existing VM.\n                            Alias: `attach <id>`.\n  ssh <id> [--window <id|ref|index>]\n                            Drop into a cmux-managed SSH workspace for an existing VM.\n  ssh-info <id>             Print SSH connection details when the Cloud VM exposes SSH.\n  rm <id>                   Destroy a VM.\n  exec <id> -- <command...> Run a shell command inside the VM and print stdout.\n\nEnv:\n  CMUX_VM_API_BASE_URL       Override the backend origin (default: the cmux website).\n                             `bun run dev` derives this from CMUX_PORT/PORT for local testing.\n\nExample:\n  cmux cloud new\n  cmux cloud ls\n  cmux cloud exec <id> -- echo hello\n  cmux cloud rm <id>"
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1185,6 +825,15 @@ mod tests {
         let (value, remaining) = parse_option(&args, "--image");
         assert_eq!(value.as_deref(), Some("abc"));
         assert_eq!(remaining, vec!["--", "--image", "ignored"]);
+    }
+
+    #[test]
+    fn exec_timeout_matches_current_cloud_contract() {
+        assert_eq!(exec_timeout_seconds(None).unwrap(), 30);
+        assert_eq!(exec_timeout_seconds(Some("900")).unwrap(), 900);
+        for invalid in ["0", "901", "-1", "1.5", "invalid"] {
+            assert!(exec_timeout_seconds(Some(invalid)).is_err());
+        }
     }
 
     #[test]
@@ -1206,23 +855,6 @@ mod tests {
         assert!(!take_flag_before_terminator(&mut args, "--help"));
         assert!(!take_flag_before_terminator(&mut args, "--json"));
         assert_eq!(args, vec!["exec", "vm_123", "--", "--help", "--json"]);
-    }
-
-    #[test]
-    fn provider_validation_accepts_supported_values() {
-        assert_eq!(
-            normalized_vm_provider(Some(" Freestyle "))
-                .unwrap()
-                .as_deref(),
-            Some("freestyle")
-        );
-        assert!(normalized_vm_provider(Some("bad")).is_err());
-    }
-
-    #[test]
-    fn usage_mentions_cloud_entrypoint() {
-        assert!(usage().contains("Usage: cmux cloud"));
-        assert!(usage().contains("cmux cloud new"));
     }
 
     #[test]
@@ -1262,20 +894,6 @@ mod tests {
         let message = sanitized_auth_error("ERROR: auth secret-password failed", "secret-password");
         assert!(message.contains("<redacted>"));
         assert!(!message.contains("secret-password"));
-    }
-
-    #[test]
-    fn idempotency_cleanup_token_stays_in_parent_env() {
-        let idempotency = ActiveVMCreateIdempotency {
-            signature: "image=abc\u{1f}provider=e2b".to_string(),
-            key: "idem-key".to_string(),
-        };
-        let env = parent_vm_idempotency_env(&idempotency);
-        assert!(env.contains(&(
-            "CMUX_CLOUD_CLEAR_IDEMPOTENCY_SIGNATURE",
-            "image=abc\u{1f}provider=e2b".to_string()
-        )));
-        assert!(env.contains(&("CMUX_CLOUD_CLEAR_IDEMPOTENCY_KEY", "idem-key".to_string())));
     }
 
     #[test]

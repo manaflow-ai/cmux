@@ -136,7 +136,7 @@ while IFS= read -r -d '' file; do
   # `SettingsSearchIndexTests.swift`; without these anchors, removing the
   # former from the Sources phase would still match the latter and the lint
   # would pass.
-  if ! printf '%s\n' "$tests_sources_block" | grep -qF -- "/* $base in Sources */"; then
+  if ! grep -qF -- "/* $base in Sources */" <<<"$tests_sources_block"; then
     missing+=("$base")
   fi
 done < <(find "$TESTS_DIR" -maxdepth 1 -type f -name '*.swift' -print0)

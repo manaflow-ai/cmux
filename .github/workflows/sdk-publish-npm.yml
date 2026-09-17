@@ -1,0 +1,179 @@
+name: sdk preflight npm
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "SDK version to validate"
+        required: true
+        type: string
+    outputs:
+      artifact_id:
+        description: "Immutable ID of the validated npm artifact"
+        value: ${{ jobs.bindings-e2e-typescript.outputs.artifact_id }}
+      artifact_sha256:
+        description: "SHA-256 of the validated npm tarball"
+        value: ${{ jobs.bindings-e2e-typescript.outputs.artifact_sha256 }}
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "SDK version to validate, for example 0.1.0"
+        required: true
+        type: string
+
+permissions: {}
+
+env:
+  RUST_TOOLCHAIN: "1.95.0"
+
+concurrency:
+  group: sdk-publish-npm-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Validate tag and package versions
+        id: version
+        env:
+          DISPATCH_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            [[ "$GITHUB_REF_NAME" =~ ^cmux-sdk-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+              echo "tag must match cmux-sdk-vX.Y.Z" >&2
+              exit 1
+            }
+            version="${GITHUB_REF_NAME#cmux-sdk-v}"
+            [[ "$DISPATCH_VERSION" == "$version" ]] || {
+              echo "workflow_dispatch version $DISPATCH_VERSION does not match tag version $version" >&2
+              exit 1
+            }
+          else
+            version="$DISPATCH_VERSION"
+            [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+              echo "workflow_dispatch version must match X.Y.Z" >&2
+              exit 1
+            }
+          fi
+          python3 cmux-tui/bindings/validate_release_version.py \
+            --version "$version"
+          python3 - "$version" <<'PY'
+          import json
+          import pathlib
+          import sys
+          import tomllib
+
+          expected = sys.argv[1]
+          root = pathlib.Path.cwd()
+          versions = {
+              "typescript package.json": json.loads((root / "cmux-tui/bindings/typescript/package.json").read_text())["version"],
+              "python pyproject.toml": tomllib.loads((root / "cmux-tui/bindings/python/pyproject.toml").read_text())["project"]["version"],
+              "rust Cargo.toml": tomllib.loads((root / "cmux-tui/bindings/rust/Cargo.toml").read_text())["package"]["version"],
+          }
+          mismatches = {name: got for name, got in versions.items() if got != expected}
+          if mismatches:
+              for name, got in mismatches.items():
+                  print(f"{name}: expected {expected}, got {got}", file=sys.stderr)
+              raise SystemExit(1)
+          print(f"All package versions match {expected}")
+          PY
+          python3 cmux-tui/bindings/check-versions.py \
+            --published-only \
+            --expected "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  bindings-e2e-typescript:
+    needs: version
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_sha256: ${{ steps.package.outputs.artifact_sha256 }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version
+
+      - name: Set up Node.js for conformance
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22.14.0"
+          cache: npm
+          cache-dependency-path: cmux-tui/bindings/typescript/package-lock.json
+
+      - name: Install TypeScript adapter dependencies
+        working-directory: cmux-tui/bindings/typescript
+        run: |
+          npm ci --no-audit --no-fund
+          npm test
+
+      - name: Build cmux-tui server
+        working-directory: cmux-tui
+        run: cargo build -p cmux-tui --bin cmux-tui --locked
+
+      - name: TypeScript SDK conformance
+        run: |
+          test "$(node -p 'typeof WebSocket')" = "function"
+          report="$RUNNER_TEMP/cmux-sdk-conformance-typescript.txt"
+          python3 cmux-tui/bindings/conformance/runner.py \
+            --language typescript \
+            --require typescript \
+            --cmux-tui-bin "$GITHUB_WORKSPACE/cmux-tui/target/debug/cmux-tui" |
+            tee "$report"
+          grep -Eq '^PASS +typescript +live-creation-exit-restart-unix$' "$report"
+          grep -Eq '^PASS +typescript +live-creation-exit-restart-websocket$' "$report"
+
+      - name: Pack the validated npm artifact
+        id: package
+        working-directory: cmux-tui/bindings/typescript
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/cmux-npm-dist"
+          npm pack --pack-destination "$RUNNER_TEMP/cmux-npm-dist"
+          shopt -s nullglob
+          packages=("$RUNNER_TEMP"/cmux-npm-dist/*.tgz)
+          [[ "${#packages[@]}" == 1 ]] || {
+            echo "expected one validated npm artifact" >&2
+            exit 1
+          }
+          artifact_sha256="$(sha256sum "${packages[0]}" | cut -d ' ' -f 1)"
+          [[ "$artifact_sha256" =~ ^[0-9a-f]{64}$ ]] || exit 1
+          echo "artifact_sha256=$artifact_sha256" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the validated npm artifact
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-npm-dist-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cmux-npm-dist/*.tgz
+          if-no-files-found: error
