@@ -11,9 +11,13 @@ import Testing
 #endif
 private final class PortalBindLayoutCountingView: NSView {
     private(set) var layoutCount = 0
+    var nextLayout: (() -> Void)?
     override func layout() {
         layoutCount += 1
         super.layout()
+        let pendingLayout = nextLayout
+        nextLayout = nil
+        pendingLayout?()
     }
     func resetLayoutCount() {
         layoutCount = 0
@@ -452,7 +456,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
 
         panel.hostedView.setVisibleInUI(false)
         TerminalWindowPortalRegistry.hideHostedView(panel.hostedView)
-        anchor.frame.size.width = 280
+        container.nextLayout = { anchor.frame.size.width = 280 }
         _ = portal.updateEntryVisibility(
             forHostedId: ObjectIdentifier(panel.hostedView),
             visibleInUI: true
@@ -461,19 +465,15 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         container.needsLayout = true
         container.resetLayoutCount()
 
-        // Deliver the same external geometry pass used by workspace reveal
-        // synchronously, before its queued follow-up. The override only selects
-        // notification delivery; the native surface is not in a live resize.
-        portal.isWindowLiveResizeActiveOverrideForTesting = true
-        NotificationCenter.default.post(name: NSWindow.didResizeNotification, object: window)
-        portal.isWindowLiveResizeActiveOverrideForTesting = false
+        // Change the anchor during a normal layout pass. A live-resize override
+        // would authorize an interactive geometry commit instead of settlement.
+        portal.synchronizeAllEntriesFromExternalGeometryChange()
         #expect(container.layoutCount > 0)
+        #expect(container.nextLayout == nil)
         #expect(panel.hostedView.frame.width == 280)
-        #expect(
-            try terminalSize() == initialTerminalSize,
+        #expect(try terminalSize() == initialTerminalSize,
             "The pass that changes layout must not publish an intermediate terminal size"
         )
-
         // The next layout restores the workspace's original pane geometry.
         // There is no reason to resize its native surface or notify its PTY.
         anchor.frame.size = size
