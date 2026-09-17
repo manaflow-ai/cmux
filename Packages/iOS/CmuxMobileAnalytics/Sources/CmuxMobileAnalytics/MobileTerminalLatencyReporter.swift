@@ -51,6 +51,8 @@ public final class MobileTerminalLatencyReporter: MobileTerminalLatencyObserving
     private var states: [String: SurfaceState] = [:]
     private var nextSequence = UInt64.random(in: 1...(UInt64.max / 2))
     private var enabled = true
+    private var isForeground = true
+    private var foregroundStartedAt: UInt64 = 0
     private var cadenceTask: Task<Void, Never>?
 
     public init(
@@ -79,6 +81,22 @@ public final class MobileTerminalLatencyReporter: MobileTerminalLatencyObserving
         }
     }
 
+    /// Suspension and permission prompts are not terminal responsiveness samples.
+    public func setForeground(_ active: Bool) {
+        guard active != isForeground else { return }
+        isForeground = active
+        if active { foregroundStartedAt = now() }
+        else {
+            cadenceTask?.cancel()
+            cadenceTask = nil
+            for surface in states.values {
+                surface.inputStarts.removeAll(keepingCapacity: true)
+                surface.presentationStarts.removeAll(keepingCapacity: true)
+                surface.consecutiveSlowFrames = 0
+            }
+        }
+    }
+
     public func inputStarted(surfaceID: String, byteCount: Int) -> UInt64 {
         guard let surface = state(for: surfaceID) else { return 0 }
         nextSequence &+= 1
@@ -91,7 +109,7 @@ public final class MobileTerminalLatencyReporter: MobileTerminalLatencyObserving
     public func inputSent(surfaceID: String, sequence: UInt64) {}
 
     public func inputFailed(surfaceID: String, sequence: UInt64) {
-        guard let surface = states[surfaceID] else { return }
+        guard isForeground, let surface = states[surfaceID] else { return }
         surface.inputStarts[sequence] = nil
         surface.presentationStarts[sequence] = nil
         surface.window.failedCount += 1
@@ -128,7 +146,8 @@ public final class MobileTerminalLatencyReporter: MobileTerminalLatencyObserving
     }
 
     public func framePresented(surfaceID: String, inputSequence: UInt64?, receivedAtNanos: UInt64) {
-        guard let surface = state(for: surfaceID), receivedAtNanos > surface.lastPresentedReceipt else { return }
+        guard receivedAtNanos >= foregroundStartedAt,
+              let surface = state(for: surfaceID), receivedAtNanos > surface.lastPresentedReceipt else { return }
         let timestamp = now()
         guard timestamp >= receivedAtNanos else { return }
         surface.lastPresentedReceipt = receivedAtNanos
@@ -147,7 +166,7 @@ public final class MobileTerminalLatencyReporter: MobileTerminalLatencyObserving
     }
 
     public func outputDropped(surfaceID: String) {
-        guard let surface = states[surfaceID] else { return }
+        guard isForeground, let surface = states[surfaceID] else { return }
         surface.window.droppedCount += 1
         surface.inputStarts.removeAll(keepingCapacity: true)
         surface.presentationStarts.removeAll(keepingCapacity: true)
@@ -181,6 +200,7 @@ public final class MobileTerminalLatencyReporter: MobileTerminalLatencyObserving
     }
 
     private func state(for surfaceID: String) -> SurfaceState? {
+        guard isForeground else { return nil }
         guard enabled, consent.isTelemetryEnabled else { states.removeAll(); return nil }
         let timestamp = now()
         let surface: SurfaceState
