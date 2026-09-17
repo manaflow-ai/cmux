@@ -1,10 +1,13 @@
 import AppKit
 import Combine
+import CmuxAppKitSupportUI
+import CmuxCloudMachines
 import SwiftUI
 
 @MainActor
 final class RightSidebarToolPanel: Panel, ObservableObject {
     let id: UUID
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .rightSidebarTool
     let mode: RightSidebarMode
 
@@ -81,7 +84,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         case .sessions:
             guard let store = sessionIndexStoreStorage else { return }
             syncSessionIndexRoot(from: workspace, store: store)
-        case .feed, .dock, .customSidebar:
+        case .feed, .dock, .machines, .customSidebar:
             break
         }
     }
@@ -101,7 +104,8 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
                         inPane: paneId,
                         filePaths: [localURL.path],
                         focus: true,
-                        reuseExisting: true
+                        reuseExisting: true,
+                        duplicateWhenFocused: true
                     )
                 } catch {
                     NSSound.beep()
@@ -113,7 +117,8 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             inPane: paneId,
             filePaths: [filePath],
             focus: true,
-            reuseExisting: true
+            reuseExisting: true,
+            duplicateWhenFocused: true
         )
     }
 
@@ -139,7 +144,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             guard let anchor = sessionIndexFocusAnchorView,
                   let window = anchor.window else { return }
             _ = window.makeFirstResponder(anchor)
-        case .feed, .dock, .customSidebar:
+        case .feed, .dock, .machines, .customSidebar:
             break
         }
     }
@@ -161,7 +166,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         case .sessions:
             guard sessionIndexFocusAnchorView?.ownsKeyboardFocus(responder) == true else { return nil }
             return .panel
-        case .feed, .dock, .customSidebar:
+        case .feed, .dock, .machines, .customSidebar:
             return nil
         }
     }
@@ -240,7 +245,7 @@ struct RightSidebarToolPanelView: View {
     @EnvironmentObject private var tabManager: TabManager
     let isFocused: Bool
     let isVisibleInUI: Bool
-    let appearance: PanelAppearance
+    let resolvedChromeBackgroundColor: NSColor
     let onRequestPanelFocus: () -> Void
 
     @State private var focusFlashOpacity: Double = 0.0
@@ -249,7 +254,7 @@ struct RightSidebarToolPanelView: View {
     var body: some View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(nsColor: appearance.backgroundColor))
+            .background(Color(nsColor: resolvedChromeBackgroundColor))
             .overlay {
                 WorkspaceAttentionFlashRingView(opacity: focusFlashOpacity)
             }
@@ -287,12 +292,28 @@ struct RightSidebarToolPanelView: View {
                 store: panel.sessionIndexStore,
                 onResume: { entry in
                     SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
+                },
+                onOpen: { entry in
+                    SessionEntryResumeCoordinator.open(entry, tabManager: tabManager)
+                },
+                activeSessionKeys: SessionEntryResumeCoordinator.inPaneSessionKeys(tabManager: tabManager),
+                onFocus: { entry in
+                    _ = SessionEntryResumeCoordinator.focusIfActive(entry, tabManager: tabManager)
                 }
             )
             .background(
                 RightSidebarToolFocusAnchor(onViewChange: panel.attachSessionIndexFocusAnchor)
                     .frame(width: 0, height: 0)
             )
+        case .machines:
+            if isVisibleInUI, RightSidebarMode.machines.isAvailable() {
+                MachinesPanelView(
+                    chromeBackgroundColor: resolvedChromeBackgroundColor,
+                    defaultMachineStore: AppDelegate.shared?.cloudWorkspaceCoordinator?.defaultMachineStore
+                        ?? DefaultCloudMachineStore(defaults: .standard),
+                    tabManager: tabManager
+                )
+            }
         case .feed, .dock, .customSidebar:
             EmptyView()
         }

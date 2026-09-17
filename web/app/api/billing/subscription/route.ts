@@ -1,28 +1,23 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 
-import { cloudDb } from "../../../../db/client";
-import { stripeSubscriptions } from "../../../../db/schema";
 import { localizedVaultPath, vaultSignInHref } from "../../../lib/vault-auth";
 import { getStackServerApp, isStackConfigured } from "../../../lib/stack";
 import { locales, routing } from "../../../../i18n/routing";
+import { isStripeBillingConfigured } from "../../../../services/billing/stripe";
 import {
-  ACTIVE_STRIPE_PRO_STATUSES,
-  PRO_PLAN_ID,
-  TEAM_PLAN_ID,
-} from "../../../../services/billing/pro";
+  resolveBillingTeam,
+  type BillingTeamUserLike,
+} from "../../../../services/billing/teamResolution";
+import { claimPendingProBilling } from "../../../../services/billing/purchase";
 import {
-  isStripeBillingConfigured,
-  stripe,
-} from "../../../../services/billing/stripe";
+  applySubscriptionAction,
+  type SubscriptionAction,
+} from "../../../../services/billing/subscriptionManagement";
 import { captureBillingError } from "../../../../services/errors";
 import { browserMutationOriginAllowed } from "../../../../services/vms/routeHelpers";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
-type SubscriptionAction = "cancel" | "resume";
 type BillingScope = "user" | "team";
 
 export async function POST(request: NextRequest) {
@@ -59,17 +54,27 @@ export async function POST(request: NextRequest) {
       throw new Error("Billing subscription management is not configured");
     }
 
-    const subscription = scope === "team"
-      ? await activeStripeSubscriptionForStackTeam(await verifiedBillingTeamId(user, formData))
-      : await activeStripeSubscriptionForStackUser(user.id);
-    if (!subscription) {
-      return billingRedirect(request, "nosub");
+    if (
+      user.isAnonymous !== true &&
+      user.isRestricted !== true &&
+      user.primaryEmailVerified === true &&
+      user.primaryEmail
+    ) {
+      try {
+        await claimPendingProBilling(user);
+      } catch {
+        // Keep the existing action path available; the next read retries.
+      }
     }
 
-    const updated = await stripe().subscriptions.update(subscription.id, {
-      cancel_at_period_end: action === "cancel",
+    const applied = await applySubscriptionAction({
+      scope,
+      ownerId: scope === "team" ? await verifiedBillingTeamId(user, formData) : user.id,
+      action,
     });
-    await updateSubscriptionSnapshot(subscription.id, updated);
+    if (!applied) {
+      return billingRedirect(request, "nosub");
+    }
 
     return billingRedirect(request, action === "cancel" ? "cancelled" : "resumed");
   } catch (error) {
@@ -101,7 +106,7 @@ function billingScope(formData: FormData): BillingScope {
 }
 
 async function verifiedBillingTeamId(user: unknown, formData: FormData): Promise<string> {
-  const team = await billingTeamForUser(user as BillingTeamUserLike);
+  const team = await resolveBillingTeam(user as BillingTeamUserLike);
   const clientTeamId = formData.get("teamId");
   if (
     typeof clientTeamId === "string" &&
@@ -114,75 +119,6 @@ async function verifiedBillingTeamId(user: unknown, formData: FormData): Promise
     throw new Error("No billing team is available for the current user");
   }
   return team.id;
-}
-
-async function activeStripeSubscriptionForStackUser(stackUserId: string) {
-  const rows = await cloudDb()
-    .select({ id: stripeSubscriptions.id })
-    .from(stripeSubscriptions)
-    .where(
-      and(
-        eq(stripeSubscriptions.stackUserId, stackUserId),
-        eq(stripeSubscriptions.scope, "user"),
-        eq(stripeSubscriptions.plan, PRO_PLAN_ID),
-        inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
-      ),
-    )
-    .orderBy(desc(stripeSubscriptions.currentPeriodEnd), desc(stripeSubscriptions.updatedAt))
-    .limit(1);
-  return rows[0] ?? null;
-}
-
-async function activeStripeSubscriptionForStackTeam(stackTeamId: string) {
-  const rows = await cloudDb()
-    .select({ id: stripeSubscriptions.id })
-    .from(stripeSubscriptions)
-    .where(
-      and(
-        eq(stripeSubscriptions.stackTeamId, stackTeamId),
-        eq(stripeSubscriptions.scope, "team"),
-        eq(stripeSubscriptions.plan, TEAM_PLAN_ID),
-        inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
-      ),
-    )
-    .orderBy(desc(stripeSubscriptions.currentPeriodEnd), desc(stripeSubscriptions.updatedAt))
-    .limit(1);
-  return rows[0] ?? null;
-}
-
-async function updateSubscriptionSnapshot(
-  subscriptionId: string,
-  subscription: { cancel_at_period_end?: boolean },
-) {
-  await cloudDb()
-    .update(stripeSubscriptions)
-    .set({
-      cancelAtPeriodEnd: Boolean(subscription.cancel_at_period_end),
-      raw: JSON.parse(JSON.stringify(subscription)) as Record<string, unknown>,
-      updatedAt: sql`now()`,
-    })
-    .where(eq(stripeSubscriptions.id, subscriptionId));
-}
-
-type BillingTeamLike = { readonly id?: string };
-type BillingTeamUserLike = {
-  readonly selectedTeam?: unknown;
-  readonly listTeams?: () => Promise<readonly unknown[]>;
-};
-
-async function billingTeamForUser(user: BillingTeamUserLike): Promise<BillingTeamLike | null> {
-  const selected = teamFromUnknown(user.selectedTeam);
-  if (selected) return selected;
-  const teams = typeof user.listTeams === "function"
-    ? (await user.listTeams()).map(teamFromUnknown).filter((team): team is BillingTeamLike => !!team)
-    : [];
-  return teams.length === 1 ? teams[0] : null;
-}
-
-function teamFromUnknown(value: unknown): BillingTeamLike | null {
-  if (!value || typeof value !== "object") return null;
-  const id = (value as { id?: unknown }).id;
-  return typeof id === "string" && id ? { id } : null;
 }
 
 function billingRedirect(

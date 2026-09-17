@@ -30,126 +30,6 @@ final class WorkspaceDefaultLayoutBox: NSObject {
 
 extension AppDelegate {
 
-    /// Appends the saved workspace layout affordances to the new-workspace
-    /// plus-button menu.
-    func appendWorkspaceActionAffordances(
-        to menu: NSMenu,
-        windowId: UUID,
-        cmuxConfigStore: CmuxConfigStore
-    ) {
-        if !menu.items.isEmpty {
-            menu.addItem(.separator())
-        }
-        let saveItem = NSMenuItem(
-            title: String(
-                localized: "menu.newWorkspace.saveWorkspaceAsLayout",
-                defaultValue: "Save Workspace as Layout…"
-            ),
-            action: #selector(saveWorkspaceAsConfigActionMenuItem(_:)),
-            keyEquivalent: ""
-        )
-        saveItem.target = self
-        saveItem.representedObject = windowId as NSUUID
-        menu.addItem(saveItem)
-
-        let deletableActions = cmuxConfigStore.loadedActions
-            .filter { isDeletableGlobalAction($0, cmuxConfigStore: cmuxConfigStore) }
-            .sorted { ($0.title, $0.id) < ($1.title, $1.id) }
-        if !deletableActions.isEmpty {
-            let deleteParent = NSMenuItem(
-                title: String(
-                    localized: "menu.newWorkspace.deleteLayoutSubmenu",
-                    defaultValue: "Delete Workspace Layout"
-                ),
-                action: nil,
-                keyEquivalent: ""
-            )
-            let submenu = NSMenu()
-            for action in deletableActions {
-                let item = NSMenuItem(
-                    title: action.title,
-                    action: #selector(deleteWorkspaceConfigActionMenuItem(_:)),
-                    keyEquivalent: ""
-                )
-                item.target = self
-                item.representedObject = WorkspaceActionDeleteBox(
-                    windowId: windowId,
-                    actionID: action.id,
-                    actionTitle: action.title
-                )
-                item.image = action.icon?.contextMenuImage(
-                    configSourcePath: action.iconSourcePath,
-                    globalConfigPath: cmuxConfigStore.globalConfigPath
-                )
-                submenu.addItem(item)
-            }
-            deleteParent.submenu = submenu
-            menu.addItem(deleteParent)
-        }
-
-        let defaultLayoutModel = NewWorkspaceDefaultLayoutMenuModel.build(
-            loadedActions: cmuxConfigStore.loadedActions,
-            newWorkspaceActionID: cmuxConfigStore.newWorkspaceActionID
-        )
-        if !defaultLayoutModel.entries.isEmpty || defaultLayoutModel.hasDefault {
-            let defaultParent = NSMenuItem(
-                title: String(
-                    localized: "menu.newWorkspace.defaultLayoutSubmenu",
-                    defaultValue: "Default for New Workspace"
-                ),
-                action: nil,
-                keyEquivalent: ""
-            )
-            let submenu = NSMenu()
-            let noneItem = NSMenuItem(
-                title: String(
-                    localized: "menu.newWorkspace.defaultLayoutNone",
-                    defaultValue: "None (Blank Terminal)"
-                ),
-                action: #selector(setNewWorkspaceDefaultLayoutMenuItem(_:)),
-                keyEquivalent: ""
-            )
-            noneItem.target = self
-            noneItem.representedObject = WorkspaceDefaultLayoutBox(windowId: windowId, actionID: nil)
-            noneItem.state = defaultLayoutModel.hasDefault ? .off : .on
-            submenu.addItem(noneItem)
-            if !defaultLayoutModel.entries.isEmpty {
-                submenu.addItem(.separator())
-            }
-            for entry in defaultLayoutModel.entries {
-                let item = NSMenuItem(
-                    title: entry.title,
-                    action: #selector(setNewWorkspaceDefaultLayoutMenuItem(_:)),
-                    keyEquivalent: ""
-                )
-                item.target = self
-                item.representedObject = WorkspaceDefaultLayoutBox(windowId: windowId, actionID: entry.id)
-                item.state = entry.isCurrent ? .on : .off
-                if let action = cmuxConfigStore.actionLookup[entry.id] {
-                    item.image = action.icon?.contextMenuImage(
-                        configSourcePath: action.iconSourcePath,
-                        globalConfigPath: cmuxConfigStore.globalConfigPath
-                    )
-                }
-                submenu.addItem(item)
-            }
-            defaultParent.submenu = submenu
-            menu.addItem(defaultParent)
-        }
-
-        let customizeItem = NSMenuItem(
-            title: String(
-                localized: "menu.newWorkspace.customizeLayouts",
-                defaultValue: "Customize Workspace Layouts…"
-            ),
-            action: #selector(customizeCmuxConfigActionsMenuItem(_:)),
-            keyEquivalent: ""
-        )
-        customizeItem.target = self
-        customizeItem.representedObject = windowId as NSUUID
-        menu.addItem(customizeItem)
-    }
-
     /// Actions defined in the global config (where saved workspace layouts
     /// write) are deletable from the UI; project-local and built-in actions
     /// are not.
@@ -162,6 +42,37 @@ extension AppDelegate {
             URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
         }
         return canonical(sourcePath) == canonical(cmuxConfigStore.globalConfigPath)
+    }
+
+    func openWorkspaceLayoutsCustomization() {
+        // Open inside cmux's own file editor rather than an external app — the
+        // OS-default handler for .json can be Xcode, which is never what
+        // "customize my workspace layouts" means.
+        let configURL = SidebarWorkspaceGroupConfigOpener.materializedCmuxConfigURL()
+        let targetContext = [
+            NSApp.keyWindow,
+            NSApp.mainWindow,
+            shortcutRoutingActiveWindow,
+        ]
+        .compactMap { contextForMainWindow($0) }
+        .first
+        // Fail closed: if no active-window candidate resolves to a main-window
+        // context, don't target an arbitrary workspace/pane. Fall through to the
+        // guard's editor fallback below instead.
+
+        guard let context = targetContext,
+              let workspace = context.tabManager.selectedWorkspace,
+              let paneId = workspace.bonsplitController.focusedPaneId
+                  ?? workspace.bonsplitController.allPaneIds.first,
+              !workspace.openFileSurfaces(
+                  inPane: paneId,
+                  filePaths: [configURL.path],
+                  focus: true,
+                  reuseExisting: true
+              ).isEmpty else {
+            SidebarWorkspaceGroupConfigOpener.openCmuxConfigInEditor()
+            return
+        }
     }
 
     @objc func deleteWorkspaceConfigActionMenuItem(_ sender: NSMenuItem) {
@@ -225,7 +136,7 @@ extension AppDelegate {
         }
     }
 
-    @objc private func saveWorkspaceAsConfigActionMenuItem(_ sender: NSMenuItem) {
+    @objc func saveWorkspaceAsConfigActionMenuItem(_ sender: NSMenuItem) {
         guard let windowId = (sender.representedObject as? NSUUID) as UUID?,
               let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) else {
             NSSound.beep()
@@ -234,7 +145,7 @@ extension AppDelegate {
         presentSaveWorkspaceActionDialog(context: context)
     }
 
-    @objc private func setNewWorkspaceDefaultLayoutMenuItem(_ sender: NSMenuItem) {
+    @objc func setNewWorkspaceDefaultLayoutMenuItem(_ sender: NSMenuItem) {
         guard let box = sender.representedObject as? WorkspaceDefaultLayoutBox,
               let context = mainWindowContexts.values.first(where: { $0.windowId == box.windowId }),
               let cmuxConfigStore = context.cmuxConfigStore,
@@ -253,27 +164,6 @@ extension AppDelegate {
 #endif
         } catch {
             presentNewWorkspaceDefaultLayoutError(error, for: window)
-        }
-    }
-
-    @objc private func customizeCmuxConfigActionsMenuItem(_ sender: NSMenuItem) {
-        // Open inside cmux's own file editor rather than an external app — the
-        // OS-default handler for .json can be Xcode, which is never what
-        // "customize my workspace layouts" means.
-        let configURL = SidebarWorkspaceGroupConfigOpener.materializedCmuxConfigURL()
-        guard let windowId = (sender.representedObject as? NSUUID) as UUID?,
-              let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }),
-              let workspace = context.tabManager.selectedWorkspace,
-              let paneId = workspace.bonsplitController.focusedPaneId
-                  ?? workspace.bonsplitController.allPaneIds.first,
-              !workspace.openFileSurfaces(
-                  inPane: paneId,
-                  filePaths: [configURL.path],
-                  focus: true,
-                  reuseExisting: true
-              ).isEmpty else {
-            SidebarWorkspaceGroupConfigOpener.openCmuxConfigInEditor()
-            return
         }
     }
 
@@ -298,6 +188,10 @@ extension AppDelegate {
     ) {
         let snapshot = workspace.captureConfigActionSnapshot()
         let globalConfigPath = cmuxConfigStore.globalConfigPath
+        if !snapshot.oversizedCommands.isEmpty {
+            presentWorkspaceCommandTooLongAlert(for: window)
+            return
+        }
 
         let alert = NSAlert()
         alert.messageText = String(
@@ -319,57 +213,16 @@ extension AppDelegate {
             )
             message += "\n\n" + String(format: skippedFormat, Int64(snapshot.skippedPanelCount))
         }
-        let capturedCommands = snapshot.capturedCommands
-        if !capturedCommands.isEmpty {
-            // Show every command verbatim so nothing secret-bearing is written
-            // to the config without the user seeing it first.
-            let commandsHeader = String(
-                localized: "dialog.saveWorkspaceLayout.commandsHeader",
-                defaultValue: "Commands that will be saved and re-run:"
-            )
-            message += "\n\n" + commandsHeader + "\n" + capturedCommands.joined(separator: "\n")
-        }
-        let capturedURLs = snapshot.capturedURLs
-        if !capturedURLs.isEmpty {
-            let urlsHeader = String(
-                localized: "dialog.saveWorkspaceLayout.urlsHeader",
-                defaultValue: "URLs that will be saved:"
-            )
-            message += "\n\n" + urlsHeader + "\n" + capturedURLs.joined(separator: "\n")
-        }
-        let capturedEnvironmentKeys = snapshot.capturedEnvironmentKeys
-        if !capturedEnvironmentKeys.isEmpty {
-            let envHeader = String(
-                localized: "dialog.saveWorkspaceLayout.envHeader",
-                defaultValue: "Environment variables whose values will be saved:"
-            )
-            message += "\n\n" + envHeader + "\n" + capturedEnvironmentKeys.joined(separator: ", ")
-        }
         alert.informativeText = message
 
-        let nameField = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
-        nameField.stringValue = workspace.customTitle
-            ?? URL(fileURLWithPath: workspace.currentDirectory).lastPathComponent
-        nameField.placeholderString = String(
-            localized: "dialog.saveWorkspaceLayout.namePlaceholder",
-            defaultValue: "Layout name"
+        let accessory = WorkspaceActionSaveDialogAccessory(
+            snapshot: snapshot,
+            initialName: workspace.customTitle
+                ?? URL(fileURLWithPath: workspace.currentDirectory).lastPathComponent,
+            visibleFrame: window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
         )
-        let makeDefaultCheckbox = NSButton(
-            checkboxWithTitle: String(
-                localized: "dialog.saveWorkspaceLayout.makeDefaultCheckbox",
-                defaultValue: "Use as default for new workspaces"
-            ),
-            target: nil,
-            action: nil
-        )
-        makeDefaultCheckbox.state = .off
-        let accessoryStack = NSStackView(views: [nameField, makeDefaultCheckbox])
-        accessoryStack.orientation = .vertical
-        accessoryStack.alignment = .leading
-        accessoryStack.spacing = 8
-        accessoryStack.frame = NSRect(x: 0, y: 0, width: 260, height: 56)
-        alert.accessoryView = accessoryStack
-        alert.window.initialFirstResponder = nameField
+        alert.accessoryView = accessory.view
+        alert.window.initialFirstResponder = accessory.nameField
         alert.addButton(withTitle: String(
             localized: "dialog.saveWorkspaceLayout.save",
             defaultValue: "Save"
@@ -381,7 +234,7 @@ extension AppDelegate {
 
         alert.beginSheetModal(for: window) { [weak window, weak cmuxConfigStore] response in
             guard response == .alertFirstButtonReturn else { return }
-            let typedTitle = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            let typedTitle = accessory.nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             let title = typedTitle.isEmpty
                 ? String(localized: "dialog.saveWorkspaceLayout.defaultName", defaultValue: "Workspace")
                 : typedTitle
@@ -401,7 +254,7 @@ extension AppDelegate {
                     reservedActionIDs: cmuxConfigStore.map { Set($0.actionLookup.keys) } ?? []
                 )
                 var defaultUpdateError: Error?
-                if makeDefaultCheckbox.state == .on {
+                if accessory.makeDefaultCheckbox.state == .on {
                     do {
                         try CmuxConfigActionSaver.setNewWorkspaceDefaultAction(
                             id: result.actionID,
@@ -436,6 +289,28 @@ extension AppDelegate {
                 errorAlert.beginSheetModal(for: window)
             }
         }
+    }
+
+    private func presentWorkspaceCommandTooLongAlert(for window: NSWindow) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            localized: "dialog.saveWorkspaceLayout.commandTooLongTitle",
+            defaultValue: "Command Too Long to Save"
+        )
+        let messageFormat = String(
+            localized: "dialog.saveWorkspaceLayout.commandTooLongMessage",
+            defaultValue: "One or more captured commands are longer than %lld UTF-8 bytes and cannot be replayed reliably from a saved layout. Shorten them before saving."
+        )
+        alert.informativeText = String(
+            format: messageFormat,
+            Int64(TerminalForegroundCommandCapture.maxReplayableCommandUTF8Length)
+        )
+        alert.addButton(withTitle: String(
+            localized: "dialog.saveWorkspaceLayout.ok",
+            defaultValue: "OK"
+        ))
+        alert.beginSheetModal(for: window)
     }
 
     private func presentNewWorkspaceDefaultLayoutError(_ error: Error, for window: NSWindow) {

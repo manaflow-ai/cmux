@@ -8,7 +8,10 @@ extension UserDefaultsSettingsStore {
         let observedMutationWatermarks = self.observedMutationWatermarks
         let storageKey = key.userDefaultsKey
         return AsyncStream<Value>(bufferingPolicy: .bufferingNewest(1)) { continuation in
-            let (signals, signalContinuation, storeSignalToken) = storeSignals.makeStream(for: storageKey)
+            let (signals, signalContinuation, storeSignalToken) = storeSignals.makeStream(
+                for: storageKey,
+                bufferingPolicy: .bufferingNewest(1)
+            )
 
             let observer = storage.addDidChangeObserver { [weak self] isBackingDefaultsNotification, canCarryActiveMutationSource in
                 guard self != nil else { return }
@@ -75,7 +78,12 @@ extension UserDefaultsSettingsStore {
         let streamStartLogicalOrder = DispatchTime.now().uptimeNanoseconds
         recordKnownValue(storage.value(for: key), for: storageKey)
         return AsyncStream<UserDefaultsSettingsValueEvent<Value>>(bufferingPolicy: .bufferingNewest(1)) { continuation in
-            let (signals, signalContinuation, storeSignalToken) = storeSignals.makeStream(for: storageKey)
+            // Mutation-source fences are semantic events; coalescing them can let
+            // an older pending source overwrite a same-value external write.
+            let (signals, signalContinuation, storeSignalToken) = storeSignals.makeStream(
+                for: storageKey,
+                bufferingPolicy: .unbounded
+            )
 
             let observer = storage.addDidChangeObserver { [weak self] isBackingDefaultsNotification, canCarryActiveMutationSource in
                 guard self != nil else { return }

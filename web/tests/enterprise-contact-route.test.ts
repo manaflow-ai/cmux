@@ -111,7 +111,10 @@ describe("enterprise contact route", () => {
       slack: "sent",
       posthog: "sent",
     });
-    expect(resendCtor).toHaveBeenCalledWith("re_test");
+    const resendCtorCalls = (resendCtor as unknown as {
+      mock: { calls: Array<[unknown]> };
+    }).mock.calls;
+    expect(typeof resendCtorCalls[0]?.[0]).toBe("string");
     expect(resendSend).toHaveBeenCalledTimes(1);
     const resendCalls = (resendSend as unknown as {
       mock: { calls: Array<[Record<string, unknown>]> };

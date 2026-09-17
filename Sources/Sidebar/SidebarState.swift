@@ -6,6 +6,8 @@ import Foundation
 final class SidebarState: ObservableObject {
     @Published var isVisible: Bool
     @Published var persistedWidth: CGFloat
+    private var visibilityWillChangeOwnerId: UUID?
+    private var visibilityWillChange: ((Bool) -> Void)?
 
     init(isVisible: Bool = true, persistedWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarWidth)) {
         self.isVisible = isVisible
@@ -14,7 +16,27 @@ final class SidebarState: ObservableObject {
     }
 
     func toggle() {
-        isVisible.toggle()
+        setVisible(!isVisible)
+    }
+
+    func setVisible(_ nextValue: Bool) {
+        guard nextValue != isVisible else { return }
+        visibilityWillChange?(nextValue)
+        isVisible = nextValue
+    }
+
+    func installVisibilityWillChangeHandler(
+        ownerId: UUID,
+        _ handler: @escaping (Bool) -> Void
+    ) {
+        visibilityWillChangeOwnerId = ownerId
+        visibilityWillChange = handler
+    }
+
+    func removeVisibilityWillChangeHandler(ownerId: UUID) {
+        guard visibilityWillChangeOwnerId == ownerId else { return }
+        visibilityWillChangeOwnerId = nil
+        visibilityWillChange = nil
     }
 }
 
@@ -68,6 +90,10 @@ enum SidebarSelectedWorkspaceScrollPolicy {
 
         guard let oldIndex = oldWorkspaceIds.firstIndex(of: selectedWorkspaceId) else {
             return true
+        }
+
+        guard oldWorkspaceIds.count == newWorkspaceIds.count else {
+            return false
         }
 
         guard oldIndex != newIndex else {

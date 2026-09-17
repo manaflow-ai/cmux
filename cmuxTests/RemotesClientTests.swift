@@ -125,8 +125,7 @@ import CMUXMobileCore
         "100.64.1.2:51001",     // CGNAT lower bound
         "100.127.255.255:51001", // CGNAT upper bound
         "100.100.50.7:51001",
-        "my-mac.tailnet.ts.net:51001",
-        "MY-MAC.TS.NET:51001",  // case-insensitive suffix
+        "[fd7a:115c:a1e0::1]:51001",
     ])
     func acceptsTailscaleAttachableHosts(_ token: String) throws {
         let spec = try RemoteRouteSpec.parse(token)
@@ -142,12 +141,19 @@ import CMUXMobileCore
         "8.8.8.8:51001",        // public, not Tailscale
         "my-mac.local:51001",   // bonjour
         "example.com:51001",    // bare hostname
-        "[fd7a:115c:a1e0::1]:51001", // Tailscale IPv6 ULA (no IPv6 auth path)
+        // MagicDNS is accepted as CLI input, but it is not a registry transport
+        // target. The Mac must bind it to one peer in `tailscale status --json`
+        // and replace it with that peer's numeric Tailscale address first.
+        "my-mac.tailnet.ts.net:51001",
+        "MY-MAC.TS.NET:51001",
         "bad host.ts.net:51001", // malformed .ts.net (space) — not a valid host
         "mac_underscore.ts.net:51001", // invalid label char
         "-leading.ts.net:51001", // leading hyphen label
         "0100.64.1.2:51001",    // leading-zero octet (octal under inet_aton)
         "100.064.1.2:51001",    // leading-zero octet
+        "100.100.100.100:51001", // Tailscale local service, not a peer
+        "100.115.92.1:51001",   // Tailscale reserved test range
+        "[fd7a:115c:a1e0::53]:51001", // MagicDNS service, not a peer
     ])
     func rejectsNonTailscaleHostsAsNotAttachable(_ token: String) throws {
         let spec = try RemoteRouteSpec.parse(token)

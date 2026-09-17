@@ -1,86 +1,36 @@
 # File and API Discipline
 
-This reference expands file organization, documentation, and design-smell rules.
+Expands the file organization, DocC, and design-smell rules in [../SKILL.md](../SKILL.md).
 
-## One major type per file
+## What gets its own file
 
-Each meaningful `struct`, `class`, `enum`, `actor`, or `protocol` lives in its own file named after the type.
+Public API types, internal types with meaningful bodies, private nested types that grew past a tiny helper, type-erased wrappers, and conformance extensions for externally owned types.
 
-This applies to:
+A helper can stay with its parent while it is private and trivial (a nested enum for local branching, a one-line private extension). Move it the moment it has lifecycle, state, a protocol conformance, or enough logic to test independently.
 
-- public API types
-- internal types with meaningful bodies
-- private nested types that have grown beyond a tiny helper
-- type-erased wrappers
-- conformance extensions for externally owned types
-
-File count is cheap. Not knowing where a type lives is expensive.
-
-## Allowed small helpers
-
-Small, closely-bound helpers can stay with the parent type when they are private and trivial:
-
-- a tiny nested enum used only for local branching
-- a one-line private extension
-- a local helper that does not have independent behavior
-
-Move the helper once it has meaningful lifecycle, state, protocol conformance, or enough logic to test independently.
-
-## Extension files
-
-Conformance-adding extensions for a type defined elsewhere go in files such as:
-
-- `TypeName+Conformance.swift`
-- `TypeName+Feature.swift`
-
-Do not hide important conformances inside unrelated feature files.
-
-## DocC for public package APIs
-
-Every public symbol in new Swift packages under `Packages/` needs a `///` DocC comment at the time it is written.
-
-Document:
-
-- what a type represents
-- when to use it
-- enum case meaning
-- property invariants
-- init parameters and defaults
-- method parameters, returns, and throws
-- generic constraints
-
-Use double-backtick symbol references for symbols:
+## DocC quick examples
 
 ```swift
 /// Stores a typed ``CmuxSetting`` value.
 ```
 
-Use plain backticks for non-symbol code:
-
 ```swift
 /// Reads from `UserDefaults.standard` only when injected by the caller.
 ```
 
+Double backticks reference symbols; plain backticks are non-symbol code.
+
 ## Design smells
 
-Avoid runtime state singletons:
-
-- `static let shared`
-- `static let standard`
-- `static let default`
-
-Static declarations are fine for identifiers, schema entries, and enum cases. Runtime behavior should be constructed at app startup and injected.
-
-Avoid namespace enums:
-
 ```swift
+// Fake namespace: no instances, no DI, no test seam.
 enum Foo {
     static func bar() { ... }
 }
 ```
 
-If behavior may need configuration or a test seam, use a value type or service. If it is a pure local helper, keep it private near its caller.
+Runtime-state singletons (`static let shared` / `standard` / `default`) are constructed at app startup and injected instead. `static let` stays legal for identifiers, schema entries, and enum cases.
 
-Avoid parallel hand-maintained registries. If a list mirrors declared items, derive it via reflection or a macro where practical.
+A `guard` plus `assertionFailure` plus a fallback usually means the type model is too weak. Encode the invariant in the type system.
 
-Prefer compile-time invariants to runtime traps. A `guard` plus `assertionFailure` plus fallback often means the type model is too weak.
+A hand-maintained list that mirrors declared items drifts silently. Derive it via reflection or a macro where practical.

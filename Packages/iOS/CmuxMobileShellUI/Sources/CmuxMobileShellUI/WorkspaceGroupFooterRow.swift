@@ -3,20 +3,23 @@ import SwiftUI
 
 struct WorkspaceGroupFooterRow: View {
     let groupName: String?
+    let showsBoundary: Bool
+
+    init(groupName: String?, showsBoundary: Bool = false) {
+        self.groupName = groupName
+        self.showsBoundary = showsBoundary
+    }
 
     var body: some View {
-        ZStack(alignment: .leading) {
-            Rectangle()
-                .fill(Color.secondary.opacity(0.22))
-                .frame(width: 1)
-                .padding(.leading, 7)
-
-            Rectangle()
-                .fill(Color.secondary.opacity(0.42))
-                .frame(width: 14, height: 1)
-                .padding(.leading, 7)
+        ZStack {
+            Color.clear
+            Capsule()
+                .fill(Color(uiColor: .separator))
+                .frame(height: 2)
+                .opacity(showsBoundary ? 1 : 0)
         }
-        .frame(height: 12)
+        .frame(height: 16)
+        .animation(.easeOut(duration: 0.12), value: showsBoundary)
         .contentShape(Rectangle())
         .accessibilityElement()
         .accessibilityLabel(footerAccessibilityLabel)

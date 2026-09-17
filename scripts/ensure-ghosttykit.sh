@@ -77,7 +77,10 @@ fi
 
 GHOSTTY_SHA="$(git -C ghostty rev-parse HEAD)"
 GHOSTTYKIT_CRASH_REPORT_SUBDIR="${CMUX_GHOSTTYKIT_CRASH_REPORT_SUBDIR:-cmux/crash}"
-GHOSTTYKIT_BUILD_FLAVOR="crashsubdir-$(printf '%s' "$GHOSTTYKIT_CRASH_REPORT_SUBDIR" | tr '/=' '--')-v1"
+# cmux owns process-wide crash capture through Sentry Cocoa. Linking Ghostty's
+# native Sentry as well creates a second global crash handler and starts its
+# environment-reading init thread during Ghostty locale mutation.
+GHOSTTYKIT_BUILD_FLAVOR="crashsubdir-$(printf '%s' "$GHOSTTYKIT_CRASH_REPORT_SUBDIR" | tr '/=' '--')-sentry-off-noi18n-v2"
 GHOSTTY_CLEAN_KEY="${GHOSTTY_SHA}-${GHOSTTYKIT_BUILD_FLAVOR}"
 GHOSTTY_KEY="$GHOSTTY_CLEAN_KEY"
 UNTRACKED_FILES="$(git -C ghostty ls-files --others --exclude-standard)"
@@ -222,7 +225,20 @@ else
     echo "==> Building GhosttyKit.xcframework (this may take a few minutes)..."
     (
       cd ghostty
-      zig build -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" -Demit-xcframework=true -Dxcframework-target=universal -Doptimize=ReleaseFast
+      # -Di18n=false: compiling Ghostty's .po catalogs needs gettext's
+      # msgfmt, which not every builder has, and cmux never bundles the
+      # resulting .mo files (they only install into Ghostty's own app
+      # bundle, skipped by -Demit-macos-app=false). Runtime lookups are
+      # comptime-gated to return the msgid, which is what cmux shipped
+      # all along.
+      zig build \
+        -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" \
+        -Dsentry=false \
+        -Di18n=false \
+        -Demit-macos-app=false \
+        -Demit-xcframework=true \
+        -Dxcframework-target=universal \
+        -Doptimize=ReleaseFast
     )
     echo "$GHOSTTY_KEY" > "$LOCAL_KEY_STAMP"
     echo "$GHOSTTY_SHA" > "$LEGACY_LOCAL_SHA_STAMP"

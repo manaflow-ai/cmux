@@ -67,16 +67,29 @@ actor FakeAuthClient: AuthClient {
     func setThrowOnListTeams(_ error: (any Error)?) { throwOnListTeams = error }
     func setNonce(_ nonce: String) { self.nonce = nonce }
 
+    /// Scripted reads take precedence; otherwise model the live SDK's persisted refresh.
     func accessToken() async -> String? {
         accessTokenCallCount += 1
-        if var seq = accessTokenSequence, !seq.isEmpty {
-            let next = seq.removeFirst()
-            accessTokenSequence = seq
+        if var sequence = accessTokenSequence, !sequence.isEmpty {
+            let next = sequence.removeFirst()
+            accessTokenSequence = sequence
             return next
+        }
+        if storedAccessIsStale, let refresh {
+            mintedAccessTokenCount += 1
+            lastMintedRefreshToken = refresh
+            access = mintedAccessToken ?? access
+            storedAccessIsStale = false
+
         }
         return access
     }
     func refreshToken() async -> String? { refresh }
+
+    private var storedAccessIsStale = false
+    private(set) var mintedAccessTokenCount = 0
+
+    func setStoredAccessTokenStale(_ stale: Bool) { storedAccessIsStale = stale }
     func forceRefreshAccessToken() async -> String? {
         if case let .some(scripted) = forceRefreshResult {
             return scripted

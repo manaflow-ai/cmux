@@ -9,7 +9,10 @@ import Testing
         client: FakeAuthClient,
         launch: AuthLaunchOptions = .plain(),
         clock: any Clock<Duration> = ContinuousClock(),
-        isOnline: @escaping @Sendable () async -> Bool = { true }
+        timeouts: AuthTimeouts = .default,
+        isOnline: @escaping @Sendable () async -> Bool = { true },
+        onSessionWillTransition: @escaping @MainActor @Sendable () -> Void = {},
+        onSignedIn: @escaping @Sendable () async -> Void = {}
     ) -> (AuthCoordinator, FakeKeyValueStore) {
         let store = FakeKeyValueStore()
         let coordinator = AuthCoordinator(
@@ -20,8 +23,11 @@ import Testing
             anchor: FakeAnchor(),
             config: .test,
             launch: launch,
+            timeouts: timeouts,
             clock: clock,
-            isOnline: isOnline
+            isOnline: isOnline,
+            onSessionWillTransition: onSessionWillTransition,
+            onSignedIn: onSignedIn
         )
         return (coordinator, store)
     }
@@ -30,6 +36,110 @@ import Testing
         let (coordinator, _) = makeCoordinator(client: FakeAuthClient())
         #expect(coordinator.isAuthenticated == false)
         #expect(coordinator.currentUser == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func teamScopeChangesFenceWorkEvenWhenAStreamCoalescesTransitions() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(user: user)
+        await client.setTeams([
+            CMUXAuthTeam(id: "team_a", displayName: "Alpha"),
+            CMUXAuthTeam(id: "team_b", displayName: "Beta")
+        ])
+        let (coordinator, _) = makeCoordinator(client: client)
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        var scopes = coordinator.authenticatedTeamScopes().makeAsyncIterator()
+        let initial = try #require(await scopes.next())
+        let captured = try #require(initial)
+        #expect(captured.teamID == "team_a")
+
+        coordinator.selectedTeamID = "team_b"
+        #expect(!coordinator.isAuthenticatedTeamScopeCurrent(captured))
+        coordinator.selectedTeamID = "team_a"
+        #expect(!coordinator.isAuthenticatedTeamScopeCurrent(captured))
+        let latestEvent = try #require(await scopes.next())
+        let latest = try #require(latestEvent)
+        #expect(latest.teamID == "team_a")
+        #expect(latest.generation > captured.generation)
+        #expect(latest.session == captured.session)
+
+        await coordinator.signOut()
+        let signedOut = await scopes.next()
+        #expect(signedOut != nil)
+        #expect(signedOut! == nil)
+        #expect(!coordinator.isAuthenticatedTeamScopeCurrent(latest))
+    }
+
+    @Test func changedAccountCannotBorrowPreviouslyVerifiedTeamsAfterRefreshFailure() async throws {
+        let first = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let second = CMUXAuthUser(id: "u2", primaryEmail: "b@b.com", displayName: "B")
+        let client = FakeAuthClient(user: first)
+        await client.setTeams([CMUXAuthTeam(id: "team_a", displayName: "Alpha")])
+        let (coordinator, _) = makeCoordinator(client: client)
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        let firstScope = try #require(coordinator.authenticatedTeamScope)
+        await client.setThrowOnListTeams(URLError(.notConnectedToInternet))
+
+        await coordinator.applySignedInUser(second, publication: .revalidation)
+
+        #expect(coordinator.currentUser == second)
+        #expect(coordinator.selectedTeamID == "team_a")
+        #expect(coordinator.availableTeams.isEmpty)
+        #expect(coordinator.authenticatedTeamScope == nil)
+        #expect(!coordinator.isAuthenticatedTeamScopeCurrent(firstScope))
+        await client.setThrowOnListTeams(nil)
+        await client.setTeams([CMUXAuthTeam(id: "team_b", displayName: "Beta")])
+        await coordinator.applySignedInUser(second, publication: .revalidation)
+        #expect(coordinator.authenticatedTeamScope?.teamID == "team_b")
+        #expect(coordinator.authenticatedTeamScope?.session.accountID == "u2")
+    }
+
+    @Test func sameAccountRefreshFailureKeepsVerifiedMembershipButEmptyTeamsDoNot() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(user: user)
+        await client.setTeams([CMUXAuthTeam(id: "team_a", displayName: "Alpha")])
+        let (coordinator, _) = makeCoordinator(client: client)
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        let scope = try #require(coordinator.authenticatedTeamScope)
+        await client.setThrowOnListTeams(URLError(.notConnectedToInternet))
+        await coordinator.applySignedInUser(user, publication: .revalidation)
+        #expect(coordinator.authenticatedTeamScope == scope)
+
+        await client.setThrowOnListTeams(nil)
+        await client.setTeams([])
+        await coordinator.applySignedInUser(user, publication: .revalidation)
+        #expect(coordinator.selectedTeamID == "team_a")
+        #expect(coordinator.authenticatedTeamScope == nil)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func sessionIdentityStreamPublishesSignInAndImmediateSignOut() async throws {
+        let user = CMUXAuthUser(
+            id: "u1",
+            primaryEmail: "a@b.com",
+            displayName: "A"
+        )
+        let (coordinator, _) = makeCoordinator(
+            client: FakeAuthClient(user: user)
+        )
+        var identities = coordinator.authenticatedSessionIdentities()
+            .makeAsyncIterator()
+
+        let initial = await identities.next()
+        #expect(initial != nil)
+        #expect(initial! == nil)
+
+        try await coordinator.signInWithPassword(
+            email: "a@b.com",
+            password: "pw"
+        )
+        let signedIn = try #require(await identities.next())
+        #expect(signedIn?.accountID == user.id)
+
+        await coordinator.signOut()
+        let signedOut = await identities.next()
+        #expect(signedOut != nil)
+        #expect(signedOut! == nil)
     }
 
     @Test func passwordSignInAuthenticatesAndCaches() async throws {
@@ -44,6 +154,103 @@ import Testing
         #expect(store.bool(forKey: "has_tokens"))
         let recorded = await client.signedInWithCredential
         #expect(recorded?.email == "a@b.com")
+    }
+
+    @Test func emptyAccountIDNeverPublishesAnAuthenticatedIdentity() async throws {
+        let user = CMUXAuthUser(
+            id: "",
+            primaryEmail: "a@b.com",
+            displayName: "A"
+        )
+        let (coordinator, _) = makeCoordinator(
+            client: FakeAuthClient(user: user)
+        )
+
+        try await coordinator.signInWithPassword(
+            email: "a@b.com",
+            password: "pw"
+        )
+
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.authenticatedSessionIdentity == nil)
+        #expect(!coordinator.isAuthenticatedSessionIdentityCurrent(
+            AuthenticatedSessionIdentity(
+                generation: coordinator.authSessionGeneration,
+                accountID: ""
+            )
+        ))
+    }
+
+    @Test func everyAuthSessionTransitionClosesBeforeTheNextSessionPublishes() async throws {
+        let first = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let second = CMUXAuthUser(id: "u2", primaryEmail: "b@b.com", displayName: "B")
+        let client = FakeAuthClient(user: first)
+        let recorder = AuthSessionTransitionRecorder()
+        let (coordinator, _) = makeCoordinator(
+            client: client,
+            onSessionWillTransition: {
+                recorder.record("will-transition")
+            },
+            onSignedIn: {
+                await recorder.record("signed-in")
+            }
+        )
+
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        #expect(recorder.events == ["will-transition", "signed-in"])
+
+        coordinator.clearAuthState()
+        #expect(recorder.events == [
+            "will-transition",
+            "signed-in",
+            "will-transition",
+        ])
+
+        await coordinator.applySignedInUser(second, publication: .revalidation)
+        #expect(recorder.events == [
+            "will-transition",
+            "signed-in",
+            "will-transition",
+            "will-transition",
+            "signed-in",
+        ])
+    }
+
+    @Test func sameAccountRevalidationDoesNotRepeatSignedInHook() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(user: user)
+        let recorder = AuthSessionTransitionRecorder()
+        let (coordinator, _) = makeCoordinator(
+            client: client,
+            onSignedIn: { await recorder.record("signed-in") }
+        )
+
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        await coordinator.revalidateSession()
+        await coordinator.revalidateSession()
+
+        #expect(recorder.events == ["signed-in"])
+    }
+
+    @Test func signOutAnnouncesOneSessionTransition() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(user: user)
+        let recorder = AuthSessionTransitionRecorder()
+        let (coordinator, _) = makeCoordinator(
+            client: client,
+            onSessionWillTransition: {
+                recorder.record("will-transition")
+            }
+        )
+
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        #expect(recorder.events == ["will-transition"])
+
+        await coordinator.signOut()
+        #expect(recorder.events == [
+            "will-transition",
+            "will-transition",
+        ])
     }
 
     @Test func magicLinkRequiresPriorNonce() async {
@@ -382,6 +589,20 @@ import Testing
         #expect(coordinator.availableTeams.isEmpty)
     }
 
+    @Test func persistedTeamSelectionRemainsEffectiveWhileTeamRefreshIsUnavailable() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(user: user)
+        await client.setThrowOnListTeams(AuthError.networkError)
+        let (coordinator, _) = makeCoordinator(client: client)
+        coordinator.selectedTeamID = "team_b"
+
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.availableTeams.isEmpty)
+        #expect(coordinator.resolvedTeamID == "team_b")
+    }
+
     @Test func signOutClearsTeamsAndSelection() async throws {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let client = FakeAuthClient(user: user)
@@ -450,7 +671,8 @@ import Testing
     // survives) must not dead-end the Cloud VM panel: currentTokens retries the
     // mint and recovers when the next attempt yields an access token. Regression
     // guard for the "Cloud VM unavailable / could not refresh (Waited 0s)" report.
-    @Test func currentTokensRetriesTransientRefreshThenSucceeds() async throws {
+    @Test(arguments: [2, 3])
+    func currentTokensRetriesTransientRefreshThenSucceeds(attempts: Int) async throws {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let client = FakeAuthClient(access: "access-initial", refresh: "refresh-1", user: user)
         let (coordinator, _) = makeCoordinator(client: client)
@@ -459,7 +681,7 @@ import Testing
 
         // After bootstrap, the next currentTokens sees a transient refresh (nil)
         // that recovers on retry.
-        await client.setAccessTokenSequence([nil, "access-recovered"])
+        await client.setAccessTokenSequence(Array(repeating: nil, count: attempts - 1) + ["access-recovered"])
         let callsBefore = await client.accessTokenCallCount
 
         let tokens = try await coordinator.currentTokens()
@@ -467,7 +689,68 @@ import Testing
         #expect(tokens.accessToken == "access-recovered")
         #expect(tokens.refreshToken == "refresh-1")
         let callsAfter = await client.accessTokenCallCount
-        #expect(callsAfter - callsBefore >= 2)
+        #expect(callsAfter - callsBefore == attempts)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func currentTokensCancellationStopsBackoffWithoutAnotherRefresh() async {
+        let client = FakeAuthClient(refresh: "refresh-1")
+        let clock = ManualTestClock()
+        let (coordinator, _) = makeCoordinator(client: client, clock: clock)
+        let request = Task { try await coordinator.currentTokens() }
+        // The phase deadline and first retry delay are both waiting.
+        await clock.waitUntilSleepers(count: 2)
+        let completions = coordinator.activeTokenTouchingPhases.values.map(\.completion)
+        request.cancel()
+        await #expect(throws: CancellationError.self) { try await request.value }
+        for completion in completions { await completion.value }
+        #expect(await client.accessTokenCallCount == 1)
+        #expect(coordinator.activeTokenTouchingPhases.isEmpty)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func currentTokensRetriesShareOneDeadline() async {
+        let client = FakeAuthClient(refresh: "refresh-1")
+        let clock = ManualTestClock()
+        let (coordinator, _) = makeCoordinator(
+            client: client,
+            clock: clock,
+            timeouts: AuthTimeouts(interactiveFlow: .seconds(5), network: .milliseconds(500))
+        )
+        let request = Task { try await coordinator.currentTokens() }
+        await clock.waitUntilSleepers(count: 2)
+        clock.advance(by: .milliseconds(300))
+        await clock.waitUntilSleepers(count: 2)
+        #expect(await client.accessTokenCallCount == 2)
+        let completions = coordinator.activeTokenTouchingPhases.values.map(\.completion)
+        clock.advance(by: .milliseconds(200))
+        await #expect(throws: AuthError.timedOut) { try await request.value }
+        for completion in completions { await completion.value }
+        #expect(await client.accessTokenCallCount == 2)
+        #expect(coordinator.activeTokenTouchingPhases.isEmpty)
+    }
+
+    @Test func authenticatedRefreshTokenSnapshotPinsIdentityAndGeneration() async throws {
+        let user = CMUXAuthUser(
+            id: "account-a",
+            primaryEmail: "a@example.com",
+            displayName: "A"
+        )
+        let client = FakeAuthClient(
+            access: nil,
+            refresh: "refresh-a",
+            user: user
+        )
+        let (coordinator, _) = makeCoordinator(client: client)
+        coordinator.start()
+
+        let snapshot = try await coordinator.authenticatedRefreshTokenSnapshot()
+
+        #expect(snapshot.accountID == "account-a")
+        #expect(snapshot.refreshToken == "refresh-a")
+        #expect(snapshot.generation == coordinator.authSessionGeneration)
+        #expect(snapshot.description.contains("account-a") == false)
+        #expect(snapshot.description.contains("refresh-a") == false)
     }
 
     @Test func completeExternalSignInPublishesSeededSession() async throws {
