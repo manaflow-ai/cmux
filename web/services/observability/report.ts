@@ -43,7 +43,11 @@ export function reportError(
   if (!process.env.SENTRY_DSN?.trim()) return;
 
   const fingerprint = options.fingerprint;
-  const tags = boundedTags(options.tags, trace);
+  const contextTags = Object.fromEntries(TAGGED_CONTEXT_KEYS.flatMap((key) => {
+    const value = safeContext[key];
+    return typeof value === "string" && value ? [[key, value]] : [];
+  }));
+  const tags = boundedTags({ ...contextTags, ...options.tags }, trace);
   const send = () =>
     import("@sentry/nextjs")
       .then(async (Sentry) => {
@@ -101,6 +105,18 @@ function boundedTags(
   if (trace) out.trace_id = trace.traceId;
   return out;
 }
+
+// Promoted to Sentry tags (indexed, filterable in alerts); everything else
+// stays in the cmux context blob. Keys here must never carry secrets.
+const TAGGED_CONTEXT_KEYS = [
+  "subsystem",
+  "route",
+  "operation",
+  "provider",
+  "errorTag",
+  "bestEffortOperation",
+  "vmId",
+] as const;
 
 function scrubContext(context: Record<string, unknown>): Record<string, unknown> {
   const scrubbed: Record<string, unknown> = {};

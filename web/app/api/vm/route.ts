@@ -1,3 +1,4 @@
+import { parseVmCreateBody } from "../../../services/vms/requestSchemas";
 // Authenticated REST facade over the VM control plane. Native clients use this surface so
 // provider credentials stay behind server-side ownership checks.
 
@@ -11,7 +12,6 @@ import {
 } from "../../../services/vms/auth";
 import {
   defaultProviderId,
-  isProviderId,
   type ProviderId,
   vmCapabilitiesFor,
 } from "../../../services/vms/drivers";
@@ -42,7 +42,6 @@ import {
   reportVmImageConfigError,
   isVmImageKind,
   listVmImageKinds,
-  VM_IMAGE_KINDS,
   vmImageKindFor,
   type VmImageKind,
 } from "../../../services/vms/images/resolver";
@@ -445,82 +444,12 @@ async function parseCreateRequest(
   return { ok: true, candidate, body, idempotencyKey };
 }
 
-function invalidCreateRequestResponse(message: string, action: string, details: Record<string, unknown>): Response {
-  return vmErrorResponse({ error: "vm_invalid_request", status: 400, message, action, details });
-}
-
 /** The first field-level 400 for a create body, in the order the fields are documented. */
 function invalidCreateFieldResponse(candidate: Record<string, unknown>, request: Request): Response | null {
-  if (candidate.image !== undefined && typeof candidate.image !== "string") {
-    return invalidCreateRequestResponse(
-      "`image` must be a string when provided.",
-      "Remove `image` to use the default Cloud VM image, or pass a supported Cloud VM image id.",
-      { field: "image" },
-    );
-  }
-  if (candidate.kind !== undefined && !isVmImageKind(candidate.kind)) {
-    return invalidCreateRequestResponse(
-      `\`kind\` must be one of ${VM_IMAGE_KINDS.join(", ")} when provided.`,
-      "Remove `kind` to use the default Cloud VM image, or pass `desktop` or `base`.",
-      { field: "kind", allowedKinds: VM_IMAGE_KINDS },
-    );
-  }
-  const invalidProvider = invalidCreateProviderResponse(candidate.provider);
-  if (invalidProvider) return invalidProvider;
-  const bodyBillingTeamId = candidate.billingTeamId ?? candidate.teamId;
-  if (bodyBillingTeamId !== undefined && typeof bodyBillingTeamId !== "string") {
-    return invalidTeamIdResponse();
-  }
-  if (candidate.persistentHome !== undefined && typeof candidate.persistentHome !== "boolean") {
-    return invalidCreateRequestResponse(
-      "`persistentHome` must be a boolean when provided.",
-      "Omit `persistentHome`, or send `true` to mount the per-user persistent home volume.",
-      { field: "persistentHome" },
-    );
-  }
-  if (candidate.perMachineHome !== undefined && typeof candidate.perMachineHome !== "boolean") {
-    return invalidCreateRequestResponse(
-      "`perMachineHome` must be a boolean when provided.",
-      "Omit `perMachineHome`, or send `true` to give the new machine its own persistent home volume.",
-      { field: "perMachineHome" },
-    );
-  }
-  if (
-    candidate.memoryMb !== undefined &&
-    (!Number.isSafeInteger(candidate.memoryMb) || (candidate.memoryMb as number) < 512)
-  ) {
-    return invalidCreateRequestResponse(
-      "`memoryMb` must be an integer of at least 512 when provided.",
-      "Omit `memoryMb` for the plan default, or send a larger integer memory size in MB.",
-      { field: "memoryMb", minimumMemoryMb: 512 },
-    );
-  }
-  if (typeof bodyBillingTeamId === "string" && bodyBillingTeamId.trim().length === 0) {
-    return invalidTeamIdResponse();
-  }
+  const parsed = parseVmCreateBody(candidate);
+  if (!parsed.ok) return parsed.response;
   if (requestHasBlankVmTeamId(request)) {
     return invalidTeamIdResponse();
-  }
-  return null;
-}
-
-function invalidCreateProviderResponse(provider: unknown): Response | null {
-  if (provider === undefined) return null;
-  if (typeof provider !== "string") {
-    return invalidCreateRequestResponse(
-      "Cloud VM service override must be a string when provided.",
-      "Remove the override to use the default Cloud VM service.",
-      { field: "provider" },
-    );
-  }
-  if (!isProviderId(provider)) {
-    return vmErrorResponse({
-      error: "vm_invalid_provider",
-      status: 400,
-      message: "Unsupported Cloud VM service override.",
-      action: "Remove the override to use the default Cloud VM service.",
-      details: { field: "provider" },
-    });
   }
   return null;
 }

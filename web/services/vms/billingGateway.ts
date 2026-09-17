@@ -39,6 +39,20 @@ export type VmBillingGatewayShape = {
     readonly provider: ProviderId;
   }) => VmCreateCreditGrant;
   readonly applyCreateCreditGrant: (grant: VmCreateCreditGrant) => Effect.Effect<void, VmBillingError>;
+  /**
+   * Resolves what `reserveCreate` would debit (item, amount, customer) without
+   * moving money. Lets the workflow write a durable reservation record BEFORE
+   * the debit RPC, so a crash between the credit decrement and the provider
+   * outcome is reconcilable. Deterministic: same env, same result as the
+   * debit inside `reserveCreate`.
+   */
+  readonly resolveCreateCredit?: (input: {
+    readonly userId: string;
+    readonly billingCustomerType: BillingCustomerType;
+    readonly billingTeamId: string;
+    readonly billingPlanId: string;
+    readonly provider: ProviderId;
+  }) => VmCreateCreditReservation;
   readonly reserveCreate: (input: {
     readonly userId: string;
     readonly billingCustomerType: BillingCustomerType;
@@ -97,6 +111,19 @@ export function makeStackVmBillingGateway(
       });
     },
 
+    resolveCreateCredit: (input) => {
+      const itemId = createCreditItemId(input.billingPlanId, env);
+      if (!itemId) return { kind: "none" };
+      const customer = billingCustomer(input);
+      return {
+        kind: "stack_item",
+        itemId,
+        customerType: customer.type,
+        customerId: customer.id,
+        amount: createCreditCost(input.billingPlanId, input.provider, env),
+      };
+    },
+
     reserveCreate: (input) =>
       Effect.tryPromise({
         try: async () => {
@@ -145,6 +172,7 @@ export function noOpVmBillingGateway(): VmBillingGatewayShape {
   return {
     resolveInitialCreateCreditGrant: () => ({ kind: "none" }),
     applyCreateCreditGrant: () => Effect.void,
+    resolveCreateCredit: () => ({ kind: "none" }),
     reserveCreate: () => Effect.succeed({ kind: "none" }),
     refundCreate: () => Effect.void,
   };

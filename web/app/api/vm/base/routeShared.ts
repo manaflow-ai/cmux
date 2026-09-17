@@ -1,7 +1,8 @@
+import { parseVmBaseBody } from "../../../../services/vms/requestSchemas";
 import type { AuthedUser } from "../../../../services/vms/auth";
 import { defaultMemoryMbForPlan } from "../../../../services/vms/entitlements";
 import { assertVmCreateEnabled } from "../../../../services/vms/config";
-import { defaultProviderId, isProviderId, vmCapabilitiesFor, type ProviderId } from "../../../../services/vms/drivers";
+import { defaultProviderId, vmCapabilitiesFor, type ProviderId } from "../../../../services/vms/drivers";
 import {
   isVmCreateDisabledError,
   isVmImageConfigError,
@@ -13,8 +14,6 @@ import {
 } from "../../../../services/vms/images/resolver";
 import {
   reportVmImageConfigError,
-  isVmImageKind,
-  VM_IMAGE_KINDS,
   type VmImageKind,
 } from "../../../../services/vms/images/resolver";
 import {
@@ -225,66 +224,5 @@ async function parseBaseRequest(
       }),
     };
   }
-  const candidate = raw as Record<string, unknown>;
-  const bodyBillingTeamId = candidate.billingTeamId ?? candidate.teamId;
-  for (const [field, value] of Object.entries({
-    name: candidate.name,
-    image: candidate.image,
-    provider: candidate.provider,
-    billingTeamId: bodyBillingTeamId,
-    reason: candidate.reason,
-  })) {
-    if (value !== undefined && value !== null && typeof value !== "string") {
-      return {
-        ok: false,
-        response: vmErrorResponse({
-          error: "vm_invalid_request",
-          status: 400,
-          message: `\`${field}\` must be a string when provided.`,
-          action: "Remove the invalid field and retry.",
-          details: { field },
-        }),
-      };
-    }
-  }
-  if (candidate.kind !== undefined && candidate.kind !== null && !isVmImageKind(candidate.kind)) {
-    return {
-      ok: false,
-      response: vmErrorResponse({
-        error: "vm_invalid_request",
-        status: 400,
-        message: `\`kind\` must be one of ${VM_IMAGE_KINDS.join(", ")} when provided.`,
-        action: "Remove `kind` to use the default Cloud VM image, or pass `desktop` or `base`.",
-        details: { field: "kind", allowedKinds: VM_IMAGE_KINDS },
-      }),
-    };
-  }
-  const provider = typeof candidate.provider === "string" ? candidate.provider.trim() : undefined;
-  if (provider && !isProviderId(provider)) {
-    return {
-      ok: false,
-      response: vmErrorResponse({
-        error: "vm_invalid_provider",
-        status: 400,
-        message: "Unsupported Cloud VM service override.",
-        action: "Remove the override to use the default Cloud VM service.",
-        details: { field: "provider" },
-      }),
-    };
-  }
-  return {
-    ok: true,
-    body: {
-      name: stringValue(candidate.name),
-      image: stringValue(candidate.image),
-      kind: isVmImageKind(candidate.kind) ? candidate.kind : undefined,
-      provider: provider as ProviderId | undefined,
-      billingTeamId: stringValue(bodyBillingTeamId),
-      reason: stringValue(candidate.reason) ?? null,
-    },
-  };
-}
-
-function stringValue(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+  return parseVmBaseBody(raw as Record<string, unknown>);
 }

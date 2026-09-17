@@ -1,3 +1,4 @@
+import { reportError } from "../observability/report";
 import { cloudOperationId, CloudOperationProgress } from "../observability/cloudOperationProgress";
 import type { Span } from "@opentelemetry/api";
 import { trace } from "@opentelemetry/api";
@@ -185,6 +186,11 @@ export async function withAuthedVmApiRoute(
         console.error(failureLog, err);
         const workflowError = await vmWorkflowErrorResponse(err, { locale: vmRequestLocale(request) });
         if (workflowError) return finalize(workflowError);
+        reportError(err, {
+          subsystem: "vm-cloud", boundary: "withAuthedVmApiRoute", route,
+          method: request.method, operation, userId: requestContext.userId,
+          requestedTeamId: requestedVmTeamIdFromRequest(request),
+        });
         return finalize(vmErrorResponse({
           error: "vm_internal_error",
           status: 500,

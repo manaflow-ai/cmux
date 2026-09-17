@@ -1,4 +1,5 @@
-import { isProviderId, type ProviderId } from "./drivers/types";
+import { optionalVmClientIdentifier, parseVmProviderOverrideField, vmOptionalTrimmedString } from "./requestSchemas";
+import { type ProviderId } from "./drivers/types";
 import { vmErrorResponse } from "./routeHelpers";
 
 export type ParsedOptionalObjectBody =
@@ -57,8 +58,7 @@ export async function parseLenientObjectBody(request: Request): Promise<Record<s
 }
 
 export function stringField(body: Record<string, unknown>, key: string): string | undefined {
-  const value = body[key];
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+  return vmOptionalTrimmedString(body[key]);
 }
 
 export function optionalString(value: unknown): string | null {
@@ -68,12 +68,9 @@ export function optionalString(value: unknown): string | null {
 }
 
 export function optionalClientIdentifier(value: unknown, fieldName: string): string | undefined {
-  const trimmed = optionalString(value);
-  if (!trimmed) return undefined;
-  if (!/^[A-Za-z0-9._:-]{1,128}$/.test(trimmed)) {
-    throw new Error(`${fieldName} must be 1-128 characters of letters, numbers, dot, underscore, colon, or dash`);
-  }
-  return trimmed;
+  const parsed = optionalVmClientIdentifier(value, fieldName);
+  if (!parsed.ok) throw new Error(parsed.message);
+  return parsed.value;
 }
 
 /** Client transport capabilities: short lowercase tokens, bounded, anything else dropped. */
@@ -99,19 +96,7 @@ export type ProviderFieldResult =
   | { readonly ok: false; readonly response: Response };
 
 export function providerField(body: Record<string, unknown>): ProviderFieldResult {
-  const value = stringField(body, "provider");
-  if (!value) return { ok: true };
-  if (isProviderId(value)) return { ok: true, provider: value };
-  return {
-    ok: false,
-    response: vmErrorResponse({
-      error: "vm_invalid_provider",
-      status: 400,
-      message: "Unsupported Cloud VM service override.",
-      action: "Use the default Cloud VM service, or pass a supported provider.",
-      details: { field: "provider" },
-    }),
-  };
+  return parseVmProviderOverrideField(body.provider);
 }
 
 function parseJson(raw: string): { readonly ok: true; readonly value: unknown } | { readonly ok: false } {
