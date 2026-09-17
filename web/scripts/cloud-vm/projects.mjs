@@ -23,8 +23,8 @@ export const projects = {
 };
 
 export const requiredRuntimeEnvKeys = [
+  // AWS_REGION is used by KMS and other AWS SDK clients, never for the database.
   "AWS_REGION",
-  "AWS_ROLE_ARN",
   // Without the Slack sink every triggered VM alert drops silently while the
   // alert cron keeps returning 200, so an unset webhook is an observability
   // outage, not a tuning choice. The only waiver is a recorded operator
@@ -43,16 +43,55 @@ export const requiredRuntimeEnvKeys = [
   "CMUX_VM_FREESTYLE_ENABLED",
   // Every Vercel cron (VM alerts included) refuses to run without it.
   "CRON_SECRET",
+  // Coderouter: the usage ledger (customer-facing usage, alert source) and
+  // the credential vault key. Coderouter analytics use the main PostHog
+  // project (POSTHOG_PROJECT_KEY has an in-code default).
+  "CLICKHOUSE_DATABASE",
+  "CLICKHOUSE_PASSWORD",
+  "CLICKHOUSE_URL",
+  "CLICKHOUSE_USER",
+  "CODEROUTER_KMS_KEY_ID",
   "FREESTYLE_API_KEY",
-  "FREESTYLE_SANDBOX_SNAPSHOT",
   "NEXT_PUBLIC_STACK_PROJECT_ID",
   "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY",
-  "PGDATABASE",
-  "PGHOST",
-  "PGPORT",
-  "PGUSER",
+  "DATABASE_URL",
   "STACK_SECRET_SERVER_KEY",
 ];
+
+// Some providers expose more than one supported credential form. Keep the
+// alternatives beside the required key list so the audit can accept the same
+// stack-token form that the runtime client accepts without making operators
+// store two credentials.
+export const requiredRuntimeEnvAlternativeGroups = [
+  { requiredKeys: ["DATABASE_URL"], alternatives: [["DIRECT_DATABASE_URL"]] },
+  {
+    requiredKeys: ["FREESTYLE_API_KEY"],
+    alternatives: [["FREESTYLE_STACK_ACCESS_TOKEN", "FREESTYLE_TEAM_ID"]],
+  },
+];
+
+export const VERCEL_SENSITIVE_PLACEHOLDER = "[SENSITIVE]";
+
+/**
+ * Preserve the existence of Vercel Sensitive variables without exposing their
+ * values. Vercel CLI 50 writes these values as empty strings in `env pull`,
+ * while `env ls` still returns their key and type.
+ */
+export function mergeVercelSensitiveMetadata(env, metadata) {
+  const merged = { ...env };
+  for (const entry of metadata) {
+    if (entry?.type === "sensitive" && typeof entry.key === "string" && !merged[entry.key]?.trim()) {
+      merged[entry.key] = VERCEL_SENSITIVE_PLACEHOLDER;
+    }
+  }
+  return merged;
+}
+
+export function requiredRuntimeEnvKeySatisfied(key, presentKeys) {
+  if (presentKeys.has(key)) return true;
+  const group = requiredRuntimeEnvAlternativeGroups.find((candidate) => candidate.requiredKeys.includes(key));
+  return group?.alternatives.some((alternative) => alternative.every((alternativeKey) => presentKeys.has(alternativeKey))) ?? false;
+}
 
 export const recommendedRuntimeEnvKeys = [
   "CMUX_DB_POOL_MAX",
@@ -65,7 +104,6 @@ export const recommendedRuntimeEnvKeys = [
   // VALUES are audited by freeProvisioningAudit.mjs (a permissive value fails).
   // CMUX_ALERTS_SINK_UNCONFIGURED_ACK is absent for the same reason; its VALUE
   // is audited by alertSinkAudit.mjs.
-  "CMUX_DB_SSL_REJECT_UNAUTHORIZED",
   "OTEL_EXPORTER_OTLP_ENDPOINT",
   "OTEL_EXPORTER_OTLP_HEADERS",
   "OTEL_SERVICE_NAME",
@@ -77,6 +115,12 @@ export const forbiddenRuntimeEnvKeys = [
 ];
 
 export const legacyCloudVmEnvKeys = [
+  // Paid count policy is code-owned; aggregate resource pools were removed.
+  "CMUX_VM_PAID_MAX_ACTIVE_VMS",
+  "CMUX_VM_PLAN_PRO_MAX_ACTIVE_VMS",
+  "CMUX_VM_PLAN_TEAM_MAX_ACTIVE_VMS",
+  "CMUX_VM_PLAN_FOUNDERS_MAX_ACTIVE_VMS",
+  "CMUX_VM_SHARED_CPU_LIMIT_ENABLED",
   // Blaxel, E2B, and Daytona were removed by the provider migrations. Keep
   // their keys visible to the audit until operators remove them from Vercel.
   "BL_API_KEY",
@@ -98,6 +142,23 @@ export const legacyCloudVmEnvKeys = [
   "RIVET_PUBLIC_ENDPOINT",
   "RIVET_RUNNER_VERSION",
   "RIVET_TOKEN",
+  // Subrouter and coderouter access gates were removed: team membership is
+  // the only requirement. The runtime ignores these keys; delete them.
+  "SUBROUTER_ENFORCE_STACK_PERMISSIONS",
+  "SUBROUTER_ALLOWED_TEAM_IDS",
+  "CODEROUTER_HOSTED_PRO_REQUIRED",
+  // The isolated coderouter PostHog project (HMAC pseudonyms, PostHog
+  // Endpoints) was retired on 2026-09-03: coderouter events now go to the main
+  // cmux project keyed by Stack user id. The runtime ignores these keys.
+  "CODEROUTER_ANALYTICS_SCOPE_SECRET",
+  "POSTHOG_CODEROUTER_API_HOST",
+  "POSTHOG_CODEROUTER_ENDPOINT_NAME",
+  "POSTHOG_CODEROUTER_ENDPOINT_SECRET",
+  "POSTHOG_CODEROUTER_ENVIRONMENT_ID",
+  "POSTHOG_CODEROUTER_INGEST_HOST",
+  "POSTHOG_CODEROUTER_PERSONAL_API_KEY",
+  "POSTHOG_CODEROUTER_PROJECT_ID",
+  "POSTHOG_CODEROUTER_PROJECT_KEY",
 ];
 
 export function normalizeTarget(value) {
@@ -152,19 +213,44 @@ export function withLinkedVercelProject(project, fn) {
 }
 
 export function pullProductionEnv(project) {
+  return pullProductionEnvWithMetadata(project).env;
+}
+
+/**
+ * Pull runtime values and the Vercel metadata needed to distinguish a missing
+ * sensitive variable from one that the older CLI redacts to an empty string.
+ * The metadata contains key names and types only; no secret value is exposed.
+ */
+export function pullProductionEnvWithMetadata(project) {
   return withLinkedVercelProject(project, (scratch) => {
     const envFile = path.join(scratch, `${project.projectName}.env`);
     runVercel(["env", "pull", envFile, "--environment=production", "--scope", "manaflow", "--cwd", scratch], {
       stdio: ["ignore", "pipe", "inherit"],
     });
-    return loadEnv(envFile);
+    const env = loadEnv(envFile);
+    const metadataOutput = runVercel(
+      ["env", "ls", "production", "--format", "json", "--scope", "manaflow", "--cwd", scratch],
+      { stdio: ["ignore", "pipe", "inherit"] },
+    );
+    let metadata;
+    try {
+      const parsed = JSON.parse(String(metadataOutput));
+      metadata = Array.isArray(parsed?.envs) ? parsed.envs : [];
+    } catch (error) {
+      throw new Error(`could not parse Vercel environment metadata: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    return { env, metadata };
   });
 }
 
 export function loadTargetEnv(project) {
+  return loadTargetEnvWithMetadata(project).env;
+}
+
+export function loadTargetEnvWithMetadata(project) {
   const source = process.env.CMUX_CLOUD_VM_ENV_SOURCE ?? "vercel";
-  if (source === "vercel") return pullProductionEnv(project);
-  if (source === "process") return processEnvObject();
+  if (source === "vercel") return pullProductionEnvWithMetadata(project);
+  if (source === "process") return { env: processEnvObject(), metadata: [] };
   throw new Error(`Unknown CMUX_CLOUD_VM_ENV_SOURCE ${source}`);
 }
 

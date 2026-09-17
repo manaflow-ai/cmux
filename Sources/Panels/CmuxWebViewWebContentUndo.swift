@@ -1,6 +1,57 @@
 import AppKit
+import WebKit
 
-// Cmd+Z / Cmd+Shift+Z for browser web views.
+/// Base class for every WebKit view that cmux embeds in an app window.
+///
+/// WebKit registers page edit commands through the view's `undoManager`.
+/// `NSResponder` otherwise resolves that property to the window's shared
+/// manager, which lets commands from a closed web view remain in a different
+/// object's undo stack and later message a dangling target.
+class CmuxUndoableWebView: WKWebView {
+    let webContentUndoManager = UndoManager()
+
+    override var undoManager: UndoManager? { webContentUndoManager }
+
+    /// Completes a routed WebKit undo command after the page declines it.
+    override func keyDown(with event: NSEvent) {
+        if performWebContentUndoRedo(for: event) {
+            return
+        }
+        super.keyDown(with: event)
+    }
+}
+
+extension NSWindow {
+    /// Finds an embedded WebKit view from a responder without depending on
+    /// browser-only panel state. Agent-session and Markdown views use this
+    /// path when their web content owns first responder.
+    func cmuxOwningUndoableWebView(for responder: NSResponder) -> CmuxUndoableWebView? {
+        if let webView = responder as? CmuxUndoableWebView {
+            return webView
+        }
+        if let view = responder as? NSView {
+            var current: NSView? = view.superview
+            while let candidate = current {
+                if let webView = candidate as? CmuxUndoableWebView {
+                    return webView
+                }
+                current = candidate.superview
+            }
+        }
+        var current = responder.nextResponder
+        var hops = 0
+        while let next = current, hops < 64 {
+            if let webView = next as? CmuxUndoableWebView {
+                return webView
+            }
+            current = next.nextResponder
+            hops += 1
+        }
+        return nil
+    }
+}
+
+// Cmd+Z / Cmd+Shift+Z for embedded WebKit views.
 //
 // WebKit registers every web-content edit command on the web view's
 // `undoManager` (`WebViewImpl::registerEditCommand` calls
@@ -14,15 +65,13 @@ import AppKit
 // nothing performed the command anymore
 // (https://github.com/manaflow-ai/cmux/issues/9677).
 //
-// Owning an undo manager per web view restores both invariants:
+// Owning an undo manager per WebKit view restores both invariants:
 // - web-content edit commands never reach the window's shared undo manager
 //   and never outlive their web view, so the stale-target class of crashes is
 //   impossible by construction;
 // - the routed chords can perform undo/redo directly on the focused web
 //   view's own stack, matching Safari's Edit-menu behavior.
-extension CmuxWebView {
-    override var undoManager: UndoManager? { webContentUndoManager }
-
+extension CmuxUndoableWebView {
     /// Performs the page's native editing undo/redo for a routed
     /// Cmd+Z / Cmd+Shift+Z chord.
     ///

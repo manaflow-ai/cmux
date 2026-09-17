@@ -1,4 +1,6 @@
 import CryptoKit
+import CmuxSettings
+import Darwin
 import Foundation
 import Security
 
@@ -11,37 +13,45 @@ import Security
 ///
 /// - a Curve25519 keypair generated here, whose private half never leaves this
 ///   Mac (the control plane receives only the public key),
-/// - a stable per-installation device fingerprint, so re-enrolling on every
-///   launch resolves to the same tunnel and the same address on the network,
-/// - the assembled wg-quick config at `~/.cmuxterm/wireguard/cmux.conf` (0600),
-///   which is the one artifact both bring-up paths consume.
+/// - a stable per-build installation device fingerprint, so re-enrolling on
+///   every launch resolves to the same tunnel and the same address on the
+///   network,
+/// - the assembled WireGuard config at `~/.cmuxterm/wireguard/<scope>.conf`
+///   (0600), with one key and config for each tunnel role.
 ///
-/// Bringing the interface up needs privileges the app process does not have,
-/// and there are two backends for it:
+/// The terminal role runs inside the bundled cmux-tui process and needs no
+/// system route or privilege; Ports and Desktop panes ride the same hub on a
+/// loopback forward. The browser role is the explicit system-wide VPN
+/// (`cmux vpn up`) and uses ``CloudTunnelBackend``:
 ///
-/// - **wg-quick** (`cmux vpn up`) — the shipping path. The CLI runs
-///   `sudo wg-quick up` against the config this manager wrote; sudo in the
-///   user's own terminal is the honest privilege prompt.
-/// - **NetworkExtension** — the long-term path, pending the
-///   `com.apple.developer.networking.networkextension` entitlement. When a
-///   build carries it, the app can own the tunnel as a real macOS VPN with no
-///   admin prompt. `networkExtensionAvailable` gates that branch at runtime so
-///   the same build degrades to the CLI path when the entitlement is absent.
+/// - **NetworkExtension** — the app-managed path. When release signing
+///   carries `com.apple.developer.networking.networkextension` and the bundled
+///   `cmuxTunnel.systemextension`, ``CloudTunnelCoordinator`` saves the
+///   completed config as a macOS VPN configuration and starts it when asked:
+///   no sudo, no command-line tunnel, and no Homebrew. That tunnel reports
+///   liveness through `NEVPNStatus`.
+/// Builds without that signed capability fail closed for the system-wide
+/// route. They never start a privileged command-line fallback.
 struct VMTunnelManager: Sendable {
+    enum Purpose: String, Sendable {
+        case terminal
+        case browser
+    }
+
     struct LocalTunnelState: Sendable {
         let endpoint: VMTunnelEndpoint
         /// Path of the written wg-quick config (private key included, 0600).
         let configPath: String
         /// The wg-quick interface name derived from the config filename.
         let interfaceName: String
+        /// The same config as text, for the NetworkExtension backend, which
+        /// hands it to the system rather than to wg-quick. Never logged.
+        let completedConfig: String
     }
 
     enum TunnelError: Error, CustomStringConvertible {
         case keyStorageFailed(String)
         case configMalformed(String)
-        /// The machine's route lies inside the private network and this Mac's
-        /// tunnel is not up, so nothing can reach the daemon until it is.
-        case tunnelDown
 
         var description: String {
             switch self {
@@ -49,71 +59,257 @@ struct VMTunnelManager: Sendable {
                 return "Could not store the WireGuard key for this Mac: \(detail)"
             case .configMalformed(let detail):
                 return "The tunnel config from the Cloud VM service could not be completed: \(detail)"
-            case .tunnelDown:
-                return String(
-                    localized: "cloud.tunnel.down",
-                    defaultValue: "This machine is on your private network, but this Mac's tunnel is down. Run `cmux vpn up` in a terminal, then open the machine again."
-                )
             }
         }
     }
 
-    /// wg-quick names the interface after the config file, so this is both.
-    static let interfaceName = "cmux"
+    /// The config name is scoped to the app/build identity. Stable production
+    /// keeps the historical `cmux`
+    /// name; nightly, staging, and every tagged DEBUG build get a distinct
+    /// deterministic name. The deployment URL is only a fallback for callers
+    /// that have no bundle identity. This matters when a production-targeted
+    /// tagged DEBUG build and nightly run on one Mac: both can enroll without
+    /// overwriting each other's config, key, or device fingerprint.
+    let interfaceName: String
+    let purpose: Purpose
 
     let home: URL
 
-    init(home: URL = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)) {
+    init(
+        home: URL = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true),
+        interfaceName: String? = nil,
+        purpose: Purpose = .browser,
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        apiBaseURL: URL = AuthEnvironment.vmAPIBaseURL
+    ) {
         self.home = home
+        self.purpose = purpose
+        self.interfaceName = interfaceName ?? Self.interfaceName(
+            bundleIdentifier: bundleIdentifier,
+            environment: environment,
+            apiBaseURL: apiBaseURL
+        )
     }
 
-    /// `~/.cmuxterm/wireguard`, 0700 — alongside the cmux-tui client state,
+    /// Returns the interface name for a concrete app/build identity.
+    ///
+    /// The bundle identifier is the durable identity because deployment URLs
+    /// are not: a tagged DEBUG bundle can point at localhost today and
+    /// `https://cmux.com` tomorrow. Names are limited to 15 characters, the
+    /// maximum accepted by wg-quick on macOS. The optional environment is used
+    /// for the base DEBUG bundle, whose launch tag is otherwise only present in
+    /// `CMUX_TAG`.
+    static func interfaceName(
+        bundleIdentifier: String?,
+        environment: [String: String] = [:],
+        apiBaseURL: URL
+    ) -> String {
+        let normalizedBundleID = normalizedBundleIdentifier(bundleIdentifier)
+        let effectiveBundleID = effectiveBundleIdentifier(bundleIdentifier: normalizedBundleID, environment: environment)
+
+        guard let effectiveBundleID else {
+            return interfaceName(forAPIBaseURL: apiBaseURL)
+        }
+
+        let variant = SocketPathMarkerFiles.variant(
+            bundleIdentifier: effectiveBundleID,
+            environment: environment
+        )
+        switch variant {
+        case .stable:
+            if effectiveBundleID == SocketPathMarkerFiles.stableBundleIdentifier {
+                return "cmux"
+            }
+            return scopedInterfaceName(prefix: "cmux-x", identity: effectiveBundleID, hashLength: 8)
+        case .nightly(let slug):
+            if effectiveBundleID == SocketPathMarkerFiles.nightlyBundleIdentifier, slug == nil {
+                return "cmux-nightly"
+            }
+            return scopedInterfaceName(prefix: "cmux-n", identity: effectiveBundleID, hashLength: 8)
+        case .rc(let slug):
+            if effectiveBundleID == SocketPathMarkerFiles.rcBundleIdentifier, slug == nil {
+                return "cmux-rc"
+            }
+            return scopedInterfaceName(prefix: "cmux-r", identity: effectiveBundleID, hashLength: 8)
+        case .staging(let slug):
+            if effectiveBundleID == SocketPathMarkerFiles.stagingBundleIdentifier, slug == nil {
+                return "cmux-staging"
+            }
+            return scopedInterfaceName(prefix: "cmux-s", identity: effectiveBundleID, hashLength: 8)
+        case .dev(let slug):
+            let rawTag = effectiveBundleID == SocketPathMarkerFiles.defaultBaseDebugBundleIdentifier
+                ? normalizedEnvironmentValue(environment["CMUX_TAG"])?.lowercased()
+                : nil
+            if effectiveBundleID == SocketPathMarkerFiles.defaultBaseDebugBundleIdentifier,
+               slug == nil,
+               rawTag == nil {
+                return "cmux-dev"
+            }
+            let identity = rawTag.map { "\(effectiveBundleID)|\($0)" } ?? effectiveBundleID
+            return scopedInterfaceName(prefix: "cmux-dev", identity: identity, hashLength: 6)
+        }
+    }
+
+    /// Compatibility fallback for code that only knows the deployment URL.
+    /// New app code should use ``interfaceName(bundleIdentifier:environment:apiBaseURL:)``.
+    static func interfaceName(forAPIBaseURL url: URL) -> String {
+        legacyInterfaceName(forAPIBaseURL: url)
+    }
+
+    /// The URL-only mapping retained for old callers and pre-build-identity
+    /// state. It must stay deterministic while the bundle-aware path above
+    /// remains the production source of tunnel isolation.
+    private static func legacyInterfaceName(forAPIBaseURL url: URL) -> String {
+        let host = (url.host ?? "").lowercased()
+        if host.isEmpty || host == "cmux.com" || host.hasSuffix(".cmux.com") { return "cmux" }
+        if host == "localhost" || host == "127.0.0.1" || host == "::1" { return "cmux-local" }
+        if host.contains("staging") { return "cmux-staging" }
+        return "cmux-dev"
+    }
+
+    private static func normalizedBundleIdentifier(_ value: String?) -> String? {
+        normalizedEnvironmentValue(value)?.lowercased()
+    }
+
+    private static func normalizedEnvironmentValue(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private static func effectiveBundleIdentifier(
+        bundleIdentifier: String?,
+        environment: [String: String]
+    ) -> String? {
+        let environmentBundleID = normalizedBundleIdentifier(environment["CMUX_BUNDLE_ID"])
+        guard let bundleIdentifier else { return environmentBundleID }
+
+        // A directly-launched base DEBUG executable can carry the tag only in
+        // its environment. Prefer that more-specific identity, but never let
+        // an ambient environment override a concrete stable/nightly bundle.
+        if bundleIdentifier == SocketPathMarkerFiles.defaultBaseDebugBundleIdentifier,
+           let environmentBundleID,
+           environmentBundleID.hasPrefix(bundleIdentifier + ".") {
+            return environmentBundleID
+        }
+        return bundleIdentifier
+    }
+
+    private static func scopedInterfaceName(prefix: String, identity: String, hashLength: Int) -> String {
+        let digest = SHA256.hash(data: Data(identity.utf8))
+        let hash = digest
+            .prefix(hashLength / 2 + hashLength % 2)
+            .map { String(format: "%02x", $0) }
+            .joined()
+            .prefix(hashLength)
+        let name = "\(prefix)-\(hash)"
+        // Prefixes and lengths above are constants chosen to satisfy wg-quick's
+        // 15-byte interface limit. Keep this assertion close to the invariant
+        // so a future prefix change cannot silently produce an unusable config.
+        assert(name.utf8.count <= 15)
+        return String(name)
+    }
+
+    /// `~/.cmuxterm/wireguard`, 0700, alongside the cmux-tui client state,
     /// which follows the same file-permission model for its device key.
     var stateDir: URL {
         home.appendingPathComponent(".cmuxterm", isDirectory: true)
             .appendingPathComponent("wireguard", isDirectory: true)
     }
 
-    var privateKeyURL: URL { stateDir.appendingPathComponent("private.key", isDirectory: false) }
-    var deviceIDURL: URL { stateDir.appendingPathComponent("device-id", isDirectory: false) }
-    var configURL: URL { stateDir.appendingPathComponent("\(Self.interfaceName).conf", isDirectory: false) }
+    /// Stable production retains the pre-isolation filenames so an existing
+    /// shipping tunnel keeps working. Every other interface gets credentials
+    /// of its own; sharing the old `private.key`/`device-id` would let one
+    /// build rotate the provider peer underneath another build.
+    private var usesLegacyCredentialFiles: Bool { interfaceName == "cmux" }
 
-    /// wg-quick(8) records the created utun's name here — but on macOS the
-    /// file is root-only (0400), so liveness detection must not depend on it;
-    /// see `wgQuickInterfaceUp()`.
-    var runtimeNameFileURL: URL {
-        URL(fileURLWithPath: "/var/run/wireguard/\(Self.interfaceName).name", isDirectory: false)
+    var privateKeyURL: URL {
+        let filename = usesLegacyCredentialFiles && purpose == .browser
+            ? "private.key"
+            : "\(interfaceName).\(purpose.rawValue).private.key"
+        return stateDir.appendingPathComponent(filename, isDirectory: false)
     }
 
-    /// Whether this build can own the tunnel as a NetworkExtension VPN.
+    var deviceIDURL: URL {
+        let filename = usesLegacyCredentialFiles && purpose == .browser
+            ? "device-id"
+            : "\(interfaceName).\(purpose.rawValue).device-id"
+        return stateDir.appendingPathComponent(filename, isDirectory: false)
+    }
+    var configURL: URL {
+        let filename = usesLegacyCredentialFiles && purpose == .browser
+            ? "\(interfaceName).conf"
+            : "\(interfaceName).\(purpose.rawValue).conf"
+        return stateDir.appendingPathComponent(filename, isDirectory: false)
+    }
+    /// Whether this build can own the tunnel as a NetworkExtension VPN:
+    /// the signed `packet-tunnel-provider-systemextension` capability, the
+    /// `system-extension.install` entitlement, and the bundled extension all
+    /// present. See ``CloudTunnelBackendSelector`` for the exact rule.
     ///
-    /// Reads the signed entitlement rather than trying to configure a manager,
-    /// so an unentitled build never shows the user a doomed VPN prompt. Today
-    /// no build carries the entitlement; when release signing gains it, this
-    /// flips to true with no code change and `cmux vpn up` starts steering to
-    /// the app-managed tunnel.
+    /// Reads the signature and the bundle rather than trying to configure a
+    /// manager, so an unentitled build never shows the user a doomed VPN
+    /// prompt, and a build whose signing dropped the extension never claims a
+    /// backend it cannot run.
     static func networkExtensionAvailable() -> Bool {
-        guard let task = SecTaskCreateFromSelf(nil) else { return false }
-        let key = "com.apple.developer.networking.networkextension" as CFString
-        guard let raw = SecTaskCopyValueForEntitlement(task, key, nil) else { return false }
-        if let capabilities = raw as? [String] {
-            return capabilities.contains("packet-tunnel-provider")
-        }
-        return false
+        CloudTunnelBackendSelector.live().select().isNetworkExtension
     }
 
-    /// The stable per-installation device fingerprint, minted on first use.
-    /// Distinct from the per-machine cmux-tui fingerprints: this one names the
-    /// Mac itself on the account's network.
+    /// The config on disk from the last enrollment, or nil before the first.
+    func writtenConfig() -> String? {
+        try? String(contentsOf: configURL, encoding: .utf8)
+    }
+
+    /// The stable per-build installation device fingerprint, minted on first use.
+    /// Distinct from the per-machine cmux-tui fingerprints: this one names this
+    /// app/build's membership on the account's network.
     func deviceFingerprint() throws -> String {
-        if let existing = try? String(contentsOf: deviceIDURL, encoding: .utf8) {
-            let trimmed = existing.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty { return trimmed }
-        }
+        if let existing = storedDeviceFingerprint() { return existing }
         let minted = "mac-" + UUID().uuidString.lowercased()
         try ensureStateDir()
         try write(minted + "\n", to: deviceIDURL)
         return minted
+    }
+
+    /// The enrolled role identity already on disk. Status and diagnostics use
+    /// this read-only form so checking a revoked tunnel cannot recreate state.
+    func storedDeviceFingerprint() -> String? {
+        guard let existing = try? String(contentsOf: deviceIDURL, encoding: .utf8) else {
+            return nil
+        }
+        let trimmed = existing.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// The `AllowedIPs` of the config on disk (the addresses this tunnel routes),
+    /// or empty when no config has been written yet.
+    func configuredRoutes() -> [String] {
+        guard let config = try? String(contentsOf: configURL, encoding: .utf8) else { return [] }
+        return Self.allowedIPs(in: config)
+    }
+
+    /// The `AllowedIPs =` values in a wg-quick config's `[Peer]` sections, in order.
+    static func allowedIPs(in config: String) -> [String] {
+        var routes: [String] = []
+        var inPeer = false
+        for rawLine in config.components(separatedBy: "\n") {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("[") {
+                inPeer = line.lowercased() == "[peer]"
+                continue
+            }
+            guard inPeer else { continue }
+            let parts = line.split(separator: "=", maxSplits: 1)
+            guard parts.count == 2,
+                  parts[0].trimmingCharacters(in: .whitespaces).lowercased() == "allowedips" else { continue }
+            for entry in parts[1].split(separator: ",") {
+                let value = entry.trimmingCharacters(in: .whitespaces)
+                if !value.isEmpty { routes.append(value) }
+            }
+        }
+        return routes
     }
 
     /// The Mac's WireGuard keypair, minted on first use. Returns base64 halves;
@@ -145,123 +341,42 @@ struct VMTunnelManager: Sendable {
         let fingerprint = try deviceFingerprint()
         let endpoint = try await client.enrollTunnel(
             clientPublicKey: keys.publicKey,
+            deviceID: MobileHostIdentity.deviceID(),
             deviceFingerprint: fingerprint,
-            deviceName: deviceName ?? CloudTuiClientPaths.deviceName()
+            tunnelPurpose: purpose.rawValue,
+            deviceName: deviceName ?? MobileHostIdentity.baseDisplayName() ?? CloudTuiClientPaths.deviceName(),
+            modelIdentifier: Self.modelIdentifier(),
+            osVersion: Self.osVersion(),
+            architecture: Self.architecture,
+            cmuxVersion: MobileHostBuildIdentity.current().appVersion,
+            cmuxBuild: MobileHostBuildIdentity.current().appBuild,
+            cmuxChannel: Self.cmuxChannel()
         )
-        let config = try Self.completedConfig(endpoint.clientConfig, privateKey: keys.privateKey)
+        // The provider may return broad 10/8 and fd00::/8 routes. Narrow them
+        // to this owner's network so production and Dev interfaces can install
+        // their routes simultaneously without colliding.
+        let allowedIPs = [endpoint.networkCidr, endpoint.networkCidrV6]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let config = try Self.completedConfig(
+            endpoint.clientConfig,
+            privateKey: keys.privateKey,
+            allowedIPs: allowedIPs
+        )
         try ensureStateDir()
         try write(config, to: configURL)
         return LocalTunnelState(
             endpoint: endpoint,
             configPath: configURL.path,
-            interfaceName: Self.interfaceName
+            interfaceName: interfaceName,
+            completedConfig: config
         )
     }
 
-    /// Whether wg-quick currently has this tunnel up, without privileges.
-    ///
-    /// wg-quick's own record (`/var/run/wireguard/cmux.name`) is root-only on
-    /// macOS, so instead this asks the question the network can answer: does
-    /// any interface hold one of the tunnel's own `[Interface] Address`es from
-    /// the config this manager wrote? Those are fixed platform-side addresses
-    /// unique to the tunnel, so a match is the tunnel and nothing else. A
-    /// future NetworkExtension tunnel reports through NEVPNStatus instead.
-    func wgQuickInterfaceUp() -> Bool {
-        guard let config = try? String(contentsOf: configURL, encoding: .utf8) else { return false }
-        let expected = Self.interfaceAddresses(in: config)
-        guard !expected.isEmpty else { return false }
-        var addrs: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&addrs) == 0 else { return false }
-        defer { freeifaddrs(addrs) }
-        var cursor = addrs
-        while let current = cursor {
-            if let sa = current.pointee.ifa_addr, let address = Self.numericAddress(sa),
-               expected.contains(address) {
-                return true
-            }
-            cursor = current.pointee.ifa_next
-        }
-        return false
-    }
-
-    /// Enrolled on this Mac (a config was written by `cmux vpn up`) but the
-    /// tunnel is not up right now: the one state where a private-network
-    /// machine is known to be unreachable and the fix is known too.
-    var isEnrolledButDown: Bool {
-        FileManager.default.fileExists(atPath: configURL.path) && !wgQuickInterfaceUp()
-    }
-
-    /// Refuses to dial a route this Mac cannot reach.
-    ///
-    /// A machine on the user's private network advertises its daemon at a
-    /// private address (`ws://[fd7a:…]:1337/v1/link`). Nothing on the Internet
-    /// answers there, and dialing it with the tunnel down does not fail, it
-    /// hangs: the enrollment stays pending until the link (60 s), the approve
-    /// loop (5 min) and the CLI (16 min) give up with "Command timed out".
-    /// Every cmux-remote open runs this first so the person reads the cause and
-    /// the fix within a second instead.
-    func preflight(route: String) throws {
-        guard Self.routeRequiresTunnel(route) else { return }
-        guard !wgQuickInterfaceUp() else { return }
-        throw TunnelError.tunnelDown
-    }
-
-    /// Whether the route's host is a private-network address, one only the
-    /// tunnel routes: IPv6 unique-local (`fc00::/7`, which Freestyle VPCs
-    /// draw from) or RFC 1918 / CGNAT IPv4. Hostnames and public addresses
-    /// are reachable without the tunnel. An unparseable route is not this
-    /// check's problem, so it reads as reachable and fails downstream as before.
-    static func routeRequiresTunnel(_ route: String) -> Bool {
-        guard let host = routeHost(route) else { return false }
-        return isPrivateNetworkAddress(host)
-    }
-
-    /// The host of a `scheme://[v6]:port/path` or `scheme://host:port/path`
-    /// route, brackets and port stripped, lowercased.
-    static func routeHost(_ route: String) -> String? {
-        var rest = Substring(route)
-        if let schemeEnd = rest.range(of: "://") {
-            rest = rest[schemeEnd.upperBound...]
-        }
-        if let authorityEnd = rest.firstIndex(where: { $0 == "/" || $0 == "?" || $0 == "#" }) {
-            rest = rest[..<authorityEnd]
-        }
-        if let at = rest.lastIndex(of: "@") {
-            rest = rest[rest.index(after: at)...]
-        }
-        guard !rest.isEmpty else { return nil }
-        if rest.first == "[" {
-            guard let close = rest.firstIndex(of: "]") else { return nil }
-            let inner = rest[rest.index(after: rest.startIndex)..<close]
-            return inner.isEmpty ? nil : inner.lowercased()
-        }
-        // One colon at most: an IPv4 or hostname with an optional port. A bare
-        // IPv6 without brackets is not a valid authority and reads as unknown.
-        let colons = rest.filter { $0 == ":" }.count
-        if colons > 1 { return nil }
-        let host = colons == 1 ? rest[..<rest.firstIndex(of: ":")!] : rest
-        return host.isEmpty ? nil : host.lowercased()
-    }
-
-    static func isPrivateNetworkAddress(_ host: String) -> Bool {
-        var v6 = in6_addr()
-        if inet_pton(AF_INET6, host, &v6) == 1 {
-            // fc00::/7: the unique-local block the private network is addressed from.
-            let first = withUnsafeBytes(of: &v6) { $0[0] }
-            return (first & 0xfe) == 0xfc
-        }
-        var v4 = in_addr()
-        if inet_pton(AF_INET, host, &v4) == 1 {
-            let value = UInt32(bigEndian: v4.s_addr)
-            let a = UInt8(truncatingIfNeeded: value >> 24)
-            let b = UInt8(truncatingIfNeeded: value >> 16)
-            if a == 10 { return true }                              // 10.0.0.0/8
-            if a == 172, (16...31).contains(b) { return true }      // 172.16.0.0/12
-            if a == 192, b == 168 { return true }                   // 192.168.0.0/16
-            if a == 100, (64...127).contains(b) { return true }     // 100.64.0.0/10
-            return false
-        }
-        return false
+    /// SHA-256 of the config on disk, for status output; nil when there is none.
+    func configDigest() -> String? {
+        guard let data = try? Data(contentsOf: configURL) else { return nil }
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     /// The `Address =` values in a wg-quick config's `[Interface]` section,
@@ -288,41 +403,43 @@ struct VMTunnelManager: Sendable {
         return addresses
     }
 
-    private static func numericAddress(_ sa: UnsafeMutablePointer<sockaddr>) -> String? {
-        switch Int32(sa.pointee.sa_family) {
-        case AF_INET:
-            var addr = sa.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee.sin_addr }
-            var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
-            guard inet_ntop(AF_INET, &addr, &buffer, socklen_t(INET_ADDRSTRLEN)) != nil else { return nil }
-            return String(cString: buffer)
-        case AF_INET6:
-            var addr = sa.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { $0.pointee.sin6_addr }
-            var buffer = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
-            guard inet_ntop(AF_INET6, &addr, &buffer, socklen_t(INET6_ADDRSTRLEN)) != nil else { return nil }
-            return String(cString: buffer).lowercased()
-        default:
-            return nil
-        }
-    }
-
-    /// Fill the blank `PrivateKey` line the server left in the config.
-    /// The server-issued config is otherwise complete and final.
-    static func completedConfig(_ config: String, privateKey: String) throws -> String {
+    /// Fill the blank `PrivateKey` line the server left in the config and,
+    /// when supplied, narrow the peer's routes to this network.
+    static func completedConfig(
+        _ config: String,
+        privateKey: String,
+        allowedIPs: [String] = []
+    ) throws -> String {
         var lines = config.components(separatedBy: "\n")
-        if let index = lines.firstIndex(where: { line in
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            return trimmed.lowercased().hasPrefix("privatekey")
-        }) {
+        func key(of line: String) -> String {
+            line.split(separator: "=", maxSplits: 1)
+                .first?
+                .trimmingCharacters(in: .whitespaces)
+                .lowercased() ?? ""
+        }
+        if let index = lines.firstIndex(where: { key(of: $0) == "privatekey" }) {
             lines[index] = "PrivateKey = \(privateKey)"
-            return lines.joined(separator: "\n")
+        } else {
+            // No PrivateKey line at all: insert directly under [Interface].
+            guard let interfaceIndex = lines.firstIndex(where: {
+                $0.trimmingCharacters(in: .whitespaces).lowercased() == "[interface]"
+            }) else {
+                throw TunnelError.configMalformed("no [Interface] section in server config")
+            }
+            lines.insert("PrivateKey = \(privateKey)", at: interfaceIndex + 1)
         }
-        // No PrivateKey line at all: insert directly under [Interface].
-        guard let interfaceIndex = lines.firstIndex(where: {
-            $0.trimmingCharacters(in: .whitespaces).lowercased() == "[interface]"
-        }) else {
-            throw TunnelError.configMalformed("no [Interface] section in server config")
+        if !allowedIPs.isEmpty {
+            let routes = "AllowedIPs = \(allowedIPs.joined(separator: ", "))"
+            if let index = lines.firstIndex(where: { key(of: $0) == "allowedips" }) {
+                lines[index] = routes
+            } else if let peerIndex = lines.firstIndex(where: {
+                $0.trimmingCharacters(in: .whitespaces).lowercased() == "[peer]"
+            }) {
+                lines.insert(routes, at: peerIndex + 1)
+            } else {
+                throw TunnelError.configMalformed("no [Peer] section in server config")
+            }
         }
-        lines.insert("PrivateKey = \(privateKey)", at: interfaceIndex + 1)
         return lines.joined(separator: "\n")
     }
 
@@ -344,5 +461,47 @@ struct VMTunnelManager: Sendable {
         } catch {
             throw TunnelError.keyStorageFailed("\(url.path): \(error.localizedDescription)")
         }
+    }
+
+    /// Delete all local secrets for this tunnel role. Provider revoke happens first when online.
+    func removeLocalCredentials() {
+        for url in [privateKeyURL, deviceIDURL, configURL] {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
+    private static func modelIdentifier() -> String? {
+        var size = 0
+        guard sysctlbyname("hw.model", nil, &size, nil, 0) == 0, size > 1 else { return nil }
+        var bytes = [CChar](repeating: 0, count: size)
+        let status = bytes.withUnsafeMutableBytes { buffer in
+            sysctlbyname("hw.model", buffer.baseAddress, &size, nil, 0)
+        }
+        guard status == 0 else { return nil }
+        return String(cString: bytes)
+    }
+
+    private static func osVersion() -> String {
+        let value = ProcessInfo.processInfo.operatingSystemVersion
+        return "\(value.majorVersion).\(value.minorVersion).\(value.patchVersion)"
+    }
+
+    private static var architecture: String {
+        #if arch(arm64)
+        "arm64"
+        #elseif arch(x86_64)
+        "x86_64"
+        #else
+        "unknown"
+        #endif
+    }
+
+    private static func cmuxChannel(bundleIdentifier: String? = Bundle.main.bundleIdentifier) -> String {
+        let id = bundleIdentifier?.lowercased() ?? ""
+        if id.contains("nightly") { return "nightly" }
+        if id.contains("staging") { return "staging" }
+        if id.hasSuffix(".rc") { return "rc" }
+        if id == "com.cmuxterm.app" { return "stable" }
+        return "dev"
     }
 }

@@ -1534,7 +1534,7 @@ private struct PermissionActionArea: View {
                     Text(primary)
                         .cmuxFont(size: 11, design: .monospaced)
                         .foregroundColor(.primary.opacity(0.95))
-                        .textSelection(.enabled)
+                        .copyOnlyTextSelection(for: primary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }

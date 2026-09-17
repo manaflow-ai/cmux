@@ -69,6 +69,8 @@ type AfterSignInHandlerDependencies = {
   promoteVerifiedAnonymousUser?: (userId: string, email: string) => Promise<void>;
   /** Resolve paid claims after Stack has verified the mailbox. */
   claimVerifiedBilling?: (userId: string, email: string) => Promise<void>;
+  /** Apply operator Pro grants addressed to the verified mailbox. */
+  applyAdminGrants?: (userId: string, email: string) => Promise<void>;
 };
 
 function findStackCookie(
@@ -421,6 +423,23 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
             // Stripe is temporarily unavailable. Billing reads and the next
             // sign-in retry the idempotent claim transfer.
             console.error("billing.after_sign_in.claim_failed", {
+              failure: "provider_unavailable",
+            });
+          }
+        }
+        if (
+          dependencies.applyAdminGrants &&
+          user.id &&
+          user.primaryEmail &&
+          (promotedAnonymousUser ||
+            (user.isAnonymous !== true && user.primaryEmailVerified === true))
+        ) {
+          try {
+            await dependencies.applyAdminGrants(user.id, user.primaryEmail);
+          } catch {
+            // Sign-in must not depend on the grants table; the next sign-in
+            // retries because unapplied rows stay open.
+            console.error("admin.after_sign_in.grant_apply_failed", {
               failure: "provider_unavailable",
             });
           }
