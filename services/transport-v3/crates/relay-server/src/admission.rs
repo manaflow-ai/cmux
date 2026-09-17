@@ -59,9 +59,6 @@ impl Gate {
     }
 
     pub fn authorize(&self, source: PeerId, request: Request) -> Response {
-        if self.draining() {
-            return Response::Denied;
-        }
         let (team, token, destination, reserve) = match request {
             Request::Reserve { team, grant } => (team, grant, self.relay, true),
             Request::Connect {
@@ -119,6 +116,19 @@ impl Gate {
         } else {
             permits.circuits.contains_key(&(source, destination))
         };
+        // Drain blocks new HOPs independently through AccessControl. Refreshing
+        // a still-live permission keeps established traffic authorized during
+        // handover; expired or revoked permissions can never be resurrected.
+        if self.draining() {
+            let old = if reserve {
+                permits.reservations.get(&source)
+            } else {
+                permits.circuits.get(&(source, destination))
+            };
+            if !old.is_some_and(|p| p.admission.check(now, &permits.revocations).is_ok()) {
+                return Response::Denied;
+            }
+        }
         if !replacing {
             let total = permits.reservations.len() + permits.circuits.len();
             let team_count = permits

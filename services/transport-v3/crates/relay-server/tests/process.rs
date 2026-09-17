@@ -1,5 +1,7 @@
 //! Exercises the actual server binary, authenticated libp2p peers and management HTTP.
-use cmux_v3_grants::{AuthorityKeys, Grant, GrantSigner, LeasePolicy, Revocations, Scope};
+use cmux_v3_grants::{
+    AuthorityKeys, Grant, GrantSigner, LeasePolicy, OfflineAccess, Revocations, Scope,
+};
 use cmux_v3_transport::{
     authorize_probe, peer, relay_auth, PeerBehaviour, PeerBehaviourEvent, Probe, ProbeReply,
 };
@@ -157,6 +159,15 @@ impl Server {
         server
     }
     fn grant(&self, source: PeerId, destination: PeerId, action: &str) -> String {
+        self.grant_with_lifetime(source, destination, action, 300)
+    }
+    fn grant_with_lifetime(
+        &self,
+        source: PeerId,
+        destination: PeerId,
+        action: &str,
+        seconds: u32,
+    ) -> String {
         let grant = Grant::new(
             Scope {
                 team: "a",
@@ -165,7 +176,10 @@ impl Server {
                 action,
             },
             1,
-            LeasePolicy::default(),
+            LeasePolicy {
+                offline: OfflineAccess::Bounded { seconds },
+                renew_every_seconds: 1,
+            },
             now(),
             now(),
         )
@@ -254,7 +268,7 @@ async fn real_server_authenticates_and_drains_without_cutting_an_existing_circui
             .await,
             relay_auth::Response::Denied
         );
-        let reserve = server.grant(destination, server.peer, "relay_reserve");
+        let reserve = server.grant_with_lifetime(destination, server.peer, "relay_reserve", 5);
         assert_eq!(
             authorize(
                 &mut host,
@@ -279,7 +293,8 @@ async fn real_server_authenticates_and_drains_without_cutting_an_existing_circui
                 break;
             }
         }
-        let grant = server.grant(source, destination, "connect");
+        let grant = server.grant_with_lifetime(source, destination, "connect", 5);
+        let original_expired_at = now() + 6;
         assert_eq!(
             authorize(
                 &mut client,
@@ -305,6 +320,40 @@ async fn real_server_authenticates_and_drains_without_cutting_an_existing_circui
             202
         );
         assert_eq!(http(server.http, "/readyz", None).0, 503);
+        // Renewal must work after drain starts, while new circuits remain denied.
+        assert_eq!(
+            authorize(
+                &mut host,
+                &server,
+                relay_auth::Request::Reserve {
+                    team: "a".into(),
+                    grant: server.grant(destination, server.peer, "relay_reserve"),
+                }
+            )
+            .await,
+            relay_auth::Response::Accepted
+        );
+        let grant = server.grant(source, destination, "connect");
+        assert_eq!(
+            authorize(
+                &mut client,
+                &server,
+                relay_auth::Request::Connect {
+                    team: "a".into(),
+                    destination: destination.to_string(),
+                    grant: grant.clone(),
+                }
+            )
+            .await,
+            relay_auth::Response::Accepted
+        );
+        while now() <= original_expired_at {
+            tokio::select! {
+                _ = client.select_next_some() => {},
+                _ = host.select_next_some() => {},
+                _ = tokio::time::sleep(Duration::from_millis(50)) => {},
+            }
+        }
         exchange(&mut client, &mut host, &server, &grant).await;
         assert!(server.child.try_wait().unwrap().is_none());
         client.disconnect_peer_id(destination).unwrap();
