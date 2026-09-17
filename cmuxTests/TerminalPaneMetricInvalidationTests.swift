@@ -97,6 +97,7 @@ struct TerminalPaneMetricInvalidationTests {
         TerminalWindowPortalRegistry.synchronizeExternalGeometryNow(for: fixture.window)
         #expect(portal.isRendererResizeDeferred)
         TerminalWindowPortalRegistry.endInteractiveGeometryResize(in: fixture.window)
+        try await fixture.waitUntil("divider completion") { !portal.isRendererResizeDeferred }
         try await fixture.settle()
         #expect(!portal.isRendererResizeDeferred)
     }

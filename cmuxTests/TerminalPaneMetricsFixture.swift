@@ -58,6 +58,7 @@ final class TerminalPaneMetricsFixture {
             expectedSurfaceId: surface.id,
             expectedGeneration: surface.portalBindingGeneration()
         )
+        hosted.setVisibleInUI(true)
         try await settle()
     }
 
@@ -102,8 +103,8 @@ final class TerminalPaneMetricsFixture {
         let runtime = try #require(surface.surface)
         var text = ghostty_text_s()
         let selection = ghostty_selection_s(
-            top_left: ghostty_point_s(tag: GHOSTTY_POINT_SURFACE, coord: GHOSTTY_POINT_COORD_TOP_LEFT, x: 0, y: 0),
-            bottom_right: ghostty_point_s(tag: GHOSTTY_POINT_SURFACE, coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT, x: 0, y: 0),
+            top_left: ghostty_point_s(tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_TOP_LEFT, x: 0, y: 0),
+            bottom_right: ghostty_point_s(tag: GHOSTTY_POINT_VIEWPORT, coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT, x: 0, y: 0),
             rectangle: true
         )
         try #require(ghostty_surface_read_text(runtime, selection, &text))
