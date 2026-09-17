@@ -135,17 +135,7 @@ const STAGED_MACHINE_RUNTIME_KEYS = [
   "authentication",
 ] as const;
 const MACHINE_CONNECTABLE_PROVIDER_CONTRACTS = {
-  e2b: {
-    architecture: MACHINE_CONNECTABLE_ARCHITECTURE,
-    transport: MACHINE_CONNECTABLE_TRANSPORT,
-    authentication: MACHINE_CONNECTABLE_AUTHENTICATION,
-  },
   freestyle: {
-    architecture: MACHINE_CONNECTABLE_ARCHITECTURE,
-    transport: MACHINE_CONNECTABLE_TRANSPORT,
-    authentication: MACHINE_CONNECTABLE_AUTHENTICATION,
-  },
-  daytona: {
     architecture: MACHINE_CONNECTABLE_ARCHITECTURE,
     transport: MACHINE_CONNECTABLE_TRANSPORT,
     authentication: MACHINE_CONNECTABLE_AUTHENTICATION,
@@ -166,7 +156,7 @@ export function parseVmImageManifest(value: unknown): VmImageManifest {
   }
   return {
     schemaVersion: manifest.schemaVersion,
-    images: manifest.images.map((entry, index) => parseManifestEntry(entry, index)),
+    images: manifest.images.map((entry, index) => parseManifestEntry(entry, index, manifest.schemaVersion === 1)),
   };
 }
 
@@ -274,7 +264,7 @@ export function isMachineRuntimeConnectable(
   }
 }
 
-function parseManifestEntry(value: unknown, index: number): VmImageManifestEntry {
+function parseManifestEntry(value: unknown, index: number, allowLegacy: boolean): VmImageManifestEntry {
   const label = `Cloud VM image manifest images[${index}]`;
   const entry = requireRecord(value, label);
   const provider = requireEnum(entry.provider, PROVIDER_IDS, `${label}.provider`);
@@ -289,7 +279,7 @@ function parseManifestEntry(value: unknown, index: number): VmImageManifestEntry
   // The current Freestyle manifest predates schema v2 and therefore has no
   // machineRuntime field. Treat those rows as legacy, preserving the image
   // catalog while making machine connectability fail closed.
-  const machineRuntime = entry.machineRuntime === undefined
+  const machineRuntime = allowLegacy && entry.machineRuntime === undefined
     ? { readiness: "legacy" as const }
     : parseMachineRuntime(entry.machineRuntime, `${label}.machineRuntime`);
 
