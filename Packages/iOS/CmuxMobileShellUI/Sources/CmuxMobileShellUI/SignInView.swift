@@ -568,7 +568,7 @@ struct SignInView: View {
 
     private var brandHeader: some View {
         HStack(spacing: 10) {
-            Image("CmuxLogo")
+            Image("CmuxSignInMark")
                 .resizable()
                 .renderingMode(.original)
                 .scaledToFit()

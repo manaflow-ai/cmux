@@ -8,7 +8,7 @@ Event lines are JSON objects with an `event` string and no response envelope.
 
 The schema notation and `Id`, `Workspace`, `Screen`, `Pane`, and `Tab` types come from [`commands.md`](commands.md#notation). `Cursor`, `Row`, and `Run` come from [`render.md`](render.md#shared-render-types).
 
-Implemented event lines can appear on two stream types:
+Implemented event lines can appear on subscribe, attach, or control lifecycle streams:
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
@@ -17,6 +17,7 @@ Implemented event lines can appear on two stream types:
 | Attach stream v6 PTY | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
 | Browser attach v6 | `attach-surface` command on a browser | `browser-state`, `frame`, `notification`, `scroll-changed`, `detached`, `overflow` |
+| Control lifecycle notice | No command; sent after a successful `shutdown-daemon` or `session.shutdown` acknowledgment | `daemon-shutdown` |
 
 Events and command responses share one full-duplex connection. Each event or response is a complete transport message: a JSON line on Unix or a text frame on WebSocket. Clients must route messages by checking for `event`. If `event` is absent, the message is a command response and should be matched by `id`.
 
@@ -25,6 +26,8 @@ Events and command responses share one full-duplex connection. Each event or res
 Every entity-scoped event carries its subject id in the field named below. Tree deltas also carry every parent id needed to place the entity. Legacy session-wide events have no numeric entity subject; the table marks them `session` rather than inventing an id and changing their v5/v6 payloads.
 
 Subscribe events belong to the `subscribe` registration. Tree lifecycle deltas belong only to a subscription that selected `tree_events:"deltas"`; `tree-changed` belongs to the default `"coarse"` subscription and may also appear on a delta subscription as a resync fallback. The tree-event selection does not affect other subscribe events. Attach events belong to the attachment selected by `attach-surface`; their `surface` field permits multiple attachments on one connection. `notification` and `scroll-changed` can appear on subscribe and selected attach streams. Consumers must tolerate those duplicated routes. Protocol v10 has no public stream id or cancellation command, so a connection must use at most one subscription and one attachment per surface when event origin must be unambiguous.
+
+Control lifecycle notices are sent on the authenticated control queue. They do not require a `subscribe` registration and are ordered after the command response that caused them.
 
 | Event | Stream | Subject field | Since/compatibility |
 | --- | --- | --- | --- |
@@ -50,6 +53,7 @@ Subscribe events belong to the `subscribe` registration. Tree lifecycle deltas b
 | `bell` | subscribe | `surface` | protocol 5 |
 | `notification` | subscribe, byte attach, browser attach | `notification` | protocol 6; optional related `surface` |
 | `config-reload-requested` | subscribe | session | protocol 6 |
+| `daemon-shutdown` | control | session | protocol 12; sent after the successful `shutdown-daemon` or `session.shutdown` response |
 | `window-title-requested` | subscribe | session | protocol 6 |
 | `machine-usage-changed` | subscribe | session | protocol 12 additive extension; capability `machine-usage-v1` |
 | `machine-stats-changed` | subscribe | session | protocol 12 additive extension; capability `machine-stats-v1` |
@@ -819,6 +823,33 @@ Example:
 {"event":"empty"}
 ```
 
+## Control Events
+
+### daemon-shutdown
+
+| Field | Value |
+| --- | --- |
+| event | `daemon-shutdown` |
+| status | implemented control lifecycle event |
+| since | protocol 12 |
+
+Payload:
+
+```text
+object{event:"daemon-shutdown"}
+```
+
+Meaning: Sent on the control queue to every live control client after the
+`shutdown-daemon` or `session.shutdown` success response is flushed. It is sent even when the
+requesting client did not open a subscription. Clients should classify the
+following EOF and pending requests as expected daemon shutdown.
+
+Example:
+
+```json
+{"event":"daemon-shutdown"}
+```
+
 ## Attach Events
 
 ### render-state
@@ -909,6 +940,7 @@ object{
     fg:ColorHex|null,
     bg:ColorHex|null,
     cursor:ColorHex|null,
+    overrides?:object{fg:ColorHex|null,bg:ColorHex|null,cursor:ColorHex|null},
     selection_bg:ColorHex|null,
     selection_fg:ColorHex|null,
     palette?:object{[index:string]:ColorHex},
@@ -919,6 +951,21 @@ object{
 ```
 
 Meaning: Initial VT replay for an attached PTY surface. Replaying `data` into a fresh Ghostty VT terminal with the supplied cell size reproduces current state. Protocol v9 clients restore `kitty_image_aliases` after `data`. Protocol v10 clients apply the limits, consume `data` through `replay_cursor_offset`, install the `*_replay_next_image_id` cursors, consume the remaining `data`, restore aliases, then install the `*_next_image_id` cursors before live output. The primary and alternate cursor values are independent. `colors` is captured with the replay and reports effective foreground, background, cursor, and selection colors, including authored defaults and active OSC overrides. Protocol v7 adds sparse `palette`, whose decimal string keys identify authored OSC 4 overrides; omitted indexes retain the frontend theme palette, and older servers omit the field. The additive protocol-v6 `cursor_style` and `cursor_blink` fields report the surface's current DECSCUSR-derived cursor state when available, then fall back to the session defaults. A field is `null` when no value is authored or available. Ghostty's VT replay formatter does not emit DECSCUSR, so attach clients must apply the cursor metadata instead of inferring shape or blink from `data`.
+
+The additive `overrides` object distinguishes application-authored OSC 10/11/12
+state from the effective `fg`, `bg`, and `cursor` fields. A viewer with its own
+theme uses `overrides` for those three colors and the existing sparse `palette`
+for OSC 4. Each is a full replacement: null special colors and absent palette
+indexes reset to that viewer's configured defaults. An override equal to a
+shared default remains authored until OSC 104/110/111/112 or RIS resets it.
+Shared session-default changes never populate `overrides`. Older servers omit
+the object; their effective special colors do not expose this distinction.
+The same object travels on resize, output sidecars, and colors-changed events.
+It is emitted only for byte attachments whose connection advertised
+`terminal-color-overrides-v1` through `set-client-info` before attaching. The
+choice is captured for that attachment's lifetime. Other clients retain the
+previous exact color-object shape, including clients with strict SDK decoders.
+Older servers safely ignore the unknown client capability and omit the object.
 
 Example:
 
@@ -988,6 +1035,7 @@ object{
   fg:ColorHex|null,
   bg:ColorHex|null,
   cursor?:ColorHex|null,
+  overrides?:object{fg:ColorHex|null,bg:ColorHex|null,cursor:ColorHex|null},
   selection_bg:ColorHex|null,
   selection_fg:ColorHex|null,
   palette?:object{[index:string]:ColorHex},

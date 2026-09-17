@@ -81,6 +81,7 @@ import {
   type StoredPhoneReply,
 } from "./replies";
 import { captureSentryException, type SentryEnv } from "./sentry";
+import { rateLimitedJson } from "./retryAfterResponse";
 
 const INSTANCE_PREFIX = "inst:";
 /** `owner:<deviceId>` -> Stack user id pinned on first heartbeat. Durable:
@@ -553,10 +554,7 @@ export class TeamPresence extends DurableObject<SentryEnv> {
     const userId = request.headers.get("x-presence-user-id")?.trim() || undefined;
 
     if (this.presenceSubscriberCount() >= MAX_SUBSCRIBERS_PER_TEAM) {
-      return new Response(JSON.stringify({ error: "too_many_subscribers" }), {
-        status: 429,
-        headers: { "content-type": "application/json" },
-      });
+      return rateLimitedJson({ error: "too_many_subscribers" });
     }
 
     if (request.headers.get("upgrade")?.toLowerCase() === "websocket") {
@@ -634,10 +632,7 @@ export class TeamPresence extends DurableObject<SentryEnv> {
       (ws) => wsConnectivityAccountId(ws) !== null && wsExpiresAt(ws) > now,
     ).length;
     if (connected >= MAX_CONNECTIVITY_SUBSCRIBERS_PER_ACCOUNT) {
-      return new Response(JSON.stringify({ error: "too_many_subscribers" }), {
-        status: 429,
-        headers: { "content-type": "application/json" },
-      });
+      return rateLimitedJson({ error: "too_many_subscribers" });
     }
     const pair = new WebSocketPair();
     const client = pair[0];

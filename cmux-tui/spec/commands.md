@@ -457,6 +457,31 @@ Example:
 {"id":4,"ok":true,"data":[{"client":1,"transport":"unix","name":"host","kind":"tui","connected_seconds":12,"attached":[7],"sizes":[{"surface":7,"cols":120,"rows":36,"size_participating":true}],"self":true}]}
 ```
 
+### machine-listening-tcp
+
+| Field | Value |
+| --- | --- |
+| name | `machine-listening-tcp` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `machine-listening-tcp-v1` |
+
+Returns the host's listening TCP socket table. The daemon runs a fixed `ss -H -ltn` command, with fixed `netstat -ltn` compatibility when `ss` is absent. The request accepts no command text. A Cloud client uses this command through its authenticated private cmux-tui link. Routine port discovery does not call the web control plane or the VM provider.
+
+Params: none.
+
+Result:
+
+```text
+object{stdout:string}
+```
+
+Example:
+
+```json
+{"id":8,"cmd":"machine-listening-tcp"}
+{"id":8,"ok":true,"data":{"stdout":"LISTEN 0 128 0.0.0.0:3000 0.0.0.0:*\\n"}}
+```
+
 ### machine-usage
 
 | Field | Value |
@@ -3858,3 +3883,33 @@ Protocol v9 adds `new-pane`; its implemented result is `{surface}`. A future res
 `viewport-column-resize-v1` is additive within protocol v9. Clients must require the capability before sending `set-viewport-pane-width` or interpreting `Screen.viewport_base_width`.
 
 `layout-undo-v1` is additive within protocol v9. Clients must require the capability before sending `undo-layout`. A binding must preserve both result variants and must not set `confirm_close` without the exact revision returned by the confirmation preview.
+
+## Temporary terminal image paste
+
+`paste-image` is an authenticated, lease-bound control operation gated by
+`terminal-image-paste-v1` on protocol 12. A protocol-12 daemon without that
+capability must not receive image data. Each request contains `surface`, the
+exact public `terminal_id`, the current attachment `lease`, a 32-hex-character
+`upload_id`, and one operation:
+
+| `op` | Additional fields | Effect |
+| --- | --- | --- |
+| `begin` | `mime`, `size` | Reserve bounded capacity and create a private daemon-owned file. |
+| `chunk` | `offset`, `data` | Append one sequential, standard-base64 chunk (at most 48 KiB decoded). |
+| `commit` | none | Verify byte count and MIME, then invoke the authoritative terminal paste operation once. |
+| `cancel` | none | Remove an unpublished upload; idempotent when already absent. |
+
+Success is `{ "accepted": true }`. Request IDs use the normal control envelope.
+Await each acknowledgement before sending the next operation. The connection,
+lease, surface, terminal, and authoritative workspace must still match. No
+destination path is accepted and no image path or content is returned in an
+acknowledgement. Stable error codes begin with `image-`; clients must treat a
+lost commit acknowledgement as uncertain delivery and must not retry it blindly.
+
+The policy is 20 MiB per PNG/JPEG/GIF/WebP image, eight images per connection,
+32 retained uploads and 128 MiB reserved per daemon. Pending uploads expire in
+two minutes; committed uploads expire in ten minutes. Ownership receipts permit
+restart cleanup with a twelve-minute expiry from creation and recurring bounded
+recovery sweeps. Receipts match a persistent random file ownership marker as well
+as inode identity; the filesystem must support extended attributes. See
+[Cloud image paste](../../docs/cloud-image-paste.md) for cleanup and compatibility.

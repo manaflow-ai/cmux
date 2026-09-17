@@ -74,12 +74,18 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
     loop {
         let line = match read_line_limited(&mut reader) {
             Ok(None) => {
-                eprintln!("transport closed before response");
-                return 3;
+                return transport_failure(
+                    "transport.closed",
+                    "transport closed before response",
+                    global.output,
+                );
             }
             Ok(Some(line)) => line,
-            Err(error) => {
-                eprintln!("{error}");
+            Err(RawReadError::TimedOut(message)) => {
+                return transport_failure("transport.timeout", &message, global.output);
+            }
+            Err(RawReadError::Other(message)) => {
+                eprintln!("{message}");
                 return 3;
             }
         };
@@ -145,7 +151,7 @@ fn follow_events(
         let line = match read_line_limited(reader) {
             Ok(None) => return 0,
             Ok(Some(line)) => line,
-            Err(error) => {
+            Err(RawReadError::TimedOut(error) | RawReadError::Other(error)) => {
                 if crate::shutdown_requested() {
                     return 0;
                 }
@@ -181,9 +187,29 @@ fn arm_signal_interrupt(stream: &dyn transport::Stream) -> bool {
         .is_ok()
 }
 
+/// Why a raw response could not be read. A timeout is reported as a
+/// structured, retryable error so a caller can tell "the daemon is slow" from
+/// "the daemon rejected the request"; every other failure keeps its text.
+enum RawReadError {
+    TimedOut(String),
+    Other(String),
+}
+
+/// Prints a structured transport failure (`retryable: true`) in JSON modes and
+/// the plain message otherwise, returning the transport exit code.
+fn transport_failure(code: &str, message: &str, output: OutputMode) -> i32 {
+    let error = json!({
+        "code": code,
+        "message": message,
+        "details": {},
+        "retryable": true
+    });
+    super::wire::print_local_error(&error, output, 3)
+}
+
 fn read_line_limited(
     reader: &mut BufReader<Box<dyn transport::Stream>>,
-) -> Result<Option<String>, String> {
+) -> Result<Option<String>, RawReadError> {
     const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
     let mut bytes = Vec::new();
     match reader.by_ref().take((RESPONSE_LIMIT + 2) as u64).read_until(b'\n', &mut bytes) {
@@ -192,23 +218,27 @@ fn read_line_limited(
         Err(error)
             if matches!(error.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut) =>
         {
-            return Err(format!("transport timed out before raw response: {error}"));
+            return Err(RawReadError::TimedOut(format!(
+                "transport timed out before raw response: {error}"
+            )));
         }
-        Err(error) => return Err(format!("transport error: {error}")),
+        Err(error) => return Err(RawReadError::Other(format!("transport error: {error}"))),
     }
     if bytes.len() > RESPONSE_LIMIT {
-        return Err("protocol error: raw response exceeds the 16 MiB limit".into());
+        return Err(RawReadError::Other(
+            "protocol error: raw response exceeds the 16 MiB limit".into(),
+        ));
     }
     if !bytes.ends_with(b"\n") {
-        return Err("transport closed with a partial raw JSON line".into());
+        return Err(RawReadError::Other("transport closed with a partial raw JSON line".into()));
     }
     bytes.pop();
     if bytes.last() == Some(&b'\r') {
         bytes.pop();
     }
-    String::from_utf8(bytes)
-        .map(Some)
-        .map_err(|error| format!("protocol error: raw response is not UTF-8: {error}"))
+    String::from_utf8(bytes).map(Some).map_err(|error| {
+        RawReadError::Other(format!("protocol error: raw response is not UTF-8: {error}"))
+    })
 }
 
 fn resolve_socket(global: &GlobalArgs) -> anyhow::Result<PathBuf> {

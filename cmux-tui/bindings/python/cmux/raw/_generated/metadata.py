@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '4b31d5c6f6df8765a5f839ffd558d586a763c0a3b7a1b93f34e865bed5d03b90'
+IR_SHA256 = '94595fb83fab424042e34edf28c82fab5a2bd5c6ede2c0f23b9d25e4691355ed'
 
 
 @dataclass(frozen=True)
@@ -594,6 +594,16 @@ COMMANDS = {
         {
         },
     ),
+    'machine-listening-tcp': CommandMetadata(
+        'machine-listening-tcp',
+        'control',
+        12,
+        'machine-listening-tcp-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+        },
+    ),
     'machine-stats': CommandMetadata(
         'machine-stats',
         'control',
@@ -814,6 +824,25 @@ COMMANDS = {
         {
             'dir': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
+        },
+    ),
+    'paste-image': CommandMetadata(
+        'paste-image',
+        'control',
+        12,
+        'terminal-image-paste-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'data': CommandFieldMetadata(None, None),
+            'lease': CommandFieldMetadata(None, None),
+            'mime': CommandFieldMetadata(None, None),
+            'offset': CommandFieldMetadata(None, None),
+            'op': CommandFieldMetadata(None, None),
+            'size': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(None, None),
+            'upload_id': CommandFieldMetadata(None, None),
         },
     ),
     'ping': CommandMetadata(
@@ -1420,6 +1449,7 @@ EVENTS = {
     'client-list-invalidated': EventMetadata('client-list-invalidated', 9, None, ('subscribe',), 'serialized-never-emitted'),
     'colors-changed': EventMetadata('colors-changed', 6, None, ('attach-byte',), 'emitted'),
     'config-reload-requested': EventMetadata('config-reload-requested', 6, None, ('subscribe',), 'emitted'),
+    'daemon-shutdown': EventMetadata('daemon-shutdown', 12, None, ('control',), 'emitted'),
     'detached': EventMetadata('detached', 5, None, ('attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
     'empty': EventMetadata('empty', 5, None, ('subscribe',), 'emitted'),
     'frame': EventMetadata('frame', 6, None, ('attach-browser',), 'emitted'),

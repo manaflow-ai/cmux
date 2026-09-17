@@ -9,7 +9,7 @@ public final class Protocol {
     public static final String SDK_VERSION = "1.0.0";
     public static final int VERSION = 12;
     public static final int SCHEMA_VERSION = 2;
-    public static final String IR_SHA256 = "4b31d5c6f6df8765a5f839ffd558d586a763c0a3b7a1b93f34e865bed5d03b90";
+    public static final String IR_SHA256 = "94595fb83fab424042e34edf28c82fab5a2bd5c6ede2c0f23b9d25e4691355ed";
     private Protocol() {}
 
     public static ProtocolEvent decodeEvent(Object value) {
@@ -25,6 +25,7 @@ public final class Protocol {
             case "client-list-invalidated" -> ClientListInvalidatedEvent.fromWire(value);
             case "colors-changed" -> ColorsChangedEvent.fromWire(value);
             case "config-reload-requested" -> ConfigReloadRequestedEvent.fromWire(value);
+            case "daemon-shutdown" -> DaemonShutdownEvent.fromWire(value);
             case "detached" -> DetachedEvent.fromWire(value);
             case "empty" -> EmptyEvent.fromWire(value);
             case "frame" -> FrameEvent.fromWire(value);

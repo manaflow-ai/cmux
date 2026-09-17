@@ -31,6 +31,8 @@
     "frontend_projection.put",
     "machine.get",
     "machine.list",
+    "notification.ack",
+    "notification.clear",
     "notification.create",
     "notification.list",
     "pairing_request.list",
@@ -162,6 +164,7 @@
       "list-clients",
       "list-terminals",
       "list-workspaces",
+      "machine-listening-tcp",
       "machine-stats",
       "machine-usage",
       "move-tab",
@@ -175,6 +178,7 @@
       "new-workspace",
       "notify",
       "pane-neighbor",
+      "paste-image",
       "ping",
       "process-info",
       "put-frontend-projection",
@@ -305,6 +309,12 @@
       "name": "config-reload-requested",
       "streams": [
         "subscribe"
+      ]
+    },
+    {
+      "name": "daemon-shutdown",
+      "streams": [
+        "control"
       ]
     },
     {
@@ -1318,6 +1328,7 @@
         "LaunchFailed": 20,
         "TerminateAck": 21,
         "DetachAck": 22,
+        "InputAck": 23,
         "Input": 100,
         "Paste": 101,
         "ViewerSize": 102,

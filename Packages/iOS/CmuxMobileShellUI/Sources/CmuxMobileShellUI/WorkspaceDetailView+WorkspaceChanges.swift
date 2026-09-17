@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileShell
+import CmuxMobileSupport
 import SwiftUI
 
 extension WorkspaceDetailView {
@@ -54,7 +55,8 @@ extension WorkspaceDetailView {
     }
 
     func refreshWorkspaceChangesHint() {
-        guard workspaceChangesAreAvailable else {
+        guard !UITestConfig.hideWorkspaceChangesHintForScreenshots,
+              workspaceChangesAreAvailable else {
             workspaceChangesHint = nil
             return
         }
