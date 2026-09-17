@@ -865,10 +865,9 @@ enum CloudTreeNodeBuilder {
         } else {
             children.append(placeholder(machine, text: String(localized: "cloudTree.placeholder.connecting", defaultValue: "Connecting…"), style: .connecting))
         }
-        let resourceSnapshot = resourceNodeBuilder.snapshot(
-            from: machineSnapshot, linkState: info?.linkState, now: now
-        )
-        children.append(resourceNodeBuilder.groupNode(machine: machine, snapshot: resourceSnapshot, now: now))
+        // VM telemetry owns its availability and freshness independently of
+        // the terminal link and surface catalog.
+        children.append(resourceNodeBuilder.groupNode(machine: machine, snapshot: machineSnapshot, now: now))
         return children
     }
     /// Builds every nonempty Cloud workspace from its actual layout members.
