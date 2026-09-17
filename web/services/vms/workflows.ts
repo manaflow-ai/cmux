@@ -645,85 +645,94 @@ export function createVm(input: {
     }
 
     const creditReservation = yield* reserveCreateCredit(billing, repo, input, create.vm);
-    yield* recordCreateRequestedEvents(repo, input, create.vm, creditReservation);
-
-    const materials = yield* measureVmEffect(
-      input.timing,
-      "model_plane_provision",
-      provisionModelPlane(input.modelPlane, create.vm.id),
-    ).pipe(
-      Effect.tapError((err) =>
-        Effect.all([
-          refundCredit(billing, repo, create.vm, creditReservation),
-          repo.markCreateFailed({
-            id: create.vm.id,
-            code: VM_MODEL_PLANE_FAILURE_CODES[err.kind],
-            message: errorMessage(err.cause),
-          }),
-          repo.recordUsageEvent({
-            userId: input.userId,
-            billingTeamId: input.billingTeamId,
-            billingPlanId: input.billingPlanId,
-            vmId: create.vm.id,
-            eventType: "vm.create.failed",
-            provider: input.provider,
-            imageId: input.image,
-            metadata: {
-              operation: "model_plane_provision",
-              kind: err.kind,
+    // The requested-event batch is independent of provisioning once the row
+    // and credit reservation exist. Keep it joined to this request, including
+    // when provisioning fails, without delaying model-plane or provider work.
+    const provision = Effect.gen(function* () {
+      const materials = yield* measureVmEffect(
+        input.timing,
+        "model_plane_provision",
+        provisionModelPlane(input.modelPlane, create.vm.id),
+      ).pipe(
+        Effect.tapError((err) =>
+          Effect.all([
+            refundCredit(billing, repo, create.vm, creditReservation),
+            repo.markCreateFailed({
+              id: create.vm.id,
+              code: VM_MODEL_PLANE_FAILURE_CODES[err.kind],
               message: errorMessage(err.cause),
-            },
-          }),
-        ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
-      ),
-    );
+            }),
+            repo.recordUsageEvent({
+              userId: input.userId,
+              billingTeamId: input.billingTeamId,
+              billingPlanId: input.billingPlanId,
+              vmId: create.vm.id,
+              eventType: "vm.create.failed",
+              provider: input.provider,
+              imageId: input.image,
+              metadata: {
+                operation: "model_plane_provision",
+                kind: err.kind,
+                message: errorMessage(err.cause),
+              },
+            }),
+          ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
+        ),
+      );
 
-    const handle = yield* measureVmEffect(
-      input.timing,
-      "provider_create",
-      providers.create(input.provider, {
-        image: input.image,
-        displayName: create.vm.slug ?? undefined,
-        promptIdentity: vmPromptIdentity(create.vm),
-        providerMetadata: create.vm.providerMetadata,
-        homeVolume: input.perMachineHome
-          ? homeVolumeTemplateForUser(input.userId)
-          : input.persistentHome
-            ? homeVolumeNameForUser(input.userId)
-            : undefined,
-        runtimeBudgetSeconds,
-        memoryMb: input.memoryMb,
-        imageSize: input.imageSize ?? (input.billingPlanId === "go" ? { name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 } : undefined),
-        edgeRules: materials?.edgeRules,
-        network: { id: network.providerNetworkId },
-      }),
-    ).pipe(
-      Effect.tapError((err) =>
-        Effect.all([
-          revokeModelPlane(input.modelPlane, create.vm.id),
-          refundCredit(billing, repo, create.vm, creditReservation),
-          repo.markCreateFailed({
-            id: create.vm.id,
-            // providers.create fails only with VmProviderOperationError, and
-            // the caller is told it is retryable (vm_cloud_service_unavailable,
-            // retryAfterSeconds ~5), so store the code that lets a same-key
-            // retry reach the provider again immediately.
-            code: PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
-            message: errorMessage(err.cause),
-          }),
-          repo.recordUsageEvent({
-            userId: input.userId,
-            billingTeamId: input.billingTeamId,
-            billingPlanId: input.billingPlanId,
-            vmId: create.vm.id,
-            eventType: "vm.create.failed",
-            provider: input.provider,
-            imageId: input.image,
-            metadata: { operation: err.operation, message: errorMessage(err.cause) },
-          }),
-        ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
-      ),
-    );
+      return yield* measureVmEffect(
+        input.timing,
+        "provider_create",
+        providers.create(input.provider, {
+          image: input.image,
+          displayName: create.vm.slug ?? undefined,
+          promptIdentity: vmPromptIdentity(create.vm),
+          providerMetadata: create.vm.providerMetadata,
+          homeVolume: input.perMachineHome
+            ? homeVolumeTemplateForUser(input.userId)
+            : input.persistentHome
+              ? homeVolumeNameForUser(input.userId)
+              : undefined,
+          runtimeBudgetSeconds,
+          memoryMb: input.memoryMb,
+          imageSize: input.imageSize ?? (input.billingPlanId === "go" ? { name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 } : undefined),
+          edgeRules: materials?.edgeRules,
+          network: { id: network.providerNetworkId },
+        }),
+      ).pipe(
+        Effect.tapError((err) =>
+          Effect.all([
+            revokeModelPlane(input.modelPlane, create.vm.id),
+            refundCredit(billing, repo, create.vm, creditReservation),
+            repo.markCreateFailed({
+              id: create.vm.id,
+              // providers.create fails only with VmProviderOperationError, and
+              // the caller is told it is retryable (vm_cloud_service_unavailable,
+              // retryAfterSeconds ~5), so store the code that lets a same-key
+              // retry reach the provider again immediately.
+              code: PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
+              message: errorMessage(err.cause),
+            }),
+            repo.recordUsageEvent({
+              userId: input.userId,
+              billingTeamId: input.billingTeamId,
+              billingPlanId: input.billingPlanId,
+              vmId: create.vm.id,
+              eventType: "vm.create.failed",
+              provider: input.provider,
+              imageId: input.image,
+              metadata: { operation: err.operation, message: errorMessage(err.cause) },
+            }),
+          ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
+        ),
+      );
+    });
+    const [, provisionResult] = yield* Effect.all([
+      recordCreateRequestedEvents(repo, input, create.vm, creditReservation),
+      Effect.either(provision),
+    ], { concurrency: 2 });
+    if (Either.isLeft(provisionResult)) return yield* Effect.fail(provisionResult.left);
+    const handle = provisionResult.right;
 
     const running = yield* measureVmEffect(
       input.timing,
