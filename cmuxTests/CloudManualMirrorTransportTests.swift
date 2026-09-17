@@ -268,46 +268,17 @@ struct CloudManualMirrorTransportTests {
         #expect(error == nil)
     }
 
-    @Test
-    func resourceResponseDecoderPreservesStringIDAndTypedResult() throws {
-        let line = try Self.line([
-            "protocol": "cmux.protocol/2",
-            "type": "response",
-            "id": "cloud-request-7",
-            "ok": true,
-            "result": ["value": ["terminal_id": "term_test"], "revision": "4"],
-        ])
-        let frame = try #require(CloudTuiManualIOFrameDecoder().decode(line))
-        guard case let .resourceResponse(requestID, ok, result, error) = frame else {
-            Issue.record("expected a resource response frame")
-            return
-        }
-        #expect(requestID == "cloud-request-7")
-        #expect(ok)
-        #expect(error == nil)
-        let object = try #require(JSONSerialization.jsonObject(with: try #require(result)) as? [String: Any])
-        #expect((object["revision"] as? String) == "4")
-    }
-
-    @Test
-    func persistentRequestBuilderCoversCloudCreationMutations() throws {
-        let request = try #require(CloudTuiPersistentRequestBuilder.parse([
-            "--socket", "/tmp/cloud.sock", "--json", "--idempotency-key", "create-1",
-            "workspace", "ws_current", "run", "--correlation-key", "corr-1", "--",
-            "/bin/bash", "-lc", "echo ready",
-        ]))
-        #expect(request.operation == "workspace.run")
-        #expect(request.idempotencyKey == "create-1")
-        #expect(request.params["workspace"] as? String == "ws_current")
-        #expect(request.params["correlation_key"] as? String == "corr-1")
-        #expect((request.params["argv"] as? [String]) == ["/bin/bash", "-lc", "echo ready"])
-
-        let split = try #require(CloudTuiPersistentRequestBuilder.parse([
-            "--socket", "/tmp/cloud.sock", "--json", "pane", "pane_1", "split", "--right",
-            "--idempotency-key", "split-1",
-        ]))
-        #expect(split.operation == "pane.split")
-        #expect(split.params["direction"] as? String == "right")
+    @Test func resourceRequestsPreserveExactCommandArgumentsAndSelectors() throws {
+        let argv = ["bash", "--name", "--", "literal payload", "--expected-revision"]
+        let request = CloudTuiRequests.runArguments(socketPath: "/unused", workspaceID: "ws_target", command: argv, idempotencyKey: "stable-key")
+        let object = try #require(JSONSerialization.jsonObject(with: request.envelope(id: "request-1")) as? [String: Any])
+        #expect(object["idempotency_key"] as? String == "stable-key")
+        #expect(request.params["argv"] as? [String] == argv)
+        let split = CloudTuiRequests.paneCreate(paneID: "pane_absolute", direction: "left", command: [], revision: 42, key: "same", correlationKey: "intent")
+        #expect(split.params["workspace"] == nil)
+        #expect(split.params["direction"] as? String == "left")
+        #expect(split.params["expected_revision"] as? String == "42")
+        #expect(split.params["correlation_key"] as? String == "intent")
     }
 
     @Test

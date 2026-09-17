@@ -21,7 +21,7 @@ struct CloudTuiCommandLine: Sendable {
             "remote", "connect", route,
             "--device-name", deviceName,
             "--state-dir", stateDir,
-            "--headless", "--json", "--exit-with-parent",
+            "--headless", "--json", "--exit-with-parent", "--lanes", "single",
         ]
         if carrier {
             arguments.append("--carrier")

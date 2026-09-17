@@ -1,138 +1,185 @@
+import CoreFoundation
 import Foundation
 
-/// One request/response multiplexer over the link's already-authenticated
-/// cmux-tui Unix socket. The socket reader is shared by every resource command;
-/// request IDs keep concurrent snapshots and mutations independent.
-final class CloudTuiPersistentResourceConnection: @unchecked Sendable {
+/// One machine-owned control connection. Only this actor owns request IDs,
+/// continuations, deadlines and event subscriptions. Never retries a mutation:
+/// a caller retains its idempotency key when an outcome is uncertain.
+actor CloudTuiPersistentResourceConnection {
+    private struct Pending {
+        let continuation: CheckedContinuation<Data, Error>
+        let request: CloudTuiRequest
+        let deadline: Task<Void, Never>
+    }
+    private struct Subscription {
+        let continuation: AsyncStream<Data>.Continuation
+        var sequence: UInt64 = 0
+    }
     private let connection: CloudTuiManualIOConnection
-    private let queue = DispatchQueue(label: "com.cmux.cloud-resource-multiplexer", qos: .userInitiated)
-    private var nextRequestID: UInt64 = 1
-    private var pending: [String: CheckedContinuation<Data, Error>] = [:]
+    private let namespace = UUID().uuidString.lowercased()
+    private var sequence: UInt64 = 0
+    private var pending: [String: Pending] = [:]
+    private var subscriptions: [String: Subscription] = [:]
+    private var startTask: Task<Void, Error>?
     private var pumpTask: Task<Void, Never>?
+    private var closed = false
+    private let pendingLimit = 128
+    private static let protocolFailure = CloudMachineLink.LinkError.exited(status: 3, output: "transport closed: invalid resource response")
 
     init(socketPath: String) {
-        connection = CloudTuiManualIOConnection(socketPath: socketPath)
+        connection = CloudTuiManualIOConnection(socketPath: socketPath, deliversJSONMessages: true)
     }
 
+    deinit { pumpTask?.cancel(); startTask?.cancel(); connection.close() }
+
     func start() async throws {
-        try await connection.start()
+        guard !closed else { throw Self.protocolFailure }
+        if let startTask { return try await startTask.value }
+        let connection = connection
+        let task = Task { try await connection.start() }
+        startTask = task
+        do { try await task.value } catch { close(); throw error }
+        guard !closed else { throw Self.protocolFailure }
         pumpTask = Task { [weak self, connection] in
             for await frame in connection.events {
-                guard let self else { return }
-                self.handle(frame)
+                guard case let .message(data) = frame else { continue }
+                await self?.receive(data)
             }
-            self.failAll(CloudTuiPersistentResourceError.disconnected)
+            await self?.close()
         }
     }
 
+    var isClosed: Bool { closed }
+
     func close() {
+        guard !closed else { return }
+        closed = true
+        startTask?.cancel()
         pumpTask?.cancel()
         pumpTask = nil
         connection.close()
-        failAll(CloudTuiPersistentResourceError.disconnected)
+        let requests = pending
+        pending.removeAll()
+        for entry in requests.values {
+            entry.deadline.cancel()
+            entry.continuation.resume(throwing: Self.protocolFailure)
+        }
+        for stream in subscriptions.values { stream.continuation.finish() }
+        subscriptions.removeAll()
     }
 
-    func request(operation: String, params: [String: Any], idempotencyKey: String? = nil, timeout: Duration = .seconds(30)) async throws -> Data {
-        let requestID = queue.sync {
-            defer { nextRequestID &+= 1 }
-            return "cloud-request-\(nextRequestID)"
+    private func nextID() -> String {
+        sequence += 1
+        return "request-\(namespace)-\(sequence)"
+    }
+
+    func request(_ request: CloudTuiRequest, timeout: Duration = .seconds(30)) async throws -> Data {
+        try Task.checkCancellation()
+        try await start()
+        try Task.checkCancellation()
+        guard !closed else { throw Self.protocolFailure }
+        guard pending.count < pendingLimit else {
+            throw CloudMachineLink.LinkError.exited(status: 3, output: "transport busy: request not sent")
         }
-        var envelope: [String: Any] = [
-            "protocol": "cmux.protocol/2",
-            "type": "request",
-            "id": requestID,
-            "operation": operation,
-            "params": params,
-        ]
-        if let idempotencyKey { envelope["idempotency_key"] = idempotencyKey }
-        guard let line = try? JSONSerialization.data(withJSONObject: envelope).appending(Data([0x0A])) else {
-            throw CloudTuiPersistentResourceError.encoding
-        }
-        enum Outcome: Sendable {
-            case response(Result<Data, Error>)
-            case timeout
-        }
+        let id = nextID()
+        let encoded = try request.envelope(id: id)
+        guard encoded.count <= 256 * 1024 - 1 else { throw CloudMachineLink.LinkError.inputTooLarge }
         return try await withTaskCancellationHandler(operation: {
-            let outcome = await withTaskGroup(of: Outcome.self) { group -> Outcome in
-                group.addTask { [weak self] in
-                    guard let self else { return .response(.failure(CloudTuiPersistentResourceError.disconnected)) }
-                    do {
-                        let data = try await withCheckedThrowingContinuation { continuation in
-                            self.queue.async {
-                                self.pending[requestID] = continuation
-                                self.connection.send(line: line)
-                            }
-                        }
-                        return .response(.success(data))
-                    } catch {
-                        return .response(.failure(error))
-                    }
+            try Task.checkCancellation()
+            return try await withCheckedThrowingContinuation { continuation in
+                let deadline = Task { [weak self] in
+                    do { try await Task.sleep(for: timeout) } catch { return }
+                    await self?.retire(id, error: CloudMachineLink.LinkError.timedOut)
                 }
-                group.addTask {
-                    do {
-                        try await Task.sleep(for: timeout)
-                        return .timeout
-                    } catch {
-                        return .response(.failure(CancellationError()))
-                    }
-                }
-                let first = await group.next() ?? .response(.failure(CloudTuiPersistentResourceError.disconnected))
-                group.cancelAll()
-                return first
+                pending[id] = Pending(continuation: continuation, request: request, deadline: deadline)
+                connection.send(line: encoded + Data([0x0A]))
             }
-            if case .timeout = outcome {
-                removePending(requestID, error: CloudTuiPersistentResourceError.timeout)
-                throw CloudTuiPersistentResourceError.timeout
-            }
-            guard case let .response(result) = outcome else {
-                throw CloudTuiPersistentResourceError.disconnected
-            }
-            return try result.get()
         }, onCancel: { [weak self] in
-            self?.removePending(requestID, error: CancellationError())
+            Task { await self?.retire(id, error: CancellationError()) }
         })
     }
 
-    private func handle(_ frame: CloudTuiManualIOFrame) {
-        guard case let .resourceResponse(requestID, ok, result, error) = frame else { return }
-        queue.async {
-            guard let continuation = self.pending.removeValue(forKey: requestID) else { return }
-            if ok, let result {
-                continuation.resume(returning: result)
-            } else {
-                continuation.resume(throwing: CloudTuiPersistentResourceError.remote(error))
+    private func retire(_ id: String, error: Error) {
+        guard let entry = pending.removeValue(forKey: id) else { return }
+        entry.deadline.cancel()
+        entry.continuation.resume(throwing: error)
+        // Cancellation is request-local, never close siblings' shared socket.
+        // A mutation that already committed remains fenced by its original key.
+        if !entry.request.raw { sendUntracked(CloudTuiRequest("request.cancel", ["request_id": id])) }
+    }
+
+    private func sendUntracked(_ request: CloudTuiRequest) {
+        guard !closed, let data = try? request.envelope(id: nextID()) else { return }
+        connection.send(line: data + Data([0x0A]))
+    }
+
+    /// Open the revisioned event feed on the control connection. One queued
+    /// envelope bounds memory; overflow explicitly requests snapshot recovery.
+    func events(cursor: CloudVMCursor?) async throws -> (id: String, stream: AsyncStream<Data>) {
+        try await start()
+        let id = "stream_" + UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+        let pair = AsyncStream<Data>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        subscriptions[id] = Subscription(continuation: pair.continuation)
+        pair.continuation.onTermination = { [weak self] _ in Task { await self?.cancelStream(id) } }
+        var fields: [String: Any] = ["stream_id": id]
+        if let cursor { fields["cursor"] = ["generation": cursor.generation, "revision": String(cursor.revision)] }
+        do {
+            let result = try await request(CloudTuiRequest("session.events", fields))
+            guard let object = try JSONSerialization.jsonObject(with: result) as? [String: Any], object["stream_id"] as? String == id else {
+                throw Self.protocolFailure
             }
-        }
+            return (id, pair.stream)
+        } catch { cancelStream(id); throw error }
     }
 
-    private func failAll(_ error: Error) {
-        queue.async {
-            let continuations = self.pending.values
-            self.pending.removeAll()
-            for continuation in continuations { continuation.resume(throwing: error) }
-        }
+    func cancelStream(_ id: String) {
+        guard let stream = subscriptions.removeValue(forKey: id) else { return }
+        stream.continuation.finish()
+        sendUntracked(CloudTuiRequest("stream.cancel", ["stream": id]))
     }
 
-    private func removePending(_ requestID: String, error: Error) {
-        queue.async {
-            guard let continuation = self.pending.removeValue(forKey: requestID) else { return }
-            continuation.resume(throwing: error)
+    private func receive(_ data: Data) {
+        guard !closed else { return }
+        guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { close(); return }
+        if let type = root["type"] as? String, type == "stream_item" || type == "stream_end" {
+            guard root["protocol"] as? String == "cmux.protocol/2", let id = root["stream_id"] as? String else { close(); return }
+            guard var subscription = subscriptions[id] else { return }
+            if type == "stream_item" {
+                guard let raw = root["sequence"] as? String, let next = UInt64(raw), next == subscription.sequence else {
+                    cancelStream(id); return
+                }
+                subscription.sequence = next + 1
+                subscriptions[id] = subscription
+            }
+            if case .dropped = subscription.continuation.yield(data) { cancelStream(id); return }
+            if type == "stream_end" { cancelStream(id) }
+            return
         }
-    }
-}
-
-enum CloudTuiPersistentResourceError: Error, LocalizedError {
-    case disconnected
-    case encoding
-    case timeout
-    case remote(Data?)
-
-    var errorDescription: String? {
-        switch self {
-        case .disconnected: return "The persistent Cloud cmux-tui connection closed."
-        case .encoding: return "The Cloud resource request could not be encoded."
-        case .timeout: return "The Cloud resource request timed out."
-        case .remote(let data): return data.flatMap { String(data: $0, encoding: .utf8) } ?? "The Cloud resource request failed."
+        guard let id = root["id"] as? String,
+              let ok = root["ok"] as? NSNumber, CFGetTypeID(ok) == CFBooleanGetTypeID() else { close(); return }
+        guard let entry = pending.removeValue(forKey: id) else {
+            // Responses to cancellation and retired requests are harmless.
+            guard id.hasPrefix("request-\(namespace)-"), let suffix = id.split(separator: "-").last,
+                  let issued = UInt64(suffix), issued > 0, issued <= sequence else { close(); return }
+            return
+        }
+        entry.deadline.cancel()
+        if !entry.request.raw && (root["protocol"] as? String != "cmux.protocol/2" || root["type"] as? String != "response") {
+            entry.continuation.resume(throwing: Self.protocolFailure); close(); return
+        }
+        if !ok.boolValue {
+            let errorObject: Any = entry.request.raw
+                ? ["code": "raw.command_failed", "details": ["error": root["error"] ?? "request rejected"]]
+                : root["error"] ?? [:]
+            let errorData = (try? JSONSerialization.data(withJSONObject: errorObject)) ?? Data()
+            entry.continuation.resume(throwing: CloudMachineLink.LinkError.exited(status: 1, output: String(decoding: errorData, as: UTF8.self)))
+        } else if entry.request.raw {
+            if let value = root["data"], let encoded = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]) {
+                entry.continuation.resume(returning: encoded)
+            } else { entry.continuation.resume(throwing: Self.protocolFailure); close() }
+        } else if let result = root["result"], !(result is NSNull), let bytes = try? JSONSerialization.data(withJSONObject: result, options: [.fragmentsAllowed]) {
+            entry.continuation.resume(returning: bytes)
+        } else {
+            entry.continuation.resume(throwing: Self.protocolFailure); close()
         }
     }
 }

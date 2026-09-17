@@ -42,6 +42,7 @@ actor CloudMachineLinkManager {
     private let isCloudEnabled: @Sendable () -> Bool
     private let paths: CloudTuiClientPaths
     private let clientURL: URL?
+    private var cachedClientCapabilities: [String]?
     /// The app's in-process WireGuard hub; nil in tests that never touch the network.
     /// A machine whose route points into the private network is linked through it when
     /// the bundled client advertises `wireguard-hub`. Public routes are refused.
@@ -181,7 +182,12 @@ actor CloudMachineLinkManager {
             try Task.checkCancellation()
             let link = CloudMachineLink(machineID: machineID, clientURL: clientURL, paths: paths)
             self.store(link: link, for: machineID)
-            let capabilities = Self.clientCapabilities(clientURL: clientURL)
+            let capabilities: [String]
+            if let cached = self.cachedClientCapabilities { capabilities = cached }
+            else {
+                capabilities = Self.clientCapabilities(clientURL: clientURL)
+                self.cachedClientCapabilities = capabilities
+            }
             let knownFingerprint = paths.deviceFingerprint(for: machineID)
             var session = "cmux"
             // The machine's daemon serves a trusted listener inside the private
@@ -401,7 +407,7 @@ actor CloudMachineLinkManager {
     private func runThemePush(machineID: String, socketPath: String) async {
         guard let link = links[machineID] else { return }
         guard let colors = await hostThemeColors(),
-              let arguments = CloudTuiCommandLine.setDefaultColorsArguments(
+              let arguments = CloudTuiRequests.setDefaultColorsArguments(
                   socketPath: socketPath, foreground: colors.foreground, background: colors.background
               ) else { return }
         do {

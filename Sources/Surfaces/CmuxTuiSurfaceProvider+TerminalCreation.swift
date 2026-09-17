@@ -34,7 +34,7 @@ extension CmuxTuiSurfaceProvider {
             cwd: cwd,
             command: (command?.isEmpty == false ? command : nil) ?? CloudTuiCommandLine.defaultTerminalCommand
         )
-        let data = try await link.run(arguments: CloudTuiCommandLine.runArguments(
+        let data = try await link.run(arguments: CloudTuiRequests.runArguments(
             socketPath: connected.socketPath, workspaceID: workspaceID, command: argv,
             onExit: onExit, idempotencyKey: request.attemptKey, correlationKey: request.correlationArgument
         ))

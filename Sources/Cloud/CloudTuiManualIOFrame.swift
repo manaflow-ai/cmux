@@ -23,7 +23,6 @@ enum CloudTuiManualIOFrame: Equatable, Sendable {
         accepted: Bool?,
         error: String?
     )
-    /// A resource-api response from the persistent command multiplexer. Resource
-    /// requests use string IDs and carry their typed result in the envelope.
-    case resourceResponse(requestID: String, ok: Bool, result: Data?, error: Data?)
+    /// Undecoded envelope for the per-machine resource multiplexer.
+    case message(Data)
 }

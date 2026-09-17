@@ -17,7 +17,8 @@ extension CmuxTuiSurfaceProvider: SurfaceLayoutTerminalCreating {
         let result = try await CloudTerminalLayoutCreation(
             machine: machine,
             socketPath: connected.socketPath,
-            commandRunner: link
+            commandRunner: link,
+            initialState: cloudState
         ).run(
             nearTabID: nearTabID,
             splitDirection: splitDirection,

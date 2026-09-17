@@ -15,13 +15,6 @@ struct CloudTuiManualIOFrameDecoder: Sendable {
         if let event = object["event"] as? String {
             return decodeEvent(event, object: object)
         }
-        if let requestID = object["id"] as? String,
-           object["type"] as? String == "response",
-           let ok = object["ok"] as? Bool {
-            let result = object["result"].flatMap { try? JSONSerialization.data(withJSONObject: $0) }
-            let error = object["error"].flatMap { try? JSONSerialization.data(withJSONObject: $0) }
-            return .resourceResponse(requestID: requestID, ok: ok, result: result, error: error)
-        }
         guard let requestID = Self.uint64(object["id"]),
               let ok = object["ok"] as? Bool else {
             return nil
