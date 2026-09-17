@@ -132,7 +132,8 @@ extension CLISSHPTYAttachReplayBoundaryTests {
             output: output,
             process: process,
             exited: processExited,
-            stderr: stderrPipe
+            stderr: stderrPipe,
+            blockedOutput: blockedOutput
         ))
     }
 
@@ -145,6 +146,14 @@ extension CLISSHPTYAttachReplayBoundaryTests {
         let process: Process
         let exited: DispatchSemaphore
         let stderr: Pipe
+        let blockedOutput: Pipe?
+
+        var bufferedOutputBytes: Int32 {
+            guard let blockedOutput else { return 0 }
+            var count: Int32 = 0
+            _ = ioctl(blockedOutput.fileHandleForReading.fileDescriptor, FIONREAD, &count)
+            return count
+        }
 
         /// Types into the CLI's terminal.
         func write(_ string: String) -> Bool {
