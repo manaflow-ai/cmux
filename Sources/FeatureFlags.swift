@@ -52,6 +52,11 @@ final class CmuxFeatureFlags {
     private static let mobileTerminalFilesChipDefault = true
     private nonisolated static let mobileTaskComposerDefault = true
     private static let goPlanDefault = false
+    #if DEBUG
+    private nonisolated static let cloudMachinesDefault = true
+    #else
+    private nonisolated static let cloudMachinesDefault = false
+    #endif
 
     private static let overrideKeyPrefix = "cmux.flags.override."
     private static let remoteCacheKeyPrefix = "cmux.flags.remote."
