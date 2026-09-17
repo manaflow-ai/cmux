@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import CmuxSettings
 import Testing
 import WebKit
@@ -86,15 +87,15 @@ struct ViewerNavigationTests {
     }
 
     @Test
-    func sidecarBridgeRequiresRegisteredCustomSchemeViewerURL() throws {
+    func sidecarBridgeRequiresRegisteredCustomSchemeViewerURL() async throws {
         let token = UUID().uuidString.lowercased()
-        let root = FileManager.default.temporaryDirectory
+        let root = CmuxDiffViewerSessionPreparer.defaultTrustedRootURL
             .appendingPathComponent("cmux-sidecar-bridge-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let html = root.appendingPathComponent("index.html", isDirectory: false)
         try "<html></html>".write(to: html, atomically: true, encoding: .utf8)
-        try CmuxDiffViewerURLSchemeHandler.shared.register(
+        try await CmuxDiffViewerURLSchemeHandler.shared.register(
             token: token,
             files: [.init(requestPath: "/index.html", fileURL: html, mimeType: "text/html")]
         )

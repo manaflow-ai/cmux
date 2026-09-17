@@ -19,6 +19,7 @@ import {
   changelogVersionDescription,
   changelogVersionPath,
   localizedChangelogPath,
+  changelogVersionsForPrerender,
   type ChangelogVersion,
 } from "@/app/lib/changelog";
 import { changelogStore } from "@/app/lib/changelog-store";
@@ -27,12 +28,9 @@ import { ChangelogRelease } from "../changelog-release";
 
 type PageParams = { locale: string; version: string };
 
-export const dynamic = "force-static";
-export const dynamicParams = false;
 
 export function generateStaticParams() {
-  return changelogStore
-    .versions()
+  return changelogVersionsForPrerender(changelogStore.versions())
     .map((release) => ({ version: release.version }));
 }
 

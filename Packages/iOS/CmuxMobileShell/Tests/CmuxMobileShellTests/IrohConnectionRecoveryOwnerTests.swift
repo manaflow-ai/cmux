@@ -12,7 +12,7 @@ extension ReconnectRouteSelectionTests {
         defer { fixture.release() }
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
-        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
         let initialReconnectGeneration = fixture.store.storedMacReconnectGeneration
         let firstClient = try #require(fixture.store.remoteClient)
         let first = try #require(fixture.box.get())
@@ -34,6 +34,30 @@ extension ReconnectRouteSelectionTests {
         #expect(attemptedKinds.allSatisfy { $0 == .iroh })
     }
 
+    @Test func sameMacEventStreamRecoveryPreservesSelectedWorkspace() async throws {
+        let fixture = try await makeRecoveryOwnerFixture()
+        defer { fixture.release() }
+        await fixture.router.setWorkspaceIDs(["cmux-master", "hevy-cli"])
+
+        #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
+        let firstClient = try #require(fixture.store.remoteClient)
+        let hevyWorkspace = try #require(
+            fixture.store.workspaces.first { $0.rpcWorkspaceID.rawValue == "hevy-cli" }
+        )
+        fixture.store.selectedWorkspaceID = hevyWorkspace.id
+        let firstTransport = try #require(fixture.box.get())
+
+        await firstTransport.close()
+
+        #expect(try await pollUntil {
+            guard let replacement = fixture.store.remoteClient else { return false }
+            return replacement !== firstClient
+                && fixture.store.connectionState == .connected
+        })
+        #expect(fixture.store.selectedWorkspace?.rpcWorkspaceID.rawValue == "hevy-cli")
+    }
+
     @Test func recoveryWaitsForOldPhysicalTransportBeforeRedialing() async throws {
         let closeGate = LivenessTransportCloseGate()
         let fixture = try await makeRecoveryOwnerFixture(
@@ -45,7 +69,7 @@ extension ReconnectRouteSelectionTests {
         }
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
-        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
         let firstClient = try #require(fixture.store.remoteClient)
 
         fixture.store.recoverDeadConnection(
@@ -54,6 +78,12 @@ extension ReconnectRouteSelectionTests {
         )
 
         #expect(await closeGate.waitUntilCloseStarted())
+        #expect(fixture.store.connectionState == .disconnected)
+        #expect(fixture.store.remoteClient == nil)
+        #expect(fixture.store.foregroundMacDeviceID == "test-mac")
+        #expect(!fixture.store.workspaces.isEmpty)
+        #expect(fixture.store.macConnectionStatus == .reconnecting)
+        #expect(fixture.store.isRecoveringConnection)
         #expect(fixture.factory.attemptedKinds() == [.iroh])
 
         await closeGate.release()
@@ -71,7 +101,7 @@ extension ReconnectRouteSelectionTests {
         defer { fixture.release() }
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
-        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
         let firstClient = try #require(fixture.store.remoteClient)
         fixture.store.suspendForegroundRefresh()
         fixture.clock.advance(by: 61)
@@ -88,6 +118,38 @@ extension ReconnectRouteSelectionTests {
         }
         #expect(recovered)
         #expect(fixture.factory.attemptedKinds() == [.iroh, .iroh])
+    }
+
+    @Test func presenceDuringStartupReconnectDoesNotSupersedeTheActiveDial() async throws {
+        let fixture = try await makeRecoveryOwnerFixture(heldConnectAttempts: [1])
+        defer { fixture.release() }
+
+        let startupReconnect = Task {
+            await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+        }
+        #expect(await fixture.factory.waitForAttemptCount(1))
+        let startupGeneration = fixture.store.storedMacReconnectGeneration
+        #expect(fixture.store.isReconnectingStoredMac)
+
+        fixture.store.recoverMobileConnection(trigger: .presencePush)
+
+        #expect(!fixture.store.connectionRecoveryOwner.isActive)
+        #expect(fixture.store.storedMacReconnectGeneration == startupGeneration)
+        #expect(fixture.factory.attemptedKinds() == [.iroh])
+
+        fixture.factory.releaseHeldConnects()
+        #expect(await startupReconnect.value)
+        #expect(fixture.store.connectionState == .connected)
+        #expect(fixture.store.storedMacReconnectGeneration == startupGeneration)
+        #expect(fixture.factory.attemptedKinds() == [.iroh])
+    }
+
+    @Test func manualRetryDuringStartupReconnectReplacesTheActiveDial() async throws {
+        try await expectExplicitRecoveryToReplaceStartupDial(trigger: .manual)
+    }
+
+    @Test func connectionMethodChangeDuringStartupReconnectReplacesTheActiveDial() async throws {
+        try await expectExplicitRecoveryToReplaceStartupDial(trigger: .connectionMethodChanged)
     }
 
     @Test func staleRecoveryCleanupCannotClearNewerAttempt() async throws {
@@ -181,7 +243,7 @@ extension ReconnectRouteSelectionTests {
         }
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
-        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
         let firstClient = try #require(fixture.store.remoteClient)
         let backing = try #require(fixture.store.pairedMacStore as? BackingUpPairedMacStore)
         await backup.blockFutureFetches()
@@ -207,7 +269,7 @@ extension ReconnectRouteSelectionTests {
         defer { fixture.release() }
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
-        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
         let first = try #require(fixture.box.get())
         await first.close()
 
@@ -226,7 +288,7 @@ extension ReconnectRouteSelectionTests {
         defer { fixture.release() }
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
-        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
         let firstClient = try #require(fixture.store.remoteClient)
         // Keep every post-drop dial failing until the first owner reaches its
         // terminal failed phase. This avoids coupling the assertion to a
@@ -273,7 +335,7 @@ extension ReconnectRouteSelectionTests {
         defer { fixture.release() }
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
-        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
         let client = try #require(fixture.store.remoteClient)
         let generation = fixture.store.connectionGeneration
 
@@ -294,7 +356,7 @@ extension ReconnectRouteSelectionTests {
         defer { fixture.release() }
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
-        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
         let liveClient = try #require(fixture.store.remoteClient)
         let liveGeneration = fixture.store.connectionGeneration
 
@@ -312,7 +374,7 @@ extension ReconnectRouteSelectionTests {
         defer { fixture.release() }
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
-        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
         let foregroundKey = fixture.store.foregroundMacKey
         var staleState = try #require(fixture.store.workspacesByMac[foregroundKey])
         staleState.status = .unavailable
@@ -342,32 +404,47 @@ extension ReconnectRouteSelectionTests {
         )
     }
 
-    @Test func stalledWriteRedialsExactCurrentIrohClientOnce() async throws {
+    @Test func failedNetworkRefreshPreservesOpenIrohConnection() async throws {
         let fixture = try await makeRecoveryOwnerFixture()
         defer { fixture.release() }
-
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
-        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
         let client = try #require(fixture.store.remoteClient)
         let generation = fixture.store.connectionGeneration
+        fixture.store.stateSyncAuthorityClientID = nil
+        let nextList = await fixture.router.count(of: "mobile.workspace.list") + 1
+        await fixture.router.failWorkspaceListRequest(number: nextList)
+        fixture.store.recoverMobileConnection(trigger: .networkChange)
+        #expect(try await pollUntil { !fixture.store.connectionRecoveryOwner.isActive })
+        #expect(fixture.store.remoteClient === client)
+        #expect(fixture.store.connectionGeneration == generation)
+        #expect(fixture.store.macConnectionStatus == .connected)
+        #expect(!fixture.store.isRecoveringConnection)
+        #expect(await fixture.store.reloadWorkspaceListFromMac())
+        #expect(fixture.factory.attemptedKinds() == [.iroh])
+    }
 
+    @Test func operationFailurePreservesOpenIrohConnection() async throws {
+        let fixture = try await makeRecoveryOwnerFixture()
+        defer { fixture.release() }
+        #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
+        #expect(try await pollUntil { !fixture.store.isRecoveringConnection })
+        let client = try #require(fixture.store.remoteClient)
+        let generation = fixture.store.connectionGeneration
         fixture.store.handleMacAvailabilityFailureIfCurrent(
             after: MobileShellConnectionError.transportWriteTimedOut,
             expectedClient: client,
             expectedGeneration: generation
         )
-
-        #expect(try await pollUntil {
-            guard let replacement = fixture.store.remoteClient else { return false }
-            let subscribeCount = await fixture.router.count(of: "mobile.events.subscribe")
-            return replacement !== client
-                && fixture.store.connectionState == .connected
-                && fixture.store.activeRoute?.kind == .iroh
-                && fixture.store.macConnectionStatus == .connected
-                && fixture.store.isRecoveringConnection == false
-                && subscribeCount >= 2
-        })
-        #expect(fixture.factory.attemptedKinds() == [.iroh, .iroh])
+        // Exercise the connection after the failure, so preservation also
+        // proves that the installed client continues serving real requests.
+        #expect(await fixture.store.reloadWorkspaceListFromMac())
+        #expect(fixture.store.remoteClient === client)
+        #expect(fixture.store.connectionGeneration == generation)
+        #expect(fixture.store.connectionState == .connected)
+        #expect(!fixture.store.isRecoveringConnection)
+        #expect(fixture.factory.attemptedKinds() == [.iroh])
     }
 
     @Test func failedIrohRecoveryPreservesTheTypedFailureCategory() async throws {
@@ -375,7 +452,7 @@ extension ReconnectRouteSelectionTests {
         defer { fixture.release() }
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
-        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
         await fixture.diagnosticLog.clear()
         fixture.factory.setConnectFailure(.timedOut)
         let first = try #require(fixture.box.get())
@@ -436,7 +513,7 @@ extension ReconnectRouteSelectionTests {
         defer { fixture.release() }
 
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
-        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
         await fixture.diagnosticLog.clear()
         let client = try #require(fixture.store.remoteClient)
         let generation = fixture.store.connectionGeneration
@@ -610,6 +687,36 @@ extension ReconnectRouteSelectionTests {
             diagnosticLog: diagnosticLog,
             directory: directory
         )
+    }
+
+    private func expectExplicitRecoveryToReplaceStartupDial(
+        trigger: MobileShellComposite.RecoveryTrigger
+    ) async throws {
+        let fixture = try await makeRecoveryOwnerFixture(heldConnectAttempts: [1])
+        defer { fixture.release() }
+
+        let startupReconnect = Task {
+            await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1")
+        }
+        #expect(await fixture.factory.waitForAttemptCount(1))
+        let startupGeneration = fixture.store.storedMacReconnectGeneration
+        #expect(fixture.store.isReconnectingStoredMac)
+
+        fixture.store.recoverMobileConnection(trigger: trigger)
+
+        #expect(fixture.store.connectionRecoveryOwner.isActive)
+        #expect(fixture.store.connectionRecoveryOwner.activeAttempt?.trigger == trigger.description)
+        #expect(await fixture.factory.waitForAttemptCount(2))
+        #expect(fixture.store.storedMacReconnectGeneration > startupGeneration)
+        #expect(fixture.factory.attemptedKinds() == [.iroh, .iroh])
+        #expect(try await pollUntil {
+            fixture.store.connectionState == .connected
+        })
+
+        fixture.factory.releaseHeldConnects()
+        #expect(!(await startupReconnect.value))
+        #expect(fixture.store.connectionState == .connected)
+        #expect(fixture.factory.attemptedKinds() == [.iroh, .iroh])
     }
 }
 

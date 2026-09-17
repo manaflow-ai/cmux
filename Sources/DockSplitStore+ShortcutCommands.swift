@@ -18,6 +18,7 @@ enum DockShortcutCommand {
     case focusPane(NavigationDirection)
     case cyclePaneFocus(forward: Bool)
     case togglePaneZoom
+    case resizePane(ResizeDirection)
     case equalizeSplits
     case focusHistoryBack
     case focusHistoryForward
@@ -53,6 +54,7 @@ extension DockSplitStore {
     /// command here, keeping every Dock entrypoint on the same ownership path.
     @discardableResult
     func performShortcutCommand(_ command: DockShortcutCommand) -> Bool {
+        guard !isRetired else { return false }
         switch command {
         case .selectNextSurface:
             bonsplitController.selectNextTab()
@@ -84,12 +86,10 @@ extension DockSplitStore {
         case .togglePaneZoom:
             guard let pane = bonsplitController.focusedPaneId else { return false }
             return toggleDockPaneZoom(inPane: pane)
+        case .resizePane(let direction):
+            return resizeFocusedPane(direction: direction)
         case .equalizeSplits:
-            let result = PaneLayoutService().equalizeSplits(
-                in: bonsplitController.treeSnapshot(),
-                controller: bonsplitController
-            )
-            return result.foundSplit && result.allSucceeded
+            return equalizeDockSplits()
         case .focusHistoryBack:
             return focusHistoryNavigation.navigateBack()
         case .focusHistoryForward:
@@ -173,6 +173,7 @@ extension DockSplitStore {
             tab = nil
         }
         guard let tab else { return true }
+        noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
         bonsplitController.selectTab(tab.id)
         applyFocusedShortcutSelection()
         return true
@@ -205,8 +206,20 @@ extension DockSplitStore {
         presentingWindow: NSWindow?
     ) -> Bool {
         guard let panelId = focusedPanelId,
-              let panel = panels[panelId],
-              let tabId = surfaceId(forPanelId: panelId),
+              let tabId = surfaceId(forPanelId: panelId) else {
+            return false
+        }
+        return promptRenameDockSurface(
+            tabId: tabId,
+            presentingWindow: presentingWindow
+        )
+    }
+
+    func promptRenameDockSurface(
+        tabId: TabID,
+        presentingWindow: NSWindow?
+    ) -> Bool {
+        guard let panel = panel(for: tabId),
               let tab = bonsplitController.tab(tabId) else {
             return false
         }
@@ -249,9 +262,24 @@ extension DockSplitStore {
         }
         guard response == .alertFirstButtonReturn else { return true }
 
-        let customTitle = input.stringValue.trimmingCharacters(
-            in: .whitespacesAndNewlines
+        return setDockPanelCustomTitle(
+            panelId: panel.id,
+            title: input.stringValue
         )
+    }
+
+    @discardableResult
+    func setDockPanelCustomTitle(
+        panelId: UUID,
+        title: String?
+    ) -> Bool {
+        guard let tabId = surfaceId(forPanelId: panelId),
+              let panel = panels[panelId] else {
+            return false
+        }
+        let customTitle = title?.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        ) ?? ""
         bonsplitController.updateTab(
             tabId,
             title: customTitle.isEmpty
@@ -274,7 +302,10 @@ extension DockSplitStore {
         ) else {
             return false
         }
-        bonsplitController.focusPane(targetPaneId)
+        focusPaneFromDockInteraction(
+            targetPaneId,
+            window: NSApp.keyWindow ?? NSApp.mainWindow
+        )
         applyFocusedShortcutSelection()
         return true
     }
@@ -305,6 +336,7 @@ extension DockSplitStore {
             _ = toggleDockPaneZoom(inPane: zoomedPaneId)
         }
 
+        noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
         let didMove: Bool
         if let destinationPaneId {
             let destinationTabs =
@@ -325,7 +357,10 @@ extension DockSplitStore {
                 atIndex: insertionIndex
             )
             if didMove {
-                bonsplitController.focusPane(destinationPaneId)
+                focusPaneFromDockInteraction(
+                    destinationPaneId,
+                    window: NSApp.keyWindow ?? NSApp.mainWindow
+                )
                 bonsplitController.selectTab(tabId)
                 applyFocusedShortcutSelection()
             }
@@ -336,7 +371,10 @@ extension DockSplitStore {
                       movingTab: tabId,
                       insertFirst: directionalSplit.insertFirst
                   ) {
-            bonsplitController.focusPane(newPaneId)
+            focusPaneFromDockInteraction(
+                newPaneId,
+                window: NSApp.keyWindow ?? NSApp.mainWindow
+            )
             bonsplitController.selectTab(tabId)
             applyFocusedShortcutSelection()
             didMove = true
@@ -414,55 +452,11 @@ extension DockSplitStore {
                 ?? tabs.first?.id else {
             return true
         }
-        let targets = tabs.compactMap {
-            tab -> (tabId: TabID, panelId: UUID, title: String)? in
-            guard tab.id != selectedTabId,
-                  let panelId = surfaceIdToPanelId[tab.id] else {
-                return nil
-            }
-            return (
-                tab.id,
-                panelId,
-                CloseOtherTabsConfirmationPrompt.displayTitle(
-                    panels[panelId]?.displayTitle ?? tab.title
-                )
-            )
-        }
-        guard !targets.isEmpty else { return true }
-        guard let manager = dockCloseConfirmationManager() else {
-            return false
-        }
-
-        if CloseTabWarningStore(
-            defaults: manager.closeTabWarningDefaults
+        return closeDockTabs(
+            tabs.lazy.filter { $0.id != selectedTabId }.map(\.id),
+            inPane: paneId,
+            confirmationPolicy: .allTabs
         )
-            .shouldConfirmClose(
-                requiresConfirmation: true,
-                source: .shortcut
-            ) {
-            let prompt = CloseOtherTabsConfirmationPrompt(
-                titles: targets.map(\.title)
-            )
-            guard manager.confirmClose(
-                title: prompt.title,
-                message: prompt.message,
-                scrollableDetails: prompt.details,
-                acceptCmdD: false
-            ) else {
-                return true
-            }
-        }
-
-        stageDockClosedPanelHistory(
-            tabIds: Set(targets.map(\.tabId)),
-            inPane: paneId
-        )
-        for target in targets {
-            if !closePanel(target.panelId, force: true) {
-                discardDockClosedPanelHistory(tabId: target.tabId)
-            }
-        }
-        return true
     }
 
     private func startDockFind() -> Bool {
@@ -493,7 +487,9 @@ extension DockSplitStore {
             return false
         }
         browser.startFind()
-        return browser.searchState != nil
+        // A diff viewer page owns find in-page; the native bar stays hidden
+        // but the shortcut was handled.
+        return browser.searchState != nil || browser.isDiffViewerFindOwner
     }
 
     private func performDockFindNavigation(
@@ -543,7 +539,10 @@ extension DockSplitStore {
         return true
     }
 
-    private func toggleDockReactGrab() -> Bool {
+    func toggleDockReactGrab(
+        targeting explicitBrowserPanelId: UUID? = nil,
+        returnTo explicitReturnTerminalPanelId: UUID? = nil
+    ) -> Bool {
         let snapshots = panels.values.map {
             ReactGrabShortcutPanelSnapshot(
                 id: $0.id,
@@ -551,14 +550,36 @@ extension DockSplitStore {
                 isFocused: $0.id == focusedPanelId
             )
         }
-        guard let route = resolveReactGrabShortcutRoute(
-            panels: snapshots
-        ),
-        let browser = panels[route.browserPanelId] as? BrowserPanel else {
+        let route = resolveReactGrabShortcutRoute(panels: snapshots)
+        let browserPanelId: UUID
+        let returnTerminalPanelId: UUID?
+        if let explicitBrowserPanelId {
+            guard panels[explicitBrowserPanelId] is BrowserPanel else {
+                return false
+            }
+            browserPanelId = explicitBrowserPanelId
+            if let explicitReturnTerminalPanelId {
+                guard panels[explicitReturnTerminalPanelId]
+                    is TerminalPanel else {
+                    return false
+                }
+                returnTerminalPanelId = explicitReturnTerminalPanelId
+            } else {
+                returnTerminalPanelId = nil
+            }
+        } else {
+            guard explicitReturnTerminalPanelId == nil else {
+                return false
+            }
+            guard let route else { return false }
+            browserPanelId = route.browserPanelId
+            returnTerminalPanelId = route.returnTerminalPanelId
+        }
+        guard let browser = panels[browserPanelId] as? BrowserPanel else {
             return false
         }
 
-        if let returnTerminalPanelId = route.returnTerminalPanelId {
+        if let returnTerminalPanelId {
             browser.armReactGrabRoundTrip(
                 returnTo: returnTerminalPanelId
             )
@@ -593,7 +614,7 @@ extension DockSplitStore {
                   let browser else {
                 return
             }
-            if route.returnTerminalPanelId != nil {
+            if returnTerminalPanelId != nil {
                 await browser.ensureReactGrabActive()
             } else {
                 await browser.toggleOrInjectReactGrab()

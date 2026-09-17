@@ -2,8 +2,8 @@ import AppKit
 import CmuxFoundation
 
 /// Builds bonsplit drop geometry only while an AppKit drag requests it.
-/// Workspace reorder drops resolve their targets synchronously per
-/// `validateDrop` in `SidebarWorkspaceTableController` and never touch this.
+/// Workspace reorder drops resolve their targets through the dedicated overlay
+/// in `SidebarWorkspaceTableController` and never touch this.
 @MainActor
 final class SidebarWorkspaceTableDropTargetGeometryGate {
     let bonsplitTargetBridge = SidebarBonsplitTabWorkspaceDropOverlay.TargetBridge()

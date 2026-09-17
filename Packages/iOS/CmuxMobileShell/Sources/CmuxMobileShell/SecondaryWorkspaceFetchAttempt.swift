@@ -1,7 +1,5 @@
-import CmuxMobileShellModel
-
 enum SecondaryWorkspaceFetchAttempt {
-    case received([MobileWorkspacePreview])
+    case received(SecondaryWorkspaceSnapshot)
     case transientFailure
     case permanentFailure
 }
