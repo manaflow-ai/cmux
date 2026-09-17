@@ -1333,6 +1333,8 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
     var actionSourcePath: String?
     var iconSourcePath: String?
     var newWorkspaceMenu: Bool?
+    /// Grouping for the terminal right-click Snippets submenu.
+    var category: String?
 
     var terminalCommand: String? {
         action.terminalCommand
@@ -1383,6 +1385,7 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
         next.confirm = definition.confirm ?? next.confirm
         next.terminalCommandTarget = definition.terminalCommandTarget ?? next.terminalCommandTarget
         next.newWorkspaceMenu = definition.newWorkspaceMenu ?? next.newWorkspaceMenu
+        next.category = definition.category ?? next.category
         next.actionSourcePath = sourcePath ?? next.actionSourcePath
         if let action = definition.action {
             next.action = action
@@ -1413,7 +1416,8 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
             terminalCommandTarget: definition.terminalCommandTarget,
             actionSourcePath: sourcePath,
             iconSourcePath: definition.icon == nil ? nil : sourcePath,
-            newWorkspaceMenu: definition.newWorkspaceMenu
+            newWorkspaceMenu: definition.newWorkspaceMenu,
+            category: definition.category
         )
     }
 
@@ -2517,6 +2521,19 @@ final class CmuxConfigStore: ObservableObject {
         let builtInIDs = Set(CmuxSurfaceTabBarBuiltInAction.allCases.map(\.configID))
         return loadedActions.filter { action in
             action.palette && !builtInIDs.contains(action.id)
+        }
+    }
+
+    /// `type: "text"` actions for the terminal right-click Snippets submenu.
+    func snippetMenuEntries() -> [CmuxSnippetMenuEntry] {
+        loadedActions.compactMap { action in
+            guard let payload = action.action.textPayload else { return nil }
+            return CmuxSnippetMenuEntry(
+                actionID: action.id,
+                title: action.title,
+                category: action.category,
+                payload: payload
+            )
         }
     }
 
