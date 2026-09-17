@@ -160,7 +160,8 @@ import Testing
                 let request = try Self.object(Self.readLine(peer))
                 try Self.write(peer, Self.response(request, result: ["alive": true]))
             }
-            #expect(try Self.object(await next)["alive"] as? Bool == true)
+            let nextResult = try await next
+            #expect(try Self.object(nextResult)["alive"] as? Bool == true)
         }
     }
 
@@ -195,7 +196,8 @@ import Testing
             }
             let event = try #require(await iterator.next())
             #expect(try Self.object(event)["stream_id"] as? String == streamID)
-            #expect(try Self.object(await ping)["alive"] as? Bool == true)
+            let pingResult = try await ping
+            #expect(try Self.object(pingResult)["alive"] as? Bool == true)
             await channel.cancelStream(opened.id)
             #expect(await iterator.next() == nil)
             let cancellationBytes = try await Self.blocking { try Self.readLine(peer) }
