@@ -44,7 +44,9 @@ def install_script(image, proxy, hostname, address, keys, identity_client):
     # These interpolated values come from validated labels and Azure resource IDs.
     for value in (image,proxy,hostname,address,identity_client):
         if not re.fullmatch(r'[A-Za-z0-9.:/@_-]+',value): raise ValueError('invalid deployment value')
-    public = base64.b64encode(json.dumps(keys).encode()).decode()
+    public_bytes=json.dumps(keys,sort_keys=True).encode()
+    public = base64.b64encode(public_bytes).decode()
+    public_hash=hashlib.sha256(public_bytes).hexdigest()
     return f'''#!/bin/bash
 set -euo pipefail
 # Wait for package-manager ownership to leave cloud-init. Its persistent error
@@ -58,6 +60,11 @@ install -d -m 700 /etc/cmux-v3
 if [ -e /etc/cmux-v3/installed ]; then
   if [ "$(cat /etc/cmux-v3/installed)" != '{image}' ]; then
     echo 'Existing node must not be replaced; create a new generation.' >&2
+    exit 1
+  fi
+  actual_keys=$(sha256sum /etc/cmux-v3/authority.json | cut -d' ' -f1)
+  if [ "$actual_keys" != '{public_hash}' ]; then
+    echo 'Existing authority keys differ; use a new generation.' >&2
     exit 1
   fi
   curl -fsS --max-time 3 http://127.0.0.1:8080/readyz >/dev/null
@@ -174,7 +181,7 @@ if __name__=='__main__':
     parser.add_argument('--environment',default='staging',type=label)
     parser.add_argument('--generation',required=True,type=label)
     parser.add_argument('--built-sha',help='Reuse an already-built immutable relay image from this revision')
-    parser.add_argument('--regions',nargs='+',default=['eastus','westeurope'],type=label)
+    parser.add_argument('--regions',nargs='+',default=['eastus','westus2'],type=label)
     parser.add_argument('--size',default='Standard_D2als_v7')
     parser.add_argument('--authority-keys',required=True,type=Path)
     parser.add_argument('--ssh-key',required=True,type=Path)
