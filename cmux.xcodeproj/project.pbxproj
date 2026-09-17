@@ -2128,8 +2128,8 @@
 		A10348020000000000000001 /* HistoryMenuState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10348020000000000000002 /* HistoryMenuState.swift */; };
 				800100000000000000000101 /* HiveAccountTokenSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 800100000000000000000102 /* HiveAccountTokenSource.swift */; };
 				800100000000000000000103 /* HiveComputersService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 800100000000000000000104 /* HiveComputersService.swift */; };
-		13019B000000000000000002 /* HostAccountFlow+TeamSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13019B000000000000000001 /* HostAccountFlow+TeamSelection.swift */; };
 		C1A90000000000000000001F /* HookCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A90000000000000000001E /* HookCommands.swift */; };
+		13019B000000000000000002 /* HostAccountFlow+TeamSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13019B000000000000000001 /* HostAccountFlow+TeamSelection.swift */; };
 		CD0CFE6000000000CD0CFE60 /* HostAccountFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0CFE6100000000CD0CFE61 /* HostAccountFlow.swift */; };
 		B1F0C0030000000000000001 /* HostedInspectorDockControlScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F0C0030000000000000002 /* HostedInspectorDockControlScript.swift */; };
 		B1F0C0040000000000000001 /* HostedInspectorDockControlScriptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F0C0040000000000000002 /* HostedInspectorDockControlScriptTests.swift */; };
@@ -2998,8 +2998,8 @@
 		D36090010000000000000003 /* SettingsWindowPresenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36090010000000000000004 /* SettingsWindowPresenterTests.swift */; };
 		D10000000000000000A0001E /* SettingsWorkspaceColorsBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A0001F /* SettingsWorkspaceColorsBehaviorUITests.swift */; };
 		D96970000000000000000008 /* setup-pam-tid.sh in Copy CLI */ = {isa = PBXBuildFile; fileRef = D96971000000000000000003 /* setup-pam-tid.sh */; };
-		91C2053A2732340DD329CD30 /* SharedLiveAgentIndex+ScheduledHibernation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 226DDE616BF03D38B4845245 /* SharedLiveAgentIndex+ScheduledHibernation.swift */; };
 		C1A900000000000000000022 /* SharedLegacyFacadeCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A900000000000000000023 /* SharedLegacyFacadeCommand.swift */; };
+		91C2053A2732340DD329CD30 /* SharedLiveAgentIndex+ScheduledHibernation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 226DDE616BF03D38B4845245 /* SharedLiveAgentIndex+ScheduledHibernation.swift */; };
 		F0ACC0DE0000000000000011 /* SharedLiveAgentIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE0000000000000012 /* SharedLiveAgentIndex.swift */; };
 		F0ACC0DF0000000000000001 /* SharedLiveAgentIndexAgentLivenessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DF0000000000000002 /* SharedLiveAgentIndexAgentLivenessTests.swift */; };
 		F0ACC0DE0000000000000007 /* SharedLiveAgentIndexLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE0000000000000008 /* SharedLiveAgentIndexLoader.swift */; };
@@ -3320,10 +3320,10 @@
 				D22034B96FFC2D5F31B4311B /* SurfaceCatalogSnapshot+DeviceVisibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E14A2CEDB3FA23862A733F6 /* SurfaceCatalogSnapshot+DeviceVisibility.swift */; };
 		201889FAA2BD4E1CB5094958 /* SurfaceCatalogSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 520449EF5FBA4DCE8423DA80 /* SurfaceCatalogSnapshot.swift */; };
 		5873A6BE37C34CC1082864E2 /* SurfaceCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 877BC9A2B697FEF2957397FA /* SurfaceCatalogTests.swift */; };
+		E7A900000000000000000002 /* SurfaceCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A900000000000000000001 /* SurfaceCommands.swift */; };
 				DEC1CE00000000000000003A /* SurfaceDeviceInstanceID.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE000000000000000039 /* SurfaceDeviceInstanceID.swift */; };
 				DEC1CE00000000000000003C /* SurfaceDevicePresence.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE00000000000000003B /* SurfaceDevicePresence.swift */; };
 		32A5901C769249B692FA1104 /* SurfaceDropFeedback.swift in Sources */ = {isa = PBXBuildFile; fileRef = E192919EFE65466C84C0DD68 /* SurfaceDropFeedback.swift */; };
-		E7A900000000000000000002 /* SurfaceCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7A900000000000000000001 /* SurfaceCommands.swift */; };
 		F26476EEB1E440498FD2A4F5 /* SurfaceLayoutTerminalCreating.swift in Sources */ = {isa = PBXBuildFile; fileRef = 672C19994B1744318706972D /* SurfaceLayoutTerminalCreating.swift */; };
 				DEC1CE00000000000000003E /* SurfaceMachineIDDeviceEncodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE00000000000000003D /* SurfaceMachineIDDeviceEncodingTests.swift */; };
 		917D12A30EB4417BBE5E9E6A /* SurfaceOwnershipPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7A47B5093E24AAD8DE28313 /* SurfaceOwnershipPolicy.swift */; };
@@ -6274,8 +6274,8 @@
 		A10348020000000000000002 /* HistoryMenuState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryMenuState.swift; sourceTree = "<group>"; };
 				800100000000000000000102 /* HiveAccountTokenSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Hive/HiveAccountTokenSource.swift"; sourceTree = "<group>"; };
 				800100000000000000000104 /* HiveComputersService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Hive/HiveComputersService.swift"; sourceTree = "<group>"; };
-		13019B000000000000000001 /* HostAccountFlow+TeamSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HostAccountFlow+TeamSelection.swift"; sourceTree = "<group>"; };
 		C1A90000000000000000001E /* HookCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HookCommands.swift; sourceTree = "<group>"; };
+		13019B000000000000000001 /* HostAccountFlow+TeamSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HostAccountFlow+TeamSelection.swift"; sourceTree = "<group>"; };
 		CD0CFE6100000000CD0CFE61 /* HostAccountFlow.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HostAccountFlow.swift; sourceTree = "<group>"; };
 		B1F0C0030000000000000002 /* HostedInspectorDockControlScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/HostedInspectorDockControlScript.swift; sourceTree = "<group>"; };
 		B1F0C0040000000000000002 /* HostedInspectorDockControlScriptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostedInspectorDockControlScriptTests.swift; sourceTree = "<group>"; };
@@ -7129,8 +7129,8 @@
 		D36090010000000000000004 /* SettingsWindowPresenterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowPresenterTests.swift; sourceTree = "<group>"; };
 		D10000000000000000A0001F /* SettingsWorkspaceColorsBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWorkspaceColorsBehaviorUITests.swift; sourceTree = "<group>"; };
 		D96971000000000000000003 /* setup-pam-tid.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "scripts/setup-pam-tid.sh"; sourceTree = SOURCE_ROOT; };
-		226DDE616BF03D38B4845245 /* SharedLiveAgentIndex+ScheduledHibernation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SharedLiveAgentIndex+ScheduledHibernation.swift"; sourceTree = "<group>"; };
 		C1A900000000000000000023 /* SharedLegacyFacadeCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedLegacyFacadeCommand.swift; sourceTree = "<group>"; };
+		226DDE616BF03D38B4845245 /* SharedLiveAgentIndex+ScheduledHibernation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SharedLiveAgentIndex+ScheduledHibernation.swift"; sourceTree = "<group>"; };
 		F0ACC0DE0000000000000012 /* SharedLiveAgentIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedLiveAgentIndex.swift; sourceTree = "<group>"; };
 		F0ACC0DF0000000000000002 /* SharedLiveAgentIndexAgentLivenessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedLiveAgentIndexAgentLivenessTests.swift; sourceTree = "<group>"; };
 		F0ACC0DE0000000000000008 /* SharedLiveAgentIndexLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedLiveAgentIndexLoader.swift; sourceTree = "<group>"; };
@@ -7443,10 +7443,10 @@
 				3E14A2CEDB3FA23862A733F6 /* SurfaceCatalogSnapshot+DeviceVisibility.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Sources/Surfaces/SurfaceCatalogSnapshot+DeviceVisibility.swift"; sourceTree = "<group>"; };
 		520449EF5FBA4DCE8423DA80 /* SurfaceCatalogSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceCatalogSnapshot.swift"; sourceTree = "<group>"; };
 		877BC9A2B697FEF2957397FA /* SurfaceCatalogTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SurfaceCatalogTests.swift; sourceTree = "<group>"; };
+		E7A900000000000000000001 /* SurfaceCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceCommands.swift; sourceTree = "<group>"; };
 				DEC1CE000000000000000039 /* SurfaceDeviceInstanceID.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SurfaceDeviceInstanceID.swift; sourceTree = "<group>"; };
 				DEC1CE00000000000000003B /* SurfaceDevicePresence.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SurfaceDevicePresence.swift; sourceTree = "<group>"; };
 		E192919EFE65466C84C0DD68 /* SurfaceDropFeedback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceDropFeedback.swift; sourceTree = "<group>"; };
-		E7A900000000000000000001 /* SurfaceCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceCommands.swift; sourceTree = "<group>"; };
 		672C19994B1744318706972D /* SurfaceLayoutTerminalCreating.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceLayoutTerminalCreating.swift"; sourceTree = "<group>"; };
 				DEC1CE00000000000000003D /* SurfaceMachineIDDeviceEncodingTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SurfaceMachineIDDeviceEncodingTests.swift; sourceTree = "<group>"; };
 		B7A47B5093E24AAD8DE28313 /* SurfaceOwnershipPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceOwnershipPolicy.swift; sourceTree = "<group>"; };
@@ -16119,9 +16119,9 @@
 				C0DE1065100000000000000A /* LocalTmuxSessionListParser.swift in Sources */,
 				C0DE1065100000000000000C /* LocalTmuxSessionReconciler.swift in Sources */,
 				C0DE10651000000000000001 /* LocalTmuxSessionRegistry.swift in Sources */,
-					A10240060000000000000001 /* OwnedProcessSupervisor.swift in Sources */,
 				C1A900000000000000000017 /* MetaCommands.swift in Sources */,
 				E15A00000000000000000002 /* NotificationCommands.swift in Sources */,
+					A10240060000000000000001 /* OwnedProcessSupervisor.swift in Sources */,
 						C08672010000000000000007 /* PiCompactedFeedEventExpander.swift in Sources */,
 				835000000000000000000002 /* RemoteInitialCommandBootstrap.swift in Sources */,
 				D7AB12048000000000000005 /* RemoteInteractiveShellBootstrapBuilder+WorkingDirectory.swift in Sources */,
