@@ -1,4 +1,7 @@
 import Foundation
+import os
+
+nonisolated private let cloudTerminalCreationLogger = Logger(subsystem: "com.cmuxterm.app", category: "CloudTerminalCreation")
 
 /// Coordinates one asynchronous Cloud terminal creation behind a reserved pane.
 ///
@@ -9,6 +12,7 @@ import Foundation
 final class CloudTerminalCreationCoordinator {
     typealias Create = @MainActor () async throws -> SurfaceResource
     typealias Project = @MainActor (SurfaceResource) async throws -> (projection: SurfaceProjection, reused: Bool)
+    typealias Failure = @MainActor (Error, CloudOperationContext?) -> Void
     typealias DiscardProjection = @MainActor (SurfaceProjection) -> Void
 
     private let create: Create
@@ -41,6 +45,32 @@ final class CloudTerminalCreationCoordinator {
         self.discardProjection = discardProjection
     }
 
+    /// All Cloud terminal gestures establish a root before reaching the link.
+    /// Its process/snapshot spans and the copied failure share one Axiom trace.
+    static func perform<T>(
+        recorder: CloudOperationRecorder?,
+        file: StaticString = #fileID,
+        line: UInt = #line,
+        onFailure: Failure,
+        _ work: @MainActor () async throws -> T
+    ) async rethrows -> T {
+        let context = recorder?.begin(.terminal, foreground: false, file: file, line: line)
+        return try await CloudOperationContext.$current.withValue(context) {
+            do {
+                let value = try await work()
+                if let context { await context.recorder.finish(context) }
+                return value
+            } catch {
+                if CloudDiagnosticFailure.classify(error) != .cancelled {
+                    cloudTerminalCreationLogger.error("Terminal creation failed: failure=\(CloudDiagnosticFailure.classify(error).rawValue, privacy: .public) trace=\(context?.traceID ?? "unavailable", privacy: .public) error=\(String(reflecting: error), privacy: .private)")
+                    onFailure(error, context)
+                }
+                if let context { await context.recorder.finish(context, error: error) }
+                throw error
+            }
+        }
+    }
+
     /// Begins creation or retries the last remote resource's local projection.
     func start() {
         // A repeated retry is still the same intent. Cancelling a create can
@@ -55,31 +85,36 @@ final class CloudTerminalCreationCoordinator {
                 if self.generation == operationGeneration { self.task = nil }
             }
             do {
-                let resource: SurfaceResource
-                if let createdResource = self.createdResource {
-                    resource = createdResource
-                } else {
-                    resource = try await self.create()
-                    guard self.generation == operationGeneration else { return }
-                    self.createdResource = resource
-                }
-                try Task.checkCancellation()
-                let projectionResult = try await self.project(resource)
-                guard self.generation == operationGeneration,
-                      !Task.isCancelled else {
-                    if !projectionResult.reused {
-                        self.discardProjection(projectionResult.projection)
+                try await Self.perform(recorder: AppDelegate.shared?.cloudOperations, onFailure: { error, _ in
+                    guard self.generation == operationGeneration, !Task.isCancelled else { return }
+                    self.onFailure(error)
+                }) {
+                    let resource: SurfaceResource
+                    if let createdResource = self.createdResource {
+                        resource = createdResource
+                    } else {
+                        resource = try await CloudOperationContext.phase(.provider, self.create)
+                        guard self.generation == operationGeneration else { throw CancellationError() }
+                        self.createdResource = resource
                     }
-                    return
+                    try Task.checkCancellation()
+                    let projectionResult = try await CloudOperationContext.phase(.materialize) { try await self.project(resource) }
+                    guard self.generation == operationGeneration,
+                          !Task.isCancelled else {
+                        if !projectionResult.reused {
+                            self.discardProjection(projectionResult.projection)
+                        }
+                        throw CancellationError()
+                    }
+                    self.onSuccess()
                 }
-                self.onSuccess()
-            } catch is CancellationError {
-                if self.generation == operationGeneration { self.onCancel() }
-                return
             } catch {
-                guard self.generation == operationGeneration,
-                      !Task.isCancelled else { return }
-                self.onFailure(error)
+                guard self.generation == operationGeneration else { return }
+                if CloudDiagnosticFailure.classify(error) == .cancelled {
+                    self.onCancel()
+                }
+                // perform already delivered non-cancellation failures inside its
+                // diagnostic context.
             }
         }
     }
