@@ -87,8 +87,11 @@ public struct CmxV3ByteTransportFactory: CmxRouteAwareByteTransportFactory {
             guard authorization.peerID == identity.peerID else {
                 throw CmxV3TransportError.peerIntentRequired
             }
+            // Directory addresses are the current authenticated discovery
+            // result. Pairing-ticket hints are only a bootstrap fallback.
+            let addresses = authorization.addresses.isEmpty ? identity.addresses : authorization.addresses
             var lastError: any Error = CmxV3TransportError.unsupportedRoute
-            for address in identity.addresses {
+            for address in addresses {
                 try Task.checkCancellation()
                 do {
                     let relayGrant: String? = if let relay = address.relayPeerID {
