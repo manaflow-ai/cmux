@@ -2152,7 +2152,7 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 [[package]]
 name = "libp2p"
 version = "0.56.1"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=a996f703a7586a72398ea58dcdd535acc5ae858e#a996f703a7586a72398ea58dcdd535acc5ae858e"
 dependencies = [
  "bytes",
  "either",
@@ -2187,7 +2187,7 @@ dependencies = [
 [[package]]
 name = "libp2p-allow-block-list"
 version = "0.6.0"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=a996f703a7586a72398ea58dcdd535acc5ae858e#a996f703a7586a72398ea58dcdd535acc5ae858e"
 dependencies = [
  "libp2p-core",
  "libp2p-identity",
@@ -2197,7 +2197,7 @@ dependencies = [
 [[package]]
 name = "libp2p-connection-limits"
 version = "0.6.0"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=a996f703a7586a72398ea58dcdd535acc5ae858e#a996f703a7586a72398ea58dcdd535acc5ae858e"
 dependencies = [
  "libp2p-core",
  "libp2p-identity",
@@ -2207,7 +2207,7 @@ dependencies = [
 [[package]]
 name = "libp2p-core"
 version = "0.43.2"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=a996f703a7586a72398ea58dcdd535acc5ae858e#a996f703a7586a72398ea58dcdd535acc5ae858e"
 dependencies = [
  "either",
  "fnv",
@@ -2231,7 +2231,7 @@ dependencies = [
 [[package]]
 name = "libp2p-dcutr"
 version = "0.14.1"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=a996f703a7586a72398ea58dcdd535acc5ae858e#a996f703a7586a72398ea58dcdd535acc5ae858e"
 dependencies = [
  "asynchronous-codec",
  "either",
@@ -2252,7 +2252,7 @@ dependencies = [
 [[package]]
 name = "libp2p-dns"
 version = "0.44.0"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=a996f703a7586a72398ea58dcdd535acc5ae858e#a996f703a7586a72398ea58dcdd535acc5ae858e"
 dependencies = [
  "async-trait",
  "futures",
@@ -2267,7 +2267,7 @@ dependencies = [
 [[package]]
 name = "libp2p-identify"
 version = "0.47.0"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=a996f703a7586a72398ea58dcdd535acc5ae858e#a996f703a7586a72398ea58dcdd535acc5ae858e"
 dependencies = [
  "asynchronous-codec",
  "either",
@@ -2305,7 +2305,7 @@ dependencies = [
 [[package]]
 name = "libp2p-mdns"
 version = "0.48.0"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=a996f703a7586a72398ea58dcdd535acc5ae858e#a996f703a7586a72398ea58dcdd535acc5ae858e"
 dependencies = [
  "futures",
  "hickory-proto",
@@ -2323,7 +2323,7 @@ dependencies = [
 [[package]]
 name = "libp2p-metrics"
 version = "0.17.1"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=a996f703a7586a72398ea58dcdd535acc5ae858e#a996f703a7586a72398ea58dcdd535acc5ae858e"
 dependencies = [
  "futures",
  "libp2p-core",
@@ -2341,7 +2341,7 @@ dependencies = [
 [[package]]
 name = "libp2p-noise"
 version = "0.46.1"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=a996f703a7586a72398ea58dcdd535acc5ae858e#a996f703a7586a72398ea58dcdd535acc5ae858e"
 dependencies = [
  "asynchronous-codec",
  "bytes",
@@ -2363,7 +2363,7 @@ dependencies = [
 [[package]]
 name = "libp2p-ping"
 version = "0.47.0"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=a996f703a7586a72398ea58dcdd535acc5ae858e#a996f703a7586a72398ea58dcdd535acc5ae858e"
 dependencies = [
  "futures",
  "futures-timer",
@@ -2378,7 +2378,7 @@ dependencies = [
 [[package]]
 name = "libp2p-quic"
 version = "0.13.0"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=a996f703a7586a72398ea58dcdd535acc5ae858e#a996f703a7586a72398ea58dcdd535acc5ae858e"
 dependencies = [
  "futures",
  "futures-timer",
@@ -2399,7 +2399,7 @@ dependencies = [
 [[package]]
 name = "libp2p-relay"
 version = "0.21.1"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=a996f703a7586a72398ea58dcdd535acc5ae858e#a996f703a7586a72398ea58dcdd535acc5ae858e"
 dependencies = [
  "asynchronous-codec",
  "bytes",
@@ -2422,7 +2422,7 @@ dependencies = [
 [[package]]
 name = "libp2p-request-response"
 version = "0.29.0"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=a996f703a7586a72398ea58dcdd535acc5ae858e#a996f703a7586a72398ea58dcdd535acc5ae858e"
 dependencies = [
  "async-trait",
  "futures",
@@ -2440,7 +2440,7 @@ dependencies = [
 [[package]]
 name = "libp2p-stream"
 version = "0.4.0-alpha"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=a996f703a7586a72398ea58dcdd535acc5ae858e#a996f703a7586a72398ea58dcdd535acc5ae858e"
 dependencies = [
  "futures",
  "libp2p-core",
@@ -2453,7 +2453,7 @@ dependencies = [
 [[package]]
 name = "libp2p-swarm"
 version = "0.47.1"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=a996f703a7586a72398ea58dcdd535acc5ae858e#a996f703a7586a72398ea58dcdd535acc5ae858e"
 dependencies = [
  "either",
  "fnv",
@@ -2474,7 +2474,7 @@ dependencies = [
 [[package]]
 name = "libp2p-swarm-derive"
 version = "0.35.1"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=a996f703a7586a72398ea58dcdd535acc5ae858e#a996f703a7586a72398ea58dcdd535acc5ae858e"
 dependencies = [
  "heck",
  "quote",
@@ -2484,7 +2484,7 @@ dependencies = [
 [[package]]
 name = "libp2p-tcp"
 version = "0.44.1"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=a996f703a7586a72398ea58dcdd535acc5ae858e#a996f703a7586a72398ea58dcdd535acc5ae858e"
 dependencies = [
  "futures",
  "futures-timer",
@@ -2499,7 +2499,7 @@ dependencies = [
 [[package]]
 name = "libp2p-tls"
 version = "0.6.2"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=a996f703a7586a72398ea58dcdd535acc5ae858e#a996f703a7586a72398ea58dcdd535acc5ae858e"
 dependencies = [
  "futures",
  "futures-rustls",
@@ -2517,7 +2517,7 @@ dependencies = [
 [[package]]
 name = "libp2p-upnp"
 version = "0.6.0"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=a996f703a7586a72398ea58dcdd535acc5ae858e#a996f703a7586a72398ea58dcdd535acc5ae858e"
 dependencies = [
  "futures",
  "futures-timer",
@@ -2531,7 +2531,7 @@ dependencies = [
 [[package]]
 name = "libp2p-websocket"
 version = "0.45.2"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=a996f703a7586a72398ea58dcdd535acc5ae858e#a996f703a7586a72398ea58dcdd535acc5ae858e"
 dependencies = [
  "either",
  "futures",
@@ -2551,7 +2551,7 @@ dependencies = [
 [[package]]
 name = "libp2p-yamux"
 version = "0.47.0"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=a996f703a7586a72398ea58dcdd535acc5ae858e#a996f703a7586a72398ea58dcdd535acc5ae858e"
 dependencies = [
  "either",
  "futures",
@@ -2816,7 +2816,7 @@ dependencies = [
 [[package]]
 name = "multistream-select"
 version = "0.13.0"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=a996f703a7586a72398ea58dcdd535acc5ae858e#a996f703a7586a72398ea58dcdd535acc5ae858e"
 dependencies = [
  "bytes",
  "futures",
@@ -3382,7 +3382,7 @@ dependencies = [
 [[package]]
 name = "quick-protobuf-codec"
 version = "0.3.1"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=a996f703a7586a72398ea58dcdd535acc5ae858e#a996f703a7586a72398ea58dcdd535acc5ae858e"
 dependencies = [
  "asynchronous-codec",
  "bytes",
@@ -3817,7 +3817,7 @@ checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 [[package]]
 name = "rw-stream-sink"
 version = "0.4.0"
-source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=a996f703a7586a72398ea58dcdd535acc5ae858e#a996f703a7586a72398ea58dcdd535acc5ae858e"
 dependencies = [
  "futures",
  "pin-project",

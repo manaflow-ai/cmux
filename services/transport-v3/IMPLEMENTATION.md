@@ -248,3 +248,23 @@ seamless upgrades, observability, security audit, and real end-to-end proof.
 - The default libp2p Identify behaviour emits observed-address candidates, and
   DCUtR consumes those events itself. No extra custom address-promotion logic is
   needed for that mechanism. Real NAT reachability remains to be demonstrated.
+
+## Stream library lifecycle fixes
+
+- Inspection found libp2p-stream retained per-connection senders after disconnect
+  and randomly selected between direct and relayed connections for new streams.
+  The regression test in fork commit 2bb83150 fails after 100 closed connections.
+- Fork ef1f4f3e releases closed sender entries and prefers established direct
+  connections for new streams while retaining relay fallback. Existing streams
+  are preserved. Final fork pin a996f703a7586a72398ea58dcdd535acc5ae858e also moves
+  tests after implementation to satisfy Clippy.
+- Two stream unit tests, two integration tests and two doc tests pass. Strict
+  Clippy for the changed crate passes with --no-deps. Running it across fork
+  dependencies also flags existing conditional identity APIs as unnecessary
+  Result/Option wrappers under Ed25519-only features; those public APIs support
+  other feature combinations and were not changed. The consuming v3 workspace
+  runs strict Clippy across all of its own targets without exclusions.
+- Updated dependency audit finds no known selected vulnerability; optional RSA
+  remains excluded and paste's Linux build-time maintenance warning remains.
+- New-stream preference is not existing-stream migration. The endpoint owner
+  still needs explicit route/session handover and replay before old circuits close.
