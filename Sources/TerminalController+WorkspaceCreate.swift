@@ -101,17 +101,26 @@ extension TerminalController {
                 }
             }
             v2MainSync {
+                let initialTerminalInput = execution.layoutNode == nil ? execution.initialInput : nil
                 guard let ws = tabManager.addWorkspaceIfActive(
                     title: execution.title,
                     workingDirectory: execution.workingDirectory,
                     initialTerminalCommand: execution.layoutNode == nil ? execution.initialCommand : nil,
+                    initialTerminalInput: initialTerminalInput,
                     initialTerminalEnvironment: execution.layoutNode == nil ? execution.initialEnvironment : [:],
                     workspaceEnvironment: execution.workspaceEnvironment,
                     select: execution.shouldFocus,
                     eagerLoadTerminal: execution.shouldEagerLoadTerminal,
+                    autoWelcomeIfNeeded: initialTerminalInput == nil,
                     autoRefreshMetadata: execution.shouldAutoRefreshMetadata
                 ) else { return }
                 ws.taskCreateOperationID = operationID
+                if execution.titleSource == .auto, execution.title != nil {
+                    // The source is captured before this create returns to the
+                    // caller, so a later bind can distinguish the placeholder
+                    // from an explicit user rename with identical text.
+                    ws.customTitleSource = .auto
+                }
                 ws.setCustomDescription(execution.description)
                 if let layoutNode = execution.layoutNode {
                     ws.applyCustomLayout(
@@ -166,6 +175,11 @@ extension TerminalController {
     }
 
     func v2WorkspaceCloudVMOpen(params: [String: Any]) -> V2CallResult {
+        // `DisableCloud` (MDM): these sit under the `workspace.` prefix, so the
+        // `vm.*` socket gate never sees them.
+        guard ManagedCloudPolicy.isEnabled, CloudMachinesFeature.offMainIsEnabled() else {
+            return .err(code: ManagedCloudPolicy.socketErrorCode, message: CloudMachinesFeature.disabledMessage, data: nil)
+        }
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
@@ -200,6 +214,11 @@ extension TerminalController {
     }
 
     func v2WorkspaceCloudVMTerminalReady(params: [String: Any]) -> V2CallResult {
+        // `DisableCloud` (MDM): these sit under the `workspace.` prefix, so the
+        // `vm.*` socket gate never sees them.
+        guard ManagedCloudPolicy.isEnabled, CloudMachinesFeature.offMainIsEnabled() else {
+            return .err(code: ManagedCloudPolicy.socketErrorCode, message: CloudMachinesFeature.disabledMessage, data: nil)
+        }
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
@@ -243,6 +262,11 @@ extension TerminalController {
     /// Runs on the main actor like `workspace.cloud_vm_terminal_ready`: it mutates a
     /// published workspace property the sidebar observes. No focus change.
     func v2WorkspaceCloudVMBind(params: [String: Any]) -> V2CallResult {
+        // `DisableCloud` (MDM): these sit under the `workspace.` prefix, so the
+        // `vm.*` socket gate never sees them.
+        guard ManagedCloudPolicy.isEnabled, CloudMachinesFeature.offMainIsEnabled() else {
+            return .err(code: ManagedCloudPolicy.socketErrorCode, message: CloudMachinesFeature.disabledMessage, data: nil)
+        }
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
@@ -266,7 +290,14 @@ extension TerminalController {
         let remoteWorkspaceID = remoteRaw?.isEmpty == false
             ? remoteRaw
             : (sameMachine ? previousBinding?.remoteWorkspaceID : nil)
-        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: vmID, isBase: isBase, remoteWorkspaceID: remoteWorkspaceID)
+        let generatedTitle = v2RawString(params, "generated_title")
+        SurfaceCatalog.shared.bindCloudWorkspace(
+            localWorkspaceID: workspaceId,
+            machine: .cloud(vmID),
+            remoteWorkspaceID: remoteWorkspaceID,
+            isBase: isBase,
+            generatedTitle: generatedTitle
+        )
         return .ok([
             "workspace_id": workspaceId.uuidString,
             "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),

@@ -76,6 +76,11 @@ import Testing
         ))
     }
 
+    @Test(arguments: ["tab_manager_unavailable", " TAB_MANAGER_UNAVAILABLE "])
+    func dropsMissingTabManagerProtocolOutcome(code: String) {
+        #expect(filter.isExpectedCLIProtocolOutcomeCode(code))
+    }
+
     @Test func scopesLegacyLifecycleTextToSocketOrAgentHookContext() {
         #expect(!filter.isExpectedCLISocketTransportMessage(
             "unavailable: TabManager not available (Code: 1)"

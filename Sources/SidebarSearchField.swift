@@ -4,7 +4,9 @@ import CmuxFoundation
 /// Native search control shared by Find and Vault.
 @MainActor
 class SidebarSearchField: NSSearchField {
-    static let leadingPadding: CGFloat = 4
+    /// Bezel inset from the sidebar edge: the same leading column as the
+    /// right-sidebar chrome bars, which the icon alignment below compensates.
+    static let leadingPadding: CGFloat = RightSidebarChromeMetrics.headerLeadingPadding
     static let topPadding: CGFloat = 0
 
     var onCommandSubmit: (() -> Void)?

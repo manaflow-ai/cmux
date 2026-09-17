@@ -10,7 +10,12 @@ extension AgentJournalLifecycleCenter {
            !override.isEmpty {
             return URL(fileURLWithPath: override)
         }
-        guard !isRunningUnderAutomatedTests else { return nil }
+        if isRunningUnderAutomatedTests {
+            // Notifications use the production admission path under app tests,
+            // with a unique temporary journal instead of the user's history.
+            return FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-agent-journal-test-\(UUID().uuidString).sqlite3")
+        }
         guard let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask

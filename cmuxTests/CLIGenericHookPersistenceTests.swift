@@ -1615,6 +1615,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Expected one cmux Cursor approval hook after repeated setup, saw \(beforeCommands)"
         )
         XCTAssertFalse(
+            beforeCommands.contains { $0.contains("hooks enqueue cursor shell-exec") },
+            "Cursor approval must remain on the synchronous hook path, saw \(beforeCommands)"
+        )
+        XCTAssertFalse(
             beforeCommands.contains { $0.contains("hooks feed --source cursor") },
             "Expected setup to replace the stale Cursor Feed bridge, saw \(beforeCommands)"
         )
@@ -1672,7 +1676,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
 
-        func runHermesHook(_ subcommand: String, input: String) -> ProcessRunResult {
+        func runHermesHook(
+            _ subcommand: String,
+            input: String,
+            barrierFails: Bool = false
+        ) -> ProcessRunResult {
             let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
                 guard let payload = self.jsonObject(line) else {
                     return "OK"
@@ -1685,6 +1693,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     return self.surfaceListResponse(id: id, surfaceId: surfaceId)
                 case "feed.push":
                     return self.v2Response(id: id, ok: true, result: [:])
+                case "agent.hook.barrier":
+                    return barrierFails
+                        ? self.v2Response(
+                            id: id,
+                            ok: false,
+                            error: ["code": "timeout", "message": "queued hook delivery timed out"]
+                        )
+                        : self.v2Response(id: id, ok: true, result: [:])
                 default:
                     return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
                 }
@@ -1767,7 +1783,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let finalizeCommandStart = state.commands.count
         let finalize = runHermesHook(
             "session-finalize",
-            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"on_session_finalize"}"#
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"on_session_finalize"}"#,
+            barrierFails: true
         )
         XCTAssertFalse(finalize.timedOut, finalize.stderr)
         XCTAssertEqual(finalize.status, 0, finalize.stderr)
@@ -1857,17 +1874,191 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
 
         let stop = try XCTUnwrap(cmuxGroup["Stop"] as? [[String: Any]])
+        let stopCommand = try XCTUnwrap(stop.first {
+            ($0["command"] as? String)?.contains("hooks enqueue antigravity stop") == true
+                && ($0["timeout"] as? Int) == 10
+        }?["command"] as? String)
         XCTAssertTrue(
-            stop.contains {
-                ($0["command"] as? String)?.contains("hooks antigravity stop") == true
-                    && ($0["timeout"] as? Int) == 10
-            },
-            "Expected Antigravity Stop hook to be a direct command handler, saw \(stop)"
+            stopCommand.contains(#"if [ "$cmux_hook_status" -ne 0 ]; then echo '{}'; fi"#),
+            "Antigravity queued admission must emit a neutral response when cmux is unavailable, saw \(stopCommand)"
+        )
+        XCTAssertTrue(
+            stopCommand.contains("exit 0"),
+            "Antigravity queued admission must fail open after recording the dispatch status, saw \(stopCommand)"
+        )
+        XCTAssertFalse(
+            stopCommand.contains("exit $cmux_hook_status"),
+            "Antigravity queued admission must not propagate queue-admission failures to the agent, saw \(stopCommand)"
         )
         XCTAssertNotNil(cmuxGroup["SessionStart"])
         XCTAssertNotNil(cmuxGroup["SessionEnd"])
         XCTAssertNotNil(cmuxGroup["turn-completion"])
         XCTAssertNotNil(cmuxGroup["Notification"])
+    }
+
+    /// `agy` preserves the launch environment, so a hook must report to the cmux
+    /// build that owns the terminal it runs in. Without this, `cmux hooks setup`
+    /// from any other build (nightly, a tagged dev build) silently redirects every
+    /// Antigravity session to that build's socket and restore never sees the
+    /// session. https://github.com/manaflow-ai/cmux/issues/5473
+    func testAntigravityHookInstallPrefersLaunchingTerminalSocket() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-antigravity-hook-ambient-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let pinnedSocketPath = root.appendingPathComponent("cmux-pinned.sock").path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "agy", "install", "--yes"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_BUNDLED_CLI_PATH": cliPath,
+                "CMUX_SOCKET_PATH": pinnedSocketPath,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 5
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let hookURL = root
+            .appendingPathComponent(".gemini", isDirectory: true)
+            .appendingPathComponent("config", isDirectory: true)
+            .appendingPathComponent("hooks.json", isDirectory: false)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any])
+        let cmuxGroup = try XCTUnwrap(json["cmux"] as? [String: Any])
+        let commands = cmuxGroup.values
+            .compactMap { $0 as? [[String: Any]] }
+            .flatMap { entries in entries.compactMap { $0["command"] as? String } }
+        XCTAssertFalse(commands.isEmpty)
+
+        let ambientInvocation = #""$CMUX_BUNDLED_CLI_PATH" --socket "$CMUX_SOCKET_PATH" hooks antigravity"#
+        let pinnedInvocation = "--socket '\(pinnedSocketPath)' hooks antigravity"
+        for command in commands {
+            let ambientRange = command.range(of: ambientInvocation)
+            let pinnedRange = command.range(of: pinnedInvocation)
+            XCTAssertNotNil(
+                ambientRange,
+                "Antigravity hooks must dispatch through the launching terminal's cmux first, saw \(command)"
+            )
+            XCTAssertNotNil(
+                pinnedRange,
+                "Antigravity hooks must keep the pinned install as a fallback, saw \(command)"
+            )
+            if let ambientRange, let pinnedRange {
+                XCTAssertLessThan(
+                    ambientRange.lowerBound,
+                    pinnedRange.lowerBound,
+                    "The terminal's own socket must win over the pinned socket, saw \(command)"
+                )
+            }
+            XCTAssertTrue(
+                command.contains(#"[ -S "$CMUX_SOCKET_PATH" ]"#),
+                "Ambient dispatch must require a live socket so an exited app falls back to the pinned build, saw \(command)"
+            )
+            XCTAssertTrue(
+                command.contains(#"[ -f "${CMUX_BUNDLED_CLI_PATH:-}" ]"#),
+                "Ambient dispatch must require a bundled CLI file, not a directory, saw \(command)"
+            )
+        }
+    }
+
+    /// A socket node can outlive the app that owned it. When the ambient
+    /// invocation fails, the hook must fall through to the pinned build instead
+    /// of dropping the event and the session record with it.
+    func testAntigravityHookFallsBackToPinnedBuildWhenAmbientDispatchFails() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agy-fb-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let callLogPath = root.appendingPathComponent("calls.log").path
+
+        func writeFakeCLI(_ name: String, exitCode: Int32) throws -> String {
+            let path = root.appendingPathComponent(name).path
+            let script = "#!/bin/sh\nprintf '%s %s\\n' '\(name)' \"$*\" >> '\(callLogPath)'\necho '{}'\nexit \(exitCode)\n"
+            try script.write(toFile: path, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path)
+            return path
+        }
+        let pinnedCLI = try writeFakeCLI("pinned-cmux", exitCode: 0)
+        let ambientCLI = try writeFakeCLI("ambient-cmux", exitCode: 7)
+        let pinnedSocketPath = root.appendingPathComponent("pinned.sock").path
+
+        let install = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "agy", "install", "--yes"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_BUNDLED_CLI_PATH": pinnedCLI,
+                "CMUX_SOCKET_PATH": pinnedSocketPath,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 5
+        )
+        XCTAssertFalse(install.timedOut, install.stderr)
+        XCTAssertEqual(install.status, 0, install.stderr)
+
+        let hookURL = root
+            .appendingPathComponent(".gemini", isDirectory: true)
+            .appendingPathComponent("config", isDirectory: true)
+            .appendingPathComponent("hooks.json", isDirectory: false)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any])
+        let cmuxGroup = try XCTUnwrap(json["cmux"] as? [String: Any])
+        let sessionStart = try XCTUnwrap(cmuxGroup["SessionStart"] as? [[String: Any]])
+        let command = try XCTUnwrap(sessionStart.first?["command"] as? String)
+
+        // A socket node that was bound once and is no longer served.
+        let staleSocketPath = root.appendingPathComponent("stale.sock").path
+        let socketFD = socket(AF_UNIX, SOCK_STREAM, 0)
+        XCTAssertGreaterThanOrEqual(socketFD, 0)
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let pathBytes = Array(staleSocketPath.utf8CString)
+        XCTAssertLessThan(pathBytes.count, MemoryLayout.size(ofValue: address.sun_path))
+        withUnsafeMutableBytes(of: &address.sun_path) { buffer in
+            for (index, byte) in pathBytes.enumerated() {
+                buffer[index] = UInt8(bitPattern: byte)
+            }
+        }
+        let bindResult = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
+                Darwin.bind(socketFD, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        XCTAssertEqual(bindResult, 0, String(cString: strerror(errno)))
+        close(socketFD)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: staleSocketPath))
+
+        let run = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", command],
+            environment: [
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_BUNDLED_CLI_PATH": ambientCLI,
+                "CMUX_SOCKET_PATH": staleSocketPath,
+            ],
+            timeout: 10
+        )
+        XCTAssertFalse(run.timedOut, run.stderr)
+        XCTAssertEqual(run.status, 0, run.stderr)
+
+        let calls = try String(contentsOfFile: callLogPath, encoding: .utf8)
+            .split(separator: "\n")
+            .map(String.init)
+        XCTAssertEqual(calls.count, 2, "expected the ambient attempt and then the pinned fallback, saw \(calls)")
+        XCTAssertEqual(
+            calls.first,
+            "ambient-cmux --socket \(staleSocketPath) hooks antigravity session-start"
+        )
+        XCTAssertEqual(
+            calls.last,
+            "pinned-cmux --socket \(pinnedSocketPath) hooks antigravity session-start"
+        )
     }
 
     func testKiroHookInstallUsesAgentConfigShapeAndPreservesDenyExit() throws {
@@ -3012,6 +3203,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_SOCKET_PATH": socketPath,
             "CMUX_WORKSPACE_ID": workspaceId,
             "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_HOOK_ROUTE_SNAPSHOT": "1",
             "CMUX_CLI_SENTRY_DISABLED": "1",
             "GROK_HOME": grokHome.path,
         ]
@@ -3041,6 +3233,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     )
                 case "feed.push":
                     return self.v2Response(id: id, ok: true, result: [:])
+                case "agent.resolve_delivery_target":
+                    return self.v2Response(
+                        id: id,
+                        ok: true,
+                        result: [
+                            "source": "surface",
+                            "workspace_id": workspaceId,
+                            "surface_id": surfaceId,
+                        ]
+                    )
                 default:
                     return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
                 }
@@ -3679,7 +3881,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
-    func testGrokCompletionResetsStatusWhenSiblingRunningRecordHasDeadPID() throws {
+    func testGrokCompletionResetsStatusWhenSnapshotReplaySiblingRunningRecordHasDeadPID() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("grok-stale-sibling-status")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -3729,6 +3931,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_CLI_SENTRY_DISABLED": "1",
             "CMUX_WORKSPACE_ID": workspaceId,
             "CMUX_SURFACE_ID": completingSurfaceId,
+            "CMUX_AGENT_HOOK_ROUTE_SNAPSHOT": "1",
         ]
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
@@ -3739,6 +3942,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
             }
             switch method {
+            case "agent.resolve_delivery_target":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "source": "surface",
+                        "workspace_id": workspaceId,
+                        "surface_id": completingSurfaceId,
+                    ]
+                )
             case "surface.list":
                 return self.v2Response(
                     id: id,
@@ -3907,8 +4120,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .compactMap { $0["command"] as? String }
 
         XCTAssertTrue(
-            notificationCommands.contains { $0.contains("cmux hooks grok notification") },
-            "Expected Grok Notification to dispatch to the notification handler, saw \(notificationCommands)"
+            notificationCommands.contains { $0.contains("hooks enqueue grok notification") },
+            "Expected Grok Notification to use queued admission, saw \(notificationCommands)"
         )
         XCTAssertFalse(
             notificationCommands.contains { $0.contains("cmux hooks grok stop") },
@@ -3938,10 +4151,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let pinnedCLI = root.appendingPathComponent("cmux pinned dev cli", isDirectory: false)
-        try "#!/bin/sh\nexit 0\n".write(to: pinnedCLI, atomically: true, encoding: .utf8)
+        let captureURL = root.appendingPathComponent("timeout.txt", isDirectory: false)
+        try makeCodexHookExecutableShellFile(at: pinnedCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s' \"${CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC:-missing}\" > \"$CMUX_TEST_CAPTURE\"",
+        ])
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: pinnedCLI.path)
 
-        let socketPath = "/tmp/cmux-debug-grok-pin.sock"
+        let socketPath = makeSocketPath("grok-pin")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["hooks", "grok", "install", "--yes"],
@@ -3984,10 +4206,22 @@ extension CLINotifyProcessIntegrationRegressionTests {
             allCommands.allSatisfy { $0.contains("--socket '\(socketPath)'") },
             "Expected installed Grok hooks to pin the installing socket path, saw \(allCommands)"
         )
-        XCTAssertFalse(
-            allCommands.contains { $0.contains("$CMUX_") },
-            "Grok hook commands must not depend on CMUX environment interpolation, saw \(allCommands)"
+        let notificationCommand = try XCTUnwrap(
+            allCommands.first { $0.contains("hooks enqueue grok notification") }
         )
+        let ambientResult = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", notificationCommand],
+            environment: [
+                "CMUX_BUNDLED_CLI_PATH": pinnedCLI.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_TEST_CAPTURE": captureURL.path,
+            ],
+            timeout: 2
+        )
+        XCTAssertFalse(ambientResult.timedOut, ambientResult.stderr)
+        XCTAssertEqual(ambientResult.status, 0, ambientResult.stderr)
+        XCTAssertEqual(try String(contentsOf: captureURL, encoding: .utf8), "0.5")
     }
 
     func testGrokHookInstallPreservesUserWrappedLegacyCommands() throws {
@@ -4190,7 +4424,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(
             commandBodies.contains {
                 $0.contains("CMUX_BUNDLED_CLI_PATH")
-                    && $0.contains("\"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" hooks codex prompt-submit")
+                    && $0.contains("\"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" hooks enqueue codex prompt-submit")
             },
             "Codex hooks should route through the launching app's bundled CLI, saw \(commandBodies)"
         )
@@ -4203,7 +4437,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Codex setup should replace bundled-CLI hooks that did not pin CMUX_SOCKET_PATH, saw \(commandBodies)"
         )
         XCTAssertEqual(
-            allCommands.filter { $0.contains("hooks codex prompt-submit") }.count,
+            allCommands.filter { $0.contains("hooks enqueue codex prompt-submit") }.count,
             1,
             "Codex setup should collapse duplicate cmux-owned prompt hooks to one entry, saw \(allCommands)"
         )

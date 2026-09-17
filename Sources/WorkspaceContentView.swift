@@ -94,10 +94,7 @@ private struct WorkspacePanelContentHostView: View {
             onAutoResumeAgentHibernation: onAutoResumeAgentHibernation,
             onTriggerFlash: onTriggerFlash,
             onRequestDeferredBrowserMaterialization: {
-                workspace.requestDeferredBrowserMaterialization(
-                    panelId: panel.id,
-                    isVisibleInUI: isVisibleInUI
-                )
+                workspace.requestDeferredBrowserMaterialization(panelId: panel.id, isVisibleInUI: isVisibleInUI)
             }
         )
     }
@@ -184,24 +181,6 @@ struct WorkspaceContentView: View {
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
 #endif
-
-    static func panelVisibleInUI(
-        isWorkspaceVisible: Bool,
-        paneHasSelectedTab: Bool,
-        isSelectedInPane: Bool,
-        isFocused: Bool
-    ) -> Bool {
-        // During pane/tab reparenting, Bonsplit can transiently report selected=false
-        // for the currently focused panel. Keep focused content visible only when
-        // the pane has no selected tab to report; if another tab is selected, a
-        // stale focused terminal must not keep its portal view visible.
-        return WorkspacePanelVisibilityPolicy.panelVisibleInUI(
-            isWorkspaceVisible: isWorkspaceVisible,
-            paneHasSelectedTab: paneHasSelectedTab,
-            isSelectedInPane: isSelectedInPane,
-            isFocused: isFocused
-        )
-    }
 
     var body: some View {
 #if DEBUG
@@ -298,7 +277,9 @@ struct WorkspaceContentView: View {
                             && isSelectedInPane,
                         portalPriority: workspacePortalPriority,
                         isSplit: isSplit,
-                        appearance: appearance, windowAppearance: windowAppearance, customSidebarTabManager: workspace.owningTabManager,
+                        appearance: appearance,
+                        windowAppearance: windowAppearance,
+                        customSidebarTabManager: workspace.owningTabManager,
                         hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
                         onFocus: {
                             // Keep bonsplit focus in sync with the AppKit first responder for the
@@ -338,8 +319,9 @@ struct WorkspaceContentView: View {
                         workspace.bonsplitController.focusPane(paneId)
                     }
                 }
+            } else if workspace.cloudVMID != nil {
+                TerminalPanelUnavailableView(appearance: appearance)
             } else {
-                // Fallback for tabs without panels (shouldn't happen normally)
                 EmptyPanelView(workspace: workspace, paneId: paneId)
             }
         } emptyPane: { paneId in
@@ -431,12 +413,20 @@ struct WorkspaceContentView: View {
                 bonsplitView
             }
         }
+        .overlay {
+            if workspace.isManagedCloudVMWorkspace {
+                CloudSurfaceDropGate(workspaceID: workspace.id, isActive: isWorkspaceInputActive)
+            }
+        }
         .modifier(WorkspaceContentMinimalModeSafeAreaModifier(isFullScreen: isFullScreen))
         // A workspace is a page: accept the parent proposal instead of
         // contributing a hidden child's content-derived ideal to its ZStack.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .modifier(CloudPaneCreationFailurePresentation(
+            failureStore: workspace.cloudPaneCreationFailureStore,
+            isWorkspaceVisible: isWorkspaceVisible
+        ))
     }
-
     private func syncBonsplitNotificationBadges() {
         let manualUnread = workspace.manualUnreadPanelIds
         let restoredUnread = workspace.restoredUnreadPanelIds
@@ -800,7 +790,14 @@ struct EmptyPanelView: View {
         let button = Button(action: action) {
             HStack(spacing: 10) {
                 HStack(spacing: 6) {
-                    CmuxSystemSymbolImage(systemName: systemImage, pointSize: 13)
+                    // `.borderedProminent` paints its label in the system's
+                    // on-accent text color, so bake that semantic color rather
+                    // than a literal white.
+                    CmuxSystemSymbolImage(
+                        systemName: systemImage,
+                        pointSize: 13,
+                        tint: Color(nsColor: .alternateSelectedControlTextColor)
+                    )
                     Text(title)
                 }
                 ShortcutHint(text: shortcut.displayString)
@@ -817,8 +814,7 @@ struct EmptyPanelView: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            CmuxSystemSymbolImage(magnified: "terminal.fill", pointSize: 48)
-                .foregroundStyle(.tertiary)
+            CmuxSystemSymbolImage(magnified: "terminal.fill", pointSize: 48, tint: Color(nsColor: .tertiaryLabelColor))
 
             Text(String(localized: "emptyPanel.title", defaultValue: "Empty Panel"))
                 .cmuxFont(.headline)

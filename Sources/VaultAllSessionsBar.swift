@@ -15,6 +15,7 @@ struct VaultAllSessionsBar: View {
     let onResumeTopResult: () -> Void
 
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
+    @State private var viewMenuPresenter = VaultSessionViewMenuPresenter()
 
     private var searchFieldHeight: CGFloat {
         _ = globalFontPercent
@@ -22,15 +23,17 @@ struct VaultAllSessionsBar: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: RightSidebarChromeMetrics.headerControlSpacing) {
             searchField
-            overflowMenu
+            viewMenuButton
         }
         .frame(height: searchFieldHeight)
         // The grouping row already supplies the gap below Recent. Do not add
         // another top inset or center the editor inside a taller menu button.
+        // The outer insets are the mode bar's and the grouping pills', so the
+        // field's bezel and the view control sit on the chrome's columns.
         .padding(.leading, SidebarSearchField.leadingPadding)
-        .padding(.trailing, 0)
+        .padding(.trailing, RightSidebarChromeMetrics.headerTrailingPadding)
         .padding(.top, SidebarSearchField.topPadding)
         .padding(.bottom, RightSidebarChromeMetrics.barVerticalPadding)
     }
@@ -45,55 +48,36 @@ struct VaultAllSessionsBar: View {
             onCommandSubmit: onResumeTopResult
         )
         .frame(height: searchFieldHeight)
-        // The field owns the flexible width; the utility controls keep their
-        // standard 20-point targets at the trailing edge.
+        // The field owns the flexible width; the view control keeps its
+        // standard 20-point target at the trailing edge.
         .frame(maxWidth: .infinity, alignment: .leading)
-        .layoutPriority(1)
         .titlebarInteractiveControl()
     }
 
-    private var overflowMenu: some View {
-        Menu {
-            Picker(
-                String(localized: "sessionIndex.view.title", defaultValue: "Session view"),
-                selection: $isCompactView
-            ) {
-                Text(String(localized: "sessionIndex.view.default", defaultValue: "Default view"))
-                    .tag(false)
-                Text(String(localized: "sessionIndex.view.compact", defaultValue: "Compact view"))
-                    .tag(true)
-            }
-            .pickerStyle(.inline)
+    /// Same control family as the mode bar's close and open-as-pane buttons:
+    /// a 20-point target drawing a 10-point symbol, with the shared hover
+    /// treatment. The Default / Compact picker opens as a native menu below it.
+    private var viewMenuButton: some View {
+        Button {
+            viewMenuPresenter.present(isCompactView: isCompactView) { isCompactView = $0 }
         } label: {
-            Text("⋮")
-                .font(.system(size: 18, weight: .bold, design: .rounded))
-                .foregroundStyle(Color.secondary.opacity(0.72))
-                .frame(width: 24, height: searchFieldHeight)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(Color.primary.opacity(0.10))
-                )
-                .contentShape(Rectangle())
+            HeaderChromeIconStyle.symbol("ellipsis")
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .contentShape(Rectangle())
+        .buttonStyle(RightSidebarHeaderIconButtonStyle(iconGeometryKeyPrefix: "rightSidebarVaultViewMenuIcon"))
+        .frame(
+            width: RightSidebarChromeMetrics.headerControlSize,
+            height: RightSidebarChromeMetrics.headerControlSize
+        )
+        .background(VaultSessionViewMenuAnchor(presenter: viewMenuPresenter))
+        .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
+            keyPrefix: "rightSidebarVaultViewMenu",
+            isVisible: true
+        )
         .help(String(localized: "sessionIndex.view.tooltip", defaultValue: "Choose session view"))
-        .accessibilityLabel(Text(String(localized: "sessionIndex.view.title", defaultValue: "Session view")))
+        .accessibilityLabel(Text(VaultSessionViewMenuPresenter.title))
         .accessibilityHint(Text(String(localized: "sessionIndex.view.tooltip", defaultValue: "Choose session view")))
-        .accessibilityValue(viewSelectionLabel)
+        .accessibilityValue(VaultSessionViewOption(isCompact: isCompactView).label)
         .accessibilityIdentifier("VaultSessionOptionsMenu")
-        .frame(width: 24, height: searchFieldHeight)
-        .layoutPriority(2)
         .titlebarInteractiveControl()
     }
-
-    private var viewSelectionLabel: String {
-        if isCompactView {
-            return String(localized: "sessionIndex.view.compact", defaultValue: "Compact view")
-        }
-        return String(localized: "sessionIndex.view.default", defaultValue: "Default view")
-    }
-
 }

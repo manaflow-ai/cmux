@@ -147,6 +147,9 @@ async function main(): Promise<void> {
   console.log(`REACHABLE ${kind}/${size} ${target} in ${elapsed()}`);
 }
 
-// Bun exposes import.meta.main at runtime, but tsgo does not include Bun's ImportMeta extension.
-// Compare the resolved entrypoint instead so this script typechecks in the shared CI config.
-if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) await main();
+// Bun-only `import.meta.main` is not in TypeScript's ImportMeta type; use the
+// portable entry-point check the sibling devbox scripts already rely on.
+const isEntryPoint =
+  process.argv[1] !== undefined &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isEntryPoint) await main();

@@ -140,7 +140,7 @@ extension CMUXCLI {
             throw Self.coderouterUnavailable(String(
                 format: Self.localizedPassthroughString(
                     "cli.coderouter.bootstrap.installedNotFound",
-                    defaultValue: "The CodeRouter installer finished, but no CodeRouter CLI was found in %@. Add its bin directory to PATH and retry."
+                    defaultValue: "The CodeRouter installer finished, but its command could not be found in %@. Check the installation and try again."
                 ),
                 binDirectory.path
             ))

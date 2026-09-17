@@ -98,6 +98,16 @@ extension TerminalController {
                             action: action
                         )
                     }
+                    if authorizedRequest.method == "surface.sync_codex_native_title" {
+                        return await self.v2MainAsync {
+                            self.v2Result(
+                                id: authorizedRequest.id?.foundationObject,
+                                self.v2SurfaceSyncCodexNativeTitle(
+                                    params: authorizedRequest.params.mapValues(\.foundationObject)
+                                )
+                            )
+                        }
+                    }
                     if policy.runsOnSocketWorker {
                         // Terminal rename performs an awaited cloud-link mutation. Keep the
                         // actual socket connection task asynchronous instead of parking a
@@ -188,7 +198,8 @@ extension TerminalController {
         if request.method == "agent.restore.release" {
             return await agentRestoreAdmissionReleaseResponse(request)
         }
-        if ControlCommandExecutionPolicy.servesFromPublishedReadSnapshot(method: request.method),
+        if request.params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey] == nil,
+           ControlCommandExecutionPolicy.servesFromPublishedReadSnapshot(method: request.method),
            let snapshotResult = socketReadSnapshotStore.response(
                 method: request.method,
                 params: request.params,
