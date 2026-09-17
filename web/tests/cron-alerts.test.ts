@@ -23,7 +23,8 @@ function axiomResponse(groups: Array<{ name: string; code: string; count: number
 describe("cron alert checks", () => {
   test("a 5xx on any cron or internal route in the last hour warns with the route list", async () => {
     const sent: AlertInput[] = [];
-    const fetch = mock(async (_input: unknown, init?: RequestInit) => {
+    const fetch = mock(async (...args: unknown[]) => {
+      const init = args[1] as RequestInit | undefined;
       const body = JSON.parse(String(init?.body));
       expect(body.apl).toContain("/api/cron/");
       expect(body.apl).toContain("/api/internal/");

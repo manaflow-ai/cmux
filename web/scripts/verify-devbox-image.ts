@@ -26,8 +26,10 @@ import { agentLaunchCheck } from "./devbox-agent-launch";
 import { DEFAULT_VM_EDGE_ALIAS_DOMAIN } from "../services/coderouter/vmGuestEnv";
 import path from "node:path";
 import {
+  CMUX_TUI_HOOK_PROVIDERS,
   CMUX_TUI_LAYOUT_MARKER_PATH,
   CMUX_TUI_SESSION,
+  cmuxTuiHooksReadyCommand,
   cmuxTuiLayoutSelector,
   cmuxTuiRunCommand,
   resolveCmuxTuiSource,
@@ -86,6 +88,10 @@ const CHECKS: readonly string[] = [
   "node --version && npm --version && python --version && python3 --version && bun --version && uv --version && echo toolchain-ok",
   "git --version; rg --version | head -1",
   "jq --version; fd --version; fzf --version; gh --version | head -1; sqlite3 --version; tmux -V; rsync --version | head -1; file --version | head -1; tree --version; vim --version | head -1",
+  // The private-network announce (images/network.ts): arping is installed and
+  // the boot supervisor's announce loop is running on the booted machine.
+  // `[b]oot` keeps pgrep from matching this check's own shell command line.
+  "command -v arping && pgrep -f 'cmux-devbox-[b]oot' >/dev/null && grep -q 'announce_loop &' /usr/local/bin/cmux-devbox-boot && echo network-announce-ok",
   // Chrome + managed policy + browser/computer-use drivers.
   "google-chrome-stable --version",
   "jq -e '.DefaultSearchProviderSearchURL | test(\"duckduckgo\")' /etc/opt/chrome/policies/managed/cmux.json >/dev/null && echo chrome-ddg-policy-ok",
@@ -108,6 +114,11 @@ const CHECKS: readonly string[] = [
   // Quiet-marks smoke: the bashrc blanks ble.sh's status marks and pins USER
   // so no [ble: ...] or "insane environment" text ever renders.
   "tmux new-session -d -s marks -x 100 -y 24 && sleep 3 && tmux send-keys -t marks not-a-command Enter && sleep 2 && tmux send-keys -t marks 'printf no-newline' Enter && sleep 2 && out=$(tmux capture-pane -pt marks); tmux kill-session -t marks 2>/dev/null; printf '%s\\n' \"$out\" | grep -E '\\[ble:|ble\\.sh:' && exit 1; echo no-ble-marks",
+  // Coding-agent hooks: the work user's Claude Code and Codex hooks are
+  // installed and current (helper byte-equal to the pinned one, cmux marker
+  // in both provider configs, codex trust table), and the daemon user's own
+  // status verb reports both providers installed.
+  `${cmuxTuiHooksReadyCommand()} && ${cmuxTuiRunCommand(`--json agent hook status ${CMUX_TUI_HOOK_PROVIDERS.join(" ")}`)} > /tmp/hook-status.json && node -e 'const r = JSON.parse(require("fs").readFileSync("/tmp/hook-status.json","utf8")); for (const id of ${JSON.stringify([...CMUX_TUI_HOOK_PROVIDERS])}) { const p = (r.providers || []).find((x) => x.provider === id); if (!p || p.state !== "installed") { console.error(id, p); process.exit(1); } }' && rm -f /tmp/hook-status.json && echo agent-hooks-ok`,
   // Agent-config generator: a login shell under a throwaway HOME with fake
   // model-plane env (placeholder keys, never a token) materializes the codex
   // custom provider plus the pi openai-codex override (no route-token
@@ -274,7 +285,7 @@ const FREESTYLE_BASE_CHECKS: readonly string[] = [
   "[ \"$(stat -c %a /usr/local/share/blesh/state.d)\" = 1777 ] && [ \"$(stat -c %a /usr/local/share/blesh/cache.d)\" = 1777 ] && echo blesh-dirs-ok",
   `test -f ${DEVBOX_WORK_HOME}/.cache/motd.legal-displayed && test -f /root/.cache/motd.legal-displayed && test -f /etc/skel/.cache/motd.legal-displayed && echo legal-notice-silenced`,
   ...[1, 2].map((run) =>
-    `sudo -n -u ${DEVBOX_WORK_USER} env -i HOME=${DEVBOX_WORK_HOME} USER=${DEVBOX_WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'tmux -L vprobe${run} new-session -d -s login -x 120 -y 30 && sleep 3 && pane="$(tmux -L vprobe${run} capture-pane -pt login)"; tmux -L vprobe${run} kill-server 2>/dev/null; printf "%s\\n" "$pane" | grep -iE "ble\\.sh|bleopt|ble-face|denied|not found|WARRANTY${run > 1 ? "|updating tput" : ""}" && { printf "%s\\n" "$pane"; exit 1; }; printf "%s\\n" "$pane" | grep -q "λ" && echo work-user-login-silent-${run}'`,
+    `sudo -n -u ${DEVBOX_WORK_USER} env -i HOME=${DEVBOX_WORK_HOME} USER=${DEVBOX_WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'tmux -L vprobe${run} new-session -d -s login -x 120 -y 30 && sleep 3 && pane="$(tmux -L vprobe${run} capture-pane -pt login)"; tmux -L vprobe${run} kill-server 2>/dev/null; printf "%s\\n" "$pane" | grep -iE "ble\\.sh|bleopt|ble-face|denied|not found|WARRANTY${run > 1 ? "|updating tput" : ""}" && { printf "%s\\n" "$pane"; exit 1; }; printf "%s\\n" "$pane" | grep -q "@cmux" && printf "%s\\n" "$pane" | grep -q "λ" && echo work-user-login-silent-${run}'`,
   ),
   // The devshell chain lives in the per-user rc files (after Ubuntu's own
   // PS1), never in /etc/bash.bashrc, so it loads once and the cmux prompt wins.

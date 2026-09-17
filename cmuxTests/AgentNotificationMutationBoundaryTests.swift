@@ -19,6 +19,26 @@ extension AgentNotificationRegressionTests {
         return FileManager.default.fileExists(atPath: url.path)
     }
 
+    func waitForScopedProcess(
+        pid: pid_t,
+        surfaceId: UUID,
+        timeout: Duration = .seconds(15)
+    ) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if let identity = agentLiveProcessIdentity(pid: pid),
+               case .resolved(let scope) = CmuxTopProcessSnapshot.cmuxScopeProbe(
+                   for: Int(pid),
+                   expectedCacheKey: identity.scopeCacheKey
+               ),
+               scope?.surfaceID == surfaceId {
+                return true
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return false
+    }
+
     @Test("PID routing bypasses a stale negative telemetry cache after exec")
     func pidResolutionBypassesStaleNegativeTelemetryCacheAfterExec() async throws {
         let fixture = try makeFixture()
@@ -73,6 +93,7 @@ extension AgentNotificationRegressionTests {
         #expect(cachedMiss == nil)
         #expect(Darwin.kill(process.processIdentifier, SIGUSR1) == 0)
         #expect(await waitForMarker(at: execMarker))
+        #expect(await waitForScopedProcess(pid: process.processIdentifier, surfaceId: fixture.panelId))
 
         #expect(
             fixture.appDelegate.liveAgentDeliveryTarget(forAgentPID: process.processIdentifier)

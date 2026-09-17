@@ -141,8 +141,8 @@ describe("devbox desktop layer", () => {
     expect(startVnc).toContain(`-rfbport ${DEVBOX_DESKTOP_RFB_PORT}`);
     expect(startVnc).toContain("-SecurityTypes None");
     expect(startVnc).toContain("-localhost");
-    // The app's desktop port: the noVNC web client must answer on 6901.
-    expect(startVnc).toContain(`websockify --web /usr/share/novnc --heartbeat 30 0.0.0.0:${DEVBOX_DESKTOP_NOVNC_PORT} 127.0.0.1:${DEVBOX_DESKTOP_RFB_PORT}`);
+    // Listener reachability is exercised by verify-devbox-image over both
+    // families; do not pin the implementation to the old IPv4-only command.
     expect(dockerfile).toContain("ln -s vnc.html /usr/share/novnc/index.html");
     expect(freestyleBake).toContain("ln -s vnc.html /usr/share/novnc/index.html");
     // The verifier proves both ports from inside the VM (/proc/net/tcp, hex

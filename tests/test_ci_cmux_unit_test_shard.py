@@ -52,6 +52,54 @@ final class {name}: XCTestCase {{
         )
 
 
+def check_swift_testing_extension_weights() -> int:
+    """Empty Swift Testing containers must count their extension-declared tests."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        test_root = root / "cmuxTests"
+        test_root.mkdir()
+        (test_root / "ContainerTests.swift").write_text(
+            "@Suite struct ContainerTests {}\n", encoding="utf-8"
+        )
+        (test_root / "ContainerExtensions.swift").write_text(
+            """extension ContainerTests {
+    @Suite struct NestedTests {
+        @Test func first() {}
+        @Test func second() {}
+    }
+}
+extension ContainerTests {
+    @Test func third() {}
+}
+final class LegacyTests: XCTestCase {
+    func testFirst() {}
+}
+extension LegacyTests {
+    func testSecond() {}
+}
+extension LegacyTests {
+    func helperOnly() {}
+}
+""", encoding="utf-8"
+        )
+        result = subprocess.run(
+            [sys.executable, str(HELPER), "--root", str(root), "--list",
+             "--timings", str(root / "absent.json")],
+            text=True, capture_output=True, check=False,
+        )
+        if result.returncode != 0:
+            print(result.stdout + result.stderr)
+            return 1
+        weights = {row.split("\t")[0]: int(row.split("\t")[1])
+                   for row in result.stdout.splitlines()}
+    expected = {"cmuxTests/ContainerTests": 600, "cmuxTests/LegacyTests": 400}
+    if weights != expected:
+        print(f"FAIL: extension test weights must reflect all three Swift tests and two XCTest methods: {weights}")
+        return 1
+    print("PASS: Swift Testing extension containers retain their test weights")
+    return 0
+
+
 def run_shard(tmp_root: Path, shard: int, output: Path, timings: Path) -> list[str]:
     result = subprocess.run(
         [
@@ -304,6 +352,7 @@ def main() -> int:
                 "-only-testing:cmuxTests/CLISSHSessionAttachAnchorTests",
                 "-only-testing:cmuxTests/GhosttyTerminalViewVisibilityPolicyTests",
                 "-only-testing:cmuxTests/GhosttyOptionAsAltModsTests",
+                "-only-testing:cmuxTests/GlobalSearchShortcutBehaviorTests",
                 "-only-testing:cmuxTests/KeyboardShortcutSettingsFileStoreNoOpPersistenceTests",
                 "-only-testing:cmuxTests/RemoteTmuxMirrorLayoutIdentityTests",
                 "-only-testing:cmuxTests/SidebarWorkspaceSwitchLayoutFaultTests",
@@ -356,6 +405,9 @@ def main() -> int:
         return rc
 
     if (rc := check_non_dict_manifest_falls_back()) != 0:
+        return rc
+
+    if (rc := check_swift_testing_extension_weights()) != 0:
         return rc
 
     print("PASS: cmuxTests sharding covers extension methods and leaves focused gates explicit")

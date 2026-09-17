@@ -41,6 +41,7 @@ FOCUSED_GATE_SELECTORS = {
     "cmuxTests/GhosttyTerminalViewVisibilityPolicyTests",
     "cmuxTests/GhosttyOptionAsAltModsTests",
     "cmuxTests/GhosttyNumericLocaleTests",
+    "cmuxTests/GlobalSearchShortcutBehaviorTests",
     "cmuxTests/KeyboardShortcutSettingsFileStoreNoOpPersistenceTests",
     "cmuxTests/RemoteTmuxMirrorLayoutIdentityTests",
     "cmuxTests/SidebarWorkspaceSwitchLayoutFaultTests",
@@ -103,6 +104,7 @@ def discover_selectors(root: Path) -> list[TestSelector]:
 
     declarations: list[SuiteDeclaration] = []
     extension_methods: dict[str, list[TestSelector]] = {}
+    extension_weights: dict[str, int] = {}
     for path in sorted(test_root.glob("**/*.swift")):
         relative = path.relative_to(root).as_posix()
         lines = path.read_text(encoding="utf-8").splitlines()
@@ -128,11 +130,14 @@ def discover_selectors(root: Path) -> list[TestSelector]:
                 else len(lines) + 1
             )
             body = lines[line_number - 1 : next_line - 1]
-            weight = max(1, sum(1 for line in body if TEST_TOKEN_RE.search(line)))
+            weight = sum(1 for line in body if TEST_TOKEN_RE.search(line))
             suite_identifier = f"cmuxTests/{name}"
             methods = xctest_methods(suite_identifier, relative, line_number, body)
             if kind == "extension":
                 extension_methods.setdefault(name, []).extend(methods)
+                # Swift Testing containers often declare all their nested suites
+                # in extensions, without any XCTest-style method selectors.
+                extension_weights[name] = extension_weights.get(name, 0) + weight
                 continue
 
             declarations.append(
@@ -161,7 +166,7 @@ def discover_selectors(root: Path) -> list[TestSelector]:
         suite_identifier = f"cmuxTests/{declaration.name}"
         extension_selectors = extension_methods.get(declaration.name, [])
         methods = [*declaration.methods, *extension_selectors]
-        weight = declaration.weight + len(extension_selectors)
+        weight = max(1, declaration.weight + extension_weights.get(declaration.name, 0))
 
         if suite_identifier in FOCUSED_GATE_SELECTORS:
             continue

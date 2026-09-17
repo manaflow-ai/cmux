@@ -38,6 +38,8 @@ actor CloudMachineLinkManager {
         }
     }
 
+    nonisolated let operations: CloudOperationRecorder?
+    private let isCloudEnabled: @Sendable () -> Bool
     private let paths: CloudTuiClientPaths
     private let clientURL: URL?
     /// The app's in-process WireGuard hub; nil in tests that never touch the network.
@@ -73,6 +75,8 @@ actor CloudMachineLinkManager {
         paths: CloudTuiClientPaths = CloudTuiClientPaths(),
         clientURL: URL? = CloudTuiClientPaths.clientURL(),
         hub: CloudWireGuardHub? = nil,
+        operations: CloudOperationRecorder? = nil,
+        isCloudEnabled: @escaping @Sendable () -> Bool = { true },
         hostThemeColors: @escaping @Sendable () async -> (foreground: String, background: String)? = {
             await MainActor.run {
                 let app = GhosttyApp.shared
@@ -80,6 +84,8 @@ actor CloudMachineLinkManager {
             }
         }
     ) {
+        self.isCloudEnabled = isCloudEnabled
+        self.operations = operations
         self.paths = paths
         self.clientURL = clientURL
         self.hub = hub
@@ -124,23 +130,55 @@ actor CloudMachineLinkManager {
 
     /// The link for `machineID`, connecting (and enrolling) if needed.
     func connected(machineID: String) async throws -> CloudMachineLink.Connected {
+        guard isCloudEnabled() else {
+            throw ManagerError.retryLater(String(
+                localized: "cloud.feature.disabled",
+                defaultValue: "Cloud Machines are temporarily unavailable."
+            ))
+        }
+        if let context = CloudOperationContext.current {
+            return try await context.withPhase(.connect) { try await self.connectMeasured(machineID: machineID) }
+        }
+        if let operations {
+            return try await operations.perform(.connect, foreground: false) { try await self.connectMeasured(machineID: machineID) }
+        }
+        return try await connectMeasured(machineID: machineID)
+    }
+
+    private func connectMeasured(machineID: String) async throws -> CloudMachineLink.Connected {
         if let link = links[machineID], await link.isConnected, let connected = await link.connected {
             return connected
         }
         if let inFlight = connecting[machineID] {
             return try await inFlight.value
         }
+        let correlationID = UUID().uuidString.lowercased()
+        StartupBreadcrumbLog.append(
+            "cloud.link.start",
+            fields: [
+                "machine": machineID,
+                "knownDevice": paths.deviceFingerprint(for: machineID) == nil ? "0" : "1",
+                "correlation": correlationID,
+                "outcome": "started"
+            ]
+        )
         if let failure = lastFailure[machineID], Date().timeIntervalSince(failure.at) < retryBackoff {
+            recordPreflightFailure(machineID: machineID, reason: "retry_backoff", correlationID: correlationID)
             throw ManagerError.retryLater(failure.error)
         }
-        guard let clientURL else { throw ManagerError.clientMissing }
-        guard let privateRoute = privateRoutes[machineID] else {
+        guard let clientURL else {
+            recordPreflightFailure(machineID: machineID, reason: "client_missing", correlationID: correlationID)
+            throw ManagerError.clientMissing
+        }
+        guard privateRoutes[machineID] != nil else {
+            recordPreflightFailure(machineID: machineID, reason: "private_route_required", correlationID: correlationID)
             throw ManagerError.privateRouteRequired(machineID)
         }
-        #if DEBUG
+#if DEBUG
         cmuxDebugLog("cloud.link.connect machine=\(machineID)")
         #endif
         let task = Task<CloudMachineLink.Connected, Error> { [paths, hub] in
+            try Task.checkCancellation()
             let link = CloudMachineLink(machineID: machineID, clientURL: clientURL, paths: paths)
             self.store(link: link, for: machineID)
             let capabilities = Self.clientCapabilities(clientURL: clientURL)
@@ -177,23 +215,15 @@ actor CloudMachineLinkManager {
             guard capabilities.contains(CloudTuiCommandLine.wireGuardHubCapability) else {
                 throw ManagerError.wireGuardHubUnsupported
             }
-            guard Self.usesWireGuardHub(route: privateRoute, clientCapabilities: capabilities, enrolledRoutes: []) else {
-                throw ManagerError.privateRouteRequired(privateRoute)
-            }
             guard let hub else { throw ManagerError.wireGuardHubMissing }
-            let claim = try await hub.acquire()
-            guard Self.usesWireGuardHub(
-                route: privateRoute,
-                clientCapabilities: capabilities,
-                enrolledRoutes: claim.ready.routes
-            ) else {
-                await hub.release(claim.lease)
-                throw ManagerError.privateRouteRequired(privateRoute)
-            }
+            try Task.checkCancellation()
+            guard isCloudEnabled() else { throw VMClientError.cloudMachinesDisabled }
+            let claim = try await CloudOperationContext.phase(.tunnel) { try await hub.acquire() }
             let releaseLease: @Sendable () async -> Void = { await hub.release(claim.lease) }
             let reachableRoute: String
             do {
-                reachableRoute = try await resolvedPrivateRoute(machineID: machineID, through: claim.ready)
+                try Task.checkCancellation()
+                reachableRoute = try await CloudOperationContext.phase(.route) { try await self.resolvedPrivateRoute(machineID: machineID, through: claim.ready) }
             } catch {
                 await releaseLease()
                 throw error
@@ -201,8 +231,9 @@ actor CloudMachineLinkManager {
             #if DEBUG
             cmuxDebugLog("cloud.link.wireguardHub machine=\(machineID) socket=\(claim.ready.socketPath)")
             #endif
-            let connect = Task {
-                try await link.connect(
+            do {
+                try Task.checkCancellation()
+                let connected = try await link.connect(
                     route: reachableRoute,
                     session: session,
                     carrier: carrier,
@@ -210,42 +241,72 @@ actor CloudMachineLinkManager {
                     wireguardHubSocket: claim.ready.socketPath,
                     releaseHubLease: releaseLease
                 )
-            }
-            do {
-                let connected = try await connect.value
+                try Task.checkCancellation()
                 if carrier, knownFingerprint == nil {
                     paths.saveDeviceFingerprint(CloudTuiClientPaths.carrierDeviceMarker, for: machineID)
                 }
                 return connected
             } catch {
-                connect.cancel()
                 await link.disconnect()
                 throw error
             }
         }
         connecting[machineID] = task
-        defer { connecting[machineID] = nil }
+        defer { if connecting[machineID] == task { connecting[machineID] = nil } }
         do {
             let connected = try await task.value
+            guard connecting[machineID] == task, !task.isCancelled, isCloudEnabled() else { throw CancellationError() }
             lastFailure[machineID] = nil
             #if DEBUG
             cmuxDebugLog("cloud.link.connected machine=\(machineID) socket=\(connected.socketPath)")
             #endif
+            StartupBreadcrumbLog.append(
+                "cloud.link.connected",
+                fields: [
+                    "machine": machineID,
+                    "session": connected.session,
+                    "correlation": correlationID,
+                    "outcome": "connected"
+                ]
+            )
             pushHostTheme(machineID: machineID, socketPath: connected.socketPath)
             return connected
         } catch {
+            guard connecting[machineID] == task else { throw error }
             let text = CloudMachineLink.errorText(error)
             lastFailure[machineID] = (Date(), text)
             links[machineID] = nil
             #if DEBUG
             cmuxDebugLog("cloud.link.failed machine=\(machineID) error=\(String(reflecting: error)) text=\(text)")
             #endif
+            StartupBreadcrumbLog.append(
+                "cloud.link.failed",
+                fields: [
+                    "machine": machineID,
+                    "error": CloudDiagnosticFailure.classify(error).rawValue,
+                    "correlation": correlationID,
+                    "outcome": "failed"
+                ]
+            )
             throw error
         }
     }
 
     func link(machineID: String) -> CloudMachineLink? {
         links[machineID]
+    }
+
+    /// Records a preflight failure without mutating link retry state.
+    private func recordPreflightFailure(machineID: String, reason: String, correlationID: String) {
+        StartupBreadcrumbLog.append(
+            "cloud.link.failed",
+            fields: [
+                "machine": machineID,
+                "error": reason,
+                "correlation": correlationID,
+                "outcome": "failed"
+            ]
+        )
     }
 
     /// Machines with a live link right now: the app-side consumers of the
@@ -287,6 +348,7 @@ actor CloudMachineLinkManager {
     }
 
     func disconnectAll() async {
+        for task in connecting.values { task.cancel() }
         for id in Array(links.keys) {
             await disconnect(machineID: id)
         }
@@ -295,11 +357,9 @@ actor CloudMachineLinkManager {
         lastFailure.removeAll()
     }
 
-    /// Drops links for machines that no longer exist.
-    func retain(machineIDs: Set<String>) async {
-        for id in links.keys where !machineIDs.contains(id) {
-            await disconnect(machineID: id)
-        }
+    /// Drops stale routing facts immediately. The registry owns and awaits
+    /// each removed machine's asynchronous link/forward teardown separately.
+    func retainAddresses(machineIDs: Set<String>) {
         privateRoutes = privateRoutes.filter { machineIDs.contains($0.key) }
         privateAddressCandidates = privateAddressCandidates.filter { machineIDs.contains($0.key) }
     }
@@ -350,6 +410,10 @@ actor CloudMachineLinkManager {
             cmuxDebugLog("cloud.link.theme machine=\(machineID) fg=\(colors.foreground) bg=\(colors.background)")
             #endif
         } catch {
+            if let operations {
+                let context = await operations.begin(.environment, foreground: false)
+                await operations.finish(context, error: error)
+            }
             #if DEBUG
             cmuxDebugLog("cloud.link.themeFailed machine=\(machineID) error=\(CloudMachineLink.errorText(error))")
             #endif
