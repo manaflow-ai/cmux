@@ -559,10 +559,19 @@ struct TitlebarControlsHoverPolicyTests {
             let ranges = TitlebarControlsHitRegions.buttonXRanges(config: config)
 
             checkEqual(ranges.count, MinimalModeSidebarControlActionSlot.allCases.count)
-            for range in ranges {
+            for (index, range) in ranges.enumerated() {
+                let slot = MinimalModeSidebarControlActionSlot(rawValue: index)
+                let expectedWidth: CGFloat = switch slot {
+                case .some(.newTab):
+                    TitlebarNewWorkspaceSplitButtonMetrics.primaryWidth(config: config)
+                case .some(.newWorkspaceMenu):
+                    TitlebarNewWorkspaceSplitButtonMetrics.dropdownWidth(config: config)
+                case .some(.toggleSidebar), .some(.showNotifications), .some(.focusHistoryBack), .some(.focusHistoryForward), nil:
+                    config.buttonSize
+                }
                 checkEqual(
                     range.upperBound - range.lowerBound,
-                    config.buttonSize,
+                    expectedWidth,
                     accuracy: 0.001,
                     "Expected titlebar hit lane width to match its visible control for style \(style)"
                 )
