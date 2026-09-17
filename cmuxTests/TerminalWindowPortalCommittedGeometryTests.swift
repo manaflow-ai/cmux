@@ -182,6 +182,9 @@ extension TerminalWindowPortalLifecycleTests {
         portal.synchronizeHostedViewForAnchor(anchor)
         pumpUntilCommitted(surface)
         let committed = try XCTUnwrap(surface.committedPaneGeometry)
+        // Creation resumes on the commit but can still wait on the agent
+        // command shims, which install asynchronously in the test host.
+        for _ in 0..<20 where surface.surface == nil { drainMainQueue() }
         let runtime = try XCTUnwrap(surface.surface, "The first commit resumes the parked creation")
         let size = ghostty_surface_size(runtime)
         XCTAssertEqual(
