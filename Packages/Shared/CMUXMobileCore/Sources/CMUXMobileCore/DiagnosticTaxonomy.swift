@@ -846,6 +846,14 @@ public enum DiagnosticAppEventKind: Int, Sendable, Codable, CaseIterable {
     /// The transport that actually carries the foreground connection, recorded
     /// on connect and on every active-route change. `c`: ``DiagnosticTransportKind``.
     case foregroundTransportSelected = 662
+    /// Whether a DEBUG launch supplied an injected dogfood attach route.
+    /// `c`: boolean.
+    case dogfoodAttachEnvironmentObserved = 663
+    /// Whether authentication bootstrap completed with an authenticated user.
+    /// `c`: boolean.
+    case authBootstrapCompleted = 664
+    /// A DEBUG launch attach route was admitted by the startup coordinator.
+    case dogfoodAttachStarted = 665
 }
 
 /// The user's configured connection method, mirrored from the settings picker

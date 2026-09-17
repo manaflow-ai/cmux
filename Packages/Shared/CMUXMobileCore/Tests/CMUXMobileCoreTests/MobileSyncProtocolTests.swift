@@ -199,38 +199,30 @@ import Testing
     }
 }
 
-@Test func frameCodecRejectsAZeroLengthFrameFloodAtTheCallerLimit() throws {
-    let emptyFrame = try MobileSyncFrameCodec.encodeFrame(Data())
+@Test func frameCodecDrainsLargeBatchesWithoutTreatingPacketSizeAsFailure() throws {
+    let frame = try MobileSyncFrameCodec.encodeFrame(Data("valid payload".utf8))
     var buffer = Data()
-    for _ in 0..<10_000 {
-        buffer.append(emptyFrame)
+    for _ in 0..<1_000 { buffer.append(frame) }
+    var decoded = 0
+    while !buffer.isEmpty {
+        let frames = try MobileSyncFrameCodec.decodeFrames(from: &buffer, maximumDecodedFrameCount: 16)
+        #expect(!frames.isEmpty)
+        #expect(frames.count <= 16)
+        #expect(frames.allSatisfy { $0 == Data("valid payload".utf8) })
+        decoded += frames.count
     }
-
-    do {
-        _ = try MobileSyncFrameCodec.decodeFrames(
-            from: &buffer,
-            maximumDecodedFrameCount: 16
-        )
-        Issue.record("Expected the decoded frame count limit to fail closed")
-    } catch let error as MobileSyncFrameCodecError {
-        #expect(error == .tooManyFrames(16))
-        #expect(buffer.count == (10_000 - 16) * emptyFrame.count)
-    }
+    #expect(decoded == 1_000)
 }
 
 @Test func frameCodecDefaultFrameCountLimitIsFinite() throws {
-    let emptyFrame = try MobileSyncFrameCodec.encodeFrame(Data())
+    let frame = try MobileSyncFrameCodec.encodeFrame(Data())
     var buffer = Data()
-    for _ in 0...MobileSyncFrameCodec.defaultMaximumDecodedFrameCount {
-        buffer.append(emptyFrame)
-    }
-
-    #expect(throws: MobileSyncFrameCodecError.tooManyFrames(
-        MobileSyncFrameCodec.defaultMaximumDecodedFrameCount
-    )) {
-        _ = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
-    }
+    for _ in 0...MobileSyncFrameCodec.defaultMaximumDecodedFrameCount { buffer.append(frame) }
+    let frames = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
+    #expect(frames.count == MobileSyncFrameCodec.defaultMaximumDecodedFrameCount)
+    #expect(buffer == frame)
 }
+
 
 private func base64URLEncode(_ data: Data) -> String {
     data.base64EncodedString()

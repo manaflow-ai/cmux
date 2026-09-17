@@ -1,6 +1,6 @@
 public import Foundation
 
-/// One endpoint-bound relay credential (EdDSA JWT, ~300s TTL). The relay
+/// One endpoint-bound relay credential (EdDSA JWT, 30-minute lifetime). The relay
 /// closes authenticated connections at the credential's signed expiry, so the
 /// ONLY safe lifecycle is: refresh early, rotate with insertRelay alone
 /// (make-before-break), and never let a live endpoint hold an expired token.
@@ -8,7 +8,7 @@ public struct IrxRelayCredential: Codable, Equatable, Sendable {
     public var relayURL: String
     public var token: String
     public var expiresAt: Date
-    /// Server-suggested refresh time (typically expiry minus 60s).
+    /// Server-suggested refresh time (five minutes before expiry in v2).
     public var refreshAfter: Date
 
     public init(relayURL: String, token: String, expiresAt: Date, refreshAfter: Date) {
@@ -38,17 +38,25 @@ public enum IrxRelayCredentialPolicy {
         return base.addingTimeInterval(-max(0, min(jitter, 10)))
     }
 
-    /// On mint failure, retry at half the remaining validity (floor 1s), while
-    /// treating a validated server Retry-After value as an authoritative floor.
+    /// On mint failure, use bounded exponential backoff independent of token
+    /// expiry. A validated server Retry-After value remains an authoritative
+    /// floor.
     public static func retryDelay(
         expiresAt: Date,
         now: Date,
-        retryAfterSeconds: Int? = nil
+        retryAfterSeconds: Int? = nil,
+        failureCount: Int = 0,
+        jitterUnitInterval: Double = 0
     ) -> Duration {
-        let remaining = expiresAt.timeIntervalSince(now)
-        let credentialDelay = remaining > 2 ? remaining / 2 : 1
-        let serverDelay = TimeInterval(max(0, retryAfterSeconds ?? 0))
-        return .seconds(max(credentialDelay, serverDelay))
+        let attempt = min(max(failureCount, 0), 10)
+        let localDelay = min(120, 5 << attempt)
+        let floor = max(localDelay, retryAfterSeconds ?? 0)
+        let jitter = jitterUnitInterval.isFinite ? min(1, max(0, jitterUnitInterval)) : 0
+        // Jitter remains additive even at the cap or above a server floor.
+        // Keep the potentially huge server duration out of Double/Int64
+        // millisecond conversions, which can overflow or round it down.
+        let jitterMilliseconds = Double(min(floor, 120)) * 250 * jitter
+        return .seconds(floor) + .milliseconds(Int64(jitterMilliseconds))
     }
 }
 

@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 import Testing
 
@@ -13,6 +12,19 @@ import Testing
 /// it never invokes the ratatui renderer or inspects source text.
 @Suite
 struct CloudManualMirrorTransportTests {
+    @Test("Restored Cloud terminal failures render a copyable error")
+    func restoredTerminalFailurePresentation() {
+        let presentation = Workspace.cloudMaterializationFailurePresentation(
+            detail: "The Cloud terminal endpoint was unavailable.",
+            reference: "operation=op trace=trace"
+        )
+
+        #expect(presentation.title == "Cloud terminal could not start")
+        #expect(presentation.detail == "The Cloud terminal endpoint was unavailable.")
+        #expect(!presentation.showsProgress)
+        #expect(presentation.showsReconnectButton)
+        #expect(presentation.copyableError.contains("operation=op trace=trace"))
+    }
     private let commands = CloudTuiManualIOCommand()
     private let parser = CloudTuiLegacySnapshotParser()
 
@@ -43,6 +55,97 @@ struct CloudManualMirrorTransportTests {
             "replay": Data("resized screen".utf8).base64EncodedString(),
         ])))
         #expect(resized == .resized(surfaceID: 17, columns: 140, rows: 48, bytes: Data("resized screen".utf8)))
+    }
+
+    @Test
+    func attachFramesCarryTheSparseColorSidecarAsLocalOscBytes() throws {
+        let decoder = CloudTuiManualIOFrameDecoder()
+        let snapshot = try #require(decoder.decode(try Self.line([
+            "event": "vt-state",
+            "surface": 17,
+            "cols": 99,
+            "rows": 35,
+            "data": Data("screen".utf8).base64EncodedString(),
+            "colors": [
+                "fg": "#EEEEEE",
+                "bg": NSNull(),
+                "cursor": "#ffee00",
+                "cursor_style": "bar",
+                "cursor_blink": true,
+                // Index 300 and a non-hex value are dropped; nothing else is.
+                "palette": ["1": "#112233", "300": "#000000", "9": "red", "15": "#ABCDEF"],
+            ],
+        ])))
+        guard case let .snapshot(surfaceID, _, _, bytes, colors) = snapshot else {
+            Issue.record("expected a snapshot frame, got \(snapshot)")
+            return
+        }
+        #expect(surfaceID == 17)
+        #expect(bytes == Data("screen".utf8))
+        let expected = CloudTuiRemoteColors(
+            foreground: "#eeeeee",
+            cursor: "#ffee00",
+            palette: [1: "#112233", 15: "#abcdef"]
+        )
+        #expect(colors == expected)
+        #expect(
+            String(decoding: expected.oscBytes, as: UTF8.self)
+                == "\u{1B}]10;rgb:ee/ee/ee\u{1B}\\\u{1B}]12;rgb:ff/ee/00\u{1B}\\\u{1B}]4;1;rgb:11/22/33\u{1B}\\\u{1B}]4;15;rgb:ab/cd/ef\u{1B}\\"
+        )
+
+        // A frame without a sidecar still decodes, with no colors to apply.
+        let plain = try #require(decoder.decode(try Self.line([
+            "event": "output",
+            "surface": 17,
+            "data": Data("x".utf8).base64EncodedString(),
+        ])))
+        #expect(plain == .output(surfaceID: 17, bytes: Data("x".utf8)))
+
+        // The daemon flattens the colors object into `colors-changed`.
+        let changed = try #require(decoder.decode(try Self.line([
+            "event": "colors-changed",
+            "surface": 17,
+            "fg": "#010203",
+            "palette": ["4": "#445566"],
+        ])))
+        #expect(changed == .colorsChanged(
+            surfaceID: 17,
+            colors: CloudTuiRemoteColors(foreground: "#010203", palette: [4: "#445566"])
+        ))
+        #expect(CloudTuiRemoteColors(palette: [:]).isEmpty)
+    }
+
+    /// The sidecar is a full sparse replacement: an entry the remote PTY
+    /// reset is absent from the next snapshot, and the pane must send its own
+    /// libghostty the matching reset or the stale remote color outlives it.
+    @Test
+    func sidecarDeltaResetsEntriesTheRemoteDropped() {
+        let first = CloudTuiRemoteColors(
+            foreground: "#eeeeee",
+            background: "#101010",
+            cursor: "#ffee00",
+            palette: [1: "#112233", 15: "#abcdef"]
+        )
+        // fg unchanged, bg reset, cursor changed; 1 changed, 15 reset, 9 added.
+        let second = CloudTuiRemoteColors(
+            foreground: "#eeeeee",
+            cursor: "#00ff00",
+            palette: [1: "#445566", 9: "#777777"]
+        )
+        #expect(
+            String(decoding: second.oscDelta(from: first), as: UTF8.self)
+                == "\u{1B}]111\u{1B}\\\u{1B}]12;rgb:00/ff/00\u{1B}\\"
+                + "\u{1B}]4;1;rgb:44/55/66\u{1B}\\\u{1B}]4;9;rgb:77/77/77\u{1B}\\\u{1B}]104;15\u{1B}\\"
+        )
+        // An empty sidecar after an authored one resets everything it had set.
+        #expect(
+            String(decoding: CloudTuiRemoteColors().oscDelta(from: second), as: UTF8.self)
+                == "\u{1B}]110\u{1B}\\\u{1B}]112\u{1B}\\\u{1B}]104;1\u{1B}\\\u{1B}]104;9\u{1B}\\"
+        )
+        // Nothing changed, nothing sent.
+        #expect(second.oscDelta(from: second).isEmpty)
+        // From nothing, the delta is the plain set.
+        #expect(second.oscDelta(from: CloudTuiRemoteColors()) == second.oscBytes)
     }
 
     @Test
@@ -314,61 +417,55 @@ struct CloudManualMirrorTransportTests {
         #expect(!arguments.contains { $0 == "list-workspaces" })
     }
 
-    /// `resolve-terminal` takes a terminal *host* id (UUIDv4 hex); the app only
-    /// ever holds a public `term_…` resource id, whose hex is not a UUIDv4 and
-    /// which no command maps to a host id. The daemon answers
-    /// `invalid_terminal_id`, and treating that as a hard failure made every
-    /// cloud terminal fail with "cmux-tui did not report the new terminal"
-    /// instead of falling back to the tree that can resolve it.
+    /// `resolve-terminal` on a daemon that predates public-id mapping takes a
+    /// *terminal host* id (UUIDv4 hex), while everything the app holds is a
+    /// public `term_…` id. Its `invalid_terminal_id` (and, for the 1-in-64
+    /// ids that happen to look like a UUIDv4, `terminal_not_found`) means "I
+    /// cannot serve this id", which sends the resolver to the authoritative
+    /// snapshot; a transport timeout is retryable; an unrelated rejection is
+    /// neither, so the resolver never silently attaches against a stale tree.
     @Test
-    func idSpaceRejectionFallsBackToTheCompatibilityTree() {
-        let daemonAnswer = """
+    func daemonAnswersSeparateUnservableIdsFromTransportFailures() {
+        let rejection = """
         {"code":"raw.command_failed","details":{"error":"invalid_terminal_id","id":1,"ok":false},        "message":"invalid_terminal_id","retryable":false}
         """
-        #expect(
-            CmuxTuiSurfaceProvider.isExplicitUnsupportedResolverError(
-                CloudMachineLink.LinkError.exited(status: 1, output: daemonAnswer)
-            )
-        )
-        // A daemon predating the resolver keeps its own fallback signal.
-        #expect(
-            CmuxTuiSurfaceProvider.isExplicitUnsupportedResolverError(
-                CloudMachineLink.LinkError.exited(
-                    status: 1,
-                    output: #"{"code":"operation.unsupported"}"#
-                )
-            )
-        )
-        // An unrelated failure must still fail closed rather than silently
-        // resolving a terminal against a stale tree.
-        #expect(
-            !CmuxTuiSurfaceProvider.isExplicitUnsupportedResolverError(
-                CloudMachineLink.LinkError.exited(
-                    status: 1,
-                    output: #"{"code":"internal","message":"boom"}"#
-                )
-            )
-        )
-    }
+        let invalidID = CloudTuiDaemonAnswer(error: CloudMachineLink.LinkError.exited(status: 1, output: rejection))
+        #expect(invalidID == .rejected("invalid_terminal_id"))
+        #expect(invalidID.cannotServeTerminalID)
+        #expect(!invalidID.isRetryable)
 
-    /// One public `term_…` id in about 64 happens to have the UUIDv4 shape
-    /// (`4` at hex 13, `8`–`b` at hex 17). The daemon then accepts it as a
-    /// host id, looks it up in a space where it can never exist, and answers
-    /// `terminal_not_found` instead of `invalid_terminal_id`. The terminal is
-    /// alive and mapped in the compatibility tree, so that answer must also
-    /// send the resolver to the tree; failing closed surfaced as "cmux-tui did
-    /// not report the new terminal" for `term_c18e42dc7ea84d37b89004384b81d3ba`
-    /// on 2026-09-08.
-    @Test
-    func hostIdSpaceMissFallsBackToTheCompatibilityTree() {
-        let daemonAnswer = """
-        {"code":"raw.command_failed","details":{"error":"terminal_not_found","id":1,"ok":false},"message":"terminal_not_found","retryable":false}
-        """
-        #expect(
-            CmuxTuiSurfaceProvider.isExplicitUnsupportedResolverError(
-                CloudMachineLink.LinkError.exited(status: 1, output: daemonAnswer)
-            )
-        )
+        let notFound = CloudTuiDaemonAnswer(error: CloudMachineLink.LinkError.exited(
+            status: 1,
+            output: #"{"code":"raw.command_failed","details":{"error":"terminal_not_found","id":1,"ok":false},"message":"terminal_not_found","retryable":false}"#
+        ))
+        #expect(notFound.cannotServeTerminalID)
+
+        // A daemon predating the resolver keeps its own signal.
+        let unsupported = CloudTuiDaemonAnswer(error: CloudMachineLink.LinkError.exited(
+            status: 1, output: #"{"code":"operation.unsupported"}"#
+        ))
+        #expect(unsupported.cannotServeTerminalID)
+
+        let timeout = CloudTuiDaemonAnswer(error: CloudMachineLink.LinkError.exited(
+            status: 3, output: "transport timed out before raw response: Resource temporarily unavailable (os error 35)"
+        ))
+        #expect(timeout.isRetryable)
+        #expect(!timeout.cannotServeTerminalID)
+        #expect(CloudTuiDaemonAnswer(error: CloudMachineLink.LinkError.timedOut).isRetryable)
+
+        // The structured form a current client prints for the same timeout.
+        let structuredTimeout = CloudTuiDaemonAnswer(error: CloudMachineLink.LinkError.exited(
+            status: 3, output: #"{"code":"transport.timeout","message":"transport timed out before raw response","retryable":true}"#
+        ))
+        #expect(structuredTimeout.isRetryable)
+
+        // An unrelated rejection is an authoritative answer about the request,
+        // not about the terminal's existence.
+        let boom = CloudTuiDaemonAnswer(error: CloudMachineLink.LinkError.exited(
+            status: 1, output: #"{"code":"internal","message":"boom"}"#
+        ))
+        #expect(boom == .rejected("boom"))
+        #expect(!boom.cannotServeTerminalID)
     }
 
     @Test
@@ -410,7 +507,9 @@ struct CloudManualMirrorTransportTests {
             JSONSerialization.jsonObject(with: Data(arguments[requestIndex].utf8)) as? [String: Any]
         )
         #expect(request["cmd"] as? String == "resolve-terminal")
-        #expect(request["terminal_id"] as? String == "0123456789abcdef0123456789abcdef")
+        // The full public id: a current daemon maps it, and a daemon that only
+        // knows host ids rejects both spellings identically.
+        #expect(request["terminal_id"] as? String == "term_0123456789abcdef0123456789abcdef")
     }
 
     @Test
@@ -574,160 +673,5 @@ struct CloudManualMirrorTransportTests {
 
     private static func line(_ object: [String: Any]) throws -> Data {
         try JSONSerialization.data(withJSONObject: object)
-    }
-}
-
-/// One command a fixture read from the session, reduced to the fields the
-/// handshake tests assert on.
-private struct CloudManualMirrorFixtureCommand: Sendable {
-    let cmd: String
-    let id: UInt64
-    let surface: UInt64?
-    let capabilities: [String]
-    let hasInitialSize: Bool
-
-    init?(_ object: [String: Any]) {
-        guard let cmd = object["cmd"] as? String else { return nil }
-        self.cmd = cmd
-        id = (object["id"] as? NSNumber)?.uint64Value ?? 0
-        surface = (object["surface"] as? NSNumber)?.uint64Value
-        capabilities = object["capabilities"] as? [String] ?? []
-        hasInitialSize = object["cols"] != nil || object["rows"] != nil
-    }
-}
-
-/// A minimal JSON-lines stand-in for the cmux-tui control socket behind a cloud
-/// link. It records every command in arrival order and lets a test script the
-/// daemon's responses, so handshake ordering is observable as behavior rather
-/// than as source text.
-// @unchecked Sendable: every mutable field is guarded by `lock`.
-private final class CloudManualMirrorSocketFixture: @unchecked Sendable {
-    let socketPath: String
-    private let listenerFD: Int32
-    private let lock = NSLock()
-    private var clientFD: Int32 = -1
-    private var received: [CloudManualMirrorFixtureCommand] = []
-    private var cursor = 0
-
-    init() throws {
-        let name = "cmux-mm-" + UUID().uuidString.prefix(8).lowercased() + ".sock"
-        socketPath = (NSTemporaryDirectory() as NSString).appendingPathComponent(name)
-        listenerFD = try Self.listen(at: socketPath)
-        DispatchQueue.global(qos: .userInitiated).async { [self] in
-            acceptAndRead()
-        }
-    }
-
-    /// The next unread command, or nil when none arrives before `timeout`.
-    func nextCommand(timeout: Duration) async -> CloudManualMirrorFixtureCommand? {
-        let deadline = ContinuousClock.now + timeout
-        while true {
-            lock.lock()
-            if cursor < received.count {
-                let command = received[cursor]
-                cursor += 1
-                lock.unlock()
-                return command
-            }
-            lock.unlock()
-            if ContinuousClock.now >= deadline { return nil }
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-    }
-
-    func send(_ object: [String: Any]) {
-        guard let data = try? JSONSerialization.data(withJSONObject: object) else { return }
-        let line = data + Data([0x0A])
-        lock.lock()
-        let fd = clientFD
-        lock.unlock()
-        guard fd >= 0 else { return }
-        line.withUnsafeBytes { buffer in
-            guard let base = buffer.baseAddress else { return }
-            var offset = 0
-            while offset < buffer.count {
-                let written = Darwin.write(fd, base.advanced(by: offset), buffer.count - offset)
-                if written <= 0 { return }
-                offset += written
-            }
-        }
-    }
-
-    func close() {
-        lock.lock()
-        if clientFD >= 0 {
-            Darwin.close(clientFD)
-            clientFD = -1
-        }
-        lock.unlock()
-        Darwin.close(listenerFD)
-        unlink(socketPath)
-    }
-
-    private func acceptAndRead() {
-        var address = sockaddr_un()
-        var length = socklen_t(MemoryLayout<sockaddr_un>.size)
-        let fd = withUnsafeMutablePointer(to: &address) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                Darwin.accept(listenerFD, $0, &length)
-            }
-        }
-        guard fd >= 0 else { return }
-        lock.lock()
-        clientFD = fd
-        lock.unlock()
-        var pending = Data()
-        var buffer = [UInt8](repeating: 0, count: 4096)
-        while true {
-            let count = Darwin.read(fd, &buffer, buffer.count)
-            if count < 0 {
-                if errno == EINTR { continue }
-                return
-            }
-            if count == 0 { return }
-            pending.append(buffer, count: count)
-            while let newline = pending.firstIndex(of: 0x0A) {
-                let line = Data(pending[..<newline])
-                pending.removeSubrange(...newline)
-                guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
-                      let command = CloudManualMirrorFixtureCommand(object) else { continue }
-                lock.lock()
-                received.append(command)
-                lock.unlock()
-            }
-        }
-    }
-
-    private static func listen(at path: String) throws -> Int32 {
-        unlink(path)
-        let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else { throw NSError(domain: "cmux.tests", code: Int(errno)) }
-        var address = sockaddr_un()
-        address.sun_family = sa_family_t(AF_UNIX)
-        let maxPathLength = MemoryLayout.size(ofValue: address.sun_path)
-        let utf8 = Array(path.utf8)
-        guard utf8.count < maxPathLength else {
-            Darwin.close(fd)
-            throw NSError(domain: "cmux.tests", code: Int(ENAMETOOLONG))
-        }
-        _ = withUnsafeMutablePointer(to: &address.sun_path) { pointer in
-            pointer.withMemoryRebound(to: CChar.self, capacity: maxPathLength) { buffer in
-                for index in 0..<utf8.count {
-                    buffer[index] = CChar(bitPattern: utf8[index])
-                }
-                buffer[utf8.count] = 0
-            }
-        }
-        let bound = withUnsafePointer(to: &address) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
-        }
-        guard bound == 0, Darwin.listen(fd, 1) == 0 else {
-            let code = errno
-            Darwin.close(fd)
-            throw NSError(domain: "cmux.tests", code: Int(code))
-        }
-        return fd
     }
 }
