@@ -1008,6 +1008,635 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    // https://github.com/manaflow-ai/cmux/issues/9315
+    //
+    // Cursor's beforeShellExecution hook runs before Cursor evaluates its own
+    // allowlist and exposes no native "approval required" field. The one
+    // reliable candidate in the shipped protocol is whether the command is
+    // already sandboxed. cmux asks Cursor to show its native approval prompt
+    // for an unsandboxed command unless the local Run Everything/allowlist
+    // configuration proves that Cursor will auto-approve it, then surfaces
+    // that wait through the shared generic-agent notification path. Sandboxed
+    // commands remain telemetry.
+    func testCursorShellApprovalDistinguishesUnsandboxedAndSandboxedPayloads() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("cursor-shell-approval")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cursor-shell-approval-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "cursor-session-9315"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let cursorConfigDirectory = root.appendingPathComponent(".cursor", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: cursorConfigDirectory,
+            withIntermediateDirectories: true
+        )
+        let cursorConfigURL = cursorConfigDirectory.appendingPathComponent(
+            "cli-config.json",
+            isDirectory: false
+        )
+        let allowlistConfig: [String: Any] = [
+            "version": 1,
+            "approvalMode": "allowlist",
+        ]
+        try JSONSerialization.data(
+            withJSONObject: allowlistConfig,
+            options: [.sortedKeys]
+        ).write(to: cursorConfigURL, options: .atomic)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": root.path,
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": workspaceId,
+            "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+
+        func runCursorHook(_ subcommand: String, input: String) -> ProcessRunResult {
+            let serverHandled = startAgentHookMockServer(
+                listenerFD: listenerFD,
+                state: state,
+                surfaceId: surfaceId
+            )
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "cursor", subcommand],
+                environment: environment,
+                standardInput: input,
+                timeout: 5
+            )
+            wait(for: [serverHandled], timeout: 5)
+            return result
+        }
+
+        func isCursorSurfaceClear(_ command: String) -> Bool {
+            command.contains("clear_notifications --tab=\(workspaceId) --panel=\(surfaceId)")
+        }
+
+        func isTargetedCursorSurfaceClear(_ command: String) -> Bool {
+            guard isCursorSurfaceClear(command),
+                  let rawKey = command.components(separatedBy: "--correlation-key=").last,
+                  let key = rawKey.split(whereSeparator: { $0.isWhitespace }).first else {
+                return false
+            }
+            return UUID(uuidString: String(key)) != nil
+        }
+
+        func isBroadCursorSurfaceClear(_ command: String) -> Bool {
+            isCursorSurfaceClear(command) && !command.contains("--correlation-key=")
+        }
+
+        let start = runCursorHook(
+            "prompt-submit",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeSubmitPrompt"}"#
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+        XCTAssertEqual(start.stdout, "{}\n")
+
+        let approvalCommand = "rm -rf build-output"
+        let approvalCommandStart = state.snapshot().count
+        let approval = runCursorHook(
+            "shell-exec",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"\#(approvalCommand)","sandbox":false}"#
+        )
+        XCTAssertFalse(approval.timedOut, approval.stderr)
+        XCTAssertEqual(approval.status, 0, approval.stderr)
+        XCTAssertEqual(approval.stdout, #"{"permission":"ask"}"# + "\n")
+
+        let persistedApprovalJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(
+                with: Data(contentsOf: root.appendingPathComponent("cursor-hook-sessions.json"))
+            ) as? [String: Any]
+        )
+        let persistedSession = try XCTUnwrap(
+            (persistedApprovalJSON["sessions"] as? [String: Any])?[sessionId] as? [String: Any]
+        )
+        let persistedApprovals = try XCTUnwrap(
+            persistedSession["pendingCursorShellApprovals"] as? [[String: Any]]
+        )
+        XCTAssertEqual(persistedApprovals.first?["commandLength"] as? Int, approvalCommand.utf8.count)
+        XCTAssertNil(persistedApprovals.first?["command"])
+
+        let approvalCommands = Array(state.snapshot().dropFirst(approvalCommandStart))
+        XCTAssertEqual(
+            approvalCommands.filter {
+                $0.contains(
+                    "notify_target_async \(workspaceId) \(surfaceId) Cursor|Permission|Approval needed"
+                )
+            }.count,
+            1,
+            "Expected exactly one Cursor approval notification for the owning surface, saw \(approvalCommands)"
+        )
+        XCTAssertTrue(
+            AgentJournalAppendCapture.contains(
+                approvalCommands,
+                kind: "agent.approval.requested",
+                agentKey: "cursor",
+                sessionId: sessionId
+            ),
+            "Expected Cursor approval to mark the owning pane Needs input, saw \(approvalCommands)"
+        )
+        XCTAssertTrue(
+            approvalCommands.contains {
+                $0.hasPrefix("set_status cursor ")
+                    && $0.contains("--icon=bell.fill")
+                    && $0.contains("--panel=\(surfaceId)")
+            },
+            "Expected Cursor approval to publish the notification-ring status, saw \(approvalCommands)"
+        )
+
+        let responseCommandStart = state.snapshot().count
+        let response = runCursorHook(
+            "shell-done",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"afterShellExecution","command":"\#(approvalCommand)","output":"","duration":1,"sandbox":false}"#
+        )
+        XCTAssertFalse(response.timedOut, response.stderr)
+        XCTAssertEqual(response.status, 0, response.stderr)
+        XCTAssertEqual(response.stdout, "{}\n")
+
+        let responseCommands = Array(state.snapshot().dropFirst(responseCommandStart))
+        XCTAssertTrue(
+            responseCommands.contains {
+                isTargetedCursorSurfaceClear($0)
+            },
+            "Expected Cursor's paired completion hook to clear the approval notification, saw \(responseCommands)"
+        )
+        XCTAssertTrue(
+            AgentJournalAppendCapture.contains(
+                responseCommands,
+                kind: "agent.turn.started",
+                agentKey: "cursor",
+                sessionId: sessionId
+            ),
+            "Expected Cursor's paired completion hook to restore Running, saw \(responseCommands)"
+        )
+
+        let secondCommand = "npm run build"
+        let secondApproval = runCursorHook(
+            "shell-exec",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"\#(secondCommand)","sandbox":false}"#
+        )
+        XCTAssertFalse(secondApproval.timedOut, secondApproval.stderr)
+        XCTAssertEqual(secondApproval.status, 0, secondApproval.stderr)
+        XCTAssertEqual(secondApproval.stdout, #"{"permission":"ask"}"# + "\n")
+
+        let thirdCommand = "python -c print('third')"
+        let thirdApproval = runCursorHook(
+            "shell-exec",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"\#(thirdCommand)","sandbox":false}"#
+        )
+        XCTAssertFalse(thirdApproval.timedOut, thirdApproval.stderr)
+        XCTAssertEqual(thirdApproval.status, 0, thirdApproval.stderr)
+        XCTAssertEqual(thirdApproval.stdout, #"{"permission":"ask"}"# + "\n")
+
+        let remainingCompletionStart = state.snapshot().count
+        let remainingCompletion = runCursorHook(
+            "shell-done",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"afterShellExecution","command":"\#(secondCommand)","output":"","duration":1,"sandbox":false}"#
+        )
+        XCTAssertFalse(remainingCompletion.timedOut, remainingCompletion.stderr)
+        XCTAssertEqual(remainingCompletion.status, 0, remainingCompletion.stderr)
+        XCTAssertEqual(remainingCompletion.stdout, "{}\n")
+        let remainingCompletionCommands = Array(state.snapshot().dropFirst(remainingCompletionStart))
+        XCTAssertFalse(
+            remainingCompletionCommands.contains {
+                isBroadCursorSurfaceClear($0)
+            },
+            "Refreshing a remaining Cursor approval must not clear unrelated surface notifications, saw \(remainingCompletionCommands)"
+        )
+        XCTAssertTrue(
+            remainingCompletionCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Cursor|Permission|Approval needed")
+            },
+            "Resolving one of two approvals must refresh the remaining command notice, saw \(remainingCompletionCommands)"
+        )
+        XCTAssertTrue(
+            remainingCompletionCommands.contains {
+                $0.contains(";s=needsInput")
+            },
+            "A refreshed Cursor approval must retain its Needs input sound context, saw \(remainingCompletionCommands)"
+        )
+
+        let mismatchedCompletionStart = state.snapshot().count
+        let mismatchedCompletion = runCursorHook(
+            "shell-done",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"afterShellExecution","command":"echo unrelated","output":"","duration":1,"sandbox":false}"#
+        )
+        XCTAssertFalse(mismatchedCompletion.timedOut, mismatchedCompletion.stderr)
+        XCTAssertEqual(mismatchedCompletion.status, 0, mismatchedCompletion.stderr)
+        let mismatchedCompletionCommands = Array(state.snapshot().dropFirst(mismatchedCompletionStart))
+        XCTAssertFalse(
+            mismatchedCompletionCommands.contains {
+                isBroadCursorSurfaceClear($0)
+            },
+            "An unrelated Cursor shell completion must not clear a pending approval, saw \(mismatchedCompletionCommands)"
+        )
+        XCTAssertFalse(
+            AgentJournalAppendCapture.contains(
+                mismatchedCompletionCommands,
+                kind: "agent.turn.started",
+                agentKey: "cursor",
+                sessionId: sessionId
+            ),
+            "An unrelated Cursor shell completion must not restore Running, saw \(mismatchedCompletionCommands)"
+        )
+
+        let sandboxedCompletionStart = state.snapshot().count
+        let sandboxedCompletion = runCursorHook(
+            "shell-done",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"afterShellExecution","command":"\#(thirdCommand)","output":"","duration":1,"sandbox":true}"#
+        )
+        XCTAssertFalse(sandboxedCompletion.timedOut, sandboxedCompletion.stderr)
+        XCTAssertEqual(sandboxedCompletion.status, 0, sandboxedCompletion.stderr)
+        let sandboxedCompletionCommands = Array(state.snapshot().dropFirst(sandboxedCompletionStart))
+        XCTAssertFalse(
+            sandboxedCompletionCommands.contains {
+                isBroadCursorSurfaceClear($0)
+            },
+            "A sandboxed completion must not consume an unsandboxed pending approval, saw \(sandboxedCompletionCommands)"
+        )
+
+        let nonShellFailureStart = state.snapshot().count
+        let nonShellFailure = runCursorHook(
+            "shell-failed",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"postToolUseFailure","tool_name":"Read","tool_input":{"command":"\#(thirdCommand)","file_path":"README.md"},"error_message":"Read failed","failure_type":"error"}"#
+        )
+        XCTAssertFalse(nonShellFailure.timedOut, nonShellFailure.stderr)
+        XCTAssertEqual(nonShellFailure.status, 0, nonShellFailure.stderr)
+        let nonShellFailureCommands = Array(state.snapshot().dropFirst(nonShellFailureStart))
+        XCTAssertFalse(
+            nonShellFailureCommands.contains {
+                isTargetedCursorSurfaceClear($0)
+            },
+            "A non-Shell failure must not resolve a pending Cursor shell approval, saw \(nonShellFailureCommands)"
+        )
+
+        let ordinaryShellFailureStart = state.snapshot().count
+        let ordinaryShellFailure = runCursorHook(
+            "shell-failed",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"postToolUseFailure","tool_name":"Shell","tool_input":{"command":"\#(thirdCommand)","cwd":"\#(root.path)"},"error_message":"Command exited 1","failure_type":"error"}"#
+        )
+        XCTAssertFalse(ordinaryShellFailure.timedOut, ordinaryShellFailure.stderr)
+        XCTAssertEqual(ordinaryShellFailure.status, 0, ordinaryShellFailure.stderr)
+        let ordinaryShellFailureCommands = Array(state.snapshot().dropFirst(ordinaryShellFailureStart))
+        XCTAssertFalse(
+            ordinaryShellFailureCommands.contains {
+                isTargetedCursorSurfaceClear($0)
+            },
+            "An ordinary Shell failure must not consume a pending approval, saw \(ordinaryShellFailureCommands)"
+        )
+
+        let failureStart = state.snapshot().count
+        let failure = runCursorHook(
+            "shell-failed",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"postToolUseFailure","tool_name":"Shell","tool_input":{"command":"\#(thirdCommand)","cwd":"\#(root.path)"},"error_message":"User rejected","failure_type":"permission_denied","is_interrupt":true}"#
+        )
+        XCTAssertFalse(failure.timedOut, failure.stderr)
+        XCTAssertEqual(failure.status, 0, failure.stderr)
+        XCTAssertEqual(failure.stdout, "{}\n")
+        let failureCommands = Array(state.snapshot().dropFirst(failureStart))
+        let failureFeedEvents = failureCommands.compactMap { command -> [String: Any]? in
+            guard let request = jsonObject(command),
+                  request["method"] as? String == "feed.push",
+                  let params = request["params"] as? [String: Any] else {
+                return nil
+            }
+            return params["event"] as? [String: Any]
+        }
+        XCTAssertTrue(
+            failureFeedEvents.contains { ($0["is_error"] as? Bool) == true },
+            "Cursor shell failures must mark feed events as errors, saw \(failureFeedEvents)"
+        )
+        XCTAssertTrue(
+            failureCommands.contains {
+                isTargetedCursorSurfaceClear($0)
+            },
+            "Cursor's failure hook must clear a denied approval, saw \(failureCommands)"
+        )
+        XCTAssertTrue(
+            AgentJournalAppendCapture.contains(
+                failureCommands,
+                kind: "agent.turn.started",
+                agentKey: "cursor",
+                sessionId: sessionId
+            ),
+            "Cursor's failure hook must restore Running after denial, saw \(failureCommands)"
+        )
+
+        let duplicateCommand = "echo duplicate"
+        for _ in 0..<2 {
+            let duplicateApproval = runCursorHook(
+                "shell-exec",
+                input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"\#(duplicateCommand)","tool_use_id":"duplicate-id","sandbox":false}"#
+            )
+            XCTAssertFalse(duplicateApproval.timedOut, duplicateApproval.stderr)
+            XCTAssertEqual(duplicateApproval.status, 0, duplicateApproval.stderr)
+            XCTAssertEqual(duplicateApproval.stdout, #"{"permission":"ask"}"# + "\n")
+        }
+        let duplicateCompletionStart = state.snapshot().count
+        let duplicateCompletion = runCursorHook(
+            "shell-done",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"afterShellExecution","command":"\#(duplicateCommand)","tool_use_id":"duplicate-id","output":"","duration":1,"sandbox":false}"#
+        )
+        XCTAssertFalse(duplicateCompletion.timedOut, duplicateCompletion.stderr)
+        XCTAssertEqual(duplicateCompletion.status, 0, duplicateCompletion.stderr)
+        let duplicateCompletionCommands = Array(state.snapshot().dropFirst(duplicateCompletionStart))
+        XCTAssertTrue(
+            duplicateCompletionCommands.contains {
+                isTargetedCursorSurfaceClear($0)
+            },
+            "A retried Cursor shell hook must not leave a duplicate approval pending, saw \(duplicateCompletionCommands)"
+        )
+        XCTAssertFalse(
+            duplicateCompletionCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Cursor|Permission|Approval needed")
+            },
+            "A retried Cursor shell hook must resolve as one approval, saw \(duplicateCompletionCommands)"
+        )
+
+        let quotedSpacingCommands = ["printf 'a  b'", "printf 'a b'"]
+        for quotedCommand in quotedSpacingCommands {
+            let quotedApproval = runCursorHook(
+                "shell-exec",
+                input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"\#(quotedCommand)","sandbox":false}"#
+            )
+            XCTAssertFalse(quotedApproval.timedOut, quotedApproval.stderr)
+            XCTAssertEqual(quotedApproval.status, 0, quotedApproval.stderr)
+            XCTAssertEqual(quotedApproval.stdout, #"{"permission":"ask"}"# + "\n")
+        }
+        let firstQuotedCompletionStart = state.snapshot().count
+        let firstQuotedCompletion = runCursorHook(
+            "shell-done",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"afterShellExecution","command":"printf 'a  b'","output":"","duration":1,"sandbox":false}"#
+        )
+        XCTAssertFalse(firstQuotedCompletion.timedOut, firstQuotedCompletion.stderr)
+        XCTAssertEqual(firstQuotedCompletion.status, 0, firstQuotedCompletion.stderr)
+        let firstQuotedCompletionCommands = Array(state.snapshot().dropFirst(firstQuotedCompletionStart))
+        XCTAssertTrue(
+            firstQuotedCompletionCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Cursor|Permission|Approval needed")
+            },
+            "Quoted whitespace must remain part of Cursor command identity, saw \(firstQuotedCompletionCommands)"
+        )
+        let secondQuotedCompletion = runCursorHook(
+            "shell-done",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"afterShellExecution","command":"printf 'a b'","output":"","duration":1,"sandbox":false}"#
+        )
+        XCTAssertFalse(secondQuotedCompletion.timedOut, secondQuotedCompletion.stderr)
+        XCTAssertEqual(secondQuotedCompletion.status, 0, secondQuotedCompletion.stderr)
+
+        let reusedCommand = "echo reused-after-turn"
+        let firstReusedApproval = runCursorHook(
+            "shell-exec",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"\#(reusedCommand)","sandbox":false}"#
+        )
+        XCTAssertFalse(firstReusedApproval.timedOut, firstReusedApproval.stderr)
+        XCTAssertEqual(firstReusedApproval.status, 0, firstReusedApproval.stderr)
+        let turnBoundary = runCursorHook(
+            "prompt-submit",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeSubmitPrompt"}"#
+        )
+        XCTAssertFalse(turnBoundary.timedOut, turnBoundary.stderr)
+        XCTAssertEqual(turnBoundary.status, 0, turnBoundary.stderr)
+        let reusedApproval = runCursorHook(
+            "shell-exec",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"\#(reusedCommand)","sandbox":false}"#
+        )
+        XCTAssertFalse(reusedApproval.timedOut, reusedApproval.stderr)
+        XCTAssertEqual(reusedApproval.status, 0, reusedApproval.stderr)
+        let delayedReusedCompletionStart = state.snapshot().count
+        let delayedReusedCompletion = runCursorHook(
+            "shell-done",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"afterShellExecution","command":"\#(reusedCommand)","output":"","duration":1,"sandbox":false}"#
+        )
+        XCTAssertFalse(delayedReusedCompletion.timedOut, delayedReusedCompletion.stderr)
+        XCTAssertEqual(delayedReusedCompletion.status, 0, delayedReusedCompletion.stderr)
+        let delayedReusedCompletionCommands = Array(state.snapshot().dropFirst(delayedReusedCompletionStart))
+        XCTAssertFalse(
+            delayedReusedCompletionCommands.contains {
+                isBroadCursorSurfaceClear($0)
+            },
+            "A command-only completion after a turn reuse must fail closed, saw \(delayedReusedCompletionCommands)"
+        )
+
+        let cancelledCommand = "rm -rf cancelled-output"
+        let cancelledApproval = runCursorHook(
+            "shell-exec",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"\#(cancelledCommand)","sandbox":false}"#
+        )
+        XCTAssertFalse(cancelledApproval.timedOut, cancelledApproval.stderr)
+        XCTAssertEqual(cancelledApproval.status, 0, cancelledApproval.stderr)
+        let stopStart = state.snapshot().count
+        let stop = runCursorHook(
+            "stop",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"stop","reason":"cancelled"}"#
+        )
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+        let stopCommands = Array(state.snapshot().dropFirst(stopStart))
+        XCTAssertTrue(
+            stopCommands.contains {
+                isTargetedCursorSurfaceClear($0)
+            },
+            "Cursor stop/cancellation must clear a pending approval, saw \(stopCommands)"
+        )
+
+        let unrestrictedConfig: [String: Any] = [
+            "version": 1,
+            "approvalMode": "unrestricted",
+        ]
+        try JSONSerialization.data(
+            withJSONObject: unrestrictedConfig,
+            options: [.sortedKeys]
+        ).write(to: cursorConfigURL, options: .atomic)
+        let unrestrictedStart = state.snapshot().count
+        let unrestricted = runCursorHook(
+            "shell-exec",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"rm -rf unrestricted-output","sandbox":false}"#
+        )
+        XCTAssertFalse(unrestricted.timedOut, unrestricted.stderr)
+        XCTAssertEqual(unrestricted.status, 0, unrestricted.stderr)
+        XCTAssertEqual(unrestricted.stdout, "{}\n")
+        let unrestrictedCommands = Array(state.snapshot().dropFirst(unrestrictedStart))
+        XCTAssertFalse(
+            unrestrictedCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "Run Everything must not be converted into a forced cmux approval, saw \(unrestrictedCommands)"
+        )
+
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent(".git", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        let projectConfigURL = cursorConfigDirectory.appendingPathComponent(
+            "cli.json",
+            isDirectory: false
+        )
+        let projectAllowlistConfig: [String: Any] = [
+            "approvalMode": "allowlist",
+            "permissions": ["allow": ["Shell(git)"]],
+        ]
+        try JSONSerialization.data(
+            withJSONObject: projectAllowlistConfig,
+            options: [.sortedKeys]
+        ).write(to: projectConfigURL, options: .atomic)
+        let projectAllowlistStart = state.snapshot().count
+        let projectAllowlisted = runCursorHook(
+            "shell-exec",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"git status --short","sandbox":false}"#
+        )
+        XCTAssertFalse(projectAllowlisted.timedOut, projectAllowlisted.stderr)
+        XCTAssertEqual(projectAllowlisted.status, 0, projectAllowlisted.stderr)
+        XCTAssertEqual(projectAllowlisted.stdout, "{}\n")
+        let projectAllowlistCommands = Array(state.snapshot().dropFirst(projectAllowlistStart))
+        XCTAssertFalse(
+            projectAllowlistCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "A project Shell(git) allowlist must suppress the forced approval fallback, saw \(projectAllowlistCommands)"
+        )
+
+        let malformedStart = state.snapshot().count
+        let malformed = runCursorHook(
+            "shell-exec",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","sandbox":false}"#
+        )
+        XCTAssertFalse(malformed.timedOut, malformed.stderr)
+        XCTAssertEqual(malformed.status, 0, malformed.stderr)
+        XCTAssertEqual(malformed.stdout, "{}\n")
+        let malformedCommands = Array(state.snapshot().dropFirst(malformedStart))
+        XCTAssertFalse(
+            malformedCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "An incomplete Cursor shell payload must remain telemetry-only, saw \(malformedCommands)"
+        )
+
+        let sandboxedCommandStart = state.snapshot().count
+        let sandboxed = runCursorHook(
+            "shell-exec",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"beforeShellExecution","command":"rm -rf sandboxed-output","sandbox":true}"#
+        )
+        XCTAssertFalse(sandboxed.timedOut, sandboxed.stderr)
+        XCTAssertEqual(sandboxed.status, 0, sandboxed.stderr)
+        XCTAssertEqual(sandboxed.stdout, "{}\n")
+
+        let sandboxedCommands = Array(state.snapshot().dropFirst(sandboxedCommandStart))
+        XCTAssertFalse(
+            sandboxedCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "Sandboxed Cursor shell starts must not generate approval notifications, saw \(sandboxedCommands)"
+        )
+        XCTAssertFalse(
+            AgentJournalAppendCapture.contains(
+                sandboxedCommands,
+                kind: "agent.approval.requested",
+                agentKey: "cursor",
+                sessionId: sessionId
+            ),
+            "Sandboxed Cursor shell starts must remain non-actionable, saw \(sandboxedCommands)"
+        )
+        XCTAssertFalse(
+            AgentJournalAppendCapture.contains(
+                sandboxedCommands,
+                kind: "agent.turn.started",
+                agentKey: "cursor",
+                sessionId: sessionId
+            ),
+            "Sandboxed Cursor shell starts must not enter the visible turn lifecycle, saw \(sandboxedCommands)"
+        )
+    }
+
+    func testCursorHookInstallIsIdempotentAndPreservesUserEntries() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cursor-hook-install-\(UUID().uuidString)", isDirectory: true)
+        let cursorDirectory = root.appendingPathComponent(".cursor", isDirectory: true)
+        let hookURL = cursorDirectory.appendingPathComponent("hooks.json", isDirectory: false)
+        try FileManager.default.createDirectory(at: cursorDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let userBeforeCommand = "/usr/local/bin/user-before-shell-hook"
+        let userAfterCommand = "/usr/local/bin/user-after-shell-hook"
+        let userCustomCommand = "/usr/local/bin/user-custom-hook"
+        let existing: [String: Any] = [
+            "version": 1,
+            "userSetting": "preserve-me",
+            "hooks": [
+                "beforeShellExecution": [
+                    ["command": userBeforeCommand],
+                    ["command": "cmux hooks feed --source cursor --event beforeShellExecution"],
+                ],
+                "afterShellExecution": [
+                    ["command": userAfterCommand],
+                ],
+                "userCustomEvent": [
+                    ["command": userCustomCommand],
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: existing, options: [.prettyPrinted, .sortedKeys])
+            .write(to: hookURL, options: .atomic)
+
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+        for _ in 0..<2 {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "cursor", "install", "--yes"],
+                environment: environment,
+                timeout: 5
+            )
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+        }
+
+        let json = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any]
+        )
+        XCTAssertEqual(json["userSetting"] as? String, "preserve-me")
+        let hooks = try XCTUnwrap(json["hooks"] as? [String: Any])
+        let beforeEntries = try XCTUnwrap(hooks["beforeShellExecution"] as? [[String: Any]])
+        let beforeCommands = beforeEntries.compactMap { $0["command"] as? String }
+        XCTAssertEqual(beforeCommands.filter { $0 == userBeforeCommand }.count, 1)
+        XCTAssertEqual(
+            beforeCommands.filter { $0.contains("hooks cursor shell-exec") }.count,
+            1,
+            "Expected one cmux Cursor approval hook after repeated setup, saw \(beforeCommands)"
+        )
+        XCTAssertFalse(
+            beforeCommands.contains { $0.contains("hooks enqueue cursor shell-exec") },
+            "Cursor approval must remain on the synchronous hook path, saw \(beforeCommands)"
+        )
+        XCTAssertFalse(
+            beforeCommands.contains { $0.contains("hooks feed --source cursor") },
+            "Expected setup to replace the stale Cursor Feed bridge, saw \(beforeCommands)"
+        )
+
+        let afterEntries = try XCTUnwrap(hooks["afterShellExecution"] as? [[String: Any]])
+        let afterCommands = afterEntries.compactMap { $0["command"] as? String }
+        XCTAssertEqual(afterCommands.filter { $0 == userAfterCommand }.count, 1)
+        XCTAssertEqual(afterCommands.filter { $0.contains("hooks cursor shell-done") }.count, 1)
+
+        let failureEntries = try XCTUnwrap(hooks["postToolUseFailure"] as? [[String: Any]])
+        let failureCommands = failureEntries.compactMap { $0["command"] as? String }
+        XCTAssertEqual(failureCommands.filter { $0.contains("hooks cursor shell-failed") }.count, 1)
+        XCTAssertEqual(failureEntries.first?["matcher"] as? String, "Shell")
+
+        let customEntries = try XCTUnwrap(hooks["userCustomEvent"] as? [[String: Any]])
+        XCTAssertEqual(customEntries.compactMap { $0["command"] as? String }, [userCustomCommand])
+    }
+
     func testHermesAgentSessionEndIsTurnBoundaryButFinalizeTearsDown() throws {
         // Hermes fires the `on_session_end` plugin hook once per conversation turn
         // (end of every run_conversation()), not at the true session boundary, and a
@@ -1047,7 +1676,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
 
-        func runHermesHook(_ subcommand: String, input: String) -> ProcessRunResult {
+        func runHermesHook(
+            _ subcommand: String,
+            input: String,
+            barrierFails: Bool = false
+        ) -> ProcessRunResult {
             let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
                 guard let payload = self.jsonObject(line) else {
                     return "OK"
@@ -1060,6 +1693,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     return self.surfaceListResponse(id: id, surfaceId: surfaceId)
                 case "feed.push":
                     return self.v2Response(id: id, ok: true, result: [:])
+                case "agent.hook.barrier":
+                    return barrierFails
+                        ? self.v2Response(
+                            id: id,
+                            ok: false,
+                            error: ["code": "timeout", "message": "queued hook delivery timed out"]
+                        )
+                        : self.v2Response(id: id, ok: true, result: [:])
                 default:
                     return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
                 }
@@ -1142,7 +1783,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let finalizeCommandStart = state.commands.count
         let finalize = runHermesHook(
             "session-finalize",
-            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"on_session_finalize"}"#
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"on_session_finalize"}"#,
+            barrierFails: true
         )
         XCTAssertFalse(finalize.timedOut, finalize.stderr)
         XCTAssertEqual(finalize.status, 0, finalize.stderr)
@@ -1177,6 +1819,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "HOME": root.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "CMUX_BUNDLED_CLI_PATH": root.path,
+                "CMUX_SOCKET_PATH": makeSocketPath("agy-install"),
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             timeout: 5
@@ -1231,17 +1874,191 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
 
         let stop = try XCTUnwrap(cmuxGroup["Stop"] as? [[String: Any]])
+        let stopCommand = try XCTUnwrap(stop.first {
+            ($0["command"] as? String)?.contains("hooks enqueue antigravity stop") == true
+                && ($0["timeout"] as? Int) == 10
+        }?["command"] as? String)
         XCTAssertTrue(
-            stop.contains {
-                ($0["command"] as? String)?.contains("hooks antigravity stop") == true
-                    && ($0["timeout"] as? Int) == 10
-            },
-            "Expected Antigravity Stop hook to be a direct command handler, saw \(stop)"
+            stopCommand.contains(#"if [ "$cmux_hook_status" -ne 0 ]; then echo '{}'; fi"#),
+            "Antigravity queued admission must emit a neutral response when cmux is unavailable, saw \(stopCommand)"
+        )
+        XCTAssertTrue(
+            stopCommand.contains("exit 0"),
+            "Antigravity queued admission must fail open after recording the dispatch status, saw \(stopCommand)"
+        )
+        XCTAssertFalse(
+            stopCommand.contains("exit $cmux_hook_status"),
+            "Antigravity queued admission must not propagate queue-admission failures to the agent, saw \(stopCommand)"
         )
         XCTAssertNotNil(cmuxGroup["SessionStart"])
         XCTAssertNotNil(cmuxGroup["SessionEnd"])
         XCTAssertNotNil(cmuxGroup["turn-completion"])
         XCTAssertNotNil(cmuxGroup["Notification"])
+    }
+
+    /// `agy` preserves the launch environment, so a hook must report to the cmux
+    /// build that owns the terminal it runs in. Without this, `cmux hooks setup`
+    /// from any other build (nightly, a tagged dev build) silently redirects every
+    /// Antigravity session to that build's socket and restore never sees the
+    /// session. https://github.com/manaflow-ai/cmux/issues/5473
+    func testAntigravityHookInstallPrefersLaunchingTerminalSocket() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-antigravity-hook-ambient-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let pinnedSocketPath = root.appendingPathComponent("cmux-pinned.sock").path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "agy", "install", "--yes"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_BUNDLED_CLI_PATH": cliPath,
+                "CMUX_SOCKET_PATH": pinnedSocketPath,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 5
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let hookURL = root
+            .appendingPathComponent(".gemini", isDirectory: true)
+            .appendingPathComponent("config", isDirectory: true)
+            .appendingPathComponent("hooks.json", isDirectory: false)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any])
+        let cmuxGroup = try XCTUnwrap(json["cmux"] as? [String: Any])
+        let commands = cmuxGroup.values
+            .compactMap { $0 as? [[String: Any]] }
+            .flatMap { entries in entries.compactMap { $0["command"] as? String } }
+        XCTAssertFalse(commands.isEmpty)
+
+        let ambientInvocation = #""$CMUX_BUNDLED_CLI_PATH" --socket "$CMUX_SOCKET_PATH" hooks antigravity"#
+        let pinnedInvocation = "--socket '\(pinnedSocketPath)' hooks antigravity"
+        for command in commands {
+            let ambientRange = command.range(of: ambientInvocation)
+            let pinnedRange = command.range(of: pinnedInvocation)
+            XCTAssertNotNil(
+                ambientRange,
+                "Antigravity hooks must dispatch through the launching terminal's cmux first, saw \(command)"
+            )
+            XCTAssertNotNil(
+                pinnedRange,
+                "Antigravity hooks must keep the pinned install as a fallback, saw \(command)"
+            )
+            if let ambientRange, let pinnedRange {
+                XCTAssertLessThan(
+                    ambientRange.lowerBound,
+                    pinnedRange.lowerBound,
+                    "The terminal's own socket must win over the pinned socket, saw \(command)"
+                )
+            }
+            XCTAssertTrue(
+                command.contains(#"[ -S "$CMUX_SOCKET_PATH" ]"#),
+                "Ambient dispatch must require a live socket so an exited app falls back to the pinned build, saw \(command)"
+            )
+            XCTAssertTrue(
+                command.contains(#"[ -f "${CMUX_BUNDLED_CLI_PATH:-}" ]"#),
+                "Ambient dispatch must require a bundled CLI file, not a directory, saw \(command)"
+            )
+        }
+    }
+
+    /// A socket node can outlive the app that owned it. When the ambient
+    /// invocation fails, the hook must fall through to the pinned build instead
+    /// of dropping the event and the session record with it.
+    func testAntigravityHookFallsBackToPinnedBuildWhenAmbientDispatchFails() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agy-fb-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let callLogPath = root.appendingPathComponent("calls.log").path
+
+        func writeFakeCLI(_ name: String, exitCode: Int32) throws -> String {
+            let path = root.appendingPathComponent(name).path
+            let script = "#!/bin/sh\nprintf '%s %s\\n' '\(name)' \"$*\" >> '\(callLogPath)'\necho '{}'\nexit \(exitCode)\n"
+            try script.write(toFile: path, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path)
+            return path
+        }
+        let pinnedCLI = try writeFakeCLI("pinned-cmux", exitCode: 0)
+        let ambientCLI = try writeFakeCLI("ambient-cmux", exitCode: 7)
+        let pinnedSocketPath = root.appendingPathComponent("pinned.sock").path
+
+        let install = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "agy", "install", "--yes"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_BUNDLED_CLI_PATH": pinnedCLI,
+                "CMUX_SOCKET_PATH": pinnedSocketPath,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 5
+        )
+        XCTAssertFalse(install.timedOut, install.stderr)
+        XCTAssertEqual(install.status, 0, install.stderr)
+
+        let hookURL = root
+            .appendingPathComponent(".gemini", isDirectory: true)
+            .appendingPathComponent("config", isDirectory: true)
+            .appendingPathComponent("hooks.json", isDirectory: false)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any])
+        let cmuxGroup = try XCTUnwrap(json["cmux"] as? [String: Any])
+        let sessionStart = try XCTUnwrap(cmuxGroup["SessionStart"] as? [[String: Any]])
+        let command = try XCTUnwrap(sessionStart.first?["command"] as? String)
+
+        // A socket node that was bound once and is no longer served.
+        let staleSocketPath = root.appendingPathComponent("stale.sock").path
+        let socketFD = socket(AF_UNIX, SOCK_STREAM, 0)
+        XCTAssertGreaterThanOrEqual(socketFD, 0)
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let pathBytes = Array(staleSocketPath.utf8CString)
+        XCTAssertLessThan(pathBytes.count, MemoryLayout.size(ofValue: address.sun_path))
+        withUnsafeMutableBytes(of: &address.sun_path) { buffer in
+            for (index, byte) in pathBytes.enumerated() {
+                buffer[index] = UInt8(bitPattern: byte)
+            }
+        }
+        let bindResult = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
+                Darwin.bind(socketFD, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        XCTAssertEqual(bindResult, 0, String(cString: strerror(errno)))
+        close(socketFD)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: staleSocketPath))
+
+        let run = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", command],
+            environment: [
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_BUNDLED_CLI_PATH": ambientCLI,
+                "CMUX_SOCKET_PATH": staleSocketPath,
+            ],
+            timeout: 10
+        )
+        XCTAssertFalse(run.timedOut, run.stderr)
+        XCTAssertEqual(run.status, 0, run.stderr)
+
+        let calls = try String(contentsOfFile: callLogPath, encoding: .utf8)
+            .split(separator: "\n")
+            .map(String.init)
+        XCTAssertEqual(calls.count, 2, "expected the ambient attempt and then the pinned fallback, saw \(calls)")
+        XCTAssertEqual(
+            calls.first,
+            "ambient-cmux --socket \(staleSocketPath) hooks antigravity session-start"
+        )
+        XCTAssertEqual(
+            calls.last,
+            "pinned-cmux --socket \(pinnedSocketPath) hooks antigravity session-start"
+        )
     }
 
     func testKiroHookInstallUsesAgentConfigShapeAndPreservesDenyExit() throws {
@@ -2217,6 +3034,147 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    func testGrokSessionStartUsesLiveTargetWithoutHookEnvironmentAndDescribesResolutionFailures() throws {
+        let cliPath = try bundledCLIPath()
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-grok-live-target-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        func environment(socketPath: String, probePath: String? = nil) -> [String: String] {
+            var values: [String: String] = [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                "CMUX_CLI_SENTRY_DISABLED": probePath == nil ? "1" : "0",
+                "GROK_HOME": root.appendingPathComponent("grok-home", isDirectory: true).path,
+            ]
+            values["CMUX_CLI_SENTRY_CAPTURE_PROBE_PATH"] = probePath
+            return values
+        }
+
+        let successSocketPath = makeSocketPath("grok-live-target")
+        let successListenerFD = try bindUnixSocket(at: successSocketPath)
+        let successState = MockSocketServerState()
+        defer {
+            Darwin.close(successListenerFD)
+            unlink(successSocketPath)
+        }
+        startDetachedMockServer(listenerFD: successListenerFD, state: successState) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return "OK"
+            }
+            switch method {
+            case "agent.resolve_delivery_target":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspace_id": workspaceId,
+                        "surface_id": surfaceId,
+                        "source": "pid",
+                    ]
+                )
+            case "surface.list":
+                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "surface.resume.set":
+                return self.v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return "OK"
+            }
+        }
+
+        let liveStart = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "grok", "session-start"],
+            environment: environment(socketPath: successSocketPath),
+            standardInput: #"{"sessionId":"grok-live-session","cwd":"\#(root.path)","hookEventName":"SessionStart"}"#,
+            timeout: 5
+        )
+        XCTAssertFalse(liveStart.timedOut, liveStart.stderr)
+        XCTAssertEqual(liveStart.status, 0, liveStart.stderr)
+        XCTAssertEqual(liveStart.stdout, "{}\n")
+
+        let liveRequests = successState.snapshot().compactMap { self.jsonObject($0) }
+        XCTAssertTrue(
+            liveRequests.contains {
+                ($0["method"] as? String) == "agent.resolve_delivery_target"
+                    && (((($0["params"] as? [String: Any])?["pid"] as? NSNumber)?.intValue ?? 0) > 0)
+            },
+            "A sanitized Grok hook must resolve its live process identity, saw \(successState.snapshot())"
+        )
+        XCTAssertTrue(
+            liveRequests.contains { ($0["method"] as? String) == "surface.resume.set" },
+            "A resolved Grok SessionStart must persist the live target, saw \(successState.snapshot())"
+        )
+        let resumeRequest = try XCTUnwrap(
+            liveRequests.first { ($0["method"] as? String) == "surface.resume.set" }
+        )
+        let resumeParams = try XCTUnwrap(resumeRequest["params"] as? [String: Any])
+        XCTAssertEqual(resumeParams["workspace_id"] as? String, workspaceId)
+        XCTAssertEqual(resumeParams["surface_id"] as? String, surfaceId)
+        let storeURL = root.appendingPathComponent("grok-hook-sessions.json", isDirectory: false)
+        let storeJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any]
+        )
+        let sessions = try XCTUnwrap(storeJSON["sessions"] as? [String: Any])
+        let liveRecord = try XCTUnwrap(sessions["grok-live-session"] as? [String: Any])
+        XCTAssertEqual(liveRecord["workspaceId"] as? String, workspaceId)
+        XCTAssertEqual(liveRecord["surfaceId"] as? String, surfaceId)
+
+        let failureSocketPath = makeSocketPath("grok-live-failure")
+        let failureListenerFD = try bindUnixSocket(at: failureSocketPath)
+        let failureState = MockSocketServerState()
+        let probePath = root.appendingPathComponent("target-resolution-error.txt", isDirectory: false).path
+        defer {
+            Darwin.close(failureListenerFD)
+            unlink(failureSocketPath)
+        }
+        startDetachedMockServer(listenerFD: failureListenerFD, state: failureState) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return "OK"
+            }
+            guard method == "agent.resolve_delivery_target" else {
+                return "OK"
+            }
+            return self.v2Response(
+                id: id,
+                ok: false,
+                error: ["code": "not_found", "message": "No live delivery target"]
+            )
+        }
+
+        let failedStart = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "grok", "session-start"],
+            environment: environment(
+                socketPath: failureSocketPath,
+                probePath: probePath
+            ),
+            standardInput: #"{"sessionId":"grok-failed-session","cwd":"\#(root.path)","hookEventName":"SessionStart"}"#,
+            timeout: 5
+        )
+        XCTAssertFalse(failedStart.timedOut, failedStart.stderr)
+        XCTAssertEqual(failedStart.status, 0, failedStart.stderr)
+        XCTAssertEqual(failedStart.stdout, "{}\n")
+        let capturedError = try String(contentsOfFile: probePath, encoding: .utf8)
+        XCTAssertTrue(
+            capturedError.contains("Grok") && capturedError.contains("session-start"),
+            "Target-resolution telemetry must describe the failure, saw \(capturedError)"
+        )
+        XCTAssertFalse(capturedError.contains("(null)"), capturedError)
+    }
+
     func testGrokStopFallbackCompletionsFireForTwoConcurrentThreads() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("grok-two-threads")
@@ -2245,6 +3203,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_SOCKET_PATH": socketPath,
             "CMUX_WORKSPACE_ID": workspaceId,
             "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_AGENT_HOOK_ROUTE_SNAPSHOT": "1",
             "CMUX_CLI_SENTRY_DISABLED": "1",
             "GROK_HOME": grokHome.path,
         ]
@@ -2274,6 +3233,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     )
                 case "feed.push":
                     return self.v2Response(id: id, ok: true, result: [:])
+                case "agent.resolve_delivery_target":
+                    return self.v2Response(
+                        id: id,
+                        ok: true,
+                        result: [
+                            "source": "surface",
+                            "workspace_id": workspaceId,
+                            "surface_id": surfaceId,
+                        ]
+                    )
                 default:
                     return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
                 }
@@ -2912,7 +3881,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
-    func testGrokCompletionResetsStatusWhenSiblingRunningRecordHasDeadPID() throws {
+    func testGrokCompletionResetsStatusWhenSnapshotReplaySiblingRunningRecordHasDeadPID() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("grok-stale-sibling-status")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -2962,6 +3931,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_CLI_SENTRY_DISABLED": "1",
             "CMUX_WORKSPACE_ID": workspaceId,
             "CMUX_SURFACE_ID": completingSurfaceId,
+            "CMUX_AGENT_HOOK_ROUTE_SNAPSHOT": "1",
         ]
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
@@ -2972,6 +3942,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
             }
             switch method {
+            case "agent.resolve_delivery_target":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "source": "surface",
+                        "workspace_id": workspaceId,
+                        "surface_id": completingSurfaceId,
+                    ]
+                )
             case "surface.list":
                 return self.v2Response(
                     id: id,
@@ -3103,6 +4083,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             environment: [
                 "HOME": root.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": makeSocketPath("grok-install"),
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             timeout: 5
@@ -3139,8 +4120,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .compactMap { $0["command"] as? String }
 
         XCTAssertTrue(
-            notificationCommands.contains { $0.contains("cmux hooks grok notification") },
-            "Expected Grok Notification to dispatch to the notification handler, saw \(notificationCommands)"
+            notificationCommands.contains { $0.contains("hooks enqueue grok notification") },
+            "Expected Grok Notification to use queued admission, saw \(notificationCommands)"
         )
         XCTAssertFalse(
             notificationCommands.contains { $0.contains("cmux hooks grok stop") },
@@ -3170,10 +4151,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let pinnedCLI = root.appendingPathComponent("cmux pinned dev cli", isDirectory: false)
-        try "#!/bin/sh\nexit 0\n".write(to: pinnedCLI, atomically: true, encoding: .utf8)
+        let captureURL = root.appendingPathComponent("timeout.txt", isDirectory: false)
+        try makeCodexHookExecutableShellFile(at: pinnedCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s' \"${CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC:-missing}\" > \"$CMUX_TEST_CAPTURE\"",
+        ])
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: pinnedCLI.path)
 
-        let socketPath = "/tmp/cmux-debug-grok-pin.sock"
+        let socketPath = makeSocketPath("grok-pin")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["hooks", "grok", "install", "--yes"],
@@ -3216,10 +4206,22 @@ extension CLINotifyProcessIntegrationRegressionTests {
             allCommands.allSatisfy { $0.contains("--socket '\(socketPath)'") },
             "Expected installed Grok hooks to pin the installing socket path, saw \(allCommands)"
         )
-        XCTAssertFalse(
-            allCommands.contains { $0.contains("$CMUX_") },
-            "Grok hook commands must not depend on CMUX environment interpolation, saw \(allCommands)"
+        let notificationCommand = try XCTUnwrap(
+            allCommands.first { $0.contains("hooks enqueue grok notification") }
         )
+        let ambientResult = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", notificationCommand],
+            environment: [
+                "CMUX_BUNDLED_CLI_PATH": pinnedCLI.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_TEST_CAPTURE": captureURL.path,
+            ],
+            timeout: 2
+        )
+        XCTAssertFalse(ambientResult.timedOut, ambientResult.stderr)
+        XCTAssertEqual(ambientResult.status, 0, ambientResult.stderr)
+        XCTAssertEqual(try String(contentsOf: captureURL, encoding: .utf8), "0.5")
     }
 
     func testGrokHookInstallPreservesUserWrappedLegacyCommands() throws {
@@ -3265,6 +4267,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             environment: [
                 "HOME": root.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": makeSocketPath("grok-preserve"),
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             timeout: 5
@@ -3326,6 +4329,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             environment: [
                 "HOME": root.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": makeSocketPath("grok-metadata"),
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             timeout: 5
@@ -3420,7 +4424,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(
             commandBodies.contains {
                 $0.contains("CMUX_BUNDLED_CLI_PATH")
-                    && $0.contains("\"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" hooks codex prompt-submit")
+                    && $0.contains("\"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" hooks enqueue codex prompt-submit")
             },
             "Codex hooks should route through the launching app's bundled CLI, saw \(commandBodies)"
         )
@@ -3433,7 +4437,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Codex setup should replace bundled-CLI hooks that did not pin CMUX_SOCKET_PATH, saw \(commandBodies)"
         )
         XCTAssertEqual(
-            allCommands.filter { $0.contains("hooks codex prompt-submit") }.count,
+            allCommands.filter { $0.contains("hooks enqueue codex prompt-submit") }.count,
             1,
             "Codex setup should collapse duplicate cmux-owned prompt hooks to one entry, saw \(allCommands)"
         )
@@ -3456,6 +4460,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "HOME": root.path,
                 "GROK_HOME": grokRoot.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": makeSocketPath("grok-file-dir"),
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             timeout: 5
@@ -3603,9 +4608,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "codex-home-session"
         let ttyName = "ttys301"
-        let codexHome = root.appendingPathComponent("codex-accounts/work", isDirectory: true).path
+        let codexHomeURL = root.appendingPathComponent("codex-accounts/work", isDirectory: true)
+        let codexHome = codexHomeURL.path
+        let transcriptURL = codexHomeURL
+            .appendingPathComponent("sessions/2026/08/26/rollout-\(sessionId).jsonl", isDirectory: false)
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try writeCodexResumeTranscript(at: transcriptURL, sessionID: sessionId)
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
@@ -3680,7 +4689,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             executablePath: cliPath,
             arguments: ["hooks", "codex", "prompt-submit"],
             environment: environment,
-            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
             timeout: 5
         )
 
@@ -3737,8 +4746,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let ttySurfaceId = "33333333-3333-3333-3333-333333333333"      // the agent's real pane
         let sessionId = "codex-surface-session"
         let ttyName = "ttys302"
+        let codexHomeURL = root.appendingPathComponent(".codex", isDirectory: true)
+        let transcriptURL = codexHomeURL
+            .appendingPathComponent("sessions/2026/08/26/rollout-\(sessionId).jsonl", isDirectory: false)
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try writeCodexResumeTranscript(at: transcriptURL, sessionID: sessionId)
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
@@ -3786,6 +4799,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_CLI_TTY_NAME"] = ttyName
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CODEX_HOME"] = codexHomeURL.path
         environment["CMUX_AGENT_LAUNCH_KIND"] = "codex"
         environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/codex"
         environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
@@ -3795,7 +4809,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             executablePath: cliPath,
             arguments: ["hooks", "codex", "prompt-submit"],
             environment: environment,
-            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
             timeout: 5
         )
 
@@ -3832,8 +4846,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let ttySurfaceId = "33333333-3333-3333-3333-333333333333"      // the agent's real, live pane
         let sessionId = "codex-stale-session"
         let ttyName = "ttys303"
+        let codexHomeURL = root.appendingPathComponent(".codex", isDirectory: true)
+        let transcriptURL = codexHomeURL
+            .appendingPathComponent("sessions/2026/08/26/rollout-\(sessionId).jsonl", isDirectory: false)
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try writeCodexResumeTranscript(at: transcriptURL, sessionID: sessionId)
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
@@ -3874,6 +4892,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_CLI_TTY_NAME"] = ttyName
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CODEX_HOME"] = codexHomeURL.path
         environment["CMUX_AGENT_LAUNCH_KIND"] = "codex"
         environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/codex"
         environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
@@ -3883,7 +4902,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             executablePath: cliPath,
             arguments: ["hooks", "codex", "prompt-submit"],
             environment: environment,
-            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
             timeout: 5
         )
 
@@ -3993,6 +5012,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "non-restorable codex exec must not persist an env-only CODEX_HOME record; launchCommand=\(persisted["launchCommand"] ?? "nil")"
             )
         }
+    }
+
+    private func writeCodexResumeTranscript(at url: URL, sessionID: String) throws {
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let contents = #"""
+        {"type":"session_meta","payload":{"id":"\#(sessionID)","source":"cli","originator":"codex-tui"}}
+        {"type":"event_msg","payload":{"type":"task_complete"}}
+        """#
+        try contents.write(to: url, atomically: true, encoding: .utf8)
     }
 
     private func writeHermesStateDatabase(

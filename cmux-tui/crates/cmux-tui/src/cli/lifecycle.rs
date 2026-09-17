@@ -17,6 +17,8 @@ pub(super) struct ServerPlan {
 #[derive(Clone, Debug)]
 pub(super) enum ServerAction {
     Status,
+    Stats,
+    Ensure,
     Stop { force: bool },
     ReloadConfig,
 }
@@ -37,9 +39,48 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         }
         global.session = Some(session);
     }
+    if let Some(session) = global.session.as_deref()
+        && !valid_session_name(session)
+    {
+        return usage_error(
+            crate::localization::catalog().machine_agent.invalid_session,
+            global.output,
+        );
+    }
     let expected_session = global.session.clone();
-    let socket = super::wire::resolve_socket(&global);
+    let (socket, socket_is_derived) = match super::wire::resolve_socket_with_origin(&global) {
+        Ok(resolved) => resolved,
+        Err(_error) => {
+            if let Some(session) = global.session.as_deref()
+                && cmux_tui_core::server::validate_session_name(session).is_err()
+            {
+                return local_error_with_details(
+                    "usage.invalid",
+                    crate::localization::catalog().local_server.invalid_session,
+                    json!({"reason": "invalid_session"}),
+                    global.output,
+                    2,
+                );
+            }
+            return local_error_with_details(
+                "server.unavailable",
+                crate::localization::catalog().local_server.connect_failed,
+                json!({"reason": "socket_path_unavailable"}),
+                global.output,
+                3,
+            );
+        }
+    };
     let socket_output = socket.to_string_lossy().into_owned();
+    if matches!(plan.action, ServerAction::Ensure) {
+        return run_ensure(
+            expected_session,
+            socket,
+            socket_output,
+            socket_is_derived,
+            global.output,
+        );
+    }
     let stream = match transport::connect(&socket) {
         Ok(stream) => stream,
         Err(error) if matches!(plan.action, ServerAction::Stop { .. }) && is_absent(&error) => {
@@ -137,6 +178,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     }
 
     match plan.action {
+        ServerAction::Ensure => unreachable!("ensure returns before the lifecycle exchange"),
         ServerAction::Status => print_success(
             json!({
                 "status":"running",
@@ -148,11 +190,41 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             }),
             global.output,
         ),
+        ServerAction::Stats => {
+            let supports_stats = identity
+                .get("capabilities")
+                .and_then(Value::as_array)
+                .is_some_and(|capabilities| {
+                    capabilities.iter().any(|capability| capability == "server-stats-v1")
+                });
+            match exchange(&mut connection, json!({"id":2,"cmd":"server-stats"}), deadline) {
+                Ok(stats) => print_success(stats, global.output),
+                Err(ExchangeError::Rejected(_error)) if !supports_stats => local_error(
+                    "server.stats_unsupported",
+                    crate::localization::catalog().local_server.stats_unsupported,
+                    global.output,
+                    1,
+                ),
+                Err(ExchangeError::Rejected(error)) => local_error_with_details(
+                    "server.stats_rejected",
+                    &error,
+                    json!({"error":error}),
+                    global.output,
+                    1,
+                ),
+                Err(_) => local_error(
+                    "server.stats_failed",
+                    crate::localization::catalog().local_server.communication_failed,
+                    global.output,
+                    3,
+                ),
+            }
+        }
         ServerAction::ReloadConfig => {
             let result =
                 match exchange(&mut connection, json!({"id":2,"cmd":"reload-config"}), deadline) {
                     Ok(result) => result,
-                    Err(ExchangeError::Rejected) => {
+                    Err(ExchangeError::Rejected(_)) => {
                         return local_error(
                             "server.reload_failed",
                             crate::localization::catalog().local_server.reload_rejected,
@@ -212,7 +284,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                 deadline,
             ) {
                 Ok(result) => result,
-                Err(ExchangeError::Rejected) => {
+                Err(ExchangeError::Rejected(_)) => {
                     return local_error(
                         "server.stop_failed",
                         crate::localization::catalog().local_server.stop_rejected,
@@ -255,13 +327,78 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// `server ensure`: connect to a ready owner, spawning a detached one when
+/// nothing serves the socket. Reports `running` for an owner that already
+/// existed and `started` for one this call spawned.
+fn run_ensure(
+    expected_session: Option<String>,
+    socket: std::path::PathBuf,
+    socket_output: String,
+    socket_is_derived: bool,
+    output: OutputMode,
+) -> i32 {
+    let messages = &crate::localization::catalog().local_server;
+    let spec = crate::local_owner::OwnerSpec {
+        session: expected_session.clone().unwrap_or_else(|| "main".to_string()),
+        socket,
+        socket_is_derived,
+        state: None,
+        term: None,
+        initial_host_colors: None,
+    };
+    let deadline = Instant::now() + crate::local_owner::ENSURE_DEADLINE;
+    match crate::local_owner::ensure_owner(&spec, expected_session.as_deref(), deadline) {
+        Ok(ensured) => {
+            let (status, message, ready) = match &ensured {
+                crate::local_owner::Ensured::Running(ready) => ("running", messages.running, ready),
+                crate::local_owner::Ensured::Started(ready) => ("started", messages.started, ready),
+            };
+            print_success(
+                json!({
+                    "status":status,
+                    "session":ready.session,
+                    "socket":socket_output,
+                    "pid":ready.pid,
+                    "generation":ready.generation,
+                    "message":message,
+                }),
+                output,
+            )
+        }
+        Err(crate::local_owner::EnsureError::Spawn(_error)) => {
+            local_error("server.spawn_failed", &messages.owner_spawn_failed(), output, 3)
+        }
+        Err(crate::local_owner::EnsureError::NotReady) => {
+            local_error("server.unavailable", messages.owner_not_ready, output, 3)
+        }
+        Err(crate::local_owner::EnsureError::WrongOwner) => {
+            local_error("server.wrong_owner", messages.wrong_owner, output, 1)
+        }
+        Err(crate::local_owner::EnsureError::DifferentSession) => {
+            local_error("server.different_session", messages.different_session, output, 1)
+        }
+        Err(crate::local_owner::EnsureError::InvalidIdentity) => {
+            local_error("server.invalid_identity", messages.invalid_identity, output, 3)
+        }
+        Err(crate::local_owner::EnsureError::UnsupportedProtocol) => {
+            local_error("server.unsupported_protocol", messages.unsupported_protocol, output, 3)
+        }
+    }
+}
+
+fn valid_session_name(session: &str) -> bool {
+    !session.is_empty()
+        && session.len() <= 64
+        && session.chars().all(|character| !character.is_control() && !character.is_whitespace())
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum ExchangeError {
     Transport,
     Timeout,
     Closed,
     InvalidResponse,
-    Rejected,
+    Rejected(String),
 }
 
 fn exchange(
@@ -283,7 +420,9 @@ fn exchange(
         if response["ok"] == true {
             return Ok(response.get("data").cloned().unwrap_or(Value::Null));
         }
-        return Err(ExchangeError::Rejected);
+        let error =
+            response.get("error").and_then(Value::as_str).unwrap_or("request rejected").to_string();
+        return Err(ExchangeError::Rejected(error));
     }
 }
 
@@ -388,8 +527,18 @@ fn usage_error(message: &str, output: OutputMode) -> i32 {
 }
 
 fn local_error(code: &str, message: &str, output: OutputMode, exit_code: i32) -> i32 {
+    local_error_with_details(code, message, json!({}), output, exit_code)
+}
+
+fn local_error_with_details(
+    code: &str,
+    message: &str,
+    details: Value,
+    output: OutputMode,
+    exit_code: i32,
+) -> i32 {
     super::wire::print_local_error(
-        &json!({"code":code,"message":message,"details":{},"retryable":false}),
+        &json!({"code":code,"message":message,"details":details,"retryable":false}),
         output,
         exit_code,
     )
@@ -401,11 +550,25 @@ fn print_success(value: Value, output: OutputMode) -> i32 {
 
 #[cfg(test)]
 mod tests {
-    use std::io::{self, Read, Write};
+    use std::io::{self, Cursor, Read, Write};
     use std::net::Shutdown;
     use std::sync::{Arc, Mutex};
 
     use super::*;
+
+    #[test]
+    fn rejects_invalid_session_names_before_socket_resolution() {
+        assert!(!valid_session_name(""));
+        assert!(!valid_session_name("bad name"));
+        assert!(!valid_session_name("bad\nname"));
+        assert!(!valid_session_name(&"x".repeat(65)));
+    }
+
+    #[test]
+    fn accepts_session_names_for_explicit_and_default_socket_routes() {
+        assert!(valid_session_name("main"));
+        assert!(valid_session_name("agent-1"));
+    }
 
     struct UnreadableStream;
 
@@ -523,6 +686,44 @@ mod tests {
         }
     }
 
+    struct RejectedStream {
+        response: Cursor<Vec<u8>>,
+    }
+
+    impl Read for RejectedStream {
+        fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+            self.response.read(bytes)
+        }
+    }
+
+    impl Write for RejectedStream {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl transport::Stream for RejectedStream {
+        fn try_clone_box(&self) -> io::Result<Box<dyn transport::Stream>> {
+            Ok(Box::new(Self { response: self.response.clone() }))
+        }
+
+        fn set_read_timeout(&self, _: Option<Duration>) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn set_write_timeout(&self, _: Option<Duration>) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn shutdown(&self, _: Shutdown) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
     #[test]
     fn expired_deadline_fails_before_reading_another_frame() {
         let stream: Box<dyn transport::Stream> = Box::new(UnreadableStream);
@@ -559,6 +760,26 @@ mod tests {
         let mut connection = BufReader::new(stream);
 
         assert!(wait_for_close(&mut connection, Instant::now() + Duration::from_secs(1)).is_ok());
+    }
+
+    #[test]
+    fn exchange_preserves_daemon_rejection_details() {
+        let rejection = json!({
+            "id": 2,
+            "ok": false,
+            "error": "trusted local connection required",
+        });
+        let stream: Box<dyn transport::Stream> = Box::new(RejectedStream {
+            response: Cursor::new(format!("{rejection}\n").into_bytes()),
+        });
+        let mut connection = BufReader::new(stream);
+        let error = exchange(
+            &mut connection,
+            json!({"id":2,"cmd":"server-stats"}),
+            Instant::now() + Duration::from_secs(1),
+        )
+        .expect_err("rejected response");
+        assert_eq!(error, ExchangeError::Rejected("trusted local connection required".into()));
     }
 
     #[test]

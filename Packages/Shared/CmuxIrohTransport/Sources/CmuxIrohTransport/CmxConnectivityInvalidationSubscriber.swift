@@ -1,3 +1,4 @@
+import CMUXMobileCore
 public import Foundation
 
 /// Revision-only message carried by the account connectivity channel.
@@ -58,15 +59,26 @@ public enum CmxConnectivityInvalidationError: Error, Equatable, Sendable {
 public actor CmxConnectivityInvalidationSubscriber {
     public typealias AccessTokenProvider = @Sendable () async -> String?
     public typealias Handler = @Sendable (CmxConnectivityInvalidation) async -> Void
+    /// Optional stream-lifecycle observer: "connecting", "served …", and
+    /// "failed …" transitions with detail. Lets an owner log reconnect
+    /// behavior and re-run any catch-up work (frames sent while a stream was
+    /// down are never replayed by the channel).
+    public typealias StreamEventObserver = @Sendable (String) async -> Void
 
-    private enum StreamOutcome {
+    private enum StreamOutcome: Equatable {
         case served
-        case failed
+        case failed(retryAfterSeconds: Int?)
     }
+
+    /// Cadence of the zombie-detection pings. Long enough to stay quiet,
+    /// short enough that a dead stream (and the frames it would have carried)
+    /// is replaced well inside a relayed reply's server-side TTL.
+    static let keepalivePingInterval: TimeInterval = 60
 
     private let serviceBaseURL: URL
     private let accessToken: AccessTokenProvider
     private let session: URLSession
+    private let onStreamEvent: StreamEventObserver?
     private let backoff: CmxIrohReconnectBackoff
     private let sleep: @Sendable (TimeInterval) async throws -> Void
     private let handler: Handler
@@ -80,6 +92,7 @@ public actor CmxConnectivityInvalidationSubscriber {
         sleep: @escaping @Sendable (TimeInterval) async throws -> Void = {
             try await Task<Never, Never>.sleep(for: .seconds($0))
         },
+        onStreamEvent: StreamEventObserver? = nil,
         handler: @escaping Handler
     ) {
         self.serviceBaseURL = serviceBaseURL
@@ -87,6 +100,7 @@ public actor CmxConnectivityInvalidationSubscriber {
         self.session = session
         self.backoff = backoff
         self.sleep = sleep
+        self.onStreamEvent = onStreamEvent
         self.handler = handler
     }
 
@@ -135,20 +149,27 @@ public actor CmxConnectivityInvalidationSubscriber {
         while !Task.isCancelled {
             let outcome = await subscribeOnce()
             guard !Task.isCancelled else { return }
-            if outcome == .served {
+            let retryAfterSeconds: Int?
+            switch outcome {
+            case .served:
                 backoff.reset()
+                retryAfterSeconds = nil
+            case .failed(let serverFloor):
+                retryAfterSeconds = serverFloor
             }
-            let delay = backoff.nextDelay()
+            let delay = backoff.nextDelay(retryAfterSeconds: retryAfterSeconds)
             guard (try? await sleep(delay)) != nil else { return }
         }
     }
 
     private func subscribeOnce() async -> StreamOutcome {
         guard let url = Self.subscribeURL(serviceBaseURL: serviceBaseURL) else {
-            return .failed
+            await onStreamEvent?("failed cause=invalid_url")
+            return .failed(retryAfterSeconds: nil)
         }
         guard let token = await accessToken(), !token.isEmpty else {
-            return .failed
+            await onStreamEvent?("failed cause=no_token")
+            return .failed(retryAfterSeconds: nil)
         }
         var request = URLRequest(url: url)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -156,6 +177,32 @@ public actor CmxConnectivityInvalidationSubscriber {
         task.maximumMessageSize = CmxConnectivityInvalidation.maximumFrameBytes
         task.resume()
         defer { task.cancel(with: .goingAway, reason: nil) }
+        await onStreamEvent?("connecting")
+        // The channel is quiet by design, so a transport that died without a
+        // close frame (worker deploy, DO restart, network path change) leaves
+        // `receive()` suspended forever on a stream that can no longer deliver
+        // — and every frame sent meanwhile is silently lost. Protocol-level
+        // pings (answered by the runtime without waking the DO) bound that:
+        // a failed or unanswered ping cancels the socket, `receive()` throws,
+        // and the reconnect ladder re-establishes a deliverable stream.
+        let pingSleep = sleep
+        let keepalive = Task {
+            while !Task.isCancelled {
+                guard (try? await pingSleep(Self.keepalivePingInterval)) != nil else { return }
+                // Fire-and-forget deliberately: URLSession can invoke the pong
+                // handler MORE THAN ONCE during connection teardown (observed
+                // as a CheckedContinuation double-resume crash), so no
+                // continuation may wrap it. A dead transport surfaces as an
+                // error here; cancelling makes the suspended `receive()`
+                // throw, which is the one signal the stream loop acts on.
+                task.sendPing { error in
+                    if error != nil {
+                        task.cancel(with: .abnormalClosure, reason: nil)
+                    }
+                }
+            }
+        }
+        defer { keepalive.cancel() }
 
         let clock = ContinuousClock()
         let startedAt = clock.now
@@ -166,12 +213,21 @@ public actor CmxConnectivityInvalidationSubscriber {
                 do {
                     message = try await task.receive()
                 } catch {
-                    if delivered { return .served }
+                    let closeCode = task.closeCode.rawValue
+                    if delivered {
+                        await onStreamEvent?("served close=\(closeCode)")
+                        return .served
+                    }
                     let closedCleanly = task.closeCode == .normalClosure
                         || task.closeCode == .goingAway
-                    return closedCleanly && clock.now - startedAt >= .seconds(60)
+                    let retryAfterSeconds = Self.retryAfterSeconds(from: task)
+                    let outcome: StreamOutcome = closedCleanly && clock.now - startedAt >= .seconds(60)
                         ? .served
-                        : .failed
+                        : .failed(retryAfterSeconds: retryAfterSeconds)
+                    await onStreamEvent?(
+                        "\(outcome == .served ? "served" : "failed") close=\(closeCode) retry_after_s=\(retryAfterSeconds.map(String.init) ?? "-") error=\(String(describing: error))"
+                    )
+                    return outcome
                 }
                 let data: Data
                 switch message {
@@ -180,10 +236,12 @@ public actor CmxConnectivityInvalidationSubscriber {
                 case let .data(bytes):
                     data = bytes
                 @unknown default:
-                    return .failed
+                    await onStreamEvent?("failed cause=unknown_message_kind")
+                    return .failed(retryAfterSeconds: nil)
                 }
                 guard let invalidation = try? CmxConnectivityInvalidation.parse(data) else {
-                    return .failed
+                    await onStreamEvent?("failed cause=bad_frame bytes=\(data.count)")
+                    return .failed(retryAfterSeconds: nil)
                 }
                 guard !Task.isCancelled else { return .served }
                 delivered = true
@@ -193,5 +251,16 @@ public actor CmxConnectivityInvalidationSubscriber {
         } onCancel: {
             task.cancel(with: .goingAway, reason: nil)
         }
+    }
+
+    private static func retryAfterSeconds(
+        from task: URLSessionWebSocketTask
+    ) -> Int? {
+        guard let response = task.response as? HTTPURLResponse,
+              response.statusCode == 429 else { return nil }
+        return CmxRetryAfterPolicy.seconds(
+            from: response,
+            defaultSeconds: CmxRetryAfterPolicy.defaultRateLimitSeconds
+        )
     }
 }

@@ -14,16 +14,30 @@ public final class MobileFeatureFlags {
     /// The remote kill switch for the fully integrated terminal Files chip.
     public static let terminalFilesChipFlag =
         ClientConfigFlag<Bool>.iosArtifactChipEnabledRelease
+    /// The remote kill switch reverting iOS ≤26 keyboard pinning to the
+    /// rebuilt dock path.
+    public static let keyboardDockRebuildRevertFlag =
+        ClientConfigFlag<Bool>.iosKeyboardDockRebuildRevert
 
     /// User-defaults key for the last successful remote value.
     private static var terminalFilesChipCacheKey: String {
         "cmux.mobile.flags.remote." + terminalFilesChipFlag.key
     }
+    /// User-defaults key for the last successful keyboard-revert value.
+    private static var keyboardDockRebuildRevertCacheKey: String {
+        "cmux.mobile.flags.remote." + keyboardDockRebuildRevertFlag.key
+    }
     /// Delay between foreground refresh opportunities when the app remains active.
-    private static let refreshInterval: Duration = .seconds(5 * 60)
+    /// Thirty minutes bounds steady-state control-plane traffic across the fleet;
+    /// launch and scene-active refreshes keep flag propagation fast where it matters.
+    private static let refreshInterval: Duration = .seconds(30 * 60)
 
     /// Whether the chip and its count-only artifact scan are enabled.
     public private(set) var terminalFilesChipEnabled: Bool
+    /// Whether iOS ≤26 terminal keyboard pinning reverts to the rebuilt dock
+    /// path. Terminal hosts snapshot this at mount (reopen the workspace to
+    /// apply); iOS 27+ ignores it.
+    public private(set) var keyboardDockRebuildRevertEnabled: Bool
 
     /// Control-plane client used to fetch evaluated flags.
     @ObservationIgnored private let loader: any ClientConfigLoading
@@ -61,9 +75,13 @@ public final class MobileFeatureFlags {
             forKey: Self.terminalFilesChipCacheKey,
             defaults: defaults
         ) ?? Self.terminalFilesChipFlag.defaultValue
+        self.keyboardDockRebuildRevertEnabled = Self.storedBool(
+            forKey: Self.keyboardDockRebuildRevertCacheKey,
+            defaults: defaults
+        ) ?? Self.keyboardDockRebuildRevertFlag.defaultValue
     }
 
-    /// Starts an immediate refresh and a cancellation-aware five-minute scheduler.
+    /// Starts an immediate refresh and a cancellation-aware thirty-minute scheduler.
     /// Calling this again is a no-op.
     public func start() {
         guard !isStarted else { return }
@@ -151,6 +169,17 @@ public final class MobileFeatureFlags {
         }
         if Self.storedBool(forKey: Self.terminalFilesChipCacheKey, defaults: defaults) != enabled {
             defaults.set(enabled, forKey: Self.terminalFilesChipCacheKey)
+        }
+
+        let revertEnabled = config.value(Self.keyboardDockRebuildRevertFlag)
+        if keyboardDockRebuildRevertEnabled != revertEnabled {
+            keyboardDockRebuildRevertEnabled = revertEnabled
+        }
+        if Self.storedBool(
+            forKey: Self.keyboardDockRebuildRevertCacheKey,
+            defaults: defaults
+        ) != revertEnabled {
+            defaults.set(revertEnabled, forKey: Self.keyboardDockRebuildRevertCacheKey)
         }
     }
 

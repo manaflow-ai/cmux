@@ -186,7 +186,7 @@ struct CLIOmpHookBindingTests {
             $0.hasPrefix("set_agent_pid omp.\(resumedSessionId) ")
         })
         let lifecycleIndex = try #require(commands.firstIndex {
-            $0.hasPrefix("set_agent_lifecycle omp ")
+            $0.hasPrefix("agent_journal_append ") && $0.contains("\"agent_key\":\"omp\"")
         })
         let clearIndex = try #require(commands.firstIndex {
             Self.jsonObject($0)?["method"] as? String == "surface.resume.clear"

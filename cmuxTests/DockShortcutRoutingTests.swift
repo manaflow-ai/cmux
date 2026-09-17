@@ -10,10 +10,10 @@ import WebKit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
-private typealias AppStoredShortcut = cmux_DEV.StoredShortcut
+typealias DockRoutingStoredShortcut = cmux_DEV.StoredShortcut
 #elseif canImport(cmux)
 @testable import cmux
-private typealias AppStoredShortcut = cmux.StoredShortcut
+typealias DockRoutingStoredShortcut = cmux.StoredShortcut
 #endif
 
 @Suite("Dock shortcut routing", .serialized)
@@ -224,7 +224,7 @@ struct DockShortcutRoutingTests {
                         focus: true
                     )
                 )
-                let workspaceDock = harness.mainWorkspace.dockSplit
+                let workspaceDock = try #require(harness.mainWorkspace.dockSplit)
                 let dockPane = try #require(
                     workspaceDock.bonsplitController.allPaneIds.first
                 )
@@ -610,7 +610,7 @@ struct DockShortcutRoutingTests {
                 harness.dock.focusPanel(firstPanel)
                 let mainPanelBefore = harness.mainWorkspace.focusedPanelId
 
-                let customShortcut = AppStoredShortcut(
+                let customShortcut = DockRoutingStoredShortcut(
                     key: "y",
                     command: true,
                     shift: false,
@@ -647,7 +647,7 @@ struct DockShortcutRoutingTests {
                 harness.dock.focusPanel(leftPanel)
                 let mainPanelBefore = harness.mainWorkspace.focusedPanelId
 
-                let customShortcut = AppStoredShortcut(
+                let customShortcut = DockRoutingStoredShortcut(
                     key: "y",
                     command: true,
                     shift: false,
@@ -679,7 +679,7 @@ struct DockShortcutRoutingTests {
                 KeyboardShortcutSettings.setShortcut(.unbound, for: .nextSurface)
                 KeyboardShortcutSettings.setShortcut(.unbound, for: .prevSurface)
 
-                let next = AppStoredShortcut(
+                let next = DockRoutingStoredShortcut(
                     key: "\t",
                     command: false,
                     shift: false,
@@ -689,7 +689,7 @@ struct DockShortcutRoutingTests {
                 #expect(Self.dispatch(next, in: harness))
                 #expect(harness.dock.focusedPanelId == secondPanel)
 
-                let previous = AppStoredShortcut(
+                let previous = DockRoutingStoredShortcut(
                     key: "\t",
                     command: false,
                     shift: true,
@@ -716,7 +716,7 @@ struct DockShortcutRoutingTests {
                 )
                 harness.dock.focusPanel(firstPanel)
 
-                let controlTab = AppStoredShortcut(
+                let controlTab = DockRoutingStoredShortcut(
                     key: "\t",
                     command: false,
                     shift: false,
@@ -815,7 +815,7 @@ struct DockShortcutRoutingTests {
                 #expect(Self.dispatch(previousShortcut, in: harness))
                 #expect(harness.dock.focusedPanelId == firstPanel)
 
-                let numberedShortcut = AppStoredShortcut(
+                let numberedShortcut = DockRoutingStoredShortcut(
                     key: "3",
                     command: false,
                     shift: false,
@@ -1595,7 +1595,7 @@ struct DockShortcutRoutingTests {
         try await AppContextSerialGate.withExclusiveAppContext {
             try await Self.withHarness { harness in
                 let flags = CmuxFeatureFlags.shared
-                let simulatorFlag = CmuxFeatureFlags.allFlags[5]
+                let simulatorFlag = CmuxFeatureFlags.simulatorFlag
                 let previousOverride = flags.overrideValue(for: simulatorFlag)
                 flags.setOverride(true, for: simulatorFlag)
                 defer { flags.setOverride(previousOverride, for: simulatorFlag) }
@@ -1621,7 +1621,7 @@ struct DockShortcutRoutingTests {
         try await AppContextSerialGate.withExclusiveAppContext {
             try await Self.withHarness { harness in
                 let flags = CmuxFeatureFlags.shared
-                let simulatorFlag = CmuxFeatureFlags.allFlags[5]
+                let simulatorFlag = CmuxFeatureFlags.simulatorFlag
                 let previousOverride = flags.overrideValue(for: simulatorFlag)
                 flags.setOverride(true, for: simulatorFlag)
                 defer { flags.setOverride(previousOverride, for: simulatorFlag) }
@@ -1928,7 +1928,7 @@ struct DockShortcutRoutingTests {
     func dockBrowserFileFallbackUsesAssociatedWorkspace() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             try await Self.withHarness { harness in
-                let workspaceDock = harness.mainWorkspace.dockSplit
+                let workspaceDock = try #require(harness.mainWorkspace.dockSplit)
                 let cases: [(DockSplitStore, PanelHost)] = [
                     (
                         harness.dock,
@@ -1990,7 +1990,7 @@ struct DockShortcutRoutingTests {
     }
 }
 
-private extension DockShortcutRoutingTests {
+extension DockShortcutRoutingTests {
     @MainActor
     struct Harness {
         let appDelegate: AppDelegate
@@ -2082,6 +2082,7 @@ private extension DockShortcutRoutingTests {
             KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
             TerminalController.shared.setActiveTabManager(previousManager)
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
             manager.tabs.forEach { $0.teardownAllPanels() }
             window.orderOut(nil)
             window.close()
@@ -2126,7 +2127,7 @@ private extension DockShortcutRoutingTests {
 
     @MainActor
     static func dispatch(
-        _ shortcut: AppStoredShortcut,
+        _ shortcut: DockRoutingStoredShortcut,
         in harness: Harness,
         isARepeat: Bool = false
     ) -> Bool {
@@ -2141,7 +2142,7 @@ private extension DockShortcutRoutingTests {
     }
 
     static func event(
-        _ shortcut: AppStoredShortcut,
+        _ shortcut: DockRoutingStoredShortcut,
         in harness: Harness,
         isARepeat: Bool = false
     ) -> NSEvent? {
@@ -2164,8 +2165,8 @@ private extension DockShortcutRoutingTests {
         )
     }
 
-    static func customShortcut(key: String) -> AppStoredShortcut {
-        AppStoredShortcut(
+    static func customShortcut(key: String) -> DockRoutingStoredShortcut {
+        DockRoutingStoredShortcut(
             key: key,
             command: true,
             shift: false,

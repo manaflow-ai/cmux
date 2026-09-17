@@ -27,7 +27,7 @@ extension DockSplitStore {
     }
 
     static func makeConfiguration() -> BonsplitConfiguration {
-        let config = GhosttyConfig.load()
+        let config = GhosttyConfig.loadForCmux()
         return BonsplitConfiguration(
             allowSplits: true,
             allowCloseTabs: !CloseTabWarningStore(defaults: .standard).hidesTabCloseButton,
@@ -46,14 +46,16 @@ extension DockSplitStore {
         makeAppearance(from: config, windowAppearance: nil)
     }
 
+    /// Resolves Dock Bonsplit chrome against the mounted window backdrop when available.
     static func makeAppearance(
         from config: GhosttyConfig,
         windowAppearance: WindowAppearanceSnapshot?
     ) -> BonsplitConfiguration.Appearance {
         let sharesWindowBackdrop = Workspace.usesWindowRootTerminalBackdrop()
-        let renderingMode = WindowAppearanceSnapshot.terminalRenderingMode(
-            usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
-        )
+        let renderingMode = windowAppearance?.terminalRenderingMode
+            ?? WindowAppearanceSnapshot.terminalRenderingMode(
+                usesHostLayerBackground: GhosttyApp.shared.usesHostLayerBackground
+            )
         // The controller is created before SwiftUI mounts the Dock view, so
         // there may not be a ``WindowAppearanceSnapshot`` yet. Resolve that
         // first configuration through the same terminal-theme authority as
@@ -85,7 +87,8 @@ extension DockSplitStore {
                 sharesWindowBackdrop: sharesWindowBackdrop,
                 renderingMode: renderingMode,
                 paneBorderColorHex: PaneChromeSettings.paneBorderColorHex(),
-                chromeBackgroundColor: chromeBackgroundColor
+                chromeBackgroundColor: chromeBackgroundColor,
+                chromeHost: windowAppearance == nil ? .workspace : .dock
             ),
             usesSharedBackdrop: sharesWindowBackdrop
         )

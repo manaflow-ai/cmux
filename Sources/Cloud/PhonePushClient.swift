@@ -1,4 +1,5 @@
 import CmuxAuthRuntime
+import CmuxPhonePush
 import Foundation
 import Observation
 import OSLog
@@ -88,6 +89,7 @@ final class PhonePushClient {
     var presenceMonitor: MacPresenceMonitor = .live()
     private var presenceCache = MacPresenceDecisionCache()
     private var authLifecycleTask: Task<Void, Never>?
+    let identityPrewarm = PhonePushIdentityPrewarm()
     private var activeIdentity: AuthenticatedSessionIdentity?
     private var pendingPersistenceSnapshot: [PhonePushRequestEnvelope]?
     private var persistenceTask: Task<Void, Never>?
@@ -127,24 +129,24 @@ final class PhonePushClient {
             configuration: PhonePushConfiguration(defaults: defaults)
         )
     }
-
+    /// Starts auth-scoped phone push observation and off-main identity warming.
     func configure(auth: AuthCoordinator) {
         self.auth = auth
+        identityPrewarm.reset()
         authLifecycleTask?.cancel()
         cancelInMemoryQueue()
         activeIdentity = nil
+        startIdentityPrewarmIfNeeded()
         authLifecycleTask = Task { [weak self, weak auth] in
             guard let self, let auth else { return }
             await self.bootstrapQueueAndObserve(auth: auth)
         }
     }
-
     func configuration(
         defaults settingsDefaults: UserDefaults? = nil
     ) -> PhonePushConfiguration {
         PhonePushConfiguration(defaults: settingsDefaults ?? defaults)
     }
-
     /// Reconciles state after another owner removes stored overrides (Reset All).
     func reloadConfigurationFromDefaults() {
         let configuration = PhonePushConfiguration(defaults: defaults)
@@ -158,7 +160,6 @@ final class PhonePushClient {
         )
         publishStatusChanged()
     }
-
     /// Sole mutation path for Mac and phone callers. Validation happens before
     /// entry; all three privacy fields publish as one main-actor transaction.
     @discardableResult
@@ -201,7 +202,6 @@ final class PhonePushClient {
         publishStatusChanged()
         return configuration
     }
-
     nonisolated static func shouldForward(
         mode: PhoneForwardingMode,
         presence: MacPresenceMonitor.Decision
@@ -213,7 +213,6 @@ final class PhonePushClient {
             return !presence.isActive
         }
     }
-
     nonisolated static func admission(
         enabled: Bool,
         mode: PhoneForwardingMode,
@@ -224,7 +223,6 @@ final class PhonePushClient {
             ? .queued
             : .presenceSuppressed
     }
-
     func currentAdmission(
         defaults settingsDefaults: UserDefaults? = nil
     ) -> PhonePushAdmission {
@@ -239,7 +237,6 @@ final class PhonePushClient {
             ? .allowed
             : .suppressedMacActive
     }
-
     @discardableResult
     func forward(
         _ notification: TerminalNotification,
@@ -250,12 +247,12 @@ final class PhonePushClient {
         let payload = PhonePushPayload(
             notification: notification,
             macDeviceId: MobileHostIdentity.deviceID(),
+            macInstanceTag: MobileHostIdentity.instanceTag(),
             badgeCount: badgeCount,
             hideContent: defaults.bool(forKey: PhonePushSettings.hideContentKey)
         )
         return enqueue(payload)
     }
-
     /// Enqueues a user-requested diagnostic alert through the production path.
     /// The response confirms queue admission only; backend and APNs outcomes
     /// remain asynchronous and are correlated by the envelope UUID.
@@ -278,6 +275,7 @@ final class PhonePushClient {
             surfaceId: nil,
             retargetsToLiveSurfaceOwner: false,
             macDeviceId: MobileHostIdentity.deviceID(),
+            macInstanceTag: MobileHostIdentity.instanceTag(),
             notificationId: nil,
             notificationIds: [],
             badgeCount: badgeCount,
@@ -285,7 +283,6 @@ final class PhonePushClient {
         )
         return enqueue(payload)
     }
-
     private func forwardingAdmission() -> PhonePushForwardAdmission {
         let mode = PhoneForwardingMode.fromDefaults(defaults)
         let enabled = PhonePushConfiguration.forwardingEnabled(in: defaults)
@@ -298,7 +295,6 @@ final class PhonePushClient {
             presence: presenceCache.decision(from: presenceMonitor)
         )
     }
-
     private func enqueue(
         _ payload: PhonePushPayload
     ) -> PhonePushForwardAdmission {
@@ -338,17 +334,32 @@ final class PhonePushClient {
         }
         return .queued
     }
-
-    func forwardDismissed(ids: [String], badgeCount: Int) {
-        guard PhonePushConfiguration.forwardingEnabled(in: defaults),
-              !ids.isEmpty,
-              let identity = auth?.authenticatedSessionIdentity,
-              let targetBundleIdentifier = MobileIOSPairingTargetStore()
-                  .pushTargetNamespace?.bundleIdentifier else { return }
+    @discardableResult
+    func forwardDismissed(ids: [String], badgeCount: Int) -> PhonePushForwardAdmission {
+        guard PhonePushConfiguration.forwardingEnabled(in: defaults) else {
+            return .disabled
+        }
+        guard !ids.isEmpty else { return .queued }
+        guard let identity = auth?.authenticatedSessionIdentity else {
+            return .authenticationUnavailable
+        }
+        guard let targetBundleIdentifier = MobileIOSPairingTargetStore()
+            .pushTargetNamespace?.bundleIdentifier else {
+            return .encodingFailed
+        }
+        guard let macDeviceID = identityPrewarm.deviceIDIfReady() else {
+            guard identityPrewarm.appendDismissals(ids: ids, badgeCount: badgeCount) else {
+                phonePushLog.error("dismissal prewarm buffer full; dropping batch")
+                return .queueFull
+            }
+            startIdentityPrewarmIfNeeded()
+            return .queued
+        }
         deliveryQueue.retainOnly(
             accountID: identity.accountID,
             generation: identity.generation
         )
+        var admission: PhonePushForwardAdmission = .queued
         for start in stride(
             from: 0,
             to: ids.count,
@@ -364,7 +375,8 @@ final class PhonePushClient {
                 workspaceId: nil,
                 surfaceId: nil,
                 retargetsToLiveSurfaceOwner: false,
-                macDeviceId: nil,
+                macDeviceId: macDeviceID,
+                macInstanceTag: MobileHostIdentity.instanceTag(),
                 notificationId: nil,
                 notificationIds: Array(ids[start..<end]),
                 badgeCount: badgeCount,
@@ -390,21 +402,22 @@ final class PhonePushClient {
                 continue
             }
             if !deliveryQueue.enqueuePrioritizingDismiss(envelope) {
+                admission = .queueFull
                 logQueueStage(
                     "dismiss_queue_overflow",
                     correlationID: envelope.correlationID
                 )
             }
         }
+        return admission
     }
-
     /// Cancels in-flight retries and atomically clears credential-free storage.
     func cancelPendingDeliveries() {
         cancelInMemoryQueue()
+        identityPrewarm.reset()
         pendingPersistenceSnapshot = []
         schedulePersistence([])
     }
-
     private func bootstrapQueueAndObserve(auth: AuthCoordinator) async {
         // This call waits for launch bootstrap. A transient token failure does
         // not erase credential-free queue ownership; the published identity
@@ -423,7 +436,6 @@ final class PhonePushClient {
             await handleAuthTransition(identity, auth: auth)
         }
     }
-
     private func restoreQueueIfAllowed(
         identity: AuthenticatedSessionIdentity?,
         auth: AuthCoordinator
@@ -477,20 +489,19 @@ final class PhonePushClient {
         activeIdentity = identity
         deliveryQueue.start()
     }
-
     private func handleAuthTransition(
         _ identity: AuthenticatedSessionIdentity?,
         auth: AuthCoordinator
     ) async {
         guard identity != activeIdentity else { return }
         cancelInMemoryQueue()
+        identityPrewarm.reset()
         pendingPersistenceSnapshot = []
         activeIdentity = identity
         await clearPersistedQueue()
         guard self.auth === auth else { return }
         deliveryQueue.start()
     }
-
     private func schedulePersistence(
         _ snapshot: [PhonePushRequestEnvelope]
     ) {
@@ -500,13 +511,11 @@ final class PhonePushClient {
             await self?.drainPersistence()
         }
     }
-
     private func cancelInMemoryQueue() {
         suppressQueuePersistence = true
         deliveryQueue.cancelAll()
         suppressQueuePersistence = false
     }
-
     private func drainPersistence() async {
         while let snapshot = pendingPersistenceSnapshot {
             pendingPersistenceSnapshot = nil
@@ -524,7 +533,6 @@ final class PhonePushClient {
         }
         persistenceTask = nil
     }
-
     private func clearPersistedQueue() async {
         do {
             try await queueStore.clear()
@@ -533,7 +541,6 @@ final class PhonePushClient {
             setQueuePersistenceStatus(.clearFailed)
         }
     }
-
     private func setQueuePersistenceStatus(
         _ status: PhonePushQueuePersistenceStatus
     ) {
@@ -544,14 +551,12 @@ final class PhonePushClient {
         )
         publishStatusChanged()
     }
-
     private func publishStatusChanged() {
         MobileHostService.emitEvent(
             topic: "phone_push.status.changed",
             payload: [:]
         )
     }
-
     private func deliver(
         _ envelope: PhonePushRequestEnvelope
     ) async -> PhonePushHTTPResult {
@@ -675,7 +680,6 @@ final class PhonePushClient {
         }
         return .retryExhausted
     }
-
     /// Explicit executor hop for URL loading. Queue ownership remains on the
     /// main actor, while request construction, I/O, and response decoding do
     /// not consume its executor.

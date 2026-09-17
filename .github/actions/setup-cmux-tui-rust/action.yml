@@ -1,6 +1,12 @@
 name: Set up cmux-tui Rust
 description: Install the repository-pinned cmux-tui Rust toolchain.
 
+inputs:
+  python-command:
+    description: Pre-resolved trusted Python 3 command.
+    required: false
+    default: ""
+
 runs:
   using: composite
   steps:
@@ -8,8 +14,11 @@ runs:
       shell: bash
       env:
         TOOLCHAIN_FILE: ${{ github.action_path }}/../../../cmux-tui/rust-toolchain.toml
+        REQUESTED_PYTHON_COMMAND: ${{ inputs.python-command }}
       run: |
-        if command -v python3 >/dev/null 2>&1; then
+        if [[ -n "$REQUESTED_PYTHON_COMMAND" ]]; then
+          python_cmd="$REQUESTED_PYTHON_COMMAND"
+        elif command -v python3 >/dev/null 2>&1; then
           python_cmd=python3
         elif command -v python >/dev/null 2>&1; then
           python_cmd=python

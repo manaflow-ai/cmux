@@ -1,3 +1,4 @@
+import CMUXMobileCore
 public import Foundation
 
 /// Immutable inputs and derived command for one task-composer submission.
@@ -73,8 +74,12 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
         operationID: UUID
     ) {
         self.templateID = template.id
-        self.macDeviceID = macDeviceID
-        self.macInstanceTag = macInstanceTag
+        let identity = CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: macInstanceTag
+        )
+        self.macDeviceID = identity.macDeviceID
+        self.macInstanceTag = identity.instanceTag
         self.prompt = prompt
         self.modelID = modelID
         self.effortID = effortID

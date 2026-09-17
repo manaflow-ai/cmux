@@ -1,7 +1,7 @@
 name: Web deploy (staging)
 
 # Staging-first deploys: every web-affecting push to main migrates the staging
-# Aurora DB and deploys the cmux-staging Vercel project, so staging always
+# PlanetScale Postgres database and deploys the cmux-staging Vercel project, so staging always
 # serves current main. Production is NOT deployed from pushes (web/vercel.json
 # disables the git integration); it ships only via web-promote-prod.yml.
 

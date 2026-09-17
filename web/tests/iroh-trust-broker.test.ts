@@ -69,6 +69,72 @@ describe("Iroh build compatibility", () => {
     expect(canIOSBindingUseMac(ios, stagingMac)).toBe(true);
   });
 
+  test("a tagged DEV iOS build may discover every tagged DEV Mac build", () => {
+    const ios = binding({
+      platform: "ios",
+      tag: "mdev",
+      clientNamespace: "dev.cmux.ios.mdev",
+    });
+    const siblingTags = ["msta", "mnyt", "cdial"];
+
+    for (const tag of siblingTags) {
+      expect(canIOSBindingUseMac(ios, binding({
+        platform: "mac",
+        tag,
+        clientNamespace: `mac:com.cmuxterm.app.debug.${tag}`,
+      }))).toBe(true);
+    }
+    expect(canIOSBindingUseMac(ios, binding({
+      platform: "mac",
+      tag: "default",
+      clientNamespace: "mac:com.cmuxterm.app",
+    }))).toBe(false);
+    expect(canIOSBindingUseMac(ios, binding({
+      platform: "mac",
+      tag: "rc",
+      clientNamespace: "mac:com.cmuxterm.app.rc",
+    }))).toBe(false);
+    expect(canIOSBindingUseMac(ios, binding({
+      platform: "mac",
+      tag: "staging",
+      clientNamespace: "mac:com.cmuxterm.app.staging",
+    }))).toBe(false);
+    expect(canIOSBindingUseMac(ios, binding({
+      platform: "mac",
+      tag: "rc",
+      clientNamespace: "mac:com.cmuxterm.app.debug.rc",
+    }))).toBe(false);
+    expect(canIOSBindingUseMac(ios, binding({
+      platform: "mac",
+      tag: "staging",
+      clientNamespace: "mac:com.cmuxterm.app.debug.staging",
+    }))).toBe(false);
+    expect(canIOSBindingForgetMac(ios, binding({
+      platform: "mac",
+      tag: "msta",
+      clientNamespace: "mac:com.cmuxterm.app.debug.msta",
+    }))).toBe(false);
+  });
+
+  test("tagged DEV discovery requires a DEV Mac bundle namespace", () => {
+    const ios = binding({
+      platform: "ios",
+      tag: "mdev",
+      clientNamespace: "dev.cmux.ios.mdev",
+    });
+
+    expect(canIOSBindingUseMac(ios, binding({
+      platform: "mac",
+      tag: "mdev",
+      clientNamespace: "mac:com.cmuxterm.app.staging.mdev",
+    }))).toBe(false);
+    expect(canIOSBindingUseMac(ios, binding({
+      platform: "mac",
+      tag: "mdev",
+      clientNamespace: "mac:com.cmuxterm.app.debug.mdev",
+    }))).toBe(true);
+  });
+
   test("a legacy default-lane iOS binding may use default and nightly Macs", () => {
     const legacyIos = binding({
       platform: "ios",
@@ -88,7 +154,7 @@ describe("Iroh build compatibility", () => {
     const featureMac = binding({
       platform: "mac",
       tag: "feature-b",
-      clientNamespace: "mac:feature-b",
+      clientNamespace: "mac:com.cmuxterm.app.debug.feature-b",
     });
 
     expect(canIOSBindingUseMac(legacyIos, defaultMac)).toBe(true);
@@ -110,7 +176,7 @@ describe("Iroh build compatibility", () => {
     const sameLaneMac = binding({
       platform: "mac",
       tag: "feature-a",
-      clientNamespace: "mac:feature-a",
+      clientNamespace: "mac:com.cmuxterm.app.debug.feature-a",
     });
 
     expect(canIOSBindingUseMac(taggedLegacyIos, nightlyMac)).toBe(false);
@@ -146,6 +212,7 @@ describe("Iroh trust broker registration", () => {
     const result = await Effect.runPromise(fixture.broker.register(USER_A, request, NOW)) as {
       revision: number;
       binding: { endpoint_id: string };
+      minimum_publication_spacing_seconds: number;
       relay: { status: string; token: string };
       discovery_complete: boolean;
       discovery: {
@@ -154,6 +221,8 @@ describe("Iroh trust broker registration", () => {
       };
     };
     expect(result.binding.endpoint_id).toBe(fixture.endpointId);
+    // Server-owned publication policy travels with every registration.
+    expect(result.minimum_publication_spacing_seconds).toBe(60);
     expect(result.relay.status).toBe("issued");
     expect(result.discovery.revision).toBe(result.revision);
     expect(result.discovery_complete).toBe(true);
@@ -449,6 +518,15 @@ describe("Iroh trust broker registration", () => {
     );
   });
 
+  test("rejects a superseded signed challenge at the broker boundary", async () => {
+    const fixture = makeFixture();
+    const old = await fixture.signedRegistration();
+    const current = await fixture.signedRegistration();
+    await expectEffectFailure(fixture.broker.register(USER_A, old, NOW), "IrohNotFoundError");
+    const registered = await Effect.runPromise(fixture.broker.register(USER_A, current, NOW));
+    expect(registered).toHaveProperty("binding");
+  });
+
   test("rejects expired and replayed challenges", async () => {
     const expired = makeFixture();
     await expectEffectFailure(
@@ -463,7 +541,9 @@ describe("Iroh trust broker registration", () => {
     const replay = makeFixture();
     const request = await replay.signedRegistration();
     await Effect.runPromise(replay.broker.register(USER_A, request, NOW));
-    await expectEffectFailure(replay.broker.register(USER_A, request, NOW), "IrohConflictError");
+    // A consumed challenge is deleted with its registration, so a replay of
+    // the same signed request reads as an unknown challenge.
+    await expectEffectFailure(replay.broker.register(USER_A, request, NOW), "IrohNotFoundError");
   });
 
   test("re-keys the slot onto a fresh binding id when the endpoint rotates", async () => {
@@ -1368,7 +1448,7 @@ describe("Iroh discovery and grants", () => {
     expect(fixture.repository.pairGrantAudits).toHaveLength(0);
   });
 
-  test("pair grants reject a Mac from another build lane", async () => {
+  test("pair grants accept another tagged DEV Mac", async () => {
     const fixture = makeFixture();
     const initiator = binding({
       userId: USER_A,
@@ -1379,7 +1459,7 @@ describe("Iroh discovery and grants", () => {
     });
     const acceptor = binding({
       userId: USER_A,
-      clientNamespace: "mac:feature-b",
+      clientNamespace: "mac:com.cmuxterm.app.debug.feature-b",
       tag: "feature-b",
       platform: "mac",
       pairingEnabled: true,
@@ -1390,22 +1470,21 @@ describe("Iroh discovery and grants", () => {
       acceptorBindingId: acceptor.id,
     };
 
-    await expectEffectFailure(
-      fixture.broker.issuePairGrant(
-        USER_A,
+    const result = await Effect.runPromise(fixture.broker.issuePairGrant(
+      USER_A,
+      body,
+      NOW,
+      initiator.clientNamespace,
+      fixture.bindingProof(
+        initiator.id,
+        "POST",
+        "api/devices/iroh/pair-grants",
         body,
-        NOW,
-        initiator.clientNamespace,
-        fixture.bindingProof(
-          initiator.id,
-          "POST",
-          "api/devices/iroh/pair-grants",
-          body,
-        ),
       ),
-      "IrohForbiddenError",
-    );
-    expect(fixture.repository.pairGrantAudits).toHaveLength(0);
+    )) as { grant: string };
+
+    expect(result.grant.split(".")).toHaveLength(3);
+    expect(fixture.repository.pairGrantAudits).toHaveLength(1);
   });
 
   test("an official iOS binding can pair with a Nightly Mac", async () => {
@@ -1673,7 +1752,7 @@ describe("Iroh discovery and grants", () => {
     expect(fixture.repository.pairGrantAudits).toHaveLength(0);
   });
 
-  test("tagged discovery never exposes sibling Mac lane metadata", async () => {
+  test("tagged DEV discovery exposes every tagged DEV Mac binding", async () => {
     const fixture = makeFixture();
     const iosA = binding({
       platform: "ios",
@@ -1683,12 +1762,12 @@ describe("Iroh discovery and grants", () => {
     });
     const macA = binding({
       platform: "mac",
-      clientNamespace: "mac:feature-a",
+      clientNamespace: "mac:com.cmuxterm.app.debug.feature-a",
       tag: "feature-a",
     });
     const macB = binding({
       platform: "mac",
-      clientNamespace: "mac:feature-b",
+      clientNamespace: "mac:com.cmuxterm.app.debug.feature-b",
       tag: "feature-b",
     });
     fixture.repository.bindings.push(iosA, macA, macB);
@@ -1709,6 +1788,7 @@ describe("Iroh discovery and grants", () => {
     expect(discovered.bindings.map((row) => row.binding_id)).toEqual([
       iosA.id,
       macA.id,
+      macB.id,
     ].sort());
   });
 
@@ -1875,7 +1955,12 @@ class MemoryRepository implements IrohRepositoryShape {
       expiresAt: input.expiresAt,
       consumedAt: null,
     };
-    this.challenges.push(challenge);
+    const otherSlots = this.challenges.filter((row) =>
+      row.userId !== challenge.userId
+      || row.clientNamespace !== challenge.clientNamespace
+      || row.deviceUuid !== challenge.deviceUuid
+      || row.tag !== challenge.tag);
+    this.challenges.splice(0, this.challenges.length, ...otherSlots, challenge);
     return Effect.succeed(challenge);
   }
 
@@ -1938,7 +2023,7 @@ class MemoryRepository implements IrohRepositoryShape {
       existing.platform === input.payload.platform &&
       existing.identityGeneration === input.payload.identityGeneration
     ) {
-      challenge.consumedAt = input.now;
+      this.challenges.splice(this.challenges.indexOf(challenge), 1);
       existing.appInstanceId = input.payload.appInstanceId;
       existing.platform = input.payload.platform;
       existing.identityGeneration = input.payload.identityGeneration;
@@ -1994,7 +2079,7 @@ class MemoryRepository implements IrohRepositoryShape {
       updatedAt: input.now,
       lastSeenAt: input.now,
     });
-    challenge.consumedAt = input.now;
+    this.challenges.splice(this.challenges.indexOf(challenge), 1);
     this.bindings.push(inserted);
     if (!existing) {
       this.lanGenerations.set(

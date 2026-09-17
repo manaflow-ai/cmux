@@ -35,9 +35,17 @@ export interface DeviceDeliveryClaim {
 export async function claimDeviceDeliveryTargets(
   db: PushDatabase,
   userId: string,
-  targetBundleId: string,
+  targetBundleId: string | null,
   now = new Date(),
 ): Promise<DeviceDeliveryClaim> {
+  // A null bundle is the legacy namespace: pre-rollout Macs cannot name a
+  // target lane, so they keep their historical account-wide reach and each
+  // token row supplies its own bundle topic to the sender.
+  const tokenScope = (bundleId: string | null) => and(
+    eq(deviceTokens.userId, userId),
+    eq(deviceTokens.platform, "ios"),
+    ...(bundleId == null ? [] : [eq(deviceTokens.bundleId, bundleId)]),
+  );
   return db.transaction(async (tx) => {
     // This uses the same account advisory lock as deletion startup. Once the
     // tombstone wins that linearization point, no later push can renew a device
@@ -52,11 +60,7 @@ export async function claimDeviceDeliveryTargets(
         deliveryLeaseUntil: deviceTokens.deliveryLeaseUntil,
       })
       .from(deviceTokens)
-      .where(and(
-        eq(deviceTokens.userId, userId),
-        eq(deviceTokens.platform, "ios"),
-        eq(deviceTokens.bundleId, targetBundleId),
-      ))
+      .where(tokenScope(targetBundleId))
       .limit(MAX_DEVICE_TOKENS_PER_USER)
       .for("update");
 
@@ -86,9 +90,7 @@ export async function claimDeviceDeliveryTargets(
         deliveryLeaseToken: leaseToken,
       })
       .where(and(
-        eq(deviceTokens.userId, userId),
-        eq(deviceTokens.platform, "ios"),
-        eq(deviceTokens.bundleId, targetBundleId),
+        tokenScope(targetBundleId),
         inArray(deviceTokens.id, rows.map((row) => row.targetId)),
       ));
 
