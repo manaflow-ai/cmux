@@ -6,6 +6,10 @@ struct CloudVMLoadingPanelView: View {
     @ObservedObject var panel: CloudVMLoadingPanel
 
     var body: some View {
+        // Match semantic text colors to the terminal background, which can
+        // differ from the system appearance.
+        let backgroundColor = GhosttyApp.shared.defaultBackgroundColor
+        let readableScheme = WindowChromeColorResolver().readableColorScheme(for: backgroundColor)
         let schedule: PeriodicTimelineSchedule = .periodic(from: panel.startedAt, by: 1)
         TimelineView(schedule) { context in
             let elapsedSeconds = max(0, Int(context.date.timeIntervalSince(panel.startedAt).rounded(.down)))
@@ -63,7 +67,8 @@ struct CloudVMLoadingPanelView: View {
             }
             .padding(32)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(nsColor: GhosttyApp.shared.defaultBackgroundColor))
+            .background(Color(nsColor: backgroundColor))
+            .environment(\.colorScheme, readableScheme)
         }
     }
 }
