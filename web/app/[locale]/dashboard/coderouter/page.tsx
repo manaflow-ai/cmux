@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { getTranslations } from "next-intl/server";
 import { headers } from "next/headers";
+import { connection } from "next/server";
 import { redirect } from "next/navigation";
 import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
@@ -8,8 +9,8 @@ import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
 import { hostedSubrouterCutoverReadyForTeam } from "@/services/subrouter/cutover";
 import { createHostedSubrouterClient } from "@/services/subrouter/hostedClient";
 import {
-  authorizedSubrouterTeams,
-} from "@/services/subrouter/routeHelpers";
+  authorizedCoderouterTeams,
+} from "@/services/coderouter/permissions";
 import {
   isSubrouterAuthorizationError,
   SubrouterAuthorizationUnavailableError,
@@ -90,6 +91,8 @@ export default function CoderouterOverviewPage(props: PageProps) {
 }
 
 async function ResolvedCoderouterOverviewContent({ params, searchParams }: PageProps) {
+  // Authorization and tracing run per request, below the cached page shell.
+  await connection();
   // Framework promises are not stable cache keys across prerender phases.
   const [{ locale }, { team: teamParam }] = await Promise.all([params, searchParams]);
   const team = Array.isArray(teamParam) ? teamParam[0] : teamParam;
@@ -100,6 +103,7 @@ async function ResolvedCoderouterOverviewContent({ params, searchParams }: PageP
 type CoderouterAuthorization = {
   readonly selectedTeam: DashboardTeam;
   readonly accessToken: string;
+  readonly userId: string;
 };
 
 type CoderouterAuthorizationResult =
@@ -135,7 +139,7 @@ export async function CoderouterOverviewContent({
     redirect("/dashboard");
   }
 
-  const { selectedTeam, accessToken } = authorization.value;
+  const { selectedTeam, accessToken, userId } = authorization.value;
   const [tPage, sharedAccounts, metrics, claudeAccounts, nativeAccounts, machineUsage] = await Promise.all([
     getTranslations({ locale, namespace: "dashboard.coderouter" }),
     withPrioritySpan(
@@ -154,13 +158,13 @@ export async function CoderouterOverviewContent({
       "cmux-coderouter-dashboard",
       "cmux.coderouter.claude_upstream",
       { "cmux.team_scope": "selected" },
-      () => loadClaudeAccounts(selectedTeam.id),
+      () => loadClaudeAccounts(selectedTeam.id, userId),
     ),
     withPrioritySpan(
       "cmux-coderouter-dashboard",
       "cmux.coderouter.native_accounts",
       { "cmux.team_scope": "selected" },
-      () => loadNativeAccounts(selectedTeam.id),
+      () => loadNativeAccounts(selectedTeam.id, userId),
     ),
     withPrioritySpan(
       "cmux-coderouter-dashboard",
@@ -181,6 +185,7 @@ export async function CoderouterOverviewContent({
       <CoderouterAccountsSection
         key={selectedTeam.id}
         teamId={selectedTeam.id}
+        viewerUserId={userId}
         canManage={selectedTeam.manageAccounts}
         claude={claudeAccounts}
         native={nativeAccounts}
@@ -213,7 +218,7 @@ async function resolveCoderouterAuthorization(
         );
         if (!user) return null;
         const [authorized, authJson] = await Promise.all([
-          authorizedSubrouterTeams(user),
+          authorizedCoderouterTeams(user),
           withStackAuthSpan(
             "get_auth_json",
             () => getStackServerApp().getAuthJson({
@@ -267,6 +272,7 @@ async function resolveCoderouterAuthorization(
       value: {
         selectedTeam,
         accessToken,
+        userId: authenticated.user.id,
       },
     };
   } catch (error) {
@@ -499,17 +505,17 @@ async function loadSharedAccounts(
   }
 }
 
-async function loadNativeAccounts(teamId: string): Promise<NativeAccountsState> {
+async function loadNativeAccounts(teamId: string, userId: string): Promise<NativeAccountsState> {
   try {
-    return { kind: "ok", accounts: await listNativeAccounts(teamId) };
+    return { kind: "ok", accounts: await listNativeAccounts(teamId, { kind: "user", userId }) };
   } catch {
     return { kind: "error" };
   }
 }
 
-async function loadClaudeAccounts(teamId: string): Promise<ClaudeAccountsState> {
+async function loadClaudeAccounts(teamId: string, userId: string): Promise<ClaudeAccountsState> {
   try {
-    return { kind: "ok", accounts: await listClaudeAccounts(teamId) };
+    return { kind: "ok", accounts: await listClaudeAccounts(teamId, { kind: "user", userId }) };
   } catch {
     return { kind: "error" };
   }

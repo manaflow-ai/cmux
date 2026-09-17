@@ -11,7 +11,7 @@ extension Workspace {
         propagateToCloud: Bool = true,
         catalog: SurfaceCatalog? = nil
     ) -> Bool {
-        let catalog = catalog ?? .shared
+        let catalog = catalog ?? SurfaceCatalog.shared
         guard panels[panelId] != nil else { return false }
         let previousWorkspaceTitle = self.title
         defer {
