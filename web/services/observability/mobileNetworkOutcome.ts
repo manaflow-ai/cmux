@@ -127,51 +127,67 @@ export function parseMobileTerminalLatencyWindow(candidate: unknown): MobileTerm
   if (!validTimestamp(candidate.timestamp) || !validProperties(candidate.properties)) return null;
   const properties = candidate.properties;
   const metadata = parseMetadata(properties);
-  const numericKeys = [
-    "window_ms", "input_count", "output_count", "presented_count", "correlated_output_count",
-    "dropped_count", "output_bytes", "max_queue_depth", "input_to_output_p50_ms",
-    "input_to_output_p95_ms", "input_to_output_p99_ms", "input_to_visible_p50_ms",
-    "input_to_visible_p95_ms", "input_to_visible_p99_ms", "render_p50_ms", "render_p95_ms",
-    "render_p99_ms",
-  ] as const;
-  if (!metadata || numericKeys.some((key) => unsignedInteger(properties[key]) === null)) return null;
-  const histograms: Record<string, string> = {};
-  if (properties.histogram_version !== undefined) {
-    if (properties.histogram_version !== 1) return null;
-    for (const name of ["input_to_output", "input_to_visible", "render"]) {
-      const raw = properties[`${name}_histogram`];
-      if (typeof raw !== "string" || raw.length > 512) return null;
-      try {
-        const counts: unknown = JSON.parse(raw);
-        if (!Array.isArray(counts) || counts.length !== 17 || counts.some((n) => unsignedInteger(n) === null)) return null;
-        histograms[name] = JSON.stringify(counts);
-      } catch { return null; }
-    }
-  } else if (["input_to_output", "input_to_visible", "render"].some((name) => properties[`${name}_histogram`] !== undefined)) return null;
-  if (properties.input_failed_count !== undefined && unsignedInteger(properties.input_failed_count) === null) return null;
+  const numbers = parseTerminalNumbers(properties);
+  const histograms = parseTerminalHistograms(properties);
+  if (!metadata || !numbers || histograms === null) return null;
   return {
     timestamp: candidate.timestamp,
-    inputFailedCount: unsignedInteger(properties.input_failed_count) ?? undefined,
-    ...(Object.keys(histograms).length ? { histograms } : {}),
-    windowMs: unsignedInteger(properties.window_ms)!,
-    inputCount: unsignedInteger(properties.input_count)!,
-    outputCount: unsignedInteger(properties.output_count)!,
-    presentedCount: unsignedInteger(properties.presented_count)!,
-    correlatedOutputCount: unsignedInteger(properties.correlated_output_count)!,
-    droppedCount: unsignedInteger(properties.dropped_count)!,
-    outputBytes: unsignedInteger(properties.output_bytes)!,
-    maxQueueDepth: unsignedInteger(properties.max_queue_depth)!,
-    inputToOutputP50Ms: unsignedInteger(properties.input_to_output_p50_ms)!,
-    inputToOutputP95Ms: unsignedInteger(properties.input_to_output_p95_ms)!,
-    inputToOutputP99Ms: unsignedInteger(properties.input_to_output_p99_ms)!,
-    inputToVisibleP50Ms: unsignedInteger(properties.input_to_visible_p50_ms)!,
-    inputToVisibleP95Ms: unsignedInteger(properties.input_to_visible_p95_ms)!,
-    inputToVisibleP99Ms: unsignedInteger(properties.input_to_visible_p99_ms)!,
-    renderP50Ms: unsignedInteger(properties.render_p50_ms)!,
-    renderP95Ms: unsignedInteger(properties.render_p95_ms)!,
-    renderP99Ms: unsignedInteger(properties.render_p99_ms)!,
+    ...numbers,
+    ...(histograms ? { histograms } : {}),
     ...metadata,
   };
+}
+
+const terminalNumericKeys = [
+  "window_ms", "input_count", "output_count", "presented_count", "correlated_output_count",
+  "dropped_count", "output_bytes", "max_queue_depth", "input_to_output_p50_ms",
+  "input_to_output_p95_ms", "input_to_output_p99_ms", "input_to_visible_p50_ms",
+  "input_to_visible_p95_ms", "input_to_visible_p99_ms", "render_p50_ms", "render_p95_ms",
+  "render_p99_ms",
+] as const;
+
+type TerminalNumbers = {
+  windowMs: number; inputCount: number; outputCount: number; presentedCount: number;
+  correlatedOutputCount: number; droppedCount: number; outputBytes: number; maxQueueDepth: number;
+  inputToOutputP50Ms: number; inputToOutputP95Ms: number; inputToOutputP99Ms: number;
+  inputToVisibleP50Ms: number; inputToVisibleP95Ms: number; inputToVisibleP99Ms: number;
+  renderP50Ms: number; renderP95Ms: number; renderP99Ms: number; inputFailedCount?: number;
+};
+
+function parseTerminalNumbers(properties: Record<string, unknown>): TerminalNumbers | null {
+  const values = Object.fromEntries(terminalNumericKeys.map((key) => [key, unsignedInteger(properties[key])])) as Record<string, number | null>;
+  if (Object.values(values).some((value) => value === null)) return null;
+  const failed = properties.input_failed_count === undefined ? undefined : unsignedInteger(properties.input_failed_count);
+  if (failed === null) return null;
+  return {
+    windowMs: values.window_ms!, inputCount: values.input_count!, outputCount: values.output_count!,
+    presentedCount: values.presented_count!, correlatedOutputCount: values.correlated_output_count!,
+    droppedCount: values.dropped_count!, outputBytes: values.output_bytes!, maxQueueDepth: values.max_queue_depth!,
+    inputToOutputP50Ms: values.input_to_output_p50_ms!, inputToOutputP95Ms: values.input_to_output_p95_ms!,
+    inputToOutputP99Ms: values.input_to_output_p99_ms!, inputToVisibleP50Ms: values.input_to_visible_p50_ms!,
+    inputToVisibleP95Ms: values.input_to_visible_p95_ms!, inputToVisibleP99Ms: values.input_to_visible_p99_ms!,
+    renderP50Ms: values.render_p50_ms!, renderP95Ms: values.render_p95_ms!, renderP99Ms: values.render_p99_ms!,
+    ...(failed === undefined ? {} : { inputFailedCount: failed }),
+  };
+}
+
+function parseTerminalHistograms(properties: Record<string, unknown>): Record<string, string> | undefined | null {
+  const names = ["input_to_output", "input_to_visible", "render"];
+  const hasVersion = properties.histogram_version !== undefined;
+  if (!hasVersion && names.some((name) => properties[`${name}_histogram`] !== undefined)) return null;
+  if (!hasVersion) return undefined;
+  if (properties.histogram_version !== 1) return null;
+  const histograms: Record<string, string> = {};
+  for (const name of names) {
+    const raw = properties[`${name}_histogram`];
+    if (typeof raw !== "string" || raw.length > 512) return null;
+    try {
+      const counts: unknown = JSON.parse(raw);
+      if (!Array.isArray(counts) || counts.length !== 17 || counts.some((n) => unsignedInteger(n) === null)) return null;
+      histograms[name] = JSON.stringify(counts);
+    } catch { return null; }
+  }
+  return histograms;
 }
 
 export function parseMobileTerminalLatencyAnomaly(candidate: unknown): MobileTerminalLatencyAnomaly | null {
