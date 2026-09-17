@@ -298,6 +298,14 @@ actor CloudMachineLinkManager {
         links[machineID]
     }
 
+    /// A browser carrier can present the machine's stored device identity directly.
+    /// Only a first-time machine needs the persistent sidebar link to perform the
+    /// one-time trusted-listener preparation. Keeping that link alive for every
+    /// browser-only open would create a second long-lived carrier per VM.
+    nonisolated static func browserProxyNeedsLinkPreparation(deviceFingerprint: String?) -> Bool {
+        deviceFingerprint == nil
+    }
+
     /// One authenticated browser carrier per machine, sharing the app's userspace WireGuard hub.
     func browserProxy(machineID: String) async throws -> CloudBrowserProxyEndpoint {
         try Task.checkCancellation()
@@ -321,8 +329,14 @@ actor CloudMachineLinkManager {
         let proxy = CloudBrowserProxyProcess(addresses: addresses)
         browserProxies[machineID] = proxy
         let task = Task<CloudBrowserProxyEndpoint, Error> {
-            // Normal attachment prepares older daemons and establishes the same account's identity.
-            _ = try await self.connected(machineID: machineID)
+            let knownFingerprint = self.paths.deviceFingerprint(for: machineID)
+            if Self.browserProxyNeedsLinkPreparation(deviceFingerprint: knownFingerprint) {
+                // A first-time machine needs the control-plane preparation and
+                // trusted-listener proof once. Known device identities can be
+                // presented by the browser carrier directly, so do not retain a
+                // redundant headless sidebar carrier just to open a page.
+                _ = try await self.connected(machineID: machineID)
+            }
             try Task.checkCancellation()
             let claim = try await hub.acquire()
             let route: String
@@ -336,7 +350,7 @@ actor CloudMachineLinkManager {
             let arguments = CloudTuiCommandLine.browserProxyArguments(
                 route: route, addresses: addresses, stateDir: self.paths.stateDir.path,
                 wireGuardHubSocket: claim.ready.socketPath,
-                carrier: self.paths.deviceFingerprint(for: machineID) == CloudTuiClientPaths.carrierDeviceMarker
+                carrier: knownFingerprint == CloudTuiClientPaths.carrierDeviceMarker
             )
             return try await proxy.start(client: clientURL, arguments: arguments) { await hub.release(claim.lease) }
         }
