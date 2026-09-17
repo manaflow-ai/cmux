@@ -279314,6 +279314,301 @@
         }
       }
     },
+    "remoteDaemon.bootstrap.noDaemonForPlatform": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This cmux build has no remote daemon for the remote host's platform"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この cmux ビルドには、リモートホストのプラットフォーム用のリモートデーモンが含まれていません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 cmux 版本不包含适用于远程主机平台的远程守护进程"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser cmux-Build enthält keinen Remote-Daemon für die Plattform des Remote-Hosts"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette version de cmux ne contient aucun démon distant pour la plateforme de l’hôte distant"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يتضمن إصدار cmux هذا برنامجًا خفيًا بعيدًا لمنصة المضيف البعيد"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta compilación de cmux no incluye un demonio remoto para la plataforma del host remoto"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 cmux 版本不包含適用於遠端主機平台的遠端背景服務"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 cmux 빌드에는 원격 호스트 플랫폼용 원격 데몬이 포함되어 있지 않습니다."
+          }
+        }
+      }
+    },
+    "remoteSession.parked.relayNotReady": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cmux relay on %@ did not become ready (the host may not allow SSH remote port forwarding). Automatic reconnect paused; use Reconnect to try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 上の cmux リレーが準備完了になりませんでした（ホストが SSH リモートポート転送を許可していない可能性があります）。自動再接続を一時停止しました。「再接続」で再試行してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 上的 cmux 中继未能就绪（该主机可能不允许 SSH 远程端口转发）。自动重连已暂停；请用「重新连接」再试。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das cmux-Relay auf %@ ist nicht bereit geworden (der Host erlaubt möglicherweise keine SSH-Remote-Portweiterleitung). Automatische Wiederverbindung pausiert; verwenden Sie „Wieder verbinden“, um es erneut zu versuchen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le relais cmux sur %@ n’est pas devenu prêt (l’hôte n’autorise peut-être pas la redirection de port distante SSH). Reconnexion automatique en pause ; utilisez Reconnecter pour réessayer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يصبح مرحّل cmux على %@ جاهزًا (قد لا يسمح المضيف بإعادة توجيه المنافذ البعيدة عبر SSH). تم إيقاف إعادة الاتصال التلقائي مؤقتًا؛ استخدم \"أعد الاتصال\" للمحاولة مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El relé de cmux en %@ no llegó a estar listo (es posible que el host no permita el reenvío remoto de puertos por SSH). Reconexión automática pausada; usa Reconectar para volver a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 上的 cmux 中繼未能就緒（該主機可能不允許 SSH 遠端連接埠轉送）。自動重新連線已暫停；請使用「重新連接」重試。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 cmux 릴레이가 준비되지 않았습니다(호스트가 SSH 원격 포트 포워딩을 허용하지 않을 수 있습니다). 자동 재연결이 일시 중지되었습니다. '재연결'을 사용하여 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "remoteSession.parked.proxyNotReady": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cmux proxy tunnel to %@ did not become ready. Automatic reconnect paused; use Reconnect to try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ への cmux プロキシトンネルが準備完了になりませんでした。自動再接続を一時停止しました。「再接続」で再試行してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "到 %@ 的 cmux 代理隧道未能就绪。自动重连已暂停；请用「重新连接」再试。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der cmux-Proxy-Tunnel zu %@ ist nicht bereit geworden. Automatische Wiederverbindung pausiert; verwenden Sie „Wieder verbinden“, um es erneut zu versuchen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le tunnel proxy cmux vers %@ n’est pas devenu prêt. Reconnexion automatique en pause ; utilisez Reconnecter pour réessayer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يصبح نفق وكيل cmux إلى %@ جاهزًا. تم إيقاف إعادة الاتصال التلقائي مؤقتًا؛ استخدم \"أعد الاتصال\" للمحاولة مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El túnel proxy de cmux hacia %@ no llegó a estar listo. Reconexión automática pausada; usa Reconectar para volver a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通往 %@ 的 cmux 代理通道未能就緒。自動重新連線已暫停；請使用「重新連接」重試。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 대한 cmux 프록시 터널이 준비되지 않았습니다. 자동 재연결이 일시 중지되었습니다. '재연결'을 사용하여 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "remoteSession.parked.notActive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH connection is not active. Use Reconnect to try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 接続はアクティブではありません。「再接続」で再試行してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 连接未处于活动状态。请用「重新连接」再试。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die SSH-Verbindung ist nicht aktiv. Verwenden Sie „Wieder verbinden“, um es erneut zu versuchen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion SSH n’est pas active. Utilisez Reconnecter pour réessayer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اتصال SSH غير نشط. استخدم \"أعد الاتصال\" للمحاولة مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La conexión SSH no está activa. Usa Reconectar para volver a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 連線未處於作用中狀態。請使用「重新連接」重試。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 연결이 활성 상태가 아닙니다. '재연결'을 사용하여 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "remoteSession.parked.cleanupBlocked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not clean up the previous SSH connection to %@. Check that the host is reachable, then use Reconnect to try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は %@ への以前の SSH 接続をクリーンアップできませんでした。ホストに到達できることを確認してから、「再接続」で再試行してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法清理之前到 %@ 的 SSH 连接。请确认主机可以访问，然后用「重新连接」再试。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte die vorherige SSH-Verbindung zu %@ nicht bereinigen. Prüfen Sie, ob der Host erreichbar ist, und verwenden Sie dann „Wieder verbinden“, um es erneut zu versuchen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu nettoyer la connexion SSH précédente à %@. Vérifiez que l’hôte est joignable, puis utilisez Reconnecter pour réessayer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر على cmux تنظيف اتصال SSH السابق بـ %@. تحقق من إمكانية الوصول إلى المضيف، ثم استخدم \"أعد الاتصال\" للمحاولة مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo limpiar la conexión SSH anterior con %@. Comprueba que el host sea accesible y luego usa Reconectar para volver a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法清理先前與 %@ 的 SSH 連線。請確認主機可以連線，然後使用「重新連接」重試。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 %@에 대한 이전 SSH 연결을 정리하지 못했습니다. 호스트에 연결할 수 있는지 확인한 후 '재연결'을 사용하여 다시 시도하세요."
+          }
+        }
+      }
+    },
     "remoteDaemon.bootstrap.failed": {
       "extractionState": "manual",
       "localizations": {
@@ -527469,6 +527764,360 @@
           "stringUnit": {
             "state": "translated",
             "value": "24 GB メモリ"
+          }
+        }
+      }
+    },
+    "socket.cloudDiagnostics.invalidFailure": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expected a structured file transfer failure."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein strukturierter Dateiübertragungsfehler wurde erwartet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une erreur de transfert de fichier structurée est attendue."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُتوقع خطأ نقل ملف منظّم."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se esperaba un error de transferencia de archivos estructurado."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預期收到結構化的檔案傳輸錯誤。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "预期收到结构化的文件传输错误。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구조화된 파일 전송 오류가 필요합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "構造化されたファイル転送エラーが必要です。"
+          }
+        }
+      }
+    },
+    "socket.cloudDiagnostics.invalidErrorNumber": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid file transfer error number."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ungültige Fehlernummer für die Dateiübertragung."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Numéro d’erreur de transfert de fichier non valide."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رقم خطأ نقل الملف غير صالح."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Número de error de transferencia de archivos no válido."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檔案傳輸錯誤代碼無效。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件传输错误代码无效。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 전송 오류 번호가 올바르지 않습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル転送エラー番号が無効です。"
+          }
+        }
+      }
+    },
+    "cloudPane.newTerminalFailed.invalidResult": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The machine did not return the new terminal. Refresh the machine before trying again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Maschine hat das neue Terminal nicht zurückgegeben. Aktualisiere die Maschine, bevor du es erneut versuchst."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La machine n’a pas renvoyé le nouveau terminal. Actualisez la machine avant de réessayer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يُرجع الجهاز الطرفية الجديدة. حدّث الجهاز قبل المحاولة مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La máquina no devolvió la nueva terminal. Actualiza la máquina antes de volver a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "機器未傳回新的終端機。請先重新整理機器再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "机器未返回新的终端。请先刷新机器再重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신이 새 터미널을 반환하지 않았습니다. 다시 시도하기 전에 머신을 새로 고치세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンから新しいターミナルが返されませんでした。マシンを更新してから、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "cloudPane.newTerminalFailed.noWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This machine has no available workspace. Refresh the machine and try again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf dieser Maschine ist kein Arbeitsbereich verfügbar. Aktualisiere die Maschine und versuche es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun espace de travail n’est disponible sur cette machine. Actualisez la machine et réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد مساحة عمل متاحة على هذا الجهاز. حدّث الجهاز وحاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta máquina no tiene un espacio de trabajo disponible. Actualiza la máquina e inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此機器沒有可用的工作區。請重新整理機器後再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此机器没有可用的工作区。请刷新机器后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 머신에 사용 가능한 작업 공간이 없습니다. 머신을 새로 고친 후 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンには利用可能なワークスペースがありません。マシンを更新して、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "cloudPane.newTerminalFailed.stateUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The machine’s current state could not be loaded. Reconnect and try again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der aktuelle Zustand der Maschine konnte nicht geladen werden. Stelle die Verbindung erneut her und versuche es noch einmal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de charger l’état actuel de la machine. Reconnectez-vous et réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تحميل الحالة الحالية للجهاز. أعد الاتصال وحاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo cargar el estado actual de la máquina. Vuelve a conectarte e inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法載入機器的目前狀態。請重新連線後再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法加载机器的当前状态。请重新连接后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신의 현재 상태를 불러올 수 없습니다. 다시 연결한 후 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンの現在の状態を読み込めませんでした。再接続して、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "cloudPane.newTerminalFailed.shortTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t open terminal"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal konnte nicht geöffnet werden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’ouvrir le terminal"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر فتح الطرفية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo abrir la terminal"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法開啟終端機"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法打开终端"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널을 열 수 없습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルを開けませんでした"
           }
         }
       }

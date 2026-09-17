@@ -97,6 +97,24 @@ struct CloudTerminalCreationCoordinatorTests {
     }
 
     @Test @MainActor
+    func classifiedCancellationReportsCancelWithoutFailure() async {
+        var cancelled = 0
+        var failed = 0
+        let coordinator = CloudTerminalCreationCoordinator(
+            create: { throw URLError(.cancelled) },
+            project: { _ in throw URLError(.cancelled) },
+            onFailure: { _ in failed += 1 },
+            onCancel: { cancelled += 1 },
+            onSuccess: {}
+        )
+
+        coordinator.start()
+        await Self.yieldUntil { cancelled >= 1 }
+        #expect(cancelled == 1)
+        #expect(failed == 0)
+    }
+
+    @Test @MainActor
     func cancellationDiscardsAProjectionCreatedByTheStaleOperation() async {
         let resource = Self.resource(key: "term_1")
         let projection = SurfaceProjection(resource: resource.id, workspaceID: UUID(), panelID: UUID())
