@@ -22,8 +22,31 @@
       "title": "ត្រូវការ cmux Pro",
       "message": "Cloud VM តម្រូវឱ្យមានគម្រោង cmux Pro។",
       "action": "ដំឡើងកំណែទៅ cmux Pro នៅ {upgradeUrl} ដើម្បីបង្កើត Cloud VM។"
+    },
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "ម៉ាស៊ីន {memory} GiB ត្រូវការ cmux {plan}។ គម្រោងរបស់អ្នកគាំទ្ររហូតដល់ {max} GiB។",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "មិនអាចផ្ទៀងផ្ទាត់ទំហំ RAM របស់ម៉ាស៊ីនប្រភពបានទេ។",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "ទំហំម៉ាស៊ីននេះមិនអាចប្រើបានទេ។ សូមជ្រើសរើសរហូតដល់ {max} GiB។",
+      "action": "cmux vm new --size {max}g"
     }
-  },
+  ,
+    "goLimit": {
+      "savedMessage": "Go រួមបញ្ចូល VM ដែលបានរក្សាទុកពីរ រួមទាំង VM ដែលកំពុងដំណើរការ។",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "activeMessage": "Go អនុញ្ញាតឱ្យដំណើរការ VM មួយក្នុងពេលតែមួយ។",
+      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "hoursMessage": "Go បានប្រើអស់ 40 ម៉ោង VM សម្រាប់ខែនេះ។ VM ដែលបានរក្សាទុកអាចប្រើវិញនៅរយៈពេលចេញវិក្កយបត្របន្ទាប់។",
+      "hoursAction": "cmux billing checkout --plan pro",
+      "shapeMessage": "Go គាំទ្រ 2 vCPU, RAM 4 GiB និងថាស 16 GiB។",
+      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    }},
   "billingRecovery": {
     "message": "ប្រសិនបើយើងរកឃើញគណនី សូមពិនិត្យអ៊ីមែលរបស់អ្នកសម្រាប់ជំហានបន្ទាប់"
   },
@@ -357,6 +380,13 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "ចែករំលែកជាមួយក្រុម",
+      "makePrivate": "កំណត់ជាឯកជន",
+      "privateImportHint": "គណនីថ្មីជាគណនីឯកជន។ ចែករំលែកគណនី ដើម្បីឱ្យ Cloud VM របស់ក្រុមនេះអាចប្រើបាន។",
+      "description": "គណនីដែលបានចែករំលែកអាចប្រើបានដោយ Cloud VM របស់ក្រុមនេះ។ គណនីឯកជនអាចប្រើបានតែដោយអ្នកដែលបានបន្ថែមវាប៉ុណ្ណោះ។",
+      "cancelAction": "បោះបង់"
     }
   },
   "community": {
@@ -980,10 +1010,10 @@
       "targetTitle": "បង្អួចខុស ឬការចុចត្រូវបានរារាំង",
       "targetBody": "ពិនិត្យកម្មវិធីម្ដងទៀត និងជ្រើសធាតុពីស្ថានភាពបច្ចុប្បន្ន។ បើបង្អួចផ្សេងបាំងគោលដៅ បង្ហាញបង្អួចដែលចង់បាន ហើយពិនិត្យមុនសាកល្បង។ កុំប្រើកូអរដោនេ ឬសន្ទស្សន៍ចាស់ម្ដងទៀត។",
       "productLink": "ទិដ្ឋភាពទូទៅនៃ cmux Computer Use",
-    "copyTitle": "ចម្លង prompt Computer Use",
-    "copyPrompt": "ចម្លង prompt",
-    "copiedPrompt": "បានចម្លង",
-    "installPrompt": "ប្រើជំនាញ $cmux-cua។ បើគ្មាន សូមដំឡើងតាមកម្មវិធីធម្មតា។ បើខ្វះសិទ្ធិ សូមប្រាប់ខ្ញុំឱ្យបើកការកំណត់ cmux → Computer Use។ ពិនិត្យមុនធ្វើ និងពិនិត្យរាល់ការផ្លាស់ប្ដូរ។\n\nកិច្ចការ៖ [ពិពណ៌នាកិច្ចការនៅទីនេះ]"
+      "copyTitle": "ចម្លង prompt Computer Use",
+      "copyPrompt": "ចម្លង prompt",
+      "copiedPrompt": "បានចម្លង",
+      "installPrompt": "ប្រើជំនាញ $cmux-cua។ បើគ្មាន សូមដំឡើងតាមកម្មវិធីធម្មតា។ បើខ្វះសិទ្ធិ សូមប្រាប់ខ្ញុំឱ្យបើកការកំណត់ cmux → Computer Use។ ពិនិត្យមុនធ្វើ និងពិនិត្យរាល់ការផ្លាស់ប្ដូរ។\n\nកិច្ចការ៖ [ពិពណ៌នាកិច្ចការនៅទីនេះ]"
     },
     "remoteTmux": {
       "moshContrast": "សម្រាប់ការផ្លាស់ប្តូររវាងបណ្ដាញ សូមប្រើ cmux mosh-tmux។ វាបើកស្ថានីយ Mosh ដែលបានរួមបញ្ចូលពេញលេញ និងភ្ជាប់ទៅ tmux session ដែលមានឈ្មោះ; វាមិនជំនួស native mirror នៃ workspace, tab និង split ដែលផ្ដល់ដោយ SSH tmux control mode ទេ។"
@@ -1190,6 +1220,7 @@
           "globalFontMagnification": "Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded."
         },
         "terminal": {
+          "adaptiveDefaultTheme": "នៅពេល true (លំនាំដើម) cmux ផ្តល់ក្ដារពណ៌លំនាំដើមដែលប្រែប្រួលតាមរូបរាង លុះត្រាតែបានកំណត់ស្បែក Ghostty ឬពណ៌ស្ថានីយ។ ពុម្ពអក្សរ និងការកំណត់ផ្សេងទៀតត្រូវបានរក្សាទុក។ នៅពេល false Ghostty ប្រើក្ដារពណ៌ដែលមានស្រាប់ថេររបស់វា។ ស្បែក និងពណ៌ដែលបានកំណត់ជាក់លាក់តែងតែមានអាទិភាព រួមទាំង theme = light:X,dark:Y។",
           "sessionContentMaxWidth": "ទទឹងអតិបរមាជាជម្រើស គិតជាពិន្ទុ សម្រាប់ខ្លឹមសារស្ថានីយ និងការជជែកជាមួយភ្នាក់ងារដែលភ្ជាប់មកជាមួយ។ កំណត់ false ដើម្បីប្រើទទឹងផ្ទាំងទាំងមូល។",
           "sessionContentAlignment": "ទីតាំងផ្ដេកនៃខ្លឹមសារស្ថានីយ និងការជជែកជាមួយភ្នាក់ងារដែលភ្ជាប់មកជាមួយ នៅពេលបើក sessionContentMaxWidth។",
           "copyOnSelect": "នៅពេល true អត្ថបទ terminal ដែលបានជ្រើសនឹងត្រូវចម្លងទៅ clipboard របស់ប្រព័ន្ធ ពេលការជ្រើសត្រូវបានបញ្ជាក់។ នៅពេល false cmux មិនបញ្ចេញការកំណត់ជាន់លើ Ghostty copy-on-select ទេ; ការកំណត់ និងលំនាំដើមរបស់ Ghostty គ្រប់គ្រងអាកប្បកិរិយា clipboard សម្រាប់ការជ្រើស។",

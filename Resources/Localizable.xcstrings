@@ -1,6 +1,124 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cli.sshPtyAttach.incompatibleDaemon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH attach stopped because the remote daemon version does not match this cmux client. Install a cmux release with its matching remote daemon, then reconnect the workspace. Do not substitute a daemon from an older release."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートデーモンのバージョンがこの cmux クライアントと一致しないため、SSH 接続を停止しました。対応するリモートデーモンを含む cmux リリースをインストールしてから、ワークスペースに再接続してください。古いリリースのデーモンで代用しないでください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der SSH-Verbindungsaufbau wurde gestoppt, weil die Version des Remote-Daemons nicht zu diesem cmux-Client passt. Installiere eine cmux-Version mit dem zugehörigen Remote-Daemon und verbinde den Arbeitsbereich erneut. Verwende keinen Daemon einer älteren Version."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion SSH a été interrompue car la version du démon distant ne correspond pas à ce client cmux. Installez une version de cmux avec le démon distant correspondant, puis reconnectez l’espace de travail. Ne le remplacez pas par le démon d’une ancienne version."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إيقاف اتصال SSH لأن إصدار البرنامج الخفي البعيد لا يطابق عميل cmux هذا. ثبّت إصدار cmux مع البرنامج الخفي البعيد المطابق له، ثم أعد توصيل مساحة العمل. لا تستخدم برنامجًا خفيًا من إصدار أقدم."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La conexión SSH se detuvo porque la versión del demonio remoto no coincide con este cliente cmux. Instala una versión de cmux con su demonio remoto correspondiente y vuelve a conectar el espacio de trabajo. No uses un demonio de una versión anterior."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 連線已停止，因為遠端常駐程式版本與此 cmux 用戶端不符。請安裝包含對應遠端常駐程式的 cmux 版本，再重新連線工作區。請勿使用舊版本的常駐程式替代。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 连接已停止，因为远程守护进程版本与此 cmux 客户端不匹配。请安装包含对应远程守护进程的 cmux 版本，然后重新连接工作区。请勿使用旧版本的守护进程替代。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 데몬 버전이 이 cmux 클라이언트와 일치하지 않아 SSH 연결을 중단했습니다. 해당 원격 데몬이 포함된 cmux 릴리스를 설치한 후 작업 공간에 다시 연결하세요. 이전 릴리스의 데몬으로 대체하지 마세요."
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.terminalModeFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH attach stopped because terminal input could not be placed in raw forwarding mode. Reconnect the workspace to try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル入力を raw 転送モードに切り替えられなかったため、SSH 接続を停止しました。ワークスペースに再接続して再試行してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der SSH-Verbindungsaufbau wurde gestoppt, weil die Terminaleingabe nicht in den Raw-Weiterleitungsmodus wechseln konnte. Verbinde den Arbeitsbereich erneut, um es noch einmal zu versuchen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion SSH a été interrompue car la saisie du terminal n’a pas pu passer en mode de transmission brute. Reconnectez l’espace de travail pour réessayer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إيقاف اتصال SSH لتعذر وضع إدخال الطرفية في وضع التمرير الخام. أعد توصيل مساحة العمل للمحاولة مجددًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La conexión SSH se detuvo porque la entrada del terminal no pudo pasar al modo de reenvío sin procesar. Vuelve a conectar el espacio de trabajo para intentarlo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 連線已停止，因為無法將終端機輸入切換為原始轉送模式。請重新連線工作區再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 连接已停止，因为无法将终端输入切换为原始转发模式。请重新连接工作区再试一次。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 입력을 원시 전달 모드로 전환할 수 없어 SSH 연결을 중단했습니다. 작업 공간에 다시 연결하여 재시도하세요."
+          }
+        }
+      }
+    },
     "cloud.portAccess.desktopDisconnected": {
       "extractionState": "manual",
       "localizations": {
@@ -121273,55 +121391,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale Pairing is unavailable"
+            "value": "Mobile Pairing is unavailable"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscaleペアリングは利用できません"
+            "value": "モバイルペアリングは利用できません"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale 配对不可用"
+            "value": "移动设备配对不可用"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale-Kopplung ist nicht verfügbar"
+            "value": "Die Kopplung von Mobilgeräten ist nicht verfügbar"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le jumelage Tailscale est indisponible"
+            "value": "Le jumelage mobile est indisponible"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اقتران Tailscale غير متاح"
+            "value": "اقتران الأجهزة المحمولة غير متاح"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El emparejamiento de Tailscale no está disponible"
+            "value": "La vinculación móvil no está disponible"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale 配對無法使用"
+            "value": "無法使用行動裝置配對"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale 페어링을 사용할 수 없습니다"
+            "value": "모바일 페어링을 사용할 수 없습니다"
           }
         }
       }
@@ -125879,6 +125997,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ 이름 바꾸는 중…"
+          }
+        }
+      }
+    },
+    "surfaceDrop.cloudMachineMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن أن تحتوي مساحات عمل Cloud إلا على الطرفيات والمتصفحات والشاشات التابعة لجهاز Cloud الخاص بها. افتح مساحة عمل محلية وانقل التقسيمات إليها."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Arbeitsbereiche können nur Terminals, Browser und Displays ihres eigenen Cloud-Rechners enthalten. Öffnen Sie einen lokalen Arbeitsbereich und verschieben Sie die Splits dorthin."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud workspaces can only hold terminals, browsers, and displays from their own Cloud machine. Open a local workspace and move the splits there."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los espacios de trabajo Cloud solo pueden contener terminales, navegadores y pantallas de su propia máquina Cloud. Abre un espacio de trabajo local y mueve allí las divisiones."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les espaces de travail Cloud ne peuvent contenir que les terminaux, navigateurs et écrans de leur propre machine Cloud. Ouvrez un espace de travail local et déplacez-y les splits."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud ワークスペースには、同じ Cloud マシンのターミナル、ブラウザ、ディスプレイのみを追加できます。ローカルワークスペースを開いて、スプリットをそこへ移動してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 작업 공간에는 동일한 Cloud 머신의 터미널, 브라우저 및 디스플레이만 포함할 수 있습니다. 로컬 작업 공간을 열고 스플릿을 그곳으로 이동하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 工作区只能包含来自同一台 Cloud 机器的终端、浏览器和显示器。打开本地工作区，然后将这些分屏移到那里。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 工作區只能包含來自同一台 Cloud 機器的終端機、瀏覽器和顯示器。開啟本機工作區，然後將這些分割畫面移到那裡。"
           }
         }
       }
@@ -141659,7 +141836,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale"
+            "value": "Mobile"
           }
         },
         "es": {
@@ -141671,7 +141848,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mobile"
+            "value": "Appareils mobiles"
           }
         },
         "it": {
@@ -141683,7 +141860,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale"
+            "value": "モバイル"
           }
         },
         "km": {
@@ -141760,7 +141937,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "توصيل iPhone/iPad"
+            "value": "فتح اقتران الأجهزة المحمولة"
           }
         },
         "bs": {
@@ -141778,25 +141955,25 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone/iPad verbinden"
+            "value": "Mobilgeräte koppeln öffnen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open Tailscale Pairing"
+            "value": "Open Mobile Pairing"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conectar iPhone/iPad"
+            "value": "Abrir vinculación móvil"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connecter l’iPhone/iPad"
+            "value": "Ouvrir le jumelage mobile"
           }
         },
         "it": {
@@ -141808,7 +141985,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscaleペアリングを開く"
+            "value": "モバイルペアリングを開く"
           }
         },
         "km": {
@@ -141820,7 +141997,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone/iPad 연결"
+            "value": "모바일 페어링 열기"
           }
         },
         "nb": {
@@ -141868,13 +142045,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "连接 iPhone/iPad"
+            "value": "打开移动设备配对"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "連接 iPhone/iPad"
+            "value": "開啟行動裝置配對"
           }
         }
       }
@@ -209652,55 +209829,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows the Tailscale Pairing button in the sidebar footer."
+            "value": "Shows the Mobile Pairing button in the sidebar footer."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーのフッターにTailscaleペアリングボタンを表示します。"
+            "value": "サイドバーのフッターにモバイルペアリングボタンを表示します。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在侧边栏底部显示 Tailscale 配对按钮。"
+            "value": "在侧边栏底部显示移动设备配对按钮。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zeigt die Tailscale-Kopplungstaste in der Fußzeile der Seitenleiste an."
+            "value": "Zeigt die Schaltfläche „Mobilgeräte koppeln“ in der Fußzeile der Seitenleiste an."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Affiche le bouton d’association Tailscale dans le pied de page de la barre latérale."
+            "value": "Affiche le bouton de jumelage mobile dans le pied de page de la barre latérale."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يعرض زر اقتران Tailscale في تذييل الشريط الجانبي."
+            "value": "يعرض زر اقتران الأجهزة المحمولة في تذييل الشريط الجانبي."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Muestra el botón de emparejamiento de Tailscale en el pie de página de la barra lateral."
+            "value": "Muestra el botón de vinculación móvil en el pie de la barra lateral."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在側邊欄頁尾中顯示 Tailscale 配對按鈕。"
+            "value": "在側邊欄頁尾顯示行動裝置配對按鈕。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사이드바 하단에 Tailscale 페어링 버튼을 표시합니다."
+            "value": "사이드바 하단에 모바일 페어링 버튼을 표시합니다."
           }
         }
       }
@@ -209711,55 +209888,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale Pairing button"
+            "value": "Mobile Pairing button"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscaleペアリングボタン"
+            "value": "モバイルペアリングボタン"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale 配对按钮"
+            "value": "移动设备配对按钮"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale-Kopplungstaste"
+            "value": "Schaltfläche „Mobilgeräte koppeln“"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bouton d’association Tailscale"
+            "value": "Bouton de jumelage mobile"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "زر اقتران Tailscale"
+            "value": "زر اقتران الأجهزة المحمولة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Botón de emparejamiento de Tailscale"
+            "value": "Botón de vinculación móvil"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale 配對按鈕"
+            "value": "行動裝置配對按鈕"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale 페어링 버튼"
+            "value": "모바일 페어링 버튼"
           }
         }
       }
@@ -236226,7 +236403,7 @@
         }
       }
     },
-    "machines.usage.unavailable" : {
+    "machines.usage.unavailable": {
       "comment": "Shown in a cloud machine row when no token usage report is available.",
       "extractionState": "manual",
       "localizations": {
@@ -259645,6 +259822,48 @@
             "state": "translated",
             "value": "この Mac では iOS ペアリングがオフです。設定を開き、iOS ペアリングを有効にすると、iPhone の cmux からこの Mac を検出できます。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die iOS-Kopplung ist auf diesem Mac deaktiviert. Öffne die Einstellungen und aktiviere die iOS-Kopplung, damit cmux auf deinem iPhone diesen Mac finden kann."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le jumelage iOS est désactivé sur ce Mac. Ouvrez les réglages et activez le jumelage iOS pour que cmux sur votre iPhone puisse trouver ce Mac."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاقتران مع iOS معطل على هذا الـ Mac. افتح الإعدادات وفعّل الاقتران مع iOS ليتمكن cmux على iPhone من العثور على هذا الـ Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El enlace con iOS está desactivado en este Mac. Abre Ajustes y activa el enlace con iOS para que cmux en tu iPhone pueda encontrar este Mac."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 已關閉 iOS 配對。請開啟設定並啟用 iOS 配對，讓 iPhone 上的 cmux 能找到此 Mac。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 已关闭 iOS 配对。请打开设置并启用 iOS 配对，让 iPhone 上的 cmux 能找到此 Mac。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에서 iOS 페어링이 꺼져 있습니다. 설정을 열고 iOS 페어링을 활성화하면 iPhone의 cmux에서 이 Mac을 찾을 수 있습니다."
+          }
         }
       }
     },
@@ -259662,6 +259881,48 @@
             "state": "translated",
             "value": "設定を開く"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einstellungen öffnen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir les réglages"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح الإعدادات"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Ajustes"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟設定"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开设置"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정 열기"
+          }
         }
       }
     },
@@ -259678,6 +259939,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "iOS ペアリングを有効にする"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS-Kopplung aktivieren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activer le jumelage iOS"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تفعيل الاقتران مع iOS"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activar el enlace con iOS"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "啟用 iOS 配對"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启用 iOS 配对"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS 페어링 활성화"
           }
         }
       }
@@ -259737,6 +260040,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "이 Mac에서 페어링 리스너를 시작할 수 없습니다."
+          }
+        }
+      }
+    },
+    "mobile.pairing.error.preparationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر إكمال الاقتران. تحقق من الاتصال وحاول مرة أخرى."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Kopplung konnte nicht abgeschlossen werden. Überprüfe deine Verbindung und versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pairing could not finish. Check your connection and try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se ha podido completar el enlace. Comprueba tu conexión e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le jumelage n’a pas pu être terminé. Vérifiez votre connexion et réessayez."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリングを完了できませんでした。接続を確認して、もう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "페어링을 완료하지 못했습니다. 연결을 확인하고 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法完成配对。请检查连接后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法完成配對。請檢查連線後再試一次。"
           }
         }
       }
@@ -262599,55 +262961,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale Pairing"
+            "value": "Mobile Pairing"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscaleペアリング"
+            "value": "モバイルペアリング"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale 配对"
+            "value": "移动设备配对"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale-Kopplung"
+            "value": "Mobilgeräte koppeln"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jumelage Tailscale"
+            "value": "Jumelage mobile"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اقتران Tailscale"
+            "value": "اقتران الأجهزة المحمولة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vinculación de Tailscale"
+            "value": "Vinculación móvil"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale 配對"
+            "value": "行動裝置配對"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale 페어링"
+            "value": "모바일 페어링"
           }
         }
       }
@@ -278948,6 +279310,301 @@
           "stringUnit": {
             "state": "translated",
             "value": "부트스트랩을 진행할 수 없어 자동 재연결이 일시 중지되었습니다. 보고된 원격 오류를 해결한 후 '다시 연결'을 사용하여 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "remoteDaemon.bootstrap.noDaemonForPlatform": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This cmux build has no remote daemon for the remote host's platform"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この cmux ビルドには、リモートホストのプラットフォーム用のリモートデーモンが含まれていません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 cmux 版本不包含适用于远程主机平台的远程守护进程"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser cmux-Build enthält keinen Remote-Daemon für die Plattform des Remote-Hosts"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette version de cmux ne contient aucun démon distant pour la plateforme de l’hôte distant"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يتضمن إصدار cmux هذا برنامجًا خفيًا بعيدًا لمنصة المضيف البعيد"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta compilación de cmux no incluye un demonio remoto para la plataforma del host remoto"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 cmux 版本不包含適用於遠端主機平台的遠端背景服務"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 cmux 빌드에는 원격 호스트 플랫폼용 원격 데몬이 포함되어 있지 않습니다."
+          }
+        }
+      }
+    },
+    "remoteSession.parked.relayNotReady": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cmux relay on %@ did not become ready (the host may not allow SSH remote port forwarding). Automatic reconnect paused; use Reconnect to try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 上の cmux リレーが準備完了になりませんでした（ホストが SSH リモートポート転送を許可していない可能性があります）。自動再接続を一時停止しました。「再接続」で再試行してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 上的 cmux 中继未能就绪（该主机可能不允许 SSH 远程端口转发）。自动重连已暂停；请用「重新连接」再试。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das cmux-Relay auf %@ ist nicht bereit geworden (der Host erlaubt möglicherweise keine SSH-Remote-Portweiterleitung). Automatische Wiederverbindung pausiert; verwenden Sie „Wieder verbinden“, um es erneut zu versuchen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le relais cmux sur %@ n’est pas devenu prêt (l’hôte n’autorise peut-être pas la redirection de port distante SSH). Reconnexion automatique en pause ; utilisez Reconnecter pour réessayer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يصبح مرحّل cmux على %@ جاهزًا (قد لا يسمح المضيف بإعادة توجيه المنافذ البعيدة عبر SSH). تم إيقاف إعادة الاتصال التلقائي مؤقتًا؛ استخدم \"أعد الاتصال\" للمحاولة مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El relé de cmux en %@ no llegó a estar listo (es posible que el host no permita el reenvío remoto de puertos por SSH). Reconexión automática pausada; usa Reconectar para volver a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 上的 cmux 中繼未能就緒（該主機可能不允許 SSH 遠端連接埠轉送）。自動重新連線已暫停；請使用「重新連接」重試。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 cmux 릴레이가 준비되지 않았습니다(호스트가 SSH 원격 포트 포워딩을 허용하지 않을 수 있습니다). 자동 재연결이 일시 중지되었습니다. '재연결'을 사용하여 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "remoteSession.parked.proxyNotReady": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cmux proxy tunnel to %@ did not become ready. Automatic reconnect paused; use Reconnect to try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ への cmux プロキシトンネルが準備完了になりませんでした。自動再接続を一時停止しました。「再接続」で再試行してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "到 %@ 的 cmux 代理隧道未能就绪。自动重连已暂停；请用「重新连接」再试。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der cmux-Proxy-Tunnel zu %@ ist nicht bereit geworden. Automatische Wiederverbindung pausiert; verwenden Sie „Wieder verbinden“, um es erneut zu versuchen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le tunnel proxy cmux vers %@ n’est pas devenu prêt. Reconnexion automatique en pause ; utilisez Reconnecter pour réessayer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يصبح نفق وكيل cmux إلى %@ جاهزًا. تم إيقاف إعادة الاتصال التلقائي مؤقتًا؛ استخدم \"أعد الاتصال\" للمحاولة مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El túnel proxy de cmux hacia %@ no llegó a estar listo. Reconexión automática pausada; usa Reconectar para volver a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通往 %@ 的 cmux 代理通道未能就緒。自動重新連線已暫停；請使用「重新連接」重試。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 대한 cmux 프록시 터널이 준비되지 않았습니다. 자동 재연결이 일시 중지되었습니다. '재연결'을 사용하여 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "remoteSession.parked.notActive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH connection is not active. Use Reconnect to try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 接続はアクティブではありません。「再接続」で再試行してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 连接未处于活动状态。请用「重新连接」再试。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die SSH-Verbindung ist nicht aktiv. Verwenden Sie „Wieder verbinden“, um es erneut zu versuchen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion SSH n’est pas active. Utilisez Reconnecter pour réessayer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اتصال SSH غير نشط. استخدم \"أعد الاتصال\" للمحاولة مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La conexión SSH no está activa. Usa Reconectar para volver a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 連線未處於作用中狀態。請使用「重新連接」重試。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 연결이 활성 상태가 아닙니다. '재연결'을 사용하여 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "remoteSession.parked.cleanupBlocked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not clean up the previous SSH connection to %@. Check that the host is reachable, then use Reconnect to try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は %@ への以前の SSH 接続をクリーンアップできませんでした。ホストに到達できることを確認してから、「再接続」で再試行してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法清理之前到 %@ 的 SSH 连接。请确认主机可以访问，然后用「重新连接」再试。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte die vorherige SSH-Verbindung zu %@ nicht bereinigen. Prüfen Sie, ob der Host erreichbar ist, und verwenden Sie dann „Wieder verbinden“, um es erneut zu versuchen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu nettoyer la connexion SSH précédente à %@. Vérifiez que l’hôte est joignable, puis utilisez Reconnecter pour réessayer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر على cmux تنظيف اتصال SSH السابق بـ %@. تحقق من إمكانية الوصول إلى المضيف، ثم استخدم \"أعد الاتصال\" للمحاولة مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo limpiar la conexión SSH anterior con %@. Comprueba que el host sea accesible y luego usa Reconectar para volver a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法清理先前與 %@ 的 SSH 連線。請確認主機可以連線，然後使用「重新連接」重試。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 %@에 대한 이전 SSH 연결을 정리하지 못했습니다. 호스트에 연결할 수 있는지 확인한 후 '재연결'을 사용하여 다시 시도하세요."
           }
         }
       }
@@ -329954,55 +330611,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale Pairing"
+            "value": "Mobile Pairing"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscaleペアリング"
+            "value": "モバイルペアリング"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale 配对"
+            "value": "移动设备配对"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale-Kopplung"
+            "value": "Mobilgeräte koppeln"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jumelage Tailscale"
+            "value": "Jumelage mobile"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اقتران Tailscale"
+            "value": "اقتران الأجهزة المحمولة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vinculación de Tailscale"
+            "value": "Vinculación móvil"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale 配對"
+            "value": "行動裝置配對"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale 페어링"
+            "value": "모바일 페어링"
           }
         }
       }
@@ -369336,55 +369993,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux's managed light and dark palettes follow the app appearance only when your Ghostty config has no settings. Existing Ghostty settings are never overlaid."
+            "value": "Use light and dark default terminal colors when no Ghostty theme or terminal colors are configured. Font and other settings are preserved."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghostty 設定が空の場合のみ、cmux の管理するライト／ダークパレットがアプリの外観に追従します。既存の Ghostty 設定には重ねて適用しません。"
+            "value": "Ghostty のテーマやターミナルの色が設定されていない場合、外観に合わせたライト／ダークの既定色を使用します。フォントなどの設定は保持されます。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "仅当你的 Ghostty 配置没有任何设置时，cmux 托管的浅色与深色调色板才会跟随应用外观。已有的 Ghostty 设置永远不会被覆盖。"
+            "value": "未配置 Ghostty 主题或终端颜色时，使用随外观变化的浅色和深色默认终端配色。字体及其他设置会保留。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die von cmux verwalteten hellen und dunklen Paletten folgen dem Erscheinungsbild der App nur dann, wenn Ihre Ghostty-Konfiguration keine Einstellungen enthält. Bestehende Ghostty-Einstellungen werden niemals überschrieben."
+            "value": "Helle und dunkle Standardfarben für das Terminal verwenden, wenn kein Ghostty-Theme und keine Terminalfarben konfiguriert sind. Schrift- und andere Einstellungen bleiben erhalten."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les palettes claire et sombre gérées de cmux suivent l’apparence de l’application uniquement si votre configuration Ghostty ne contient aucun paramètre. Les paramètres Ghostty existants ne sont jamais écrasés."
+            "value": "Utilise les couleurs claires et sombres par défaut du terminal si aucun thème Ghostty ni couleur de terminal n’est configuré. La police et les autres paramètres sont conservés."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تتبع لوحات الألوان الفاتحة والداكنة المدارة لـ cmux مظهر التطبيق فقط عندما لا يحتوي تكوين Ghostty على إعدادات. لا يتم تداخل إعدادات Ghostty الحالية مطلقًا."
+            "value": "استخدم ألوان الطرفية الافتراضية الفاتحة والداكنة عندما لا يتم تكوين سمة Ghostty أو ألوان الطرفية. يتم الاحتفاظ بإعدادات الخط والإعدادات الأخرى."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las paletas clara y oscura administradas de cmux siguen la apariencia de la aplicación solo cuando tu configuración de Ghostty no tiene ajustes. Los ajustes existentes de Ghostty nunca se sobrescriben."
+            "value": "Usa los colores claros y oscuros predeterminados del terminal cuando no hay ningún tema de Ghostty ni colores del terminal configurados. Se conservan la fuente y los demás ajustes."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "僅在您的 Ghostty 設定檔中沒有任何設定時，cmux 管理的淺色與深色調色盤才會隨軟體外觀變更。現有的 Ghostty 設定絕不會被覆蓋。"
+            "value": "未設定 Ghostty 主題或終端機顏色時，使用隨外觀變更的淺色和深色預設終端機配色。字體及其他設定會保留。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghostty 설정에 아무런 설정이 없는 경우에만 cmux가 관리하는 라이트 및 다크 팔레트가 앱 외양을 따릅니다. 기존 Ghostty 설정은 절대로 덮어씌워지지 않습니다."
+            "value": "Ghostty 테마나 터미널 색상이 설정되지 않은 경우 모양에 따라 라이트 및 다크 기본 터미널 색상을 사용합니다. 글꼴 및 기타 설정은 유지됩니다."
           }
         }
       }
@@ -518416,6 +519073,20 @@
         }
       }
     },
+    "cloud.operation.failure.placement": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The Cloud terminal placement is unavailable. Refresh the machine, then retry."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Die Cloud-Terminalplatzierung ist nicht verfügbar. Aktualisieren Sie die Maschine und versuchen Sie es erneut."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "L’emplacement du terminal Cloud n’est pas disponible. Actualisez la machine, puis réessayez."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "موضع طرفية Cloud غير متاح. حدّث الجهاز ثم أعد المحاولة."}},
+        "es": {"stringUnit": {"state": "translated", "value": "La ubicación del terminal de Cloud no está disponible. Actualiza la máquina y vuelve a intentarlo."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Cloud 終端機位置無法使用。請重新整理機器後再試一次。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Cloud 终端位置不可用。请刷新机器后重试。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Cloud 터미널 배치를 사용할 수 없습니다. 머신을 새로 고친 후 다시 시도하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Cloud ターミナルの配置を利用できません。マシンを更新して、もう一度お試しください。"}}
+      }
+    },
     "cloud.operation.failure.unsupported": {
       "extractionState": "manual",
       "localizations": {
@@ -525212,29 +525883,119 @@
     "featureFlags.cloudMachines.title": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Cloud Machines" } },
-        "de": { "stringUnit": { "state": "translated", "value": "Cloud-Maschinen" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Machines Cloud" } },
-        "ar": { "stringUnit": { "state": "translated", "value": "أجهزة Cloud" } },
-        "es": { "stringUnit": { "state": "translated", "value": "Máquinas Cloud" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Cloud 機器" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "云机器" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "Cloud 머신" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "クラウドマシン" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Maschinen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machines Cloud"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أجهزة Cloud"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máquinas Cloud"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 機器"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "云机器"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 머신"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドマシン"
+          }
+        }
       }
     },
     "featureFlags.cloudMachines.description": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Enables the macOS Cloud Machines integration, including entry points, attachments, and background sync." } },
-        "de": { "stringUnit": { "state": "translated", "value": "Aktiviert die macOS-Integration für Cloud-Maschinen einschließlich Einstiegspunkten, Verbindungen und Hintergrundsynchronisierung." } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Active l’intégration des Machines Cloud sur macOS, y compris les points d’entrée, les connexions et la synchronisation en arrière-plan." } },
-        "ar": { "stringUnit": { "state": "translated", "value": "يمكّن تكامل أجهزة Cloud على macOS، بما في ذلك نقاط الدخول والاتصالات والمزامنة في الخلفية." } },
-        "es": { "stringUnit": { "state": "translated", "value": "Activa la integración de Máquinas Cloud en macOS, incluidos los puntos de entrada, las conexiones y la sincronización en segundo plano." } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "啟用 macOS Cloud 機器整合，包括進入點、連線和背景同步。" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "启用 macOS 云机器集成，包括入口、连接和后台同步。" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "진입점, 연결 및 백그라운드 동기화를 포함한 macOS Cloud 머신 통합을 활성화합니다." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "エントリーポイント、接続、バックグラウンド同期を含むmacOSのクラウドマシン統合を有効にします。" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enables the macOS Cloud Machines integration, including entry points, attachments, and background sync."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktiviert die macOS-Integration für Cloud-Maschinen einschließlich Einstiegspunkten, Verbindungen und Hintergrundsynchronisierung."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Active l’intégration des Machines Cloud sur macOS, y compris les points d’entrée, les connexions et la synchronisation en arrière-plan."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكّن تكامل أجهزة Cloud على macOS، بما في ذلك نقاط الدخول والاتصالات والمزامنة في الخلفية."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activa la integración de Máquinas Cloud en macOS, incluidos los puntos de entrada, las conexiones y la sincronización en segundo plano."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "啟用 macOS Cloud 機器整合，包括進入點、連線和背景同步。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启用 macOS 云机器集成，包括入口、连接和后台同步。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "진입점, 연결 및 백그라운드 동기화를 포함한 macOS Cloud 머신 통합을 활성화합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エントリーポイント、接続、バックグラウンド同期を含むmacOSのクラウドマシン統合を有効にします。"
+          }
+        }
       }
     },
     "cloud.feature.disabled": {
@@ -525292,6 +526053,1717 @@
           "stringUnit": {
             "state": "translated",
             "value": "クラウドマシンは一時的に利用できません。"
+          }
+        }
+      }
+    },
+    "pricing.native.sizes.max": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "32 GB and 64 GB machines need cmux Max."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maschinen mit 32 GB und 64 GB benötigen cmux Max."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les machines de 32 Go et 64 Go nécessitent cmux Max."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الأجهزة ذات 32 و64 غيغابايت تتطلب cmux Max."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las máquinas de 32 GB y 64 GB requieren cmux Max."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "32 GB 和 64 GB 機器需要 cmux Max。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "32 GB 和 64 GB 机器需要 cmux Max。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "32 GB 및 64 GB 머신에는 cmux Max가 필요합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "32 GB と 64 GB のマシンには cmux Max が必要です。"
+          }
+        }
+      }
+    },
+    "pricing.native.go.price": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$10"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$10"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$10"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$10"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$10"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$10"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$10"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$10"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$10"
+          }
+        }
+      }
+    },
+    "pricing.native.max.cta": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Get Max"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max wählen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisir Max"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "احصل على Max"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obtener Max"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取得 Max"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "获取 Max"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max 시작하기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max を購入"
+          }
+        }
+      }
+    },
+    "pricing.native.go.feature.hours": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "40 included VM-hours each month; pauses at the limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "毎月 40 VM 時間を含み、上限で一時停止"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每月包含 40 个虚拟机小时，达到上限后暂停"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "40 VM-Stunden pro Monat, Pause am Limit"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "40 heures de VM incluses par mois, pause à la limite"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "40 ساعة VM مشمولة كل شهر، وتتوقف عند الحد"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "40 horas de VM incluidas al mes; pausa al alcanzar el límite"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每月包含 40 個 VM 小時，達到上限時暫停"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "매월 VM 40시간 포함, 한도에 도달하면 일시 중지"
+          }
+        }
+      }
+    },
+    "featureFlags.goPlan.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go plan"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go プラン"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go-Plan"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forfait Go"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خطة Go"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan Go"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go 方案"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go 方案"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go 요금제"
+          }
+        }
+      }
+    },
+    "socket.cloudVM.billingCheckout.invalidPlan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose Go, Pro, or Max: cmux billing checkout --plan <go|pro|max>"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wählen Sie Go, Pro oder Max: cmux billing checkout --plan <go|pro|max>"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez Go, Pro ou Max : cmux billing checkout --plan <go|pro|max>"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختر Go أو Pro أو Max: cmux billing checkout --plan <go|pro|max>"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elija Go, Pro o Max: cmux billing checkout --plan <go|pro|max>"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選擇 Go、Pro 或 Max：cmux billing checkout --plan <go|pro|max>"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择 Go、Pro 或 Max：cmux billing checkout --plan <go|pro|max>"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go, Pro 또는 Max 선택: cmux billing checkout --plan <go|pro|max>"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go、Pro、Max を選択：cmux billing checkout --plan <go|pro|max>"
+          }
+        }
+      }
+    },
+    "cloudVM.error.memoryRequiresPlan.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Larger machines need cmux Max. Upgrade at %@, or choose a smaller machine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Größere Maschinen benötigen cmux Max. Upgraden Sie unter %@ oder wählen Sie eine kleinere Maschine."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les grandes machines nécessitent cmux Max. Passez à cette offre sur %@ ou choisissez une machine plus petite."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الأجهزة الأكبر تتطلب cmux Max. قم بالترقية على %@ أو اختر جهازاً أصغر."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las máquinas más grandes requieren cmux Max. Cambie de plan en %@ o elija una máquina más pequeña."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "較大的機器需要 cmux Max。請在 %@ 升級，或選擇較小的機器。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "较大的机器需要 cmux Max。请在 %@ 升级，或选择较小的机器。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "더 큰 머신에는 cmux Max이 필요합니다. %@에서 업그레이드하거나 더 작은 머신을 선택하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "大きなマシンには cmux Max が必要です。%@ でアップグレードするか、小さなマシンを選んでください。"
+          }
+        }
+      }
+    },
+    "machines.new.size.locked.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ machines need cmux %2$@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maschinen mit %1$@ benötigen cmux %2$@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les machines de %1$@ nécessitent cmux %2$@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الأجهزة ذات %1$@ تتطلب cmux %2$@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las máquinas de %1$@ requieren cmux %2$@."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 機器需要 cmux %2$@。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 机器需要 cmux %2$@。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 머신에는 cmux %2$@이 필요합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ のマシンには cmux %2$@ が必要です。"
+          }
+        }
+      }
+    },
+    "pricing.native.compare.largestVm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Largest Cloud VM"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Größte Cloud-VM"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plus grande VM Cloud"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أكبر جهاز افتراضي سحابي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máquina virtual Cloud más grande"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大雲端 VM"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大云端 VM"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최대 Cloud VM"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大の Cloud VM"
+          }
+        }
+      }
+    },
+    "machines.new.size.locked.row": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · Requires %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · Erfordert %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · Nécessite %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · يتطلب %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · Requiere %2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · 需要 %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · 需要 %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@ 필요"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@ が必要"
+          }
+        }
+      }
+    },
+    "machines.new.plan.name.pro": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro"
+          }
+        }
+      }
+    },
+    "featureFlags.goPlan.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows and sells the $10/month Go personal Cloud VM plan."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "月額10ドルの個人向け Go Cloud VM プランを表示して販売します。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt und verkauft den persönlichen Go-Cloud-VM-Plan für 10 $/Monat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche et vend le forfait Cloud VM personnel Go à 10 $/mois."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض ويبيع خطة Go الشخصية لـ Cloud VM بسعر 10 دولارات شهريًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra y vende el plan personal Go de Cloud VM por 10 $ al mes."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示並銷售每月 10 美元的 Go 個人 Cloud VM 方案。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示并销售每月 10 美元的 Go 个人云虚拟机方案。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "월 $10 Go 개인 Cloud VM 요금제를 표시하고 판매합니다."
+          }
+        }
+      }
+    },
+    "pricing.native.max.feature.pro": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Everything in Pro: 50 Cloud VMs, unlimited workspaces, the iOS app"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alles aus Pro: 50 Cloud-VMs, unbegrenzte Arbeitsbereiche, die iOS-App"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tout Pro : 50 VM Cloud, espaces de travail illimités, application iOS"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كل ما في Pro: 50 جهازاً سحابياً، ومساحات عمل غير محدودة، وتطبيق iOS"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todo Pro: 50 máquinas virtuales Cloud, espacios de trabajo ilimitados y la app iOS"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "包含 Pro 所有功能：50 台雲端 VM、無限工作區、iOS 應用程式"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "包含 Pro 所有功能：50 台云端 VM、无限工作区、iOS 应用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro의 모든 기능: Cloud VM 50대, 무제한 작업 공간, iOS 앱"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro の全機能：50 台の Cloud VM、無制限のワークスペース、iOS アプリ"
+          }
+        }
+      }
+    },
+    "pricing.native.go.feature.saved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2 saved VMs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存 VM 2 台"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2 台已保存的虚拟机"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2 gespeicherte VMs"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2 VM enregistrées"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "آلتان افتراضيتان محفوظتان"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2 VM guardadas"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2 台已儲存的 VM"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장된 VM 2개"
+          }
+        }
+      }
+    },
+    "pricing.native.max.feature.sizes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Up to 64 GB RAM per machine"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bis zu 64 GB RAM pro Maschine"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jusqu’à 64 Go de RAM par machine"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حتى 64 غيغابايت من الذاكرة لكل جهاز"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hasta 64 GB de RAM por máquina"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每台機器最高 64 GB RAM"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每台机器最高 64 GB RAM"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신당 최대 64 GB RAM"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンごとに最大 64 GB RAM"
+          }
+        }
+      }
+    },
+    "machines.new.size.noneAllowed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No machine size is available for this plan. Close this dialog and reopen it to refresh your plan."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Für diesen Tarif ist keine Maschinengröße verfügbar. Schließen und öffnen Sie diesen Dialog, um Ihren Tarif zu aktualisieren."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune taille de machine disponible pour cette offre. Fermez puis rouvrez cette boîte de dialogue pour actualiser votre offre."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يتوفر حجم جهاز لهذه الخطة. أغلق هذا الحوار وأعد فتحه لتحديث خطتك."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay tamaños de máquina disponibles para este plan. Cierre y vuelva a abrir este diálogo para actualizar su plan."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此方案沒有可用的機器大小。請關閉並重新開啟此對話框，以重新整理方案。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此方案没有可用的机器大小。请关闭并重新打开此对话框，以刷新方案。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 요금제에 사용할 수 있는 머신 크기가 없습니다. 대화상자를 닫았다가 다시 열어 요금제를 새로고침하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このプランでは利用できるマシンサイズがありません。このダイアログを閉じて開き直し、プランを更新してください。"
+          }
+        }
+      }
+    },
+    "pricing.native.go.cta": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Get Go"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go を入手"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "获取 Go"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go abonnieren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obtenir Go"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اشترك في Go"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obtener Go"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取得 Go"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go 받기"
+          }
+        }
+      }
+    },
+    "pricing.native.compare.largestVm.max": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "64 GB RAM"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "64 GB Arbeitsspeicher"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "64 Go de RAM"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "64 غيغابايت من الذاكرة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "64 GB de RAM"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "64 GB 記憶體"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "64 GB 内存"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "64 GB 메모리"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "64 GB メモリ"
+          }
+        }
+      }
+    },
+    "machines.new.max.checkout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue to checkout"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weiter zur Zahlung"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuer vers le paiement"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المتابعة إلى الدفع"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuar al pago"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "繼續結帳"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "继续结账"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "결제 계속하기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "購入手続きへ進む"
+          }
+        }
+      }
+    },
+    "pricing.native.go.feature.vm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 active Cloud VM, 2 vCPU, 4 GiB RAM, 16 GiB disk"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクティブな Cloud VM 1 台、2 vCPU、4 GiB RAM、16 GiB ディスク"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 台活跃云端虚拟机，2 个 vCPU、4 GiB 内存、16 GiB 磁盘"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 aktive Cloud-VM, 2 vCPU, 4 GiB RAM, 16 GiB Speicher"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 VM cloud active, 2 vCPU, 4 Go de RAM, 16 Go de disque"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "آلة Cloud VM نشطة واحدة، و2 vCPU، و4 GiB RAM، و16 GiB قرص"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 VM cloud activa, 2 vCPU, 4 GiB de RAM y 16 GiB de disco"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 台使用中的 Cloud VM、2 個 vCPU、4 GiB RAM、16 GiB 磁碟"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "활성 Cloud VM 1개, 2 vCPU, 4 GiB RAM, 16 GiB 디스크"
+          }
+        }
+      }
+    },
+    "pricing.native.manageBilling": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manage billing"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrechnung verwalten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gérer la facturation"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إدارة الفوترة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gestionar facturación"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "管理帳單"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "管理账单"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "결제 관리"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請求を管理"
+          }
+        }
+      }
+    },
+    "machines.new.plan.name.max": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max"
+          }
+        }
+      }
+    },
+    "pricing.native.max.price": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$200"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$200"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$200"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$200"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$200"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$200"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$200"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$200"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$200"
+          }
+        }
+      }
+    },
+    "pricing.native.plan.max": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max"
+          }
+        }
+      }
+    },
+    "pricing.native.plan.go": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go"
+          }
+        }
+      }
+    },
+    "cloudVM.error.memoryRequiresPlan.proAction": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Larger machines need cmux Pro. Upgrade at %@, or choose a smaller machine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Größere Maschinen benötigen cmux Pro. Upgraden Sie unter %@ oder wählen Sie eine kleinere Maschine."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les grandes machines nécessitent cmux Pro. Passez à cette offre sur %@ ou choisissez une machine plus petite."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الأجهزة الأكبر تتطلب cmux Pro. قم بالترقية على %@ أو اختر جهازاً أصغر."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las máquinas más grandes requieren cmux Pro. Cambie de plan en %@ o elija una máquina más pequeña."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "較大的機器需要 cmux Pro。請在 %@ 升級，或選擇較小的機器。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "较大的机器需要 cmux Pro。请在 %@ 升级，或选择较小的机器。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "더 큰 머신에는 cmux Pro이 필요합니다. %@에서 업그레이드하거나 더 작은 머신을 선택하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "大きなマシンには cmux Pro が必要です。%@ でアップグレードするか、小さなマシンを選んでください。"
+          }
+        }
+      }
+    },
+    "pricing.native.compare.cloud.max": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Included"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enthalten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inclus"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متضمن"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Incluido"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已包含"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已包含"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "포함됨"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "含まれます"
+          }
+        }
+      }
+    },
+    "machines.new.size.locked.upgrade": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade to %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf %@ upgraden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passer à %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الترقية إلى %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiar a %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "升級至 %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "升级至 %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@으로 업그레이드"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ にアップグレード"
+          }
+        }
+      }
+    },
+    "pricing.native.compare.largestVm.standard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "24 GB RAM"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "24 GB Arbeitsspeicher"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "24 Go de RAM"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "24 غيغابايت من الذاكرة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "24 GB de RAM"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "24 GB 記憶體"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "24 GB 内存"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "24 GB 메모리"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "24 GB メモリ"
           }
         }
       }

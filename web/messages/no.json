@@ -22,8 +22,31 @@
       "title": "cmux Pro kreves",
       "message": "Cloud VM-er krever en cmux Pro-plan.",
       "action": "Oppgrader til cmux Pro på {upgradeUrl} for å opprette Cloud VM-er."
+    },
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "Maskiner med {memory} GiB krever cmux {plan}. Abonnementet ditt støtter opptil {max} GiB.",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "RAM-størrelsen på kildemaskinen kunne ikke bekreftes.",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "Denne maskinstørrelsen er ikke tilgjengelig. Velg opptil {max} GiB.",
+      "action": "cmux vm new --size {max}g"
     }
-  },
+  ,
+    "goLimit": {
+      "savedMessage": "Go inkluderer to lagrede VM-er, inkludert den som kjører.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "activeMessage": "Go inkluderer én kjørende VM om gangen.",
+      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "hoursMessage": "Go har brukt sine 40 VM-timer denne måneden. Lagrede VM-er kan brukes igjen i neste faktureringsperiode.",
+      "hoursAction": "cmux billing checkout --plan pro",
+      "shapeMessage": "Go støtter 2 vCPU, 4 GiB RAM og 16 GiB disk.",
+      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    }},
   "billingRecovery": {
     "message": "Hvis vi fant en konto, sjekk e-posten din for neste steg"
   },
@@ -357,6 +380,13 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "Del med teamet",
+      "makePrivate": "Gjør privat",
+      "privateImportHint": "Nye kontoer er private. Del en konto for å gjøre den tilgjengelig for teamets Cloud-VM-er.",
+      "description": "Delte kontoer er tilgjengelige for dette teamets Cloud-VM-er. Private kontoer kan bare brukes av personen som la dem til.",
+      "cancelAction": "Avbryt"
     }
   },
   "community": {
@@ -980,10 +1010,10 @@
       "targetTitle": "Feil vindu eller blokkert klikk",
       "targetBody": "Undersøk appen igjen og velg et gjeldende element. Hvis et annet vindu dekker målet, vis ønsket vindu og undersøk det før du prøver igjen. Ikke gjenbruk gamle koordinater eller indekser.",
       "productLink": "Oversikt over cmux Computer Use",
-    "copyTitle": "Kopier en Computer Use-ledetekst",
-    "copyPrompt": "Kopier ledetekst",
-    "copiedPrompt": "Kopiert",
-    "installPrompt": "Bruk ferdigheten $cmux-cua. Hvis den mangler, installer den med den vanlige installatøren. Ved manglende tillatelser ber du meg åpne cmux Innstillinger → Computer Use. Undersøk før handling og bekreft hver endring.\n\nOppgave: [beskriv oppgaven her]"
+      "copyTitle": "Kopier en Computer Use-ledetekst",
+      "copyPrompt": "Kopier ledetekst",
+      "copiedPrompt": "Kopiert",
+      "installPrompt": "Bruk ferdigheten $cmux-cua. Hvis den mangler, installer den med den vanlige installatøren. Ved manglende tillatelser ber du meg åpne cmux Innstillinger → Computer Use. Undersøk før handling og bekreft hver endring.\n\nOppgave: [beskriv oppgaven her]"
     },
     "remoteTmux": {
       "moshContrast": "Bruk cmux mosh-tmux for roaming mellom nettverk. Den åpner en fullt integrert Mosh-terminal koblet til en navngitt tmux-økt; den erstatter ikke den innebygde speilingen av arbeidsområder, faner og delinger fra SSH tmux-kontrollmodus."
@@ -1190,6 +1220,7 @@
           "globalFontMagnification": "Skalerer cmux-eide terminaler, fanetitler, sidefelt, innstillinger, overlegg og app-chrome med denne prosenten. Rendret innhold på nettlesersider er utelatt."
         },
         "terminal": {
+          "adaptiveDefaultTheme": "Når true (standard), bruker cmux en standardpalett som følger utseendet, med mindre et Ghostty-tema eller terminalfarger er konfigurert. Skrifttype og andre innstillinger beholdes. Når false, bruker Ghostty sin faste innebygde palett. Eksplisitte temaer og farger har alltid prioritet, inkludert theme = light:X,dark:Y.",
           "sessionContentMaxWidth": "Valgfri maksimal bredde i punkter for terminalinnhold og den innebygde agentchatten. Angi false for å bruke hele rutens bredde.",
           "sessionContentAlignment": "Vannrett plassering av terminalinnhold og den innebygde agentchatten når sessionContentMaxWidth er aktivert.",
           "copyOnSelect": "Når verdien er true, kopieres markert terminaltekst til systemutklippstavlen når markeringen bekreftes. Når verdien er false, sender ikke cmux ut en Ghostty copy-on-select-overstyring; Ghostty-konfigurasjon og standardverdier styrer oppførselen til markeringsutklippstavlen.",
