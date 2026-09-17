@@ -36,6 +36,7 @@ public struct CMUXMobileRootScene: View {
     private let auth: MobileAuthComposition
     private let reachability: any ReachabilityProviding
     private let analytics: any AnalyticsEmitting
+    private let terminalLatencyObserver: any MobileTerminalLatencyObserving
     package let signOutHook: MobileSignOutHook
     private let personalIrohRouteCatalog: MobileIrohRouteCatalog?
     private let personalIrohDiscovery: (any MobileIrohMacDiscovering)?
@@ -139,6 +140,7 @@ public struct CMUXMobileRootScene: View {
         auth: MobileAuthComposition,
         reachability: any ReachabilityProviding,
         analytics: any AnalyticsEmitting,
+        terminalLatencyObserver: any MobileTerminalLatencyObserving = NoopMobileTerminalLatencyObserver(),
         pushCoordinator: MobilePushCoordinator,
         displaySettings: MobileDisplaySettings,
         featureFlags: MobileFeatureFlags,
@@ -159,6 +161,7 @@ public struct CMUXMobileRootScene: View {
         self.auth = auth
         self.reachability = reachability
         self.analytics = analytics
+        self.terminalLatencyObserver = terminalLatencyObserver
         self.pushCoordinator = pushCoordinator
         self.displaySettings = displaySettings
         self.featureFlags = featureFlags
@@ -202,6 +205,7 @@ public struct CMUXMobileRootScene: View {
         self.auth = auth
         self.reachability = reachability
         self.analytics = analytics
+        self.terminalLatencyObserver = NoopMobileTerminalLatencyObserver()
         self.signOutHook = signOutHook
         self.personalIrohRouteCatalog = nil
         self.personalIrohDiscovery = nil
@@ -484,6 +488,7 @@ public struct CMUXMobileRootScene: View {
             reachability: reachability,
             hiddenMacStore: hiddenMacStore,
             analytics: analytics,
+            terminalLatencyObserver: terminalLatencyObserver,
             diagnosticLog: diagnosticLog,
             feedbackEmailSubmitter: feedbackEmailSubmitter,
             feedbackStampProvider: feedbackStampProvider,

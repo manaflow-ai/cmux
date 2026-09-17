@@ -525,6 +525,12 @@ extension MobileShellComposite {
             )
         }
         if let immediate {
+            terminalLatencyObserver.outputReceived(
+                surfaceID: surfaceID,
+                appliedInputSequence: immediate.sourceRenderGridFrame?.appliedInputSequence,
+                byteCount: immediate.bytes.count,
+                queueDepth: pendingCount
+            )
             continuation.yield(
                 MobileTerminalOutputChunk(
                     data: immediate.bytes,
@@ -579,6 +585,7 @@ extension MobileShellComposite {
     public func terminalOutputDidProcess(surfaceID: String, streamToken: UUID) {
         guard terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken,
               var queue = terminalOutputQueuesBySurfaceID[surfaceID] else { return }
+        terminalLatencyObserver.outputPresented(surfaceID: surfaceID)
         let next = queue.completeInFlight()
         terminalOutputQueuesBySurfaceID[surfaceID] = queue
         if terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == streamToken {
@@ -655,8 +662,15 @@ extension MobileShellComposite {
               terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken else {
             return
         }
+        let nextBytes = next.bytes
+        terminalLatencyObserver.outputReceived(
+            surfaceID: surfaceID,
+            appliedInputSequence: next.sourceRenderGridFrame?.appliedInputSequence,
+            byteCount: nextBytes.count,
+            queueDepth: queue.pendingCount
+        )
         continuation.yield(MobileTerminalOutputChunk(
-            data: next.bytes,
+            data: nextBytes,
             streamToken: streamToken,
             viewportPolicy: next.viewportPolicy,
             sourceRenderGridFrame: next.sourceRenderGridFrame,
@@ -675,6 +689,7 @@ extension MobileShellComposite {
     public func terminalOutputDidReset(surfaceID: String, streamToken: UUID) {
         guard terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken,
               terminalOutputQueuesBySurfaceID[surfaceID] != nil else { return }
+        terminalLatencyObserver.outputDropped(surfaceID: surfaceID)
         if let replayBarrierToken = terminalReplayBarrierTokensBySurfaceID[surfaceID] {
             guard terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == streamToken else {
                 terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)

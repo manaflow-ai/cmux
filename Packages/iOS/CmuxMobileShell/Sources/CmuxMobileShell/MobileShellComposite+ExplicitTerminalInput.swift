@@ -46,6 +46,10 @@ extension MobileShellComposite {
         }
         let target = workspaceMutationTarget(for: workspaceID)
         guard let client = target.client else { return false }
+        let inputSequence = terminalLatencyObserver.inputStarted(
+            surfaceID: terminalID.rawValue,
+            byteCount: text.utf8.count
+        )
 
         do {
             _ = try await client.sendRequest(
@@ -59,8 +63,16 @@ extension MobileShellComposite {
                     ]
                 )
             )
+            terminalLatencyObserver.inputSent(
+                surfaceID: terminalID.rawValue,
+                sequence: inputSequence
+            )
             return true
         } catch {
+            terminalLatencyObserver.inputFailed(
+                surfaceID: terminalID.rawValue,
+                sequence: inputSequence
+            )
             explicitTerminalInputLog.error(
                 "explicit terminal input failed workspace=\(workspaceID.rawValue, privacy: .private) surface=\(terminalID.rawValue, privacy: .private) error=\(String(describing: error), privacy: .private)"
             )

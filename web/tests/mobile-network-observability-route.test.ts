@@ -2,7 +2,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { checkRateLimit as checkVercelRateLimit } from "@vercel/firewall";
 
 import { makeMobileNetworkOutcomeHandler } from "../app/api/observability/mobile-network/route";
-import type { MobileNetworkOutcome } from "../services/observability/mobileNetworkOutcome";
+import type { MobileObservabilityEvent } from "../services/observability/mobileNetworkOutcome";
 
 const originalVercel = process.env.VERCEL;
 const originalRuleId = process.env.CMUX_MOBILE_OBSERVABILITY_RATE_LIMIT_ID;
@@ -12,7 +12,7 @@ let authError: unknown = null;
 let emitError: unknown = null;
 let flushResult = true;
 let rateLimitResult: Awaited<ReturnType<typeof checkVercelRateLimit>> = { rateLimited: false };
-const emitted: Array<{ readonly userId: string; readonly batch: readonly MobileNetworkOutcome[] }> = [];
+const emitted: Array<{ readonly userId: string; readonly batch: readonly MobileObservabilityEvent[] }> = [];
 const flushTimeouts: Array<number | undefined> = [];
 
 const verifyRequest = mock(async () => {
@@ -20,7 +20,7 @@ const verifyRequest = mock(async () => {
   return authenticatedUser;
 });
 const checkRateLimit: typeof checkVercelRateLimit = async () => rateLimitResult;
-const emitOutcomes = async (userId: string, batch: readonly MobileNetworkOutcome[]): Promise<void> => {
+const emitOutcomes = async (userId: string, batch: readonly MobileObservabilityEvent[]): Promise<void> => {
   if (emitError) throw emitError;
   emitted.push({ userId, batch });
 };
@@ -94,6 +94,35 @@ describe("iOS mobile network observability route", () => {
     expect(response.status).toBe(200);
     expect(emitted[0]?.batch[0]).toMatchObject({ phase: "rpc_ready", durationMs: 890 });
     expect(flushTimeouts).toEqual([1_000]);
+  });
+
+  test("accepts a terminal latency window with bounded percentile fields", async () => {
+    const response = await POST(outcomeRequest([terminalWindow()]));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, accepted: 1 });
+    expect(emitted[0]?.batch[0]).toMatchObject({
+      windowMs: 10_000,
+      inputCount: 4,
+      inputToVisibleP95Ms: 86,
+      renderP99Ms: 12,
+    });
+  });
+
+  test("accepts a terminal anomaly as a failure signal", async () => {
+    const response = await POST(outcomeRequest([{
+      event: "ios_terminal_latency_anomaly",
+      timestamp: "2026-09-04T12:00:00.000Z",
+      properties: {
+        duration_ms: 1_250,
+        threshold_ms: 1_000,
+        stage: "input_to_output",
+        platform: "ios",
+      },
+    }]));
+
+    expect(response.status).toBe(200);
+    expect(emitted[0]?.batch[0]).toMatchObject({ stage: "input_to_output", durationMs: 1_250 });
   });
 
   test("rejects a mismatched stable event code and name", async () => {
@@ -215,6 +244,33 @@ function outcomeRequest(batch: readonly Record<string, unknown>[]): Request {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ batch }),
   });
+}
+
+function terminalWindow(): Record<string, unknown> {
+  return {
+    event: "ios_terminal_latency_window",
+    timestamp: "2026-09-04T12:00:00.000Z",
+    properties: {
+      window_ms: 10_000,
+      input_count: 4,
+      output_count: 8,
+      presented_count: 8,
+      correlated_output_count: 4,
+      dropped_count: 0,
+      output_bytes: 512,
+      max_queue_depth: 2,
+      input_to_output_p50_ms: 20,
+      input_to_output_p95_ms: 64,
+      input_to_output_p99_ms: 80,
+      input_to_visible_p50_ms: 31,
+      input_to_visible_p95_ms: 86,
+      input_to_visible_p99_ms: 100,
+      render_p50_ms: 4,
+      render_p95_ms: 8,
+      render_p99_ms: 12,
+      platform: "ios",
+    },
+  };
 }
 
 function restoreEnv(name: string, value: string | undefined): void {

@@ -436,9 +436,11 @@ final class AppCompositionRoot {
             }
             // Force a flush before the OS may suspend us, so queued events survive.
             let networkOutcomeReporter = self.networkOutcomeReporter
+            let terminalLatencyReporter = self.analytics.terminalLatencyReporter
             Task {
                 await emitter.flush()
                 await networkOutcomeReporter.flush()
+                await terminalLatencyReporter.flush()
             }
         @unknown default:
             break

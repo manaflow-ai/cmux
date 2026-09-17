@@ -1581,6 +1581,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var terminalOutputConsumerOwnerIDsBySurfaceID: [String: UUID]
     var terminalOutputQueuesBySurfaceID: [String: TerminalOutputDeliveryQueue]
     let terminalLaneCoordinator: MobileTerminalLaneCoordinator?
+    @ObservationIgnored let terminalLatencyObserver: any MobileTerminalLatencyObserving
     var terminalLaneOutputReadySurfaceIDs: Set<String>
     var terminalLaneLifecycleID: UUID
     var terminalScrollQueueTokensBySurfaceID: [String: UUID]
@@ -1818,6 +1819,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         multiMacAggregationDefaults: UserDefaults = .standard,
         hiddenMacStore: any PairedMacHiddenStoring = InMemoryPairedMacHiddenStore(),
         analytics: any AnalyticsEmitting = NoopAnalytics(),
+        terminalLatencyObserver: any MobileTerminalLatencyObserving = NoopMobileTerminalLatencyObserver(),
         diagnosticLog: DiagnosticLog? = nil,
         feedbackEmailSubmitter: (any MobileFeedbackEmailSubmitting)? = nil,
         feedbackStampProvider: @escaping @MainActor () -> MobileFeedbackStamp = { MobileShellComposite.emptyFeedbackStamp },
@@ -1879,6 +1881,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.multiMacAggregationDefaults = multiMacAggregationDefaults
         self.hiddenMacStore = hiddenMacStore
         self.analytics = analytics
+        self.terminalLatencyObserver = terminalLatencyObserver
         self.diagnosticLog = diagnosticLog
         self.feedbackEmailSubmitter = feedbackEmailSubmitter
         self.feedbackStampProvider = feedbackStampProvider
@@ -1984,7 +1987,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             || runtime?.terminalInputLaneProvider != nil {
             self.terminalLaneCoordinator = MobileTerminalLaneCoordinator(
                 provider: runtime?.terminalLaneProvider,
-                inputOnlyProvider: runtime?.terminalInputLaneProvider
+                inputOnlyProvider: runtime?.terminalInputLaneProvider,
+                latencyObserver: terminalLatencyObserver
             )
         } else {
             self.terminalLaneCoordinator = nil
@@ -12873,6 +12877,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             workspaceID: workspaceID,
             terminalID: terminalID
         )
+        let directInputSequence = terminalLatencyObserver.inputStarted(
+            surfaceID: terminalID.rawValue,
+            byteCount: text.utf8.count
+        )
         if activeRoute?.kind == .iroh,
            supportedHostCapabilities.contains(
                Self.terminalInputOrderedCapability
@@ -12891,6 +12899,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     settlementHandler: { [weak self, weak client] result in
                         switch result {
                         case let .success(responseData):
+                            self?.terminalLatencyObserver.inputSent(
+                                surfaceID: terminalID.rawValue,
+                                sequence: directInputSequence
+                            )
                             Self.stampTerminalInputSettlement(
                                 latencyBatchNumber,
                                 succeeded: true
@@ -12910,6 +12922,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                                 surfaceID: terminalID.rawValue
                             )
                         case let .failure(error):
+                            self?.terminalLatencyObserver.inputFailed(
+                                surfaceID: terminalID.rawValue,
+                                sequence: directInputSequence
+                            )
                             Self.stampTerminalInputSettlement(
                                 latencyBatchNumber,
                                 succeeded: false
@@ -12930,6 +12946,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 )
                 return
             } catch {
+                terminalLatencyObserver.inputFailed(
+                    surfaceID: terminalID.rawValue,
+                    sequence: directInputSequence
+                )
                 // A generation change mid-enqueue (pipeline clear) surfaces as
                 // CancellationError; that is a benign teardown, not an
                 // operational failure, regardless of whether the caller also
@@ -12959,6 +12979,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     params: params
                 )
             )
+            terminalLatencyObserver.inputSent(
+                surfaceID: terminalID.rawValue,
+                sequence: directInputSequence
+            )
             guard isCurrentRemoteOperation(client: client, generation: generation) else {
                 Self.stampTerminalInputSettlement(latencyBatchNumber, succeeded: false)
                 finishRawTerminalSend(
@@ -12976,6 +13000,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 succeeded: true
             )
         } catch {
+            terminalLatencyObserver.inputFailed(
+                surfaceID: terminalID.rawValue,
+                sequence: directInputSequence
+            )
             Self.stampTerminalInputSettlement(latencyBatchNumber, succeeded: false)
             finishRawTerminalSend(
                 sendStatusOperationID,

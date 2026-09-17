@@ -51,6 +51,8 @@ final class MobileTerminalByteTee {
         /// Producer capture order, independent of byte sequence. Geometry-only
         /// captures advance this even when `seq` is unchanged.
         var renderRevision: UInt64 = 0
+        /// Monotonic count of input frames received for this surface.
+        var inputSequence: UInt64 = 0
     }
 
     private var statesBySurfaceID: [UUID: SurfaceState] = [:]
@@ -113,6 +115,21 @@ final class MobileTerminalByteTee {
 
     func currentSequence(surfaceID: UUID) -> UInt64? {
         statesBySurfaceID[surfaceID]?.seq
+    }
+
+    /// Records one input frame received from the ordered mobile input lane.
+    /// The count is carried on later render-grid frames so iOS can correlate
+    /// output without copying input text into telemetry or changing framing.
+    @discardableResult
+    func markInputReceived(surfaceID: UUID) -> UInt64 {
+        var state = statesBySurfaceID[surfaceID] ?? SurfaceState()
+        state.inputSequence &+= 1
+        statesBySurfaceID[surfaceID] = state
+        return state.inputSequence
+    }
+
+    func currentInputSequence(surfaceID: UUID) -> UInt64? {
+        statesBySurfaceID[surfaceID]?.inputSequence
     }
 
     /// Returns the producer identity that orders every render-grid capture.
