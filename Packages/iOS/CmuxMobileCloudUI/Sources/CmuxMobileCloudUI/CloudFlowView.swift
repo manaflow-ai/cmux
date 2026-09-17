@@ -61,6 +61,14 @@ public struct CloudFlowView: View {
                         showsNavigationChrome: false
                     )
                     .accessibilityIdentifier("CloudInlineOnboarding")
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button(L10n.string("mobile.cloud.onboarding.skip", defaultValue: "Skip")) {
+                                cloudOnboardingCompleted = true
+                            }
+                            .accessibilityIdentifier("CloudInlineOnboardingSkip")
+                        }
+                    }
                 }
             }
             .navigationDestination(for: CloudMachine.self) { machine in
