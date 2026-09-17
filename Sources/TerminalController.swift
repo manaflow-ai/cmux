@@ -4421,6 +4421,9 @@ class TerminalController {
         if let code = object?["error"] as? String, !code.isEmpty {
             payload["backend_code"] = code
         }
+        if let retryable = object?["retryable"] as? Bool {
+            payload["retryable"] = retryable
+        }
         // The server trace id (support reference) travels with the structured
         // error so the CLI and scripts can log it without parsing display text.
         if let traceID = object?["traceId"] as? String, !traceID.isEmpty {

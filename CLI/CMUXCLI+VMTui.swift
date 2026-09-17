@@ -50,7 +50,8 @@ extension CMUXCLI {
             return true
         }
         switch error.vmBackendCode {
-        case "vm_create_in_progress", "vm_starting", "vm_not_ready", "vm_attach_not_ready":
+        case "vm_create_in_progress", "vm_starting", "vm_not_ready", "vm_attach_not_ready",
+             "vm_cloud_service_unavailable", "vm_cloud_state_unavailable", "vm_billing_unavailable":
             return true
         default:
             return false
@@ -390,11 +391,15 @@ extension CMUXCLI {
         // new one must serve the trusted listener, which the app has just proven.
         let trustedCarrier = (info["trusted_carrier"] as? Bool) ?? false
         if known == nil {
-            guard trustedCarrier else {
-                throw CLIError(message: String(
-                    localized: "cli.vm.tui.trustedListenerPending",
-                    defaultValue: "The Cloud machine is still preparing remote access. Try again shortly."
-                ))
+                guard trustedCarrier else {
+                throw CLIError(
+                    message: String(
+                        localized: "cli.vm.tui.trustedListenerPending",
+                        defaultValue: "The Cloud machine is still preparing remote access. Try again shortly."
+                    ),
+                    v2Code: "vm_attach_not_ready",
+                    v2Retryable: true
+                )
             }
             // Later opens reuse the private route with no control-plane call.
             Self.saveVMTuiDevice(vmId: vmId, deviceFingerprint: Self.carrierDeviceMarker)
