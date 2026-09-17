@@ -16,7 +16,8 @@ git submodule update --init --recursive vendor/ish
 ./scripts/verify-ish-ios-artifacts.sh --build
 ```
 
-The script emits arm64 device and arm64 simulator slices. Set
+The script downloads the pinned Alpine rootfs beside its checked-in provenance
+manifest, then emits arm64 device and arm64 simulator slices. Set
 `CMUX_ISH_DEVICE_ONLY=1` only when a simulator slice is not needed. A missing
 or stale xcframework must fail the build rather than silently disabling the
 local shell.

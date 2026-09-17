@@ -43,7 +43,7 @@ ROOTFS_URL="${CMUX_ISH_ROOTFS_URL:-$DEFAULT_ROOTFS_URL}"
 ROOTFS_SHA256="${CMUX_ISH_ROOTFS_SHA256:-$DEFAULT_ROOTFS_SHA256}"
 ROOTFS_INPUT="${CMUX_ISH_ROOTFS_PATH:-}"
 CONFIGURATION="${CMUX_ISH_CONFIGURATION:-Release}"
-DEPLOYMENT_TARGET="${CMUX_ISH_IOS_DEPLOYMENT_TARGET:-18.0}"
+DEPLOYMENT_TARGET="${CMUX_ISH_IOS_DEPLOYMENT_TARGET:-17.0}"
 XCODE_JOBS="${CMUX_ISH_XCODE_JOBS:-1}"
 LOCK_WAIT_SECONDS="${CMUX_ISH_LOCK_WAIT_SECONDS:-1800}"
 KEEP_BUILD="${CMUX_ISH_KEEP_BUILD:-0}"
@@ -596,6 +596,11 @@ run_xcodebuild() {
         CODE_SIGNING_REQUIRED=NO \
         IPHONEOS_DEPLOYMENT_TARGET="$DEPLOYMENT_TARGET" \
         ZERO_AR_DATE=YES \
+        CACHE_ROOT="$WORK/xcode-cache" \
+        CCHROOT="$WORK/xcode-cache" \
+        CLANG_MODULE_CACHE_PATH="$WORK/xcode-cache/ModuleCache.noindex" \
+        COMPILATION_CACHE_CAS_PATH="$WORK/xcode-cache/CompilationCache.noindex" \
+        SDK_STAT_CACHE_DIR="$WORK/xcode-cache/SDKStatCaches.noindex" \
         SYMROOT="$symroot" \
         OBJROOT="$symroot/obj" \
         "$@" \
@@ -791,6 +796,8 @@ for sdk in "${SLICES[@]}"; do
     LIBRARY_ARGS+=(-library "$WORK/$sdk/libIshKernel.a")
 done
 echo "== xcframework (${SLICES[*]})"
+CACHE_ROOT="$XC_WORK/xcode-cache" \
+CCHROOT="$XC_WORK/xcode-cache" \
 xcodebuild -create-xcframework "${LIBRARY_ARGS[@]}" -output "$XC_TMP" \
     >"$XC_WORK/create.log" 2>&1 || {
         status=$?

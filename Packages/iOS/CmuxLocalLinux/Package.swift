@@ -10,7 +10,7 @@ import PackageDescription
 let package = Package(
     name: "CmuxLocalLinux",
     platforms: [
-        .iOS(.v18),
+        .iOS(.v17),
         // Keep the protocol, ring, and test seams buildable on the host. The
         // iSH bridge is conditionally compiled when the iOS module is present.
         .macOS(.v14),
@@ -53,8 +53,8 @@ let package = Package(
             ],
             resources: [
                 // Imported into the persistent fakefs on first boot. The
-                // archive and its provenance are checked in so package
-                // resolution does not depend on a network fetch.
+                // The build provisions the pinned archive beside its checked-in
+                // provenance before package resolution.
                 .copy("Resources/alpine-rootfs.tar.gz"),
                 .copy("Resources/alpine-rootfs.json"),
                 .copy("Resources/THIRD_PARTY_NOTICES.md"),

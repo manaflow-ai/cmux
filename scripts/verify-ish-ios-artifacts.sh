@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Verify the generated iSH xcframework and the checked-in Alpine fakefs before
-# SwiftPM resolves CmuxLocalLinux. The xcframework is deliberately generated
-# locally, so a clean checkout must either run --build or report this command.
+# Verify the generated iSH xcframework and the provisioned Alpine rootfs before
+# SwiftPM resolves CmuxLocalLinux. Both artifacts are deliberately generated
+# or downloaded, so a clean checkout must either run --build or report this
+# command.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,7 +18,7 @@ usage() {
   cat <<'EOF'
 usage: scripts/verify-ish-ios-artifacts.sh [--build] [--device-only]
 
-Verify the generated IshKernel.xcframework and checked-in Alpine fakefs.
+Verify the generated IshKernel.xcframework and provisioned Alpine rootfs.
 --build provisions Meson/Ninja plus LLVM clang/lld and runs
 scripts/build-ish-ios.sh when the xcframework is missing, malformed, or lacks
 a requested slice.
@@ -45,7 +46,7 @@ VALIDATOR_ARGS=(
   --provenance "$PROVENANCE"
   --ish-dir "$ROOT/vendor/ish"
   --shim-dir "$ROOT/Packages/iOS/CmuxLocalLinux/ShimSource"
-  --deployment-target "${CMUX_ISH_IOS_DEPLOYMENT_TARGET:-18.0}"
+  --deployment-target "${CMUX_ISH_IOS_DEPLOYMENT_TARGET:-17.0}"
 )
 if [[ "$DEVICE_ONLY" -eq 1 ]]; then
   VALIDATOR_ARGS+=(--device-only)
