@@ -1,4 +1,5 @@
 internal import CmuxMobileRPC
+public import CMUXMobileCore
 public import CmuxMobileShellModel
 internal import Foundation
 internal import OSLog
