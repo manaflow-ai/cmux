@@ -40,6 +40,9 @@ extension ControlCommandCoordinator {
         case "activate_app":
             return debugContext?.controlDebugActivateApp()
                 ?? Self.debugContextUnavailableResponse
+        case "quit":
+            return debugContext?.controlDebugQuit()
+                ?? Self.debugContextUnavailableResponse
         case "is_terminal_focused":
             return debugContext?.controlDebugIsTerminalFocused(surfaceArgument: args)
                 ?? Self.debugContextUnavailableResponse
