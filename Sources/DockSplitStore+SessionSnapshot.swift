@@ -244,6 +244,9 @@ extension DockSplitStore {
         switch panel.panelType {
         case .terminal:
             guard let terminal = panel as? TerminalPanel else { return nil }
+            let policy = Workspace.makeSessionRestorePolicyService()
+            let localTmuxStartCommand = policy
+                .localTmuxStartCommand(terminal.surface.debugTmuxStartCommand())
             let managedResumeBinding = managedAgentResumeBinding(panelId: panelId)
             let resumeBinding = effectiveSessionResumeBinding(
                 panelId: panelId,
@@ -252,21 +255,25 @@ extension DockSplitStore {
                     downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable,
                 detectedIsAmbiguous: detectedResumeBindingIsAmbiguous
             )
-            let restorableAgent = effectiveSessionRestorableAgent(
-                panelId: panelId,
-                observation: observation,
-                resumeBinding: resumeBinding,
-                managedResumeBinding: managedResumeBinding,
-                terminal: terminal,
-                transfer: transfer
-            )
+            let restorableAgent = localTmuxStartCommand == nil
+                ? effectiveSessionRestorableAgent(
+                    panelId: panelId,
+                    observation: observation,
+                    resumeBinding: resumeBinding,
+                    managedResumeBinding: managedResumeBinding,
+                    terminal: terminal,
+                    transfer: transfer
+                )
+                : nil
             let agentCompatibilityBinding = managedResumeBinding ?? resumeBinding
-            let hibernation = terminal.agentHibernationState.flatMap { state in
-                Workspace.restorableAgentForSessionRestore(
-                    state.agent,
-                    resumeBinding: agentCompatibilityBinding
-                ) == nil ? nil : state
-            }
+            let hibernation = localTmuxStartCommand == nil
+                ? terminal.agentHibernationState.flatMap { state in
+                    Workspace.restorableAgentForSessionRestore(
+                        state.agent,
+                        resumeBinding: agentCompatibilityBinding
+                    ) == nil ? nil : state
+                }
+                : nil
             let agentWasRunning = sessionAgentWasRunning(
                 restorableAgent: restorableAgent,
                 resumeBinding: resumeBinding,
@@ -277,18 +284,20 @@ extension DockSplitStore {
                 currentAgentProcessIdentity: currentAgentProcessIdentity,
                 agentProcessPresence: agentProcessPresence
             )
-            let policy = Workspace.makeSessionRestorePolicyService()
-            let tmuxStartCommand = restorableAgent == nil
-                ? policy.restorableTmuxStartCommand(terminal.surface.debugTmuxStartCommand())
+            let tmuxStartCommand = localTmuxStartCommand
+                ?? (restorableAgent == nil
+                    ? policy.restorableTmuxStartCommand(terminal.surface.debugTmuxStartCommand())
+                    : nil)
+            let resumeStartupInput = localTmuxStartCommand == nil
+                ? policy.surfaceResumeStartupInput(
+                    resumeBinding,
+                    autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled(
+                        defaults: agentSessionAutoResumeDefaults
+                    ) && (agentWasRunning ?? true),
+                    promptForApproval: false,
+                    approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
+                )
                 : nil
-            let resumeStartupInput = policy.surfaceResumeStartupInput(
-                resumeBinding,
-                autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled(
-                    defaults: agentSessionAutoResumeDefaults
-                ) && (agentWasRunning ?? true),
-                promptForApproval: false,
-                approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
-            )
             let shouldPersistScrollback = policy.shouldPersistSessionScrollback(
                 closeConfirmationRequired: Workspace.resolveCloseConfirmation(
                     shellActivityState: terminal.shellActivity.state,
@@ -338,18 +347,18 @@ extension DockSplitStore {
                 scrollback: scrollback,
                 agent: restorableAgent,
                 tmuxStartCommand: tmuxStartCommand,
-                hibernation: hibernation.map {
+                hibernation: localTmuxStartCommand == nil ? hibernation.map {
                     SessionAgentHibernationSnapshot(
                         hibernatedAt: $0.hibernatedAt.timeIntervalSince1970,
                         lastActivityAt: $0.lastActivityAt.timeIntervalSince1970
                     )
-                },
-                resumeBinding: resumeBinding,
-                managedAgentResumeBinding: managedResumeBinding,
+                } : nil,
+                resumeBinding: localTmuxStartCommand == nil ? resumeBinding : nil,
+                managedAgentResumeBinding: localTmuxStartCommand == nil ? managedResumeBinding : nil,
                 textBoxDraft: terminal.sessionTextBoxDraftSnapshot(),
                 isRemoteTerminal: transfer?.isRemoteTerminal ?? false,
                 remotePTYSessionID: transfer?.remotePTYSessionID,
-                wasAgentRunning: agentWasRunning
+                wasAgentRunning: localTmuxStartCommand == nil ? agentWasRunning : nil
             )
             browserSnapshot = nil
             filePreviewSnapshot = nil

@@ -80,6 +80,50 @@ extension CMUXCLI {
             )
         }
 
+        // The preflight runs on a Swift concurrency thread whose signal mask
+        // a spawned child would otherwise inherit; start it from the default
+        // signal state, as the exec that follows does.
+        var spawnAttributes: posix_spawnattr_t?
+        let attributesStatus = posix_spawnattr_init(&spawnAttributes)
+        guard attributesStatus == 0 else {
+            throw loggedRestoreError(
+                stage: "provider.spawn-attributes",
+                errorCode: attributesStatus,
+                message: String(
+                    localized: "cli.restore.error.providerSetupConfigurationFailed",
+                    defaultValue: "restore: provider setup could not start. Check the agent's provider settings, then retry."
+                )
+            )
+        }
+        defer { posix_spawnattr_destroy(&spawnAttributes) }
+        var childSignalMask = sigset_t()
+        sigemptyset(&childSignalMask)
+        var childDefaultSignals = sigset_t()
+        sigemptyset(&childDefaultSignals)
+        for signalNumber in cliChildLaunchDefaultDispositionSignals {
+            sigaddset(&childDefaultSignals, signalNumber)
+        }
+        var signalStatus = posix_spawnattr_setflags(
+            &spawnAttributes,
+            Int16(POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF)
+        )
+        if signalStatus == 0 {
+            signalStatus = posix_spawnattr_setsigmask(&spawnAttributes, &childSignalMask)
+        }
+        if signalStatus == 0 {
+            signalStatus = posix_spawnattr_setsigdefault(&spawnAttributes, &childDefaultSignals)
+        }
+        guard signalStatus == 0 else {
+            throw loggedRestoreError(
+                stage: "provider.spawn-signals",
+                errorCode: signalStatus,
+                message: String(
+                    localized: "cli.restore.error.providerSetupConfigurationFailed",
+                    defaultValue: "restore: provider setup could not start. Check the agent's provider settings, then retry."
+                )
+            )
+        }
+
         var processID: pid_t = 0
         let status = withCStringArray(invocation.arguments) { argv in
             withEnvironmentCStringArray(invocationEnvironment) { environment in
@@ -88,7 +132,7 @@ extension CMUXCLI {
                         &processID,
                         $0,
                         &fileActions,
-                        nil,
+                        &spawnAttributes,
                         argv,
                         environment
                     )

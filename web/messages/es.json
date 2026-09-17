@@ -23,12 +23,30 @@
       "message": "Las Cloud VM requieren un plan cmux Pro.",
       "action": "Actualiza a cmux Pro en {upgradeUrl} para crear Cloud VM."
     },
-    "sharedResource": {
-      "message": "El grupo compartido de recursos {resource} de Cloud VM está lleno.",
-      "action": "Elimina una Cloud VM que no uses y vuelve a intentarlo.",
-      "oversizedAction": "Solicita un tamaño {resource} menor para la Cloud VM que quepa en el grupo compartido."
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "Las máquinas de {memory} GiB requieren cmux {plan}. Tu plan admite hasta {max} GiB.",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "No se pudo verificar la RAM de la máquina de origen.",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "Este tamaño de máquina no está disponible. Elige hasta {max} GiB.",
+      "action": "cmux vm new --size {max}g"
     }
-  },
+  ,
+    "goLimit": {
+      "savedMessage": "Go incluye dos VM guardadas, incluida la VM en ejecución.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "activeMessage": "Go incluye una VM en ejecución a la vez.",
+      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "hoursMessage": "Go ha agotado sus 40 horas de VM de este mes. Las VM guardadas estarán disponibles en el próximo período de facturación.",
+      "hoursAction": "cmux billing checkout --plan pro",
+      "shapeMessage": "Go admite 2 vCPU, 4 GiB de RAM y 16 GiB de disco.",
+      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    }},
   "billingRecovery": {
     "message": "Si encontramos una cuenta, revisa tu correo para conocer los siguientes pasos"
   },
@@ -157,6 +175,42 @@
     "applyAriaLabel": "Solicitar por correo el puesto de Founding Engineer",
     "applyEmailSubject": "Solicitud para Founding Engineer en cmux",
     "applyCta": "Enviar correo",
+    "foundingChromiumEngineer": {
+      "metaTitle": "Founding Chromium Engineer en cmux",
+      "metaDescription": "Únete a cmux como ingeniero fundador de Chromium para hacerte cargo de nuestro fork de Chromium y llevar cmux a Windows y Linux con C++ y Rust.",
+      "section": "Empleos",
+      "eyebrow": "Sobre el puesto",
+      "title": "Founding Chromium Engineer",
+      "tagline": "Lleva cmux a Windows y Linux.",
+      "intro": "cmux es un terminal nativo de macOS basado en Ghostty, diseñado para ejecutar varios agentes de programación con IA en paralelo. Cientos de miles de desarrolladores usan cmux para impulsar sus flujos de trabajo de programación con agentes.",
+      "hiring": "Buscamos un ingeniero fundador que se haga cargo de cmux en Windows (y Linux), construido sobre nuestro propio fork de Chromium.",
+      "whatYoullDo": "Qué harás",
+      "whatYoullDoItems": [
+        "Hazte cargo de nuestro fork de Chromium: sigue el upstream, haz rebase limpio y mantén los parches de cmux (integración de ventanas/entrada/renderizado, superficie de terminal, UI de agentes).",
+        "Hazte cargo de cmux en Windows y Linux de principio a fin: C++, instalador, actualizaciones automáticas, informes de fallos.",
+        "Porta el núcleo de terminal basado en Ghostty y las funciones de orquestación de agentes (pestañas verticales, anillos de notificación, divisiones, CLI) a Windows.",
+        "Haz que el rendimiento se sienta nativo: tiempo de arranque, renderizado GPU, latencia de entrada.",
+        "Dogfooding, pruebas y verificación constantes."
+      ],
+      "excitedLead": "Nos entusiasma especialmente que:",
+      "excitedItems": [
+        "Dominio profundo de C++ y trabajo real con Chromium; idealmente has mantenido un fork: llevando parches, haciendo rebase sobre hitos del upstream, depurando en content/ o blink.",
+        "Rust es una gran ventaja (nuestra TUI y el demonio de red están escritos en Rust).",
+        "Has lanzado o mantenido una aplicación de escritorio real para Windows.",
+        "Bonus: contribuciones a Chromium upstream, curiosidad por Swift/AppKit, mantenedor de open source, exfundador."
+      ],
+      "details": "Detalles",
+      "roleTitle": "Founding Chromium Engineer",
+      "compensationLabel": "Compensación",
+      "compensation": "$130k–$170k + 0,5 %–1,5 % de participación",
+      "benefitsLabel": "Beneficios",
+      "benefits": "Seguro médico, dental y de la vista",
+      "locationLabel": "Ubicación",
+      "location": "San Francisco",
+      "applyAriaLabel": "Solicitar por correo el puesto de Founding Chromium Engineer",
+      "applyEmailSubject": "Solicitud para Founding Chromium Engineer en cmux",
+      "applyCta": "Enviar correo"
+    },
     "foundingDesigner": {
       "metaTitle": "Founding Designer en cmux",
       "metaDescription": "Únete a cmux como Founding Designer y diseña el futuro de la programación con IA en macOS, TUI, Windows, Linux, iOS, Cloud, cmux.com y chatmux.",
@@ -263,7 +317,8 @@
     "nav": {
       "coderouterGroup": "coderouter",
       "coderouterOverview": "vista general",
-      "team": "equipo"
+      "team": "equipo",
+      "irohDevices": "IROH devices"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -300,64 +355,6 @@
       "organizationSwitchError": "No se pudo cambiar de organización. Inténtalo de nuevo.",
       "signIn": "Iniciar sesión"
     },
-    "aiAccounts": {
-      "metaTitle": "Cuentas de IA — cmux",
-      "metaDescription": "Gestiona las cuentas de proveedores de IA del equipo para cmux.",
-      "section": "Panel",
-      "title": "Cuentas de IA",
-      "description": "Gestiona las cuentas de proveedores que este equipo puede usar con cmux AI.",
-      "personalTeam": "Personal",
-      "teamSwitcherLabel": "Equipo",
-      "notConfiguredTitle": "La gestión de cuentas de IA aún no está disponible",
-      "notConfiguredBody": "Las cuentas de IA de equipo no están habilitadas en esta implementación. Inténtalo más tarde o contacta con soporte.",
-      "loadErrorTitle": "No se pudieron cargar las cuentas",
-      "loadErrorBody": "No se pudo conectar con el servicio de cuentas. Inténtalo de nuevo en un momento.",
-      "accountsTitle": "Cuentas conectadas",
-      "accountsCount": "{count, plural, one {# cuenta} other {# cuentas}}",
-      "emptyTitle": "Aún no hay cuentas",
-      "emptyBody": "Añade una cuenta de proveedor para que este equipo pueda usarla.",
-      "providerColumn": "Proveedor",
-      "labelColumn": "Etiqueta",
-      "createdColumn": "Creada",
-      "actionsColumn": "Acciones",
-      "unlabeledAccount": "Sin etiqueta",
-      "unknownCreatedAt": "Desconocida",
-      "addAccountsTitle": "Añadir cuenta",
-      "providerClaude": "Claude OAuth",
-      "providerAnthropicApiKey": "Clave de API de Anthropic",
-      "providerCodex": "Codex OAuth",
-      "providerOpenAiApiKey": "Clave de API de OpenAI",
-      "providerUnknown": "Proveedor desconocido",
-      "labelField": "Etiqueta",
-      "labelPlaceholder": "Predeterminada del equipo",
-      "oauthJsonField": "OAuth JSON",
-      "apiKeyField": "Clave de API",
-      "addClaude": "Añadir Claude",
-      "addAnthropic": "Añadir Anthropic",
-      "addCodex": "Añadir Codex",
-      "addOpenAi": "Añadir OpenAI",
-      "addSuccess": "Cuenta añadida.",
-      "addError": "No se pudo guardar la cuenta.",
-      "deleteError": "No se pudo eliminar la cuenta.",
-      "jsonError": "Pega un objeto JSON válido.",
-      "validationError": "Revisa los datos de la cuenta y vuelve a intentarlo.",
-      "teamAccessError": "No tienes acceso a este equipo.",
-      "deletingAction": "Eliminando",
-      "deleteAction": "Eliminar",
-      "deleteConfirmTitle": "¿Eliminar esta cuenta?",
-      "deleteConfirmBody": "La cuenta del proveedor se eliminará para todo el equipo. Para volver a añadirla necesitarás las credenciales originales.",
-      "cancelAction": "Cancelar",
-      "claudeJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"expiresAt\":1770000000000}",
-      "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
-      "anthropicKeyPlaceholder": "sk-ant-...",
-      "openAiKeyPlaceholder": "sk-...",
-      "cliAddBody": "Add provider accounts securely from your terminal. Sign in with your team, then run one of these commands:",
-      "codexTool": "Codex",
-      "codexCommand": "Copy codex command",
-      "opencodeTool": "OpenCode",
-      "opencodeCommand": "Copy opencode command",
-      "copied": "Copied"
-    },
     "billing": {
       "plan": {
         "heading": "Tu plan personal",
@@ -365,6 +362,31 @@
         "pro": "Pro",
         "loading": "Cargando…"
       }
+    },
+    "iroh": {
+      "title": "IROH devices",
+      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
+      "team": "Team",
+      "loading": "Loading devices…",
+      "empty": "No IROH devices are registered for this team.",
+      "unavailable": "Dashboard authorization is unavailable.",
+      "mutationError": "The device change could not be completed.",
+      "revoke": "Revoke access",
+      "deviceId": "Device",
+      "revision": "Revision",
+      "status": "Status",
+      "active": "Active",
+      "revoked": "Revoked",
+      "relaySettings": "Relay settings",
+      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
+      "saveRelaySettings": "Save relay settings"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "Compartir con el equipo",
+      "makePrivate": "Hacer privado",
+      "privateImportHint": "Las cuentas nuevas son privadas. Comparte una cuenta para que esté disponible en las VM Cloud de este equipo.",
+      "description": "Las cuentas compartidas están disponibles para las VM Cloud de este equipo. Las cuentas privadas solo están disponibles para quien las añadió.",
+      "cancelAction": "Cancelar"
     }
   },
   "community": {
@@ -939,6 +961,60 @@
     }
   },
   "docs": {
+    "computerUse": {
+      "title": "cmux Computer Use",
+      "metaTitle": "cmux Computer Use: automatiza tu Mac con agentes de IA",
+      "metaDescription": "Deja que Claude Code y Codex controlen tu Mac con cmux Computer Use. Automatiza apps nativas con capturas, accesibilidad, clics y entradas de teclado.",
+      "docsMetaTitle": "Configurar Computer Use y sus herramientas para agentes",
+      "docsMetaDescription": "Configura cmux Computer Use en macOS: permisos, herramientas de Claude Code y Codex, selección de apps, control de sesiones, habilidades y soluciones.",
+      "tagline": "Deja que Claude Code y Codex controlen tu Mac.",
+      "intro": "Da a los agentes de programación con IA acceso a apps nativas del Mac. Con cmux Computer Use pueden leer interfaces, tomar capturas, pulsar controles y escribir texto.",
+      "imageAlt": "Configuración de cmux Computer Use con permisos de accesibilidad y capturas de pantalla",
+      "caption": "Un asistente independiente gestiona los permisos de Computer Use, por lo que tus sesiones de terminal permanecen abiertas durante la configuración inicial.",
+      "featuresTitle": "Controla apps nativas del Mac",
+      "featureInspect": "Inspecciona interfaces con árboles de accesibilidad y capturas de pantalla.",
+      "featureAct": "Haz clic, escribe, desplázate, arrastra y usa atajos de teclado en apps de macOS.",
+      "featureReview": "Sigue el cursor visible del agente, comprueba el resultado y vuelve al terminal que inició la acción.",
+      "agentsTitle": "Tus agentes de programación en cmux",
+      "agentsBody": "Ejecuta {agents} y otros agentes de línea de comandos en cmux.",
+      "supportTitle": "Agentes compatibles",
+      "supportBody": "Las herramientas nativas de Computer Use se conectan automáticamente a las sesiones de Claude Code y Codex iniciadas dentro de cmux. Otros agentes funcionan en el terminal, pero aún no reciben esta integración automática para controlar el Mac.",
+      "setupTitle": "Primeros pasos",
+      "step1": "Instala y abre cmux para Mac. Activa Computer Use en Ajustes → Computer Use.",
+      "step2": "Usa los controles de permisos para conceder Accesibilidad y Grabación de pantalla a cmux Computer Use en Ajustes del Sistema. Si el asistente no aparece en la lista, añade o arrastra su icono de app al panel de permisos.",
+      "step3": "Inicia una nueva sesión de Claude Code o Codex dentro de cmux. Pide que use Computer Use e indica la app y la tarea. Las herramientas se conectan automáticamente, sin configurar MCP a mano.",
+      "permissionsTitle": "Permisos y configuración",
+      "permissionsBody": "Accesibilidad permite leer y manipular las interfaces. Grabación de pantalla permite tomar capturas. Concede ambos permisos a cmux Computer Use. Abrir cmux o iniciar un agente no concede acceso ni abre la configuración automáticamente.",
+      "tahoeBody": "En macOS Tahoe, acepta también la confirmación adicional de captura de pantalla durante la configuración. Espera a que cmux muestre ambos permisos concedidos antes de reintentar la tarea.",
+      "promptTitle": "Pruébalo con Calculadora",
+      "prompt": "Usa cmux Computer Use para abrir Calculadora, pulsar 100 + 105 y mostrarme el resultado.",
+      "workflowBody": "Inspecciona primero el destino, actúa sobre los controles de esa instantánea y vuelve a inspeccionarlo para verificar el resultado. Los índices de elementos solo valen para la instantánea actual; actualízalos después de navegar o cambiar el diseño. Confirmar un clic no demuestra por sí solo que la tarea haya terminado.",
+      "toolsTitle": "Herramientas para agentes",
+      "toolsBody": "cmux-cua es el servidor MCP incluido que ofrece herramientas estructuradas para controlar apps nativas. Estos son nombres de herramientas, no comandos de shell. Los argumentos dependen del perfil del agente; consulta los esquemas conectados a la sesión.",
+      "codexBody": "Codex usa get_app_state con el nombre de una app o su identificador de bundle para obtener una captura y un árbol de accesibilidad. Actúa con un element_index actual o coordenadas de la captura y vuelve a llamar a get_app_state. Herramientas disponibles:",
+      "claudeBody": "Claude Code busca el destino con list_apps y list_windows y llama a get_window_state con pid y window_id. Prefiere tokens de elementos o índices recientes. El perfil nativo también ofrece perform_actions para agrupar acciones que no invaliden destinos posteriores.",
+      "controlTitle": "Seguir y detener Computer Use",
+      "controlBody": "Computer Use en la barra de menús muestra el agente activo. Focus Computer Use sigue la app controlada; Focus Calling Terminal vuelve al terminal de origen. Volver al terminal no detiene la automatización. Usa la acción de detener del menú para finalizar la sesión de control.",
+      "disableBody": "Desactiva Computer Use en Ajustes. Para excluir las herramientas de un nuevo inicio de agente, define CMUX_COMPUTER_USE_MCP_DISABLED=1 antes de iniciarlo.",
+      "skillTitle": "Habilidades",
+      "skillBody": "La habilidad cmux-cua explica el flujo de inspección y acción. Es opcional y no concede permisos de macOS. Para instalarla de forma persistente, usa el instalador de habilidades de tu agente; cmux no instala habilidades globales por defecto.",
+      "skillLink": "Leer la habilidad cmux-cua",
+      "browserTitle": "Apps nativas y automatización del navegador",
+      "browserBody": "Computer Use opera ventanas nativas del Mac mediante capturas y accesibilidad. Para los paneles de navegador de cmux, usa cmux browser para instantáneas DOM, selectores, formularios y JavaScript. Una referencia de superficie del navegador no es un índice de elemento de app nativa.",
+      "browserLink": "Referencia de automatización del navegador",
+      "troubleTitle": "Solución de problemas",
+      "missingTitle": "El agente no tiene herramientas de Computer Use",
+      "missingBody": "Activa Computer Use en cmux e inicia una nueva sesión de Claude Code o Codex dentro de cmux. Las sesiones existentes pueden conservar sus herramientas originales. Comprueba que ninguna variable de entorno o política administrada lo desactive.",
+      "blockedTitle": "Configuración incompleta, clics fallidos o capturas en blanco",
+      "blockedBody": "Vuelve a Ajustes → Computer Use y completa ambos pasos de permisos, incluida cualquier confirmación adicional de captura. Reintenta después. Si el asistente debe reiniciarse, las sesiones de terminal pueden permanecer abiertas.",
+      "targetTitle": "Ventana incorrecta o clic bloqueado",
+      "targetBody": "Inspecciona de nuevo la app y selecciona un elemento de su estado actual. Si otra ventana tapa el destino, muestra la ventana deseada e inspecciónala antes de reintentar. No reutilices coordenadas ni índices obsoletos.",
+      "productLink": "Vista general de cmux Computer Use",
+      "copyTitle": "Copiar un prompt de Computer Use",
+      "copyPrompt": "Copiar prompt",
+      "copiedPrompt": "Copiado",
+      "installPrompt": "Usa la habilidad $cmux-cua para esta tarea. Si falta, instálala con tu instalador habitual. Si faltan permisos, pídeme abrir Ajustes de cmux → Computer Use. Inspecciona antes de actuar y verifica cada cambio.\n\nTarea: [describe aquí la tarea]"
+    },
     "remoteTmux": {
       "moshContrast": "Para cambiar de red sin perder la sesión, usa cmux mosh-tmux. Abre un terminal Mosh plenamente integrado y conectado a una sesión tmux con nombre; no sustituye el espejo nativo de espacios, pestañas y divisiones que ofrece el modo de control tmux por SSH."
     },
@@ -1144,6 +1220,7 @@
           "globalFontMagnification": "Escala en este porcentaje las terminales, títulos de pestañas, barras laterales, ajustes, superposiciones y chrome de la app que pertenecen a cmux. Se excluye el contenido renderizado de las páginas del navegador."
         },
         "terminal": {
+          "adaptiveDefaultTheme": "Cuando es true (predeterminado), cmux proporciona una paleta predeterminada que se adapta a la apariencia, salvo que se configure un tema de Ghostty o colores del terminal. Se conservan la fuente y los demás ajustes. Cuando es false, Ghostty usa su paleta integrada fija. Los temas y colores explícitos siempre tienen prioridad, incluido theme = light:X,dark:Y.",
           "sessionContentMaxWidth": "Ancho máximo opcional, en puntos, para el contenido del terminal y del chat de agente integrado. Establece false para usar todo el ancho del panel.",
           "sessionContentAlignment": "Posición horizontal del contenido del terminal y del chat de agente integrado cuando sessionContentMaxWidth está activado.",
           "copyOnSelect": "Cuando es true, copia el texto seleccionado del terminal al portapapeles del sistema cuando se confirma la selección. Cuando es false, cmux no emite una anulación de copy-on-select de Ghostty; la configuración y los valores predeterminados de Ghostty controlan el comportamiento del portapapeles de selección.",
@@ -1258,7 +1335,7 @@
       "plusButtonScreenshotAlt": "Menú de clic derecho del botón más de cmux con Worktree Agents, New Terminal y New Browser",
       "plusButtonScreenshotCaption": "El menú de clic derecho sigue el orden de ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Acciones personalizadas del botón de suma",
-      "newWorkspaceButtonDesc": "Usa <action>ui.newWorkspace.action</action> para sobrescribir lo que hace el botón de suma. Usa <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (o el alias <rightClick>rightClick</rightClick>) para definir el menú ordenado del clic derecho. Las entradas del menú pueden ser ID de acción, objetos de acción o <separator>{ \"type\": \"separator\" }</separator>.",
+      "newWorkspaceButtonDesc": "Usa <action>ui.newWorkspace.action</action> para sobrescribir lo que hace el botón de suma. Usa <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (o el alias <rightClick>rightClick</rightClick>) para definir el menú ordenado del clic derecho. Las entradas del menú pueden ser ID de acción, objetos de acción o <separator>{ \"type\": \"separator\" }</separator>. Si no se configura, el menú muestra cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), cada uno con su atajo actual. Las opciones de la nube solo aparecen si Cloud Machines está habilitado.",
       "newWorkspaceWorktreeNote": "Este ejemplo hace que el clic normal en el botón más ejecute la acción <action>worktree-agents</action>. El comando de espacio de trabajo de <commands>commands</commands> usa una terminal de preparación visible para crear primero el <worktree>worktree</worktree> de Git. Codex y Claude se inician al mismo tiempo, esperan el archivo de estado específico del espacio de trabajo y luego entran en el directorio creado antes de exec.",
       "simpleCommands": "Comandos simples",
       "simpleCommandsDesc": "Un comando simple ejecuta un comando de shell en el terminal actualmente enfocado:",
@@ -1618,6 +1695,7 @@
       }
     },
     "navItems": {
+      "computerUse": "Control del ordenador",
       "gettingStarted": "Primeros pasos",
       "concepts": "Conceptos",
       "workspaceGroups": "Grupos de workspaces",
@@ -3894,5 +3972,12 @@
         "action": "Gestionar plan"
       }
     }
+  },
+  "cliAuthIdentity": {
+    "email": "Correo electrónico",
+    "emailUnavailable": "correo electrónico no disponible",
+    "organization": "Organización",
+    "personalAccount": "cuenta personal",
+    "switchAccountButton": "Usar otra cuenta"
   }
 }

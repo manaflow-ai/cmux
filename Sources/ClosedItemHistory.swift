@@ -8,13 +8,13 @@ private let closedItemHistoryLogger = Logger(
     category: "ClosedItemHistory"
 )
 
-nonisolated struct ClosedPanelSplitPlacement: Codable, Sendable {
+struct ClosedPanelSplitPlacement: Codable, Sendable {
     let orientation: SplitOrientation
     let insertFirst: Bool
     let anchorPanelId: UUID?
 }
 
-nonisolated struct ClosedPanelHistoryEntry: Codable, Sendable {
+struct ClosedPanelHistoryEntry: Codable, Sendable {
     let workspaceId: UUID
     let paneId: UUID
     let paneAnchorPanelId: UUID?
@@ -53,14 +53,14 @@ nonisolated struct ClosedPanelHistoryEntry: Codable, Sendable {
     }
 }
 
-nonisolated struct ClosedWorkspaceHistoryEntry: Codable, Sendable {
+struct ClosedWorkspaceHistoryEntry: Codable, Sendable {
     let workspaceId: UUID
     let windowId: UUID?
     let workspaceIndex: Int
     let snapshot: SessionWorkspaceSnapshot
 }
 
-nonisolated struct ClosedWindowHistoryEntry: Codable, Sendable {
+struct ClosedWindowHistoryEntry: Codable, Sendable {
     let windowId: UUID?
     let snapshot: SessionWindowSnapshot
 
@@ -73,13 +73,13 @@ nonisolated struct ClosedWindowHistoryEntry: Codable, Sendable {
     }
 }
 
-nonisolated enum ClosedItemHistoryEntry: Codable, Sendable {
+enum ClosedItemHistoryEntry: Codable, Sendable {
     case panel(ClosedPanelHistoryEntry)
     case workspace(ClosedWorkspaceHistoryEntry)
     case window(ClosedWindowHistoryEntry)
 }
 
-nonisolated struct ClosedItemHistoryRecord: Identifiable, Codable, Sendable {
+struct ClosedItemHistoryRecord: Identifiable, Codable, Sendable {
     let id: UUID
     let closedAt: Date
     var entry: ClosedItemHistoryEntry
@@ -389,17 +389,26 @@ final class ClosedItemHistoryStore: ObservableObject {
         persistRecords()
     }
 
-    private static func recordContainsManagedCloudVM(_ record: ClosedItemHistoryRecord) -> Bool {
+    static func recordContainsManagedCloudVM(_ record: ClosedItemHistoryRecord) -> Bool {
         switch record.entry {
         case .panel:
             return false
         case .workspace(let entry):
-            return entry.snapshot.remote?.managedCloudVMID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            return workspaceSnapshotHostsCloudVM(entry.snapshot)
         case .window(let entry):
-            return entry.snapshot.tabManager.workspaces.contains { workspace in
-                workspace.remote?.managedCloudVMID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-            }
+            return entry.snapshot.tabManager.workspaces.contains(where: workspaceSnapshotHostsCloudVM)
         }
+    }
+
+    /// A Cloud workspace through either transport — the legacy managed remote
+    /// (`managedCloudVMID`) or the cmux-tui binding (`cloudVM`) — the same
+    /// definition session restore uses under `DisableCloud`, so a purge and a
+    /// blocked restore agree on what a Cloud record is.
+    static func workspaceSnapshotHostsCloudVM(_ snapshot: SessionWorkspaceSnapshot) -> Bool {
+        if snapshot.remote?.managedCloudVMID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+            return true
+        }
+        return snapshot.cloudVM != nil
     }
 
     @discardableResult private func trimToCapacityIfNeeded() -> Bool {
@@ -823,14 +832,14 @@ extension Notification.Name {
     static let closedItemHistoryRevisionDidChange = Notification.Name("cmux.closedItemHistoryRevisionDidChange")
 }
 
-private nonisolated struct ClosedItemHistoryPersistenceSnapshot: Codable, Sendable {
+private struct ClosedItemHistoryPersistenceSnapshot: Codable, Sendable {
     static let currentVersion = 1
 
     var version: Int = currentVersion
     var records: [ClosedItemHistoryRecord]
 }
 
-private nonisolated struct ClosedItemHistoryLoadedRecords: Sendable {
+private struct ClosedItemHistoryLoadedRecords: Sendable {
     let records: [ClosedItemHistoryRecord]
     let didTrim: Bool
 }

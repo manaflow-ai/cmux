@@ -98,24 +98,27 @@ The active snapshot and its provenance are recorded in
 `web/services/vms/images/manifest.json`. There is no provider-specific daemon
 protocol or alternate image selector.
 
-The daemon's remote state dir must live on the persistent volume (the machine's
-home; Freestyle runs the daemon as root with `HOME=/root`, so the
-HOME-derived default `~/.local/state/cmux/remote` already qualifies. The
-non-root layout described below (`CMUX_CLOUD_LAYOUT`) is retained as a seam
-but no driver selects it today. This is what lets daemon identity and enrolled
-devices survive sandbox resurrection. Session state (`--state`) lives there
-too, so workspace layout restores from the journal checkpoint after a daemon
-restart. Running processes do not survive a restart, and clients see the
-generation change instead of a silent new shell.
+The daemon runs as the image's work user, `cmux` (uid 1000, passwordless
+sudo, `HOME=/home/cmux`), so every terminal pane it opens is a non-root shell:
+coding agents refuse to run as root, and `claude
+--dangerously-skip-permissions` exits before it starts there. Its remote state
+dir is the HOME-derived default `~/.local/state/cmux/remote`, on the machine's
+durable disk, which is what lets daemon identity and enrolled devices survive
+resurrection. Session state (`--state`) lives there too, so workspace layout
+restores from the journal checkpoint after a daemon restart. Running processes
+do not survive a restart, and clients see the generation change instead of a
+silent new shell.
 
-On a layout machine, the daemon watches the bindfs home view for mount events.
-If the view disappears, the supervisor stops the user daemon and exits with a
-restartable failure code. The provider starts the command again, which reruns
-the idempotent user setup and repairs the view before selecting the non-root
-daemon. If repair fails, it detects the still-mounted `/cmux/home` backing path
-and runs the daemon there as root. Active terminals therefore do not continue
-writing into the disposable rootfs directory. No provider selects this layout
-today; it is kept for a future non-root cloud home.
+Machines created from an image baked before that work user existed have no
+`cmux` account and carry their binary, daemon and state under `/root`. The
+install command, the pin check, the daemon launch and every driver-side
+`cmux-tui` call run one shared selector (`cmuxTuiLayoutSelector`) that reads
+the layout off the machine, so both kinds of machine are served by one driver
+and neither can end up with its binary in a home its sessions cannot reach
+(`/root` is 0700). The chosen layout is written to `/etc/cmux/daemon-layout`.
+A machine whose work user exists but cannot use its home or cannot `sudo -n`
+takes the root layout too: a degraded machine that works beats a
+crash-looping daemon or a session trapped unprivileged.
 
 ## State model and synchronization invariants
 
@@ -341,35 +344,41 @@ The rejected alternatives are explicit:
 ## Lease/auth integration with the attach-endpoint flow
 
 `POST /api/vm/[id]/attach-endpoint` returns
-`{transport:"cmux-remote", route, token, expiresAtUnix, session, invitation?}`.
+`{transport:"cmux-remote", route, token, expiresAtUnix, session, trustedCarrier}`.
 The route is a direct Freestyle private IPv4 address on port 1337 when available,
 then private IPv6 for machines with a VPC, or the machine's public IPv6 for legacy
 public-network machines.
 The provider route token is recorded as a hash in the lease ledger and is not
-used as daemon session authentication. The cmux-tui Noise handshake and the
-enrolled device key authenticate the session. Private-network machines are
-reachable only when the owner's WireGuard tunnel is active.
+used as daemon session authentication. Private-network machines are reachable
+only when the owner's WireGuard tunnel is active, and that reachability is the
+admission: the daemon's cloud listener runs in trusted-carrier mode
+(`--remote-ws-trusted-carrier`, or `CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER=1` from
+the driver's systemd drop-in), so every link that reaches it is granted carrier
+authentication keyed by the client's own key. There is no device enrollment,
+no invitation, and no approval on the cloud path. The Noise handshake still
+runs for encryption and key binding; only the authorization check changed.
+Every other transport on the same daemon (unix, ssh, relay, iroh) keeps the
+enrollment model, and plain network evidence on an untrusted listener is still
+refused, so the flag is a property of that one listener.
 
 - `route` is a `ws://[address]:1337/v1/link` endpoint. It must never be copied
   into a durable invitation or log. The route posture is read from the VM, so
   changing the private-network feature flag cannot strand an existing VM.
-- `invitation` is present only when this client device is not yet enrolled
-  with this VM's daemon. The endpoint execs `remote enroll create --ttl 300`
-  in the VM and returns the single-use `cmux://enroll/...` URI. The Mac claims
-  it through `remote connect --invite-file`; the control plane approves the
-  matching invitation through `/cmux-remote/approve`. Approval and device
-  enrollment are separate from the short-lived provider lease.
-- After first enrollment the device key lives in the Mac's client state and
-  reattach needs only a fresh route and a valid device key. Revocation removes
-  the control-plane lease row. Freestyle does not yet revoke the daemon device
-  record because the lease ledger does not persist the claimed device id. This
-  is an explicit security follow-up: persist the returned fingerprint/device id
-  per lease, then call `remote enroll revoke <device-id>` for exactly those rows.
-  Never revoke every device on a team VM when one member signs out.
+- `trustedCarrier` is true when the machine's daemon serves the trusted
+  listener; the Mac then dials `remote connect <route> --carrier`. The endpoint
+  brings a daemon from an older bake to the pinned build and restarts it with
+  the drop-in, except under a device that is already enrolled there (the
+  restart would end its sessions); that device keeps dialing with its stored
+  key, and `trustedCarrier` is false for it until the machine is restarted for
+  another reason.
+- Revocation is the private network's: deleting a Mac's WireGuard peer ends
+  every connection from it at once. `POST /cmux-remote/approve` remains as a
+  no-op that answers `approved` for older Mac builds and is deleted once they
+  have rolled.
 
-Per-VM daemon identity plus per-user device keys give cloud attach the same
-model as every other cmux-tui remote (ssh, iroh, relay), which is what makes
-the right-pane drag UX (below) uniform.
+The trusted listener is what gives cloud attach one trust layer: the private
+network. The right-pane drag UX (below) stays uniform because the daemon still
+names every connection by the client's key.
 
 ## macOS integration: manual IO instead of a PTY bridge
 
@@ -508,19 +517,22 @@ Socket methods (the CLI, the sidebar tree, and agents all go through them):
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `vm.tree` | `{id?, refresh?}` | `{machines: [{id, status, image, has_desktop, memory_mb?, disk_mb?, link_state, remote_workspaces?}], cloud_states: [{machine, sync_mode, cursor?, freshness, pending_writes?}], resources: [{id, machine, kind: terminal\|display\|browser, key, title, detail?, lifecycle, agent?, remote_workspace?, remote_views: [{tab_id, workspace: {id, name, index, focused}, screen_id?, pane_id?, name?, index?, focused?}], port?, url?, open_surface_ids}], projections: [{resource, workspace_id, panel_id}]}`. The renderer orders each machine as Workspaces, Ports, VNC Displays, then Terminals; empty workspaces and exact multi-tab placements remain visible. |
+| `vm.tree` | `{id?, refresh?}` | `{machines: [{id, status, image, has_desktop, memory_mb?, disk_mb?, link_state, remote_workspaces?}], cloud_states: [{machine, sync_mode, cursor?, freshness, pending_writes?}], resources: [{id, machine, kind: terminal\|display\|browser, key, title, detail?, lifecycle, agent?, remote_workspace?, remote_views: [{tab_id, workspace: {id, name, index, focused}, screen_id?, pane_id?, name?, index?, focused?, screen_index?, pane_index?}], port?, url?, open_surface_ids}], projections: [{resource, workspace_id, panel_id}]}`. The renderer orders each machine as Workspaces, Ports, VNC Displays, then Terminals; empty workspaces and exact multi-tab placements remain visible. |
+| | | `screen_index` is the screen's position in its workspace and `pane_index` the pane's depth-first position in that screen's layout document (`screens[].layout`); both are additive and absent for daemons that send no layout, in which case rows keep arrival order. |
 | `vm.terminal_open` | `{id, terminal_id, remote_workspace_id?, remote_tab_id?, workspace_id?, placement?, focus?}` | `{surface_id, workspace_id, reused}` — exact remote placement is preserved; an existing pane with the same IDs is focused instead of duplicated |
 | `vm.terminal_new` | `{id, workspace_id?: ws_…, command?: [string], cwd?, name?, open?}` | `{terminal_id, workspace_id, surface_id?}` — a detached terminal in the machine's session |
 | `vm.desktop_open` | `{id, workspace_id?, focus?}` | `{surface_id, url}` |
-| `vm.port_open` | `{id, port, workspace_id?}` | `{surface_id, url}` |
+| `vm.port_open` | `{id, port, workspace_id?}` | `{surface_id, url, private_url}`: `url` is the link the pane loads: the loopback forward (works from any app on this Mac), or, for a machine without a private address, the control plane's preview URL, `private_url` the machine's `http://<private ip>:<port>` |
 | `vm.link_socket` | `{id}` | `{socket_path, session}` — the headless link's local mux socket |
 | `vm.tab_rename` | `{id, tab_id, name}` | Renames one exact remote tab placement and publishes the resulting daemon event. `name: ""` clears its custom label. |
 | `vm.terminal_rename` | `{id, terminal_id, name}` | Explicit compatibility fan-out that renames every tab view of one terminal. `name: ""` clears the custom label on every view. |
 
 CLI addresses are the tree's lines: `cmux vm tree`, then
-`cmux vm open <machine>[/<ws>[/<term>]]`, `cmux vm open <machine>:desktop`,
+`cmux vm open <machine>[/<ws>[/<term>[/<tab>]]]`, `cmux vm open <machine>:desktop`,
 `cmux vm open <machine>:port/<n>`. A workspace name is accepted only when it
-is unique; IDs always win. A terminal opens locally as a pane running
+is unique; IDs always win. The `/<tab>` suffix (a `tab_…` id from the tree)
+picks one exact tab of a terminal that occupies several. A terminal opens
+locally as a pane running
 `cmux-tui attach --terminal <term_…>` against the link socket, with the exact
 remote workspace and tab IDs retained in the projection.
 
@@ -533,6 +545,70 @@ session (so it survives the pane and reattaches from any device); `cmux vm run`,
 orthogonal: it routes model credentials, not compute, and is configured inside
 the machine the same way as locally. The `skills/cmux-cloud-vm` skill teaches
 this policy to Claude Code, Codex, OpenCode, and Pi.
+
+## Notifications: the VM is the source of truth
+
+A Cloud machine's notifications live in its cmux-tui daemon, and every client
+(the Mac app, a second Mac, an iPhone, the in-VM TUI) derives its unread state
+from that one ledger. The Mac never runs a listener and the VM never dials the
+Mac; the existing Mac-to-VM state feed carries notifications like any other
+resource.
+
+Sources. An agent hook transition that deserves attention posts a durable
+`notification.create` effect from inside the journal fold: `turn.completed`
+(info, "Claude finished"), `approval.requested`, `question.requested`,
+`plan_review.requested` (warning), and `error.reported` (error). The key is
+derived from the journal sequence, so a crash between the notification commit
+and the agent-report commit replays the notification on retry instead of
+posting it twice, and the hook fence still advances once. Prompt and message
+text is redacted before the journal accepts it, so the body carries only the
+tool name an approval waits on. The legacy `notify` verb and `cmux-tui
+notification create` use the same durable path. All three survive a daemon
+restart and are rebuilt from committed effect receipts.
+
+Delivery. Every notification is a row in the `notifications` collection of
+the public session snapshot and an `upsert` delta on the `session current
+events` feed. The Mac's per-machine link already resumes that feed from its
+`(generation, revision)` cursor with bounded recovery, so a notification posted
+while the link was down arrives on reconnect through the same catch-up path
+as a renamed tab. No journal subscription and no second stream are involved.
+
+Read state is per client. Each row carries `read_by`, the sorted client ids
+that acknowledged it. `notification.ack {client_id, notifications[]}` records
+the marks in `resource_notification_reads`, publishes the refreshed rows as one
+revision, and replays under its idempotency key. Ids the 256-entry ledger no
+longer retains come back under `unknown` rather than as an error, and their
+read rows are pruned in the same transaction. The shared `unread` marker on
+the console tree (the TUI's own tab dot) is unchanged by an acknowledgement:
+it answers "does this terminal need attention on the shared console", while
+`read_by` answers "has this client install seen it". Two Macs attached to one
+machine therefore keep independent dots, and a Mac reattaching after a
+reinstall with a new client id starts unread, which is the safe direction.
+
+Client ids are the durable per-install identity already used for focus
+memory (`client-focus`), 1 to 128 printable ASCII bytes. The Mac app derives
+one from its `vm-tui-devices.json` record for the machine.
+
+CLI. Inside a machine the daemon binary also answers to `cmux`, and `cmux
+notify` takes the flags of the macOS `cmux notify` (`--title`, `--subtitle`,
+`--body`, `--clear`, `--surface`, `--workspace`, `--json`), so a script or an
+agent hook written for a local terminal works unchanged. The target defaults
+to the caller's own terminal through `CMUX_TUI_TERMINAL_ID`, which the daemon
+injects into every PTY; `--clear` removes the retained rows on the machine
+(`notification.clear`), so every attached client drops them. Rows carry an
+optional `subtitle`. `cmux-tui notification list` prints rows with `read_by`;
+`cmux-tui notification ack --client <id> <notification-id>...` acknowledges.
+
+Security. The daemon's notification ledger is reachable only over the trusted
+local Unix socket inside the machine and over the authenticated device link,
+so a process in the machine can post only to its own session and only name
+terminals of that session; it cannot address a Mac workspace, and the Mac
+attributes rows to local panes by the terminal id it already projects. Title,
+subtitle, and body are bounded (512, 512, and 4096 characters) because every
+retained row is pushed to every attached client, and the ledger keeps 256
+rows. `--reply` is refused inside a machine: an inline reply types into a
+terminal, and that channel does not cross the link. Notification text is data
+everywhere it is shown; nothing evaluates it.
 
 ## Surface catalog
 
@@ -553,7 +629,7 @@ Socket (worker lane, like `vm.*`):
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `surface.catalog` | `{machine?: "local"\|<id>, refresh?}` | `{machines: [{id, local, name, status, image, has_desktop, memory_mb, disk_mb, link_state, link_error, cpu_percent, memory_used_mb, disk_used_mb}], resources: [{id, machine, kind, key, title, detail, lifecycle, agent?, remote_workspace?, port?, url?, open, open_surface_ids, open_workspace_ids}], projections: [{resource, workspace_id, surface_id}]}` |
+| `surface.catalog` | `{machine?: "local"\|<id>, refresh?}` | `{machines: [{id, local, name, status, image, has_desktop, memory_mb, disk_mb, link_state, link_error, cpu_percent, memory_used_mb, disk_used_mb, remote_workspaces}], workspaces: [{id, title, ref, selected, window_id}] (this Mac's workspaces; absent for a cloud-only request), resources: [{id, machine, kind: terminal\|display\|browser, key, title, detail, lifecycle, agent?, remote_workspace?, port?, url?, open, open_surface_ids, open_workspace_ids}], projections: [{resource, workspace_id, surface_id}]}`. `refresh: true` is the sidebar's Refresh: fleet list + every provider. |
 | `surface.project` | `{resource, workspace_id?, pane_id?, direction?: left\|right\|up\|down, tab_index?, placement?: split\|tab, focus? (true), reuse? (true)}` | `{surface_id, workspace_id, reused, resource}` — `pane_id` + `direction` splits that pane on that side; `pane_id` + `tab_index`/`placement: tab` tabs into it; else the workspace's focused pane |
 | `surface.new_terminal` | `{machine, command?: [string], cwd?, name?, remote_workspace_id?, open? (true), + the destination params}` | `{resource, terminal_id, machine, remote_workspace_id, workspace_id?, surface_id?}` |
 
@@ -563,3 +639,126 @@ over the same catalog (`vm.tree` is the catalog restricted to cloud machines;
 `vm.desktop_open` projects `<id>/display/display:1`; `vm.port_open` projects
 `<id>/browser/port:<n>`, registering the port first when the probe has not
 seen it). CLI: `cmux surface ls|open|new-terminal` and `cmux vm tree|open`.
+
+## Layouts, environment, and the in-VM `cmux` (2026-09-06)
+
+A machine workspace *is* its screen's layout. Two things make it travel as data:
+
+- **Geometry-honoring open.** `vm.workspace_open` (the sidebar row click, `cmux vm
+  workspace open`, `cmux vm layout apply --open`) reads the workspace's focused
+  screen `layout` (the daemon `LayoutDocument` already carried by `session current
+  snapshot`) through `CloudWorkspaceLayoutTranslator` and builds the local panes
+  from it: `LayoutSplit` → a local split in the same direction with the same
+  ratio (`horizontal` = side by side, `vertical` = stacked), a leaf's tabs → tabs
+  of that pane in daemon order, stacks → stacked splits, viewport columns →
+  side-by-side splits. Unknown resources are dropped and an empty leaf collapses;
+  with no layout the old one-pane-per-terminal alternation remains. Nothing in a
+  layout can name a Mac surface: it only selects which of the machine's own
+  resources project where.
+- **Declarative layouts.** `cmux layout export|apply` in the in-VM shim
+  (`web/services/vms/guestCli.ts`) speak the Mac's `CmuxLayoutNode` document
+  (`cmux new-workspace --layout`, `cmux layout save|get`). `apply` composes the
+  daemon's v2 verbs — `workspace create --empty`, `workspace <ws> run`, `pane <p>
+  split --right|--down --ratio --cwd`, `pane <p> run -- env K=V bash -l`,
+  `terminal <placeholder> close`, `tab create browser --url`, `terminal write|keys`
+  for typed `command`s, `pane focus` — so no daemon change is needed. The Mac CLI
+  (`cmux vm layout export|apply`) runs that implementation over `vm.exec`; inside
+  a machine the same verb works locally and toward linked peers.
+
+The shim also carries `cmux env set|ls|rm|path|receive` (a 0600
+`~/.config/cmux/env` of `export` lines plus an idempotent hook in
+`~/.profile`/`~/.bashrc`, so every login and interactive shell cmux starts sees
+the values). Values never ride `vm.exec`: the Mac's `cmux vm env set` calls
+`vm.env_set`, and `CmuxTuiSurfaceProvider.deliverEnvironment` starts `cmux env
+receive` as a terminal over the link, waits for `CMUX-ENV-READY` (printed only
+after `stty -echo`), types base64 lines and `CMUX-ENV-END` with `terminal write
+--bytes-base64`, waits for `CMUX-ENV-OK|ERR`, and closes the terminal — the
+daemon does not journal terminal input, so the value exists on the machine only
+in the receiver and the file. A peer machine uses the same handshake. The shim
+also speaks the Mac spellings for the machine's own
+session: `cmux tree`, `new-workspace`, `new-split`, `send`, `send-key`,
+`read-screen`, `terminal send|read|wait|close` (default target
+`$CMUX_TUI_TERMINAL_ID`, the caller's own terminal). Every one of them takes a
+linked peer as `cmux vm <verb> <peer> …`, and `cmux vm agent <peer> --agent <a>
+-- <prompt>` starts a durable agent terminal on the peer through the peer's own
+shim and CodeRouter config. The trust boundary below is unchanged: links are
+granted only from the Mac, and no control-plane credential enters a machine.
+
+## Reflection: a machine's own identity (2026-09-06)
+
+`cmux self [path]` (aliases `cmux whoami`, `cmux reflect`) in the guest reads
+`https://coderouter.cmux.internal/api/vm/reflection` (and, on new machines,
+`https://reflection.cmux.internal/`). The edge terminates the alias and injects the
+VM-bound route token and `x-cmux-vm-id`; `web/services/vms/vmPrincipal.ts` turns that
+into the machine principal (deny by default: only reflection accepts it). The index
+carries the machine's `name` at the top level, then `/owner`, `/machine`, `/peers`
+(the owner's other machines with their private daemon routes; the daemon's
+private-network listener is a trusted carrier, so a peer link needs the route and
+nothing else), and `/integrations` (what the machine can use, each with a `help`
+command). The shim resolves `cmux vm exec <peer>` through `/peers` when no route file
+exists. See docs/vm-identity-edge-auth.md.
+
+## Coding-agent hooks on a machine
+
+Every machine ships the cmux-tui hooks for Claude Code and Codex, installed
+for the daemon user (`/home/cmux`): the bake and the create-time install both
+run `cmux-tui agent hook install claude codex` right after the binary
+(`cmuxTuiInstallCommand`), with the `cmux-tui-hook` helper downloaded from the
+same manifest commit as the daemon and placed beside it. A machine whose daemon
+is healthy but predates this gets the hooks on attach (`ensureAgentHooks` in
+`freestyle.ts`), using the helper of the commit in `/etc/cmux/cmux-tui-pin`;
+the daemon keeps running because it already exports `CMUX_TUI_HOOK` into
+every pane. The readiness probe (`cmuxTuiHooksReadyCommand`) requires the
+installed helper to be byte-equal to the pinned one and the cmux marker in
+`~/.claude/settings.json`, `~/.codex/hooks.json`, and the `[hooks]` trust
+table in `~/.codex/config.toml`. `agent-config.sh` adds the codex model
+provider around that trust table at the first login that sees a boot env, so
+the two writers of `config.toml` compose in either order. The bake's
+`agent-hooks` step proves all of it on the snapshot.
+
+## Notifications from a machine
+
+`cmux notify` inside a machine is the guest shim (`web/services/vms/guestCli.ts`)
+running `cmux-tui --session cloud --quiet notify …` with the arguments untouched
+(`--quiet` is dropped when the caller passes `--json` or `--jsonl`); the
+daemon's `notify` verb owns the macOS signature (subtitle, scoped `--clear`,
+`--reply` refused, `CMUX_TUI_TERMINAL_ID` as the caller terminal). The daemon appends it to
+its durable notification ledger and the v2 `session.events` stream carries it
+as a delta:
+
+```
+{"protocol":"cmux.protocol/2","type":"stream_item",…,"item":{"kind":"delta",…,
+ "changes":[{"kind":"upsert","resource":"notification","id":"notification_<32hex>",
+   "value":{"id":…,"session_id":…,"title":…,"body":…,"level":…,"created_at_ms":…,
+            "unread":…,"terminal_id":"term_<32hex>"}}]}}
+```
+
+The Mac already follows that stream over the headless link (`CloudMachineLink`,
+`CloudTuiCommandLine.eventsArguments`). `CloudMachineNotificationEvent` parses
+exactly that one resource kind out of it — the first `kind:"snapshot"` item
+replays the whole ledger on every (re)connect and is never interpreted — and
+`CmuxTuiSurfaceProvider` attributes it through the surface catalog: the link that
+produced the line names the machine, the event may only name one of that
+machine's `term_…` ids, and the catalog projection of that resource names the
+local pane. No pane showing the terminal → a workspace-level notification in a
+workspace showing the machine; nothing of the machine on screen → dropped.
+
+### Trust boundary
+
+The Mac never executes anything on behalf of the machine. Control flows one way
+(Mac → daemon); everything on the event stream is data, parsed by a strict,
+bounded parser (64 KiB per line before JSON, 4 MiB line cap on the pipe, 128 B
+titles, 1 KiB bodies, escape/control/bidi characters stripped, 16 notification
+changes per delta, 5-burst/1-per-second per machine plus a fleet bucket,
+notification-id and identical-content de-duplication). The event's session id,
+timestamps, unread flag, `extra`, and any UUID-looking field are ignored, so a
+machine can neither address another machine's panes nor a local surface. The
+notification enters `TerminalNotificationStore` with origin `cloud-vm:<machine>`:
+display, sound, badge, global `cmux.json` hooks, `notifications.command` (both
+with `CMUX_NOTIFICATION_ORIGIN`), and phone forwarding — never a reply shape,
+click action, agent context, sound override, or project hooks from a local
+directory. There is no reverse RPC, no listener on the Mac, and no
+`CMUX_SOCKET*` / workspace / surface identity in the machine's environment; the
+`cmux ssh` reverse relay stays gated off for machines. This is the `cmux ssh`
+*policy* (notification-only, host-attributed, no remote selectors) without its
+*transport* (a request channel into the Mac).
