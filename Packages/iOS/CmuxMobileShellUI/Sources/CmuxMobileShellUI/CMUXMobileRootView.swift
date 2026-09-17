@@ -37,6 +37,18 @@ struct CMUXMobileRootView: View {
     /// Optional so previews and package hosts remain migration-free by default.
     @Environment(MobileAutoConnectMigrationStore.self) private var autoConnectMigrationStore:
         MobileAutoConnectMigrationStore?
+    // This environment value is inside the iOS-only block because the center
+    // is not defined for macOS builds of the shared root view.
+    /// Minimum-Mac-version list shared with onboarding copy. Optional so
+    /// previews and package hosts keep the store's compiled-in fallback.
+    @Environment(MobileMacCompatCenter.self) private var macCompatCenter:
+        MobileMacCompatCenter?
+    @Environment(MobileWhatsNewCenter.self) private var whatsNewCenter:
+        MobileWhatsNewCenter?
+    /// Set when the one-shot remote policy refresh has been started. The
+    /// cached/baked policy is installed synchronously; the network refresh
+    /// continues independently of auth restore and stored-Mac reconnect.
+    @State private var didStartMacCompatPolicyRefresh = false
     /// Persists the last durable milestone in first-run onboarding.
     @Bindable private var onboardingStore: MobileOnboardingStore
     @State private var isAwaitingOnboardingReconnectStart = false
@@ -159,6 +171,14 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    private var shouldShowWhatsNewPreview: Bool {
+        #if os(iOS) && DEBUG
+        return UITestConfig.whatsNewPreviewEnabled
+        #else
+        return false
+        #endif
+    }
+
     private var shouldShowOnboardingPreview: Bool {
         #if os(iOS) && DEBUG
         return UITestConfig.onboardingPreviewEnabled
@@ -237,6 +257,14 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    @ViewBuilder private var whatsNewPreview: some View {
+        #if os(iOS) && DEBUG
+        MobileWhatsNewPreviewView()
+        #else
+        EmptyView()
+        #endif
+    }
+
     var body: some View {
         rootContent
         #if os(iOS)
@@ -264,6 +292,12 @@ struct CMUXMobileRootView: View {
         .animation(.snappy(duration: 0.18), value: store.phase)
         .onAppear {
             syncShellAuthentication(isAuthenticated)
+            #if os(iOS)
+            diagnosticLog?.recordAppEvent(
+                .dogfoodAttachEnvironmentObserved,
+                count: hasInjectedAttachLaunchRoute ? 1 : 0
+            )
+            #endif
             store.resumeForegroundRefresh()
             #if os(iOS)
             pushCoordinator.bind(store: store)
@@ -414,6 +448,17 @@ struct CMUXMobileRootView: View {
             presentAutoConnectMigrationIfEligible()
             #endif
         }
+        .onChange(of: authManager.currentUser?.demonstrationContentEnabled ?? false) { _, _ in
+            // Session revalidation refreshes the published user — including
+            // its server-written demonstration-content flag — WITHOUT an
+            // isAuthenticated edge, so neither onChange above re-fires. A
+            // launch that mounts already authenticated syncs against the
+            // cached identity card (not-flagged when it predates the flag),
+            // and without this edge the demo computer's workspace and
+            // notification seeds would never land. Re-running the ordinary
+            // auth sync lets the shell's activation re-evaluate.
+            syncShellAuthentication(isAuthenticated)
+        }
         .onChange(of: store.connectionState) { _, connectionState in
             if connectionState == .connected {
                 #if os(iOS)
@@ -472,6 +517,8 @@ struct CMUXMobileRootView: View {
             macSurfaceGalleryPreview
         } else if shouldShowHiddenComputersPreview {
             hiddenComputersPreview
+        } else if shouldShowWhatsNewPreview {
+            whatsNewPreview
         } else if shouldShowOnboardingPreview {
             onboardingPreview
         } else if shouldShowOnboarding {
@@ -485,7 +532,8 @@ struct CMUXMobileRootView: View {
         } else if MobileRootAuthGate.shouldShowSignIn(
             stackAuthenticated: authManager.isAuthenticated,
             attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
-            isRestoringSession: authManager.isRestoringSession
+            isRestoringSession: authManager.isRestoringSession,
+            onboardingPending: isOnboardingPending
         ) {
             SignInView()
                 .transition(reduceMotion ? .opacity : .asymmetric(
@@ -574,7 +622,7 @@ struct CMUXMobileRootView: View {
             connectionErrorGuidance: store.connectionErrorGuidance,
             versionWarning: store.pairingVersionWarning,
             connectPairingCode: {
-                await store.connectPairingInput()
+                await store.connectPairingInput(allowPreview: false)
             },
             acceptVersionWarning: {
                 let result = await store.acceptPairingVersionWarning()
@@ -582,9 +630,10 @@ struct CMUXMobileRootView: View {
                 if result == .connected {
                     dismissAddDeviceSheet()
                 }
+                return result
             },
             connectManualHost: { name, host, port in
-                await store.connectManualHost(name: name, host: host, port: port)
+                await store.connectManualHostResult(name: name, host: host, port: port)
             },
             cancelPairing: cancelPairing,
             cancel: dismissAddDeviceSheet
@@ -653,6 +702,7 @@ struct CMUXMobileRootView: View {
         MobileSettingsView(
             connectedHostName: store.connectedHostName,
             startPairingScanner: pairingScannerAction,
+            startTailscalePairing: showPairingScanner,
             // Swaps the root sheet's content from Settings to Computers in
             // place; the presentation state machine allows this transition.
             showComputers: showComputers,
@@ -819,6 +869,18 @@ struct CMUXMobileRootView: View {
         )
     }
 
+    /// Whether first-run onboarding remains unfinished, i.e. it would present
+    /// once launch restore settles. While pending, a restoring launch stays on
+    /// the sign-in surface (see ``MobileRootAuthGate/shouldShowSignIn``);
+    /// once complete, a primed cached session mounts the shell immediately.
+    private var isOnboardingPending: Bool {
+        #if os(iOS)
+        return onboardingStore.progress != .complete
+        #else
+        return false
+        #endif
+    }
+
     /// Whether first-run onboarding should present: only for a settled,
     /// signed-in account session, and only while a durable milestone remains
     /// unfinished. During launch restore, `rootContent` falls through to the
@@ -883,12 +945,16 @@ struct CMUXMobileRootView: View {
             isAuthenticated: isAuthenticated,
             connectionPhase: onboardingConnectionPhase,
             connectionMethod: connectionMethodStore?.method ?? .automatic,
+            keepAwakeOffer: OnboardingKeepAwakeOfferSource.offer(from: store),
             onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
             onEnablePush: { await pushCoordinator.enable(trigger: "onboarding") },
             onReachedConnection: markOnboardingReadyToConnect,
             onSkip: completeOnboarding,
             onRetryConnection: retryAutomaticConnection,
             onStartTailscalePairing: showOnboardingPairingScanner,
+            onSetKeepAwake: { [store] enabled in
+                await OnboardingKeepAwakeOfferSource.set(enabled, on: store)
+            },
             onComplete: completeOnboarding
         )
         #else
@@ -1056,8 +1122,17 @@ struct CMUXMobileRootView: View {
     }
 
     private func finishAuthenticationBootstrapAndConnect() async {
+        #if os(iOS)
+        // Seed from cache/baked policy now, then refresh in the background. A
+        // policy fetch must never become a connection-startup barrier.
+        startMacCompatibilityRefreshIfNeeded()
+        #endif
         await authManager.awaitBootstrapped()
         guard !Task.isCancelled else { return }
+        diagnosticLog?.recordAppEvent(
+            .authBootstrapCompleted,
+            count: authManager.isAuthenticated ? 1 : 0
+        )
         if authManager.isAuthenticated {
             guard prepareResolvedAccountScope() != nil else { return }
         }
@@ -1066,6 +1141,26 @@ struct CMUXMobileRootView: View {
             reconnectStoredMacIfNeeded()
         }
     }
+
+    #if os(iOS)
+    /// Installs the cached/baked policy immediately, then refreshes it once in
+    /// a fire-and-forget task. A missing center is the preview/package-host
+    /// path and keeps the store's compiled-in fallback.
+    private func startMacCompatibilityRefreshIfNeeded() {
+        guard !didStartMacCompatPolicyRefresh else { return }
+        didStartMacCompatPolicyRefresh = true
+        guard let macCompatCenter else {
+            return
+        }
+        store.applyMacCompatibilityPolicy(macCompatCenter.policy)
+        Task { @MainActor in
+            await macCompatCenter.refresh()
+            guard !Task.isCancelled else { return }
+            store.applyMacCompatibilityPolicy(macCompatCenter.policy)
+            store.revalidateActiveMacCompatibilityPolicy()
+        }
+    }
+    #endif
 
     private func accountScopeDidChangeAfterBootstrap() {
         guard didFinishAuthBootstrap,
@@ -1351,6 +1446,7 @@ struct CMUXMobileRootView: View {
               let attachURL = UITestConfig.dogfoodAttachURL ?? UITestConfig.attachURL else {
             return false
         }
+        diagnosticLog?.recordAppEvent(.dogfoodAttachStarted)
         return startupConnectionCoordinator.startInjectedAttach(
             attachURL: attachURL,
             prepare: {

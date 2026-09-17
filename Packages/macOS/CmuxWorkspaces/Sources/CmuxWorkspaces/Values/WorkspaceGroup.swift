@@ -4,13 +4,14 @@ public import Foundation
 /// The membership relation lives on `Workspace.groupId`; this struct stores
 /// the group's identity, display name, collapse/pin state, and the stable
 /// header anchor identity.
-///
 /// A newly-created group starts with a live workspace anchor. Closing that
 /// anchor promotes the first remaining member in `tabs` order. A pinned group
 /// with no remaining members transitions to an empty anchor and keeps its
 /// header until an explicit Delete Group action removes it. The anchor is
 /// rendered implicitly as the group header (there is no separate workspace
 /// row).
+/// An optional external id gives automation a stable, caller-owned identity
+/// for create-if-absent operations; it is scoped to the owning window.
 public struct WorkspaceGroup: Identifiable, Equatable, Sendable {
     /// The group's stable identity.
     public let id: UUID
@@ -28,6 +29,19 @@ public struct WorkspaceGroup: Identifiable, Equatable, Sendable {
     public var customColor: String?
     /// SF symbol name for the header icon. When nil, defaults to `folder.fill`.
     public var iconSymbol: String?
+    /// Stable caller-owned identity used by idempotent group creation.
+    public var externalID: String?
+    /// Standard retry spelling for ``externalID``.
+    public var idempotencyKey: String? {
+        externalID
+    }
+    /// Provenance of the current anchor, used to gate explicit cleanup of an
+    /// anchor-only generated workspace.
+    public var anchorWorkspaceProvenance: WorkspaceGroupAnchorProvenance
+    /// Whether the current anchor is still the cmux-created anchor.
+    public var isGeneratedAnchor: Bool {
+        anchorWorkspaceProvenance == .generated && liveAnchorWorkspaceId != nil
+    }
 
     /// Stable id used by existing sidebar and socket projections.
     ///
@@ -53,7 +67,9 @@ public struct WorkspaceGroup: Identifiable, Equatable, Sendable {
         isPinned: Bool,
         anchorWorkspaceId: UUID,
         customColor: String?,
-        iconSymbol: String?
+        iconSymbol: String?,
+        externalID: String? = nil,
+        anchorWorkspaceProvenance: WorkspaceGroupAnchorProvenance = .unknown
     ) {
         self.id = id
         self.name = name
@@ -62,6 +78,8 @@ public struct WorkspaceGroup: Identifiable, Equatable, Sendable {
         self.anchor = .workspace(anchorWorkspaceId)
         self.customColor = customColor
         self.iconSymbol = iconSymbol
+        self.externalID = externalID
+        self.anchorWorkspaceProvenance = anchorWorkspaceProvenance
     }
 
     /// Creates a group with an explicit live or empty anchor state.
@@ -72,7 +90,9 @@ public struct WorkspaceGroup: Identifiable, Equatable, Sendable {
         isPinned: Bool,
         anchor: WorkspaceGroupAnchor,
         customColor: String?,
-        iconSymbol: String?
+        iconSymbol: String?,
+        externalID: String? = nil,
+        anchorWorkspaceProvenance: WorkspaceGroupAnchorProvenance = .unknown
     ) {
         self.id = id
         self.name = name
@@ -81,5 +101,7 @@ public struct WorkspaceGroup: Identifiable, Equatable, Sendable {
         self.anchor = anchor
         self.customColor = customColor
         self.iconSymbol = iconSymbol
+        self.externalID = externalID
+        self.anchorWorkspaceProvenance = anchorWorkspaceProvenance
     }
 }

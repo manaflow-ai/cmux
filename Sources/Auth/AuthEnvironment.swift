@@ -55,9 +55,8 @@ enum AuthEnvironment {
             }
             return "cmux-dev"
         }
-        if bundleIdentifier == "com.cmuxterm.app.nightly" {
-            return "cmux-nightly"
-        }
+        if bundleIdentifier == "com.cmuxterm.app.nightly" { return "cmux-nightly" }
+        if bundleIdentifier == "com.cmuxterm.app.rc" { return "cmux-rc" }
         return "cmux"
     }
 
@@ -117,9 +116,9 @@ enum AuthEnvironment {
     }
 
     /// Credential-bearing native-to-web handoffs are pinned to cmux.com in
-    /// release builds. Debug builds may additionally use an exact loopback
-    /// origin so tagged local web servers can participate without making an
-    /// arbitrary launch environment variable a token destination.
+    /// release builds. Debug builds may additionally use an exact loopback or
+    /// owner-provided Tailscale Serve origin, without accepting an arbitrary
+    /// launch environment variable as a token destination.
     static var appSessionHandoffOrigin: URL {
         #if DEBUG
         let isDebugBuild = true
@@ -145,13 +144,29 @@ enum AuthEnvironment {
             url: candidate,
             resolvingAgainstBaseURL: false
         ),
-              components.scheme == "http" || components.scheme == "https",
-              components.host?.lowercased() == "localhost",
               components.user == nil,
               components.password == nil,
               components.path.isEmpty || components.path == "/",
               components.query == nil,
               components.fragment == nil else {
+            return productionOrigin
+        }
+        if components.host?.lowercased() == "localhost",
+           components.scheme == "http" || components.scheme == "https" {
+            return candidate
+        }
+        guard components.scheme?.lowercased() == "https",
+              let host = components.host?.lowercased(),
+              host.hasSuffix(".ts.net"),
+              let trustedHost = environment["CMUX_DEV_BACKEND_TAILSCALE_HOST"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased(),
+              trustedHost == host,
+              environment["CMUX_DEV_BACKEND_TRANSPORT"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased() == "direct",
+              let port = components.port,
+              (3800...4799).contains(port) else {
             return productionOrigin
         }
         return candidate

@@ -66,19 +66,64 @@ enum SurfacePaneFactory {
     /// Selects the workspace and focuses the pane, the way `surface.focus` does — an explicit
     /// focus-intent operation that still never activates the app.
     static func focus(panelID: UUID, in workspaceID: UUID) {
+        if let app = AppDelegate.shared,
+           let manager = app.tabManagerFor(tabId: workspaceID),
+           let windowID = app.windowId(for: manager),
+           let window = app.mainWindow(for: windowID) {
+            // A sidebar-origin action is an explicit request to move keyboard
+            // ownership into the opened terminal. Clear the sidebar intent
+            // before the focus coordinator evaluates the terminal target.
+            app.noteMainPanelKeyboardFocusIntent(
+                workspaceId: workspaceID,
+                panelId: panelID,
+                in: window
+            )
+        }
         _ = TerminalController.shared.controlSurfaceFocus(routing: routing(workspaceID: workspaceID), surfaceID: panelID)
     }
 
-    /// Closes a pane (a restored placeholder that a provider replaced).
+    /// Closes a pane the app is replacing or discarding itself (a restored placeholder a
+    /// provider replaced, the loser of an open race, the panes of a killed terminal). That
+    /// end is never a layout edit on the machine, unlike a pane the person closes.
     static func close(panelID: UUID, in workspaceID: UUID) {
-        _ = TerminalController.shared.controlSurfaceClose(routing: routing(workspaceID: workspaceID), surfaceID: panelID, hasSurfaceIDParam: true)
+        SurfaceCatalog.shared.withProjectionEndReason(for: [panelID], reason: .replaced) {
+            _ = TerminalController.shared.controlSurfaceClose(routing: routing(workspaceID: workspaceID), surfaceID: panelID, hasSurfaceIDParam: true)
+        }
+    }
+
+    /// Closes a pane whose process has ended, the way a local terminal pane
+    /// disappears when its shell exits.
+    ///
+    /// This is not ``close(panelID:in:)``: the socket close refuses a
+    /// workspace's last surface, so an agent cannot empty a workspace by
+    /// accident. A shell that ended is not an accident, and a cloud workspace
+    /// opened by `cmux vm workspace new` holds exactly one pane, so the socket
+    /// rule would leave the dead pane on screen forever.
+    static func closeExited(panelID: UUID, in workspaceID: UUID) {
+        guard let appDelegate = AppDelegate.shared,
+              let workspace = appDelegate.workspace(containingSurfaceID: panelID) else { return }
+        SurfaceCatalog.shared.withProjectionEndReason(for: [panelID], reason: .replaced) {
+            // A workspace whose only pane is the dead terminal goes with it, which
+            // is what a local workspace does when its last shell exits. Closing
+            // only the pane there leaves the workspace to open a fresh local shell
+            // in the cloud pane's place.
+            if workspace.panels.count <= 1 {
+                let manager = workspace.owningTabManager ?? TerminalController.shared.tabManager
+                if manager?.closeWorkspaceNonInteractively(workspace) == true { return }
+                // The workspace refused to close (pinned, or the window's last one
+                // during teardown). Close the pane anyway: a replacement local
+                // shell is still better than a frozen pane that swallows input.
+            }
+            workspace.markCloseHistoryEligible(panelId: panelID)
+            _ = workspace.closePanel(panelID, force: true)
+        }
     }
 
     /// A fresh local workspace (⌘N) titled `title`, returned with the id of the starter
     /// pane it opened with so a caller projecting a group can take that pane's place.
-    static func createLocalWorkspace(title: String) throws -> (workspaceID: UUID, starterPanelID: UUID?) {
+    static func createLocalWorkspace(title: String, titleSource: Workspace.CustomTitleSource = .user) throws -> (workspaceID: UUID, starterPanelID: UUID?) {
         guard let workspace = AppDelegate.shared?.addWorkspaceInPreferredMainWindow(
-            title: title,
+            title: title, titleSource: titleSource,
             shouldBringToFront: false,
             debugSource: "surface.catalog.newWorkspace"
         ) else {
@@ -135,17 +180,28 @@ enum SurfacePaneFactory {
         guard let workspace = workspace(id: workspaceID) else { throw FactoryError.workspaceNotFound(workspaceID) }
         let controller = TerminalController.shared
         let routing = routing(workspaceID: workspaceID)
-        switch destination {
-        case .tab(_, let paneID, _):
-            guard let requestedPane = UUID(uuidString: paneID) else { throw FactoryError.paneNotFound(paneID) }
-            return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, requestedPane: requestedPane, focus: focus)
-        case .workspace(_, .tab):
-            return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, requestedPane: nil, focus: focus)
-        case .split(_, let paneID, let direction):
-            let anchor = try anchorSurface(paneID: paneID, in: workspace)
-            return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, direction: direction, anchor: anchor, focus: focus)
-        case .workspace(_, .split):
-            return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, direction: .right, anchor: nil, focus: focus)
+        // The create/split handlers honor a focus request only inside a socket command
+        // whose policy allows focus (`v2FocusAllowed`); with no command active the
+        // stack is empty and the request is dropped, so a Cmd+T / Cmd+D / sidebar
+        // gesture would add the tab without selecting it. `focus` is the caller's
+        // already-decided intent, so run the handler under a frame carrying it. A
+        // frame already on the stack is a socket command's policy and still wins: a
+        // command that may not move focus cannot regain it through the factory.
+        // Activation stays suppressed either way (`shouldSuppressSocketCommandActivation`).
+        let outerAllowsFocus = TerminalController.currentSocketCommandFocusAllowanceStack().last ?? true
+        return try TerminalController.withSocketCommandPolicyStack([focus && outerAllowsFocus]) {
+            switch destination {
+            case .tab(_, let paneID, _):
+                guard let requestedPane = UUID(uuidString: paneID) else { throw FactoryError.paneNotFound(paneID) }
+                return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, requestedPane: requestedPane, focus: focus)
+            case .workspace(_, .tab):
+                return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, requestedPane: nil, focus: focus)
+            case .split(_, let paneID, let direction):
+                let anchor = try anchorSurface(paneID: paneID, in: workspace)
+                return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, direction: direction, anchor: anchor, focus: focus)
+            case .workspace(_, .split):
+                return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, direction: .right, anchor: nil, focus: focus)
+            }
         }
     }
 
@@ -233,16 +289,23 @@ enum SurfaceBrowserPlaceholder {
         return page(title: title, detail: nil, spinner: true)
     }
 
-    /// "Couldn't open <label>" with the typed error and the way back.
-    static func failed(_ label: String, error: String) -> String {
+    /// "Couldn't open <label>" with the typed error and an appropriate next step.
+    /// Unsupported providers deliberately omit the retry instruction: the pane is
+    /// truthful about a permanent capability gap instead of inviting a retry loop.
+    static func failed(_ label: String, error: String, retryable: Bool = true) -> String {
         let title = String(
             format: String(localized: "cloudTree.pane.failed", defaultValue: "Couldn’t open %@"),
             label
         )
-        let hint = String(
-            localized: "cloudTree.pane.retryHint",
-            defaultValue: "Close this pane and open it again from the sidebar."
-        )
+        let hint = retryable
+            ? String(
+                localized: "cloudTree.pane.retryHint",
+                defaultValue: "Close this pane and open it again from the sidebar."
+            )
+            : String(
+                localized: "cloudTree.pane.unsupportedHint",
+                defaultValue: "This provider cannot open port previews. Do not retry; use `cmux vm exec` inside the machine or choose another machine."
+            )
         return page(title: title, detail: "\(error)\n\(hint)", spinner: false)
     }
 
@@ -269,6 +332,15 @@ enum SurfaceBrowserPlaceholder {
                 .joined()
         } ?? ""
         let spinnerHTML = spinner ? "<div class=\"spinner\" role=\"progressbar\"></div>" : ""
+        // The spinner's stylesheet ships only with a spinner: the failed page
+        // must carry no trace of one (the tests assert on the whole document).
+        let spinnerCSS = spinner ? """
+
+          .spinner { width: 22px; height: 22px; margin: 0 auto 14px; border-radius: 50%;
+                     border: 2px solid rgba(216,222,233,0.25); border-top-color: #d8dee9;
+                     animation: spin 0.9s linear infinite; }
+          @keyframes spin { to { transform: rotate(360deg); } }
+        """ : ""
         return """
         <!doctype html>
         <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -279,11 +351,7 @@ enum SurfaceBrowserPlaceholder {
                  font: 14px -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; }
           main { text-align: center; max-width: 36em; padding: 0 1.5em; }
           h1 { font-size: 15px; font-weight: 500; margin: 0 0 0.6em; }
-          p { margin: 0.3em 0; opacity: 0.8; word-break: break-word; }
-          .spinner { width: 22px; height: 22px; margin: 0 auto 14px; border-radius: 50%;
-                     border: 2px solid rgba(216,222,233,0.25); border-top-color: #d8dee9;
-                     animation: spin 0.9s linear infinite; }
-          @keyframes spin { to { transform: rotate(360deg); } }
+          p { margin: 0.3em 0; opacity: 0.8; word-break: break-word; }\(spinnerCSS)
         </style></head>
         <body><main>\(spinnerHTML)<h1>\(escape(title))</h1>\(detailHTML)</main></body></html>
         """

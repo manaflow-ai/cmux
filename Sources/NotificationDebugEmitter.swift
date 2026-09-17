@@ -1,6 +1,7 @@
 import AppKit
 import CMUXAgentLaunch
 import CmuxNotifications
+import CmuxSettings
 import Foundation
 
 #if DEBUG
@@ -29,11 +30,7 @@ final class NotificationDebugEmitter {
     /// Debug-mode switch that forces Feed notifications through the inactive-app banner path.
     var isModeEnabled = false {
         didSet {
-            if isModeEnabled {
-                FeedCoordinatorTestHooks.isAppActiveOverride = { false }
-            } else {
-                FeedCoordinatorTestHooks.isAppActiveOverride = nil
-            }
+            AppFocusState.overrideIsFocused = isModeEnabled ? false : nil
         }
     }
 
@@ -166,6 +163,10 @@ final class NotificationDebugEmitter {
             body: body,
             category: category,
             pending: false,
+            soundContext: NotificationSoundOverrideContext(
+                agentID: target.agentID,
+                alertType: category == .other ? .errorStalled : (category.soundAlertType ?? .needsInput)
+            ),
             coalesces: false
         )
     }
@@ -196,7 +197,7 @@ final class NotificationDebugEmitter {
             return WorkstreamEvent(
                 sessionId: requestId,
                 hookEventName: .permissionRequest,
-                source: "claude",
+                source: target.agentID,
                 workspaceId: common.workspaceId,
                 surfaceId: common.surfaceId,
                 toolName: "Bash",
@@ -207,7 +208,7 @@ final class NotificationDebugEmitter {
             return WorkstreamEvent(
                 sessionId: requestId,
                 hookEventName: .exitPlanMode,
-                source: "claude",
+                source: target.agentID,
                 workspaceId: common.workspaceId,
                 surfaceId: common.surfaceId,
                 toolInputJSON: String(
@@ -221,7 +222,7 @@ final class NotificationDebugEmitter {
             return WorkstreamEvent(
                 sessionId: requestId,
                 hookEventName: .askUserQuestion,
-                source: "claude",
+                source: target.agentID,
                 workspaceId: common.workspaceId,
                 surfaceId: common.surfaceId,
                 toolName: "AskUserQuestion",

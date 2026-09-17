@@ -1028,7 +1028,10 @@ describe("SEO middleware", () => {
 
   test("passes through an internally rewritten English dashboard path", () => {
     const response = middleware(
-      requestFor("/en/dashboard/devices", { "x-next-intl-locale": "en" }),
+      requestFor("/en/dashboard/devices", {
+        "x-next-intl-locale": "en",
+        cookie: "stack-refresh=dashboard-session",
+      }),
     );
 
     expect(response.status).toBe(200);

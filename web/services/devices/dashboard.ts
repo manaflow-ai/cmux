@@ -17,7 +17,7 @@ import * as Effect from "effect/Effect";
 import { env } from "../../app/env";
 import { cloudDb } from "../../db/client";
 import { irohEndpointBindings } from "../../db/schema";
-import { IrohRepository, IrohRepositoryLive } from "../iroh/repository";
+import { revokeEndpointForAccountOwner } from "../iroh/repository";
 import { buildConnectivityInvalidationRequest } from "../iroh/routeHandler";
 
 const WORKER_TIMEOUT_MS = 10_000;
@@ -152,32 +152,8 @@ function parseControlPlaneSnapshot(value: unknown): ControlPlaneSnapshot | null 
     : null;
   const devices: ControlPlaneDeviceRow[] = [];
   for (const raw of value.devices) {
-    if (!isObject(raw)) continue;
-    if (typeof raw.endpointId !== "string" || raw.endpointId.length === 0) continue;
-    if (typeof raw.status !== "string" || !DEVICE_STATUSES.has(raw.status)) continue;
-    if (typeof raw.revoked !== "boolean") continue;
-    const releaseTrack = typeof raw.releaseTrack === "string" && RELEASE_TRACKS.has(raw.releaseTrack)
-      ? raw.releaseTrack as DeviceReleaseTrack
-      : null;
-    devices.push({
-      endpointId: raw.endpointId,
-      listed: raw.listed === true,
-      deviceId: optionalString(raw.deviceId),
-      clientNamespace: optionalString(raw.clientNamespace),
-      instanceTag: optionalString(raw.instanceTag),
-      status: raw.status as DeviceLifecycleStatus,
-      revoked: raw.revoked,
-      appVersion: optionalString(raw.appVersion),
-      releaseTrack,
-      capabilities: Array.isArray(raw.capabilities)
-        ? raw.capabilities.filter((item): item is string => typeof item === "string")
-        : [],
-      lastConfirmedAt: optionalString(raw.lastConfirmedAt),
-      lastAckedRev: typeof raw.lastAckedRev === "number" && Number.isSafeInteger(raw.lastAckedRev)
-        ? raw.lastAckedRev
-        : null,
-      connected: raw.connected === true,
-    });
+    const device = parseControlPlaneDevice(raw);
+    if (device) devices.push(device);
   }
   return {
     rev: value.rev,
@@ -189,6 +165,35 @@ function parseControlPlaneSnapshot(value: unknown): ControlPlaneSnapshot | null 
 
 function presenceBaseUrl(): string | null {
   return env.CMUX_PRESENCE_BASE_URL ?? null;
+}
+
+function parseControlPlaneDevice(raw: unknown): ControlPlaneDeviceRow | null {
+  if (!isObject(raw)) return null;
+  if (typeof raw.endpointId !== "string" || raw.endpointId.length === 0) return null;
+  if (typeof raw.status !== "string" || !DEVICE_STATUSES.has(raw.status)) return null;
+  if (typeof raw.revoked !== "boolean") return null;
+  const releaseTrack = typeof raw.releaseTrack === "string" && RELEASE_TRACKS.has(raw.releaseTrack)
+    ? raw.releaseTrack as DeviceReleaseTrack
+    : null;
+  return {
+    endpointId: raw.endpointId,
+    listed: raw.listed === true,
+    deviceId: optionalString(raw.deviceId),
+    clientNamespace: optionalString(raw.clientNamespace),
+    instanceTag: optionalString(raw.instanceTag),
+    status: raw.status as DeviceLifecycleStatus,
+    revoked: raw.revoked,
+    appVersion: optionalString(raw.appVersion),
+    releaseTrack,
+    capabilities: Array.isArray(raw.capabilities)
+      ? raw.capabilities.filter((item): item is string => typeof item === "string")
+      : [],
+    lastConfirmedAt: optionalString(raw.lastConfirmedAt),
+    lastAckedRev: typeof raw.lastAckedRev === "number" && Number.isSafeInteger(raw.lastAckedRev)
+      ? raw.lastAckedRev
+      : null,
+    connected: raw.connected === true,
+  };
 }
 
 async function presenceFetch(
@@ -298,32 +303,7 @@ export async function loadDeviceDashboard(
   for (const row of snapshot?.devices ?? []) {
     merged.add(row.endpointId);
     const registryRow = registry.get(row.endpointId);
-    const platform = registryRow ? registryPlatform(registryRow.platform) : null;
-    const inferred = platform === null
-      ? inferPlatform(row.clientNamespace ?? registryRow?.clientNamespace ?? null)
-      : null;
-    devices.push({
-      endpointId: row.endpointId,
-      displayName: registryRow?.displayName ?? null,
-      platform: platform ?? inferred,
-      platformInferred: platform === null && inferred !== null,
-      tag: registryRow?.tag ?? row.instanceTag,
-      clientNamespace: row.clientNamespace ?? registryRow?.clientNamespace ?? null,
-      deviceId: row.deviceId ?? registryRow?.deviceUuid ?? null,
-      lastSeenAt: registryRow?.lastSeenAt.toISOString() ?? null,
-      registryRevokedAt: registryRow?.revokedAt?.toISOString() ?? null,
-      listAuth: {
-        listed: row.listed,
-        status: row.status,
-        revoked: row.revoked,
-        appVersion: row.appVersion,
-        releaseTrack: row.releaseTrack,
-        capabilities: row.capabilities,
-        lastConfirmedAt: row.lastConfirmedAt,
-        lastAckedRev: row.lastAckedRev,
-        connected: row.connected,
-      },
-    });
+    devices.push(dashboardEntry(row, registryRow));
   }
   for (const [endpointId, row] of registry) {
     if (merged.has(endpointId)) continue;
@@ -347,6 +327,38 @@ export async function loadDeviceDashboard(
     ttlSeconds: snapshot?.ttlSeconds ?? null,
     minimumSupportedVersion: snapshot?.minimumSupportedVersion ?? null,
     devices,
+  };
+}
+
+function dashboardPlatform(row: ControlPlaneDeviceRow, registryRow: RegistryRow | undefined) {
+  const platform = registryRow ? registryPlatform(registryRow.platform) : null;
+  const inferred = platform === null
+    ? inferPlatform(row.clientNamespace ?? registryRow?.clientNamespace ?? null)
+    : null;
+  return { platform: platform ?? inferred, platformInferred: platform === null && inferred !== null };
+}
+
+function dashboardEntry(row: ControlPlaneDeviceRow, registryRow: RegistryRow | undefined): DeviceDashboardEntry {
+  return {
+    endpointId: row.endpointId,
+    displayName: registryRow?.displayName ?? null,
+    ...dashboardPlatform(row, registryRow),
+    tag: registryRow?.tag ?? row.instanceTag,
+    clientNamespace: row.clientNamespace ?? registryRow?.clientNamespace ?? null,
+    deviceId: row.deviceId ?? registryRow?.deviceUuid ?? null,
+    lastSeenAt: registryRow?.lastSeenAt.toISOString() ?? null,
+    registryRevokedAt: registryRow?.revokedAt?.toISOString() ?? null,
+    listAuth: {
+      listed: row.listed,
+      status: row.status,
+      revoked: row.revoked,
+      appVersion: row.appVersion,
+      releaseTrack: row.releaseTrack,
+      capabilities: row.capabilities,
+      lastConfirmedAt: row.lastConfirmedAt,
+      lastAckedRev: row.lastAckedRev,
+      connected: row.connected,
+    },
   };
 }
 
@@ -409,14 +421,7 @@ export async function mirrorRevocationToRegistry(
   accessToken: string,
 ): Promise<number | null> {
   const commit = await Effect.runPromise(
-    Effect.gen(function* () {
-      const repository = yield* IrohRepository;
-      return yield* repository.revokeEndpointForAccountOwner({
-        userId,
-        endpointId,
-        now: new Date(),
-      });
-    }).pipe(Effect.provide(IrohRepositoryLive)),
+    revokeEndpointForAccountOwner({ userId, endpointId, now: new Date() }),
   );
   if (!commit.revoked) return null;
   const publication = buildConnectivityInvalidationRequest(

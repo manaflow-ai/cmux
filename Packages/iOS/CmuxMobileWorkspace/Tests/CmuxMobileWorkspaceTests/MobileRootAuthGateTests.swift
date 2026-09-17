@@ -50,25 +50,60 @@ import Testing
         ))
     }
 
-    @Test func keepsSignInVisibleWhileCachedSessionRestores() {
+    @Test func signInOwnsScreenWhileSignedOut() {
         #expect(MobileRootAuthGate.shouldShowSignIn(
-            stackAuthenticated: true,
+            stackAuthenticated: false,
+            attachTicketAuthenticated: false,
+            isRestoringSession: false
+        ))
+        #expect(MobileRootAuthGate.shouldShowSignIn(
+            stackAuthenticated: false,
             attachTicketAuthenticated: false,
             isRestoringSession: true
         ))
-        #expect(MobileRootAuthGate.shouldShowSignIn(
-            stackAuthenticated: false,
-            attachTicketAuthenticated: false,
-            isRestoringSession: false
-        ))
         #expect(!MobileRootAuthGate.shouldShowSignIn(
             stackAuthenticated: true,
             attachTicketAuthenticated: false,
             isRestoringSession: false
         ))
+        // A live attach ticket proceeds to the shell to complete the attach.
         #expect(!MobileRootAuthGate.shouldShowSignIn(
             stackAuthenticated: false,
             attachTicketAuthenticated: true,
+            isRestoringSession: true,
+            onboardingPending: true
+        ))
+    }
+
+    @Test func keepsSignInVisibleWhileRestoringWithOnboardingPending() {
+        // Onboarding must not present for a cached identity that may still be
+        // rejected, and the pre-onboarding shell would flash the add-device
+        // surface, so that narrow restoring launch stays on sign-in.
+        #expect(MobileRootAuthGate.shouldShowSignIn(
+            stackAuthenticated: true,
+            attachTicketAuthenticated: false,
+            isRestoringSession: true,
+            onboardingPending: true
+        ))
+        // Once validation settles, onboarding (not sign-in) owns the screen.
+        #expect(!MobileRootAuthGate.shouldShowSignIn(
+            stackAuthenticated: true,
+            attachTicketAuthenticated: false,
+            isRestoringSession: false,
+            onboardingPending: true
+        ))
+    }
+
+    @Test func launchWithPrimedCachedSessionMountsShellNotSignIn() {
+        // Regression for "loading sign-up screen on every launch": a returning
+        // user's cached session primes authenticated while launch validation is
+        // still in flight, and the root must mount the authenticated shell
+        // immediately (its restoring inputs cover the validation window)
+        // instead of parking every launch on the sign-in surface until the
+        // network validation resolves.
+        #expect(!MobileRootAuthGate.shouldShowSignIn(
+            stackAuthenticated: true,
+            attachTicketAuthenticated: false,
             isRestoringSession: true
         ))
     }

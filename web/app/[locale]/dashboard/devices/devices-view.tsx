@@ -401,6 +401,17 @@ function DeviceGroup({
   );
 }
 
+type DeviceRowProps = {
+  entry: DecoratedEntry;
+  rev: number | null;
+  pending: string | null;
+  confirming: string | null;
+  setConfirming: (endpointId: string | null) => void;
+  mutate: (kind: MutationKind, endpointId: string) => Promise<void>;
+  dateFormatter: Intl.DateTimeFormat;
+  now: number;
+};
+
 function DeviceRow({
   entry,
   rev,
@@ -410,24 +421,10 @@ function DeviceRow({
   mutate,
   dateFormatter,
   now,
-}: {
-  entry: DecoratedEntry;
-  rev: number | null;
-  pending: string | null;
-  confirming: string | null;
-  setConfirming: (endpointId: string | null) => void;
-  mutate: (kind: MutationKind, endpointId: string) => Promise<void>;
-  dateFormatter: Intl.DateTimeFormat;
-  now: number;
-}) {
+}: DeviceRowProps) {
   const t = useTranslations("dashboard.devices");
-  const { device, state, sync } = entry;
+  const { device, state } = entry;
   const listAuth = device.listAuth;
-  const busy = pending !== null;
-  const isPending = pending === device.endpointId;
-  const isConfirming = confirming === device.endpointId;
-  const confirmedAt = listAuth?.lastConfirmedAt ?? null;
-  const seenAt = device.lastSeenAt ?? confirmedAt;
 
   return (
     <div className="border-b border-border p-3 last:border-b-0">
@@ -454,6 +451,74 @@ function DeviceRow({
             {device.tag}
           </span>
         ) : null}
+        <DeviceActions entry={entry} pending={pending} confirming={confirming}
+          setConfirming={setConfirming} mutate={mutate} />
+      </div>
+
+      <DeviceDetails entry={entry} rev={rev} dateFormatter={dateFormatter} now={now} />
+
+      {state === "seeded" || state === "stale" ? (
+        <p className="mt-1.5 max-w-2xl text-xs text-muted">{t("seededExplainer")}</p>
+      ) : null}
+      {state === "revoked" ? (
+        <p className="mt-1.5 max-w-2xl text-xs text-muted">{t("revokedExplainer")}</p>
+      ) : null}
+      {state === "unenrolled" ? (
+        <p className="mt-1.5 max-w-2xl text-xs text-muted">{t("unenrolledExplainer")}</p>
+      ) : null}
+    </div>
+  );
+}
+
+function DeviceDetails({ entry, rev, dateFormatter, now }: Pick<DeviceRowProps,
+  "entry" | "rev" | "dateFormatter" | "now">) {
+  const t = useTranslations("dashboard.devices");
+  const { device, sync } = entry;
+  const listAuth = device.listAuth;
+  const confirmedAt = listAuth?.lastConfirmedAt ?? null;
+  const seenAt = device.lastSeenAt ?? confirmedAt;
+  return (
+      <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted">
+        <span>
+          {listAuth?.appVersion != null
+            ? t("versionCell", {
+              version: listAuth.appVersion,
+              track: listAuth.releaseTrack ?? t("unknownTrack"),
+            })
+            : t("versionUnknown")}
+        </span>
+        <span>
+          {sync === "synced" && rev !== null
+            ? t("syncSynced", { rev })
+            : sync === "behind" && listAuth?.lastAckedRev != null && rev !== null
+              ? t("syncBehind", { acked: listAuth.lastAckedRev, rev })
+              : sync === "never"
+                ? t("syncNever")
+                : t("syncNone")}
+        </span>
+        <span>
+          {seenAt !== null
+            ? t("lastSeen", {
+              when: relativeOrAbsolute(seenAt, now, dateFormatter),
+            })
+            : t("neverSeen")}
+        </span>
+        <span className="font-mono" title={device.endpointId}>
+          {device.endpointId.slice(0, 12)}…
+        </span>
+      </div>
+  );
+}
+
+function DeviceActions({ entry, pending, confirming, setConfirming, mutate }: Pick<DeviceRowProps,
+  "entry" | "pending" | "confirming" | "setConfirming" | "mutate">) {
+  const t = useTranslations("dashboard.devices");
+  const { device, state } = entry;
+  const listAuth = device.listAuth;
+  const busy = pending !== null;
+  const isPending = pending === device.endpointId;
+  const isConfirming = confirming === device.endpointId;
+  return (
         <span className="ml-auto flex shrink-0 items-center gap-2">
           {listAuth !== null ? (
             isConfirming ? (
@@ -509,48 +574,6 @@ function DeviceRow({
             </button>
           ) : null}
         </span>
-      </div>
-
-      <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted">
-        <span>
-          {listAuth?.appVersion != null
-            ? t("versionCell", {
-              version: listAuth.appVersion,
-              track: listAuth.releaseTrack ?? t("unknownTrack"),
-            })
-            : t("versionUnknown")}
-        </span>
-        <span>
-          {sync === "synced" && rev !== null
-            ? t("syncSynced", { rev })
-            : sync === "behind" && listAuth?.lastAckedRev != null && rev !== null
-              ? t("syncBehind", { acked: listAuth.lastAckedRev, rev })
-              : sync === "never"
-                ? t("syncNever")
-                : t("syncNone")}
-        </span>
-        <span>
-          {seenAt !== null
-            ? t("lastSeen", {
-              when: relativeOrAbsolute(seenAt, now, dateFormatter),
-            })
-            : t("neverSeen")}
-        </span>
-        <span className="font-mono" title={device.endpointId}>
-          {device.endpointId.slice(0, 12)}…
-        </span>
-      </div>
-
-      {state === "seeded" || state === "stale" ? (
-        <p className="mt-1.5 max-w-2xl text-xs text-muted">{t("seededExplainer")}</p>
-      ) : null}
-      {state === "revoked" ? (
-        <p className="mt-1.5 max-w-2xl text-xs text-muted">{t("revokedExplainer")}</p>
-      ) : null}
-      {state === "unenrolled" ? (
-        <p className="mt-1.5 max-w-2xl text-xs text-muted">{t("unenrolledExplainer")}</p>
-      ) : null}
-    </div>
   );
 }
 

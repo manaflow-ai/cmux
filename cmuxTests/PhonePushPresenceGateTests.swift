@@ -571,8 +571,7 @@ import Testing
                 expirationEpochSeconds: 1_120
             ) == 7
         )
-        // A malformed provider header can carry a negative Retry-After; the
-        // clamp floors it at an immediate retry instead of a negative delay.
+        // Malformed provider metadata must not shorten the local backoff.
         #expect(
             PhonePushRetryPolicy.delaySeconds(
                 afterAttempt: 1,
@@ -580,7 +579,16 @@ import Testing
                 retryAfterSeconds: -30,
                 nowEpochSeconds: 1_000,
                 expirationEpochSeconds: 1_120
-            ) == 0
+            ) == 1
+        )
+        #expect(
+            PhonePushRetryPolicy.delaySeconds(
+                afterAttempt: 2,
+                result: .retryableFailure,
+                retryAfterSeconds: 1,
+                nowEpochSeconds: 1_000,
+                expirationEpochSeconds: 1_120
+            ) == 2
         )
         #expect(
             PhonePushRetryPolicy.delaySeconds(
@@ -713,6 +721,24 @@ import Testing
         #expect(PhonePushHTTPResult.decode(statusCode: 429, data: Data()).shouldRetry)
         #expect(PhonePushHTTPResult.decode(statusCode: 503, data: Data()).shouldRetry)
         #expect(!PhonePushHTTPResult.decode(statusCode: 401, data: Data()).shouldRetry)
+    }
+
+    @Test func rateLimitWithoutDirectiveUsesConservativeFallback() throws {
+        let response = try #require(HTTPURLResponse(
+            url: URL(string: "https://cmux.test/api/push/send")!,
+            statusCode: 429,
+            httpVersion: nil,
+            headerFields: nil
+        ))
+
+        #expect(PhonePushHTTPResult.retryAfterSeconds(
+            response: response,
+            data: Data()
+        ) == 60)
+        #expect(PhonePushHTTPResult.retryAfterSeconds(
+            response: response,
+            data: Data(#"{"retryAfterSeconds":0}"#.utf8)
+        ) == 60)
     }
 
     @Test func retryClassificationSeparatesAuthConflictAndInProgressResponses() throws {

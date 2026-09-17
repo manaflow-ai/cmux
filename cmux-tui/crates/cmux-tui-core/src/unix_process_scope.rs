@@ -164,7 +164,13 @@ pub struct UnixProcessScope {
 /// PID or process group before its process scope is terminated.
 pub struct UnixChildExitSignal {
     result: mpsc::Receiver<io::Result<()>>,
+    action: Option<mpsc::SyncSender<UnixChildExitAction>>,
     observer: Option<JoinHandle<()>>,
+}
+
+enum UnixChildExitAction {
+    Release,
+    Reap,
 }
 
 impl UnixChildExitSignal {
@@ -174,11 +180,17 @@ impl UnixChildExitSignal {
             io::Error::new(io::ErrorKind::InvalidInput, "child pid is out of range")
         })?;
         let (sender, result) = mpsc::sync_channel(1);
+        let (action_sender, action_receiver) = mpsc::sync_channel(1);
         let observer =
             std::thread::Builder::new().name("cmux-child-exit".into()).spawn(move || {
-                let _ = sender.send(wait_for_child_exit_without_reaping(pid));
+                let result = wait_for_child_exit_without_reaping(pid);
+                let observed = result.is_ok();
+                let _ = sender.send(result);
+                if matches!(action_receiver.recv(), Ok(UnixChildExitAction::Reap)) && observed {
+                    reap_child(pid);
+                }
             })?;
-        Ok(Self { result, observer: Some(observer) })
+        Ok(Self { result, action: Some(action_sender), observer: Some(observer) })
     }
 
     /// Return true when the child is waitable without releasing its PID.
@@ -207,11 +219,36 @@ impl UnixChildExitSignal {
         }
     }
 
+    fn send_action(&mut self, action: UnixChildExitAction) {
+        if let Some(sender) = self.action.take() {
+            let _ = sender.try_send(action);
+        }
+    }
+
     /// Join the observer after the child is waitable or has been killed.
     pub fn finish(mut self) {
+        self.send_action(UnixChildExitAction::Release);
         if let Some(observer) = self.observer.take() {
             let _ = observer.join();
         }
+    }
+
+    /// Transfer Unix wait ownership to the already-running observer and
+    /// return without waiting for the child. The caller must drop its `Child`
+    /// handle after this handoff. The observer performs the blocking `waitpid`
+    /// so a timeout path cannot exceed its caller's deadline when a second
+    /// reaper thread cannot be created.
+    pub fn reap(mut self) {
+        self.send_action(UnixChildExitAction::Reap);
+        // Dropping the join handle intentionally detaches the observer. The
+        // process remains waitable until that observer consumes its status.
+        drop(self.observer.take());
+    }
+}
+
+impl Drop for UnixChildExitSignal {
+    fn drop(&mut self) {
+        self.send_action(UnixChildExitAction::Release);
     }
 }
 
@@ -235,6 +272,25 @@ fn wait_for_child_exit_without_reaping(pid: libc::pid_t) -> io::Result<()> {
         if error.kind() != io::ErrorKind::Interrupted {
             return Err(error);
         }
+    }
+}
+
+fn reap_child(pid: libc::pid_t) {
+    let mut status = 0;
+    loop {
+        // SAFETY: `pid` was validated by `observe`, and this observer is the
+        // sole owner of the wait decision after the WNOWAIT observation.
+        let waited = unsafe { libc::waitpid(pid, &mut status, 0) };
+        if waited == pid {
+            return;
+        }
+        if waited < 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() == io::ErrorKind::Interrupted {
+                continue;
+            }
+        }
+        return;
     }
 }
 
