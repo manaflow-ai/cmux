@@ -968,6 +968,7 @@
 		7A0CE1000000000000000047 /* CloudTunnelProviderConfigurationKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000013 /* CloudTunnelProviderConfigurationKeys.swift */; };
 		7A0CE1000000000000000314 /* CloudTunnelProviderMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000313 /* CloudTunnelProviderMessage.swift */; };
 		7A0CE1000000000000000315 /* CloudTunnelProviderMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000313 /* CloudTunnelProviderMessage.swift */; };
+		7A0CE1000000000000000803 /* CloudTunnelProviderStartGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000802 /* CloudTunnelProviderStartGateTests.swift */; };
 		7A0CE1000000000000000704 /* CloudTunnelRuntimeConfigurationRedactor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000703 /* CloudTunnelRuntimeConfigurationRedactor.swift */; };
 		7A0CE1000000000000000705 /* CloudTunnelRuntimeConfigurationRedactor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000703 /* CloudTunnelRuntimeConfigurationRedactor.swift */; };
 		7A0CE1000000000000000707 /* CloudTunnelRuntimeConfigurationRedactorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000706 /* CloudTunnelRuntimeConfigurationRedactorTests.swift */; };
@@ -4902,6 +4903,7 @@
 		7A0CE1000000000000000309 /* CloudTunnelProviderConfiguration.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTunnelProviderConfiguration.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000013 /* CloudTunnelProviderConfigurationKeys.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTunnelProviderConfigurationKeys.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000313 /* CloudTunnelProviderMessage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTunnelProviderMessage.swift; sourceTree = "<group>"; };
+		7A0CE1000000000000000802 /* CloudTunnelProviderStartGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTunnelProviderStartGateTests.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000703 /* CloudTunnelRuntimeConfigurationRedactor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTunnelRuntimeConfigurationRedactor.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000706 /* CloudTunnelRuntimeConfigurationRedactorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTunnelRuntimeConfigurationRedactorTests.swift; sourceTree = "<group>"; };
 		1A41C6B3D8900C7FA422976F /* CloudTunnelStartRefusal.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTunnelStartRefusal.swift; sourceTree = "<group>"; };
@@ -10785,6 +10787,7 @@
 				5C0C4A1E0000000000000006 /* RCChannelSuiteTests.swift */,
 				7A0CE1000000000000000105 /* CloudTunnelBackendSelectorTests.swift */,
 				7A0CE1000000000000000103 /* CloudTunnelCoordinatorTests.swift */,
+				7A0CE1000000000000000802 /* CloudTunnelProviderStartGateTests.swift */,
 
 				D01100800000000000000007 /* CmuxTuiSurfaceProviderRegistryDiscoveryTests.swift */,
 				7A1D4C000000000000000105 /* CmuxTuiSurfaceProviderRegistryPollingTests.swift */,
@@ -15319,6 +15322,7 @@
 				7A0CE1000000000000000602 /* CloudTunnelBroadcastTests.swift in Sources */,
 				7A0CE1000000000000000104 /* CloudTunnelCoordinatorTests.swift in Sources */,
 				5C33764324981C59B407B84B /* CloudTunnelLaunchGateTests.swift in Sources */,
+				7A0CE1000000000000000803 /* CloudTunnelProviderStartGateTests.swift in Sources */,
 				7A0CE1000000000000000707 /* CloudTunnelRuntimeConfigurationRedactorTests.swift in Sources */,
 				7A0CE100000000000000072E /* CloudTunnelStatusBlockerTests.swift in Sources */,
 				7A0CE1000000000000000402 /* CloudTunnelTestFakes.swift in Sources */,
