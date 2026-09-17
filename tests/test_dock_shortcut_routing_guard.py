@@ -10,6 +10,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 ROUTING_SOURCE = REPO_ROOT / "Sources" / "AppDelegate+DockShortcutRouting.swift"
 ACTION_SOURCE = REPO_ROOT / "Sources" / "KeyboardShortcutSettings.swift"
 MOVEMENT_SOURCE = REPO_ROOT / "Sources" / "SurfacePaneMovement.swift"
+RESIZE_SOURCE = REPO_ROOT / "Sources" / "AppDelegate+EqualizeSplitsShortcut.swift"
 DISPATCH_SOURCES = tuple((REPO_ROOT / "Sources").glob("AppDelegate*.swift")) + (
     REPO_ROOT / "Sources" / "Workspace+DockBrowserLookup.swift",
 )
@@ -178,6 +179,26 @@ def explicitly_gated_actions() -> set[str]:
                     has_movement_gate = True
     if has_movement_gate:
         actions.update(movement_shortcut_actions())
+    # Pane resizing maps its direction to one local action before entering
+    # the shared gate. Scope the audit to that handler and require the gate
+    # to consume the mapped action; unrelated resize declarations do not count.
+    resize_body = source_between(
+        RESIZE_SOURCE.read_text(encoding="utf-8"),
+        "func performResizePaneShortcut(",
+        "func handlePaneSizingShortcut(",
+        RESIZE_SOURCE.name,
+    )
+    if any(
+        re.search(r"\baction\s*:\s*action\b", body)
+        for body in balanced_call_bodies(resize_body, "focusedDockStoreForShortcut")
+    ):
+        mapping = source_between(
+            resize_body,
+            "let action: KeyboardShortcutSettings.Action = {",
+            "}()",
+            RESIZE_SOURCE.name,
+        )
+        actions.update(re.findall(r"case\s+\.\w+\s*:\s*\.(\w+)", mapping))
     return actions
 
 

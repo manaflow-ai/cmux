@@ -134,7 +134,8 @@ enum FileDropTextDropController {
         panelId: UUID,
         hostedView: GhosttySurfaceScrollView,
         urls: [URL],
-        window: NSWindow?
+        window: NSWindow?,
+        pasteboard: NSPasteboard? = nil
     ) -> Bool {
         performPanelTextDrop(
             workspace: workspace,
@@ -142,7 +143,7 @@ enum FileDropTextDropController {
             focusIntent: .terminal(.surface),
             window: window,
             insert: {
-                hostedView.handleDroppedURLs(urls)
+                hostedView.handleDroppedURLs(urls, pasteboard: pasteboard)
             }
         )
     }
@@ -150,7 +151,8 @@ enum FileDropTextDropController {
     @discardableResult
     static func performTerminalFileDrop(
         terminal: GhosttyNSView,
-        urls: [URL]
+        urls: [URL],
+        pasteboard: NSPasteboard? = nil
     ) -> Bool {
         guard let workspaceId = terminal.tabId,
               let terminalSurfaceId = terminal.terminalSurface?.id,
@@ -159,7 +161,7 @@ enum FileDropTextDropController {
                 terminalSurfaceId: terminalSurfaceId,
                 workspace: workspace
               ) else {
-            return terminal.handleDroppedFileURLs(urls)
+            return terminal.handleDroppedFileURLs(urls, pasteboard: pasteboard)
         }
         return performPanelTextDrop(
             workspace: workspace,
@@ -167,7 +169,7 @@ enum FileDropTextDropController {
             focusIntent: .terminal(.surface),
             window: terminal.window,
             insert: {
-                terminal.handleDroppedFileURLs(urls)
+                terminal.handleDroppedFileURLs(urls, pasteboard: pasteboard)
             }
         )
     }
