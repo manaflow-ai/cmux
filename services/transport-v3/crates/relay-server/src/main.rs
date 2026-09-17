@@ -461,7 +461,6 @@ struct FeedResponse {
 #[derive(serde::Deserialize)]
 struct FeedEvent {
     cursor: u64,
-    sequence: u64,
     update: String,
 }
 
