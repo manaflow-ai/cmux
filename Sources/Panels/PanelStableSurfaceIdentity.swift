@@ -10,11 +10,19 @@ import Foundation
 @MainActor
 public final class PanelStableSurfaceIdentity {
     fileprivate(set) var id = UUID()
+    /// Live-transfer provenance for legacy SSH panels whose catalog IDs are local.
+    fileprivate var transferredMachine: SurfaceMachineID?
 
     public init() {}
 }
 
 extension Panel {
+    var transferredSurfaceMachine: SurfaceMachineID? { stableSurfaceIdentity.transferredMachine }
+
+    func retainTransferredSurfaceMachine(_ machine: SurfaceMachineID?) {
+        if let machine { stableSurfaceIdentity.transferredMachine = machine }
+    }
+
     /// Restart-stable identifier for the surface (tab) this panel hosts.
     var stableSurfaceId: UUID { stableSurfaceIdentity.id }
 
