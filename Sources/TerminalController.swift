@@ -3186,7 +3186,7 @@ class TerminalController {
             "auth.sign_out",
             "vm.billing_checkout",
             "vm.list",
-            "vm.diagnostics",
+            "vm.diagnostics", "vm.file_transfer_failure",
             "vm.publication_list",
             "vm.publication_create",
             "vm.publication_verify",
@@ -15851,7 +15851,10 @@ class TerminalController {
         #if DEBUG
         let sendStart = ProcessInfo.processInfo.systemUptime
         #endif
-        let sendResult = terminalTarget.sendInputResult(text)
+        let sendResult = MobileTerminalByteTee.shared.performMobileInput(
+            surfaceID: surfaceId,
+            sequence: (params["input_sequence"] as? String).flatMap(UInt64.init)
+        ) { terminalTarget.sendInputResult(text) }
         switch sendResult {
         case .sent:
             // PTY output is already observed by MobileTerminalByteTee, which
