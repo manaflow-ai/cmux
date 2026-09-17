@@ -13,7 +13,7 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
         fixture = FileManager.default.temporaryDirectory
             .appendingPathComponent("terminal-link-placement-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: fixture, withIntermediateDirectories: true)
-        socketPath = "/tmp/cmux-link-\(UUID().uuidString.prefix(8)).sock"
+        socketPath = "/tmp/cmux-debug-issue-12798-terminal-links-same.sock"
     }
 
     override func tearDown() {
@@ -52,6 +52,8 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
         app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = fixture.appendingPathComponent("socket.json").path
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_PATH"] = stateURL.path
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_COMMAND_PATH"] = commandURL.path
@@ -60,6 +62,9 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
         // Do not install the URL-capture sink: the click must create a real browser.
         app.launch()
         XCTAssertTrue(poll { self.readState(stateURL)["ready"] as? String == "1" })
+        XCTAssertTrue(waitForControlSocketReady(socketPath: socketPath, pingTimeout: 10) {
+            self.controlSocketCommandViaNetcat("ping", socketPath: self.socketPath, responseTimeout: 1) == "PONG"
+        })
         let source = try XCTUnwrap(readState(stateURL)["surfaceId"] as? String)
         let workspace = try XCTUnwrap(rpc("workspace.current")["workspace_id"] as? String)
         let initial = try surfaces(workspace)
@@ -117,7 +122,7 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
         let response = try XCTUnwrap(controlSocketJSONViaNetcat(
             ["id": UUID().uuidString, "method": method, "params": params],
             socketPath: socketPath,
-            responseTimeout: 8
+            responseTimeout: method == "browser.open_split" ? 8 : 2
         ))
         XCTAssertEqual(response["ok"] as? Bool, true, "\(response)")
         return try XCTUnwrap(response["result"] as? [String: Any])
