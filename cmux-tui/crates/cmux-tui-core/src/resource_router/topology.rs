@@ -547,7 +547,8 @@ mod tests {
     fn creation_attachment_hint_matches_live_terminal_and_does_not_survive_close() {
         let mux = mux();
         let first = terminal_workspace(&mux, "attach-hint");
-        let terminal = TerminalPublicId::parse(first["value"]["terminal_id"].as_str().unwrap()).unwrap();
+        let terminal =
+            TerminalPublicId::parse(first["value"]["terminal_id"].as_str().unwrap()).unwrap();
         let surface = mux.resource_surface_for_terminal(&terminal).unwrap();
         assert_eq!(first["attachment"]["surface"], json!(surface));
         assert_eq!(first["attachment"]["terminal_id"], first["value"]["terminal_id"]);
@@ -555,9 +556,16 @@ mod tests {
         let replay = terminal_workspace(&mux, "attach-hint");
         assert_eq!(replay["value"], first["value"]);
         assert_eq!(replay["attachment"], first["attachment"]);
-        dispatch(&mux, parsed(ResourceOperation::TabClose,
-            selectors(None, None, None, first["value"]["tab_id"].as_str()),
-            json!({}), Some("close-hint"))).unwrap();
+        dispatch(
+            &mux,
+            parsed(
+                ResourceOperation::TabClose,
+                selectors(None, None, None, first["value"]["tab_id"].as_str()),
+                json!({}),
+                Some("close-hint"),
+            ),
+        )
+        .unwrap();
         let detached = terminal_workspace(&mux, "attach-hint");
         assert!(detached.get("attachment").is_none());
         mux.shutdown();

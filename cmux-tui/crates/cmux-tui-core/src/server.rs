@@ -12804,7 +12804,14 @@ fn handle_command_with_cancellation(
             })?;
             Ok(json!({}))
         }
-        Command::AttachSurface { surface: surface_id, mode, cols, rows, expected_generation, expected_terminal_id } => {
+        Command::AttachSurface {
+            surface: surface_id,
+            mode,
+            cols,
+            rows,
+            expected_generation,
+            expected_terminal_id,
+        } => {
             let initial_size = match (cols, rows) {
                 (Some(cols), Some(rows)) => Some((cols, rows)),
                 (None, None) => None,
@@ -12813,9 +12820,15 @@ fn handle_command_with_cancellation(
             let surface = get_surface(mux, surface_id)?;
             match (expected_generation, expected_terminal_id) {
                 (Some(generation), Some(terminal)) => {
-                    anyhow::ensure!(mux.registry_identity().1 == generation, "attachment_generation_mismatch");
-                    anyhow::ensure!(surface.terminal_public_id().map(|id| id.as_str()) == Some(terminal.as_str()),
-                        "attachment_terminal_mismatch");
+                    anyhow::ensure!(
+                        mux.registry_identity().1 == generation,
+                        "attachment_generation_mismatch"
+                    );
+                    anyhow::ensure!(
+                        surface.terminal_public_id().map(|id| id.as_str())
+                            == Some(terminal.as_str()),
+                        "attachment_terminal_mismatch"
+                    );
                 }
                 (None, None) => {}
                 _ => anyhow::bail!("attachment identity requires generation and terminal together"),
@@ -19561,18 +19574,30 @@ mod tests {
         let terminal = surface.terminal_public_id().unwrap().to_string();
         for (generation, terminal, expected) in [
             ("old-generation".to_string(), terminal.clone(), "attachment_generation_mismatch"),
-            (mux.registry_identity().1, "term_00000000000000000000000000000000".to_string(), "attachment_terminal_mismatch"),
+            (
+                mux.registry_identity().1,
+                "term_00000000000000000000000000000000".to_string(),
+                "attachment_terminal_mismatch",
+            ),
         ] {
             let command = Command::AttachSurface {
-                surface: surface.id, mode: None, cols: None, rows: None,
-                expected_generation: Some(generation), expected_terminal_id: Some(terminal),
+                surface: surface.id,
+                mode: None,
+                cols: None,
+                rows: None,
+                expected_generation: Some(generation),
+                expected_terminal_id: Some(terminal),
             };
             let error = handle_command(&mux, client, command, &writer).unwrap_err();
             assert!(error.to_string().contains(expected), "{error:#}");
         }
         let command = Command::AttachSurface {
-            surface: surface.id, mode: None, cols: None, rows: None,
-            expected_generation: Some(mux.registry_identity().1), expected_terminal_id: Some(terminal),
+            surface: surface.id,
+            mode: None,
+            cols: None,
+            rows: None,
+            expected_generation: Some(mux.registry_identity().1),
+            expected_terminal_id: Some(terminal),
         };
         handle_command(&mux, client, command, &writer).unwrap();
         disconnect_client(&mux, client, false);
@@ -19604,7 +19629,14 @@ mod tests {
         let attach = handle_command(
             &mux,
             client,
-            Command::AttachSurface { surface: surface.id, mode: None, cols: None, rows: None, expected_generation: None, expected_terminal_id: None },
+            Command::AttachSurface {
+                surface: surface.id,
+                mode: None,
+                cols: None,
+                rows: None,
+                expected_generation: None,
+                expected_terminal_id: None,
+            },
             &writer,
         );
         mux.shutdown();
