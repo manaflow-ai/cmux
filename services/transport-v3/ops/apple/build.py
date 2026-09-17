@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build generated Swift bindings and an XCFramework on a leased Mac.
+"""Build generated Swift bindings and an XCFramework in a controller Mac job.
 
 XcodeBuildMCP has no XCFramework packaging operation; xcodebuild is used only
 for this packaging step. App and simulator builds use the normal fleet tooling.

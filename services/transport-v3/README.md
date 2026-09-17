@@ -5,6 +5,12 @@ and West US 2 pass authenticated application-stream tests over TCP, QUIC and WSS
 The Rust control service and native stream core are implemented but not wired
 into either app. See IMPLEMENTATION.md for evidence and remaining requirements.
 
+`Packages/Shared/CmuxV3Transport` exposes generated async Swift bindings plus a
+`CmxByteTransport` adapter. Build the native XCFramework before resolving the
+package with `scripts/ensure-transport-v3.sh` on a controller worker. Missing
+binaries fail the build. Typed v3 routes are available to the app model; the
+production grant provider and app composition switch remain unfinished.
+
 ## Boundaries
 
 - `cmux-v3-grants`: Ed25519 JWT permissions, finite/infinite leases, local
@@ -20,6 +26,8 @@ into either app. See IMPLEMENTATION.md for evidence and remaining requirements.
   a read lane cannot carry initiating-peer data. There are no legacy dependencies.
 - `cmux-v3-control-server`: Stack identity/team/admin verification, signed device
   proofs, enrollment, Cedar policy and device timing, and atomic PostgreSQL writes.
+- `cmux-v3-ffi`: generated UniFFI ownership/cancellation boundary for Swift,
+  backed by the same Rust endpoint and permission checks as server-side tests.
 - `cmux-v3-relay-server`: signed-grant admission for reservations and device pairs,
   bounded grant cache, private management credentials, readiness/metrics, and
   draining that refuses new circuits while renewing still-live cached permissions.

@@ -290,7 +290,8 @@ seamless upgrades, observability, security audit, and real end-to-end proof.
 - The first controller attempt failed before execution because its default
   shell did not support Bash process substitution. Job 78b261551930d1b98fb38905
   explicitly invokes Bash and is building all Apple slices from 2436efaa279.
-  Its final test/artifact result is pending. Earlier local Swift test invocations
+  Its native artifact and five Swift adapter tests passed. The mobile RPC and
+  network packages compile; full Rust checks and artifact transfer are pending. Earlier local Swift test invocations
   did not follow the fleet execution rule; no further local builds are used.
 - Added localized libp2p v3 labels to existing diagnostics/settings vocabulary.
   Labels contain no device identifiers. HIG writing page was requested but its
