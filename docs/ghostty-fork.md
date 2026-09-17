@@ -12,7 +12,7 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `3a7fc9230`, on fork branch
+The submodule pinned by this branch is `e5a6849dc`, on fork branch
 `issue-12753-hangul-filename-shaping` pending Ghostty PR #221. It includes the
 incremental embedded configuration propagation and Fish SSH feature-gating fixes described below,
 plus the renderer/API compatibility pin and the repeated word-selection drag
@@ -25,16 +25,17 @@ visibility, and Hangul canonical font resolution.
 - Branch:
   - https://github.com/manaflow-ai/ghostty/tree/issue-12753-hangul-filename-shaping
 - Commit:
-  - `3a7fc9230` (issue-12753 Hangul shaping fix; pending PR #221)
+  - `e5a6849dc` (issue-12753 Hangul shaping fix and coverage; pending PR #221)
 - Summary:
-  - Adds the NFD Hangul shaping fix on top of cmux's prior pin, preserving
+  - Adds the NFD Hangul shaping fix and jamo/style coverage on top of cmux's prior pin, preserving
     incremental embedded configuration propagation and Fish SSH feature gating,
     with the renderer/API compatibility pin and repeated word-selection drag
     anchor behavior.
 - Verification:
-  - Zig 0.16.0 on macOS 26.5.1: the Hangul filter passed 75 total tests and
-    the CoreText shaper filter passed 118 total tests, including dependency
-    tests in both totals. The inherited fork CI skips tests outside ghostty-org.
+  - Zig 0.16.0 on macOS 26.5.1: the composed-only Hangul filter passed 77
+    total tests and the jamo/style Hangul filter passed 76 total tests,
+    including dependency tests in both totals. The inherited fork CI skips
+    tests outside ghostty-org.
 - Previous pin artifact (does not include the Hangul shaping fix):
   - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-abd40f6e472d57f2d4bb182004bb5f3fac8df961-crashsubdir-cmux-crash-sentry-off-noi18n-v2
   - SHA-256 `fdb0f7e844fa086a410f0b1df23badf2b0503c084e1c66c297e22930758b6971`
@@ -187,6 +188,7 @@ pinned in `scripts/ghosttykit-checksums.txt`.
 - Commits:
   - `452bc460c` (test: reproduce NFD Hangul fallback glyph mismatch)
   - `3a7fc9230` (fix: shape NFD Hangul with the resolved syllable)
+  - `e5a6849dc` (test: cover Hangul jamo fonts and style fallback)
 - `RunIterator.resolveFontInfo` carries the canonical syllable together with
   its resolved font index. Both CoreText and HarfBuzz receive that spelling,
   preventing CoreText from returning jamo fallback glyph IDs that would be
@@ -195,6 +197,8 @@ pinned in `scripts/ghosttykit-checksums.txt`.
   whose composed syllable resolves. Uncomposable clusters and per-jamo fallback
   retain their existing path. Stored terminal cells and copy bytes are unchanged.
 - The regression uses a licensed, renamed D2Coding subset without jamo glyphs.
+  A similarly licensed Source Han Mono subset with direct jamo coverage exercises
+  the jamo-capable and regular-style fallback cases.
   It checks glyph IDs, column positions, regular/bold styles, cursor boundaries,
   and preserved NFD storage. Before the fix CoreText returns glyph 1942 where
   the selected fixture face requires 218.
