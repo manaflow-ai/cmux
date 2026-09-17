@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Darwin
 import Foundation
 import SQLite3
@@ -11,7 +12,7 @@ import Testing
 
 @Suite
 struct ForkParentFallbackResidualTests {
-    @Test func customClaudeBinaryForkFallbackPassesCachedForkValidation() throws {
+    @Test func customClaudeBinaryForkParentArgumentDoesNotPassCachedValidation() throws {
         let fixture = try Fixture.make()
         defer { fixture.cleanup() }
 
@@ -39,7 +40,8 @@ struct ForkParentFallbackResidualTests {
         )
 
         let result = loader.loadResultSynchronously()
-        #expect(result.forkValidatedPanels.contains(fixture.panelKey))
+        #expect(!result.forkValidatedPanels.contains(fixture.panelKey))
+        #expect(result.index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId) == nil)
     }
 
     @Test func customClaudeValidatorRejectsDifferentLiveExecutableThanLaunchExecutable() {
@@ -157,7 +159,12 @@ struct ForkParentFallbackResidualTests {
                 .snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId)
         )
         #expect(snapshot.workingDirectory == fixture.cwd.path)
-        #expect(snapshot.resumeStartupInput()?.contains("cd -- '\(fixture.cwd.path)'") == true)
+        let resumeInput = try #require(snapshot.resumeStartupInput())
+        #expect(
+            resumeInput
+                == " \(AgentRestoreLaunch.cliStartupExecutableToken) restore codex \(sessionId)\n"
+        )
+        #expect(snapshot.resumeCommand?.contains("cd -- '\(fixture.cwd.path)'") == true)
         #expect(snapshot.forkStartupInput()?.contains("cd -- '\(fixture.cwd.path)'") == true)
 
         let cwdless = SessionRestorableAgentSnapshot(
@@ -253,7 +260,7 @@ struct ForkParentFallbackResidualTests {
         #expect(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId)?.sessionId == childSessionId)
     }
 
-    @Test func claudeTeamsPersistentClaudeProcessForkFallbackRoundTripsAndValidates() throws {
+    @Test func claudeTeamsForkParentArgumentDoesNotBecomeSurfaceIdentity() throws {
         let fixture = try Fixture.make()
         defer { fixture.cleanup() }
 
@@ -306,10 +313,8 @@ struct ForkParentFallbackResidualTests {
             }
         )
         let result = loader.loadResultSynchronously()
-        let snapshot = try #require(result.index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId))
-        #expect(snapshot.kind == .claude)
-        #expect(result.forkValidatedPanels.contains(fixture.panelKey))
-        #expect(snapshot.forkCommand?.contains("'claude-teams' '--resume' '\(parentSessionId)' '--fork-session' '--model' 'sonnet'") == true)
+        #expect(result.index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.panelId) == nil)
+        #expect(!result.forkValidatedPanels.contains(fixture.panelKey))
     }
 
     private struct Fixture {

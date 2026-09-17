@@ -152,7 +152,7 @@ extension Workspace {
                     focus: nil
                 )
             }
-        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .agentSession, .extensionBrowser, .workspaceTodo, .workspaceShareChat, .cloudVMLoading:
+        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .simulator, .agentSession, .extensionBrowser, .workspaceTodo, .workspaceShareChat, .notifications, .cloudVMLoading, .mobilePairing, .accountSignIn:
             unsupportedSurfaceCount += 1
             definition = CmuxSurfaceDefinition(type: .terminal)
         }

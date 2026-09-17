@@ -88,6 +88,22 @@ describe("parsePairedMacBackup", () => {
     expect(parsed.ops[1]).toEqual({ kind: "delete", id: "gone" });
   });
 
+  it("accepts a bounded conditional-write revision and rejects malformed revisions", () => {
+    const parsed = parsePairedMacBackup({
+      expectedRevision: 42,
+      ops: [{ macDeviceID: "gone", deleted: true }],
+    });
+    expect(parsed).toMatchObject({ ok: true, expectedRevision: 42 });
+    expect(parsePairedMacBackup({ expectedRevision: -1, ops: [] })).toEqual({
+      ok: false,
+      error: "invalid_expected_revision",
+    });
+    expect(parsePairedMacBackup({ expectedRevision: 1.5, ops: [] })).toEqual({
+      ok: false,
+      error: "invalid_expected_revision",
+    });
+  });
+
   it("keys tagged operations by physical Mac plus app-instance tag", () => {
     const tagged = { ...record("mac-a", "10.0.0.1", 22), instanceTag: "nightly" };
     const parsed = parsePairedMacBackup({
@@ -223,7 +239,7 @@ describe("applyBackupOps", () => {
     const restored = (await listBackupSnapshot(storage, "user-1")).records[0];
     expect(restored?.instanceTag).toBe("feature-a");
     expect(restored?.routes).toEqual(tagged.routes);
-    expect(restored).toEqual(tagged);
+    expect(restored).toEqual({ ...tagged, serverUpdatedAtMs: expect.any(Number) });
   });
 
   it("lets a Mac publisher refresh only an unclaimed or same-tag authority tuple", async () => {
@@ -262,7 +278,7 @@ describe("applyBackupOps", () => {
     const retained = (await listBackupSnapshot(storage, "user-1")).records[0];
     expect(retained?.instanceTag).toBe("feature-b");
     expect(retained?.routes).toEqual(explicitB.routes);
-    expect(retained).toEqual(explicitB);
+    expect(retained).toEqual({ ...explicitB, serverUpdatedAtMs: expect.any(Number) });
   });
 
   it("preserves cross-tag host authority while applying active and customization metadata", async () => {
@@ -363,7 +379,7 @@ describe("applyBackupOps", () => {
       instanceTagWriteMode: "preserve",
     }], T0);
 
-    expect((await listBackupSnapshot(storage, "user-1")).records[0]).toEqual(incoming);
+    expect((await listBackupSnapshot(storage, "user-1")).records[0]).toEqual({ ...incoming, serverUpdatedAtMs: expect.any(Number) });
   });
 
   it("sanitizes direct writes, deltas, and legacy stored backup responses", async () => {
@@ -522,6 +538,43 @@ describe("applyBackupOps", () => {
       );
       expect(deltas).toHaveLength(1);
     }
+  });
+
+  it("isolates paired-Mac backups by exact iOS bundle namespace", async () => {
+    const storage = new FakeStorage();
+    const internalScope = "ios:v3:ZGV2LmNtdXguYXBwLmludGVybmFs";
+    const demoScope = "ios:v3:ZGV2LmNtdXguYXBwLmRlbW8";
+    await applyBackupOps(
+      storage,
+      "user-1",
+      [{
+        kind: "upsert",
+        id: "mac-a",
+        record: record("mac-a", "10.0.0.1", 4001),
+      }],
+      T0,
+      internalScope,
+    );
+    await applyBackupOps(
+      storage,
+      "user-1",
+      [{
+        kind: "upsert",
+        id: "mac-a",
+        record: record("mac-a", "10.0.0.2", 4002),
+      }],
+      T0,
+      demoScope,
+    );
+
+    expect(pairedMacsCollection("user-1", internalScope)
+      .startsWith("pairedMacsScopedIosV3:user-1:")).toBe(true);
+    expect(pairedMacsCollection("user-1", demoScope)
+      .startsWith("pairedMacsScopedIosV3:user-1:")).toBe(true);
+    expect((await listBackupSnapshot(storage, "user-1", internalScope))
+      .records[0]?.routes).toEqual(record("mac-a", "10.0.0.1", 4001).routes);
+    expect((await listBackupSnapshot(storage, "user-1", demoScope))
+      .records[0]?.routes).toEqual(record("mac-a", "10.0.0.2", 4002).routes);
   });
 
   it("recycles the oldest inactive current iOS development scope at capacity", async () => {
@@ -907,6 +960,42 @@ describe("applyBackupOps", () => {
     const snapshot = await listBackupSnapshot(storage, "user-1");
     expect(snapshot.records).toEqual([]);
     expect(snapshot.deletedMacDeviceIDs).toEqual(["mac-a"]);
+    expect(snapshot.revision).toBe(2);
+  });
+
+  it("rejects a stale migration revision before deleting a concurrent re-pair", async () => {
+    const storage = new FakeStorage();
+    const staleRevision = (await listBackupSnapshot(storage, "user-1")).revision;
+    const repaired = {
+      ...record("mac-a", "10.0.0.2", 22),
+      instanceTag: "nightly",
+    };
+    await applyBackupOps(
+      storage,
+      "user-1",
+      [{ kind: "upsert", id: "mac-a\u001fnightly", record: repaired }],
+      T0,
+    );
+
+    let conflict: unknown;
+    try {
+      await applyBackupOps(
+        storage,
+        "user-1",
+        [{ kind: "delete", id: "mac-a\u001fnightly" }],
+        T0 + 1,
+        undefined,
+        staleRevision,
+      );
+    } catch (error) {
+      conflict = error;
+    }
+
+    expect(conflict).toBeInstanceOf(PairedMacBackupApplyError);
+    expect(conflict).toMatchObject({ code: "revision_conflict" });
+    const snapshot = await listBackupSnapshot(storage, "user-1");
+    expect(snapshot.records.map((item) => item.macDeviceID)).toEqual(["mac-a"]);
+    expect(snapshot.deletedMacDeviceIDs).toEqual([]);
   });
 
   it("ignores ordinary upserts after a retained tombstone unless explicitly revived", async () => {

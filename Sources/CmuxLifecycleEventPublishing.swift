@@ -217,6 +217,8 @@ extension Workspace {
             return "right_sidebar_tool"
         case .customSidebar:
             return "custom_sidebar"
+        case .simulator:
+            return "simulator"
         case .agentSession:
             return "agent_session"
         case .project:
@@ -227,8 +229,14 @@ extension Workspace {
             return "workspace_todo"
         case .workspaceShareChat:
             return "workspace_share_chat"
+        case .notifications:
+            return "notifications"
         case .cloudVMLoading:
             return "cloud_vm_loading"
+        case .mobilePairing:
+            return "mobile_pairing"
+        case .accountSignIn:
+            return "account_sign_in"
         }
     }
 }
@@ -262,10 +270,16 @@ extension AppDelegate {
     func handleCmuxWindowBecameKey(_ note: Notification) {
         guard let window = note.object as? NSWindow else { return }
         MainActor.assumeIsolated {
-            let context = contextForMainTerminalWindow(window)
+            let context = senderRelativeMainWindowContext(for: window)
             setActiveMainWindow(window)
             if let windowId = mainWindowId(from: window) {
-                publishCmuxWindowLifecycle(name: "window.keyed", windowId: windowId, origin: "appkit_key")
+                publishCmuxWindowLifecycle(
+                    name: "window.keyed",
+                    windowId: windowId,
+                    origin: "appkit_key",
+                    exactWindow: window,
+                    allowTeardownRoute: false
+                )
             }
             if let context {
                 MainWindowKeyRegainRefresh.refresh(window: window, context: context)
@@ -277,13 +291,33 @@ extension AppDelegate {
         guard let window = note.object as? NSWindow else { return }
         MainActor.assumeIsolated {
             if let windowId = mainWindowId(from: window) {
-                publishCmuxWindowLifecycle(name: "window.unkeyed", windowId: windowId, origin: "appkit_key")
+                publishCmuxWindowLifecycle(
+                    name: "window.unkeyed",
+                    windowId: windowId,
+                    origin: "appkit_key",
+                    exactWindow: window,
+                    allowTeardownRoute: false
+                )
             }
         }
     }
 
-    func publishCmuxWindowLifecycle(name: String, windowId: UUID, origin: String) {
-        let manager = tabManagerFor(windowId: windowId)
+    func publishCmuxWindowLifecycle(
+        name: String,
+        windowId: UUID,
+        origin: String,
+        exactWindow: NSWindow? = nil,
+        allowTeardownRoute: Bool = true
+    ) {
+        let manager: TabManager?
+        if let exactWindow {
+            manager = contextForMainTerminalWindow(exactWindow, reindex: false)?.tabManager
+                ?? recoverableMainWindowIdentity(forExactWindow: exactWindow)?.tabManager
+        } else if allowTeardownRoute {
+            manager = tabManagerForWindowTeardown(windowId: windowId)
+        } else {
+            manager = tabManagerFor(windowId: windowId)
+        }
         let workspaceId = manager?.selectedTabId
         let selectedWorkspaceIndex = workspaceId.flatMap { selectedId in
             manager?.tabs.firstIndex(where: { $0.id == selectedId })

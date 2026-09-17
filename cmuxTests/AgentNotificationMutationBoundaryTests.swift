@@ -10,15 +10,33 @@ import Testing
 #endif
 
 extension AgentNotificationRegressionTests {
-    // Generous for loaded CI runners: subprocess spawn, signal propagation,
-    // and marker writes can take multiple seconds there. A long timeout only
-    // slows the failure path.
+    // Allow loaded CI runners time for subprocess spawning and signal delivery.
     func waitForMarker(at url: URL, timeout: Duration = .seconds(15)) async -> Bool {
         let deadline = ContinuousClock.now + timeout
         while !FileManager.default.fileExists(atPath: url.path), ContinuousClock.now < deadline {
             try? await Task.sleep(for: .milliseconds(10))
         }
         return FileManager.default.fileExists(atPath: url.path)
+    }
+
+    func waitForScopedProcess(
+        pid: pid_t,
+        surfaceId: UUID,
+        timeout: Duration = .seconds(15)
+    ) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if let identity = agentLiveProcessIdentity(pid: pid),
+               case .resolved(let scope) = CmuxTopProcessSnapshot.cmuxScopeProbe(
+                   for: Int(pid),
+                   expectedCacheKey: identity.scopeCacheKey
+               ),
+               scope?.surfaceID == surfaceId {
+                return true
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return false
     }
 
     @Test("PID routing bypasses a stale negative telemetry cache after exec")
@@ -35,13 +53,15 @@ extension AgentNotificationRegressionTests {
         let readyMarker = root.appendingPathComponent("ready")
         let execMarker = root.appendingPathComponent("execed")
         try """
-        touch '\(readyMarker.path)'
         trap 'exec /bin/sh "\(scopedScript.path)"' USR1
+        touch '\(readyMarker.path)'
         while :; do sleep 1; done
         """.write(to: initialScript, atomically: true, encoding: .utf8)
+        // The marker comes from the final image; never exec again after it. macOS 26
+        // hides a platform binary's environment, so that image is Xcode's python, not sh.
         try """
         export CMUX_SURFACE_ID='\(fixture.panelId.uuidString)'
-        exec /bin/sh -c 'touch "\(execMarker.path)"; exec sleep 30'
+        exec "$(xcrun --find python3)" -c 'import pathlib, time; pathlib.Path("\(execMarker.path)").touch(); time.sleep(600)'
         """.write(to: scopedScript, atomically: true, encoding: .utf8)
 
         let process = Process()
@@ -73,6 +93,7 @@ extension AgentNotificationRegressionTests {
         #expect(cachedMiss == nil)
         #expect(Darwin.kill(process.processIdentifier, SIGUSR1) == 0)
         #expect(await waitForMarker(at: execMarker))
+        #expect(await waitForScopedProcess(pid: process.processIdentifier, surfaceId: fixture.panelId))
 
         #expect(
             fixture.appDelegate.liveAgentDeliveryTarget(forAgentPID: process.processIdentifier)
@@ -87,7 +108,7 @@ extension AgentNotificationRegressionTests {
     func localTTYBindingsExcludeRemoteDeviceNamespaces() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
-        workspace.surfaceTTYNames[panelId] = "/dev/null"
+        workspace.registerReportedSurfaceTTYName("/dev/null", panelId: panelId)
         #expect(workspace.localAgentDeliveryTTYDevices.map(\.surfaceId) == [panelId])
 
         workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
@@ -103,6 +124,184 @@ extension AgentNotificationRegressionTests {
             terminalStartupCommand: nil
         )
         #expect(workspace.localAgentDeliveryTTYDevices.isEmpty)
+    }
+
+    @Test("Restored TTY metadata requires a fresh runtime registration")
+    func restoredTTYMetadataRequiresFreshRuntimeRegistration() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let snapshot = SessionPanelSnapshot(
+            id: panelId,
+            type: .terminal,
+            title: "Restored terminal",
+            customTitle: nil,
+            directory: nil,
+            isPinned: false,
+            isManuallyUnread: false,
+            listeningPorts: [],
+            ttyName: "/dev/null",
+            terminal: SessionTerminalPanelSnapshot(),
+            browser: nil,
+            markdown: nil,
+            filePreview: nil,
+            rightSidebarTool: nil
+        )
+
+        workspace.applySessionPanelMetadata(snapshot, toPanelId: panelId)
+
+        #expect(workspace.surfaceTTYNames[panelId] == "/dev/null")
+        #expect(
+            workspace.localAgentDeliveryTTYDevices.isEmpty,
+            "Persisted TTY metadata is not evidence from the current terminal runtime"
+        )
+
+        workspace.pruneSurfaceMetadata(validSurfaceIds: [panelId])
+        #expect(
+            workspace.localAgentDeliveryTTYDevices.isEmpty,
+            "Metadata pruning must not promote a persisted TTY into live evidence"
+        )
+
+        workspace.registerReportedSurfaceTTYName("/dev/null", panelId: panelId)
+        #expect(workspace.localAgentDeliveryTTYDevices.map(\.surfaceId) == [panelId])
+    }
+
+    @Test("Live PID routing and runtime mutations include a Dock-owned terminal")
+    func liveTTYBindingsAndRuntimeMutationsIncludeDockOwnedTerminal() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let bus = TerminalMutationBus.shared
+        defer {
+            bus.setDrainsSuspendedForTesting(false)
+            bus.drainForTesting()
+        }
+        let dockOwnerId = UUID()
+        let dock = DockSplitStore(workspaceId: dockOwnerId, baseDirectoryProvider: { nil })
+        fixture.source.registerReportedSurfaceTTYName("/dev/null", panelId: fixture.panelId)
+        fixture.source.setAgentLifecycle(
+            key: "manual:workspace-loader",
+            panelId: fixture.panelId,
+            lifecycle: .running
+        )
+
+        let transfer = try #require(fixture.source.detachSurface(panelId: fixture.panelId))
+        let rootPane = try #require(dock.bonsplitController.allPaneIds.first)
+        #expect(dock.attachDetachedSurface(transfer, inPane: rootPane, focus: false) == fixture.panelId)
+        #expect(fixture.source.localAgentDeliveryTTYDevices.allSatisfy { $0.surfaceId != fixture.panelId })
+
+        let binding = try #require(
+            fixture.appDelegate.liveAgentDeliveryTTYBindings().first {
+                $0.workspaceId == dockOwnerId && $0.surfaceId == fixture.panelId
+            }
+        )
+        #expect(binding.ttyDevice > 0)
+
+        let sessionKey = "omp.dock-session"
+        TerminalController.shared.controlSidebarScheduleStatusUpsert(
+            target: .workspace(dockOwnerId),
+            key: "omp",
+            value: "Running",
+            icon: nil,
+            color: nil,
+            url: nil,
+            priority: 0,
+            format: .plain,
+            panelID: fixture.panelId,
+            pid: nil
+        )
+        TerminalController.shared.controlSidebarScheduleAgentPIDRecord(
+            target: .workspace(dockOwnerId),
+            key: sessionKey,
+            pid: getpid(),
+            panelID: fixture.panelId
+        )
+        TerminalController.shared.controlSidebarScheduleAgentLifecycle(
+            target: .workspace(dockOwnerId),
+            key: "omp",
+            lifecycleRawValue: AgentHibernationLifecycleState.running.rawValue,
+            panelID: fixture.panelId
+        )
+        bus.drainForTesting()
+
+        let runtime = try #require(dock.agentRuntimeByPanelId[fixture.panelId])
+        #expect(runtime.statusEntries["omp"]?.value == "Running")
+        #expect(runtime.agentPIDs[sessionKey] == getpid())
+        #expect(runtime.agentLifecycleStates["omp"] == .running)
+        #expect(runtime.agentLifecycleStates["manual:workspace-loader"] == nil)
+
+        #expect(
+            !dock.clearAgentPID(
+                key: "omp.superseded",
+                panelId: fixture.panelId,
+                clearStatus: true,
+                requireOwnedKey: true
+            )
+        )
+        #expect(dock.agentRuntimeByPanelId[fixture.panelId]?.statusEntries["omp"]?.value == "Running")
+        #expect(dock.agentRuntimeByPanelId[fixture.panelId]?.agentLifecycleStates["omp"] == .running)
+
+        TerminalController.shared.controlSidebarScheduleStatusClear(
+            target: .workspace(dockOwnerId),
+            key: "omp",
+            panelID: fixture.panelId
+        )
+        bus.drainForTesting()
+        #expect(dock.agentRuntimeByPanelId[fixture.panelId]?.statusEntries["omp"] == nil)
+        #expect(dock.agentRuntimeByPanelId[fixture.panelId]?.agentLifecycleStates["omp"] == nil)
+
+        TerminalController.shared.controlSidebarScheduleStatusUpsert(
+            target: .workspace(dockOwnerId),
+            key: "omp",
+            value: "Running",
+            icon: nil,
+            color: nil,
+            url: nil,
+            priority: 0,
+            format: .plain,
+            panelID: fixture.panelId,
+            pid: nil
+        )
+        TerminalController.shared.controlSidebarScheduleAgentLifecycle(
+            target: .workspace(dockOwnerId),
+            key: "omp",
+            lifecycleRawValue: AgentHibernationLifecycleState.running.rawValue,
+            panelID: fixture.panelId
+        )
+        bus.drainForTesting()
+        #expect(dock.agentRuntimeByPanelId[fixture.panelId]?.agentLifecycleStates["omp"] == .running)
+
+        let workspaceTransfer = try #require(dock.detachSurface(panelId: fixture.panelId))
+        #expect(dock.agentRuntimeByPanelId[fixture.panelId] == nil)
+        let destinationPane = try #require(fixture.destination.bonsplitController.allPaneIds.first)
+        #expect(
+            fixture.destination.attachDetachedSurface(
+                workspaceTransfer,
+                inPane: destinationPane,
+                focus: false
+            ) == fixture.panelId
+        )
+        #expect(fixture.destination.statusEntries["omp"]?.value == "Running")
+        #expect(fixture.destination.agentPIDs[sessionKey] == getpid())
+        #expect(
+            fixture.destination.agentLifecycleStatesByPanelId[fixture.panelId]?["omp"]
+                == .running
+        )
+
+        // The socket target still names the old Dock owner. Panel ownership is
+        // resolved when the queued mutation drains, so the clear follows the
+        // panel into its destination workspace.
+        TerminalController.shared.controlSidebarScheduleAgentPIDClear(
+            target: .workspace(dockOwnerId),
+            key: sessionKey,
+            panelID: fixture.panelId,
+            clearStatus: true
+        )
+        bus.drainForTesting()
+        #expect(fixture.destination.statusEntries["omp"] == nil)
+        #expect(fixture.destination.agentPIDs[sessionKey] == nil)
+        #expect(
+            fixture.destination.agentLifecycleStatesByPanelId[fixture.panelId]?["omp"]
+                == nil
+        )
     }
 
     @Test("A stale source clear preserves a destination-confined stored notification")
@@ -227,6 +426,71 @@ extension AgentNotificationRegressionTests {
 
         await waitForNotification(in: fixture.store)
         #expect(fixture.store.notifications.map(\.body) == ["Replacement after clear"])
+    }
+
+    @Test("Correlation clear cancels only matching in-flight policy work")
+    func correlationClearCancelsMatchingInFlightPolicyWork() async throws {
+        let fixture = try makeFixture(policyHookCommand: "sleep 1; cat")
+        defer { fixture.restore() }
+        let correlationKey = "remote-host:\(UUID().uuidString)"
+
+        fixture.store.addNotification(
+            tabId: fixture.source.id,
+            surfaceId: nil,
+            title: "Remote Proxy Unavailable",
+            subtitle: "host",
+            body: "Transient proxy failure",
+            cooldownKey: correlationKey,
+            cooldownInterval: 60
+        )
+        fixture.store.addNotification(
+            tabId: fixture.source.id,
+            surfaceId: nil,
+            title: "Unrelated",
+            subtitle: "",
+            body: "Keep this notification"
+        )
+
+        fixture.store.clearNotifications(forTabId: fixture.source.id, correlationKey: correlationKey)
+        await waitForNotification(in: fixture.store)
+
+        #expect(fixture.store.notifications.map(\.body) == ["Keep this notification"])
+    }
+
+    @Test("Correlation clear preserves another workspace's same-host alert")
+    func correlationClearIsScopedToWorkspace() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let sourceCorrelationKey = "remote-host:\(UUID().uuidString)"
+        let correlationKey = "remote-host:\(UUID().uuidString)"
+
+        fixture.store.addNotification(
+            tabId: fixture.source.id,
+            surfaceId: nil,
+            title: "Remote Proxy Unavailable",
+            subtitle: "source",
+            body: "Recovered source alert",
+            cooldownKey: sourceCorrelationKey,
+            cooldownInterval: 60
+        )
+        fixture.store.clearNotifications(
+            forTabId: fixture.source.id,
+            correlationKey: sourceCorrelationKey
+        )
+        #expect(fixture.store.notifications.isEmpty)
+
+        fixture.store.addNotification(
+            tabId: fixture.destination.id,
+            surfaceId: nil,
+            title: "Remote Proxy Unavailable",
+            subtitle: "host",
+            body: "Same host in another workspace",
+            cooldownKey: correlationKey,
+            cooldownInterval: 60
+        )
+        fixture.store.clearNotifications(forTabId: fixture.source.id, correlationKey: correlationKey)
+
+        #expect(fixture.store.notifications.map(\.body) == ["Same host in another workspace"])
     }
 
     @Test("Clearing policy work discards a hook result that completes afterwards")

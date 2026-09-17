@@ -1,0 +1,686 @@
+// Adapted from serve-sim commit af681b8c3b0453f31dcb8e98a3389f23b7cfc6b0 (Apache-2.0).
+// Modified by cmux for native worker integration.
+
+#import "SimCamFrameSource.h"
+#import "SimCamFakes.h"
+#import "SimCamLog.h"
+#include "include/SimCamShared.h"
+
+#import <CoreImage/CoreImage.h>
+#import <CoreMedia/CoreMedia.h>
+#import <CoreVideo/CoreVideo.h>
+#import <UIKit/UIKit.h>
+#import <QuartzCore/QuartzCore.h>
+#import <objc/runtime.h>
+#import <objc/message.h>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <stdatomic.h>
+#include <errno.h>
+#include <string.h>
+#include <time.h>
+#include <unistd.h>
+
+#pragma mark - Source globals
+
+static UIImage *gSourceImage = nil;
+static CGImageRef gSourceCGImage = NULL;
+static size_t kFrameWidth = 1280;
+static size_t kFrameHeight = 720;
+static const double kFrameRate = 30.0;
+
+static SimCamShmHeader *gShmHeader = NULL;
+static SimCamAttachmentSlot *gAttachmentSlot = NULL;
+static SimCamFrameTable *gFrameTable = NULL;
+static void *gShmMap = NULL;
+static size_t gShmMapSize = 0;
+static uint64_t gLastSeenSeq = 0;
+
+static inline uint64_t SimCamMonotonicNs(void) {
+    struct timespec value;
+    clock_gettime(CLOCK_MONOTONIC_RAW, &value);
+    return (uint64_t)value.tv_sec * 1000000000ull + (uint64_t)value.tv_nsec;
+}
+
+static void SimCamStartAttachmentHeartbeat(void) {
+    static dispatch_source_t timer;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        dispatch_queue_t queue = dispatch_queue_create(
+            "com.cmux.simcam.attachment-heartbeat",
+            DISPATCH_QUEUE_SERIAL
+        );
+        timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, queue);
+        dispatch_source_set_timer(
+            timer,
+            dispatch_time(DISPATCH_TIME_NOW, 0),
+            NSEC_PER_MSEC * 500,
+            NSEC_PER_MSEC * 50
+        );
+        dispatch_source_set_event_handler(timer, ^{
+            SimCamAttachmentSlot *slot = gAttachmentSlot;
+            if (slot) {
+                atomic_store_explicit(
+                    &slot->heartbeatNs,
+                    SimCamMonotonicNs(),
+                    memory_order_release
+                );
+            }
+        });
+        dispatch_resume(timer);
+    });
+}
+
+static void SimCamReleaseAttachmentSlot(void) {
+    SimCamAttachmentSlot *slot = gAttachmentSlot;
+    gAttachmentSlot = NULL;
+    if (!slot) return;
+    atomic_store_explicit(&slot->heartbeatNs, 0, memory_order_release);
+    atomic_store_explicit(&slot->pid, 0, memory_order_release);
+}
+
+__attribute__((destructor)) static void SimCamDetachAttachment(void) {
+    SimCamReleaseAttachmentSlot();
+    if (gShmMap && gShmMapSize > 0) {
+        munmap(gShmMap, gShmMapSize);
+        gShmMap = NULL;
+        gShmMapSize = 0;
+        gShmHeader = NULL;
+        gFrameTable = NULL;
+    }
+}
+
+#pragma mark - Last-frame cache
+
+static CVPixelBufferRef gLastFramePB = NULL;
+static CGImageRef gLastFrameCGImage = NULL;
+static NSLock *gFrameCacheLock = nil;
+static dispatch_once_t gFrameCacheOnce;
+
+static inline NSLock *SimCamFrameCacheLock(void) {
+    dispatch_once(&gFrameCacheOnce, ^{ gFrameCacheLock = [NSLock new]; });
+    return gFrameCacheLock;
+}
+
+static void SimCamCacheFrame(CVPixelBufferRef pb) {
+    if (!pb) return;
+    CIImage *ci = [CIImage imageWithCVPixelBuffer:pb];
+    static CIContext *ctx = nil; static dispatch_once_t ctxOnce;
+    dispatch_once(&ctxOnce, ^{ ctx = [CIContext contextWithOptions:nil]; });
+    CGImageRef cg = [ctx createCGImage:ci fromRect:ci.extent];
+    NSLock *lock = SimCamFrameCacheLock();
+    [lock lock];
+    CVPixelBufferRef oldPB = gLastFramePB;
+    CGImageRef oldCG = gLastFrameCGImage;
+    gLastFramePB = (CVPixelBufferRef)CFRetain(pb);
+    gLastFrameCGImage = cg;
+    [lock unlock];
+    if (oldPB) CVPixelBufferRelease(oldPB);
+    if (oldCG) CGImageRelease(oldCG);
+}
+
+static CVPixelBufferRef SimCamAcquireCachedPB(void) CF_RETURNS_RETAINED {
+    NSLock *lock = SimCamFrameCacheLock();
+    [lock lock];
+    CVPixelBufferRef pb = gLastFramePB;
+    if (pb) CFRetain(pb);
+    [lock unlock];
+    return pb;
+}
+static CGImageRef SimCamAcquireCachedCGImage(void) CF_RETURNS_RETAINED {
+    NSLock *lock = SimCamFrameCacheLock();
+    [lock lock];
+    CGImageRef cg = gLastFrameCGImage;
+    if (cg) CGImageRetain(cg);
+    [lock unlock];
+    return cg;
+}
+
+#pragma mark - Output delegate registry
+
+@implementation SimCamRegistry {
+    NSMutableArray *_entries;
+    NSHashTable<AVCaptureVideoPreviewLayer *> *_layers;
+    dispatch_source_t _timer;
+    dispatch_queue_t _timerQueue;
+    NSLock *_lock;
+}
+
++ (instancetype)shared {
+    static SimCamRegistry *s; static dispatch_once_t o;
+    dispatch_once(&o, ^{ s = [SimCamRegistry new]; });
+    return s;
+}
+
+- (instancetype)init {
+    if ((self = [super init])) {
+        _entries = [NSMutableArray new];
+        _layers = [NSHashTable weakObjectsHashTable];
+        _timerQueue = dispatch_queue_create("dev.servesim.simcam.pump", DISPATCH_QUEUE_SERIAL);
+        _lock = [NSLock new];
+    }
+    return self;
+}
+
+- (void)addOutput:(AVCaptureVideoDataOutput *)out
+         delegate:(id<AVCaptureVideoDataOutputSampleBufferDelegate>)delegate
+            queue:(dispatch_queue_t)queue {
+    if (!out || !delegate) return;
+    SimCamWeakRef *ref = [SimCamWeakRef new];
+    ref.target = delegate;
+    [_lock lock];
+    NSMutableIndexSet *toRemove = [NSMutableIndexSet new];
+    [_entries enumerateObjectsUsingBlock:^(NSDictionary *e, NSUInteger i, BOOL *stop) {
+        if (e[@"out"] == out) [toRemove addIndex:i];
+    }];
+    [_entries removeObjectsAtIndexes:toRemove];
+    [_entries addObject:@{
+        @"out": out,
+        @"del": ref,
+        @"queue": queue ?: dispatch_get_main_queue(),
+    }];
+    NSUInteger entryCount = _entries.count;
+    [_lock unlock];
+    simcam_log(@"addOutput delegate=%p out=%p queue=%p pos=%d (entries=%lu, replaced=%lu)",
+        delegate, out, queue, (int)SimCamPositionOf(out),
+        (unsigned long)entryCount, (unsigned long)toRemove.count);
+
+    CVPixelBufferRef cached = SimCamAcquireCachedPB();
+    if (cached) {
+        CMVideoFormatDescriptionRef fd = NULL;
+        CMVideoFormatDescriptionCreateForImageBuffer(kCFAllocatorDefault, cached, &fd);
+        CMSampleBufferRef sb = NULL;
+        CMSampleTimingInfo timing = {
+            .duration = CMTimeMake(1, (int32_t)kFrameRate),
+            .presentationTimeStamp = CMTimeMake(0, (int32_t)kFrameRate),
+            .decodeTimeStamp = kCMTimeInvalid,
+        };
+        if (fd) {
+            CMSampleBufferCreateForImageBuffer(kCFAllocatorDefault, cached, true,
+                NULL, NULL, fd, &timing, &sb);
+            CFRelease(fd);
+        }
+        if (sb) {
+            AVCaptureVideoDataOutput *outRef = out;
+            dispatch_queue_t q = queue ?: dispatch_get_main_queue();
+            __weak SimCamWeakRef *weakRef = ref;
+            dispatch_async(q, ^{
+                id<AVCaptureVideoDataOutputSampleBufferDelegate> del = weakRef.target;
+                if (del && [del respondsToSelector:@selector(captureOutput:didOutputSampleBuffer:fromConnection:)]) {
+                    AVCaptureConnection *conn = SimCamFakeConnectionForOutput(outRef);
+                    [del captureOutput:outRef didOutputSampleBuffer:sb fromConnection:conn];
+                }
+                CFRelease(sb);
+            });
+        }
+        CVPixelBufferRelease(cached);
+    }
+
+    [self startPumpingIfNeeded];
+}
+
+- (void)removeOutput:(AVCaptureVideoDataOutput *)out {
+    [_lock lock];
+    NSMutableIndexSet *toRemove = [NSMutableIndexSet new];
+    [_entries enumerateObjectsUsingBlock:^(NSDictionary *e, NSUInteger i, BOOL *stop) {
+        if (e[@"out"] == out) [toRemove addIndex:i];
+    }];
+    [_entries removeObjectsAtIndexes:toRemove];
+    [_lock unlock];
+}
+
+- (void)addPreviewLayer:(AVCaptureVideoPreviewLayer *)layer {
+    if (!layer) return;
+    [_lock lock];
+    [_layers addObject:layer];
+    [_lock unlock];
+    BOOL mirror = SimCamShouldMirror(SimCamPositionOf(layer));
+    CGImageRef primed = SimCamAcquireCachedCGImage();
+    if (!primed && gSourceCGImage && !gShmHeader) {
+        primed = CGImageRetain(gSourceCGImage);
+    }
+    dispatch_async(dispatch_get_main_queue(), ^{
+        layer.contentsGravity = kCAGravityResizeAspectFill;
+        if (mirror) layer.transform = CATransform3DMakeScale(-1.f, 1.f, 1.f);
+        if (primed) {
+            layer.contents = (__bridge id)primed;
+            CGImageRelease(primed);
+        }
+    });
+    simcam_log(@"addPreviewLayer %p (mirror=%d, primed=%s, shm=%s)",
+        layer, (int)mirror, primed ? "yes" : "no", gShmHeader ? "yes" : "no");
+    [self startPumpingIfNeeded];
+}
+
+- (void)reapplyMirrorToLayers {
+    NSArray *layerSnapshot;
+    [_lock lock]; layerSnapshot = _layers.allObjects; [_lock unlock];
+    if (layerSnapshot.count == 0) return;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+        for (AVCaptureVideoPreviewLayer *l in layerSnapshot) {
+            BOOL m = SimCamShouldMirror(SimCamPositionOf(l));
+            l.transform = m ? CATransform3DMakeScale(-1.f, 1.f, 1.f)
+                            : CATransform3DIdentity;
+        }
+        [CATransaction commit];
+    });
+}
+
+- (void)pushFrameToLayers:(CVPixelBufferRef)pb {
+    if (!pb) return;
+    NSArray *layerSnapshot;
+    [_lock lock]; layerSnapshot = _layers.allObjects; [_lock unlock];
+    if (layerSnapshot.count == 0) return;
+
+    CGImageRef cg = NULL;
+    NSLock *lock = SimCamFrameCacheLock();
+    [lock lock];
+    if (pb == gLastFramePB && gLastFrameCGImage) {
+        cg = CGImageRetain(gLastFrameCGImage);
+    }
+    [lock unlock];
+    if (!cg) {
+        CIImage *ci = [CIImage imageWithCVPixelBuffer:pb];
+        static CIContext *ciCtx = nil; static dispatch_once_t once;
+        dispatch_once(&once, ^{ ciCtx = [CIContext contextWithOptions:nil]; });
+        cg = [ciCtx createCGImage:ci fromRect:ci.extent];
+        if (!cg) return;
+    }
+    dispatch_async(dispatch_get_main_queue(), ^{
+        for (AVCaptureVideoPreviewLayer *l in layerSnapshot) {
+            l.contents = (__bridge id)cg;
+        }
+        CGImageRelease(cg);
+    });
+}
+
+- (CVPixelBufferRef)newPixelBufferFromSurface CF_RETURNS_RETAINED {
+    return [self newPixelBufferFromSurfaceForceFresh:NO];
+}
+
+// Copy the latest private shared-memory slot into a process-local pixel buffer.
+- (CVPixelBufferRef)newPixelBufferFromSurfaceForceFresh:(BOOL)force CF_RETURNS_RETAINED {
+    if (!gShmHeader || !gFrameTable || !gShmMap) return NULL;
+    if (gShmHeader->magic != SIMCAM_SHM_MAGIC) return NULL;
+    uint64_t seqA = atomic_load_explicit(&gShmHeader->frameSeq, memory_order_acquire);
+    if (seqA == 0) return NULL;
+    if (!force && seqA == gLastSeenSeq) return NULL;
+
+    uint32_t count = gFrameTable->frameCount;
+    if (count == 0 || count > SIMCAM_SURFACE_RING) return NULL;
+    uint32_t idx = gFrameTable->latestIndex;
+    if (idx >= count) return NULL;
+
+    CVPixelBufferRef pb = NULL;
+    CVReturn r = CVPixelBufferCreate(
+        kCFAllocatorDefault,
+        gShmHeader->width,
+        gShmHeader->height,
+        kCVPixelFormatType_32BGRA,
+        NULL,
+        &pb
+    );
+    if (r != kCVReturnSuccess || !pb) return NULL;
+    if (CVPixelBufferLockBaseAddress(pb, 0) != kCVReturnSuccess) {
+        CVPixelBufferRelease(pb);
+        return NULL;
+    }
+    size_t sourceRowBytes = gShmHeader->bytesPerRow;
+    size_t destinationRowBytes = CVPixelBufferGetBytesPerRow(pb);
+    size_t rowByteCount = MIN(sourceRowBytes, destinationRowBytes);
+    uint8_t *source = (uint8_t *)gShmMap + SimCamControlSize()
+        + (size_t)idx * sourceRowBytes * gShmHeader->height;
+    uint8_t *destination = CVPixelBufferGetBaseAddress(pb);
+    for (uint32_t row = 0; row < gShmHeader->height; row++) {
+        memcpy(
+            destination + row * destinationRowBytes,
+            source + row * sourceRowBytes,
+            rowByteCount
+        );
+    }
+    CVPixelBufferUnlockBaseAddress(pb, 0);
+
+    uint64_t seqB = atomic_load_explicit(&gShmHeader->frameSeq, memory_order_acquire);
+    if (!force && seqA != seqB) {
+        CVPixelBufferRelease(pb);
+        return NULL;
+    }
+    gLastSeenSeq = seqA;
+    return pb;
+}
+
+- (CVPixelBufferRef)currentPixelBuffer CF_RETURNS_RETAINED {
+    CVPixelBufferRef pb = [self newPixelBufferFromSurfaceForceFresh:YES];
+    if (!pb) pb = [self newPixelBufferFromImage];
+    return pb;
+}
+
+- (NSData *)currentSnapshotJPEGAtQuality:(CGFloat)q {
+    CVPixelBufferRef pb = [self currentPixelBuffer];
+    if (!pb) return nil;
+    CIImage *ci = [CIImage imageWithCVPixelBuffer:pb];
+    if (SimCamShouldMirror(AVCaptureDevicePositionFront)) {
+        ci = [ci imageByApplyingOrientation:kCGImagePropertyOrientationUpMirrored];
+    }
+    static CIContext *ctx = nil; static dispatch_once_t once;
+    dispatch_once(&once, ^{ ctx = [CIContext contextWithOptions:nil]; });
+    CGImageRef cg = [ctx createCGImage:ci fromRect:ci.extent];
+    CVPixelBufferRelease(pb);
+    if (!cg) return nil;
+    UIImage *ui = [UIImage imageWithCGImage:cg];
+    NSData *data = UIImageJPEGRepresentation(ui, q);
+    CGImageRelease(cg);
+    return data;
+}
+
+- (CVPixelBufferRef)newPixelBufferFromImage CF_RETURNS_RETAINED {
+    if (!gSourceCGImage) return NULL;
+    CVPixelBufferRef pb = NULL;
+    NSDictionary *attrs = @{ (id)kCVPixelBufferIOSurfacePropertiesKey: @{} };
+    CVReturn r = CVPixelBufferCreate(kCFAllocatorDefault, kFrameWidth, kFrameHeight,
+        kCVPixelFormatType_32BGRA, (__bridge CFDictionaryRef)attrs, &pb);
+    if (r != kCVReturnSuccess || !pb) return NULL;
+    CVPixelBufferLockBaseAddress(pb, 0);
+    void *base = CVPixelBufferGetBaseAddress(pb);
+    size_t bpr = CVPixelBufferGetBytesPerRow(pb);
+    CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+    CGContextRef ctx = CGBitmapContextCreate(base, kFrameWidth, kFrameHeight, 8, bpr, cs,
+        kCGImageAlphaNoneSkipFirst | kCGBitmapByteOrder32Little);
+    CGContextSetFillColorWithColor(ctx, [UIColor blackColor].CGColor);
+    CGContextFillRect(ctx, CGRectMake(0, 0, kFrameWidth, kFrameHeight));
+    size_t iw = CGImageGetWidth(gSourceCGImage), ih = CGImageGetHeight(gSourceCGImage);
+    double sx = (double)kFrameWidth / iw, sy = (double)kFrameHeight / ih;
+    double s = MAX(sx, sy);
+    double dw = iw * s, dh = ih * s;
+    CGRect dst = CGRectMake((kFrameWidth - dw)/2.0, (kFrameHeight - dh)/2.0, dw, dh);
+    CGContextDrawImage(ctx, dst, gSourceCGImage);
+    CGContextRelease(ctx);
+    CGColorSpaceRelease(cs);
+    CVPixelBufferUnlockBaseAddress(pb, 0);
+    return pb;
+}
+
+- (CVPixelBufferRef)newPixelBufferNoSignal CF_RETURNS_RETAINED {
+    CVPixelBufferRef pb = NULL;
+    NSDictionary *attrs = @{ (id)kCVPixelBufferIOSurfacePropertiesKey: @{} };
+    CVReturn r = CVPixelBufferCreate(kCFAllocatorDefault, kFrameWidth, kFrameHeight,
+        kCVPixelFormatType_32BGRA, (__bridge CFDictionaryRef)attrs, &pb);
+    if (r != kCVReturnSuccess || !pb) return NULL;
+    CVPixelBufferLockBaseAddress(pb, 0);
+    uint8_t *base = (uint8_t *)CVPixelBufferGetBaseAddress(pb);
+    size_t bpr = CVPixelBufferGetBytesPerRow(pb);
+    for (size_t y = 0; y < kFrameHeight; y++) {
+        uint8_t *row = base + y * bpr;
+        for (size_t x = 0; x < kFrameWidth; x++) {
+            row[x * 4 + 0] = 0x18;
+            row[x * 4 + 1] = 0x18;
+            row[x * 4 + 2] = 0x18;
+            row[x * 4 + 3] = 0xFF;
+        }
+    }
+    CVPixelBufferUnlockBaseAddress(pb, 0);
+    return pb;
+}
+
+- (CMSampleBufferRef)newSampleBufferAtTime:(CMTime)pts CF_RETURNS_RETAINED {
+    CVPixelBufferRef pb = [self newPixelBufferFromSurface];
+    if (!pb) pb = [self newPixelBufferFromImage];
+    if (pb) {
+        SimCamCacheFrame(pb);
+    } else {
+        pb = SimCamAcquireCachedPB();
+    }
+    if (!pb) {
+        static dispatch_once_t logOnce;
+        dispatch_once(&logOnce, ^{
+            simcam_log(@"no-signal fallback: shm=%@ frameSeq=%llu cache=empty",
+                gShmHeader ? @"attached" : @"unattached",
+                (unsigned long long)(gShmHeader ? atomic_load_explicit(&gShmHeader->frameSeq, memory_order_acquire) : 0));
+        });
+        pb = [self newPixelBufferNoSignal];
+    }
+    if (!pb) return NULL;
+
+    CMVideoFormatDescriptionRef fd = NULL;
+    CMVideoFormatDescriptionCreateForImageBuffer(kCFAllocatorDefault, pb, &fd);
+    CMSampleTimingInfo timing = {
+        .duration = CMTimeMake(1, (int32_t)kFrameRate),
+        .presentationTimeStamp = pts,
+        .decodeTimeStamp = kCMTimeInvalid,
+    };
+    CMSampleBufferRef sb = NULL;
+    CMSampleBufferCreateForImageBuffer(kCFAllocatorDefault, pb, true, NULL, NULL, fd, &timing, &sb);
+    if (fd) CFRelease(fd);
+    CVPixelBufferRelease(pb);
+    return sb;
+}
+
+- (void)startPumpingIfNeeded {
+    [_lock lock];
+    if (_timer) { [_lock unlock]; return; }
+    _timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, _timerQueue);
+    uint64_t intervalNs = (uint64_t)(NSEC_PER_SEC / kFrameRate);
+    dispatch_source_set_timer(_timer, dispatch_time(DISPATCH_TIME_NOW, 0), intervalNs, intervalNs / 10);
+    __weak __typeof(self) weakSelf = self;
+    __block int64_t frameIdx = 0;
+    __block uint8_t lastMirrorByte = SIMCAM_MIRROR_UNSET;
+    dispatch_source_set_event_handler(_timer, ^{
+        __strong __typeof(weakSelf) self = weakSelf; if (!self) return;
+        if (gShmHeader) {
+            uint8_t m = gShmHeader->mirrorMode;
+            if (m != lastMirrorByte) {
+                lastMirrorByte = m;
+                if (m != SIMCAM_MIRROR_UNSET) {
+                    SimCamMirrorMode prev = SimCamGetMirrorMode();
+                    SimCamMirrorMode next = prev;
+                    if (m == SIMCAM_MIRROR_ON)       next = SimCamMirrorForceOn;
+                    else if (m == SIMCAM_MIRROR_OFF) next = SimCamMirrorForceOff;
+                    else                              next = SimCamMirrorAuto;
+                    if (prev != next) {
+                        SimCamSetMirrorMode(next);
+                        simcam_log(@"mirror mode → %d (from shm)", (int)next);
+                        [self reapplyMirrorToLayers];
+                    }
+                }
+            }
+        }
+        CMTime pts = CMTimeMake(frameIdx++, (int32_t)kFrameRate);
+        CMSampleBufferRef sb = [self newSampleBufferAtTime:pts];
+        if (!sb) return;
+        CVImageBufferRef pb = CMSampleBufferGetImageBuffer(sb);
+        if (gShmHeader || gLastFramePB) [self pushFrameToLayers:pb];
+        NSArray *snapshot;
+        [self->_lock lock]; snapshot = [self->_entries copy]; [self->_lock unlock];
+        BOOL anyDead = NO;
+        for (NSDictionary *e in snapshot) {
+            AVCaptureVideoDataOutput *out = e[@"out"];
+            SimCamWeakRef *ref = e[@"del"];
+            id<AVCaptureVideoDataOutputSampleBufferDelegate> del = ref.target;
+            dispatch_queue_t q = e[@"queue"];
+            if (!del) { anyDead = YES; continue; }
+            if (!out) continue;
+            CFRetain(sb);
+            __weak SimCamWeakRef *weakRef = ref;
+            dispatch_async(q, ^{
+                id<AVCaptureVideoDataOutputSampleBufferDelegate> d = weakRef.target;
+                if (d && [d respondsToSelector:@selector(captureOutput:didOutputSampleBuffer:fromConnection:)]) {
+                    AVCaptureConnection *conn = SimCamFakeConnectionForOutput(out);
+                    [d captureOutput:out didOutputSampleBuffer:sb fromConnection:conn];
+                }
+                CFRelease(sb);
+            });
+        }
+        if (anyDead) {
+            [self->_lock lock];
+            NSMutableIndexSet *idx = [NSMutableIndexSet new];
+            [self->_entries enumerateObjectsUsingBlock:^(NSDictionary *entry, NSUInteger i, BOOL *stop) {
+                SimCamWeakRef *r = entry[@"del"];
+                if (!r.target) [idx addIndex:i];
+            }];
+            if (idx.count) {
+                NSUInteger before = self->_entries.count;
+                [self->_entries removeObjectsAtIndexes:idx];
+                simcam_log(@"pump: pruned %lu dead delegate entr%@ (%lu→%lu)",
+                    (unsigned long)idx.count, idx.count == 1 ? @"y" : @"ies",
+                    (unsigned long)before, (unsigned long)self->_entries.count);
+            }
+            [self->_lock unlock];
+        }
+        CFRelease(sb);
+    });
+    dispatch_resume(_timer);
+    [_lock unlock];
+    simcam_log(@"started frame pump @ %.0f fps", kFrameRate);
+}
+
+- (void)stopPumping {
+    [_lock lock];
+    if (_timer) { dispatch_source_cancel(_timer); _timer = NULL; }
+    [_lock unlock];
+}
+@end
+
+#pragma mark - Source loaders
+
+BOOL SimCamFrameSourceIsShmAttached(void) {
+    return gShmHeader != NULL;
+}
+
+void SimCamFrameSourceLoadImage(void) {
+    const char *envPath = getenv("SIMCAM_IMAGE_PATH");
+    NSString *path = envPath ? [NSString stringWithUTF8String:envPath] : nil;
+    if (!path.length) {
+        simcam_log(@"SIMCAM_IMAGE_PATH not set — generating gradient placeholder");
+        UIGraphicsImageRenderer *r = [[UIGraphicsImageRenderer alloc]
+            initWithSize:CGSizeMake(kFrameWidth, kFrameHeight)];
+        gSourceImage = [r imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
+            CGContextRef c = ctx.CGContext;
+            CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+            CGFloat colors[] = {0.10,0.45,0.95,1.0,  0.95,0.20,0.55,1.0};
+            CGFloat locs[] = {0.0, 1.0};
+            CGGradientRef g = CGGradientCreateWithColorComponents(cs, colors, locs, 2);
+            CGContextDrawLinearGradient(c, g, CGPointZero,
+                CGPointMake(kFrameWidth, kFrameHeight), 0);
+            CGGradientRelease(g);
+            CGColorSpaceRelease(cs);
+            NSDictionary *attrs = @{
+                NSFontAttributeName: [UIFont boldSystemFontOfSize:96],
+                NSForegroundColorAttributeName: UIColor.whiteColor,
+            };
+            [@"serve-sim camera" drawAtPoint:CGPointMake(60, 60) withAttributes:attrs];
+        }];
+    } else {
+        gSourceImage = [UIImage imageWithContentsOfFile:path];
+        if (!gSourceImage) {
+            simcam_log(@"failed to load image at %@", path);
+            return;
+        }
+        simcam_log(@"loaded source image %@ (%.0fx%.0f)", path,
+                   gSourceImage.size.width, gSourceImage.size.height);
+    }
+    if (gSourceImage.CGImage) {
+        gSourceCGImage = CGImageRetain(gSourceImage.CGImage);
+    }
+}
+
+void SimCamFrameSourceOpenShmIfRequested(void) {
+    const char *shmName = getenv("SIMCAM_SHM_NAME");
+    if (!shmName || !*shmName) return;
+    int fd = shm_open(shmName, O_RDWR, 0);
+    if (fd < 0) {
+        simcam_log(@"shm_open(%s) failed: %s", shmName, strerror(errno));
+        return;
+    }
+    struct stat st;
+    if (fstat(fd, &st) < 0 || (size_t)st.st_size < (size_t)SimCamControlSize()) {
+        simcam_log(@"shm fstat failed or too small");
+        close(fd);
+        return;
+    }
+    size_t size = (size_t)st.st_size;
+    void *map = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    close(fd);
+    if (map == MAP_FAILED) {
+        simcam_log(@"shm mmap failed: %s", strerror(errno));
+        return;
+    }
+    SimCamShmHeader *hdr = (SimCamShmHeader *)map;
+    if (hdr->magic != SIMCAM_SHM_MAGIC) {
+        simcam_log(@"shm magic mismatch: 0x%x", hdr->magic);
+        munmap(map, size);
+        return;
+    }
+    SimCamAttachmentTable *attachments =
+        (SimCamAttachmentTable *)((uint8_t *)map + sizeof(SimCamShmHeader));
+    SimCamFrameTable *table = (SimCamFrameTable *)(
+        (uint8_t *)attachments + sizeof(SimCamAttachmentTable)
+    );
+    uint64_t expectedSize = SimCamSharedSize(hdr->bytesPerRow, hdr->height);
+    if (hdr->version != 4 || expectedSize > size) {
+        simcam_log(@"shm frame region invalid");
+        munmap(map, size);
+        return;
+    }
+    uint32_t count = table->frameCount;
+    if (count == 0 || count > SIMCAM_SURFACE_RING) {
+        simcam_log(@"shm surface table invalid (count=%u)", count);
+        munmap(map, size);
+        return;
+    }
+
+    gShmHeader = hdr;
+    gFrameTable = table;
+    gShmMap = map;
+    gShmMapSize = size;
+    uint32_t pid = (uint32_t)getpid();
+    uint64_t now = SimCamMonotonicNs();
+    const uint64_t staleAfterNs = 5000000000ull;
+    for (uint32_t i = 0; i < SIMCAM_ATTACHMENT_SLOTS; i++) {
+        SimCamAttachmentSlot *slot = &attachments->slots[i];
+        uint32_t current = atomic_load_explicit(&slot->pid, memory_order_acquire);
+        uint64_t heartbeat = atomic_load_explicit(
+            &slot->heartbeatNs,
+            memory_order_acquire
+        );
+        bool isStale = current != 0 && current != pid && heartbeat > 0
+            && now >= heartbeat && now - heartbeat > staleAfterNs;
+        if (isStale) {
+            uint32_t expectedStalePID = current;
+            if (atomic_compare_exchange_strong_explicit(
+                    &slot->pid,
+                    &expectedStalePID,
+                    UINT32_MAX,
+                    memory_order_acq_rel,
+                    memory_order_acquire
+                )) {
+                atomic_store_explicit(&slot->heartbeatNs, 0, memory_order_release);
+                atomic_store_explicit(&slot->pid, 0, memory_order_release);
+                current = 0;
+            }
+        }
+        uint32_t expected = 0;
+        if (atomic_compare_exchange_strong_explicit(
+                &slot->pid,
+                &expected,
+                pid,
+                memory_order_acq_rel,
+                memory_order_acquire
+            ) || expected == pid) {
+            gAttachmentSlot = slot;
+            atomic_store_explicit(
+                &gAttachmentSlot->heartbeatNs,
+                SimCamMonotonicNs(),
+                memory_order_release
+            );
+            break;
+        }
+    }
+    SimCamStartAttachmentHeartbeat();
+    kFrameWidth = hdr->width;
+    kFrameHeight = hdr->height;
+    simcam_log(@"private shm \"%s\" attached (%ux%u, %u frame slots)",
+               shmName, hdr->width, hdr->height, count);
+}

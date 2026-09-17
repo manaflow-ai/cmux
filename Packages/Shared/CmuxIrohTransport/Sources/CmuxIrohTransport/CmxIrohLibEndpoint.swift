@@ -112,7 +112,18 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
         for endpointAddress in try endpointAddresses(address) {
             do {
                 try Task.checkCancellation()
-                let connection = try await driver.connect(addr: endpointAddress, alpn: alpn)
+                // Dial through the fork's cancellable ConnectAttempt so Swift task
+                // cancellation crosses the FFI boundary: onCancel fires the attempt's
+                // CancellationToken and the Rust side fails the dial immediately.
+                // Cancel racing completion is benign: the fork's select! is biased
+                // toward cancellation, and a completed-but-cancelled connection is
+                // dropped (dropping the last handle closes it).
+                let attempt = try driver.beginConnect(addr: endpointAddress, alpn: alpn)
+                let connection = try await withTaskCancellationHandler(operation: {
+                    try await attempt.connect()
+                }, onCancel: {
+                    attempt.cancel()
+                })
                 let wrapped = try CmxIrohLibConnection(driver: connection)
                 guard await wrapped.remoteIdentity() == address.identity else {
                     await wrapped.close(errorCode: 1, reason: "identity_mismatch")

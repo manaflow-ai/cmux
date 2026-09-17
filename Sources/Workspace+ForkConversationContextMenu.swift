@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxCore
 import CmuxSettings
 import Foundation
 
@@ -19,11 +20,34 @@ extension Workspace {
             forPanelId: panelId
         )
         guard var snapshot = selection.snapshot,
-              var anchorTabId = surfaceIdFromPanelId(panelId),
-              var paneId = paneId(forPanelId: panelId) else {
+              var ownership = surfaceOwnershipTarget(for: panelId),
+              var anchorTabId = surfaceIdFromPanelId(ownership.containerPanelID),
+              var paneId = paneId(forPanelId: ownership.containerPanelID) else {
             return false
         }
-        let isRemoteContext = isRemoteTerminalSurface(panelId)
+        let isRemoteContext = isRemoteTerminalContext(ownership.surfaceID)
+        guard let authoritativeSnapshot = await authoritativeForkSnapshot(
+            selected: snapshot,
+            panelId: panelId,
+            isRemoteContext: isRemoteContext
+        ) else {
+            return false
+        }
+        snapshot = authoritativeSnapshot
+        guard let refreshedOwnership = surfaceOwnershipTarget(for: panelId),
+              let refreshedAnchorTabId = surfaceIdFromPanelId(
+                  refreshedOwnership.containerPanelID
+              ),
+              let refreshedPaneId = self.paneId(
+                  forPanelId: refreshedOwnership.containerPanelID
+              ),
+              isRemoteTerminalContext(refreshedOwnership.surfaceID)
+                  == isRemoteContext else {
+            return false
+        }
+        ownership = refreshedOwnership
+        anchorTabId = refreshedAnchorTabId
+        paneId = refreshedPaneId
         if AgentForkSupport.requiresForkValidationExecutableIdentity(
             snapshot: snapshot,
             isRemoteContext: isRemoteContext
@@ -40,7 +64,7 @@ extension Workspace {
                 workspaceId: id,
                 panelId: panelId,
                 isRemoteContext: isRemoteContext,
-                fallbackSnapshot: selection.validationFallbackSnapshot
+                fallbackSnapshot: snapshot
             ) else {
                 return false
             }
@@ -61,12 +85,20 @@ extension Workspace {
                     snapshot: refreshedSnapshot,
                     isRemoteContext: isRemoteContext
                   ) == selectedValidationIdentity,
-                  let refreshedAnchorTabId = surfaceIdFromPanelId(panelId),
-                  let refreshedPaneId = self.paneId(forPanelId: panelId) else {
+                  let refreshedOwnership = surfaceOwnershipTarget(for: panelId),
+                  isRemoteTerminalContext(refreshedOwnership.surfaceID)
+                    == isRemoteContext,
+                  let refreshedAnchorTabId = surfaceIdFromPanelId(
+                    refreshedOwnership.containerPanelID
+                  ),
+                  let refreshedPaneId = self.paneId(
+                    forPanelId: refreshedOwnership.containerPanelID
+                  ) else {
                 return false
             }
             selection = refreshedSelection
             snapshot = refreshedSnapshot
+            ownership = refreshedOwnership
             anchorTabId = refreshedAnchorTabId
             paneId = refreshedPaneId
             guard currentExecutableFingerprint == cachedExecutableFingerprint,
@@ -81,24 +113,34 @@ extension Workspace {
         }
 
         return forkAgentConversation(
-            fromPanelId: panelId,
+            mutationPanelId: ownership.containerPanelID,
             snapshot: snapshot,
             destination: destination,
             anchorTabId: anchorTabId,
-            paneId: paneId
+            paneId: paneId,
+            projectedPane: remoteTmuxControlPane(surfaceID: ownership.surfaceID)
         )
     }
 
     private func forkAgentConversation(
-        fromPanelId panelId: UUID,
+        mutationPanelId: UUID,
         snapshot: SessionRestorableAgentSnapshot,
         destination: AgentConversationForkDestination,
         anchorTabId: TabID,
-        paneId: PaneID
+        paneId: PaneID,
+        projectedPane: RemoteTmuxControlPaneLocation?
     ) -> Bool {
+        if let projectedPane {
+            return forkProjectedTmuxAgentConversation(
+                projectedPane,
+                snapshot: snapshot,
+                destination: destination
+            )
+        }
+
         if let direction = destination.splitDirection {
             return forkAgentConversation(
-                fromPanelId: panelId,
+                fromPanelId: mutationPanelId,
                 snapshot: snapshot,
                 direction: direction
             ) != nil
@@ -107,19 +149,133 @@ extension Workspace {
         switch destination {
         case .newTab:
             return forkAgentConversationToNewTab(
-                fromPanelId: panelId,
+                fromPanelId: mutationPanelId,
                 snapshot: snapshot,
                 anchorTabId: anchorTabId,
                 paneId: paneId
             ) != nil
         case .newWorkspace:
             return forkAgentConversationToNewWorkspace(
-                fromPanelId: panelId,
+                fromPanelId: mutationPanelId,
                 snapshot: snapshot
             )
         case .right, .left, .top, .bottom:
             return false
         }
+    }
+
+    func forkProjectedTmuxAgentConversation(
+        _ location: RemoteTmuxControlPaneLocation,
+        snapshot: SessionRestorableAgentSnapshot,
+        destination: AgentConversationForkDestination
+    ) -> Bool {
+        let workingDirectory = Self.normalizedForkWorkingDirectory(
+            snapshot.workingDirectory
+                ?? remoteTmuxSessionMirror?.cwdByPane[location.pane.tmuxPaneID]
+        )
+        let launchSnapshot = snapshot.retargetingForkWorkingDirectory(workingDirectory)
+        guard let shellCommand = launchSnapshot.forkCommand,
+              RemoteTmuxHost.controlModeLineSafeName(shellCommand) != nil else {
+            return false
+        }
+
+        if let direction = destination.splitDirection {
+            return location.requestAgentForkSplit(
+                vertical: direction.orientation == .vertical,
+                insertBefore: direction.insertFirst,
+                shellCommand: shellCommand,
+                workingDirectory: workingDirectory
+            )
+        }
+
+        switch destination {
+        case .newTab:
+            return location.requestAgentForkNewWindow(
+                shellCommand: shellCommand,
+                workingDirectory: workingDirectory
+            )
+        case .newWorkspace:
+            return forkProjectedTmuxAgentConversationToNewWorkspace(
+                snapshot: launchSnapshot
+            )
+        case .right, .left, .top, .bottom:
+            return false
+        }
+    }
+
+    private func forkProjectedTmuxAgentConversationToNewWorkspace(
+        snapshot: SessionRestorableAgentSnapshot
+    ) -> Bool {
+        guard let owningTabManager,
+              let host = remoteTmuxSessionMirror?.host,
+              let remoteConfiguration = SessionRemoteWorkspaceSnapshot(
+                transport: .ssh,
+                terminalTransport: .ssh,
+                terminalProfile: .shell,
+                destination: host.destination,
+                port: host.port,
+                identityFile: host.identityFile,
+                sshOptions: host.sshControlArguments(
+                    controlPersistSeconds: 180,
+                    batchMode: false
+                )
+              ).workspaceConfiguration(
+                localSocketPath: TerminalController.shared.currentSocketPathForRemoteRestore(),
+                allowPersistentPTYRestore: false,
+                preserveSSHOptions: true
+              ) else {
+            return false
+        }
+
+        // ssh-tmux mirrors intentionally have no reverse relay. The newly
+        // created SSH workspace may gain one in a future transport, but only
+        // emit the local selector when this configuration can actually reach
+        // the app's socket; otherwise the remote shell must run the provider
+        // command directly, as the split/new-tab mirror paths do.
+        let canReachLocalForkVerb = remoteConfiguration.relayPort != nil
+            && remoteConfiguration.localSocketPath != nil
+            && remoteConfiguration.relayToken?.isEmpty == false
+        guard let startupInput = snapshot.forkStartupInput(
+            useLocalForkVerb: canReachLocalForkVerb,
+            allowLauncherScript: false,
+            // Typed into the remote host's shell after attach: keep POSIX.
+            dialect: .remoteHost
+        ) else {
+            return false
+        }
+
+        guard let forkWorkspace = owningTabManager.addWorkspaceIfActive(
+            workingDirectory: nil,
+            initialTerminalCommand: remoteConfiguration.terminalStartupCommand,
+            initialTerminalInput: startupInput,
+            initialTerminalStartupRestoreAgent: canReachLocalForkVerb ? snapshot : nil,
+            initialTerminalEnvironment: remoteConfiguration.sshTerminalStartupEnvironment ?? [:],
+            inheritWorkingDirectory: false,
+            autoWelcomeIfNeeded: false
+        ) else {
+            return false
+        }
+        forkWorkspace.configureRemoteConnection(
+            remoteConfiguration,
+            autoConnect: true
+        )
+        if let workingDirectory = snapshot.workingDirectory,
+           let forkPanelID = forkWorkspace.focusedPanelId {
+            forkWorkspace.updatePanelDirectory(
+                panelId: forkPanelID,
+                directory: workingDirectory
+            )
+        }
+        return true
+    }
+
+    private static func normalizedForkWorkingDirectory(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty,
+              RemoteTmuxHost.controlModeLineSafeName(trimmed) != nil else {
+            return nil
+        }
+        return trimmed
     }
 
     private func forkAgentConversationToNewWorkspace(
@@ -134,14 +290,17 @@ extension Workspace {
             return false
         }
 
-        let forkWorkspace = owningTabManager.addWorkspace(
+        guard let forkWorkspace = owningTabManager.addWorkspaceIfActive(
             workingDirectory: launch.terminalWorkingDirectory,
             initialTerminalCommand: launch.initialTerminalCommand,
             initialTerminalInput: launch.initialTerminalInput,
+            initialTerminalStartupRestoreAgent: launch.startupRestoreAgent,
             initialTerminalEnvironment: launch.initialTerminalEnvironment,
             inheritWorkingDirectory: launch.terminalWorkingDirectory != nil,
             autoWelcomeIfNeeded: false
-        )
+        ) else {
+            return false
+        }
         if let remoteConfiguration = launch.remoteConfiguration {
             forkWorkspace.configureRemoteConnection(
                 remoteConfiguration,

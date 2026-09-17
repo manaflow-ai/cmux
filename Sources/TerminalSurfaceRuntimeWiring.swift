@@ -16,6 +16,10 @@ import struct CmuxSettings.AgentIntegrationSettingsStore
 extension GhosttyApp: TerminalEngineHosting {
     var runtimeApp: ghostty_app_t? { app }
     var runtimeConfig: ghostty_config_t? { config }
+    var terminalFontConfigurationRuntimePoints: Float32 {
+        terminalFontConfigurationSnapshot()
+            .configuredRuntimePoints
+    }
     // `userGhosttyShellIntegrationMode` already matches the seam requirement.
 }
 
@@ -24,11 +28,16 @@ extension GhosttyApp: TerminalEngineHosting {
 /// Creates the concrete `GhosttyNSView` + `GhosttySurfaceScrollView` pair the
 /// surface model historically constructed in its initializer.
 struct TerminalSurfaceViewFactory: TerminalSurfaceViewProviding {
+    let imageTransferPreparation: TerminalImageTransferPreparationService
+
     @MainActor
     func makeSurfaceViews(
         initialFrame: NSRect
     ) -> (surfaceView: any TerminalSurfaceNativeViewing, paneHost: any TerminalSurfacePaneHosting) {
-        let view = GhosttyNSView(frame: initialFrame)
+        let view = GhosttyNSView(
+            frame: initialFrame,
+            imageTransferPreparation: imageTransferPreparation
+        )
         return (view, GhosttySurfaceScrollView(surfaceView: view))
     }
 }
@@ -40,6 +49,9 @@ struct TerminalSurfaceViewFactory: TerminalSurfaceViewProviding {
 /// `SidebarWorkspaceDetailDefaults`, and `TerminalController`'s socket path).
 @MainActor
 final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProviding {
+    private let computerUseConfigStore = JSONConfigStore(fileURL: CmuxConfigLocation().userConfigFile)
+    private let computerUseEnabledKey = SettingCatalog().computerUse.enabled
+
     func currentSpawnPolicy() -> TerminalSurfaceSpawnPolicy {
         let integrations = AgentIntegrationSettingsStore(defaults: .standard)
         return TerminalSurfaceSpawnPolicy(
@@ -56,7 +68,11 @@ final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProvidin
             ampHooksEnabled: integrations.ampHooksEnabled,
             shellIntegrationEnabled: UserDefaults.standard.object(forKey: "sidebarShellIntegration") as? Bool ?? true,
             watchGitStatusEnabled: SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard),
-            showPullRequestsEnabled: SidebarWorkspaceDetailDefaults.showPullRequestsValue(defaults: .standard)
+            showPullRequestsEnabled: SidebarWorkspaceDetailDefaults.showPullRequestsValue(defaults: .standard),
+            // `DisableComputerUse` (MDM) wins over the user setting on every
+            // spawn, so a new agent launch never receives the tools.
+            computerUseEnabled: computerUseConfigStore.snapshotValue(for: computerUseEnabledKey)
+                && !ManagedDevicePolicy().isEnforced(.disableComputerUse)
         )
     }
 
@@ -121,19 +137,15 @@ extension RendererRealizationController: TerminalRendererRealizationScheduling {
 
 // MARK: Agent hibernation
 
-/// The legacy `recordAgentHibernationTerminalInput` free helper as an
-/// injected recorder: same gate, same timestamp capture, same main-actor hop.
+/// The app-owned safety tracker injected into the terminal input path.
+@MainActor
 final class TerminalAgentHibernationRecorder: AgentHibernationRecording {
     func recordTerminalInput(workspaceId: UUID, panelId: UUID) {
         guard AgentHibernationTrackingGate.isEnabled() else { return }
-        let recordedAt = Date()
-        Task { @MainActor in
-            AgentHibernationController.shared.recordTerminalInput(
-                workspaceId: workspaceId,
-                panelId: panelId,
-                recordedAt: recordedAt
-            )
-        }
+        AgentHibernationController.shared.recordTerminalInput(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
     }
 }
 
@@ -141,14 +153,20 @@ final class TerminalAgentHibernationRecorder: AgentHibernationRecording {
 
 extension TerminalSurfaceRuntimeFilesystem {
     static func live() -> TerminalSurfaceRuntimeFilesystem {
-        TerminalSurfaceRuntimeFilesystem(
-            claudeCommandShimTemporaryDirectory: FileManager.default.temporaryDirectory,
-            installClaudeCommandShim: {
-                TerminalSurface.installClaudeCommandShimIfPossible(
-                    wrapperURL: $0,
+        let hermesProfileAliasCatalog = HermesProfileAliasCatalog(
+            wrapperDirectoryURL: FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".local/bin", isDirectory: true)
+        )
+        return TerminalSurfaceRuntimeFilesystem(
+            agentCommandShimTemporaryDirectory: FileManager.default.temporaryDirectory,
+            installAgentCommandShims: {
+                let fileManager = FileManager.default
+                return await TerminalSurface.installAgentCommandShimsIfPossible(
+                    wrapperDirectoryURL: $0,
                     surfaceId: $1,
                     temporaryDirectory: $2,
-                    fileManager: .default
+                    hermesProfileAliasCatalog: hermesProfileAliasCatalog,
+                    fileManager: fileManager
                 )
             },
             isExecutableFile: { FileManager.default.isExecutableFile(atPath: $0) }
@@ -177,8 +195,9 @@ extension TerminalSurface {
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
-        manualIO: Bool = false,
-        manualInputHandler: (@Sendable (Data) -> Void)? = nil,
+        ioMode: TerminalSurfaceIOMode = .exec,
+        manualInputHandler: (@Sendable (TerminalManualInput) -> Void)? = nil,
+        manualInputKeyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
         preparePaneHost: @Sendable @MainActor (any TerminalSurfacePaneHosting) -> Void = { _ in }
     ) {
@@ -195,8 +214,9 @@ extension TerminalSurface {
             initialEnvironmentOverrides: initialEnvironmentOverrides,
             additionalEnvironment: additionalEnvironment,
             focusPlacement: focusPlacement,
-            manualIO: manualIO,
+            ioMode: ioMode,
             manualInputHandler: manualInputHandler,
+            manualInputKeyNameResolver: manualInputKeyNameResolver,
             runtimeSpawnPolicy: runtimeSpawnPolicy,
             preparePaneHost: preparePaneHost,
             dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies

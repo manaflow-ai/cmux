@@ -1,7 +1,7 @@
 import Foundation
 
 /// One revertible mutation in the accumulated design-mode edit set.
-public nonisolated struct BrowserDesignModeEdit: Codable, Equatable, Identifiable, Sendable {
+public struct BrowserDesignModeEdit: Codable, Equatable, Identifiable, Sendable {
     /// The stable edit identifier used for per-edit reverts.
     public let id: String
     /// Whether the edit changes CSS or text.

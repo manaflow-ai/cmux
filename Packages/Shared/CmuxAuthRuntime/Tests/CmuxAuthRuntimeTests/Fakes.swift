@@ -61,8 +61,26 @@ actor FakeAuthClient: AuthClient {
     func setThrowOnListTeams(_ error: (any Error)?) { throwOnListTeams = error }
     func setNonce(_ nonce: String) { self.nonce = nonce }
 
-    func accessToken() async -> String? { access }
+    /// Mirrors the live SDK store: a fresh stored access token is returned
+    /// as-is; a STALE one (``setStoredAccessTokenStale(_:)``) is refreshed from
+    /// the current refresh token — counted in ``mintedAccessTokenCount``,
+    /// recorded in ``lastMintedRefreshToken``, and PERSISTED into the store so
+    /// a repeat read reuses it instead of re-minting.
+    func accessToken() async -> String? {
+        if storedAccessIsStale, let refresh {
+            mintedAccessTokenCount += 1
+            lastMintedRefreshToken = refresh
+            access = mintedAccessToken ?? access
+            storedAccessIsStale = false
+        }
+        return access
+    }
     func refreshToken() async -> String? { refresh }
+
+    private var storedAccessIsStale = false
+    private(set) var mintedAccessTokenCount = 0
+
+    func setStoredAccessTokenStale(_ stale: Bool) { storedAccessIsStale = stale }
     func forceRefreshAccessToken() async -> String? {
         if case let .some(scripted) = forceRefreshResult {
             return scripted

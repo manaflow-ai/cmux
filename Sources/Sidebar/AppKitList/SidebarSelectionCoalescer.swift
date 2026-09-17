@@ -50,12 +50,27 @@ final class SidebarSelectionCoalescer<C: Clock> where C.Duration == Duration {
         }
     }
 
-    /// Drops any pending request. Used before selection paths that must not
-    /// be reordered (modifier clicks mutate the multi-selection set).
+    /// Drops any pending request. Used by gestures that consume the click
+    /// without selecting (double-click rename, drag sessions).
     func cancel() {
         trailingTask?.cancel()
         trailingTask = nil
         pendingApply = nil
+    }
+
+    /// Applies any pending request immediately, then clears it. Modifier
+    /// clicks extend the selection the user SEES — which includes a plain
+    /// click still inside the coalescing window — so the pending selection
+    /// must land before the modifier mutation. Dropping it made
+    /// "click A, cmd-click B" extend the pre-A selection while A's
+    /// optimistic highlight snapped away.
+    func flushNow() {
+        trailingTask?.cancel()
+        trailingTask = nil
+        let apply = pendingApply
+        pendingApply = nil
+        if apply != nil { lastApplied = clock.now }
+        apply?()
     }
 }
 

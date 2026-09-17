@@ -1,4 +1,5 @@
 use std::mem::size_of;
+use std::sync::Arc;
 
 use ghostty_vt::{
     ATTR_BLINK, ATTR_BOLD, ATTR_FAINT, ATTR_INVERSE, ATTR_INVISIBLE, ATTR_ITALIC,
@@ -76,6 +77,26 @@ fn render_frame_shares_damage_and_preserves_walk_rows_path() {
         .unwrap();
     assert!(!tui_dirty.is_empty());
     assert_eq!(tui_line, "B");
+}
+
+#[test]
+fn text_only_frames_share_the_immutable_kitty_scene() {
+    let mut term = Terminal::new(12, 3, 1000, Callbacks::default()).unwrap();
+    term.vt_write(b"\x1b_Ga=T,t=d,f=24,i=41,p=7,s=1,v=1,c=1,r=1,q=2;AAAA\x1b\\");
+    let mut state = RenderState::new().unwrap();
+
+    state.update(&mut term).unwrap();
+    let initial = state.build_frame().unwrap();
+    assert_eq!(initial.kitty_graphics.images.len(), 1);
+
+    term.vt_write(b"text");
+    state.update(&mut term).unwrap();
+    let text = state.build_frame().unwrap();
+
+    assert!(
+        Arc::ptr_eq(&initial.kitty_graphics, &text.kitty_graphics),
+        "text-only damage deep-copied the complete graphics scene"
+    );
 }
 
 #[test]

@@ -121,6 +121,60 @@ private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_00
         }
     }
 
+    @Test func backupUploadCanonicalizesUUIDMutationsAndPreservesOpaqueIDs() async throws {
+        let uppercaseUUID = "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE"
+        let lowercaseUUID = uppercaseUUID.lowercased()
+        let (inner, dir) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let backup = FakeBackup()
+        // The echoed destination lets the later delete flush instead of parking.
+        await backup.setEchoedResolvedTeamID("team-resolved")
+        let store = BackingUpPairedMacStore(inner: inner, backup: backup)
+
+        try await store.upsert(
+            macDeviceID: uppercaseUUID,
+            displayName: "Studio",
+            routes: [try route("10.0.0.1", 22)],
+            markActive: true,
+            stackUserID: "user-1",
+            now: Date(timeIntervalSince1970: 100)
+        )
+        try await store.remove(
+            macDeviceID: uppercaseUUID,
+            stackUserID: "user-1",
+            teamID: nil
+        )
+
+        let ops = await backup.uploadedOps()
+        #expect(ops.contains { op in
+            uploadedRecord(from: op)?.macDeviceID == lowercaseUUID
+        })
+        #expect(ops.contains { op in
+            if case .delete(let macDeviceID) = op {
+                return macDeviceID == lowercaseUUID
+            }
+            return false
+        })
+
+        let opaqueRecord = try backupRecord(
+            "Legacy-Mac-ID",
+            host: "10.0.0.2",
+            lastSeenMs: 200_000,
+            active: false
+        )
+        let body = PairedMacBackupRequestBody(ops: [
+            PairedMacBackupOpWire(op: .upsert(opaqueRecord)),
+            PairedMacBackupOpWire(op: .delete(macDeviceID: "Legacy-Mac-ID")),
+        ])
+        let object = try #require(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(body)) as? [String: Any]
+        )
+        let wireOps = try #require(object["ops"] as? [[String: Any]])
+        #expect(wireOps.map { $0["macDeviceID"] as? String } == [
+            "Legacy-Mac-ID", "Legacy-Mac-ID",
+        ])
+    }
+
     @Test func anonymousUpsertIsNotBackedUp() async throws {
         let (inner, dir) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -143,6 +197,9 @@ private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_00
         let (inner, dir) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: dir) }
         let backup = FakeBackup()
+        // The current worker echoes the verified team every upload was stored
+        // under; the delete then has a verified destination to flush to.
+        await backup.setEchoedResolvedTeamID("team-resolved")
         let store = BackingUpPairedMacStore(inner: inner, backup: backup)
 
         try await store.upsert(macDeviceID: "mac-a", displayName: nil, routes: [try route("10.0.0.1", 22)], markActive: true, stackUserID: "user-1", now: Date())
@@ -173,16 +230,18 @@ private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_00
     }
 
     @Test func failedDeleteUploadLeavesDurableLocalTombstone() async throws {
-        // If a Forget tombstone upload fails, the stale live server record must
+        // If a delete tombstone upload fails, the stale live server record must
         // not resurrect on the next restore. The local tombstone outbox is
         // durable and is passed into restore as an additional delete set until a
         // tombstone upload eventually succeeds.
         let suiteName = "paired-mac-pending-delete-\(UUID().uuidString)"
         let pending = UserDefaultsPairedMacPendingDeleteStore(suiteName: suiteName)
         let backup = FakeBackup(
-            records: [try backupRecord("mac-a", host: "10.0.0.1", lastSeenMs: 2_000_000, active: true)],
-            failNextUploads: 99
+            records: [try backupRecord("mac-a", host: "10.0.0.1", lastSeenMs: 2_000_000, active: true)]
         )
+        // The record's backup lives in the team the worker echoed at upload;
+        // its tombstone is durably keyed under THAT destination.
+        await backup.setEchoedResolvedTeamID("team-resolved")
         let (inner, dir) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: dir) }
         let firstStore = BackingUpPairedMacStore(
@@ -191,7 +250,7 @@ private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_00
             pendingDeleteStore: pending
         )
 
-        try await inner.upsert(
+        try await firstStore.upsert(
             macDeviceID: "mac-a",
             displayName: "Mini",
             routes: [try route("10.0.0.1", 22)],
@@ -199,14 +258,19 @@ private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_00
             stackUserID: "user-1",
             now: Date()
         )
+        await backup.setFailNextUploads(99)
         try await firstStore.remove(macDeviceID: "mac-a", stackUserID: "user-1", teamID: nil)
         #expect(try await inner.loadAll(stackUserID: "user-1").isEmpty)
 
+        // Relaunch proxy. Reads run under the tombstone's DESTINATION scope
+        // (the user working in that team), which both suppresses the restore
+        // and retries the flush.
         let (freshInner, freshDir) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: freshDir) }
         let secondStore = BackingUpPairedMacStore(
             inner: freshInner,
             backup: backup,
+            teamIDProvider: { "team-resolved" },
             pendingDeleteStore: pending
         )
         let restored = try await secondStore.loadAll(stackUserID: "user-1")
@@ -265,16 +329,22 @@ private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_00
 
     @Test func durablePendingDeleteCompletesLocalDeleteBeforeRestore() async throws {
         // Simulates a crash after the delete intent was persisted but before the
-        // local row was removed. The next read must finish the local delete before
-        // flushing the server tombstone, so the stale server live record cannot
-        // restore the Mac.
+        // local row was removed — with a LEGACY-format record under the nil-team
+        // scope (a pre-destination-outbox build wrote it). The next read must
+        // finish the local delete before restoring, so the stale server live
+        // record cannot resurrect the Mac. The tombstone itself must NOT go out
+        // with a guessed nil team (the server would resolve the destination from
+        // CURRENT account state, which can differ from where the record was
+        // stored); it stays parked until the restore's echo recovers the
+        // verified destination, then flushes there.
         let suiteName = "paired-mac-crash-delete-intent-\(UUID().uuidString)"
         let pending = UserDefaultsPairedMacPendingDeleteStore(suiteName: suiteName)
         await pending.save(["mac-a"], scope: "user-1\u{0}")
         let backup = FakeBackup(
-            records: [try backupRecord("mac-a", host: "10.0.0.1", lastSeenMs: 2_000_000, active: true)],
-            failNextUploads: 99
+            records: [try backupRecord("mac-a", host: "10.0.0.1", lastSeenMs: 2_000_000, active: true)]
         )
+        // The restore's echo reports where the collection actually lives.
+        await backup.setEchoedResolvedTeamID("team-x")
         let (inner, dir) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: dir) }
         try await inner.upsert(
@@ -295,10 +365,24 @@ private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_00
 
         #expect(restored.isEmpty)
         #expect(try await inner.loadAll(stackUserID: "user-1").isEmpty)
-        #expect(await backup.uploadedOps().contains {
-            if case .delete(let id) = $0 { return id == "mac-a" }
-            return false
-        })
+        // The first read could not have flushed (no verified destination yet)
+        // and must NOT have guessed a nil team.
+        #expect(!(await backup.uploadTeams()).contains(nil))
+        // The restore's echo recovered the mapping; the next read migrates the
+        // parked intent to its destination and flushes it there.
+        _ = try await store.loadAll(stackUserID: "user-1")
+        let batches = await backup.uploadBatches()
+        let teams = await backup.uploadTeams()
+        let deleteBatchIndex = batches.lastIndex { batch in
+            batch.contains {
+                if case .delete(let id) = $0 { return id == "mac-a" }
+                return false
+            }
+        }
+        #expect(deleteBatchIndex != nil)
+        if let deleteBatchIndex {
+            #expect(teams[deleteBatchIndex] == "team-x")
+        }
         await pending.removeAll()
     }
 
@@ -386,7 +470,7 @@ private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_00
         #expect(try await inner.activeMac(stackUserID: "user-1")?.macDeviceID == "mac-a")
     }
 
-    @Test func restoreAppliesDeleteTombstonesBeforeLiveRecords() async throws {
+    @Test func restoreIgnoresLegacyServerTombstonesAndRestoresLiveRecords() async throws {
         let (inner, dir) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: dir) }
         try await inner.upsert(
@@ -397,13 +481,24 @@ private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_00
             stackUserID: "user-1",
             now: Date(timeIntervalSince1970: 1_000)
         )
-        let backup = FakeBackup(records: [], deletedMacDeviceIDs: ["mac-a"])
+        let backup = FakeBackup(
+            records: [
+                try backupRecord(
+                    "mac-b",
+                    host: "10.0.0.2",
+                    lastSeenMs: 2_000_000,
+                    active: false
+                ),
+            ],
+            deletedMacDeviceIDs: ["mac-a", "mac-b"]
+        )
 
         let outcome = await PairedMacRestore(store: inner, backup: backup).run(accountID: "user-1")
 
         #expect(outcome.completed)
-        #expect(outcome.restored == 0)
-        #expect(try await inner.loadAll(stackUserID: "user-1").isEmpty)
+        #expect(outcome.restored == 1)
+        #expect(Set(try await inner.loadAll(stackUserID: "user-1").map(\.macDeviceID))
+            == ["mac-a", "mac-b"])
     }
 
     @Test func cancelledRestoreDoesNotWriteAfterWipe() async throws {
@@ -454,8 +549,8 @@ private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_00
     }
 
     @Test func removeDrainsRestoreSuspendedInsideUpsertBeforeDeletingExistingMac() async throws {
-        // Regression: forgetting a Mac while a refresh is suspended inside upsert
-        // must leave the Mac forgotten. The delete is authoritative, so `remove`
+        // Regression: deleting a Mac while a refresh is suspended inside upsert
+        // must leave the Mac deleted. The delete is authoritative, so `remove`
         // drains the in-flight restore before issuing the final local delete.
         let (real, dir) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -477,9 +572,9 @@ private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_00
 
         let refresh = Task { await backing.refreshFromBackup(stackUserID: "user-1") }
         await gated.waitUntilUpsertEntered()
-        let forget = Task { try await backing.remove(macDeviceID: "mac-a", stackUserID: "user-1", teamID: nil) }
+        let delete = Task { try await backing.remove(macDeviceID: "mac-a", stackUserID: "user-1", teamID: nil) }
         await gated.release()
-        try await forget.value
+        try await delete.value
         _ = await refresh.value
 
         #expect(try await real.loadAll(stackUserID: "user-1").isEmpty)
@@ -684,7 +779,7 @@ private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_00
     }
 
 
-    @Test func routineMirrorUploadsUsePreserveModeEvenForTombstoneRevive() async throws {
+    @Test func upsertAlwaysAllowsLegacyTombstoneRevival() async throws {
         let (inner, dir) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: dir) }
         let backup = FakeBackup()
@@ -694,14 +789,14 @@ private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_00
             macDeviceID: "mac-a",
             displayName: "Mini",
             routes: [try route("10.0.0.1", 22)],
-            markActive: true,
+            markActive: false,
             stackUserID: "user-1",
             now: Date(timeIntervalSince1970: 1_000)
         )
 
         let first = try #require(await backup.uploadedOps().first)
         guard case .revivePreservingCustomizations = first else {
-            Issue.record("routine mirror should preserve server customizations")
+            Issue.record("upsert should revive legacy server tombstones")
             return
         }
         let keys = try encodedRecordObject(from: first)
@@ -843,6 +938,80 @@ private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_00
         #expect(try await inner.loadAll(stackUserID: "user-1").map(\.macDeviceID) == ["mac-x"])
     }
 
+    @Test func backupRestoreCollapsesUUIDAliasesUnderFreshRouteAuthority() async throws {
+        let uppercaseUUID = "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE"
+        let lowercaseUUID = uppercaseUUID.lowercased()
+        var fresh = PairedMacBackupRecord(
+            macDeviceID: lowercaseUUID,
+            displayName: "Fresh Studio",
+            routes: [try CmxAttachRoute(
+                id: "fresh",
+                kind: .tailscale,
+                endpoint: .hostPort(host: "10.0.0.1", port: 50_902)
+            )],
+            createdAt: 1_000,
+            lastSeenAt: 20_000,
+            isActive: false,
+            customName: "Fresh Name"
+        )
+        var stale = PairedMacBackupRecord(
+            macDeviceID: uppercaseUUID,
+            displayName: "Stale Studio",
+            routes: [try CmxAttachRoute(
+                id: "stale",
+                kind: .tailscale,
+                endpoint: .hostPort(host: "10.0.0.1", port: 50_901)
+            )],
+            createdAt: 500,
+            lastSeenAt: 10_000,
+            isActive: true,
+            customName: "Stale Name"
+        )
+        // Model legacy server rows decoded before this boundary existed.
+        fresh.macDeviceID = lowercaseUUID
+        stale.macDeviceID = uppercaseUUID
+
+        let (inner, dir) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let outcome = await PairedMacRestore(
+            store: inner,
+            backup: FakeBackup(records: [fresh, stale])
+        ).run(accountID: "user-1")
+
+        let rows = try await inner.loadAll(stackUserID: "user-1")
+        let restored = try #require(rows.first)
+        #expect(outcome.restored == 1)
+        #expect(rows.count == 1)
+        #expect(restored.macDeviceID == lowercaseUUID)
+        #expect(restored.displayName == "Fresh Studio")
+        #expect(restored.customName == "Fresh Name")
+        #expect(restored.routes.map(\.id) == ["fresh"])
+        #expect(!restored.isActive)
+    }
+
+    @Test func legacyUppercaseBackupTombstoneDoesNotDeleteCanonicalUUIDRow() async throws {
+        let uppercaseUUID = "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE"
+        let lowercaseUUID = uppercaseUUID.lowercased()
+        let (inner, dir) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try await inner.upsert(
+            macDeviceID: lowercaseUUID,
+            displayName: "Studio",
+            routes: [try route("10.0.0.1", 22)],
+            markActive: true,
+            stackUserID: "user-1",
+            now: Date(timeIntervalSince1970: 100)
+        )
+
+        _ = await PairedMacRestore(
+            store: inner,
+            backup: FakeBackup(deletedMacDeviceIDs: [uppercaseUUID])
+        ).run(accountID: "user-1")
+
+        #expect(try await inner.loadAll(stackUserID: "user-1").map(\.macDeviceID)
+            == [lowercaseUUID])
+    }
+
     @Test func failedFetchRetriesOnNextRead() async throws {
         let (inner, dir) = try makeInnerStore()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -855,6 +1024,28 @@ private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_00
         let secondRead = try await store.loadAll(stackUserID: "user-1")
         #expect(secondRead.map(\.macDeviceID) == ["mac-a"]) // retried and restored
         #expect(await backup.fetches() == 2) // not memoized after the failure
+    }
+
+    @Test func incompleteMigrationRestoresCurrentRecordsAndRetries() async throws {
+        let (inner, dir) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let backup = FakeBackup(
+            records: [try backupRecord(
+                "mac-a",
+                host: "10.0.0.1",
+                lastSeenMs: 2_000_000,
+                active: true
+            )],
+            requiresMigrationRetry: true
+        )
+        let store = BackingUpPairedMacStore(inner: inner, backup: backup)
+
+        let firstRead = try await store.loadAll(stackUserID: "user-1")
+        let secondRead = try await store.loadAll(stackUserID: "user-1")
+
+        #expect(firstRead.map(\.macDeviceID) == ["mac-a"])
+        #expect(secondRead.map(\.macDeviceID) == ["mac-a"])
+        #expect(await backup.fetches() == 2)
     }
 
     @Test func signOutThenSameAccountSignInReRestores() async throws {

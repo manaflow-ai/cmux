@@ -44,6 +44,19 @@ def send_line(sock: socket.socket, payload: dict) -> None:
     sock.sendall((json.dumps(payload) + "\n").encode())
 
 
+def send_browser_attach_handshake(sock: socket.socket, surface: int) -> None:
+    send_line(
+        sock,
+        {
+            "id": 0,
+            "cmd": "set-client-info",
+            "kind": "measure-frames",
+            "capabilities": ["browser-pointer-frame-guard-v1"],
+        },
+    )
+    send_line(sock, {"id": 1, "cmd": "attach-surface", "surface": surface})
+
+
 def percentile(values: list[float], pct: float) -> float:
     if not values:
         return 0.0
@@ -57,6 +70,28 @@ def frame_size(data: str) -> int:
         return len(base64.b64decode(data, validate=False))
     except Exception:
         return len(data)
+
+
+def pointer_frame_seq_from_event(value: dict) -> int | None:
+    if value.get("status") != "live":
+        return None
+    pointer_frame_seq = value.get("pointer_frame_seq")
+    if type(pointer_frame_seq) is not int or pointer_frame_seq < 0:
+        return None
+    return pointer_frame_seq
+
+
+def recovery_poke(surface: int, pointer_frame_seq: int | None) -> dict:
+    if pointer_frame_seq is None:
+        return {"cmd": "browser-activate", "surface": surface}
+    return {
+        "cmd": "browser-wheel-guarded",
+        "surface": surface,
+        "x_px": 10,
+        "y_px": 10,
+        "delta_y_px": 120,
+        "frame_seq": pointer_frame_seq,
+    }
 
 
 class LineReader:
@@ -112,10 +147,11 @@ def main() -> int:
         attach.connect(args.socket)
         attach.settimeout(0.5)
         reader = LineReader(attach)
-        send_line(attach, {"id": 1, "cmd": "attach-surface", "surface": surface})
+        send_browser_attach_handshake(attach, surface)
         got_state = False
         got_response = False
         initial_seq = None
+        pointer_frame_seq = None
         deadline = time.monotonic() + 10.0
         while time.monotonic() < deadline and not (got_state and got_response):
             line = reader.readline()
@@ -130,11 +166,13 @@ def main() -> int:
                 got_response = True
             elif value.get("event") == "browser-state":
                 got_state = True
+                pointer_frame_seq = pointer_frame_seq_from_event(value)
                 frame = value.get("frame")
                 if frame:
                     initial_seq = frame.get("seq")
             elif value.get("event") == "frame":
                 initial_seq = value.get("seq")
+                pointer_frame_seq = pointer_frame_seq_from_event(value)
         if not got_state:
             raise RuntimeError("attach did not return browser-state")
         if not got_response:
@@ -147,6 +185,7 @@ def main() -> int:
         last_frame_time = None
         gaps: list[float] = []
         last_seq = initial_seq
+        activation_sent_at = None
         wheel_sent_at = None
         wheel_after_seq = initial_seq
         wheel_latency = None
@@ -156,33 +195,35 @@ def main() -> int:
             now = time.monotonic()
             # Poke repeatedly until frames flow: the first interaction is what
             # un-throttles a hidden external-Chrome tab via the stall nudge.
-            need_poke = wheel_sent_at is None or (not frame_times and now - wheel_sent_at >= 2.0)
+            last_poke_at = activation_sent_at if pointer_frame_seq is None else wheel_sent_at
+            need_poke = last_poke_at is None or (
+                not frame_times and now - last_poke_at >= 2.0
+            )
             if need_poke and now - start >= min(args.seconds / 2.0, 2.0):
                 try:
-                    rpc.request(
-                        {
-                            "cmd": "browser-wheel",
-                            "surface": surface,
-                            "x_px": 10,
-                            "y_px": 10,
-                            "delta_y_px": 120,
-                        }
-                    )
+                    rpc.request(recovery_poke(surface, pointer_frame_seq))
                 except RuntimeError:
                     pass  # still starting; retry on the next poke cycle
-                wheel_sent_at = time.monotonic()
-                wheel_after_seq = last_seq
+                if pointer_frame_seq is None:
+                    activation_sent_at = time.monotonic()
+                else:
+                    wheel_sent_at = time.monotonic()
+                    wheel_after_seq = last_seq
             line = reader.readline()
             if line is None:
                 continue
             if not line:
                 break
             value = json.loads(line)
+            if value.get("event") == "browser-state":
+                pointer_frame_seq = pointer_frame_seq_from_event(value)
+                continue
             if value.get("event") != "frame":
                 continue
             received = time.monotonic()
             seq = value.get("seq")
             last_seq = seq
+            pointer_frame_seq = pointer_frame_seq_from_event(value)
             frame_times.append(received)
             sizes.append(frame_size(value.get("data", "")))
             dims = (value.get("width"), value.get("height"))

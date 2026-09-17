@@ -3,13 +3,14 @@ import Bonsplit
 import CMUXAgentLaunch
 import CmuxTerminal
 import CmuxTerminalCore
+import CmuxWorkspaces
 import Darwin
 
 /// Cross-container surface transfer for the Dock.
 ///
 /// Mirrors `Workspace.detachSurface`/`attachDetachedSurface` so a *live* panel
-/// (a running terminal or browser, not a copy) can move between the main split
-/// area and a Dock, or between Docks, reusing the same `DetachedSurfaceTransfer`
+/// (rather than a copy) can move between the main split area and a Dock, or
+/// between Docks, reusing the same `DetachedSurfaceTransfer`
 /// currency the workspace-to-workspace move already uses. The Dock keeps its
 /// own panel registry (`panels`/`surfaceIdToPanelId`), so these methods manage
 /// that registry directly rather than going through the workspace pane tree.
@@ -70,8 +71,51 @@ extension DockSplitStore {
     func detachSurface(panelId: UUID) -> Workspace.DetachedSurfaceTransfer? {
         guard contentPolicy == .flexible else { return nil }
         guard let tabId = surfaceId(forPanelId: panelId), let panel = panels[panelId] else { return nil }
-        let preservedTransfer = detachedSurfaceTransfersByPanelId.removeValue(forKey: panelId)
-        let kind = panel.panelType.rawValue
+        flushPendingTerminalTitleUpdates()
+        let tab = bonsplitController.tab(tabId)
+        if let terminalPanel = panel as? TerminalPanel {
+            terminalFontSizeChangeCoordinator?
+                .terminalWillLeaveDock(
+                    terminalPanel,
+                    dock: self
+                )
+        }
+        let surfaceMachine = machineOwningSurface(panelId)
+        let preservedTransfer = removeDetachedSurfaceTransfer(forPanelID: panelId)
+        let deferredAgentResumeRestore = deferredAgentResumeRestoresByPanelId[panelId]
+            ?? preservedTransfer?.deferredAgentResumeRestore
+        let notificationStore = resolvedNotificationStore()
+        let wasManuallyUnread = scope == .global
+            ? notificationStore?.hasManualUnread(
+                forTabId: workspaceId,
+                surfaceId: panelId
+            ) == true
+            : manualUnreadPanelIds.contains(panelId)
+        let restoredAgentObservation = SharedLiveAgentIndex.shared.index?.entry(
+            workspaceId: preservedTransfer?.sessionRestoreWorkspaceId ?? workspaceId,
+            panelId: panelId
+        )
+        let coordinatedRestorableAgent = restoredAgentLifecycle.continuationSnapshot(
+            panelId: panelId,
+            observation: restoredAgentObservation,
+            currentProcessIdentity: Workspace.agentPIDProcessIdentity(pid:)
+        )
+        let preservedResumeState = restoredAgentLifecycle.resumeStatesByPanelId[panelId]
+            ?? preservedTransfer?.restorableAgentResumeState
+        let preservedCompletedGeneration = restoredAgentLifecycle.completedGeneration(panelId: panelId)
+            ?? preservedTransfer?.restoredAgentCompletedGeneration
+        let preservesCompletedAgentExit = preservedResumeState == .completedAgentExit
+        let preservedCompletedTombstone = preservesCompletedAgentExit
+            ? preservedCompletedGeneration
+            : nil
+        let preservedRestorableAgent = coordinatedRestorableAgent
+            ?? (preservesCompletedAgentExit ? nil : preservedTransfer?.restorableAgent)
+        let managedResumeBinding = managedAgentResumeBinding(panelId: panelId)
+        let preservedResumeBinding = surfaceResumeBindingsByPanelId[panelId]
+        let preservedResumeSessionDirectory = restoredResumeSessionWorkingDirectoriesByPanelId[panelId]
+            ?? preservedTransfer?.restoredResumeSessionWorkingDirectory
+        let kind = bonsplitController.tab(tabId)?.kind
+            ?? Self.surfaceKind(for: panel)
         let icon = panel.displayIcon
         let browser = panel as? BrowserPanel
         let iconImageData = browser?.faviconPNGData
@@ -83,9 +127,9 @@ extension DockSplitStore {
         // foreground process is the local relay, not the remote shell.
         let liveTerminalDirectory: String?
         if preservedTransfer?.isRemoteTerminal != true,
-           let terminal = panel as? TerminalPanel,
-           let pid = terminal.surface.foregroundProcessID() {
-            liveTerminalDirectory = Workspace.processCurrentWorkingDirectory(pid: Int32(clamping: pid))
+           let terminal = panel as? TerminalPanel {
+            liveTerminalDirectory = terminalWorkingDirectoryResolver
+                .liveForegroundProcessWorkingDirectory(for: terminal)
         } else {
             liveTerminalDirectory = nil
         }
@@ -100,8 +144,7 @@ extension DockSplitStore {
         }
         let detachedDirectoryWasReadFromLiveForegroundProcess =
             liveTerminalDirectory != nil && detachedDirectory == liveTerminalDirectory
-        // Agent resume metadata can likewise go stale while docked (the Dock
-        // receives no shell-activity or agent lifecycle updates), so re-emit
+        // Agent resume metadata can likewise go stale while docked, so re-emit
         // it only while the agent is not proven dead: recorded agent pids
         // exist and none is still running. Where the transfer recorded a
         // process start-time identity, compare it so a reused pid does not
@@ -112,7 +155,7 @@ extension DockSplitStore {
         // preserved — a restored-but-unscanned agent has no pids yet, and
         // dropping it would reintroduce the Dock round-trip metadata loss
         // #7155 fixes.
-        let cachedRuntime = preservedTransfer?.agentRuntime
+        let cachedRuntime = agentRuntimeByPanelId[panelId] ?? preservedTransfer?.agentRuntime
         let cachedAgentPIDs = (cachedRuntime?.agentPIDs ?? [:]).filter { $0.value > 0 }
         let agentProvenExited = !cachedAgentPIDs.isEmpty && cachedAgentPIDs.allSatisfy { key, pid in
             if let recordedIdentity = cachedRuntime?.agentPIDProcessIdentities[key] {
@@ -120,33 +163,97 @@ extension DockSplitStore {
             }
             return Self.dockAgentPIDHasExited(pid)
         }
+        let cachedManagedBinding = preservedTransfer?.resolvedManagedAgentResumeBinding
+        let bindingSessionWasInvalidated =
+            invalidatedCachedTransferAgentSessionPanelIds.contains(panelId)
+        let bindingSessionWasReplacedByAnother: Bool = {
+            if replacedCachedTransferAgentSessionPanelIds.contains(panelId) {
+                return true
+            }
+            if let cachedManagedBinding {
+                guard let managedResumeBinding else {
+                    return false
+                }
+                return !cachedManagedBinding.isSameManagedSession(as: managedResumeBinding)
+            }
+            guard let managedResumeBinding else {
+                return false
+            }
+            if let originalAgent = preservedRestorableAgent {
+                return Workspace.restorableAgentForSessionRestore(
+                    originalAgent,
+                    resumeBinding: managedResumeBinding
+                ) == nil
+            }
+            return preservedTransfer?.restorableAgentResumeState != nil
+                || preservedTransfer?.restoredResumeSessionWorkingDirectory != nil
+        }()
+        let bindingSessionWasReplaced =
+            bindingSessionWasInvalidated || bindingSessionWasReplacedByAnother
+        let bindingScopedSessionDirectory = bindingSessionWasReplaced
+            ? nil
+            : preservedResumeSessionDirectory
         let restoredResumeSessionWorkingDirectory = Self.dockRestoredResumeSessionWorkingDirectory(
-            preservedSessionDirectory: preservedTransfer?.restoredResumeSessionWorkingDirectory,
+            preservedSessionDirectory: bindingScopedSessionDirectory,
             detachedDirectory: detachedDirectory,
             detachedDirectoryWasReadFromLiveForegroundProcess: detachedDirectoryWasReadFromLiveForegroundProcess,
             agentProvenExited: agentProvenExited
         )
         let resumeBinding = Self.dockResumeBinding(
-            preservedBinding: preservedTransfer?.resumeBinding,
-            preservedSessionDirectory: preservedTransfer?.restoredResumeSessionWorkingDirectory,
+            preservedBinding: preservedResumeBinding,
+            preservedSessionDirectory: bindingScopedSessionDirectory,
             restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
             detachedDirectoryWasReadFromLiveForegroundProcess: detachedDirectoryWasReadFromLiveForegroundProcess,
             agentProvenExited: agentProvenExited
         )
-        let trimmedCustomTitle = preservedTransfer?.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let transferTitle = trimmedCustomTitle?.isEmpty == false
-            ? preservedTransfer?.customTitle
-            : panel.displayTitle
+        let agentCompatibilityBinding = managedResumeBinding ?? resumeBinding
+        let transferredRestorableAgent = agentProvenExited || bindingSessionWasReplaced
+            ? nil
+            : Workspace.restorableAgentForSessionRestore(
+                preservedRestorableAgent,
+                resumeBinding: agentCompatibilityBinding
+            )
+        let rejectedPreservedRestorableAgent =
+            preservedRestorableAgent != nil && transferredRestorableAgent == nil
+        let preservesRestorableAgentState =
+            !agentProvenExited
+                && !bindingSessionWasReplaced
+                && !rejectedPreservedRestorableAgent
+        let transferredResumeState: Workspace.RestoredAgentResumeState?
+        let transferredCompletedGeneration: RestoredAgentCompletedGeneration?
+        if let preservedCompletedTombstone, !bindingSessionWasReplacedByAnother {
+            transferredResumeState = .completedAgentExit
+            transferredCompletedGeneration = preservedCompletedTombstone
+        } else if preservesRestorableAgentState {
+            transferredResumeState = preservedResumeState
+            transferredCompletedGeneration = nil
+        } else {
+            transferredResumeState = nil
+            transferredCompletedGeneration = nil
+        }
+        let titleMetadata = resolvedDockTitleMetadata(
+            panel: panel,
+            transfer: preservedTransfer,
+            tab: tab
+        )
         let panelShellActivityState = (panel as? TerminalPanel)?.shellActivity.state
         let transferredShellActivityState = panelShellActivityState == .unknown
             ? preservedTransfer?.shellActivityState
             : panelShellActivityState
+        let transferredRestoredPanelTitleBoundary =
+            preservedTransfer?.restoredPanelTitleBoundary
+                ?? restoredPanelTitleBoundariesByPanelId[panelId]
 
         // Drop our ownership first: once the tab close fires `reconcilePanels`,
         // a still-tracked panel would be `panel.close()`d (killing the process).
+        if panel is BrowserPanel {
+            removeBrowserOpenTabSuggestion(panelId: panelId)
+        }
+        appLinkHandoffCoordinator.cancel(sourcePanelID: panelId)
         panelCancellables[panelId]?.cancel()
         panelCancellables.removeValue(forKey: panelId)
-        surfaceIdToPanelId.removeValue(forKey: tabId)
+        (panel as? FilePreviewPanel)?.unbindTabMetadata()
+        removeSurfaceMapping(forSurfaceId: tabId)
         panels.removeValue(forKey: panelId)
 
         forceCloseDockTabIds.insert(tabId)
@@ -154,24 +261,40 @@ extension DockSplitStore {
         guard bonsplitController.closeTab(tabId) else {
             // Close rejected: re-take ownership so the Dock stays consistent.
             panels[panelId] = panel
-            surfaceIdToPanelId[tabId] = panelId
+            bindSurface(tabId, toPanelId: panelId)
             if let preservedTransfer {
-                detachedSurfaceTransfersByPanelId[panelId] = preservedTransfer
+                setDetachedSurfaceTransfer(
+                    preservedTransfer,
+                    forPanelID: panelId
+                )
             }
-            installSubscription(for: panel, tracksTerminalTitle: true)
+            installSubscription(for: panel)
             return nil
         }
+        if let terminalPanel = panel as? TerminalPanel {
+            terminalFontSizeChangeCoordinator?
+                .terminalDidLeaveDock(
+                    terminalPanel,
+                    dock: self,
+                    preservingTransfer: true
+                )
+        }
 
-        return Workspace.DetachedSurfaceTransfer(
+        let detached = Workspace.DetachedSurfaceTransfer(
             sourceWorkspaceId: workspaceId,
+            sessionRestoreSourceWorkspaceId: preservedTransfer?.sessionRestoreWorkspaceId,
             panelId: panelId,
             panel: panel,
-            title: transferTitle ?? panel.displayTitle,
+            surfaceMachine: surfaceMachine,
+            origin: .dock(workspaceId),
+            title: titleMetadata.title,
             icon: icon,
             iconImageData: iconImageData,
             kind: kind,
             isLoading: isLoading,
-            isPinned: false,
+            isPinned: tab?.isPinned
+                ?? preservedTransfer?.isPinned
+                ?? false,
             directory: detachedDirectory,
             directoryIsTrustedRemoteReport: detachedDirectory != nil &&
                 detachedDirectory == preservedTransfer?.directory &&
@@ -180,25 +303,68 @@ extension DockSplitStore {
                 ? preservedTransfer?.directoryDisplayLabel
                 : nil,
             ttyName: preservedTransfer?.ttyName,
-            cachedTitle: panel.displayTitle,
-            customTitle: preservedTransfer?.customTitle,
-            customTitleSource: preservedTransfer?.customTitleSource,
-            manuallyUnread: preservedTransfer?.manuallyUnread ?? false,
+            ttyNameWasReportedByCurrentRuntime: preservedTransfer?.ttyNameWasReportedByCurrentRuntime ?? false,
+            ttyReportRuntimeSurfaceGeneration: preservedTransfer?.ttyReportRuntimeSurfaceGeneration,
+            cachedTitle: titleMetadata.cachedTitle,
+            customTitle: titleMetadata.customTitle,
+            customTitleSource: titleMetadata.customTitleSource,
+            manuallyUnread: wasManuallyUnread,
             restoredUnreadIndicator: preservedTransfer?.restoredUnreadIndicator,
-            restorableAgent: agentProvenExited ? nil : preservedTransfer?.restorableAgent,
-            restorableAgentResumeState: agentProvenExited ? nil : preservedTransfer?.restorableAgentResumeState,
-            restoredAgentCompletedGeneration: agentProvenExited
-                ? nil
-                : preservedTransfer?.restoredAgentCompletedGeneration,
+            restorableAgent: transferredRestorableAgent,
+            restorableAgentResumeState: transferredResumeState,
+            restoredAgentCompletedGeneration: transferredCompletedGeneration,
             shellActivityState: transferredShellActivityState,
+            restoredPanelTitleBoundary: transferredRestoredPanelTitleBoundary,
             restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
+            restoredStartupInput: restoredAgentLifecycle.startupInput(panelId: panelId),
             resumeBinding: resumeBinding,
-            agentRuntime: agentProvenExited ? nil : preservedTransfer?.agentRuntime,
+            deferredAgentResumeRestore: deferredAgentResumeRestore,
+            managedAgentResumeBinding: managedResumeBinding,
+            agentRuntime: agentProvenExited ? nil : cachedRuntime,
             isRemoteTerminal: preservedTransfer?.isRemoteTerminal ?? false,
+            remoteTerminalSessionPhase: preservedTransfer?.remoteTerminalSessionPhase,
+            remoteTerminalAuthority: preservedTransfer?.remoteTerminalAuthority,
+            remoteTerminalLifecycleID: preservedTransfer?.remoteTerminalLifecycleID,
+            remoteTerminalAttemptID: preservedTransfer?.remoteTerminalAttemptID,
             remoteRelayPort: preservedTransfer?.remoteRelayPort,
+            remoteRelayNamespaceConfiguration: preservedTransfer?.remoteRelayNamespaceConfiguration,
             remotePTYSessionID: preservedTransfer?.remotePTYSessionID,
             remoteCleanupConfiguration: preservedTransfer?.remoteCleanupConfiguration
         )
+        adoptManualUnreadState(false, panelId: panelId)
+        clearSessionRestoreState(panelId: panelId)
+        return detached
+    }
+
+    /// Applies only the terminal placement needed while Bonsplit performs an
+    /// attachment. Workspace identity is rebound after the mutation succeeds.
+    private func prepareDetachedPanelForDockAttachment(_ panel: any Panel) {
+        if let terminal = panel as? TerminalPanel {
+            terminal.surface.setFocusPlacement(.rightSidebarDock)
+        }
+    }
+
+    /// Retargets a panel only after the destination Bonsplit mutation has
+    /// succeeded, so a rejected attachment leaves the detached panel bound to
+    /// its source workspace and file-change coordinator.
+    private func bindDetachedPanelToDock(_ panel: any Panel) {
+        if let terminal = panel as? TerminalPanel {
+            terminal.updateWorkspaceId(workspaceId)
+        } else if let browser = panel as? BrowserPanel {
+            browser.updateWorkspaceId(workspaceId)
+        } else if let deferredBrowser = panel as? DeferredBrowserPanel {
+            deferredBrowser.updateWorkspaceId(workspaceId)
+        } else if let filePreview = panel as? FilePreviewPanel {
+            filePreview.updateWorkspaceId(
+                workspaceId,
+                fileContentChangeCoordinator: fileContentChangeCoordinator
+            )
+        } else if let markdown = panel as? MarkdownPanel {
+            markdown.updateWorkspaceId(
+                workspaceId,
+                fileContentChangeCoordinator: fileContentChangeCoordinator
+            )
+        }
     }
 
     /// Attaches a detached live panel into this Dock at `paneId`. Re-targets the
@@ -212,17 +378,11 @@ extension DockSplitStore {
         atIndex index: Int? = nil,
         focus: Bool = true
     ) -> UUID? {
-        guard contentPolicy == .flexible,
-              bonsplitController.allPaneIds.contains(paneId),
-              panels[detached.panelId] == nil else { return nil }
+        guard contentPolicy == .flexible, !isRetired else { return nil }
+        guard containsPane(paneId.id), panels[detached.panelId] == nil else { return nil }
         let panel = detached.panel
-
-        if let terminal = panel as? TerminalPanel {
-            terminal.surface.setFocusPlacement(.rightSidebarDock)
-            terminal.updateWorkspaceId(workspaceId)
-        } else if let browser = panel as? BrowserPanel {
-            browser.updateWorkspaceId(workspaceId)
-        }
+        panel.retainTransferredSurfaceMachine(detached.surfaceMachine)
+        prepareDetachedPanelForDockAttachment(panel)
 
         panels[detached.panelId] = panel
         // Cache the transfer as-is, transient resume state included: while the
@@ -231,25 +391,43 @@ extension DockSplitStore {
         // recorded processes are proven dead. Stripping here instead would
         // lose the rescue for live agents whenever the detach-time live cwd
         // read is unavailable.
-        detachedSurfaceTransfersByPanelId[detached.panelId] = detached
-        let kind = detached.kind ?? ((panel.panelType == .browser) ? "browser" : "terminal")
+        setDetachedSurfaceTransfer(detached, forPanelID: detached.panelId)
+        adoptSessionRestoreState(from: detached)
+        let kind = detached.kind ?? Self.surfaceKind(for: panel)
         let restoredIconImageData = detached.panel is TerminalPanel ? nil : detached.iconImageData
         guard let newTabId = bonsplitController.createTab(
-            title: detached.title,
+            title: detached.customTitle ?? detached.title,
+            hasCustomTitle: detached.customTitle != nil,
             icon: detached.icon,
             iconImageData: restoredIconImageData,
             kind: kind,
             isDirty: panel.isDirty,
+            showsNotificationBadge: detached.manuallyUnread,
             isLoading: detached.isLoading,
-            isAudioMuted: (panel as? BrowserPanel)?.isMuted ?? false,
-            isPinned: false,
+            isAudioMuted: resolvedAudioMuted(for: panel),
+            isPinned: detached.isPinned,
             inPane: paneId
         ) else {
+            (panel as? any FileContentChangeObservingPanel)?.stopWatchingForFileChanges()
             panels.removeValue(forKey: detached.panelId)
-            detachedSurfaceTransfersByPanelId.removeValue(forKey: detached.panelId)
+            removeDetachedSurfaceTransfer(forPanelID: detached.panelId)
+            clearSessionRestoreState(panelId: detached.panelId)
             return nil
         }
-        surfaceIdToPanelId[newTabId] = detached.panelId
+        bindDetachedPanelToDock(panel)
+        bindSurface(newTabId, toPanelId: detached.panelId)
+        adoptManualUnreadState(
+            detached.manuallyUnread,
+            panelId: detached.panelId
+        )
+        if let browser = panel as? BrowserPanel {
+            configureBrowserPanel(browser)
+        }
+        AgentHibernationController.shared.transferTrackingStateForMovedPanel(
+            panelId: detached.panelId,
+            from: detached.sourceWorkspaceId,
+            to: workspaceId
+        )
         if let index {
             _ = bonsplitController.reorderTab(newTabId, toIndex: index)
         }
@@ -260,6 +438,23 @@ extension DockSplitStore {
             focus: focus,
             reconcileReason: "dock.attachDetachedSurface"
         )
+        if let terminalPanel = panel as? TerminalPanel {
+            if let owningWorkspace =
+                    terminalFontSizeOwningWorkspace {
+                terminalPanel.fontSizePanelTransfer?.attach(
+                    to: owningWorkspace
+                )
+            } else {
+                terminalPanel.fontSizePanelTransfer?.attach(
+                    to: self
+                )
+            }
+            terminalFontSizeChangeCoordinator?
+                .terminalDidEnterDock(
+                    terminalPanel,
+                    dock: self
+                )
+        }
         return detached.panelId
     }
 
@@ -277,35 +472,31 @@ extension DockSplitStore {
         insertFirst: Bool,
         focus: Bool = true
     ) -> UUID? {
-        guard contentPolicy == .flexible,
-              bonsplitController.allPaneIds.contains(paneId),
-              panels[detached.panelId] == nil else {
+        guard contentPolicy == .flexible, !isRetired else { return nil }
+        guard containsPane(paneId.id), panels[detached.panelId] == nil else {
             return nil
         }
         let panel = detached.panel
+        prepareDetachedPanelForDockAttachment(panel)
 
-        if let terminal = panel as? TerminalPanel {
-            terminal.surface.setFocusPlacement(.rightSidebarDock)
-            terminal.updateWorkspaceId(workspaceId)
-        } else if let browser = panel as? BrowserPanel {
-            browser.updateWorkspaceId(workspaceId)
-        }
-
-        let kind = detached.kind ?? ((panel.panelType == .browser) ? "browser" : "terminal")
+        let kind = detached.kind ?? Self.surfaceKind(for: panel)
         let tab = Bonsplit.Tab(
-            title: detached.title,
+            title: detached.customTitle ?? detached.title,
+            hasCustomTitle: detached.customTitle != nil,
             icon: detached.icon,
             iconImageData: panel is TerminalPanel ? nil : detached.iconImageData,
             kind: kind,
             isDirty: panel.isDirty,
+            showsNotificationBadge: detached.manuallyUnread,
             isLoading: detached.isLoading,
-            isAudioMuted: (panel as? BrowserPanel)?.isMuted ?? false,
-            isPinned: false
+            isAudioMuted: resolvedAudioMuted(for: panel),
+            isPinned: detached.isPinned
         )
 
         panels[detached.panelId] = panel
-        detachedSurfaceTransfersByPanelId[detached.panelId] = detached
-        surfaceIdToPanelId[tab.id] = detached.panelId
+        setDetachedSurfaceTransfer(detached, forPanelID: detached.panelId)
+        adoptSessionRestoreState(from: detached)
+        bindSurface(tab.id, toPanelId: detached.panelId)
 
         let newPane = withProgrammaticDockSplit {
             bonsplitController.splitPane(
@@ -316,11 +507,26 @@ extension DockSplitStore {
             )
         }
         guard let newPane else {
-            surfaceIdToPanelId.removeValue(forKey: tab.id)
-            detachedSurfaceTransfersByPanelId.removeValue(forKey: detached.panelId)
+            (panel as? any FileContentChangeObservingPanel)?.stopWatchingForFileChanges()
+            removeSurfaceMapping(forSurfaceId: tab.id)
+            removeDetachedSurfaceTransfer(forPanelID: detached.panelId)
             panels.removeValue(forKey: detached.panelId)
+            clearSessionRestoreState(panelId: detached.panelId)
             return nil
         }
+        bindDetachedPanelToDock(panel)
+        adoptManualUnreadState(
+            detached.manuallyUnread,
+            panelId: detached.panelId
+        )
+        if let browser = panel as? BrowserPanel {
+            configureBrowserPanel(browser)
+        }
+        AgentHibernationController.shared.transferTrackingStateForMovedPanel(
+            panelId: detached.panelId,
+            from: detached.sourceWorkspaceId,
+            to: workspaceId
+        )
 
         repairPlaceholderOnlyDockPane(paneId)
         finishAttachingDetachedSurface(
@@ -330,6 +536,23 @@ extension DockSplitStore {
             focus: focus,
             reconcileReason: "dock.attachDetachedSurface.split"
         )
+        if let terminalPanel = panel as? TerminalPanel {
+            if let owningWorkspace =
+                    terminalFontSizeOwningWorkspace {
+                terminalPanel.fontSizePanelTransfer?.attach(
+                    to: owningWorkspace
+                )
+            } else {
+                terminalPanel.fontSizePanelTransfer?.attach(
+                    to: self
+                )
+            }
+            terminalFontSizeChangeCoordinator?
+                .terminalDidEnterDock(
+                    terminalPanel,
+                    dock: self
+                )
+        }
         return detached.panelId
     }
 
@@ -340,7 +563,7 @@ extension DockSplitStore {
         focus: Bool,
         reconcileReason: String
     ) {
-        installSubscription(for: panel, tracksTerminalTitle: true)
+        installSubscription(for: panel)
         withCoalescedTerminalViewReattach {
             applyVisibility(to: panel)
             if let terminal = panel as? TerminalPanel {
@@ -348,12 +571,27 @@ extension DockSplitStore {
             }
             recordExplicitPanelCreation()
             if focus {
-                bonsplitController.focusPane(paneId)
-                bonsplitController.selectTab(tabId)
-                applyDockSelection(tabId: tabId, inPane: paneId)
+                focusPanelFromDockInteraction(
+                    panel.id,
+                    window: NSApp.keyWindow ?? NSApp.mainWindow
+                )
             }
         }
         scheduleDockPortalReconcile(reason: reconcileReason)
+    }
+
+    /// Returns the Bonsplit tab kind for a transferred Dock panel.
+    static func surfaceKind(for panel: any Panel) -> String {
+        switch panel.panelType {
+        case .terminal:
+            return SurfaceKind.terminal.rawValue
+        case .browser:
+            return SurfaceKind.browser.rawValue
+        case .filePreview:
+            return SurfaceKind.filePreview.rawValue
+        default:
+            return panel.panelType.rawValue
+        }
     }
 }
 

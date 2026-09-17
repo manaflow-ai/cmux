@@ -56,6 +56,25 @@ final class RemoteTmuxControlConnection {
     var activePaneByWindow: [Int: Int] = [:]
     var paneOutputByteCounts: [Int: Int] = [:]
     var totalOutputBytes = 0
+    /// Per-pane capture/state transactions owning the snapshot-to-live cutover.
+    var pendingPaneSeeds: [Int: [RemoteTmuxPendingPaneSeed]] = [:]
+    /// Aggregate bytes retained by every in-flight pane seed on this connection.
+    var pendingPaneSeedByteCount = 0
+    let pendingPaneSeedByteLimit: Int
+    /// Panes whose budget overflow recovery is waiting to start an authoritative seed.
+    var deferredPaneSeedBudgetRecoveryPaneIDs: Set<Int> = []
+    /// Coalesces pane budget recovery onto one future main-actor turn.
+    var paneSeedBudgetRecoveryTaskScheduled = false
+    /// The one queued or in-flight visible repaint seed allowed per pane.
+    var pendingPaneVisibleRepaintSeedIDs: [Int: UUID] = [:]
+    /// Panes that grew while a visible repaint seed was already in flight. One
+    /// deferred repaint per pane bounds churn while preserving the latest repair.
+    var deferredPaneVisibleRepaints: Set<Int> = []
+    /// Reconnect seeds that must finish before consumers can resume resize work.
+    var pendingReconnectSeedIDs: Set<UUID> = []
+    /// Stable pane queue for reconnect snapshots. Only a small fixed number are
+    /// captured concurrently so retained history is bounded independently of pane count.
+    var pendingReconnectPaneIDs: [Int] = []
     /// Per-pane header-strip labels: the pane's EXPANDED `pane-border-format`
     /// (style tokens stripped) — exactly the text a native tmux client draws
     /// in that pane's header, custom formats included. Seeded by the
@@ -86,6 +105,7 @@ final class RemoteTmuxControlConnection {
     /// never come.
     var activityQueryCompletions: [UUID: ([Int: PaneForegroundState]?) -> Void] = [:]
     var newWindowCompletions: [UUID: (Int?) -> Void] = [:]
+    var newPaneCompletions: [UUID: (Int?) -> Void] = [:]
     /// Completions for ``sendTracked(_:completion:)`` blocks, keyed by the
     /// `.tracked` token in the FIFO. Guaranteed exactly one edge each: `%end`,
     /// `%error`, or a stream reset (``failPendingTrackedSends()``) — callers
@@ -174,6 +194,25 @@ final class RemoteTmuxControlConnection {
     /// diagnostics (how stale is the last size request).
     var lastSizingSendAt: ContinuousClock.Instant?
     var pendingPostAttachAction: PostAttachAction?
+
+    /// Session-scoped environment pairs identifying the local mirror, pushed to
+    /// the remote tmux session on every attach AND reconnect (issue #833).
+    /// Session scope (`set-environment -t`) is deliberate: the shell-integration
+    /// pull path runs a session-scoped `show-environment`, which does not see
+    /// global (`-g`) values. Set by the controller when the mirror workspace is
+    /// created; empty until then (and for non-mirror consumers).
+    private(set) var mirrorEnvironment: [String: String] = [:]
+
+    /// Replaces the identity pairs pushed by ``pushMirrorSessionEnvironment()``.
+    /// A connection that already passed its post-attach point (a reused,
+    /// still-connected connection) pushes the fresh pairs immediately;
+    /// otherwise the pending post-attach drain pushes them.
+    func setMirrorEnvironment(_ pairs: [String: String]) {
+        mirrorEnvironment = pairs
+        if connectionState == .connected, attachBlockDrained, pendingPostAttachAction == nil {
+            pushMirrorSessionEnvironment()
+        }
+    }
 
     /// Trailing-edge debounce for `refresh-client -C`. SwiftUI layout settle makes the
     /// rendered grid oscillate (e.g. cols 154→155→156→161→…, ~15 distinct grids in
@@ -290,10 +329,16 @@ final class RemoteTmuxControlConnection {
     static let altScreenEnterSequence = Data("\u{1b}[?1049h".utf8)
     static let altScreenExitSequence = Data("\u{1b}[?1049l".utf8)
 
-    init(host: RemoteTmuxHost, sessionName: String, createIfMissing: Bool = false) {
+    init(
+        host: RemoteTmuxHost,
+        sessionName: String,
+        createIfMissing: Bool = false,
+        pendingPaneSeedByteLimit: Int = RemoteTmuxControlConnection.maximumPendingPaneSeedBytes
+    ) {
         self.host = host
         self.sessionName = sessionName
         self.createIfMissing = createIfMissing
+        self.pendingPaneSeedByteLimit = max(0, pendingPaneSeedByteLimit)
     }
 
     /// Spawns the SSH `tmux -CC` process and begins streaming.
@@ -371,10 +416,7 @@ final class RemoteTmuxControlConnection {
         initialBatchStaged.removeAll()
         // Normally already flushed by beginReconnecting; kept here so a future
         // caller of spawnProcess can't strand command decisions.
-        failPendingActivityQueries()
-        failPendingNewWindowRequests()
-        failPendingWindowReorderVerifications()
-        failPendingTrackedSends()
+        failPendingCommandTransactions()
         attachBlockDrained = false
         stderrBuffer = ""
         preControlOutputBuffer = ""
@@ -502,10 +544,7 @@ final class RemoteTmuxControlConnection {
     /// kick) and the deferred post-attach work. Shared by deliberate teardown
     /// (``stop()``) and a genuine remote end (`%exit`).
     private func cancelScheduledWork() {
-        failPendingActivityQueries()
-        failPendingNewWindowRequests()
-        failPendingWindowReorderVerifications()
-        failPendingTrackedSends()
+        failPendingCommandTransactions()
         reconnectTask?.cancel()
         reconnectTask = nil
         resetWindowListRequestCoalescing()
@@ -578,6 +617,27 @@ final class RemoteTmuxControlConnection {
         // Record before the writer can emit bytes, so a fast `%begin`/`%end`
         // reply never outruns its local FIFO slot. If the bounded writer rejects
         // the payload, remove the whole batch immediately and reconnect.
+        let pendingStart = pendingCommands.count
+        pendingCommands.append(contentsOf: kinds)
+        guard stdinWriter.enqueue(data) else {
+            pendingCommands.removeSubrange(pendingStart...)
+            record("stdin-write-backpressure")
+            beginReconnecting()
+            return false
+        }
+        return true
+    }
+
+    /// Enqueues one tmux command queue while retaining one FIFO correlation
+    /// entry for each semicolon-delimited command result.
+    @discardableResult
+    func sendCommandQueueInternal(_ commands: [String], kinds: [CommandKind]) -> Bool {
+        guard !commands.isEmpty,
+              commands.count == kinds.count,
+              commands.allSatisfy({ !$0.contains("\n") }) else { return false }
+        guard connectionState == .connected, let stdinWriter else { return false }
+        guard let data = (commands.joined(separator: " ; ") + "\n").data(using: .utf8)
+        else { return false }
         let pendingStart = pendingCommands.count
         pendingCommands.append(contentsOf: kinds)
         guard stdinWriter.enqueue(data) else {
@@ -678,10 +738,7 @@ final class RemoteTmuxControlConnection {
         record("reconnecting")
         // The stream is dead: a close decision awaiting an activity query must
         // not hang for the whole backoff window — fail it onto the cache now.
-        failPendingActivityQueries()
-        failPendingNewWindowRequests()
-        failPendingWindowReorderVerifications()
-        failPendingTrackedSends()
+        failPendingCommandTransactions()
         resetWindowListRequestCoalescing()
         cancelSizingFollowUps()
         // Subscriptions belong to the dying client, so forget them HERE, not in
@@ -753,12 +810,12 @@ final class RemoteTmuxControlConnection {
             if connectionState != .connected {
                 let wasReconnecting = connectionState == .reconnecting
                 connectionState = .connected
-                // Arm the one-shot attach redraw kick: if the upcoming size apply is
-                // a no-op (window already at our size), a running TUI gets no SIGWINCH
-                // and would keep showing its stale pre-attach frame. Consumed by the
-                // first size apply (debounced send, reconnect re-seed, or the
-                // first-connect list-windows result).
-                pendingAttachRedrawKick = true
+                // Only a first attach needs the rows-minus-one redraw kick. A
+                // reconnect keeps the existing tmux grid and replaces the mirror
+                // with an authoritative full-history seed; kicking after that seed
+                // would shrink the local primary grid, move its first visible row
+                // into scrollback, then paint that row again on restore.
+                pendingAttachRedrawKick = !wasReconnecting
                 reconnectAttemptCount = 0
                 reconnectTask?.cancel()
                 reconnectTask = nil
@@ -777,7 +834,7 @@ final class RemoteTmuxControlConnection {
         case let .output(paneId, data):
             paneOutputByteCounts[paneId, default: 0] += data.count
             totalOutputBytes += data.count
-            observers.emitPaneOutput(paneId, data)
+            routePaneOutput(paneId: paneId, data: data)
         case let .sessionChanged(id, name):
             // An attached-session SWITCH: the window set changes with it, so
             // re-fetch the topology.
@@ -796,6 +853,9 @@ final class RemoteTmuxControlConnection {
             applySessionNameChange(sessionId: id, name: renameName, event: "session-renamed", refetchWindows: false)
         case .sessionsChanged:
             record("sessions-changed")
+        case .clientDetached:
+            record("client-detached")
+            replayRecordedSizeClaims()
         case let .windowAdd(id):
             record("window-add @\(id)")
             requestWindows()
@@ -819,6 +879,7 @@ final class RemoteTmuxControlConnection {
             // it doesn't accumulate across window churn.
             if let closing = windowsByID[id] {
                 for pane in closing.paneIDsInOrder {
+                    discardPendingPaneSeeds(paneId: pane)
                     paneOutputByteCounts[pane] = nil
                     paneForegroundStates[pane] = nil
                     paneHeaderLabels[pane] = nil

@@ -43,6 +43,15 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.copyOnSelect"
     )
 
+    /// Whether cmux supplies its appearance-adaptive managed palette for an
+    /// Ghostty config without authored themes or terminal colors. Font and
+    /// behavior settings preserve the managed palette; it is enabled by default.
+    public let adaptiveDefaultTheme = DefaultsKey<Bool>(
+        id: "terminal.adaptiveDefaultTheme",
+        defaultValue: true,
+        userDefaultsKey: "terminal.adaptiveDefaultTheme"
+    )
+
     public let autoResumeAgentSessions = DefaultsKey<Bool>(
         id: "terminal.autoResumeAgentSessions",
         defaultValue: true,
@@ -79,7 +88,7 @@ public struct TerminalCatalogSection: SettingCatalogSection {
     /// reclaimed.
     public let rendererRealizationIdleSeconds = DefaultsKey<Double>(
         id: "terminal.rendererRealization.idleSeconds",
-        defaultValue: 30,
+        defaultValue: 5,
         userDefaultsKey: "terminal.rendererRealization.idleSeconds"
     )
 
@@ -87,23 +96,23 @@ public struct TerminalCatalogSection: SettingCatalogSection {
     /// instant. Extra off-screen renderers are reclaimed oldest first.
     public let rendererRealizationMaxWarmRenderers = DefaultsKey<Int>(
         id: "terminal.rendererRealization.maxWarmRenderers",
-        defaultValue: 12,
+        defaultValue: 1,
         userDefaultsKey: "terminal.rendererRealization.maxWarmRenderers"
     )
 
-    /// Opt-in throttle for high-frequency terminal title changes. Default-off
-    /// so existing title freshness stays unchanged unless users choose the
-    /// performance tradeoff.
+    /// Safety throttle for high-frequency terminal title changes. Default-on
+    /// because terminal titles are presentation metadata and must not drive
+    /// workspace/sidebar/window updates at an agent spinner's source cadence.
     public let titleUpdateCoalescingEnabled = DefaultsKey<Bool>(
         id: "terminal.titleUpdates.coalescing.enabled",
-        defaultValue: false,
+        defaultValue: true,
         userDefaultsKey: "terminal.titleUpdates.coalescing.enabled"
     )
 
     /// Delay used when title-update coalescing is enabled.
     public let titleUpdateCoalescingMilliseconds = DefaultsKey<Int>(
         id: "terminal.titleUpdates.coalescing.delayMilliseconds",
-        defaultValue: 500,
+        defaultValue: 1_000,
         userDefaultsKey: "terminal.titleUpdates.coalescing.delayMilliseconds",
         legacyUserDefaultsKeys: ["terminal.titleUpdates.coalescingMilliseconds"]
     )
@@ -170,10 +179,10 @@ public struct TerminalCatalogSection: SettingCatalogSection {
     /// Whether the per-pane runaway-memory guardrail is active. When on, cmux
     /// polls each pane's process-tree memory and warns (badge + dismissible
     /// banner with a kill action) when one crosses the threshold, before the OS
-    /// can OOM-suspend the whole app. On by default.
+    /// can OOM-suspend the whole app. Off by default.
     public let runawayMemoryGuardrailEnabled = DefaultsKey<Bool>(
         id: "terminal.runawayMemoryGuardrail.enabled",
-        defaultValue: true,
+        defaultValue: false,
         userDefaultsKey: "terminal.runawayMemoryGuardrail.enabled"
     )
 

@@ -1,4 +1,5 @@
 public import CMUXMobileCore
+import CmuxMobileDiagnostics
 public import Foundation
 import Dispatch
 @preconcurrency public import Network
@@ -40,8 +41,8 @@ public enum CmxNetworkByteTransportError: Error, Equatable, Sendable {
     case authorizationIntentRequired
     /// The request's authorization mode cannot be served by plaintext TCP.
     case unsupportedAuthorizationMode(CmxTransportAuthorizationMode)
-    /// The OS could not provide cryptographic Tailscale peer authorization, so
-    /// plaintext TCP cannot carry the Stack bearer token.
+    /// The exact legacy peer, live Tailscale-range tunnel, and effective
+    /// connection endpoints could not all be proven.
     case tailscaleAuthorizationUnavailable
     /// An operation was attempted before the connection became ready.
     case notConnected
@@ -86,6 +87,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
     let callbackQueue: DispatchQueue
     let maximumReceiveLength: Int
     let connectTimeoutNanoseconds: UInt64
+    let tailscaleBinding: CmxTailscaleTransportBinding?
     private var state: TransportState = .idle
     private var connectContinuations: [UUID: CheckedContinuation<Void, any Error>] = [:]
     private var receiveContinuation: (id: UUID, continuation: CheckedContinuation<Data?, any Error>)?
@@ -95,6 +97,8 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
     private var cancelledOperationIDs: Set<UUID> = []
     private var connectTimeoutTimer: (any DispatchSourceTimer)?
     private var remoteDidClose = false
+    private var tailscalePathRevision: UInt64 = 0
+    private var tailscaleAuthorizationInvalidated = false
 
     public init(
         host: String,
@@ -129,6 +133,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         )
         self.maximumReceiveLength = maximumReceiveLength
         self.connectTimeoutNanoseconds = max(1, connectTimeoutNanoseconds)
+        tailscaleBinding = nil
     }
 
     public init(
@@ -158,6 +163,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         )
         maximumReceiveLength = Self.defaultMaximumReceiveLength
         connectTimeoutNanoseconds = Self.defaultConnectTimeoutNanoseconds
+        tailscaleBinding = nil
     }
 
     public init(
@@ -174,6 +180,47 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         )
         self.maximumReceiveLength = maximumReceiveLength
         self.connectTimeoutNanoseconds = max(1, connectTimeoutNanoseconds)
+        tailscaleBinding = nil
+    }
+
+    init(
+        request: CmxByteTransportRequest,
+        preparedTailscaleRoute: CmxPreparedTailscaleRoute,
+        tailscaleRouteAuthority: any CmxTailscaleRouteAuthorizing,
+        maximumReceiveLength: Int,
+        connectTimeoutNanoseconds: UInt64 = CmxNetworkByteTransport.defaultConnectTimeoutNanoseconds
+    ) throws {
+        guard maximumReceiveLength > 0 else {
+            throw CmxNetworkByteTransportError.invalidMaximumReceiveLength(maximumReceiveLength)
+        }
+        guard preparedTailscaleRoute.proof.request == request else {
+            throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
+        }
+        guard let nwPort = NWEndpoint.Port(
+            rawValue: UInt16(exactly: preparedTailscaleRoute.proof.peerPort) ?? 0
+        ), nwPort != .any else {
+            throw CmxNetworkByteTransportError.invalidPort(preparedTailscaleRoute.proof.peerPort)
+        }
+
+        let tcpOptions = NWProtocolTCP.Options()
+        tcpOptions.noDelay = true
+        let parameters = NWParameters(tls: nil, tcp: tcpOptions)
+        parameters.requiredInterface = preparedTailscaleRoute.requiredInterface
+        connection = NWConnection(
+            host: preparedTailscaleRoute.proof.peerAddress.nwHost,
+            port: nwPort,
+            using: parameters
+        )
+        callbackQueue = DispatchQueue(
+            label: "dev.cmux.mobile.tailscale-network-byte-transport.\(UUID().uuidString)"
+        )
+        self.maximumReceiveLength = maximumReceiveLength
+        self.connectTimeoutNanoseconds = max(1, connectTimeoutNanoseconds)
+        tailscaleBinding = CmxTailscaleTransportBinding(
+            request: request,
+            preparedRoute: preparedTailscaleRoute,
+            authority: tailscaleRouteAuthority
+        )
     }
 
     /// Opens the connection, awaiting `ready` or failing on error/timeout.
@@ -260,6 +307,12 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
                 }
                 Task { await self.handleConnectionEvent(event) }
             }
+            if tailscaleBinding != nil {
+                connection.pathUpdateHandler = { [weak self] path in
+                    guard let self else { return }
+                    Task { await self.handleTailscalePathUpdate(path) }
+                }
+            }
             connection.start(queue: callbackQueue)
         case .connecting:
             connectContinuations[operationID] = continuation
@@ -276,6 +329,20 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         switch event {
         case .ready:
             guard !isTerminal else {
+                return
+            }
+            if tailscaleBinding != nil {
+                MobileDebugLog.shared.append(
+                    "tailscale.connection.ready path=\(Self.pathSummary(connection.currentPath)) revision=\(tailscalePathRevision)"
+                )
+            }
+            do {
+                try await validateTailscaleAuthorizationForCurrentPath()
+            } catch {
+                MobileDebugLog.shared.append(
+                    "tailscale.connection.ready_validation_failed error=\(String(describing: error)) path=\(Self.pathSummary(connection.currentPath)) revision=\(tailscalePathRevision)"
+                )
+                failTransport(.tailscaleAuthorizationUnavailable)
                 return
             }
             cancelConnectTimeout()
@@ -458,11 +525,24 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
             return
         }
 
-        beginSend(
-            data,
-            operationID: operationID,
-            continuation: continuation
-        )
+        do {
+            try await performAuthorizedWrite(
+                authorization: {
+                    try await validateTailscaleAuthorizationForCurrentPath()
+                },
+                beginWrite: {
+                    beginSend(
+                        data,
+                        operationID: operationID,
+                        continuation: continuation
+                    )
+                }
+            )
+        } catch {
+            let transportError = CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
+            continuation.resume(throwing: transportError)
+            failTransport(transportError)
+        }
     }
 
     private func beginSend(
@@ -603,6 +683,90 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
             return
         }
         failTransport(.connectionTimedOut)
+    }
+
+    private func handleTailscalePathUpdate(_ path: NWPath) async {
+        guard tailscaleBinding != nil, !isTerminal else { return }
+        tailscalePathRevision = tailscalePathRevision == .max ? 1 : tailscalePathRevision + 1
+        MobileDebugLog.shared.append(
+            "tailscale.connection.path_update revision=\(tailscalePathRevision) path=\(Self.pathSummary(path))"
+        )
+        do {
+            // This callback can fire before the connection binds its local
+            // endpoint, so only route-level facts exist here; the endpoint
+            // facts are asserted at ready and at every write boundary.
+            try await validateTailscaleAuthorization(path: path, phase: .pathUpdate)
+        } catch {
+            MobileDebugLog.shared.append(
+                "tailscale.connection.path_validation_failed error=\(String(describing: error)) revision=\(tailscalePathRevision) path=\(Self.pathSummary(path))"
+            )
+            tailscaleAuthorizationInvalidated = true
+            failTransport(.tailscaleAuthorizationUnavailable)
+        }
+    }
+
+    private func validateTailscaleAuthorizationForCurrentPath() async throws {
+        guard tailscaleBinding != nil else { return }
+        guard let path = connection.currentPath else {
+            throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
+        }
+        let revision = tailscalePathRevision
+        try await validateTailscaleAuthorization(path: path, phase: .established)
+        // The authority call yields this actor. Reject any connection-path
+        // update that interleaved before the synchronous send boundary.
+        guard revision == tailscalePathRevision else {
+            throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
+        }
+    }
+
+    private func validateTailscaleAuthorization(
+        path: NWPath,
+        phase: CmxTailscaleRouteValidationPhase
+    ) async throws {
+        guard let binding = tailscaleBinding else { return }
+        MobileDebugLog.shared.append(
+            "tailscale.authorization.validate_begin phase=\(phase) path=\(Self.pathSummary(path)) revision=\(tailscalePathRevision)"
+        )
+        guard !tailscaleAuthorizationInvalidated,
+              binding.request == binding.preparedRoute.proof.request,
+              connection.parameters.requiredInterface == binding.preparedRoute.requiredInterface else {
+            MobileDebugLog.shared.append(
+                "tailscale.authorization.validate_precondition_failed invalidated=\(tailscaleAuthorizationInvalidated) request_matches=\(binding.request == binding.preparedRoute.proof.request) interface_matches=\(connection.parameters.requiredInterface == binding.preparedRoute.requiredInterface)"
+            )
+            throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
+        }
+        do {
+            try await binding.authority.validate(
+                proof: binding.preparedRoute.proof,
+                connectionPath: path,
+                phase: phase
+            )
+            MobileDebugLog.shared.append("tailscale.authorization.validate_success phase=\(phase)")
+        } catch {
+            MobileDebugLog.shared.append(
+                "tailscale.authorization.validate_failed underlying=\(String(describing: error)) phase=\(phase) path=\(Self.pathSummary(path))"
+            )
+            throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
+        }
+    }
+
+    private static func pathSummary(_ path: NWPath?) -> String {
+        guard let path else { return "nil" }
+        let interfaces = path.availableInterfaces
+            .map { "\($0.name):\($0.index)" }
+            .sorted()
+            .joined(separator: ",")
+        return "status=\(path.status) interfaces=\(interfaces) local=\(path.localEndpoint != nil) remote=\(path.remoteEndpoint != nil)"
+    }
+
+    /// The single legacy bearer-write boundary. Authorization completes before
+    /// Network.framework receives the send request.
+    func performAuthorizedWrite(
+        authorization: () async throws -> Void,
+        beginWrite: () -> Void
+    ) async rethrows {
+        try await authorization()
+        beginWrite()
     }
 
     private var isTerminal: Bool {

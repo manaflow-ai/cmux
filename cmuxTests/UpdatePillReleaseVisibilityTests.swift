@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import CmuxFoundation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -63,11 +64,46 @@ private func checkGreaterThanOrEqual<T: Comparable>(_ actual: T, _ expected: T, 
 @Suite
 struct BrowserInsecureHTTPSettingsTests {
     @Test
+    func privateNetworkLiteralsSkipTheInsecureHTTPWarning() {
+        // cmux VPC machine addresses (through the WireGuard tunnel) and home
+        // LAN gear: traffic never crosses the public network, so no modal.
+        for host in [
+            "10.16.133.3", "10.0.0.1", "172.16.0.9", "172.31.255.255",
+            "192.168.1.20", "169.254.77.2",
+            "fd60:1e5e:6720::3", "fc00::1", "fe80::1",
+        ] {
+            #expect(BrowserInsecureHTTPSettings.isHostAllowed(host, rawAllowlist: ""))
+        }
+    }
+
+    @Test
+    func publicHostsStillWarnOnPlainHTTP() {
+        for host in [
+            "example.com", "8.8.8.8", "172.32.0.1", "11.0.0.1", "2602:f75c::1",
+            // A NAME is never private, even if it would resolve to a private
+            // address — DNS must not smuggle a bypass in.
+            "router.local.example",
+        ] {
+            #expect(!BrowserInsecureHTTPSettings.isHostAllowed(host, rawAllowlist: ""))
+        }
+    }
+
+    @Test
     func testDefaultAllowlistPatternsArePresent() {
         checkEqual(
             BrowserInsecureHTTPSettings.normalizedAllowlistPatterns(rawValue: nil),
             ["localhost", "*.localhost", "127.0.0.1", "::1", "0.0.0.0", "*.localtest.me"]
         )
+    }
+
+    @Test
+    func testExplicitlyEmptyAllowlistRemovesTheLoopbackDefaults() {
+        checkEqual(
+            BrowserInsecureHTTPSettings.normalizedAllowlistPatterns(rawValue: ""),
+            []
+        )
+        checkFalse(BrowserInsecureHTTPSettings.isHostAllowed("localhost", rawAllowlist: ""))
+        checkFalse(BrowserInsecureHTTPSettings.isHostAllowed("127.0.0.1", rawAllowlist: ""))
     }
 
     @Test
@@ -245,6 +281,76 @@ struct TitlebarControlsSizingPolicyTests {
             yOffset: 3
         )
         checkTrue(titlebarControlsShouldApplyLayout(previous: baseline, next: offsetChanged))
+    }
+
+    @Test
+    @MainActor
+    func testLayoutModelOnlyRecomputesForTitlebarInputs() async {
+        let suiteName = "TitlebarControlsLayoutModel-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let notificationCenter = NotificationCenter()
+        var computationCount = 0
+        let model = TitlebarControlsLayoutModel(
+            defaults: defaults,
+            notificationCenter: notificationCenter
+        ) { config in
+            computationCount += 1
+            return NSSize(width: config.buttonSize, height: config.buttonSize)
+        }
+
+        checkEqual(computationCount, 1)
+        checkEqual(model.snapshot.style, .classic)
+
+        defaults.set(true, forKey: "unrelatedTitlebarTestSetting")
+        notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
+        await drainMainQueue()
+        checkEqual(computationCount, 1)
+
+        defaults.set(TitlebarControlsStyle.compact.rawValue, forKey: TitlebarControlsStyle.storageKey)
+        notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
+        await drainMainQueue()
+        checkEqual(computationCount, 2)
+        checkEqual(model.snapshot.style, .compact)
+
+        notificationCenter.post(
+            name: KeyboardShortcutSettings.didChangeNotification,
+            object: nil,
+            userInfo: [
+                KeyboardShortcutSettings.actionUserInfoKey:
+                    KeyboardShortcutSettings.Action.closeWindow.rawValue,
+            ]
+        )
+        await drainMainQueue()
+        checkEqual(computationCount, 2)
+
+        notificationCenter.post(
+            name: KeyboardShortcutSettings.didChangeNotification,
+            object: nil,
+            userInfo: [
+                KeyboardShortcutSettings.actionUserInfoKey:
+                    KeyboardShortcutSettings.Action.toggleSidebar.rawValue,
+            ]
+        )
+        await drainMainQueue()
+        checkEqual(computationCount, 3)
+
+        notificationCenter.post(name: KeyboardShortcutSettings.didChangeNotification, object: nil)
+        await drainMainQueue()
+        checkEqual(computationCount, 4)
+
+        notificationCenter.post(name: GlobalFontMagnification.didChangeNotification, object: nil)
+        await drainMainQueue()
+        checkEqual(computationCount, 5)
+    }
+
+    @MainActor
+    private func drainMainQueue() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async {
+                continuation.resume()
+            }
+        }
     }
 
     @Test
@@ -457,9 +563,9 @@ struct TitlebarControlsHoverPolicyTests {
                 let slot = MinimalModeSidebarControlActionSlot(rawValue: index)
                 let expectedWidth: CGFloat = switch slot {
                 case .some(.newTab):
-                    TitlebarNewWorkspaceCloudSplitButtonMetrics.primaryWidth(config: config)
-                case .some(.cloudVM):
-                    TitlebarNewWorkspaceCloudSplitButtonMetrics.dropdownWidth(config: config)
+                    TitlebarNewWorkspaceSplitButtonMetrics.primaryWidth(config: config)
+                case .some(.newWorkspaceMenu):
+                    TitlebarNewWorkspaceSplitButtonMetrics.dropdownWidth(config: config)
                 case .some(.toggleSidebar), .some(.showNotifications), .some(.focusHistoryBack), .some(.focusHistoryForward), nil:
                     config.buttonSize
                 }

@@ -107,8 +107,8 @@ extension TerminalArtifactFilesSheet {
                 )
                 .refreshable { await refreshInView() }
             }
-        case .failed:
-            failureView { await refreshInView() }
+        case .failed(let failure):
+            failureView(failure: failure) { await refreshInView() }
         }
     }
 
@@ -143,8 +143,8 @@ extension TerminalArtifactFilesSheet {
         switch state {
         case .idle, .loading:
             loadingView
-        case .failed:
-            failureView { await loadFirstSessionPage(query: nil) }
+        case .failed(let failure):
+            failureView(failure: failure) { await loadFirstSessionPage(query: nil) }
         case .loaded(let snapshot):
             let visibleSnapshotIsEmpty = displaySettings.showMissingFiles
                 ? snapshot.isEmpty
@@ -176,7 +176,10 @@ extension TerminalArtifactFilesSheet {
                 let referenced = presentation.items(in: .referenced)
                 let swipeOrder = ChatArtifactGallerySwipeOrder(groups: presentation.groups)
                 ScrollViewReader { proxy in
-                    ScrollView {
+                    SessionGalleryScrollView(
+                        topTolerance: Self.sessionTopTolerance,
+                        onViewportChange: { sessionViewportIsAtTopOrFits = $0 }
+                    ) {
                         VStack(spacing: 0) {
                             Color.clear
                                 .frame(height: 0)
@@ -225,15 +228,6 @@ extension TerminalArtifactFilesSheet {
                             showsEagerFooter: usesCompleteSessionSnapshot
                         )
                     }
-                    }
-                    .onScrollGeometryChange(for: Bool.self) { geometry in
-                        let isAtTop = geometry.contentOffset.y
-                            <= geometry.contentInsets.top + Self.sessionTopTolerance
-                        let fits = geometry.contentSize.height
-                            <= geometry.containerSize.height + Self.sessionTopTolerance
-                        return isAtTop || fits
-                    } action: { _, isAtTopOrFits in
-                        sessionViewportIsAtTopOrFits = isAtTopOrFits
                     }
                     .overlay(alignment: .top) {
                         if liveRefreshState.pendingNewFileCount > 0 {
@@ -285,8 +279,8 @@ extension TerminalArtifactFilesSheet {
         switch state {
         case .idle, .loading:
             loadingView
-        case .failed:
-            failureView { await loadFirstSessionPage(query: query) }
+        case .failed(let failure):
+            failureView(failure: failure) { await loadFirstSessionPage(query: query) }
         case .loaded(let snapshot):
             let presentation = ChatArtifactGalleryPresentation(
                 snapshot: snapshot,
@@ -310,10 +304,12 @@ extension TerminalArtifactFilesSheet {
                                     ),
                                     layout: .list,
                                     loader: sessionLoader,
-                                    open: {
-                                        open(item.path, scope: .session, swipeOrder: swipeOrder)
-                                    }
+                                    scope: .session,
+                                    swipeOrder: swipeOrder,
+                                    open: open,
+                                    onCopiedPath: notifyPathCopied
                                 )
+                                .equatable()
                                 Divider().padding(.leading, 72)
                             }
                             if !usesCompleteSessionSnapshot,
@@ -334,10 +330,12 @@ extension TerminalArtifactFilesSheet {
                                         ),
                                         layout: .grid,
                                         loader: sessionLoader,
-                                        open: {
-                                            open(item.path, scope: .session, swipeOrder: swipeOrder)
-                                        }
+                                        scope: .session,
+                                        swipeOrder: swipeOrder,
+                                        open: open,
+                                        onCopiedPath: notifyPathCopied
                                     )
+                                    .equatable()
                                 }
                             } footer: {
                                 if !usesCompleteSessionSnapshot,
@@ -375,10 +373,12 @@ extension TerminalArtifactFilesSheet {
                             artifact: TerminalArtifactGalleryDisplayItem(galleryItem: item),
                             layout: .list,
                             loader: sessionLoader,
-                            open: {
-                                open(item.path, scope: .session, swipeOrder: swipeOrder)
-                            }
+                            scope: .session,
+                            swipeOrder: swipeOrder,
+                            open: open,
+                            onCopiedPath: notifyPathCopied
                         )
+                        .equatable()
                         Divider().padding(.leading, 72)
                     }
                     if let pagingCursor {
@@ -395,10 +395,12 @@ extension TerminalArtifactFilesSheet {
                                 artifact: TerminalArtifactGalleryDisplayItem(galleryItem: item),
                                 layout: .grid,
                                 loader: sessionLoader,
-                                open: {
-                                    open(item.path, scope: .session, swipeOrder: swipeOrder)
-                                }
+                                scope: .session,
+                                swipeOrder: swipeOrder,
+                                open: open,
+                                onCopiedPath: notifyPathCopied
                             )
+                            .equatable()
                         }
                     } footer: {
                         if let pagingCursor {
@@ -434,10 +436,12 @@ extension TerminalArtifactFilesSheet {
                             artifact: artifact,
                             layout: .list,
                             loader: loader,
-                            open: {
-                                open(artifact.path, scope: scope, swipeOrder: swipeOrder)
-                            }
+                            scope: scope,
+                            swipeOrder: swipeOrder,
+                            open: open,
+                            onCopiedPath: notifyPathCopied
                         )
+                        .equatable()
                         Divider().padding(.leading, 72)
                     }
                 }
@@ -450,10 +454,12 @@ extension TerminalArtifactFilesSheet {
                             artifact: artifact,
                             layout: .grid,
                             loader: loader,
-                            open: {
-                                open(artifact.path, scope: scope, swipeOrder: swipeOrder)
-                            }
+                            scope: scope,
+                            swipeOrder: swipeOrder,
+                            open: open,
+                            onCopiedPath: notifyPathCopied
                         )
+                        .equatable()
                     }
                 }
                 .padding(16)
@@ -520,36 +526,37 @@ extension TerminalArtifactFilesSheet {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func failureView(retry: @escaping @MainActor () async -> Void) -> some View {
-        ContentUnavailableView {
+    private func failureView(
+        failure: TerminalArtifactGalleryFailure,
+        retry: @escaping @MainActor () async -> Void
+    ) -> some View {
+        let presentation = ChatArtifactFailurePresentation(
+            error: failure.error,
+            scope: scope == .session ? .chat : .terminal
+        )
+        return ContentUnavailableView {
             Label(
-                String(
-                    localized: "terminal.artifact.gallery.unreachable.title",
-                    defaultValue: "Mac unreachable",
-                    bundle: .module
-                ),
-                systemImage: "wifi.exclamationmark"
+                presentation.title,
+                systemImage: presentation.systemImage
             )
         } description: {
-            Text(String(
-                localized: "terminal.artifact.gallery.unreachable.message",
-                defaultValue: "Check the connection to your Mac and try again.",
-                bundle: .module
-            ))
+            Text(presentation.message)
         } actions: {
-            Button {
-                Task { await retry() }
-            } label: {
-                Label(
-                    String(
-                        localized: "terminal.artifact.gallery.retry",
-                        defaultValue: "Retry",
-                        bundle: .module
-                    ),
-                    systemImage: "arrow.clockwise"
-                )
+            if presentation.allowsRetry {
+                Button {
+                    Task { await retry() }
+                } label: {
+                    Label(
+                        String(
+                            localized: "terminal.artifact.gallery.retry",
+                            defaultValue: "Retry",
+                            bundle: .module
+                        ),
+                        systemImage: "arrow.clockwise"
+                    )
+                }
+                .buttonStyle(.borderedProminent)
             }
-            .buttonStyle(.borderedProminent)
         }
     }
 
@@ -589,23 +596,13 @@ extension TerminalArtifactFilesSheet {
                 }
             }
 
-            Menu {
-                Picker(
-                    String(
-                        localized: "terminal.artifact.gallery.sort",
-                        defaultValue: "Sort",
-                        bundle: .module
-                    ),
-                    selection: $gallerySort
-                ) {
-                    ForEach(ChatArtifactGallerySort.allCases, id: \.self) { sort in
-                        Text(sortTitle(sort)).tag(sort)
-                    }
-                }
-            } label: {
-                Label(sortTitle(gallerySort), systemImage: "arrow.up.arrow.down")
-                    .font(.subheadline.weight(.medium))
-            }
+            TerminalArtifactGallerySortMenu(
+                value: TerminalArtifactGallerySortMenuValue(sort: gallerySort),
+                actions: TerminalArtifactGallerySortMenuActions(
+                    setSort: { gallerySort = $0 }
+                )
+            )
+            .equatable()
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -625,17 +622,6 @@ extension TerminalArtifactFilesSheet {
             String(localized: "terminal.artifact.gallery.filter.docs", defaultValue: "Docs", bundle: .module)
         case .folders:
             String(localized: "terminal.artifact.gallery.filter.folders", defaultValue: "Folders", bundle: .module)
-        }
-    }
-
-    private func sortTitle(_ sort: ChatArtifactGallerySort) -> String {
-        switch sort {
-        case .recent:
-            String(localized: "terminal.artifact.gallery.sort.recent", defaultValue: "Recent", bundle: .module)
-        case .name:
-            String(localized: "terminal.artifact.gallery.sort.name", defaultValue: "Name", bundle: .module)
-        case .size:
-            String(localized: "terminal.artifact.gallery.sort.size", defaultValue: "Size", bundle: .module)
         }
     }
 

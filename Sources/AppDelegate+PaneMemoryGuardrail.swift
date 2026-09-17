@@ -3,8 +3,10 @@ import Foundation
 extension AppDelegate {
     /// Starts the per-pane runaway-memory guardrail and the central
     /// memory-pressure monitor. The pane guardrail keeps its existing
-    /// process-tree accounting timer; global memory pressure is handled through
-    /// responder registration so future reclaim paths are one conformance away.
+    /// process-tree accounting timer; global pressure is handled through
+    /// responder registration. Aggregate pressure is intentionally isolated to
+    /// its idle-agent-hibernation responder. Resource diagnostics never enter
+    /// the user notification pipeline.
     func startPaneMemoryGuardrailIfNeeded() {
         let guardrail = PaneMemoryGuardrail.shared
         guardrail.paneProvider = { [weak self] in
@@ -22,7 +24,7 @@ extension AppDelegate {
         }
     }
 
-    private func startMemoryPressureMonitorIfNeeded() {
+    func startMemoryPressureMonitorIfNeeded() {
         let monitor = MemoryPressureMonitor.shared
         monitor.registry.register(
             RendererRealizationMemoryPressureResponder(
@@ -34,43 +36,32 @@ extension AppDelegate {
                 self?.paneMemoryGuardrailTabManagers() ?? []
             }
         )
+        monitor.registry.register(
+            AggregateMemoryPressureResponder(
+                controller: AgentHibernationController.shared,
+                isAggregatePressureActive: { [weak monitor] in
+                    guard let aggregate = monitor?.aggregateMemoryPressure else { return false }
+                    return aggregate.isActionable && aggregate.severity >= .warning
+                }
+            )
+        )
+        monitor.registry.register(
+            AgentHibernationMemoryPressureResponder(
+                controller: AgentHibernationController.shared,
+                isPressureCritical: { [weak monitor] in
+                    monitor?.currentSeverity == .critical
+                }
+            )
+        )
         if let notificationStore {
             monitor.registry.register(
                 NotificationCacheMemoryPressureResponder(store: notificationStore)
             )
         }
-        monitor.onPersistentCriticalPressure = { [weak self] snapshot in
-            self?.postPersistentCriticalMemoryPressureWarning(snapshot: snapshot)
+        monitor.onAggregatePressureCleared = {
+            AgentHibernationController.shared.clearAggregateMemoryPressureConfirmations()
         }
         monitor.start()
-    }
-
-    private func postPersistentCriticalMemoryPressureWarning(snapshot: MemoryPressureSnapshot) {
-        guard let notificationStore else { return }
-        let managers = paneMemoryGuardrailTabManagers()
-        guard let tabId = tabManager?.selectedTabId
-            ?? managers.compactMap(\.selectedTabId).first
-            ?? managers.flatMap(\.tabs).first?.id
-        else { return }
-
-        notificationStore.addNotification(
-            tabId: tabId,
-            surfaceId: nil,
-            title: String(
-                localized: "memoryPressure.critical.title",
-                defaultValue: "cmux is under critical memory pressure"
-            ),
-            subtitle: String(
-                localized: "memoryPressure.critical.subtitle",
-                defaultValue: "Hidden renderers and browsers were released"
-            ),
-            body: String(
-                localized: "memoryPressure.critical.body",
-                defaultValue: "macOS is reporting sustained critical memory pressure. cmux has shed hidden resources; close idle workspaces or restart cmux if pressure continues."
-            ),
-            cooldownKey: "memory-pressure-critical",
-            cooldownInterval: 300
-        )
     }
 
     private func paneMemoryGuardrailTabManagers() -> [TabManager] {

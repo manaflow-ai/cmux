@@ -1,4 +1,5 @@
 #if canImport(UIKit)
+import CMUXMobileCore
 import CmuxMobileTerminalKit
 import UIKit
 
@@ -23,15 +24,45 @@ final class TerminalArrowNubView: UIView {
     private var lastDirection: TerminalArrowNubDirection?
     private let feedbackGenerator = UIImpactFeedbackGenerator(style: .light)
 
+    /// True when the circle is a Liquid Glass underlay (iOS 26+): the flat
+    /// theme fill stays off so the glass shows the band rows through it.
+    private var glassBackgroundActive = false
+
     func applyTheme(background: UIColor, foreground: UIColor) {
-        backgroundColor = foreground.withAlphaComponent(0.16)
+        if !glassBackgroundActive {
+            backgroundColor = foreground.withAlphaComponent(0.16)
+        }
         innerDot.backgroundColor = foreground.withAlphaComponent(0.9)
         innerDot.layer.shadowColor = foreground.cgColor
     }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backgroundColor = UIColor.white.withAlphaComponent(0.16)
+        if #available(iOS 26.0, *) {
+            // Liquid Glass circle under the pad, constraint-pinned to the
+            // nub's edges — the docked bar fixes the nub at nubSize², so
+            // this is exactly the circle the flat fill used to draw.
+            // (Autoresizing from the zero init bounds doubled the frame
+            // once constraints landed; constraints track the real size.)
+            // Strictly non-interactive: the drag pan lives on this nub view
+            // and the glass must never intercept or respond to touches.
+            let glass = UIVisualEffectView(effect: UIGlassEffect())
+            glass.isUserInteractionEnabled = false
+            glass.translatesAutoresizingMaskIntoConstraints = false
+            glass.layer.cornerRadius = nubSize / 2
+            glass.clipsToBounds = true
+            addSubview(glass)
+            NSLayoutConstraint.activate([
+                glass.leadingAnchor.constraint(equalTo: leadingAnchor),
+                glass.trailingAnchor.constraint(equalTo: trailingAnchor),
+                glass.topAnchor.constraint(equalTo: topAnchor),
+                glass.bottomAnchor.constraint(equalTo: bottomAnchor),
+            ])
+            glassBackgroundActive = true
+            backgroundColor = .clear
+        } else {
+            backgroundColor = UIColor.white.withAlphaComponent(0.16)
+        }
         layer.cornerRadius = nubSize / 2
 
         innerDot.backgroundColor = UIColor.white.withAlphaComponent(0.9)
@@ -46,7 +77,7 @@ final class TerminalArrowNubView: UIView {
         let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
         addGestureRecognizer(pan)
 
-        feedbackGenerator.prepare()
+        MobileHapticFeedback().prepare(feedbackGenerator)
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -67,7 +98,7 @@ final class TerminalArrowNubView: UIView {
         switch gesture.state {
         case .began:
             dragOrigin = innerDot.center
-            feedbackGenerator.prepare()
+            MobileHapticFeedback().prepare(feedbackGenerator)
         case .changed:
             let maxOffset: CGFloat = nubSize / 2 - 8
             let clampedX = max(-maxOffset, min(maxOffset, translation.x))
@@ -115,7 +146,7 @@ final class TerminalArrowNubView: UIView {
         repeatTask = Task { @MainActor [weak self] in
             for await _ in stream {
                 guard let self else { return }
-                self.feedbackGenerator.impactOccurred()
+                MobileHapticFeedback().impact(self.feedbackGenerator)
                 self.onArrowKey?(direction.accessoryAction)
             }
         }
