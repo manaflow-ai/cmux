@@ -22,7 +22,8 @@ def run(*args, capture=True):
     return result.stdout.strip() if capture else None
 
 def az(*args):
-    return json.loads(run('az', *args, '--subscription', ARGS.subscription, '--only-show-errors', '-o', 'json'))
+    output=run('az', *args, '--subscription', ARGS.subscription, '--only-show-errors', '-o', 'json')
+    return json.loads(output) if output else None
 
 def label(value):
     if not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,24}', value):
@@ -96,23 +97,28 @@ def main():
     keys=json.loads(ARGS.authority_keys.read_text())
     if not isinstance(keys,dict) or not 1<=len(keys)<=32 or any(not k or len(k)>128 or not re.fullmatch('[a-fA-F0-9]{64}',v) for k,v in keys.items()):
         raise ValueError('authority keys must be {key_id: 32-byte-public-key-hex}')
-    sha=run('git','rev-parse','HEAD')
-    if run('git','status','--porcelain','--','services/transport-v3'):
+    deployment_sha=run('git','rev-parse','HEAD')
+    sha=ARGS.built_sha or deployment_sha
+    if not re.fullmatch(r'[0-9a-f]{40}',sha): raise ValueError('image revision must be a full Git SHA')
+    if run('git','status','--porcelain','--','.'):
         raise RuntimeError('Commit the transport workspace before building an immutable deployment')
     shared=f'cmux-v3-{ARGS.environment}-shared'
     az('group','create','-n',shared,'-l',ARGS.regions[0],'--tags','app=cmux-transport-v3',f'environment={ARGS.environment}')
     # Create is idempotent for an existing registry; no admin password is enabled.
     registry=az('acr','create','-g',shared,'-n',ARGS.registry,'--sku','Basic','--admin-enabled','false')
     build_tag=f'relay:{sha}'
-    run('az','acr','build','--subscription',ARGS.subscription,'-r',ARGS.registry,'-t',build_tag,'-f','Dockerfile',str(ROOT),capture=False)
+    if not ARGS.built_sha:
+        run('az','acr','build','--subscription',ARGS.subscription,'-r',ARGS.registry,'-t',build_tag,'-f','Dockerfile',str(ROOT),capture=False)
     digest=az('acr','repository','show','-n',ARGS.registry,'--image',build_tag)['digest']
     image=f'{registry["loginServer"]}/relay@{digest}'
-    az('acr','import','-n',ARGS.registry,'--source','docker.io/library/caddy:2.11.4','--image','caddy:2.11.4')
+    tags=az('acr','repository','list','-n',ARGS.registry)
+    if 'caddy' not in tags:
+        az('acr','import','-n',ARGS.registry,'--source','docker.io/library/caddy:2.11.4','--image','caddy:2.11.4')
     proxy_digest=az('acr','repository','show','-n',ARGS.registry,'--image','caddy:2.11.4')['digest']
     proxy=f'{registry["loginServer"]}/caddy@{proxy_digest}'
     identity=az('identity','create','-g',shared,'-n','relay-pull','-l',ARGS.regions[0])
     az('role','assignment','create','--assignee-object-id',identity['principalId'],'--assignee-principal-type','ServicePrincipal','--role','AcrPull','--scope',registry['id'])
-    receipt={'source':sha,'image':image,'proxy':proxy,'nodes':[]}
+    receipt={'source':sha,'deployment_source':deployment_sha,'image':image,'proxy':proxy,'nodes':[]}
     for region in ARGS.regions:
         group=f'cmux-v3-{ARGS.environment}-{region}'
         node=f'v3-{ARGS.environment}-{region}-{ARGS.generation}'
@@ -144,6 +150,7 @@ if __name__=='__main__':
     parser.add_argument('--registry',required=True,type=label)
     parser.add_argument('--environment',default='staging',type=label)
     parser.add_argument('--generation',required=True,type=label)
+    parser.add_argument('--built-sha',help='Reuse an already-built immutable relay image from this revision')
     parser.add_argument('--regions',nargs='+',default=['eastus','westeurope'],type=label)
     parser.add_argument('--size',default='Standard_B2s')
     parser.add_argument('--authority-keys',required=True,type=Path)

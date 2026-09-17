@@ -59,6 +59,14 @@ impl Stack {
     /// Check the destination owner's current membership too. A stale device row
     /// must not keep a removed team member reachable indefinitely.
     pub async fn member_verified(&self, user: &str, team: &str) -> Result<u64, Error> {
+        self.member_verified_max_age(user, team, 20).await
+    }
+    pub async fn member_verified_max_age(
+        &self,
+        user: &str,
+        team: &str,
+        max_age: u64,
+    ) -> Result<u64, Error> {
         if !identifier(user) || !identifier(team) {
             return Err(Error::Denied);
         }
@@ -66,13 +74,9 @@ impl Stack {
             serde_json::to_vec(&("membership", user, team)).map_err(|_| Error::Invalid)?,
         )
         .into();
-        if let Some(hit) = self
-            .cache
-            .lock()
-            .await
-            .get(&cache_key)
-            .filter(|v| v.expires > Instant::now())
-        {
+        if let Some(hit) = self.cache.lock().await.get(&cache_key).filter(|v| {
+            v.expires > Instant::now() && now().saturating_sub(v.identity.verified_at) < max_age
+        }) {
             return Ok(hit.identity.verified_at);
         }
         let _slot = self.slots.try_acquire().map_err(|_| Error::Unavailable)?;
@@ -168,19 +172,24 @@ impl Stack {
         })
     }
     pub async fn authorize(&self, token: &str, team: &str, admin: bool) -> Result<Identity, Error> {
+        self.authorize_max_age(token, team, admin, 20).await
+    }
+    pub async fn authorize_max_age(
+        &self,
+        token: &str,
+        team: &str,
+        admin: bool,
+        max_age: u64,
+    ) -> Result<Identity, Error> {
         if token.is_empty() || token.len() > 8192 || !identifier(team) {
             return Err(Error::Unauthorized);
         }
         let cache_key: [u8; 32] =
             Sha256::digest(serde_json::to_vec(&(token, team)).map_err(|_| Error::Invalid)?).into();
         if !admin {
-            if let Some(hit) = self
-                .cache
-                .lock()
-                .await
-                .get(&cache_key)
-                .filter(|v| v.expires > Instant::now())
-            {
+            if let Some(hit) = self.cache.lock().await.get(&cache_key).filter(|v| {
+                v.expires > Instant::now() && now().saturating_sub(v.identity.verified_at) < max_age
+            }) {
                 return Ok(hit.identity.clone());
             }
         }
@@ -442,6 +451,16 @@ mod tests {
         ));
         // An expired positive membership cache cannot mask removal.
         state.member.store(false, Ordering::Relaxed);
+        // A short lease asks for fresher evidence before the normal 20-second
+        // cache expires. Refresh must observe removal rather than mint an expired grant.
+        for item in stack.cache.lock().await.values_mut() {
+            item.identity.verified_at = item.identity.verified_at.saturating_sub(5);
+        }
+        assert!(stack.authorize("valid", "team-a", false).await.is_ok());
+        assert!(matches!(
+            stack.authorize_max_age("valid", "team-a", false, 1).await,
+            Err(Error::Denied)
+        ));
         for item in stack.cache.lock().await.values_mut() {
             item.expires = Instant::now() - Duration::from_secs(1);
         }

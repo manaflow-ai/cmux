@@ -142,6 +142,11 @@ impl Store {
         tx.commit().await?;
         Ok(team.revision)
     }
+    pub async fn lease(&self, identity: &Identity, peer: PeerId) -> Result<LeasePolicy, Error> {
+        let lease:serde_json::Value=sqlx::query_scalar("SELECT lease FROM transport_v3_devices WHERE team_id=$1 AND peer_id=$2 AND owner_user_id=$3 AND active")
+            .bind(&identity.team).bind(peer.to_string()).bind(&identity.user).fetch_optional(&self.0).await?.ok_or(Error::Denied)?;
+        serde_json::from_value(lease).map_err(|_| Error::Unavailable)
+    }
     pub async fn owner(&self, team: &str, peer: &str) -> Result<String, Error> {
         sqlx::query_scalar("SELECT owner_user_id FROM transport_v3_devices WHERE team_id=$1 AND peer_id=$2 AND active")
             .bind(team).bind(peer).fetch_optional(&self.0).await?.ok_or(Error::Denied)

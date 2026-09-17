@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use cmux_v3_control_server::{auth::Stack, router, store::Store, Service};
 use cmux_v3_grants::GrantSigner;
 use ed25519_dalek::SigningKey;
-use sqlx::postgres::PgPoolOptions;
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions, PgSslMode};
 use std::{sync::Arc, time::Duration};
 
 #[tokio::main]
@@ -12,10 +12,16 @@ async fn main() -> Result<()> {
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
+    let mut options: PgConnectOptions = std::env::var("DATABASE_URL")
+        .context("DATABASE_URL required")?
+        .parse()?;
+    if !matches!(options.get_host(), "localhost" | "127.0.0.1" | "::1") {
+        options = options.ssl_mode(PgSslMode::VerifyFull);
+    }
     let db = PgPoolOptions::new()
         .max_connections(32)
         .acquire_timeout(Duration::from_secs(5))
-        .connect(&std::env::var("DATABASE_URL").context("DATABASE_URL required")?)
+        .connect_with(options)
         .await?;
     // Explicit operator step, never migrate from serving startup.
     if std::env::args().nth(1).as_deref() == Some("migrate") {

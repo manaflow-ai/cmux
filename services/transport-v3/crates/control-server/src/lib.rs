@@ -205,14 +205,27 @@ async fn authorize(
         &input.request,
         now(),
     )?;
+    let lease = s.store.lease(&identity, source).await?;
+    let max_age = match lease.offline {
+        cmux_v3_grants::OfflineAccess::Bounded { seconds } => u64::from(seconds / 2).min(20),
+        _ => 20,
+    };
+    if now().saturating_sub(identity.verified_at) >= max_age {
+        identity = s
+            .stack
+            .authorize_max_age(token(&headers)?, &input.request.team, false, max_age)
+            .await?;
+    }
     if input.request.action != "relay_reserve" {
         let owner = s
             .store
             .owner(&identity.team, &input.request.destination)
             .await?;
-        identity.verified_at = identity
-            .verified_at
-            .min(s.stack.member_verified(&owner, &identity.team).await?);
+        identity.verified_at = identity.verified_at.min(
+            s.stack
+                .member_verified_max_age(&owner, &identity.team, max_age)
+                .await?,
+        );
     }
     let grant = s
         .store
