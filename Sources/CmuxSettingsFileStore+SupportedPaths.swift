@@ -30,6 +30,7 @@ extension CmuxSettingsFileStore {
         "app.confirmQuit",
         "app.warnBeforeQuit",
         "app.warnBeforeClosingTab",
+        "app.closeCloudTerminal",
         "app.warnBeforeClosingTabXButton",
         "app.hideTabCloseButton",
         "app.renameSelectsExistingName",

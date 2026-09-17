@@ -4,6 +4,7 @@ import Foundation
 /// One cloud machine's resources: its cmux-tui terminals (over the headless link), its
 /// noVNC screen, and its forwarded ports. Terminals live in the machine's cmux-tui
 /// session, so a local pane closing never touches them (only local browser preparation is cancelled).
+/// Killing is `closeTerminal`, which the workspace cloud close gate calls for Kill Process.
 @MainActor
 final class CmuxTuiSurfaceProvider: SurfaceProvider {
     let machineID: String
@@ -1192,7 +1193,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         return .partialOperation(id, reason: reason)
     }
 
-    /// The terminal lives in the machine's session; only the local pane went away.
+    /// The terminal lives in the machine's session; only the local pane went away
+    /// (a detach). A kill went through `closeTerminal` before the pane closed.
     func projectionDidEnd(_ projection: SurfaceProjection) {
         browserPaneTasks.removeValue(forKey: projection.panelID)?.cancel()
         restoredAttachTasks.removeValue(forKey: projection.panelID)?.cancel()

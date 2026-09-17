@@ -80,6 +80,15 @@ extension CmuxSettingsFileStore {
         if let value = jsonBool(section["keepWorkspaceOpenWhenClosingLastSurface"]) {
             snapshot.managedUserDefaults[SettingCatalog().app.keepWorkspaceOpenWhenClosingLastSurface.userDefaultsKey] = .bool(!value)
         }
+        if let raw = jsonString(section["closeCloudTerminal"]) {
+            if let action = CloudTerminalCloseAction(rawValue: raw) {
+                snapshot.managedUserDefaults[AppCatalogSection().closeCloudTerminal.userDefaultsKey] = .string(action.rawValue)
+            } else {
+                logInvalid("app.closeCloudTerminal", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("closeCloudTerminal") {
+            logInvalid("app.closeCloudTerminal", sourcePath: sourcePath)
+        }
         var parsedConfirmQuitMode: ConfirmQuitMode?
         let confirmQuitKey = AppCatalogSection().confirmQuitMode.userDefaultsKey
         let warnBeforeQuitKey = AppCatalogSection().warnBeforeQuit.userDefaultsKey

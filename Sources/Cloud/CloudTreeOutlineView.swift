@@ -71,6 +71,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     // MARK: - Coordinator
     @MainActor
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate {
+        /// Row opens join the current pane; Open in New Pane remains a split.
+        static let rowOpenPlacement: SurfacePlacement = .tab
+
         var machineActions: MachineRowActions
         var nodeActions: CloudTreeNodeActions
         let expansionStore: CloudTreeExpansionStore
@@ -472,21 +475,21 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                         nodeActions.projectInLocalWorkspace(resource.id, openIn)
                     }
                 } else if let remoteView {
-                    nodeActions.projectRemoteView(resource.id, remoteView, .split, true)
+                    nodeActions.projectRemoteView(resource.id, remoteView, Self.rowOpenPlacement, true)
                 } else {
-                    nodeActions.project(resource.id, .split, true)
+                    nodeActions.project(resource.id, Self.rowOpenPlacement, true)
                 }
             case .port(let resource, _, let openIn):
                 if let openIn {
                     nodeActions.projectInLocalWorkspace(resource.id, openIn)
                 } else {
-                    nodeActions.project(resource.id, .split, true)
+                    nodeActions.project(resource.id, Self.rowOpenPlacement, true)
                 }
             case .browser(let row):
                 if let view = row.remoteView {
-                    nodeActions.projectRemoteView(row.resource.id, view, .split, true)
+                    nodeActions.projectRemoteView(row.resource.id, view, .tab, true)
                 } else {
-                    nodeActions.project(row.resource.id, .split, true)
+                    nodeActions.project(row.resource.id, .tab, true)
                 }
             case .placeholder(let machineID, let placeholder):
                 // "Asleep — open to wake": a fresh terminal on the machine is what wakes it.
@@ -707,8 +710,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
         }
 
-        /// The verbs every surface row shares: open (reusing an open pane), open as a
-        /// tab, a second pane (cloud resources only — a local terminal has one pane),
+        /// The verbs every surface row shares: open (a tab, reusing an open pane),
+        /// a second pane (cloud resources only — a local terminal has one pane),
         /// and copying the resource id agents use with `cmux vm open`.
         private func resourceMenuItems(
             _ resource: SurfaceResource,
@@ -732,16 +735,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                             nodeActions.projectInLocalWorkspace(resource.id, openInLocalWorkspace)
                         }
                     } else if let remoteView {
-                        nodeActions.projectRemoteView(resource.id, remoteView, .split, true)
+                        nodeActions.projectRemoteView(resource.id, remoteView, Self.rowOpenPlacement, true)
                     } else {
-                        nodeActions.project(resource.id, .split, true)
-                    }
-                },
-                item(String(localized: "cloudTree.menu.openInNewTab", defaultValue: "Open in New Tab")) { [nodeActions] in
-                    if let remoteView {
-                        nodeActions.projectRemoteView(resource.id, remoteView, .tab, true)
-                    } else {
-                        nodeActions.project(resource.id, .tab, true)
+                        nodeActions.project(resource.id, Self.rowOpenPlacement, true)
                     }
                 },
             ]

@@ -1152,6 +1152,7 @@ final class SurfaceCatalog {
 
     /// A pane went away. Remote resources live on; a pane closed on purpose inside a
     /// mirrored workspace also closes its machine tab (`CloudPlacementCoordinator`).
+    /// Killing the process is a separate `closeTerminal` verb run by the close gate first.
     func endProjections(panelID: UUID, reason: SurfaceProjectionEndReason = .paneClosed) {
         let removedPending = pendingRestoredProjections.remove(panelID: panelID)
         if removedPending { cloudProjectionIndexDirty = true }

@@ -108,6 +108,8 @@ extension DockSplitStore {
         case .toggleFullWidthTab:
             _ = toggleDockFullWidthTab(panelId: panelId)
         case .disconnectRemote,
+             .detachCloudTerminal,
+             .killCloudTerminal,
              .forkConversation,
              .forkConversationRight,
              .forkConversationLeft,
