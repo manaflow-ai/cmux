@@ -1,6 +1,12 @@
 import Foundation
 
 extension CloudTreeNode.Kind {
+    /// Readings describe a machine without representing a selectable pane.
+    var isSelectable: Bool {
+        if case .resource = self { return false }
+        return true
+    }
+
     /// New resources and terminal sections start closed; all other groups
     /// remain open unless the person explicitly collapses them.
     var isExpandedByDefault: Bool {

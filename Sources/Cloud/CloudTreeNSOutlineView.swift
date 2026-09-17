@@ -127,6 +127,14 @@ final class CloudTreeNSOutlineView: NSOutlineView {
 
     var treeStyle: CloudTreeStyle = CloudTreeStyleStore.current
 
+    override func selectRowIndexes(_ indexes: IndexSet, byExtendingSelection extend: Bool) {
+        let selectable = IndexSet(indexes.filter { row in
+            (item(atRow: row) as? CloudTreeNode)?.kind.isSelectable == true
+        })
+        guard indexes.isEmpty || !selectable.isEmpty else { return }
+        super.selectRowIndexes(selectable, byExtendingSelection: extend)
+    }
+
     /// Per-event context menu, the same presentation path the sidebar rows
     /// use. The persistent `menu` + delegate `menuNeedsUpdate` route rendered
     /// items whose actions never dispatched; building the menu in

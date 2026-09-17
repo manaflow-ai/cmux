@@ -361,7 +361,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         }
 
         func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool {
-            true
+            (item as? CloudTreeNode)?.kind.isSelectable == true
         }
 
         func outlineViewSelectionDidChange(_ notification: Notification) {
@@ -485,7 +485,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 } else {
                     nodeActions.project(row.resource.id, .split, true)
                 }
-            case .resourcesPool, .resource:
+            case .resource:
                 break
             case .placeholder(let machineID, let placeholder):
                 // "Asleep — open to wake": a fresh terminal on the machine is what wakes it.
@@ -524,11 +524,17 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         // MARK: Keyboard
 
         func moveSelection(by delta: Int) {
-            guard let outlineView, outlineView.numberOfRows > 0 else { return }
+            guard let outlineView, outlineView.numberOfRows > 0, delta != 0 else { return }
             let current = outlineView.selectedRow >= 0 ? outlineView.selectedRow : (delta >= 0 ? -1 : outlineView.numberOfRows)
-            let target = min(max(current + delta, 0), outlineView.numberOfRows - 1)
-            outlineView.selectRowIndexes(IndexSet(integer: target), byExtendingSelection: false)
-            outlineView.scrollRowToVisible(target)
+            var target = current + delta
+            while (0..<outlineView.numberOfRows).contains(target) {
+                if let node = outlineView.item(atRow: target) as? CloudTreeNode, node.kind.isSelectable {
+                    outlineView.selectRowIndexes(IndexSet(integer: target), byExtendingSelection: false)
+                    outlineView.scrollRowToVisible(target)
+                    return
+                }
+                target += delta > 0 ? 1 : -1
+            }
         }
 
         func performDisclosure(_ action: RightSidebarKeyboardNavigation.DisclosureAction) {
@@ -559,7 +565,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             guard !needle.isEmpty else { return }
             for row in 0..<outlineView.numberOfRows {
-                guard let node = outlineView.item(atRow: row) as? CloudTreeNode else { continue }
+                guard let node = outlineView.item(atRow: row) as? CloudTreeNode, node.kind.isSelectable else { continue }
                 if node.searchableTitle.lowercased().contains(needle) {
                     outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
                     outlineView.scrollRowToVisible(row)
