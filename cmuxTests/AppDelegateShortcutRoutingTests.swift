@@ -6315,7 +6315,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let window = try XCTUnwrap(window(withId: windowId))
         let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let panel = try XCTUnwrap(workspace.makeRemoteTmuxPanePanel(onInput: { _ in }))
+        let panel = coldCloudTerminalPanel(workspace: workspace)
         _ = try workspace.insertCloudManualMirrorPanel(
             panel, at: .workspace(id: workspace.id, placement: .tab), focus: true, isLoading: false
         )
