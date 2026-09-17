@@ -194,3 +194,7 @@ seamless upgrades, observability, security audit, and real end-to-end proof.
 - No Swift entrypoint has changed. Native session ownership, renewal, replay,
   acknowledged input and revocation must be implemented/tested before the app
   switch and removal of IRX/iroh. Existing probe tests do not cover these contracts.
+- Drain currently rejects permission renewals as well as new admissions. Existing
+  circuits remain subject to grant expiration. Upgrade work must cover renewal
+  during handover and demonstrate continuity across that deadline; the short
+  relay-process drain test is insufficient evidence for long-lived sessions.

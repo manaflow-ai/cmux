@@ -34,7 +34,10 @@ before the operator invokes installation through Azure Run Command.
    An existing circuit is not automatically migrated by libp2p.
 5. Recheck replacement health live, then drain old nodes through their private
    management endpoint. A drained node refuses new circuits, including requests
-   on existing connections. Established circuits keep working until they finish.
+   on existing connections. Established circuits continue subject to authorization
+   expiry and the transport's own limits. Current drain rejects permission
+   renewal too, so handover must finish before the remaining grant expires.
+   Unbounded upgrade continuity is not implemented yet.
 6. Retire an old VM only after its live circuit count is zero and all client
    handovers are acknowledged. A deadline is an escalation signal, not permission
    to force-kill sessions. Restart-on-failure keeps a cleanly drained node stopped.
