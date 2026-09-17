@@ -81,6 +81,8 @@ public struct MobileSection: View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.mobile", defaultValue: "Mobile"), section: .mobile)
             SettingsCard {
+                iOSPairingHostRow
+                SettingsCardDivider()
                 if remoteControlManagedByPolicy {
                     SettingsCardNote(String(
                         localized: "settings.mobile.managedByOrganization",
@@ -100,17 +102,14 @@ public struct MobileSection: View {
                 Group {
                     pairDeviceRow
                     SettingsCardDivider()
-                    iOSPairingHostRow
-                    SettingsCardDivider()
                     portRow
                     boundPortStatusRow
                     SettingsCardDivider()
                     displayNameRow
                     SettingsCardDivider()
                     artifactFolderAccessRow
-                    // The Iroh endpoint hosts for every signed-in Mac even when
-                    // the legacy pairing listener is toggled off, so diagnostics
-                    // follow the live snapshot rather than the toggle alone.
+                    // Keep diagnostics visible while a live endpoint is draining
+                    // after the user turns pairing off.
                     if iOSPairingHost.current || status.current?.isRunning == true {
                         SettingsCardDivider()
                         diagnostics
@@ -248,7 +247,7 @@ public struct MobileSection: View {
         SettingsCardRow(
             configurationReview: .action,
             searchAnchorID: "setting:mobile:pairDevice",
-            String(localized: "settings.mobile.pairDevice", defaultValue: "Tailscale Pairing"),
+            String(localized: "settings.mobile.pairDevice", defaultValue: "Mobile Pairing"),
             subtitle: String(
                 localized: "settings.mobile.pairDevice.subtitle",
                 defaultValue: """
@@ -271,10 +270,10 @@ public struct MobileSection: View {
         SettingsCardRow(
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:mobile:iOSPairingHost",
-            String(localized: "settings.mobile.iOSPairingHost", defaultValue: "iOS Pairing"),
+            String(localized: "settings.mobile.iOSPairingHost", defaultValue: "Enable iOS pairing"),
             subtitle: iOSPairingHost.current
-                ? String(localized: "settings.mobile.iOSPairingHost.subtitleOn", defaultValue: "Allows the iOS app to discover and sync with this Mac on your local network.")
-                : String(localized: "settings.mobile.iOSPairingHost.subtitleOff", defaultValue: "Keeps the Mac-side iOS pairing listener off until you enable it here.")
+                ? String(localized: "settings.mobile.iOSPairingHost.subtitleOn", defaultValue: "Allows iOS pairing and Iroh networking for this Mac.")
+                : String(localized: "settings.mobile.iOSPairingHost.subtitleOff", defaultValue: "Keeps iOS pairing and Iroh networking off until you enable it here.")
         ) {
             Toggle("", isOn: Binding(get: { iOSPairingHost.current }, set: { iOSPairingHost.set($0) }))
                 .labelsHidden()
