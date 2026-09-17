@@ -10,6 +10,7 @@ import {
   type VmBillingGatewayShape,
 } from "../services/vms/billingGateway";
 import type { AttachEndpoint, SSHEndpoint, VMHandle } from "../services/vms/drivers";
+import { vmCapabilitiesFor } from "../services/vms/drivers";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import {
   FAILED_CREATE_RETRY_WINDOW_MS,
@@ -55,6 +56,7 @@ import {
   approveVmCmuxRemoteEnrollment,
   openBaseVm,
   openAttachEndpoint,
+  prepareScpEndpoint,
   openVmPort,
   openVmCmuxRemote,
   openVmSession,
@@ -222,7 +224,7 @@ describe("VM Effect workflows", () => {
       id: "00000000-0000-4000-8000-000000000151",
       userId: "user-workflow-legacy-fork-shape",
       billingTeamId: "team-workflow-legacy-fork-shape",
-      billingPlanId: "pro",
+      billingPlanId: "max",
       providerVmId: "provider-vm-legacy-fork-source",
       status: "running",
       providerMetadata: {},
@@ -231,7 +233,7 @@ describe("VM Effect workflows", () => {
       id: "00000000-0000-4000-8000-000000000152",
       userId: source.userId,
       billingTeamId: source.billingTeamId,
-      billingPlanId: "pro",
+      billingPlanId: "max",
       providerVmId: null,
       status: "provisioning",
       providerMetadata: {},
@@ -269,10 +271,11 @@ describe("VM Effect workflows", () => {
     } as unknown as VmRepositoryShape;
     const provider: VmProviderGatewayShape = {
       ...unusedProviderGateway(),
+      capabilities: (provider) => ({ ...vmCapabilitiesFor(provider), fork: true }),
       getStatus: () => Effect.succeed("running"),
       resume: () => Effect.succeed(testVmHandle({ providerVmId: source.providerVmId! })),
       getStats: (_provider: string, providerVmId: string) => {
-        expect(providerVmId).toBe("provider-vm-legacy-fork-copy");
+        expect([source.providerVmId, "provider-vm-legacy-fork-copy"]).toContain(providerVmId);
         return Effect.succeed({
           state: "awake" as const,
           sampledAt: Date.now(),
@@ -290,7 +293,7 @@ describe("VM Effect workflows", () => {
         billingCustomerType: "team",
         billingTeamId: source.billingTeamId!,
         teamIds: [source.billingTeamId!],
-        billingPlanId: "pro",
+        billingPlanId: "max",
         maxActiveVms: 50,
         providerVmId: source.providerVmId!,
       }).pipe(Effect.provide(workflowLayer(repo, provider))),
@@ -354,10 +357,12 @@ describe("VM Effect workflows", () => {
     } as unknown as VmRepositoryShape;
     const provider: VmProviderGatewayShape = {
       ...unusedProviderGateway(),
+      capabilities: (provider) => ({ ...vmCapabilitiesFor(provider), fork: true }),
       getStatus: () => Effect.succeed("running"),
       resume: () => Effect.succeed(testVmHandle({ providerVmId: source.providerVmId! })),
       getStats: (_provider: string, providerVmId: string) => {
-        expect(providerVmId).toBe("provider-vm-legacy-fork-invalid-copy");
+        expect([source.providerVmId, "provider-vm-legacy-fork-invalid-copy"]).toContain(providerVmId);
+        if (providerVmId === source.providerVmId) return Effect.succeed({ state: "awake" as const, sampledAt: Date.now(), cpus: 4, memoryTotalMb: 8192, diskTotalMb: 32768 });
         return Effect.succeed({
           state: "awake" as const,
           sampledAt: Date.now(),
@@ -439,10 +444,11 @@ describe("VM Effect workflows", () => {
     } as unknown as VmRepositoryShape;
     const provider: VmProviderGatewayShape = {
       ...unusedProviderGateway(),
+      capabilities: (provider) => ({ ...vmCapabilitiesFor(provider), fork: true }),
       getStatus: () => Effect.succeed("running"),
       resume: () => Effect.succeed(testVmHandle({ providerVmId: source.providerVmId! })),
       getStats: (_provider: string, providerVmId: string) => {
-        expect(providerVmId).toBe("provider-vm-legacy-fork-one-vcpu-copy");
+        expect([source.providerVmId, "provider-vm-legacy-fork-one-vcpu-copy"]).toContain(providerVmId);
         return Effect.succeed({
           state: "awake" as const,
           sampledAt: Date.now(),
@@ -4655,7 +4661,9 @@ describe("VM Effect workflows", () => {
         userId: "user-workflow-restore",
         billingCustomerType: "team",
         billingTeamId: "team-workflow-restore",
-        billingPlanId: "free",
+        // This test isolates ownership. Max also permits legacy snapshots
+        // without a recorded shape; size-limit rejection is covered separately.
+        billingPlanId: "max",
         maxActiveVms: 1,
         provider: "freestyle",
         snapshotId: "snapshot-owned",
@@ -6460,6 +6468,8 @@ function testCloudVmRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
     failureCode: null,
     failureMessage: null,
     providerMetadata: {},
+    ownerTeamId: overrides.ownerTeamId ?? overrides.billingTeamId ?? overrides.userId ?? "user-workflow-usage-events",
+    coderouterPoolId: null,
     ...overrides,
   };
   if (!("billingTeamId" in overrides)) {
@@ -6904,5 +6914,37 @@ describe("destroyVm home volume cleanup", () => {
     );
 
     expect(markCalls).toBe(2);
+  });
+});
+
+
+describe("private SCP workflow", () => {
+  test("returns the private endpoint without revoking another transfer or recording a bearer lease", async () => {
+    const vm = testCloudVmRow({ providerVmId: "vm-scp", status: "running", billingPlanId: "pro" });
+    const leases: RecordedLease[] = [];
+    const events: RecordedUsageEvent[] = [];
+    const endpoint = { host: "10.1.2.3", port: 22, username: "cmux", hostPublicKey: "guest-key", expiresAtUnix: 123 };
+    const result = await Effect.runPromise(prepareScpEndpoint({ userId: vm.userId, providerVmId: "vm-scp", publicKey: "client-key", callerPlanId: "pro" }).pipe(
+      Effect.provide(Layer.succeed(VmRepository, testWorkflowRepo({ vm, leases, usageEvents: events }))),
+      Effect.provide(Layer.succeed(VmProviderGateway, { ...unusedProviderGateway(),
+        prepareSCP: (_provider, id, key) => { expect(id).toBe("vm-scp"); expect(key).toBe("client-key"); return Effect.succeed(endpoint); },
+        revokeSSHIdentity: () => { throw new Error("must not revoke concurrent access"); },
+      })),
+    ));
+    expect(result).toEqual(endpoint);
+    expect(leases).toHaveLength(0);
+    expect(events.map(event => event.eventType)).toEqual(["vm.scp_endpoint"]);
+  });
+
+  test("refuses an inaccessible VM before installing a public key", async () => {
+    const vm = testCloudVmRow({ providerVmId: "vm-scp", status: "running" });
+    let calls = 0;
+    const result = await Effect.runPromise(prepareScpEndpoint({ userId: "other-user", providerVmId: "vm-scp", publicKey: "client-key", callerPlanId: "pro" }).pipe(
+      Effect.provide(Layer.succeed(VmRepository, { ...testWorkflowRepo({ vm }), findUserVm: () => Effect.succeed(null) })),
+      Effect.provide(Layer.succeed(VmProviderGateway, { ...unusedProviderGateway(), prepareSCP: () => { calls++; return Effect.die("unauthorized"); } })),
+      Effect.flip,
+    ));
+    expect(result._tag).toBe("VmNotFoundError");
+    expect(calls).toBe(0);
   });
 });

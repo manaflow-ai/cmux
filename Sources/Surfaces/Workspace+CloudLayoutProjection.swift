@@ -4,10 +4,15 @@ import Foundation
 @MainActor
 extension Workspace {
     /// Reuses native panels and their byte attachments while applying daemon
-    /// geometry. Mixed local/SSH workspaces remain viewers and keep their layout.
+    /// geometry. Workspaces containing local views retain their own split layout.
     @MainActor
     func applyCloudWorkspaceLayout(_ layout: SurfaceProjectionLayout, projections: [SurfaceProjection]) {
-        guard !isRemoteTmuxMirror, Set(projections.map(\.panelID)) == Set(panels.keys) else { return }
+        // Local Desktop/port views can belong to this Cloud workspace without a
+        // daemon tab. Membership does not give the daemon geometry ownership:
+        // flattening those extra views into its first leaf collapses local splits.
+        guard !isRemoteTmuxMirror,
+              projections.allSatisfy({ $0.remoteTabID != nil }),
+              Set(projections.map(\.panelID)) == Set(panels.keys) else { return }
         var tabs: [SurfaceResourcePlacement: TabID] = [:]
         for projection in projections {
             guard let tab = surfaceIdFromPanelId(projection.panelID) else { return }

@@ -72,28 +72,6 @@ struct CloudVMNotificationRow: Hashable, Sendable {
     }
 }
 
-/// Durable per-machine sync state. `delivered` remembers which retained rows
-/// this Mac already turned into local notifications, so a snapshot repair, a
-/// reconnect replay, or an app relaunch never re-delivers one. `pendingAcks`
-/// are reads the daemon has not confirmed yet; each batch keeps its
-/// idempotency key across retries so a retried ack replays instead of
-/// committing twice.
-struct CloudNotificationSyncState: Codable, Equatable, Sendable {
-    struct PendingAck: Codable, Equatable, Sendable {
-        var key: String
-        var ids: [String]
-    }
-
-    static let deliveredLimit = 512
-
-    var delivered: [String] = []
-    var pendingAcks: [PendingAck] = []
-
-    var pendingIDs: Set<String> {
-        Set(pendingAcks.flatMap(\.ids))
-    }
-}
-
 /// Pure transitions over `CloudNotificationSyncState`. Every effect the sync
 /// performs is decided here and only here, so the fault-injection tests cover
 /// the same code the app runs.
@@ -125,8 +103,16 @@ enum CloudNotificationSyncReducer {
         // locally would lose a read that was recorded before the rows arrived.
         let delivered = Set(next.delivered)
         let pending = next.pendingIDs
+        var read = next.readIDs
         var deliver: [CloudVMNotificationRow] = []
-        for row in rows where !row.isRead(by: clientID) && !delivered.contains(row.id) && !pending.contains(row.id) {
+        for row in rows {
+            if row.isRead(by: clientID) {
+                appendReadID(row.id, to: &next, ids: &read)
+                continue
+            }
+            guard !read.contains(row.id),
+                  !delivered.contains(row.id),
+                  !pending.contains(row.id) else { continue }
             deliver.append(row)
             next.delivered.append(row.id)
         }
@@ -151,9 +137,11 @@ enum CloudNotificationSyncReducer {
     ) -> CloudNotificationSyncState {
         let byID = Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let pending = state.pendingIDs
+        let read = state.readIDs
         var batch: [String] = []
         for id in ids where !batch.contains(id) {
             if pending.contains(id) { continue }
+            if read.contains(id) { continue }
             if let row = byID[id], row.isRead(by: clientID) { continue }
             batch.append(id)
         }
@@ -165,8 +153,36 @@ enum CloudNotificationSyncReducer {
 
     static func ackCompleted(key: String, state: CloudNotificationSyncState) -> CloudNotificationSyncState {
         var next = state
-        next.pendingAcks.removeAll { $0.key == key }
+        var acknowledged: [String] = []
+        var remaining: [CloudNotificationSyncState.PendingAck] = []
+        for batch in next.pendingAcks {
+            if batch.key == key {
+                acknowledged.append(contentsOf: batch.ids)
+            } else {
+                remaining.append(batch)
+            }
+        }
+        guard !acknowledged.isEmpty else { return state }
+        next.pendingAcks = remaining
+        var read = next.readIDs
+        for id in acknowledged {
+            appendReadID(id, to: &next, ids: &read)
+        }
         return next
+    }
+
+    private static func appendReadID(
+        _ id: String,
+        to state: inout CloudNotificationSyncState,
+        ids: inout Set<String>
+    ) {
+        guard ids.insert(id).inserted else { return }
+        if state.read.count >= CloudNotificationSyncState.deliveredLimit,
+           let evicted = state.read.first {
+            state.read.removeFirst()
+            ids.remove(evicted)
+        }
+        state.read.append(id)
     }
 
     /// Read-your-write overlay: after the daemon confirmed a batch, the rows
@@ -195,32 +211,14 @@ enum CloudNotificationSyncReducer {
         state: CloudNotificationSyncState
     ) -> Set<String> {
         let pending = state.pendingIDs
+        let read = state.readIDs
         var result = Set<String>()
-        for row in rows where !row.isRead(by: clientID) && !pending.contains(row.id) {
+        for row in rows where !row.isRead(by: clientID)
+            && !read.contains(row.id)
+            && !pending.contains(row.id) {
             if let terminalID = row.terminalID { result.insert(terminalID) }
         }
         return result
-    }
-}
-
-/// Correlation keys tie a local `TerminalNotification` back to its machine
-/// and daemon row, so a local read can be acknowledged and a re-delivery
-/// replaces its own prior banner only.
-enum CloudNotificationCorrelation {
-    static let prefix = "cloud-notification:"
-
-    static func key(machineID: String, notificationID: String) -> String {
-        "\(prefix)\(machineID):\(notificationID)"
-    }
-
-    static func parse(_ key: String) -> (machineID: String, notificationID: String)? {
-        guard key.hasPrefix(prefix) else { return nil }
-        let rest = key.dropFirst(prefix.count)
-        guard let separator = rest.lastIndex(of: ":") else { return nil }
-        let machineID = String(rest[..<separator])
-        let notificationID = String(rest[rest.index(after: separator)...])
-        guard !machineID.isEmpty, !notificationID.isEmpty else { return nil }
-        return (machineID, notificationID)
     }
 }
 

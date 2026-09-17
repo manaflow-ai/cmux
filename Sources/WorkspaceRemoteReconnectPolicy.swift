@@ -72,16 +72,11 @@ enum CloudTerminalReconnectOverlayPolicy {
         case .connected:
             return nil
         case .connecting, .reconnecting:
-            return Presentation(
-                title: String(localized: "cloud.overlay.reconnecting.title", defaultValue: "Reconnecting Cloud session"),
-                detail: displayDetail
-                    ?? String(
-                        localized: "cloud.overlay.reconnecting.detail",
-                        defaultValue: "Waiting for a secure terminal endpoint."
-                    ),
-                showsProgress: true,
-                showsReconnectButton: false
-            )
+            // Connection recovery is intentionally silent. The terminal pane
+            // remains in place and fills when the stream is ready; showing a
+            // modal card here caused the recurring reconnect flash reported
+            // for Cloud terminals.
+            return nil
         case .disconnected:
             return Presentation(
                 title: String(localized: "cloud.overlay.disconnected.title", defaultValue: "Cloud session disconnected"),
