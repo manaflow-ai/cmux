@@ -12,7 +12,7 @@ import UIKit
 /// Mounts a `GhosttySurfaceHostView`, routes terminal output, and bridges the SwiftUI
 /// composer into the host-owned bottom dock. Primary-screen output uses the
 /// phone's natural height; alternate-screen replay can pin to the Mac's grid.
-struct GhosttySurfaceRepresentable: UIViewRepresentable {
+struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
     let workspaceID: String
     let surfaceID: String
     let store: CMUXMobileShellStore
@@ -48,6 +48,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     var terminalFolderTapEnabled: Bool = true
     var terminalFilesChipEnabled: Bool = true
     var showMissingFiles: Bool = false
+    /// When enabled, preserve the pre-visible-height behavior for all terminal
+    /// screens. The default uses the settled visible-height grid for
+    /// alternate-screen apps.
+    var useLegacyTerminalSizing: Bool = false
     var sessionArtifactCountEnabled: Bool = false
     var visibleArtifactCount: Int = 0
     var onArtifactFilesRequested: @MainActor (_ anchor: UnitPoint) -> Void = { _ in }
@@ -74,7 +78,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         )
     }
 
-    func makeUIView(context: Context) -> UIView {
+    func makeUIViewController(context: Context) -> UIViewController {
         let runtime: GhosttyRuntime
         do {
             runtime = try GhosttyRuntime.shared()
@@ -87,7 +91,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 "mobile.terminal.rendererFailed",
                 defaultValue: "Terminal renderer failed to start."
             )
-            return fallback
+            let controller = UIViewController()
+            controller.view = fallback
+            return controller
         }
         let view = GhosttySurfaceView(
             runtime: runtime,
@@ -97,6 +103,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             terminalConfigTheme: terminalConfigTheme
         )
         view.autoFocusOnWindowAttach = autoFocusOnWindowAttach
+        view.useLegacyTerminalSizing = useLegacyTerminalSizing
+        view.hostedAltScreenActive = store.isAlternateScreen(surfaceID: surfaceID)
         view.artifactFilesEnabled = artifactFilesEnabled
         // Screen-anchored sessions scroll the local mirror's own scrollback
         // immediately (the Mac never repaints for a primary-screen scroll), so
@@ -117,8 +125,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // Mount the composer band immediately if the composer was already open when
         // this surface was (re)built (e.g. a terminal switch while composing), and
         // seed the surface's composerActive flag to match. SwiftUI does call
-        // `updateUIView` right after `makeUIView`, but the compose button's intent
-        // math reads this flag, so it must never depend on that ordering contract.
+        // `updateUIViewController` right after `makeUIViewController`, but the
+        // compose button reads this flag independently of that ordering contract.
         view.setComposerActive(isComposerActive)
         context.coordinator.setComposerMounted(isComposerActive)
         view.setTopContentInset(topContentInset)
@@ -128,26 +136,29 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // for a reattached surface recovers keyboard transitions it missed.
         // Previews and isolated harnesses have no injected tracker; a
         // coordinator-owned instance still records for this mount's lifetime.
-        return GhosttySurfaceHostView(
+        let host = GhosttySurfaceHostView(
             surfaceView: view,
             keyboardFrameTracker: context.environment.mobileKeyboardFrameTracker
                 ?? context.coordinator.fallbackKeyboardFrameTracker,
             keyboardDockRebuildRevertEnabled: context.environment.keyboardDockRebuildRevertEnabled,
             capturedBottomSafeAreaInset: bottomSafeAreaInset
         )
+        return GhosttySurfaceHostViewController(hostView: host)
     }
 
-    func updateUIView(_ uiView: UIView, context: Context) {
+    func updateUIViewController(_ controller: UIViewController, context: Context) {
+        let uiView = controller.view
         // Bytes flow via the byte sink; the prop-driven mutations are the autofocus
         // suppression and the composer's open/closed state. `setComposerActive`
         // handles the first-responder handover that keeps the keyboard up; the
         // coordinator mounts/unmounts the hosted compose field into the surface's
         // composer band. This is a UIKit-internal mutation, not a sibling-observed
-        // state write, so it is safe in `updateUIView`.
+        // state write, so it is safe in `updateUIViewController`.
         context.coordinator.setTerminalPresentationActive(terminalPresentationIsActive)
         context.coordinator.attemptPendingOutputConsumerRecoveryPresentation()
         guard let surfaceView = (uiView as? GhosttySurfaceHostView)?.surfaceView else { return }
         surfaceView.autoFocusOnWindowAttach = autoFocusOnWindowAttach
+        surfaceView.useLegacyTerminalSizing = useLegacyTerminalSizing
         surfaceView.terminalTheme = terminalTheme
         surfaceView.terminalConfigTheme = terminalConfigTheme
         surfaceView.setTopContentInset(topContentInset)
@@ -191,8 +202,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         context.coordinator.remeasureComposerForLayoutChange()
     }
 
-    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
-        (uiView as? GhosttySurfaceHostView)?.surfaceView.prepareForDismantle()
+    static func dismantleUIViewController(_ controller: UIViewController, coordinator: Coordinator) {
+        (controller.view as? GhosttySurfaceHostView)?.surfaceView.prepareForDismantle()
         coordinator.tearDownArtifactChip()
         coordinator.tearDownComposer()
         coordinator.detach()

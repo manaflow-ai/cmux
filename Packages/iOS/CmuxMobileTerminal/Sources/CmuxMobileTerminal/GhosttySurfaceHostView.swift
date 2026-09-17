@@ -28,8 +28,9 @@ import UIKit
 /// the keyboard MODEL (height and visibility, for the toolbar toggle and
 /// diagnostics) after transitions missed while detached, on every OS.
 ///
-/// Terminal presentation: the grid never resizes for the keyboard (see
-/// `TerminalLetterboxGeometry.terminalContainerSize`); the full-height
+/// Terminal presentation: the full-height surface moves with the keyboard.
+/// Alternate-screen grids resize after the transition completes; primary-screen
+/// grids retain their full height. During motion the full-height
 /// render pins through STATIC inequalities —
 ///
 ///     renderWrapper.bottom <= host.bottom                    (natural cap)
@@ -81,6 +82,8 @@ public final class GhosttySurfaceHostView: UIView {
     /// display-link paths must not retarget the constant the leg owns.
     private var keyboardTransitionActive = false
     private var keyboardTransitionGeneration: UInt64 = 0
+    private var pendingGuideKeyboardEndFrame: CGRect?
+    private var interfaceTransitionID: ObjectIdentifier?
     /// Whether this host seats the dock on the system keyboard guide.
     /// False on iOS 27 (the guide can lie at the screen bottom), when the
     /// remote `ios-keyboard-dock-rebuild-revert` kill switch routes devices
@@ -297,6 +300,10 @@ public final class GhosttySurfaceHostView: UIView {
         guard window != nil else {
             keyboardTransitionGeneration &+= 1
             keyboardTransitionActive = false
+            pendingGuideKeyboardEndFrame = nil
+            surfaceView.setHostedKeyboardTransitionActive(false)
+            interfaceTransitionID = nil
+            surfaceView.setHostedInterfaceTransitionActive(false)
             // A detach mid-leg must strip the in-flight Core Animation state
             // from every edge the leg was moving; a lingering presentation
             // animation would otherwise override the freshly seated
@@ -308,6 +315,8 @@ public final class GhosttySurfaceHostView: UIView {
         }
         keyboardTransitionGeneration &+= 1
         keyboardTransitionActive = false
+        pendingGuideKeyboardEndFrame = nil
+        surfaceView.setHostedKeyboardTransitionActive(false)
         // Recover any keyboard transition that happened while detached: the
         // tracker records keyboard frames process-wide, so a workspace switch
         // that detached this host mid-transition cannot wedge the dock — or
@@ -440,6 +449,18 @@ public final class GhosttySurfaceHostView: UIView {
         guard !seatTrustsOnlyWillFrames else { return }
         guard window != nil,
               let transition = MobileKeyboardTransition(notification: notification) else { return }
+        if let pendingGuideKeyboardEndFrame {
+            // An interrupted leg may deliver its did notification after a new
+            // will notification. Only the current target releases the fence.
+            guard transition.endFrame == pendingGuideKeyboardEndFrame else { return }
+            self.pendingGuideKeyboardEndFrame = nil
+            surfaceView.setHostedKeyboardState(
+                height: max(0, transition.overlap(in: self)),
+                isVisible: transition.isVisible(in: self)
+            )
+            surfaceView.setHostedKeyboardTransitionActive(false)
+            return
+        }
         let targetHeight = max(0, transition.overlap(in: self))
         guard abs(targetHeight - surfaceView.hostedKeyboardHeight) > 0.5 else { return }
         beginKeyboardLeg(
@@ -463,6 +484,9 @@ public final class GhosttySurfaceHostView: UIView {
             // lands mid-leg through the content cap's own short ease.
             surfaceView.refreshHostedContentBottomNow()
         }
+        // Keep the previous alternate-screen grid while UIKit animates. The
+        // surface commits this leg only from the completion below.
+        surfaceView.setHostedKeyboardTransitionActive(true)
         surfaceView.setHostedKeyboardState(
             height: targetHeight,
             isVisible: targetIsVisible
@@ -482,13 +506,21 @@ public final class GhosttySurfaceHostView: UIView {
             "kb.leg target=\(Int(targetHeight)) guideSeat=\(hostOwnsDockSeat ? 0 : 1) "
             + "blank=\(Int(appliedBlankBelowContent)) wrapY=\(Int(terminalPresentationView.frame.minY))"
         )
+        keyboardTransitionGeneration &+= 1
+        let generation = keyboardTransitionGeneration
         guard hostOwnsDockSeat else {
             // The system guide moves the dock inside UIKit's own keyboard
-            // transaction, pixel-locked to the keyboard's spring; the caps
-            // are keyboard-independent, so the wrapper's new frame comes out
-            // of that same transaction. Nothing to retarget or animate here.
+            // transaction. Its matching did notification, rather than a
+            // separate no-op animation, releases the logical-size fence.
+            if transition.duration > 0 {
+                pendingGuideKeyboardEndFrame = transition.endFrame
+            } else {
+                pendingGuideKeyboardEndFrame = nil
+                surfaceView.setHostedKeyboardTransitionActive(false)
+            }
             return
         }
+        pendingGuideKeyboardEndFrame = nil
         if seatTrustsOnlyWillFrames, keyboardTransitionActive {
             // A reversal arrived while the previous leg is still animating.
             // Fold the live presentation frames into the constraint model
@@ -496,8 +528,6 @@ public final class GhosttySurfaceHostView: UIView {
             // (the #10006 reversal contract the iOS 27 seat shipped with).
             rebaseInterruptedKeyboardLegFromLiveFrames()
         }
-        keyboardTransitionGeneration &+= 1
-        let generation = keyboardTransitionGeneration
         keyboardTransitionActive = true
         dockBottomConstraint.constant = -surfaceView.hostedBottomReservation(
             keyboardHeight: targetHeight,
@@ -508,11 +538,29 @@ public final class GhosttySurfaceHostView: UIView {
         } completion: { [weak self] _ in
             guard let self, self.keyboardTransitionGeneration == generation else { return }
             self.keyboardTransitionActive = false
+            self.surfaceView.setHostedKeyboardTransitionActive(false)
             MobileDebugLog.anchormux(
                 "kb.leg.done gen=\(generation) wrapY=\(Int(self.terminalPresentationView.frame.minY)) "
                 + "dockTop=\(Int(self.surfaceView.hostedBottomDockFrame.minY))"
             )
             self.sampleTerminalDockPresentationGap()
+        }
+    }
+
+    /// Called by the owning controller before UIKit changes model bounds.
+    /// Looking up a coordinator from layoutSubviews is too late: rotation can
+    /// already have delivered the temporary keyboard-hidden geometry.
+    func beginInterfaceTransition(_ coordinator: UIViewControllerTransitionCoordinator) {
+        let id = ObjectIdentifier(coordinator as AnyObject)
+        interfaceTransitionID = id
+        surfaceView.setHostedInterfaceTransitionActive(true)
+        MobileDebugLog.anchormux("viewport.interface.begin")
+        coordinator.animate(alongsideTransition: nil) { [weak self] _ in
+            guard let self, self.interfaceTransitionID == id else { return }
+            self.interfaceTransitionID = nil
+            self.surfaceView.setHostedInterfaceTransitionActive(false)
+            self.setNeedsLayout()
+            MobileDebugLog.anchormux("viewport.interface.done")
         }
     }
 

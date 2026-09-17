@@ -556,10 +556,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let internalPresentationGap = pointValue(currentInternalDockPresentationGap)
         let maximumInternalPresentationGap = pointValue(maximumInternalDockPresentationGap)
         let host = bottomDockHostView as? GhosttySurfaceHostView
-        // The grid no longer resizes with the keyboard, so there is no
-        // renderer-frozen "transition window": the ID is a constant. The key
-        // stays for probe-format stability.
-        let keyboardTransitionID = -1
+        let keyboardTransitionID = keyboardTransitionActiveForGeometry ? 1 : 0
         let keyboardTransitionTarget = pointValue(keyboardHeight)
         // Dock bottom edge (the keyboard's top edge when up) in SURFACE
         // coordinates — the same basis as the composer/toolbar frames above.
@@ -732,6 +729,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// band, chrome, safe area, fonts) schedules its own sync at its
     /// mutation site, so bounds are the only layout-borne input.
     var lastLayoutGeometrySyncSize: CGSize = .zero
+    private var alternateScreenGeometryFence = TerminalViewportGeometryFence()
+    private var hostedInterfaceTransitionActive = false
+    private var dockReflowGeneration: UInt64 = 0
+    private var dockReflowActive = false
     private var bottomDockToKeyboardConstraint: NSLayoutConstraint?
     private var bottomDockHostConstraints: [NSLayoutConstraint] = []
     private weak var bottomDockHostView: UIView?
@@ -797,6 +798,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     func setKeyboardHeightForTesting(_ height: CGFloat) {
         setKeyboardHeightOverrideForTesting(height)
+        setHostedKeyboardTransitionActive(false)
         layoutRenderedTerminalForCurrentViewport()
         layoutBottomDock()
         layoutBottomDockHierarchyIfNeeded()
@@ -1141,6 +1143,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private var keyboardHeight: CGFloat = 0
+    /// Keyboard overlap used by the alternate-screen grid. This is committed
+    /// only after the host's keyboard transaction completes, so the PTY never
+    /// observes an intermediate height while UIKit is moving the keyboard.
+    private var committedKeyboardHeight: CGFloat = 0
+    private var keyboardTransitionActiveForGeometry = false
     private var keyboardVisible = false
     /// Height the persistent bottom toolbar reserves in the terminal grid. The
     /// toolbar is constrained to ``UIView/keyboardLayoutGuide`` and the viewport
@@ -1189,6 +1196,24 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// above it upward while the band stays pinned to the keyboard — the keyboard
     /// itself never moves.
     private var composerBandHeight: CGFloat = 0
+
+    /// Opt out of the alternate-screen visible-height treatment and retain the
+    /// current keyboard-independent terminal sizing for every screen mode.
+    /// This is injected from the iOS Terminal settings preference.
+    public var useLegacyTerminalSizing = false {
+        didSet {
+            guard useLegacyTerminalSizing != oldValue else { return }
+            if useLegacyTerminalSizing {
+                committedKeyboardHeight = 0
+            } else if !keyboardTransitionActiveForGeometry {
+                committedKeyboardHeight = max(0, keyboardHeight)
+            }
+            clearHostedScrollTopReveal()
+            resetAlternateScreenGeometryFence()
+            layoutRenderedTerminalForCurrentViewport()
+            setNeedsGeometrySync()
+        }
+    }
     /// Surface-owned host for the SwiftUI artifact chip. Keeping it beside the
     /// toolbar/composer containers makes keyboard and composer movement use one
     /// coordinate system instead of a competing SwiftUI safe-area offset.
@@ -1211,11 +1236,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// whichever registered surface happens to sort first.
     public var hostSurfaceID: String?
 
-    /// Folds the host-observed keyboard state into the model. Purely
-    /// bookkeeping: the grid and render placement never consume the keyboard
-    /// (the host translates the render wrapper instead), so no geometry
-    /// negotiation is scheduled — `keyboardHeight` only seats the dock's
-    /// bottom constraint and feeds diagnostics.
+    /// Updates the live dock model. Alternate-screen grid geometry consumes
+    /// this height only outside an active keyboard transition.
     ///
     /// - Parameters:
     ///   - height: The live keyboard overlap in points.
@@ -1255,6 +1277,34 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         )
         keyboardHeight = nextHeight
         layoutBottomDock(using: viewportSnapshot())
+        if !keyboardTransitionActiveForGeometry {
+            commitHostedKeyboardGeometryIfNeeded()
+        }
+    }
+
+    /// Marks the UIKit keyboard leg as owning the geometry fence. The host
+    /// calls this before applying a will-frame and clears it from the leg's
+    /// completion, after which the settled keyboard height becomes eligible
+    /// for the alternate-screen grid.
+    func setHostedKeyboardTransitionActive(_ active: Bool) {
+        keyboardTransitionActiveForGeometry = active
+        if !active {
+            commitHostedKeyboardGeometryIfNeeded()
+        }
+    }
+
+    private func commitHostedKeyboardGeometryIfNeeded() {
+        let next = hostedAltScreenActive && !useLegacyTerminalSizing
+            ? max(0, keyboardHeight)
+            : 0
+        guard abs(next - committedKeyboardHeight) > 0.25 else { return }
+        committedKeyboardHeight = next
+        MobileDebugLog.anchormux(
+            "kb.geometry.commit \(Int(committedKeyboardHeight)) alt=\(hostedAltScreenActive ? 1 : 0)"
+        )
+        resetAlternateScreenGeometryFence()
+        layoutRenderedTerminalForCurrentViewport()
+        setNeedsGeometrySync()
     }
 
     func sampleHostedKeyboardPresentation() {
@@ -1380,8 +1430,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     public var hostedAltScreenActive = false {
         didSet {
             guard hostedAltScreenActive != oldValue else { return }
+            if !hostedAltScreenActive || useLegacyTerminalSizing {
+                committedKeyboardHeight = 0
+            } else if !keyboardTransitionActiveForGeometry {
+                committedKeyboardHeight = max(0, keyboardHeight)
+            }
+            clearHostedScrollTopReveal()
+            resetAlternateScreenGeometryFence()
+            layoutRenderedTerminalForCurrentViewport()
+            setNeedsGeometrySync()
             bottomDockHostView?.setNeedsLayout()
         }
+    }
+
+    private var alternateScreenSizingEnabled: Bool {
+        hostedAltScreenActive && !useLegacyTerminalSizing
     }
 
     /// Rows of the visible viewport that contain content, measured from the
@@ -1516,6 +1579,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// natural (keyboard-down) position, so a full reveal never over-rotates
     /// past the natural cap.
     var hostedScrollTopRevealBudget: CGFloat {
+        guard !alternateScreenSizingEnabled else { return 0 }
         let inset = safeAreaInsetsBottom
         let intrusion = hostedBottomReservation(
             keyboardHeight: keyboardHeight,
@@ -1610,6 +1674,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// keyboard. Used only by the terminal-layout preview harness.
     public func debugSetKeyboardHeightForLayoutPreview(_ height: CGFloat) {
         setKeyboardHeightOverrideForTesting(height)
+        setHostedKeyboardTransitionActive(false)
         keyboardVisible = height > 0
         inputProxy.setKeyboardShown(keyboardVisible)
         // Mirror the live keyboard-tied visibility so the preview shows the bar
@@ -1720,6 +1785,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         viewportCoordinator.snapshot(inputs: TerminalViewportInputs(
             bounds: bounds.size,
             keyboardHeight: keyboardHeight,
+            gridKeyboardHeight: alternateScreenSizingEnabled ? committedKeyboardHeight : 0,
             composerBandHeight: composerBandHeight,
             reservedToolbarHeight: reservedToolbarHeight,
             toolbarFrameHeight: Self.persistentToolbarHeight,
@@ -2397,12 +2463,22 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         animations: @escaping () -> Void,
         completion: (() -> Void)? = nil
     ) {
+        dockReflowGeneration &+= 1
+        let generation = dockReflowGeneration
+        dockReflowActive = true
         UIView.animate(
             withDuration: Self.composerReflowDuration,
             delay: 0,
             options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction],
             animations: animations,
-            completion: { _ in completion?() }
+            completion: { [weak self] _ in
+                if let self, self.dockReflowGeneration == generation {
+                    self.dockReflowActive = false
+                    self.resetAlternateScreenGeometryFence()
+                    self.setNeedsGeometrySync()
+                }
+                completion?()
+            }
         )
     }
 
@@ -4194,10 +4270,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // fast pinch can no longer drive a synchronous per-event storm of
         // set_size calls (the source of the jumbled grid + renderer overload).
         if needsGeometrySync {
-            needsGeometrySync = false
-            let reassert = pendingGeometryReassert
-            pendingGeometryReassert = false
-            syncSurfaceGeometry(shouldReassertNaturalSize: reassert)
+            if !shouldDeferAlternateScreenGeometry() {
+                needsGeometrySync = false
+                let reassert = pendingGeometryReassert
+                pendingGeometryReassert = false
+                syncSurfaceGeometry(shouldReassertNaturalSize: reassert)
+            }
         }
         let cursorRenderWakeDue = cursorRenderWakeState.consumeWakeIfDue(now: now)
         // Draw on content changes, Ghostty cursor wake-ups, and for a short
@@ -4236,7 +4314,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // "bad intermediate state". Zoom is a LOCAL font change; the shared
         // grid should renegotiate exactly once, after the user settles.
         if let pending = pendingViewportReport {
-            if zoomSettleFrames != nil {
+            if zoomSettleFrames != nil || (alternateScreenSizingEnabled
+                && (alternateScreenGeometryTransitionActive || needsGeometrySync)) {
                 viewportReportSettleFrames = 0
             } else {
                 viewportReportSettleFrames += 1
@@ -4728,7 +4807,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         needsDraw = true
         // A geometry sync (for any reason) satisfies a pending post-zoom resync.
         zoomSettleFrames = nil
-        if displayLink == nil, window != nil {
+        if displayLink == nil, window != nil, !alternateScreenSizingEnabled {
             // No frame pump while detached/backgrounded; apply directly so the
             // surface still gets sized before the next render path resumes.
             needsGeometrySync = false
@@ -4737,6 +4816,29 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             syncSurfaceGeometry(shouldReassertNaturalSize: reassert)
         }
     }
+
+    private var alternateScreenGeometryTransitionActive: Bool {
+        keyboardTransitionActiveForGeometry || hostedInterfaceTransitionActive || dockReflowActive
+    }
+
+    private func shouldDeferAlternateScreenGeometry() -> Bool {
+        guard alternateScreenSizingEnabled else { return false }
+        return !alternateScreenGeometryFence.sample(
+            viewportSnapshot(),
+            transitionActive: alternateScreenGeometryTransitionActive
+        )
+    }
+
+    private func resetAlternateScreenGeometryFence() {
+        alternateScreenGeometryFence.invalidateCandidate()
+    }
+
+    func setHostedInterfaceTransitionActive(_ active: Bool) {
+        hostedInterfaceTransitionActive = active
+        resetAlternateScreenGeometryFence()
+        if !active { setNeedsGeometrySync() }
+    }
+
     private(set) var configBackgroundColor: UIColor?
 
     /// Recolors the surface, fallback, cursor, and input accessory in place.
@@ -5067,15 +5169,24 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let measuredFontSize = liveFontSize
         // Reserve, from the bottom up, the steady-state chrome: the bottom
         // safe area (the always-visible toolbar clears the home indicator),
-        // the open composer band, and the persistent toolbar. The KEYBOARD is
-        // deliberately not part of the grid container
-        // (`TerminalLetterboxGeometry.terminalContainerSize`): the grid keeps
-        // its keyboard-down size and the host slides the full-height render
-        // so its bottom edge rides the dock, which means a keyboard toggle
-        // never runs a `set_size`, never re-reports capacity, and never
-        // reflows the shared PTY. While the HIDE button has suppressed the
-        // chrome (`chromeHidden`) the grid reclaims the whole height.
-        let snapshot = viewportSnapshot()
+        // the open composer band, and the persistent toolbar. Alternate-screen
+        // snapshots add the keyboard height only after the UIKit transition
+        // commits; primary-screen snapshots keep the keyboard-independent grid.
+        // While the HIDE button has suppressed the chrome (`chromeHidden`) the
+        // grid reclaims the whole height apart from a settled alternate-screen
+        // keyboard.
+        let liveSnapshot = viewportSnapshot()
+        if !alternateScreenSizingEnabled {
+            alternateScreenGeometryFence.commitUnfenced(liveSnapshot)
+        }
+        let snapshot = alternateScreenSizingEnabled
+            ? alternateScreenGeometryFence.snapshotForApply(liveSnapshot)
+            : liveSnapshot
+        if alternateScreenSizingEnabled, snapshot != liveSnapshot {
+            // A replay may apply its authoritative grid immediately, but it
+            // must leave the final UI capacity queued for the frame fence.
+            needsGeometrySync = true
+        }
         let containerW = snapshot.containerSize.width
         let containerH = snapshot.containerSize.height
         let containerPxW = UInt32(max(1, Int((containerW * scale).rounded(.down))))
@@ -5087,9 +5198,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // reservation (dock seam + toolbar + composer + safe area), whose
         // rows only exist when scrolled into scrollback; it is gated on the
         // same feature signal as the top band (a nonzero top inset).
-        let topInsetPx = UInt32(max(0, Int((topContentInset * scale).rounded(.down))))
+        let topInsetPx = UInt32(max(0, Int((snapshot.renderTopInset * scale).rounded(.down))))
         let appliedTopInsetPts = CGFloat(topInsetPx) / scale
-        let bottomInsetPts = topContentInset > 0
+        let bottomInsetPts = snapshot.renderTopInset > 0
             ? max(0, snapshot.bounds.height - snapshot.layoutViewportRect.maxY)
             : 0
         let bottomInsetPx = UInt32(max(0, Int((bottomInsetPts * scale).rounded(.down))))
